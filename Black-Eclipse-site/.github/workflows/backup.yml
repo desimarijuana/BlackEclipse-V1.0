@@ -1,0 +1,37 @@
+name: Automated Database Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight UTC
+  workflow_dispatch: # Enable manual triggers
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Generate Backup Name
+        id: vars
+        run: echo "filename=blackeclipse-db-backup-$(date +'%Y-%m-%d-%H%M%S').sql" >> $GITHUB_OUTPUT
+
+      - name: Export Database Backup
+        run: |
+          pg_dump "${{ secrets.DATABASE_URL }}" > ${{ steps.vars.outputs.filename }}
+
+      - name: Zip and Compress Backup
+        run: |
+          zip -r ${{ steps.vars.outputs.filename }}.zip ${{ steps.vars.outputs.filename }}
+
+      - name: Upload Backup Artifact to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.vars.outputs.filename }}
+          path: ${{ steps.vars.outputs.filename }}.zip
+          retention-days: 14 # Store backup files for 2 weeks
