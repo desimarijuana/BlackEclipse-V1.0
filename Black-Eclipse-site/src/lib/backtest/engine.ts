@@ -35,6 +35,11 @@ export interface LimitOrder {
   sizeUSD: number;
   stopLoss?: number | null;
   takeProfit?: number | null;
+
+  trailingStopEnabled?: boolean;
+  trailingStopDistance?: number;
+  tp1Price?: number | null;
+  tp1Percent?: number;
 }
 
 export interface JournalTrade {
@@ -156,36 +161,50 @@ export function evaluateCurrentStep(
     // BUY LIMIT trigger check: price touched low boundary
     if (order.type === 'BUY_LIMIT' && low <= order.price) {
       triggered = true;
-      const executePrice = order.price * (1 + slippage);
-      const shares = order.sizeUSD / executePrice;
-      positions.push({
-        id: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        direction: 'LONG',
-        entryPrice: executePrice,
-        sizeUSD: order.sizeUSD,
-        shares,
-        stopLoss: order.stopLoss,
-        takeProfit: order.takeProfit,
-        entryDate: date,
-      });
-      remainingCash -= order.sizeUSD;
+      if (remainingCash >= order.sizeUSD) {
+        const executePrice = order.price * (1 + slippage);
+        const shares = order.sizeUSD / executePrice;
+        positions.push({
+          id: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          direction: 'LONG',
+          entryPrice: executePrice,
+          sizeUSD: order.sizeUSD,
+          shares,
+          stopLoss: order.stopLoss,
+          takeProfit: order.takeProfit,
+          entryDate: date,
+          trailingStopEnabled: order.trailingStopEnabled,
+          trailingStopDistance: order.trailingStopDistance,
+          tp1Price: order.tp1Price,
+          tp1Percent: order.tp1Percent,
+          tp1Hit: false
+        });
+        remainingCash -= order.sizeUSD;
+      }
     }
     // SELL LIMIT trigger check: price touched high boundary
     else if (order.type === 'SELL_LIMIT' && high >= order.price) {
       triggered = true;
-      const executePrice = order.price * (1 - slippage);
-      const shares = order.sizeUSD / executePrice;
-      positions.push({
-        id: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        direction: 'SHORT',
-        entryPrice: executePrice,
-        sizeUSD: order.sizeUSD,
-        shares,
-        stopLoss: order.stopLoss,
-        takeProfit: order.takeProfit,
-        entryDate: date,
-      });
-      remainingCash -= order.sizeUSD;
+      if (remainingCash >= order.sizeUSD) {
+        const executePrice = order.price * (1 - slippage);
+        const shares = order.sizeUSD / executePrice;
+        positions.push({
+          id: `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          direction: 'SHORT',
+          entryPrice: executePrice,
+          sizeUSD: order.sizeUSD,
+          shares,
+          stopLoss: order.stopLoss,
+          takeProfit: order.takeProfit,
+          entryDate: date,
+          trailingStopEnabled: order.trailingStopEnabled,
+          trailingStopDistance: order.trailingStopDistance,
+          tp1Price: order.tp1Price,
+          tp1Percent: order.tp1Percent,
+          tp1Hit: false
+        });
+        remainingCash -= order.sizeUSD;
+      }
     }
 
     if (!triggered) {

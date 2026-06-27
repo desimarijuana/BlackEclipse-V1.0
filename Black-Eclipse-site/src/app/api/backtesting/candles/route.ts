@@ -110,10 +110,18 @@ export async function GET(request: Request) {
     });
 
     // Check if we need to request/trigger a download job
-    const hasCachedData = candles.length > 0;
+    let adequateCoverage = candles.length >= 15;
+    if (adequateCoverage && candles.length > 0) {
+      const firstTime = candles[0].timestamp.getTime();
+      const reqStartTime = startDate.getTime();
+      // If requested start date is much earlier than cached start date (by more than 5 days), force download
+      if (reqStartTime < firstTime - 5 * 24 * 60 * 60 * 1000) {
+        adequateCoverage = false;
+      }
+    }
     
-    // We decide to download if database is empty or if last synced was long ago
-    const shouldDownload = !hasCachedData || 
+    // We decide to download if database is lacking coverage or if last synced was long ago
+    const shouldDownload = !adequateCoverage || 
                            assetSymbol.dataStatus === "needs_download" ||
                            (assetSymbol.lastSyncedAt && (now.getTime() - assetSymbol.lastSyncedAt.getTime() > 24 * 60 * 60 * 1000));
 

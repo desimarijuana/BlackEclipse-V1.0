@@ -159,10 +159,10 @@ export function runMonteCarloSimulation(
     let ruined = false;
 
     for (let t = 0; t < tradesPerRun; t++) {
-      // Pick random trade outcome
       const randomIndex = Math.floor(Math.random() * trades.length);
       const outcome = trades[randomIndex];
-      capital += outcome.pnl;
+      const pnlPct = outcome.pnlPercent !== undefined ? outcome.pnlPercent : (outcome.pnl / outcome.sizeUSD) * 100;
+      capital += capital * (pnlPct / 100);
 
       // Risk of ruin threshold: Capital falls below 30% of start
       if (capital < startingCapital * 0.3) {

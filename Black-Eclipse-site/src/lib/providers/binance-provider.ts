@@ -54,29 +54,48 @@ export class BinanceProvider implements ProviderAdapter {
     const endTime = endDate.getTime();
     const limit = 1000;
 
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=${limit}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Binance API returned status ${res.status}`);
+    const allCandles: NormalizedCandle[] = [];
+    let currentStart = startTime;
+    let iterations = 0;
+    const maxIterations = 10; // Up to 10,000 candles per download request
+
+    while (currentStart < endTime && iterations < maxIterations) {
+      iterations++;
+      const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&startTime=${currentStart}&endTime=${endTime}&limit=${limit}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (allCandles.length > 0) break;
+        throw new Error(`Binance API returned status ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        break;
+      }
+
+      const mapped = data.map((item: any) => ({
+        symbol,
+        assetClass,
+        exchange: "binance",
+        timeframe,
+        timestamp: new Date(item[0]),
+        open: parseFloat(item[1]),
+        high: parseFloat(item[2]),
+        low: parseFloat(item[3]),
+        close: parseFloat(item[4]),
+        volume: parseFloat(item[5]),
+        source: "Binance",
+      }));
+
+      allCandles.push(...mapped);
+
+      const lastTimestamp = data[data.length - 1][0];
+      if (lastTimestamp <= currentStart || data.length < limit) {
+        break;
+      }
+      currentStart = lastTimestamp + 1;
     }
 
-    const data = await res.json();
-    if (!Array.isArray(data)) {
-      return [];
-    }
-
-    return data.map((item: any) => ({
-      symbol,
-      assetClass,
-      exchange: "binance",
-      timeframe,
-      timestamp: new Date(item[0]),
-      open: parseFloat(item[1]),
-      high: parseFloat(item[2]),
-      low: parseFloat(item[3]),
-      close: parseFloat(item[4]),
-      volume: parseFloat(item[5]),
-      source: "Binance",
-    }));
+    return allCandles;
   }
 }

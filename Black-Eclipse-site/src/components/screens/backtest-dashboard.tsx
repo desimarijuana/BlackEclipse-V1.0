@@ -714,10 +714,19 @@ export function BacktestDashboard() {
         sizeUSD: finalOrderSize,
         stopLoss: slPrice ? slPrice : undefined,
         takeProfit: tpPrice ? tpPrice : undefined,
+        trailingStopEnabled,
+        trailingStopDistance: trailingStopEnabled && trailingStopDistance ? Number(trailingStopDistance) : undefined,
+        tp1Price: tp1PriceInput ? Number(tp1PriceInput) : null,
+        tp1Percent: tp1PriceInput ? Number(tp1PercentInput) : undefined,
       };
 
       setPendingOrders(prev => [...prev, newOrder]);
       setLimitPriceInput('');
+      setStopLossInput('');
+      setTakeProfitInput('');
+      setTrailingStopEnabled(false);
+      setTrailingStopDistance('');
+      setTp1PriceInput('');
     }
   };
 
@@ -758,6 +767,21 @@ export function BacktestDashboard() {
     setClosedTrades(prev => [...prev, loggedTrade]);
     setCash(prev => prev + pos.sizeUSD + pnl);
     setActivePositions(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleUpdatePositionSLTP = (id: string, slVal: string, tpVal: string) => {
+    const sl = slVal.trim() !== '' ? Number(slVal) : null;
+    const tp = tpVal.trim() !== '' ? Number(tpVal) : null;
+    setActivePositions(prev => prev.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          stopLoss: (sl !== null && !isNaN(sl)) ? sl : null,
+          takeProfit: (tp !== null && !isNaN(tp)) ? tp : null,
+        };
+      }
+      return p;
+    }));
   };
 
   const handleCloseAllPositions = () => {
@@ -1830,15 +1854,41 @@ export function BacktestDashboard() {
                               : (pos.entryPrice - currentAssetPrice) * pos.shares;
                             const pnlP = (pnl / pos.sizeUSD) * 100;
                             return (
-                              <div key={pos.id} className="border border-border/30 p-2 bg-[#0c0c0c] text-[10px] space-y-1 rounded-lg font-mono">
-                                <div className="flex justify-between font-bold">
-                                  <span className={isLong ? 'text-primary' : 'text-rose-400'}>{pos.direction} #{index + 1}</span>
+                              <div key={pos.id} className="border border-border/30 p-2.5 bg-[#0c0c0c] text-[10px] space-y-2 rounded-lg font-mono">
+                                <div className="flex justify-between items-center font-bold">
+                                  <span className={isLong ? 'text-primary' : 'text-rose-400'}>{pos.direction} #{index + 1} (${pos.sizeUSD.toFixed(0)})</span>
                                   <span className={pnl >= 0 ? 'text-primary' : 'text-rose-400'}>
-                                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlP.toFixed(1)}%)
                                   </span>
                                 </div>
-                                <button onClick={() => handleClosePosition(pos.id)} className="w-full mt-1.5 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[8px] font-bold rounded">
-                                  Close
+                                <div className="flex justify-between text-[8px] text-muted-foreground">
+                                  <span>Entry: ${pos.entryPrice.toFixed(2)}</span>
+                                  <span>Now: ${currentAssetPrice.toFixed(2)}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                  <div>
+                                    <label className="text-[7px] text-muted-foreground uppercase font-bold block">Stop Loss ($)</label>
+                                    <input
+                                      type="number"
+                                      placeholder="SL Price"
+                                      defaultValue={pos.stopLoss || ''}
+                                      onBlur={(e) => handleUpdatePositionSLTP(pos.id, e.target.value, pos.takeProfit ? String(pos.takeProfit) : '')}
+                                      className="w-full bg-background border border-border/50 text-[9px] px-1.5 py-0.5 rounded text-rose-400 font-bold focus:outline-none focus:border-rose-400"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[7px] text-muted-foreground uppercase font-bold block">Take Profit ($)</label>
+                                    <input
+                                      type="number"
+                                      placeholder="TP Price"
+                                      defaultValue={pos.takeProfit || ''}
+                                      onBlur={(e) => handleUpdatePositionSLTP(pos.id, pos.stopLoss ? String(pos.stopLoss) : '', e.target.value)}
+                                      className="w-full bg-background border border-border/50 text-[9px] px-1.5 py-0.5 rounded text-emerald-400 font-bold focus:outline-none focus:border-emerald-400"
+                                    />
+                                  </div>
+                                </div>
+                                <button onClick={() => handleClosePosition(pos.id)} className="w-full mt-1 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[8px] font-bold rounded cursor-pointer transition-colors">
+                                  Close Position
                                 </button>
                               </div>
                             );
