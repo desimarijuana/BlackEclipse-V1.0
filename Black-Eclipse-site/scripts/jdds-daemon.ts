@@ -900,6 +900,101 @@ async function executeHistoricalDownloadJobs() {
   }
 }
 
+// ─── PRELOAD, VALIDATION, AND SELF-HEALING REPAIR LOOP ────────────────────────
+async function runPreloadAndRepairLoop() {
+  try {
+    console.log("[jdds-repair] Running database pre-validation and candle repair sweep...");
+    
+    // 1. Fetch all active symbols
+    const activeSymbols = await prisma.assetSymbol.findMany({
+      where: { isActive: true }
+    });
+
+    for (const sym of activeSymbols) {
+      const timeframes = ["1d", "1h", "15m"];
+      for (const tf of timeframes) {
+        // Count existing candles
+        const candlesCount = await prisma.historicalCandle.count({
+          where: { symbolId: sym.id, timeframe: tf }
+        });
+
+        // Determine health status
+        const isMissing = candlesCount === 0;
+        const isPartial = candlesCount > 0 && candlesCount < 150;
+
+        if (isMissing || isPartial) {
+          // Check if a job is already pending or running to protect concurrency
+          const existingJob = await prisma.jDDSJob.findFirst({
+            where: {
+              symbolId: sym.id,
+              timeframe: tf,
+              status: { in: ["pending", "running"] }
+            }
+          });
+
+          if (!existingJob) {
+            console.log(`[jdds-repair] Auto-scheduling background backfill for ${sym.symbol} (${tf}) — Current candle count: ${candlesCount}`);
+            const now = new Date();
+            const startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+            await prisma.jDDSJob.create({
+              data: {
+                type: "historical_download",
+                status: "pending",
+                priority: 5, // Lower priority so user direct requests execute first
+                symbolId: sym.id,
+                timeframe: tf,
+                startDate,
+                endDate: now,
+                progress: 0
+              }
+            });
+
+            await prisma.assetSymbol.update({
+              where: { id: sym.id },
+              data: { dataStatus: "downloading" }
+            });
+          }
+        }
+
+        // 2. Scan and repair duplicate timestamp rows
+        const dupCheck = await (prisma.historicalCandle as any).groupBy({
+          by: ['timestamp'],
+          where: { symbolId: sym.id, timeframe: tf },
+          _count: { id: true },
+          having: { timestamp: { _count: { gt: 1 } } }
+        });
+
+        if (dupCheck.length > 0) {
+          console.log(`[jdds-repair] Found ${dupCheck.length} duplicate timestamp entries for ${sym.symbol} (${tf}). Resolving...`);
+          for (const item of dupCheck) {
+            const duplicates = await prisma.historicalCandle.findMany({
+              where: { symbolId: sym.id, timeframe: tf, timestamp: item.timestamp },
+              orderBy: { id: 'asc' }
+            });
+            if (duplicates.length > 1) {
+              const keepId = duplicates[0].id;
+              await prisma.historicalCandle.deleteMany({
+                where: {
+                  symbolId: sym.id,
+                  timeframe: tf,
+                  timestamp: item.timestamp,
+                  id: { not: keepId }
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (error: any) {
+    console.error("[jdds-repair] Error in preload/repair worker:", error.message || error);
+  }
+
+  // Sweep every 3 minutes in the background
+  setTimeout(runPreloadAndRepairLoop, 3 * 60 * 1000);
+}
+
 // ─── MAIN ENGINE RUNNER ───────────────────────────────────────────────────────
 
 
@@ -1093,6 +1188,9 @@ async function main() {
   // Ingest CoinGecko fundamentals and news immediately on startup to build cache
   executeGeckoSync().catch(err => console.error("[daemon] Startup CoinGecko sync error:", err));
   executeNewsPolling().catch(err => console.error("[daemon] Startup News sync error:", err));
+
+  // Start the background preloader/repair loop
+  runPreloadAndRepairLoop().catch(err => console.error("[daemon] Startup Preload/Repair error:", err));
 
   runEngineCycle();
 }

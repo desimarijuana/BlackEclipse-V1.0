@@ -46,6 +46,38 @@ export async function GET() {
       } catch (e) {}
     }
 
+    // Calculate symbol health metrics dynamically
+    const allActiveSymbols = await prisma.assetSymbol.findMany({
+      where: { isActive: true }
+    });
+
+    let fullyLoaded = 0;
+    let missing = 0;
+    let partial = 0;
+    let broken = 0;
+    let downloading = 0;
+
+    for (const sym of allActiveSymbols) {
+      if (sym.dataStatus === "downloading") {
+        downloading++;
+      } else if (sym.dataStatus === "failed") {
+        broken++;
+      } else if (sym.dataStatus === "needs_download") {
+        missing++;
+      } else {
+        const count = await prisma.historicalCandle.count({
+          where: { symbolId: sym.id }
+        });
+        if (count >= 100) {
+          fullyLoaded++;
+        } else if (count > 0) {
+          partial++;
+        } else {
+          missing++;
+        }
+      }
+    }
+
     return NextResponse.json({
       status: "UP",
       mode: globalMode,
@@ -58,6 +90,13 @@ export async function GET() {
         stockSymbols,
         commoditySymbols,
         pakistanSymbols,
+        health: {
+          fullyLoaded,
+          missing,
+          partial,
+          broken,
+          downloading
+        }
       },
       jobs: {
         total: totalJobs,

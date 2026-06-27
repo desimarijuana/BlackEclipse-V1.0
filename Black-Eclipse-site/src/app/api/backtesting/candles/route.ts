@@ -3,6 +3,19 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+const HOT_SYMBOLS = new Set([
+  "BTC", "ETH", "SOL", "XRP", "BNB", "ADA", "DOT", "DOGE",
+  "GC=F", "EURUSD=X", "AAPL", "MSFT", "TSLA", "NVDA", "AMZN"
+]);
+
+interface CacheEntry {
+  response: any;
+  expiresAt: number;
+}
+
+const memoryCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 30 * 1000; // 30 seconds cache for hot symbols
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -16,6 +29,15 @@ export async function GET(request: Request) {
     }
 
     let symbol = rawSymbol.toUpperCase().trim();
+
+    // Check cache first for hot symbols
+    const cacheKey = `${symbol}_${timeframe}_${startParam || ""}_${endParam || ""}`;
+    if (HOT_SYMBOLS.has(symbol)) {
+      const cached = memoryCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return NextResponse.json(cached.response);
+      }
+    }
 
     const cryptoList = ["BTC", "ETH", "SOL", "XRP", "BNB", "ADA", "DOT", "DOGE"];
 
@@ -127,7 +149,7 @@ export async function GET(request: Request) {
           data: { dataStatus: "downloading" }
         });
 
-        return NextResponse.json({
+        const resPayload = {
           symbol,
           count: candles.length,
           candles: candles.map(c => ({
@@ -141,9 +163,11 @@ export async function GET(request: Request) {
           dataStatus: "downloading",
           jobId: job.id,
           message: "Data download queued. Retrying background download."
-        });
+        };
+
+        return NextResponse.json(resPayload);
       } else {
-        return NextResponse.json({
+        const resPayload = {
           symbol,
           count: candles.length,
           candles: candles.map(c => ({
@@ -157,11 +181,13 @@ export async function GET(request: Request) {
           dataStatus: "downloading",
           jobId: existingJob.id,
           message: "Data download is already in progress."
-        });
+        };
+
+        return NextResponse.json(resPayload);
       }
     }
 
-    return NextResponse.json({
+    const finalPayload = {
       symbol,
       count: candles.length,
       candles: candles.map(c => ({
@@ -174,7 +200,17 @@ export async function GET(request: Request) {
       })),
       dataStatus: assetSymbol.dataStatus,
       lastSyncedAt: assetSymbol.lastSyncedAt
-    });
+    };
+
+    // Cache final payload if data is not downloading/missing
+    if (HOT_SYMBOLS.has(symbol) && assetSymbol.dataStatus !== "downloading" && candles.length > 0) {
+      memoryCache.set(cacheKey, {
+        response: finalPayload,
+        expiresAt: Date.now() + CACHE_TTL
+      });
+    }
+
+    return NextResponse.json(finalPayload);
 
   } catch (error: any) {
     console.error("[Candle API Error]:", error);
