@@ -9,8 +9,8 @@ import {
   SlidersHorizontal, Info, Settings, Eye, Download, FileText, X, Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/auth/auth-context';
 import { TopLoader } from '@/components/ui/top-loader';
+import { Skeleton, SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
 import { usePortfolioEngine, PortfolioStats } from '@/hooks/use-portfolio-engine';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -48,7 +48,6 @@ interface MyPortfolioProps {
 }
 
 export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfolioProps) {
-  const { user } = useAuth();
   
   // Customization States
   const [currency, setCurrency] = useState<'USD' | 'EUR' | 'GBP'>('USD');
@@ -88,29 +87,24 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const isGuest = !user;
+  const isGuest = true;
 
-  // Real-time polling function
-  const fetchLivePrices = useCallback(async (isInitial = false) => {
+  // Demo live prices (no API)
+  const DEMO_LIVE_PRICES = [
+    { symbol: 'BTC', price: 67840.00, changePercent: 2.14 },
+    { symbol: 'ETH', price: 3500.20, changePercent: 2.41 },
+    { symbol: 'SOL', price: 168.40, changePercent: 3.82 },
+    { symbol: 'BNB', price: 585.50, changePercent: -1.20 },
+    { symbol: 'XRP', price: 0.53, changePercent: -0.84 },
+    { symbol: 'DOGE', price: 0.16, changePercent: 1.12 },
+    { symbol: 'ADA', price: 0.45, changePercent: -1.32 },
+  ];
+
+  const fetchLivePrices = useCallback((isInitial = false) => {
     if (isInitial) setLoadingLive(true);
-    try {
-      const activeSymbols = Array.from(new Set([
-        ...transactions.map(t => t.symbol),
-        ...alerts.map(a => a.symbol),
-        'BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA'
-      ])).filter(Boolean).map(s => s.toUpperCase());
-
-      const res = await fetch(`/api/stocks?country=CRYPTO&limit=100&symbols=${encodeURIComponent(activeSymbols.join(','))}`);
-      const data = await res.json();
-      if (data.stocks) {
-        setLiveAssets(data.stocks);
-      }
-    } catch (err) {
-      console.error("Failed to fetch live prices", err);
-    } finally {
-      if (isInitial) setLoadingLive(false);
-    }
-  }, [transactions, alerts]);
+    setLiveAssets(DEMO_LIVE_PRICES);
+    if (isInitial) setLoadingLive(false);
+  }, []);
 
   // Poll every 15s after portfolio loads
   useEffect(() => {
@@ -121,81 +115,36 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return () => clearInterval(interval);
   }, [loadingPortfolio, fetchLivePrices, liveAssets.length]);
 
-  // Load user-specific portfolio data
-  const loadPortfolioData = async (showSkeleton = true) => {
+  // Load demo portfolio data from local storage
+  const loadPortfolioData = (showSkeleton = true) => {
     if (showSkeleton) setLoadingPortfolio(true);
-    if (isGuest) {
-      const savedTx = localStorage.getItem('portfolio_tx_guest');
-      const savedAlerts = localStorage.getItem('portfolio_alerts_guest');
-      if (savedTx) {
-        setTransactions(JSON.parse(savedTx));
-      } else {
-        setTransactions(DEFAULT_TRANSACTIONS);
-      }
-      if (savedAlerts) {
-        setAlerts(JSON.parse(savedAlerts));
-      }
-      if (showSkeleton) setLoadingPortfolio(false);
+    const savedTx = localStorage.getItem('portfolio_tx_guest');
+    const savedAlerts = localStorage.getItem('portfolio_alerts_guest');
+    if (savedTx) {
+      setTransactions(JSON.parse(savedTx));
     } else {
-      try {
-        const res = await fetch('/api/portfolio', {
-          headers: {
-            'x-user-id': user.id
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.transactions) {
-            setTransactions(data.transactions.map((t: any) => ({
-              ...t,
-              date: t.date.split('T')[0]
-            })));
-            if (data.taxMethod) setTaxMethod(data.taxMethod);
-          }
-          if (data && data.alerts) {
-            setAlerts(data.alerts);
-          }
-        } else {
-          console.error("Failed to load portfolio from API. HTTP:", res.status);
-        }
-      } catch (e) {
-        console.error("Error loading portfolio", e);
-      } finally {
-        if (showSkeleton) setLoadingPortfolio(false);
-      }
+      setTransactions(DEFAULT_TRANSACTIONS);
     }
+    if (savedAlerts) {
+      setAlerts(JSON.parse(savedAlerts));
+    }
+    if (showSkeleton) setLoadingPortfolio(false);
   };
 
   useEffect(() => {
     loadPortfolioData();
-  }, [isGuest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Fetch matching symbol results dynamically from JDDS when typing
+  // Symbol search from demo data when typing
   useEffect(() => {
     if ((!isAddOpen && !isAlertOpen) || !symbolSearchQuery) return;
-    
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const query = symbolSearchQuery.trim();
-        const res = await fetch(`/api/stocks?country=CRYPTO&limit=100&search=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        if (data.stocks) {
-          setLiveAssets(prev => {
-            const merged = [...prev];
-            for (const stock of data.stocks) {
-              if (!merged.some(m => m.symbol === stock.symbol)) {
-                merged.push(stock);
-              }
-            }
-            return merged;
-          });
-        }
-      } catch (err) {
-        console.error("Failed to query symbols dynamically", err);
-      }
-    }, 250); // 250ms debounce
 
-    return () => clearTimeout(delayDebounceFn);
+    const query = symbolSearchQuery.trim().toUpperCase();
+    const matches = DEMO_LIVE_PRICES.filter(
+      (s: any) => s.symbol.toUpperCase().startsWith(query)
+    );
+    setLiveAssets(matches.length > 0 ? matches : DEMO_LIVE_PRICES);
   }, [symbolSearchQuery, isAddOpen, isAlertOpen]);
 
   // Helper functions for fractional transaction input auto calculations
@@ -243,7 +192,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleAddTransaction = async () => {
+  const handleAddTransaction = () => {
     if (!txSymbol) return;
     
     setIsUpdating(true);
@@ -268,54 +217,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     setTxFee('0');
     setIsAddOpen(false);
 
-    if (isGuest) {
-      localStorage.setItem('portfolio_tx_guest', JSON.stringify(updatedTx));
-      setIsUpdating(false);
-    } else {
-      try {
-        const res = await fetch('/api/portfolio', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'x-user-id': user.id
-          },
-          body: JSON.stringify({ action: 'add_transaction', ...newTx })
-        });
-        if (!res.ok) {
-          console.error("Failed to save transaction to database. HTTP:", res.status);
-        }
-      } catch (e) {
-        console.error("Error saving transaction", e);
-      } finally {
-        setIsUpdating(false);
-        loadPortfolioData(false);
-      }
-    }
+    localStorage.setItem('portfolio_tx_guest', JSON.stringify(updatedTx));
+    setIsUpdating(false);
   };
 
-  const handleDeleteTransaction = async (symbol: string) => {
+  const handleDeleteTransaction = (symbol: string) => {
     const updatedTx = transactions.filter(t => t.symbol !== symbol);
     setTransactions(updatedTx);
-    
-    if (isGuest) {
-      localStorage.setItem('portfolio_tx_guest', JSON.stringify(updatedTx));
-    } else {
-      try {
-        const res = await fetch(`/api/portfolio?symbol=${symbol}`, { 
-          method: 'DELETE',
-          headers: {
-            'x-user-id': user.id
-          }
-        });
-        if (!res.ok) {
-          console.error("Failed to delete transaction. HTTP:", res.status);
-        }
-      } catch (e) {
-        console.error("Error deleting transaction", e);
-      } finally {
-        loadPortfolioData(false);
-      }
-    }
+    localStorage.setItem('portfolio_tx_guest', JSON.stringify(updatedTx));
   };
 
   const handleAddAlert = async () => {
@@ -338,54 +247,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     setAlertTarget('');
     setIsAlertOpen(false);
 
-    if (isGuest) {
-      localStorage.setItem('portfolio_alerts_guest', JSON.stringify(updatedAlerts));
-      setIsUpdating(false);
-    } else {
-      try {
-        const res = await fetch('/api/portfolio', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'x-user-id': user.id
-          },
-          body: JSON.stringify({ action: 'add_alert', symbol: newAlert.symbol, type: alertType, price: newAlert.target })
-        });
-        if (!res.ok) {
-          console.error("Failed to save alert to database. HTTP:", res.status);
-        }
-      } catch (e) {
-        console.error("Error saving alert", e);
-      } finally {
-        setIsUpdating(false);
-        loadPortfolioData(false);
-      }
-    }
+    localStorage.setItem('portfolio_alerts_guest', JSON.stringify(updatedAlerts));
+    setIsUpdating(false);
   };
 
-  const handleDeleteAlert = async (id: string) => {
+  const handleDeleteAlert = (id: string) => {
     const updatedAlerts = alerts.filter(a => a.id !== id);
     setAlerts(updatedAlerts);
-    
-    if (isGuest) {
-      localStorage.setItem('portfolio_alerts_guest', JSON.stringify(updatedAlerts));
-    } else {
-      try {
-        const res = await fetch(`/api/portfolio?alertId=${id}`, { 
-          method: 'DELETE',
-          headers: {
-            'x-user-id': user.id
-          }
-        });
-        if (!res.ok) {
-          console.error("Failed to delete alert. HTTP:", res.status);
-        }
-      } catch (e) {
-        console.error("Error deleting alert", e);
-      } finally {
-        loadPortfolioData(false);
-      }
-    }
+    localStorage.setItem('portfolio_alerts_guest', JSON.stringify(updatedAlerts));
   };
 
   // Run the Portfolio Calculation Engine
@@ -446,78 +315,16 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return (
       <>
         <TopLoader />
-        <div className="space-y-10 p-6 md:p-10 font-sans bg-transparent min-h-screen text-foreground animate-pulse">
-        {/* Header skeleton */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
-          <div className="space-y-2">
-            <div className="h-9 w-64 bg-muted/30 rounded-lg"></div>
-            <div className="h-4.5 w-96 bg-muted/10 rounded-md"></div>
+        <div className="space-y-6 p-6 md:p-10">
+          <SkeletonHeader />
+          <SkeletonCardGrid count={4} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <SkeletonPanel className="lg:col-span-2 h-96" />
+            <SkeletonPanel className="h-96" />
           </div>
-          <div className="flex items-center gap-4">
-            <div className="h-10 w-24 bg-muted/20 rounded-xl"></div>
-            <div className="h-10 w-40 bg-muted/30 rounded-xl"></div>
-          </div>
+          <SkeletonTable rows={3} />
         </div>
-
-        {/* 4 KPI Metrics Board skeletons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-card/25 border border-border/40 p-6 md:p-8 rounded-2xl flex flex-col justify-between space-y-4">
-              <div className="flex justify-between items-center">
-                <div className="h-4 w-28 bg-muted/20 rounded"></div>
-                <div className="h-3 w-8 bg-muted/10 rounded"></div>
-              </div>
-              <div className="space-y-2">
-                <div className="h-8 w-36 bg-muted/30 rounded-lg"></div>
-                <div className="h-3.5 w-48 bg-muted/15 rounded"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Performance & Asset Allocation skeleton */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-card/15 border border-border/40 rounded-2xl p-6 space-y-6 h-96">
-            <div className="flex justify-between items-center">
-              <div className="h-5 w-48 bg-muted/30 rounded-md"></div>
-              <div className="h-8 w-44 bg-muted/25 rounded-lg"></div>
-            </div>
-            <div className="w-full h-64 bg-muted/10 rounded-xl"></div>
-          </div>
-          <div className="bg-card/15 border border-border/40 rounded-2xl p-6 flex flex-col justify-between h-96">
-            <div className="h-5 w-36 bg-muted/30 rounded-md"></div>
-            <div className="flex justify-center items-center h-48 my-auto">
-              <div className="w-36 h-36 rounded-full border-8 border-muted/20 flex items-center justify-center"></div>
-            </div>
-            <div className="h-12 w-full bg-muted/10 rounded-xl"></div>
-          </div>
-        </div>
-
-        {/* Table skeleton */}
-        <div className="bg-card/15 border border-border/40 rounded-2xl flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-border/40 flex justify-between items-center">
-            <div className="h-5 w-52 bg-muted/30 rounded-md"></div>
-            <div className="h-7 w-28 bg-muted/25 rounded-md"></div>
-          </div>
-          <div className="p-6 space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted/25"></div>
-                  <div className="space-y-1">
-                    <div className="h-4.5 w-16 bg-muted/20 rounded"></div>
-                    <div className="h-3 w-28 bg-muted/10 rounded"></div>
-                  </div>
-                </div>
-                <div className="h-4 w-20 bg-muted/20 rounded"></div>
-                <div className="h-4.5 w-24 bg-muted/20 rounded"></div>
-                <div className="h-4 w-24 bg-muted/25 rounded"></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
+      </>
     );
   }
 

@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Sparkles, Orbit, RefreshCw, Layers, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
-import { useAuth } from '@/components/auth/auth-context';
 import { TopLoader } from '@/components/ui/top-loader';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface BubbleData {
   symbol: string;
@@ -17,6 +17,24 @@ interface BubbleData {
   circulatingSupply?: string;
   ath?: string;
 }
+
+const DEMO_CRYPTOS: BubbleData[] = [
+  { symbol: 'BTC', name: 'Bitcoin', price: 67840, changePercent: 2.14, marketCap: '1.32T', volume: '42.1B', sector: 'Layer 1', rank: 1, circulatingSupply: '19.7M', ath: '$73,750' },
+  { symbol: 'ETH', name: 'Ethereum', price: 3500.2, changePercent: 2.41, marketCap: '420.1B', volume: '18.5B', sector: 'Layer 1', rank: 2, circulatingSupply: '120.1M', ath: '$4,878' },
+  { symbol: 'USDT', name: 'Tether', price: 1.0, changePercent: 0.01, marketCap: '112.3B', volume: '68.4B', sector: 'Stablecoin', rank: 3, circulatingSupply: '112.3B', ath: '$1.10' },
+  { symbol: 'BNB', name: 'BNB', price: 585.5, changePercent: 2.11, marketCap: '90.2B', volume: '2.3B', sector: 'Layer 1', rank: 4, circulatingSupply: '153.9M', ath: '$686' },
+  { symbol: 'SOL', name: 'Solana', price: 168.4, changePercent: 3.82, marketCap: '77.4B', volume: '4.1B', sector: 'Layer 1', rank: 5, circulatingSupply: '459.2M', ath: '$260' },
+  { symbol: 'XRP', name: 'XRP', price: 0.53, changePercent: -0.84, marketCap: '29.1B', volume: '1.4B', sector: 'Payments', rank: 6, circulatingSupply: '55.0B', ath: '$3.40' },
+  { symbol: 'USDC', name: 'USD Coin', price: 1.0, changePercent: 0.0, marketCap: '32.2B', volume: '7.2B', sector: 'Stablecoin', rank: 7, circulatingSupply: '32.2B', ath: '$1.17' },
+  { symbol: 'ADA', name: 'Cardano', price: 0.45, changePercent: -1.32, marketCap: '16.0B', volume: '0.4B', sector: 'Layer 1', rank: 8, circulatingSupply: '35.5B', ath: '$3.09' },
+  { symbol: 'DOGE', name: 'Dogecoin', price: 0.16, changePercent: 1.12, marketCap: '23.1B', volume: '1.8B', sector: 'Meme', rank: 9, circulatingSupply: '143.9B', ath: '$0.73' },
+  { symbol: 'AVAX', name: 'Avalanche', price: 35.6, changePercent: 2.8, marketCap: '13.9B', volume: '0.6B', sector: 'Layer 1', rank: 10, circulatingSupply: '391.2M', ath: '$146' },
+  { symbol: 'DOT', name: 'Polkadot', price: 6.9, changePercent: 0.42, marketCap: '9.8B', volume: '0.3B', sector: 'Layer 1', rank: 11, circulatingSupply: '1.4B', ath: '$55' },
+  { symbol: 'LINK', name: 'Chainlink', price: 14.2, changePercent: 1.9, marketCap: '8.4B', volume: '0.5B', sector: 'Oracle', rank: 12, circulatingSupply: '587M', ath: '$52' },
+  { symbol: 'TRX', name: 'TRON', price: 0.13, changePercent: -0.2, marketCap: '11.4B', volume: '0.4B', sector: 'Layer 1', rank: 13, circulatingSupply: '88.0B', ath: '$0.23' },
+  { symbol: 'MATIC', name: 'Polygon', price: 0.72, changePercent: 0.95, marketCap: '7.1B', volume: '0.4B', sector: 'Layer 2', rank: 14, circulatingSupply: '9.9B', ath: '$2.92' },
+  { symbol: 'LTC', name: 'Litecoin', price: 84.3, changePercent: -0.5, marketCap: '6.3B', volume: '0.5B', sector: 'Payments', rank: 15, circulatingSupply: '74.5M', ath: '$410' },
+];
 
 class PhysicsBubble {
   x: number;
@@ -169,7 +187,6 @@ interface CryptoBubblesProps {
 }
 
 export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
-  const { requireAuth } = useAuth();
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -223,31 +240,10 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
     return isNaN(num) ? 0 : num * mult;
   };
 
-  const fetchLiveCrypto = async () => {
+  const fetchLiveCrypto = () => {
     setLoading(true);
-    try {
-      const res = await fetch('/api/stocks?country=CRYPTO&limit=300');
-      if (res.ok) {
-        const data = await res.json();
-        const cryptos: BubbleData[] = (data.stocks || []).map((s: any) => ({
-          symbol: s.symbol,
-          name: s.name || s.symbol,
-          price: s.price || 0,
-          changePercent: s.changePercent || 0,
-          marketCap: s.marketCap || '0',
-          volume: s.volume || '0',
-          sector: s.sector || 'DeFi',
-          rank: s.rank || 999,
-          circulatingSupply: s.circulatingSupply || 'N/A',
-          ath: s.ath || 'N/A'
-        }));
-        setRawList(cryptos);
-      }
-    } catch (err) {
-      console.error('Failed to load live cryptos:', err);
-    } finally {
-      setLoading(false);
-    }
+    setRawList(DEMO_CRYPTOS);
+    setLoading(false);
   };
 
   // Memoized lists of available sectors for filters
@@ -557,9 +553,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
 
       // Click to analyze ONLY if it did not move much (simple click/tap)
       if (!hasMovedRef.current) {
-        requireAuth(() => {
-          onAnalyzeTicker(drag.bubble.data.symbol);
-        });
+        onAnalyzeTicker(drag.bubble.data.symbol);
       }
 
       dragRef.current = null;
@@ -854,14 +848,9 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
         {/* Live Canvas Box */}
         <div className="h-[500px] w-full bg-[#050505]/40 backdrop-blur-3xl border border-white/5 rounded-3xl relative overflow-hidden shrink-0">
           {loading && rawList.length === 0 && (
-            <div className="absolute inset-0 space-y-4 text-center animate-pulse flex flex-col items-center justify-center z-10 bg-[#050505]/80">
-              <Orbit className="text-white/5 w-16 h-16 animate-spin-slow" />
-              <div className="h-3 bg-white/5 rounded w-48" />
-              
-              <div className="absolute top-[20%] left-[15%] w-24 h-24 rounded-full border-2 border-white/5 bg-white/5 animate-pulse" />
-              <div className="absolute top-[35%] right-[20%] w-32 h-32 rounded-full border-2 border-white/5 bg-white/5 animate-pulse delay-75" />
-              <div className="absolute bottom-[20%] left-[30%] w-36 h-36 rounded-full border-2 border-white/5 bg-white/5 animate-pulse delay-150" />
-              <div className="absolute bottom-[25%] right-[25%] w-20 h-20 rounded-full border-2 border-white/5 bg-white/5 animate-pulse delay-300" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#050505]/80">
+              <Orbit className="text-white/5 w-16 h-16 animate-spin-slow mb-4" />
+              <Skeleton className="h-3 w-48" />
             </div>
           )}
 
@@ -893,14 +882,14 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
             {loading && rawList.length === 0 ? (
               <div className="space-y-2.5">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 h-12 border-b border-white/5 animate-pulse">
-                    <div className="h-4 bg-white/5 rounded w-8" />
-                    <div className="h-4 bg-white/5 rounded w-16" />
-                    <div className="h-4 bg-white/5 rounded w-32" />
-                    <div className="h-4 bg-white/5 rounded w-20 ml-auto" />
-                    <div className="h-4 bg-white/5 rounded w-20" />
-                    <div className="h-4 bg-white/5 rounded w-24" />
-                    <div className="h-8 bg-white/5 rounded-lg w-24" />
+                  <div key={i} className="flex items-center gap-4 h-12 border-b border-white/5">
+                    <Skeleton className="h-4 w-8" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-20 ml-auto" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-8 w-24 rounded-lg" />
                   </div>
                 ))}
               </div>
@@ -950,7 +939,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
                             <td className="py-3.5 px-4 text-right text-muted-foreground">{c.volume}</td>
                             <td className="py-1 px-4 text-center">
                               <button
-                                onClick={() => requireAuth(() => onAnalyzeTicker(c.symbol))}
+                                onClick={() => onAnalyzeTicker(c.symbol)}
                                 className="inline-flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-3 py-1.5 rounded-lg text-[10px] cursor-pointer font-semibold transition-all group-hover:scale-105"
                               >
                                 <Sparkles size={11} /> Ask AI

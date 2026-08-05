@@ -2,15 +2,14 @@
 
 import React, { useState } from 'react';
 import { 
-  Sparkles, LayoutGrid, LineChart, LogOut, Briefcase, Star, 
-  Newspaper, Compass, Plus, MessageSquare, Trash2, X, 
+  Sparkles, LayoutGrid, LineChart, Briefcase, Star, 
+  Newspaper, Compass, Plus, Bot, Trash2, X, 
   ChevronLeft, ChevronRight, Menu, SlidersHorizontal, PieChart, Monitor, Orbit
 } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { useAuth } from '@/components/auth/auth-context';
 import { Message } from '@/types/chat';
 
-export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'backtest';
+export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart';
 
 export interface Conversation {
   id: string;
@@ -42,7 +41,6 @@ export function Sidebar({
   mobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
-  const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleSelectChat = (id: string) => {
@@ -163,12 +161,11 @@ export function Sidebar({
           isCollapsed ? 'items-center px-2' : ''
         }`}>
           {[
-            { id: 'chat', label: 'ChatBot', icon: MessageSquare },
+            { id: 'chat', label: 'ChatBot', icon: Bot },
             { id: 'discovery', label: 'Market Screener', icon: Monitor },
             { id: 'market', label: 'My Portfolio', icon: PieChart },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
-            { id: 'backtest', label: 'Strategy Backtest', icon: SlidersHorizontal },
           ].map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
@@ -211,44 +208,25 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Footer / Auth state */}
+      {/* Footer */}
       <div className={`border-t border-border/10 py-4 shrink-0 flex flex-col gap-2 w-full ${
         isCollapsed ? 'items-center' : ''
       }`}>
         {isCollapsed ? (
           <div className="flex justify-center">
-            {user ? (
-              <button
-                onClick={() => logout()}
-                className="w-9 h-9 rounded-xl bg-destructive/10 text-destructive border border-destructive/20 flex justify-center items-center font-bold text-xs cursor-pointer hover:bg-destructive hover:text-destructive-foreground transition-all"
-                title={`Sign Out (${user.name || user.email})`}
-              >
-                <LogOut size={14} />
-              </button>
-            ) : (
-              <div 
-                className="w-9 h-9 rounded-xl bg-accent border border-border flex justify-center items-center font-bold text-xs text-muted-foreground"
-                title="Guest Mode"
-              >
-                G
-              </div>
-            )}
+            <div 
+              className="w-9 h-9 rounded-xl bg-accent border border-border flex justify-center items-center font-bold text-xs text-muted-foreground"
+              title="BlackEclipse"
+            >
+              B
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-between px-1 text-[11px]">
             <div className="flex flex-col truncate max-w-[130px]">
-              <span className="font-semibold text-foreground truncate">{user ? (user.name || user.email) : 'Guest Mode'}</span>
-              <span className="text-[9px] text-muted-foreground uppercase">{user ? user.role : 'Read-Only'}</span>
+              <span className="font-semibold text-foreground truncate">BlackEclipse</span>
+              <span className="text-[9px] text-muted-foreground uppercase">Terminal</span>
             </div>
-            {user && (
-              <button
-                onClick={() => logout()}
-                className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-rose-400 cursor-pointer"
-                title="Logout"
-              >
-                <LogOut size={14} />
-              </button>
-            )}
           </div>
         )}
       </div>

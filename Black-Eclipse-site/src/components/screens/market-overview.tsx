@@ -8,10 +8,10 @@ import {
   Info
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/auth/auth-context';
 import { TradingViewChart } from './tradingview-chart';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
+import { Skeleton, SkeletonHeader, SkeletonIndexCard, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
 
 interface IndexCard {
   name: string;
@@ -393,10 +393,10 @@ function TableSkeleton({ cols = 11, rows = 6 }: { cols?: number; rows?: number }
   return (
     <>
       {Array.from({ length: rows }).map((_, idx) => (
-        <tr key={idx} className="border-b border-border/10 animate-pulse">
+        <tr key={idx} className="border-b border-border/10">
           {Array.from({ length: cols }).map((_, cIdx) => (
             <td key={cIdx} className="p-3.5">
-              <div className="h-4 bg-muted-foreground/15 rounded-md w-3/4 mx-auto" />
+              <Skeleton className="h-4 w-3/4 mx-auto" />
             </td>
           ))}
         </tr>
@@ -413,11 +413,9 @@ interface MarketOverviewScreenProps {
 }
 
 export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange }: MarketOverviewScreenProps) {
-  const { requireAuth } = useAuth();
 
   const handleSymbolClick = (symbol: string, name: string, extra?: Partial<StockItem>) => {
-    requireAuth(() => {
-      setSelectedAnalysisStock({
+    setSelectedAnalysisStock({
         symbol,
         name,
         peRatio: extra?.peRatio || 'N/A',
@@ -462,7 +460,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         circulatingSupplyRaw: extra?.circulatingSupplyRaw || 0,
         maxSupplyRaw: extra?.maxSupplyRaw || 0,
       });
-    });
   };
   
   // Screener state
@@ -554,75 +551,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [dataUpdatedTime, setDataUpdatedTime] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>('live');
 
-  // Fetch stocks and dashboard metadata from the server-side API based on user's country/tab with polling
+  // Load demo stocks and dashboard metadata based on user's country/tab
   React.useEffect(() => {
-    const fetchStocksAndDashboard = async (isBackground = false) => {
-      if (!isBackground) {
-        setLoadingApi(true);
-        setLoadingDashboard(true);
-      }
-      try {
-        const sectorParam = filterSector === 'All' ? '' : filterSector;
-        const queryCountry = screenerTab === 'crypto' ? 'CRYPTO' : userCountry;
-        const res = await fetch(`/api/stocks?country=${encodeURIComponent(queryCountry)}&page=${currentPage}&limit=${limit}&search=${encodeURIComponent(stockSearch)}&sector=${encodeURIComponent(sectorParam)}`);
-        
-        if (!res.ok) {
-          throw new Error(`Proxy error: ${res.statusText}`);
-        }
-        const data = await res.json();
-        
-        if (data && data.stocks) {
-          setApiStocks(data.stocks);
-          setTotalStocks(data.pagination?.total || data.stocks.length);
-          setDataSource(data.source || 'live');
-          setDataUpdatedTime(data.lastUpdated || new Date().toISOString());
-          
-          if (data.indices) setIndexData(data.indices);
-          if (data.sectors) setSectorPerformance(data.sectors);
-          if (data.shifters) {
-            setTopGainers(data.shifters.gainers || []);
-            setTopLosers(data.shifters.losers || []);
-          }
-        } else {
-          const fallbackCountry = queryCountry;
-          setApiStocks(getFallbackStocks(fallbackCountry));
-          setTotalStocks(getFallbackStocks(fallbackCountry).length);
-          setDataSource('fallback');
-          setDataUpdatedTime(new Date().toISOString());
-          const fallbackDash = getSimulatedDashboard(fallbackCountry);
-          setIndexData(fallbackDash.indices);
-          setSectorPerformance(fallbackDash.sectors);
-          setTopGainers(fallbackDash.shifters.gainers);
-          setTopLosers(fallbackDash.shifters.losers);
-        }
-      } catch (err) {
-        console.error('Fetch error, loading smart fallback', err);
-        const fallbackCountry = screenerTab === 'crypto' ? 'CRYPTO' : userCountry;
-        setApiStocks(getFallbackStocks(fallbackCountry));
-        setTotalStocks(getFallbackStocks(fallbackCountry).length);
-        setDataSource('fallback');
-        setDataUpdatedTime(new Date().toISOString());
-        const fallbackDash = getSimulatedDashboard(fallbackCountry);
-        setIndexData(fallbackDash.indices);
-        setSectorPerformance(fallbackDash.sectors);
-        setTopGainers(fallbackDash.shifters.gainers);
-        setTopLosers(fallbackDash.shifters.losers);
-      } finally {
-        if (!isBackground) {
-          setLoadingApi(false);
-          setLoadingDashboard(false);
-        }
-      }
-    };
-    
-    fetchStocksAndDashboard();
+    const queryCountry = screenerTab === 'crypto' ? 'CRYPTO' : userCountry;
+    const demoStocks = getFallbackStocks(queryCountry);
+    const dash = getSimulatedDashboard(queryCountry);
 
-    const interval = setInterval(() => {
-      fetchStocksAndDashboard(true);
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, [userCountry, currentPage, limit, stockSearch, filterSector, screenerTab]);
+    setApiStocks(demoStocks);
+    setTotalStocks(demoStocks.length);
+    setDataSource('demo');
+    setDataUpdatedTime(new Date().toISOString());
+    setIndexData(dash.indices);
+    setSectorPerformance(dash.sectors);
+    setTopGainers(dash.shifters.gainers);
+    setTopLosers(dash.shifters.losers);
+    setLoadingApi(false);
+    setLoadingDashboard(false);
+  }, [userCountry, screenerTab]);
 
 
 
@@ -681,9 +626,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
   const handleAction = (ticker: string) => {
-    requireAuth(() => {
-      onAnalyzeTicker(ticker);
-    });
+    onAnalyzeTicker(ticker);
   };
 
   const exportToPDF = async () => {
@@ -1064,78 +1007,25 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       <>
         <TopLoader />
         <div className={cn(
-          "w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-8 pb-20 animate-pulse",
+          "w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 pb-20",
           !embedded && "flex-1 overflow-y-auto h-full scrollbar-hide bg-transparent"
         )}>
+          {!embedded && <SkeletonHeader />}
 
-        {/* Page Title Header Skeleton */}
-        {!embedded && (
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-border/20 pb-6 mb-4">
-            <div className="space-y-2.5">
-              <div className="h-9 w-64 bg-muted/30 rounded-lg"></div>
-              <div className="h-4.5 w-96 bg-muted/15 rounded-md"></div>
-            </div>
-            <div className="h-10 w-64 bg-muted/20 rounded-xl"></div>
-          </div>
-        )}
-
-        {/* Index Tickers Grid Skeleton */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 h-20 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <div className="h-3 bg-muted/25 rounded w-12"></div>
-                <div className="h-3 bg-muted/15 rounded w-8"></div>
-              </div>
-              <div className="h-4 w-20 bg-muted/30 rounded"></div>
-            </div>
-          ))}
-        </div>
-
-        {/* Sectors Overview & Gainers/Losers Skeleton */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 p-5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 h-64 space-y-4">
-            <div className="h-5 w-48 bg-muted/30 rounded-md"></div>
-            <div className="grid md:grid-cols-2 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="h-3.5 bg-muted/20 rounded w-1/3"></div>
-                  <div className="h-1.5 bg-muted/10 rounded-full"></div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="p-5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 h-64 space-y-4">
-            <div className="h-5 w-36 bg-muted/30 rounded-md"></div>
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex justify-between items-center">
-                  <div className="h-4.5 bg-muted/20 rounded w-16"></div>
-                  <div className="h-4.5 bg-muted/25 rounded w-12"></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Main Screening Tables Skeleton */}
-        <div className="p-6 md:p-8 rounded-3xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 h-96 space-y-6">
-          <div className="flex justify-between items-center">
-            <div className="h-5 w-52 bg-muted/30 rounded-md"></div>
-            <div className="h-8 w-44 bg-muted/25 rounded-lg"></div>
-          </div>
-          <div className="space-y-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex justify-between items-center">
-                <div className="h-4 w-28 bg-muted/20 rounded"></div>
-                <div className="h-4 w-20 bg-muted/20 rounded"></div>
-                <div className="h-4 w-24 bg-muted/25 rounded"></div>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonIndexCard key={i} />
             ))}
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-6">
+            <SkeletonPanel className="lg:col-span-2 h-64" />
+            <SkeletonPanel className="h-64" />
+          </div>
+
+          <SkeletonTable rows={5} />
         </div>
-      </div>
-    </div>
-  </>
+      </>
     );
   }
 
@@ -1178,16 +1068,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 animate-fade-in-up [animation-delay:100ms]">
         {loadingDashboard ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <div 
-              key={i} 
-              className="p-3.5 rounded-2xl bg-card/40 border border-border/50 backdrop-blur-sm animate-pulse h-20 flex flex-col justify-between"
-            >
-              <div className="flex items-center justify-between">
-                <div className="h-3 bg-muted-foreground/20 rounded w-1/2 animate-pulse" />
-                <div className="h-3 bg-muted-foreground/25 rounded w-8 animate-pulse" />
-              </div>
-              <div className="h-4 bg-muted-foreground/20 rounded w-3/4 mt-2 animate-pulse" />
-            </div>
+            <SkeletonIndexCard key={i} />
           ))
         ) : (
           indexData.map((idxCard) => {
@@ -1240,12 +1121,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div className="grid md:grid-cols-2 gap-4 flex-1">
             {loadingDashboard ? (
               Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex flex-col justify-center text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="h-3 bg-muted-foreground/15 rounded w-1/3 animate-pulse" />
-                    <div className="h-3 bg-muted-foreground/20 rounded w-12 animate-pulse" />
-                  </div>
-                  <div className="w-full h-1.5 bg-accent/20 rounded-full animate-pulse" />
+                <div key={i} className="flex flex-col justify-center gap-2">
+                  <Skeleton className="h-3 w-1/3" />
+                  <Skeleton className="h-1.5 w-full rounded-full" />
                 </div>
               ))
             ) : (
@@ -1291,19 +1169,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {loadingDashboard ? (
               <>
                 <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-emerald-400/50 uppercase tracking-widest flex items-center gap-1 mb-2 animate-pulse">
-                    ▲ Top Gainers
-                  </span>
+                  <Skeleton className="h-3 w-20" />
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="p-3 bg-accent/10 border border-border/20 rounded-xl h-10 animate-pulse" />
+                    <Skeleton key={i} className="h-10 w-full rounded-xl" />
                   ))}
                 </div>
                 <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-rose-400/50 uppercase tracking-widest flex items-center gap-1 mb-2 animate-pulse">
-                    ▼ Top Losers
-                  </span>
+                  <Skeleton className="h-3 w-20" />
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="p-3 bg-accent/10 border border-border/20 rounded-xl h-10 animate-pulse" />
+                    <Skeleton key={i} className="h-10 w-full rounded-xl" />
                   ))}
                 </div>
               </>

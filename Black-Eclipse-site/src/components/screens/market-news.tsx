@@ -5,6 +5,7 @@ import { Newspaper, Sparkles, MessageSquare, Eye } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export interface NewsItem {
   id: string;
@@ -96,31 +97,17 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  const fetchNews = async (pageNum = 1) => {
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/news?page=${pageNum}&limit=10`);
-      if (!res.ok) throw new Error("Failed to retrieve news from api");
-      const data = await res.json();
-      const news = data.news || [];
-      setNewsList(news);
-      if (data.pagination) {
-        setPage(data.pagination.page);
-        setTotalPages(data.pagination.totalPages);
-      }
-      setError(null);
+  const fetchNews = (pageNum = 1) => {
+    setLoading(true);
+    setNewsList(NEWS_MOCK);
+    setPage(pageNum);
+    setTotalPages(1);
+    setError(null);
 
-      if (news.length > 0) {
-        const bullishCount = news.filter((n: any) => n.sentiment === 'bullish').length;
-        const bearishCount = news.filter((n: any) => n.sentiment === 'bearish').length;
-        onNewsStatusChange?.(bullishCount >= bearishCount);
-      }
-    } catch (e: any) {
-      console.error("[MarketNews] Error fetching news:", e);
-      setError(e.message || "Failed to load market news.");
-    } finally {
-      setLoading(false);
-    }
+    const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
+    const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
+    onNewsStatusChange?.(bullishCount >= bearishCount);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -156,53 +143,48 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
       return (
         <>
           {loadingBar}
-          <div className="w-full flex flex-col gap-6">
-            <div className="flex flex-col gap-4.5 w-full">
+          <div className="w-full flex flex-col gap-4">
             {[1, 2, 3, 4, 5].map(i => (
-              <div
-                key={i}
-                className="p-5 rounded-2xl bg-card/20 border border-border/20 flex flex-col md:flex-row md:items-center justify-between gap-6 animate-pulse"
-              >
+              <div key={i} className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-border/10 rounded-2xl p-5">
                 <div className="flex-1 space-y-3">
                   <div className="flex gap-2">
-                    <div className="h-4 w-16 bg-muted/30 rounded"></div>
-                    <div className="h-4 w-12 bg-muted/20 rounded"></div>
-                    <div className="h-4 w-20 bg-muted/10 rounded"></div>
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-20" />
                   </div>
-                  <div className="h-6 w-3/4 bg-muted/30 rounded-md"></div>
+                  <Skeleton className="h-6 w-3/4" />
                   <div className="space-y-1.5">
-                    <div className="h-3.5 w-full bg-muted/20 rounded"></div>
-                    <div className="h-3.5 w-5/6 bg-muted/20 rounded"></div>
+                    <Skeleton className="h-3.5 w-full" />
+                    <Skeleton className="h-3.5 w-5/6" />
                   </div>
                 </div>
-                <div className="shrink-0 min-w-[200px] border-t md:border-t-0 md:border-l border-border/20 pt-4 md:pt-0 md:pl-6 space-y-3">
-                  <div className="h-5 w-24 bg-muted/20 rounded-full ml-auto"></div>
+                <div className="shrink-0 min-w-[200px] border-t md:border-t-0 md:border-l border-border/10 pt-4 md:pt-0 md:pl-6 space-y-3">
+                  <Skeleton className="h-5 w-24 rounded-full ml-auto" />
                   <div className="flex gap-2">
-                    <div className="h-8.5 flex-1 bg-muted/20 rounded-xl"></div>
-                    <div className="h-8.5 flex-1 bg-muted/30 rounded-xl"></div>
+                    <Skeleton className="h-8.5 flex-1 rounded-xl" />
+                    <Skeleton className="h-8.5 flex-1 rounded-xl" />
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      </>
+        </>
       );
     }
     return (
       <>
         {loadingBar}
-        <div className="w-full flex flex-col bg-[#0f0f0f]/60 rounded-2xl p-4 gap-4 animate-pulse border border-border/15">
-          <div className="h-4 w-28 bg-muted/30 rounded"></div>
+        <div className="w-full flex flex-col rounded-2xl p-4 gap-4 border border-border/10">
+          <Skeleton className="h-4 w-28" />
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
               <div key={i} className="p-3 border border-border/10 rounded-xl space-y-2">
                 <div className="flex justify-between">
-                  <div className="h-3 w-12 bg-muted/20 rounded"></div>
-                  <div className="h-3 w-10 bg-muted/20 rounded"></div>
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-3 w-10" />
                 </div>
-                <div className="h-4 w-5/6 bg-muted/30 rounded"></div>
-                <div className="h-3 w-16 bg-muted/20 rounded-full"></div>
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-3 w-16 rounded-full" />
               </div>
             ))}
           </div>

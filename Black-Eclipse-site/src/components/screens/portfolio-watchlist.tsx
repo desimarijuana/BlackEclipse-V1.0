@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, ArrowUpRight, ArrowDownRight, TrendingUp, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/auth/auth-context';
 
 export interface WatchlistItem {
   symbol: string;
@@ -42,15 +41,14 @@ interface PortfolioWatchlistProps {
 }
 
 export function PortfolioWatchlist({ onAnalyzeTicker, onSelectTicker, fullPage = false }: PortfolioWatchlistProps) {
-  const { user, requireAuth } = useAuth();
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(DEFAULT_WATCHLIST);
   const [newTicker, setNewTicker] = useState('');
   const [suggestion, setSuggestion] = useState<string[]>([]);
   const [error, setError] = useState('');
 
-  // Load watchlist on mount or when user changes
+  // Load watchlist on mount
   useEffect(() => {
-    const key = user ? `watchlist_${user.id}` : 'watchlist_guest';
+    const key = 'watchlist_guest';
     const saved = localStorage.getItem(key);
     if (saved) {
       try {
@@ -61,11 +59,11 @@ export function PortfolioWatchlist({ onAnalyzeTicker, onSelectTicker, fullPage =
     } else {
       setWatchlist(DEFAULT_WATCHLIST);
     }
-  }, [user]);
+  }, []);
 
   const saveWatchlist = (items: WatchlistItem[]) => {
     setWatchlist(items);
-    const key = user ? `watchlist_${user.id}` : 'watchlist_guest';
+    const key = 'watchlist_guest';
     localStorage.setItem(key, JSON.stringify(items));
   };
 
@@ -86,63 +84,59 @@ export function PortfolioWatchlist({ onAnalyzeTicker, onSelectTicker, fullPage =
     const symbol = (symbolToAdd || newTicker).toUpperCase().trim();
     if (!symbol) return;
 
-    requireAuth(() => {
-      if (watchlist.some(item => item.symbol === symbol)) {
-        setError('Stock already in watchlist');
-        return;
-      }
+    if (watchlist.some(item => item.symbol === symbol)) {
+      setError('Stock already in watchlist');
+      return;
+    }
 
-      // Generate a mock entry
-      let newItem: WatchlistItem;
-      if (PRESETS[symbol]) {
-        const p = PRESETS[symbol];
-        const basePrice = p.price;
-        // Generate a random sparkline around base price
-        const spark = [
-          basePrice * 0.98,
-          basePrice * 0.99,
-          basePrice * 0.975,
-          basePrice * 1.01,
-          basePrice,
-        ];
-        newItem = {
-          ...p,
-          sparkline: spark,
-        };
-      } else {
-        // Mock fallback for custom symbols
-        const price = Math.random() * 400 + 10;
-        const change = (Math.random() * 20 - 10);
-        newItem = {
-          symbol,
-          name: `${symbol} Corp`,
+    // Generate a mock entry
+    let newItem: WatchlistItem;
+    if (PRESETS[symbol]) {
+      const p = PRESETS[symbol];
+      const basePrice = p.price;
+      // Generate a random sparkline around base price
+      const spark = [
+        basePrice * 0.98,
+        basePrice * 0.99,
+        basePrice * 0.975,
+        basePrice * 1.01,
+        basePrice,
+      ];
+      newItem = {
+        ...p,
+        sparkline: spark,
+      };
+    } else {
+      // Mock fallback for custom symbols
+      const price = Math.random() * 400 + 10;
+      const change = (Math.random() * 20 - 10);
+      newItem = {
+        symbol,
+        name: `${symbol} Corp`,
+        price,
+        change,
+        changePercent: parseFloat(((change / price) * 100).toFixed(2)),
+        sparkline: [
+          price * 0.97,
+          price * 1.02,
+          price * 0.99,
+          price * 0.98,
           price,
-          change,
-          changePercent: parseFloat(((change / price) * 100).toFixed(2)),
-          sparkline: [
-            price * 0.97,
-            price * 1.02,
-            price * 0.99,
-            price * 0.98,
-            price,
-          ],
-        };
-      }
+        ],
+      };
+    }
 
-      const updated = [...watchlist, newItem];
-      saveWatchlist(updated);
-      setNewTicker('');
-      setSuggestion([]);
-      setError('');
-    });
+    const updated = [...watchlist, newItem];
+    saveWatchlist(updated);
+    setNewTicker('');
+    setSuggestion([]);
+    setError('');
   };
 
   const handleRemoveTicker = (e: React.MouseEvent, symbol: string) => {
     e.stopPropagation();
-    requireAuth(() => {
-      const updated = watchlist.filter(item => item.symbol !== symbol);
-      saveWatchlist(updated);
-    });
+    const updated = watchlist.filter(item => item.symbol !== symbol);
+    saveWatchlist(updated);
   };
 
   if (fullPage) {
