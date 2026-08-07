@@ -1,9 +1,6 @@
 import type {Metadata} from 'next';
 import './globals.css';
-import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
-
-const geist = Geist({subsets:['latin'],variable:'--font-geist'});
 
 export const metadata: Metadata = {
   title: 'BlackEclipse — AI Stock Research & Screening Platform',
@@ -12,11 +9,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
-    <html lang="en" className={cn("dark", "font-sans", geist.variable)}>
+    <html lang="en" className={cn("dark", "font-sans")}>
       <body suppressHydrationWarning>
         {children}
       </body>
     </html>
   );
 }
-

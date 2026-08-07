@@ -97,17 +97,40 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  const fetchNews = (pageNum = 1) => {
+  const fetchNews = async (pageNum = 1) => {
     setLoading(true);
-    setNewsList(NEWS_MOCK);
-    setPage(pageNum);
-    setTotalPages(1);
     setError(null);
-
-    const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
-    const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
-    onNewsStatusChange?.(bullishCount >= bearishCount);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/news?page=${pageNum}&limit=10`);
+      const data = await res.json();
+      const news = data.news || [];
+      if (news.length > 0) {
+        setNewsList(news);
+        setPage(pageNum);
+        setTotalPages(data.pagination?.totalPages || 1);
+        const bullishCount = news.filter((n: any) => n.sentiment === 'bullish').length;
+        const bearishCount = news.filter((n: any) => n.sentiment === 'bearish').length;
+        onNewsStatusChange?.(bullishCount >= bearishCount);
+      } else {
+        // Fallback to built-in demo data if the feed is empty/unreachable.
+        setNewsList(NEWS_MOCK);
+        setPage(pageNum);
+        setTotalPages(1);
+        const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
+        const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
+        onNewsStatusChange?.(bullishCount >= bearishCount);
+      }
+    } catch (e) {
+      console.error("[MarketNews] Error fetching news:", e);
+      setNewsList(NEWS_MOCK);
+      setPage(pageNum);
+      setTotalPages(1);
+      const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
+      const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
+      onNewsStatusChange?.(bullishCount >= bearishCount);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

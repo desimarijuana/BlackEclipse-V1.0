@@ -14,9 +14,11 @@ import { CryptoBubbles } from './crypto-bubbles';
 import { MarketNews, NewsItem } from './market-news';
 
 import { MyPortfolio } from './my-portfolio';
+import { EmbeddedChart } from './embedded-chart';
 import { Newspaper } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
+import { getAgentProvider } from '@/lib/agent';
 
 function StockChatContent() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
@@ -151,7 +153,7 @@ function StockChatContent() {
     }
   };
 
-  const handleSend = (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
 
@@ -160,15 +162,21 @@ function StockChatContent() {
     setQuery('');
     
     const chatId = addMessageToActiveChat(userMsg);
-    
-    setTimeout(() => {
-      const replyMsg: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: `Analyzing stock data for your request: "${userText}". Market conditions suggest strong momentum in the tech sector today. Here is our assessment: NVDA and AAPL are showing strong accumulation, while TSLA has consolidated support near $175.` 
-      };
-      appendAssistantReply(chatId, replyMsg);
-    }, 1000);
+
+    // Ask the configured agent provider (falls back to the built-in mock).
+    const provider = getAgentProvider();
+    const history: { role: 'user' | 'assistant'; content: string }[] = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const reply = await provider.chat([...history, { role: 'user', content: userText }]);
+
+    const replyMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: reply,
+    };
+    appendAssistantReply(chatId, replyMsg);
   };
 
   const handleInjectPrompt = (ticker: string, promptType: 'research' | 'discuss', customContext?: string) => {
@@ -337,10 +345,8 @@ function StockChatContent() {
           )}
 
           {activeTab === 'chart' && (
-            <div className="flex-1 flex items-center justify-center h-full">
-              <div className="text-center">
-                <p className="text-muted-foreground text-sm">Advanced chart module coming soon</p>
-              </div>
+            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
+              <EmbeddedChart symbol={selectedChartSymbol} />
             </div>
           )}
         </div>

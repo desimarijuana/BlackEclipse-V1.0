@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BlackEclipse
+
+An open-source, agentic AI investment research platform with a Bloomberg-inspired terminal UI. Screen stocks, track a portfolio, follow market news, and explore crypto bubbles — all in a dark, glassmorphic interface.
+
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
+![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+## Features
+
+- **Agentic Chat** — an AI research assistant interface (provider-agnostic, mock by default)
+- **Market Screener** — stocks, crypto, ETFs, IPOs, blue chips, funds, and dividend stocks with advanced filtering
+- **Market Bubbles** — an interactive physics-based crypto bubble visualization
+- **My Portfolio** — holdings, performance charts, asset allocation, and transaction log
+- **Market News** — sentiment-tagged financial news feed
+- **Aurora Background** — a WebGL aurora glow that reacts to market sentiment (green = bullish, red = bearish)
+- **Dark Theme** — consistent black/grey Bloomberg-inspired palette
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript |
+| UI | React 19 + Tailwind CSS v4 |
+| Components | @base-ui/react (shadcn-style) |
+| Charts | Recharts, TradingView widget |
+| 3D/GL | ogl (Aurora background) |
+| PDF | jspdf + jspdf-autotable |
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+- Node.js 20+
+- npm
+
+### Install & Run
 
 ```bash
+# 1. Install dependencies
+npm install
+
+# 2. Start the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Script | Description |
+|---|---|
+| `npm run dev` | Start the Next.js dev server |
+| `npm run build` | Production build |
+| `npm run start` | Start the production server |
+| `npm run lint` | Run ESLint |
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+├── app/                    # Next.js App Router
+│   ├── layout.tsx          # Root layout (dark theme, fonts)
+│   └── page.tsx            # Renders the StockChat terminal
+├── components/
+│   ├── chat/               # Chat input, history, empty state
+│   ├── layout/             # Sidebar, top bar
+│   ├── screens/            # Full-screen views (screener, bubbles, portfolio, news)
+│   └── ui/                 # Reusable primitives (button, card, skeleton, etc.)
+├── hooks/                  # Custom hooks (portfolio engine)
+├── lib/                    # Utilities
+└── types/                  # TypeScript definitions
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The app is fully client-side and runs on **demo data** out of the box — no API keys or database required. This makes it easy to run, test, and contribute to.
 
-## Deploy on Vercel
+The **agentic chat** is designed to be provider-agnostic: swap in OpenAI, Anthropic, or a local Ollama model by setting the corresponding environment variable. Without one, it falls back to built-in mock responses.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Contributing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+[MIT](LICENSE)

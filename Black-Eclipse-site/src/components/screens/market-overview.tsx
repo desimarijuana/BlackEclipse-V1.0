@@ -12,382 +12,12 @@ import { TradingViewChart } from './tradingview-chart';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton, SkeletonHeader, SkeletonIndexCard, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
-
-interface IndexCard {
-  name: string;
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  sparkline: number[];
-}
-
-interface SectorPerformance {
-  name: string;
-  change: number;
-}
-
-interface ShifterItem {
-  symbol: string;
-  name: string;
-  price: number;
-  changePercent: number;
-}
-
-const INDEX_DATA: IndexCard[] = [
-  { name: 'S&P 500', symbol: 'SPX', price: 5304.72, change: 42.10, changePercent: 0.80, sparkline: [5260, 5280, 5275, 5290, 5304.72] },
-  { name: 'Nasdaq Composite', symbol: 'IXIC', price: 16920.72, change: 182.20, changePercent: 1.09, sparkline: [16700, 16820, 16780, 16850, 16920.72] },
-  { name: 'Dow Jones', symbol: 'DJI', price: 39069.59, change: -88.10, changePercent: -0.22, sparkline: [39200, 39150, 39180, 39020, 39069.59] },
-  { name: 'Russell 2000', symbol: 'RUT', price: 2068.32, change: 11.45, changePercent: 0.56, sparkline: [2050, 2062, 2055, 2060, 2068.32] },
-  { name: 'Bitcoin', symbol: 'BTC', price: 67840.00, change: 1420.00, changePercent: 2.14, sparkline: [66200, 66800, 67200, 67000, 67840.0] },
-  { name: 'Gold', symbol: 'GC=F', price: 2348.80, change: -12.40, changePercent: -0.52, sparkline: [2365, 2360, 2355, 2358, 2348.8] },
-];
-
-const SECTOR_PERFORMANCE = [
-  { name: 'Information Technology', change: 1.84 },
-  { name: 'Communication Services', change: 1.25 },
-  { name: 'Health Care', change: 0.88 },
-  { name: 'Financials', change: 0.42 },
-  { name: 'Materials', change: 0.15 },
-  { name: 'Energy', change: -0.12 },
-  { name: 'Industrials', change: -0.34 },
-  { name: 'Consumer Staples', change: -0.45 },
-  { name: 'Real Estate', change: -0.72 },
-  { name: 'Utilities', change: -0.85 },
-  { name: 'Consumer Discretionary', change: -1.12 },
-];
-
-interface StockItem {
-  symbol: string;
-  name: string;
-  sector: string;
-  industry: string;
-  country: string;
-  price: number;
-  changePercent: number;
-  volume: string;
-  marketCap: string;
-  peRatio: string;
-  dividendYield: string;
-  index: string;
-  recommendation: string;
-  exchange: string;
-  // Fundamental metrics
-  forwardPE: string;
-  peg: string;
-  ps: string;
-  pb: string;
-  evEbitda: string;
-  grossMargin: string;
-  operatingMargin: string;
-  netProfitMargin: string;
-  insiderOwnership: string;
-  institutionalOwnership: string;
-  shortFloat: string;
-  // Technical metrics
-  rsi14: string;
-  sma20: string;
-  sma50: string;
-  sma200: string;
-  // CoinGecko fields
-  circulatingSupply?: string;
-  totalSupply?: string;
-  maxSupply?: string;
-  ath?: string;
-  atl?: string;
-  rank?: number;
-  athChangePercent?: number;
-  atlChangePercent?: number;
-  athDate?: string;
-  atlDate?: string;
-  marketCapRaw?: number;
-  volumeRaw?: number;
-  circulatingSupplyRaw?: number;
-  maxSupplyRaw?: number;
-}
-
-
-
-
-interface FundItem {
-  symbol: string;
-  name: string;
-  category: string;
-  nav: number;
-  changePercent: number;
-  ytdReturn: number;
-  expenseRatio: number;
-  rating: number;
-  aum: string;
-}
-
-
-
-export interface ETFItem {
-  symbol: string;
-  name: string;
-  category: string;
-  price: number;
-  changePercent: number;
-  volume: string;
-  aum: string;
-  expenseRatio: string;
-}
-
-export const ETFS_DATA: ETFItem[] = [
-  { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', category: 'Large Blend', price: 529.44, changePercent: 0.81, volume: '62.4M', aum: '502B', expenseRatio: '0.09%' },
-  { symbol: 'QQQ', name: 'Invesco QQQ Trust Series 1', category: 'Large Growth', price: 458.20, changePercent: 1.12, volume: '41.8M', aum: '254B', expenseRatio: '0.20%' },
-  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', category: 'Large Blend', price: 486.50, changePercent: 0.82, volume: '8.2M', aum: '430B', expenseRatio: '0.03%' },
-  { symbol: 'IWM', name: 'iShares Russell 2000 ETF', category: 'Small Blend', price: 205.32, changePercent: 0.56, volume: '24.1M', aum: '58B', expenseRatio: '0.19%' },
-  { symbol: 'DIA', name: 'SPDR Dow Jones Industrial Average ETF', category: 'Large Value', price: 390.68, changePercent: -0.22, volume: '3.1M', aum: '32B', expenseRatio: '0.16%' },
-  { symbol: 'ARKK', name: 'ARK Innovation ETF', category: 'Mid-Cap Growth', price: 43.15, changePercent: 2.45, volume: '9.4M', aum: '6.8B', expenseRatio: '0.75%' },
-];
-
-export interface NewStockItem {
-  symbol: string;
-  name: string;
-  ipoDate: string;
-  price: number;
-  changePercent: number;
-  volume: string;
-  marketCap: string;
-  ipoPrice: number;
-}
-
-export const NEW_STOCKS_DATA: NewStockItem[] = [
-  { symbol: 'RDDT', name: 'Reddit, Inc.', ipoDate: 'Mar 2024', price: 58.40, changePercent: 3.12, volume: '4.8M', marketCap: '9.4B', ipoPrice: 34.00 },
-  { symbol: 'ARM', name: 'ARM Holdings plc', ipoDate: 'Sep 2023', price: 124.50, changePercent: 5.82, volume: '11.2M', marketCap: '128B', ipoPrice: 51.00 },
-  { symbol: 'ALAB', name: 'Astera Labs, Inc.', ipoDate: 'Mar 2024', price: 74.20, changePercent: -1.45, volume: '1.9M', marketCap: '11.6B', ipoPrice: 36.00 },
-  { symbol: 'KVUE', name: 'Kenvue Inc.', ipoDate: 'May 2023', price: 20.15, changePercent: 0.42, volume: '12.4M', marketCap: '38.5B', ipoPrice: 22.00 },
-  { symbol: 'BIRK', name: 'Birkenstock Holding plc', ipoDate: 'Oct 2023', price: 48.60, changePercent: -0.85, volume: '800K', marketCap: '9.1B', ipoPrice: 46.00 },
-];
-
-export interface BlueChipItem {
-  symbol: string;
-  name: string;
-  dividendYield: string;
-  price: number;
-  changePercent: number;
-  volume: string;
-  marketCap: string;
-  peRatio: string;
-  safetyRating: string;
-}
-
-export const BLUE_CHIPS_DATA: BlueChipItem[] = [
-  { symbol: 'BRK.B', name: 'Berkshire Hathaway Inc.', dividendYield: 'None', price: 408.20, changePercent: 0.42, volume: '3.1M', marketCap: '886B', peRatio: '18.5', safetyRating: 'AAA' },
-  { symbol: 'JNJ', name: 'Johnson & Johnson', dividendYield: '3.12%', price: 154.50, changePercent: 0.25, volume: '6.4M', marketCap: '372B', peRatio: '15.4', safetyRating: 'AAA' },
-  { symbol: 'PG', name: 'Procter & Gamble Co.', dividendYield: '2.42%', price: 165.80, changePercent: -0.15, volume: '5.2M', marketCap: '398B', peRatio: '24.2', safetyRating: 'AAA' },
-  { symbol: 'WMT', name: 'Walmart Inc.', dividendYield: '1.38%', price: 65.40, changePercent: 0.62, volume: '14.8M', marketCap: '525B', peRatio: '28.1', safetyRating: 'AA+' },
-  { symbol: 'XOM', name: 'Exxon Mobil Corp.', dividendYield: '3.25%', price: 114.20, changePercent: -0.85, volume: '15.4M', marketCap: '456B', peRatio: '12.8', safetyRating: 'AA+' },
-  { symbol: 'HD', name: 'Home Depot Inc.', dividendYield: '2.54%', price: 348.50, changePercent: 0.12, volume: '3.8M', marketCap: '346B', peRatio: '22.4', safetyRating: 'AA+' },
-];
-
-const TOP_GAINERS = [
-  { symbol: 'NVDA', name: 'NVIDIA Corp.', price: 1096.50, changePercent: 4.60 },
-  { symbol: 'LLY', name: 'Eli Lilly & Co.', price: 818.50, changePercent: 2.10 },
-  { symbol: 'NFLX', name: 'Netflix Inc.', price: 645.20, changePercent: 1.96 },
-  { symbol: 'AAPL', name: 'Apple Inc.', price: 189.84, changePercent: 1.25 },
-  { symbol: 'AMZN', name: 'Amazon.com, Inc.', price: 182.15, changePercent: 1.08 },
-];
-
-const TOP_LOSERS = [
-  { symbol: 'TSLA', name: 'Tesla Inc.', price: 178.50, changePercent: -2.35 },
-  { symbol: 'META', name: 'Meta Platforms', price: 475.40, changePercent: -1.70 },
-  { symbol: 'UNH', name: 'UnitedHealth Group', price: 494.60, changePercent: -1.30 },
-  { symbol: 'AMD', name: 'Advanced Micro Devices', price: 166.30, changePercent: -1.83 },
-  { symbol: 'MSFT', name: 'Microsoft Corp.', price: 429.20, changePercent: -0.42 },
-];
-
-function getSimulatedDashboard(country: string) {
-  let indices: IndexCard[] = [];
-  let sectors: SectorPerformance[] = [];
-  let shifters: { gainers: ShifterItem[]; losers: ShifterItem[] } = { gainers: [], losers: [] };
-
-  if (country === 'CRYPTO' || country === 'Crypto') {
-    indices = [
-      { name: "Bitcoin", symbol: "BTC", price: 67840.0, change: 1420.0, changePercent: 2.14, sparkline: [66200, 66800, 67200, 67000, 67840] },
-      { name: "Ethereum", symbol: "ETH", price: 3500.2, change: 82.5, changePercent: 2.41, sparkline: [3400, 3420, 3450, 3480, 3500.2] },
-      { name: "Solana", symbol: "SOL", price: 168.4, change: 6.2, changePercent: 3.82, sparkline: [160, 162, 165, 164, 168.4] },
-      { name: "Binance Coin", symbol: "BNB", price: 585.5, change: 12.1, changePercent: 2.11, sparkline: [570, 575, 580, 578, 585.5] },
-      { name: "Ripple", symbol: "XRP", price: 0.52, change: 0.015, changePercent: 2.97, sparkline: [0.50, 0.51, 0.50, 0.51, 0.52] },
-      { name: "Dogecoin", symbol: "DOGE", price: 0.154, change: 0.008, changePercent: 5.48, sparkline: [0.142, 0.145, 0.148, 0.150, 0.154] }
-    ];
-    sectors = [
-      { name: "Layer 1", change: 2.85 },
-      { name: "DeFi", change: 1.45 },
-      { name: "Stablecoins", change: 0.0 },
-      { name: "Meme Coins", change: 8.5 },
-      { name: "Exchange Tokens", change: -1.2 },
-      { name: "Layer 2", change: 1.8 }
-    ];
-    shifters = {
-      gainers: [
-        { symbol: 'DOGE', name: 'Dogecoin', price: 0.154, changePercent: 5.48 },
-        { symbol: 'SOL', name: 'Solana', price: 168.40, changePercent: 3.82 },
-        { symbol: 'ETH', name: 'Ethereum', price: 3500.20, changePercent: 2.41 }
-      ],
-      losers: [
-        { symbol: 'BNB', name: 'Binance Coin', price: 585.50, changePercent: -1.20 },
-        { symbol: 'XRP', name: 'Ripple', price: 0.52, changePercent: -0.45 },
-        { symbol: 'BTC', name: 'Bitcoin', price: 67840.00, changePercent: -0.15 }
-      ]
-    };
-  } else {
-    // USA / Default
-    indices = [
-      { name: 'S&P 500', symbol: 'SPX', price: 5304.72, change: 42.10, changePercent: 0.80, sparkline: [5260, 5280, 5275, 5290, 5304.72] },
-      { name: 'Nasdaq Composite', symbol: 'IXIC', price: 16920.72, change: 182.20, changePercent: 1.09, sparkline: [16700, 16820, 16780, 16850, 16920.72] },
-      { name: 'Dow Jones', symbol: 'DJI', price: 39069.59, change: -88.10, changePercent: -0.22, sparkline: [39200, 39150, 39180, 39020, 39069.59] },
-      { name: 'Russell 2000', symbol: 'RUT', price: 2068.32, change: 11.45, changePercent: 0.56, sparkline: [2050, 2062, 2055, 2060, 2068.32] },
-      { name: 'Bitcoin', symbol: 'BTC', price: 67840.00, change: 1420.00, changePercent: 2.14, sparkline: [66200, 66800, 67200, 67000, 67840.0] },
-      { name: 'Gold', symbol: 'GC=F', price: 2348.80, change: -12.40, changePercent: -0.52, sparkline: [2365, 2360, 2355, 2358, 2348.8] }
-    ];
-    sectors = [
-      { name: 'Information Technology', change: 1.84 },
-      { name: 'Communication Services', change: 1.25 },
-      { name: 'Health Care', change: 0.88 },
-      { name: 'Financials', change: 0.42 },
-      { name: 'Materials', change: 0.15 },
-      { name: 'Energy', change: -0.12 },
-      { name: 'Industrials', change: -0.34 },
-      { name: 'Consumer Staples', change: -0.45 },
-      { name: 'Real Estate', change: -0.72 },
-      { name: 'Utilities', change: -0.85 },
-      { name: 'Consumer Discretionary', change: -1.12 }
-    ];
-    shifters = {
-      gainers: [
-        { symbol: 'NVDA', name: 'NVIDIA Corp.', price: 1096.50, changePercent: 4.60 },
-        { symbol: 'LLY', name: 'Eli Lilly & Co.', price: 818.50, changePercent: 2.10 },
-        { symbol: 'NFLX', name: 'Netflix Inc.', price: 645.20, changePercent: 1.96 }
-      ],
-      losers: [
-        { symbol: 'TSLA', name: 'Tesla Inc.', price: 178.50, changePercent: -2.35 },
-        { symbol: 'META', name: 'Meta Platforms', price: 475.40, changePercent: -1.70 },
-        { symbol: 'UNH', name: 'UnitedHealth Group', price: 494.60, changePercent: -1.30 }
-      ]
-    };
-  }
-
-  return { indices, sectors, shifters };
-}
-
-// Regional data tailored to user selected countries
-function getRegionalEtfs(country: string): ETFItem[] {
-  const data: Record<string, ETFItem[]> = {
-    USA: [
-      { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', category: 'Large Blend', price: 529.44, changePercent: 0.81, volume: '62.4M', aum: '502B', expenseRatio: '0.09%' },
-      { symbol: 'QQQ', name: 'Invesco QQQ Trust Series 1', category: 'Large Growth', price: 458.20, changePercent: 1.12, volume: '41.8M', aum: '254B', expenseRatio: '0.20%' },
-      { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', category: 'Large Blend', price: 486.50, changePercent: 0.82, volume: '8.2M', aum: '430B', expenseRatio: '0.03%' },
-      { symbol: 'IWM', name: 'iShares Russell 2000 ETF', category: 'Small Blend', price: 205.32, changePercent: 0.56, volume: '24.1M', aum: '58B', expenseRatio: '0.19%' },
-      { symbol: 'DIA', name: 'SPDR Dow Jones Industrial ETF', category: 'Large Value', price: 390.68, changePercent: -0.22, volume: '3.1M', aum: '32B', expenseRatio: '0.16%' },
-      { symbol: 'ARKK', name: 'ARK Innovation ETF', category: 'Mid-Cap Growth', price: 43.15, changePercent: 2.45, volume: '9.4M', aum: '6.8B', expenseRatio: '0.75%' }
-    ],
-    India: [
-      { symbol: 'NIFTYBEES', name: 'Nippon India ETF Nifty BeES', category: 'Large Blend', price: 246.50, changePercent: 0.74, volume: '1.8M', aum: '2.4B', expenseRatio: '0.12%' },
-      { symbol: 'JUNIORBEES', name: 'Nippon India ETF Junior BeES', category: 'Mid Blend', price: 584.20, changePercent: 0.85, volume: '0.5M', aum: '0.8B', expenseRatio: '0.15%' },
-      { symbol: 'GILTBEES', name: 'Nippon India ETF Gilt BeES', category: 'Government Bond', price: 112.40, changePercent: 0.10, volume: '0.3M', aum: '0.5B', expenseRatio: '0.14%' },
-      { symbol: 'BANKBEES', name: 'Nippon India ETF Bank BeES', category: 'Financial Services', price: 488.50, changePercent: 0.25, volume: '1.2M', aum: '1.5B', expenseRatio: '0.13%' }
-    ],
-    Pakistan: [
-      { symbol: 'NITGBF-ETF', name: 'NIT Government Bond ETF', category: 'Income Fund', price: 10.42, changePercent: 0.40, volume: '0.2M', aum: '12M', expenseRatio: '0.40%' },
-      { symbol: 'UBLPET-ETF', name: 'UBL Pakistan Enterprise ETF', category: 'Equity Fund', price: 15.20, changePercent: 0.82, volume: '0.4M', aum: '8M', expenseRatio: '0.50%' },
-      { symbol: 'MZNP-ETF', name: 'Meezan Pakistan ETF', category: 'Shariah Equity', price: 12.10, changePercent: 1.05, volume: '0.5M', aum: '10M', expenseRatio: '0.45%' }
-    ]
-  };
-  return data[country] || data['USA'];
-}
-
-function getRegionalNewListings(country: string): NewStockItem[] {
-  const data: Record<string, NewStockItem[]> = {
-    USA: [
-      { symbol: 'RDDT', name: 'Reddit, Inc.', ipoDate: 'Mar 2024', price: 58.40, changePercent: 3.12, volume: '4.8M', marketCap: '9.4B', ipoPrice: 34.00 },
-      { symbol: 'ARM', name: 'ARM Holdings plc', ipoDate: 'Sep 2023', price: 124.50, changePercent: 5.82, volume: '11.2M', marketCap: '128B', ipoPrice: 51.00 },
-      { symbol: 'ALAB', name: 'Astera Labs, Inc.', ipoDate: 'Mar 2024', price: 74.20, changePercent: -1.45, volume: '1.9M', marketCap: '11.6B', ipoPrice: 36.00 },
-      { symbol: 'KVUE', name: 'Kenvue Inc.', ipoDate: 'May 2023', price: 20.15, changePercent: 0.42, volume: '12.4M', marketCap: '38.5B', ipoPrice: 22.00 },
-      { symbol: 'BIRK', name: 'Birkenstock Holding plc', ipoDate: 'Oct 2023', price: 48.60, changePercent: -0.85, volume: '800K', marketCap: '9.1B', ipoPrice: 46.00 }
-    ],
-    India: [
-      { symbol: 'PREMIER.NS', name: 'Premier Energies Ltd', ipoDate: 'Sep 2024', price: 890.50, changePercent: 4.80, volume: '2.5M', marketCap: '4.2B', ipoPrice: 450.00 },
-      { symbol: 'TATATECH.NS', name: 'Tata Technologies Ltd', ipoDate: 'Nov 2023', price: 1045.20, changePercent: -0.95, volume: '1.2M', marketCap: '5.6B', ipoPrice: 500.00 },
-      { symbol: 'JSWINFRA.NS', name: 'JSW Infrastructure Ltd', ipoDate: 'Oct 2023', price: 254.10, changePercent: 1.15, volume: '0.8M', marketCap: '3.1B', ipoPrice: 119.00 }
-    ],
-    Pakistan: [
-      { symbol: 'SECURE-LP', name: 'Secure Logistics Group', ipoDate: 'Apr 2024', price: 18.50, changePercent: 1.12, volume: '0.4M', marketCap: '45M', ipoPrice: 12.00 },
-      { symbol: 'SYM-LP', name: 'Symmetry Group Limited', ipoDate: 'Aug 2023', price: 5.40, changePercent: 2.30, volume: '0.8M', marketCap: '12M', ipoPrice: 4.25 }
-    ]
-  };
-  return data[country] || data['USA'];
-}
-
-function getRegionalBlueChips(country: string): BlueChipItem[] {
-  const data: Record<string, BlueChipItem[]> = {
-    USA: [
-      { symbol: 'BRK.B', name: 'Berkshire Hathaway Inc.', dividendYield: 'None', price: 408.20, changePercent: 0.42, volume: '3.1M', marketCap: '886B', peRatio: '18.5', safetyRating: 'AAA' },
-      { symbol: 'JNJ', name: 'Johnson & Johnson', dividendYield: '3.12%', price: 154.50, changePercent: 0.25, volume: '6.4M', marketCap: '372B', peRatio: '15.4', safetyRating: 'AAA' },
-      { symbol: 'PG', name: 'Procter & Gamble Co.', dividendYield: '2.42%', price: 165.80, changePercent: -0.15, volume: '5.2M', marketCap: '398B', peRatio: '24.2', safetyRating: 'AAA' },
-      { symbol: 'WMT', name: 'Walmart Inc.', dividendYield: '1.38%', price: 65.40, changePercent: 0.62, volume: '14.8M', marketCap: '525B', peRatio: '28.1', safetyRating: 'AA+' },
-      { symbol: 'XOM', name: 'Exxon Mobil Corp.', dividendYield: '3.25%', price: 114.20, changePercent: -0.85, volume: '15.4M', marketCap: '456B', peRatio: '12.8', safetyRating: 'AA+' }
-    ],
-    India: [
-      { symbol: 'RELIANCE.NS', name: 'Reliance Industries', dividendYield: '0.35%', price: 2854.50, changePercent: 0.95, volume: '5.2M', marketCap: '230B', peRatio: '25.4', safetyRating: 'AAA' },
-      { symbol: 'TCS.NS', name: 'Tata Consultancy Services', dividendYield: '1.25%', price: 3820.20, changePercent: 1.45, volume: '2.1M', marketCap: '170B', peRatio: '28.2', safetyRating: 'AAA' },
-      { symbol: 'HDFCBANK.NS', name: 'HDFC Bank Ltd', dividendYield: '1.10%', price: 1485.40, changePercent: 0.25, volume: '12.4M', marketCap: '135B', peRatio: '18.5', safetyRating: 'AAA' },
-      { symbol: 'INFY.NS', name: 'Infosys Ltd', dividendYield: '2.40%', price: 1430.50, changePercent: 1.15, volume: '6.2M', marketCap: '78B', peRatio: '24.2', safetyRating: 'AA+' }
-    ],
-    Pakistan: [
-      { symbol: 'SYS.KA', name: 'Systems Limited', dividendYield: '2.10%', price: 420.50, changePercent: 2.10, volume: '0.8M', marketCap: '0.5B', peRatio: '14.2', safetyRating: 'AA+' },
-      { symbol: 'LUCK.KA', name: 'Lucky Cement', dividendYield: '3.40%', price: 785.40, changePercent: 0.85, volume: '1.2M', marketCap: '1.1B', peRatio: '9.2', safetyRating: 'AAA' },
-      { symbol: 'ENGRO.KA', name: 'Engro Corporation', dividendYield: '8.50%', price: 345.20, changePercent: 1.50, volume: '1.5M', marketCap: '1.2B', peRatio: '7.4', safetyRating: 'AAA' },
-      { symbol: 'FFC.KA', name: 'Fauji Fertilizer Company', dividendYield: '9.20%', price: 168.40, changePercent: 0.40, volume: '2.4M', marketCap: '0.8B', peRatio: '6.8', safetyRating: 'AA+' }
-    ]
-  };
-  return data[country] || data['USA'];
-}
-
-function getRegionalFunds(country: string): FundItem[] {
-  const data: Record<string, FundItem[]> = {
-    USA: [
-      { symbol: 'VFIAX', name: 'Vanguard 500 Index Admiral', category: 'Large Blend', nav: 488.24, changePercent: 0.81, ytdReturn: 11.24, expenseRatio: 0.04, rating: 5, aum: '1.1T' },
-      { symbol: 'AGTHX', name: 'American Funds Growth Fund', category: 'Large Growth', nav: 68.42, changePercent: 1.45, ytdReturn: 13.80, expenseRatio: 0.62, rating: 4, aum: '260B' },
-      { symbol: 'VGTSX', name: 'Vanguard Total Intl Stock', category: 'Foreign Large Blend', nav: 21.50, changePercent: 0.30, ytdReturn: 6.42, expenseRatio: 0.17, rating: 4, aum: '420B' }
-    ],
-    India: [
-      { symbol: 'SBI-BLUE', name: 'SBI Bluechip Fund Growth', category: 'Large Growth', nav: 82.50, changePercent: 0.74, ytdReturn: 14.20, expenseRatio: 0.85, rating: 5, aum: '5.2B' },
-      { symbol: 'HDFC-MID', name: 'HDFC Mid-Cap Opportunities', category: 'Mid Growth', nav: 142.60, changePercent: 0.95, ytdReturn: 18.50, expenseRatio: 0.75, rating: 5, aum: '8.4B' },
-      { symbol: 'NIPPON-SM', name: 'Nippon India Small Cap Fund', category: 'Small Growth', nav: 154.20, changePercent: 1.10, ytdReturn: 22.40, expenseRatio: 0.90, rating: 4, aum: '6.5B' }
-    ],
-    Pakistan: [
-      { symbol: 'MCB-CMO', name: 'MCB Cash Management Optimizer', category: 'Money Market', nav: 104.50, changePercent: 0.40, ytdReturn: 21.50, expenseRatio: 0.60, rating: 5, aum: '150M' },
-      { symbol: 'MEEZAN-SF', name: 'Al Meezan Shariah Stock Fund', category: 'Islamic Equity', nav: 88.20, changePercent: 0.85, ytdReturn: 32.40, expenseRatio: 1.50, rating: 4, aum: '85M' },
-      { symbol: 'NBP-SF', name: 'NBP Balanced Stock Fund', category: 'Balanced Fund', nav: 22.40, changePercent: 0.50, ytdReturn: 24.80, expenseRatio: 1.20, rating: 4, aum: '62M' }
-    ]
-  };
-  return data[country] || data['USA'];
-}
-
-function getRegionalDividendStocks(country: string): BlueChipItem[] {
-  const data: Record<string, BlueChipItem[]> = {
-    USA: [
-      { symbol: 'KO', name: 'The Coca-Cola Co.', dividendYield: '3.10%', price: 61.20, changePercent: 0.45, volume: '11.2M', marketCap: '265B', peRatio: '24.2', safetyRating: 'AAA' },
-      { symbol: 'PEP', name: 'PepsiCo Inc.', dividendYield: '2.95%', price: 168.40, changePercent: 0.20, volume: '5.4M', marketCap: '231B', peRatio: '22.8', safetyRating: 'AAA' },
-      { symbol: 'MO', name: 'Altria Group Inc.', dividendYield: '8.45%', price: 44.50, changePercent: -0.65, volume: '9.2M', marketCap: '78B', peRatio: '9.4', safetyRating: 'AA' },
-      { symbol: 'T', name: 'AT&T Inc.', dividendYield: '6.20%', price: 17.85, changePercent: -0.15, volume: '32.4M', marketCap: '128B', peRatio: '8.5', safetyRating: 'A+' }
-    ],
-    India: [
-      { symbol: 'ITC.NS', name: 'ITC Limited', dividendYield: '3.80%', price: 425.20, changePercent: 0.65, volume: '8.5M', marketCap: '65B', peRatio: '24.5', safetyRating: 'AAA' },
-      { symbol: 'COALINDIA.NS', name: 'Coal India Ltd', dividendYield: '6.15%', price: 448.40, changePercent: 1.10, volume: '9.4M', marketCap: '32B', peRatio: '8.4', safetyRating: 'AA+' },
-      { symbol: 'PFC.NS', name: 'Power Finance Corp', dividendYield: '4.80%', price: 382.50, changePercent: 1.85, volume: '12.4M', marketCap: '18B', peRatio: '7.2', safetyRating: 'AA+' }
-    ],
-    Pakistan: [
-      { symbol: 'EFERT.KA', name: 'Engro Fertilizers', dividendYield: '14.20%', price: 154.50, changePercent: 0.95, volume: '2.5M', marketCap: '0.8B', peRatio: '6.4', safetyRating: 'AA+' },
-      { symbol: 'FFC.KA', name: 'Fauji Fertilizer Company', dividendYield: '12.80%', price: 168.40, changePercent: 0.40, volume: '2.4M', marketCap: '0.8B', peRatio: '6.8', safetyRating: 'AA+' },
-      { symbol: 'HUBC.KA', name: 'Hub Power Company', dividendYield: '11.50%', price: 124.50, changePercent: 1.10, volume: '3.1M', marketCap: '0.6B', peRatio: '5.2', safetyRating: 'AA+' }
-    ]
-  };
-  return data[country] || data['USA'];
-}
+import {
+  IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, NewStockItem, BlueChipItem,
+  INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
+  getSimulatedDashboard,
+} from './market-data';
+import { useScreenerFilters } from './use-screener-filters';
 
 function TableSkeleton({ cols = 11, rows = 6 }: { cols?: number; rows?: number }) {
   return (
@@ -683,182 +313,24 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     doc.save(`black-eclipse-${screenerTab}-${fileRegion}.pdf`);
   };
 
-  // Stock Filter & Sort logic
-  const filteredStocks = apiStocks.filter(item => {
-    const matchesSearch = item.symbol.toLowerCase().includes(stockSearch.toLowerCase()) || 
-                          item.name.toLowerCase().includes(stockSearch.toLowerCase());
-    
-    const matchesExchange = filterExchange === 'All' || item.exchange === filterExchange;
-    const matchesSector = filterSector === 'All' || item.sector === filterSector;
-    const matchesIndustry = filterIndustry === 'All' || item.industry === filterIndustry;
-    
-    if (screenerTab === 'crypto') {
-      // For crypto: apply search, category (sector), market cap, and 24h change filters
-      function parseCapStr2(val: string): number {
-        const v = parseFloat(val);
-        if (isNaN(v)) return 0;
-        if (val.endsWith('T')) return v * 1_000_000;
-        if (val.endsWith('B')) return v * 1_000;
-        if (val.endsWith('M')) return v;
-        return 0;
-      }
-      const capMil = parseCapStr2(item.marketCap);
-      let matchesCryptoCap = true;
-      if (filterMarketCap === 'Mega') matchesCryptoCap = capMil >= 100_000;
-      else if (filterMarketCap === 'Large') matchesCryptoCap = capMil >= 10_000 && capMil < 100_000;
-      else if (filterMarketCap === 'Mid') matchesCryptoCap = capMil >= 2_000 && capMil < 10_000;
-      else if (filterMarketCap === 'Small') matchesCryptoCap = capMil > 0 && capMil < 2_000;
-
-      let matchesCryptoChange = true;
-      const chg = item.changePercent;
-      if (filterChange === 'Positive') matchesCryptoChange = chg > 0;
-      else if (filterChange === 'Negative') matchesCryptoChange = chg < 0;
-      else if (filterChange === 'Over2') matchesCryptoChange = chg >= 2;
-      else if (filterChange === 'UnderMinus2') matchesCryptoChange = chg <= -2;
-
-      let matchesMetricType = true;
-      const circRatio = item.maxSupplyRaw && item.maxSupplyRaw > 0 ? (item.circulatingSupplyRaw || 0) / item.maxSupplyRaw : 1;
-      
-      if (filterMetricType === 'Top Liquidity') {
-        matchesMetricType = (item.volumeRaw || 0) >= 50_000_000;
-      } else if (filterMetricType === 'Near ATH') {
-        matchesMetricType = (item.athChangePercent || 0) >= -15;
-      } else if (filterMetricType === 'Most Traded') {
-        matchesMetricType = (item.volumeRaw || 0) >= 10_000_000;
-      } else if (filterMetricType === 'Low Float') {
-        matchesMetricType = circRatio > 0 && circRatio < 0.35;
-      } else if (filterMetricType === 'High Circulating Ratio') {
-        matchesMetricType = circRatio >= 0.80;
-      }
-
-      return matchesSearch && matchesExchange && matchesSector && matchesIndustry && matchesCryptoCap && matchesCryptoChange && matchesMetricType;
-    }
-
-    const matchesIndex = filterIndex === 'All' || item.index.includes(filterIndex);
-    
-    // Country logic: filter based on user country selection
-    const countryMap: Record<string, string> = {
-      USA: 'US',
-      India: 'IN',
-      Pakistan: 'PK',
-      China: 'CN',
-      Taiwan: 'TW',
-      Netherlands: 'NL',
-      Switzerland: 'CH',
-      All: 'All'
-    };
-    const targetUserCountry = countryMap[userCountry] || userCountry;
-    const targetFilterCountry = countryMap[filterCountry] || filterCountry;
-
-    const matchesCountry = (filterCountry === 'All' || item.country === targetFilterCountry) &&
-                           (userCountry === 'All' || item.country === targetUserCountry);
-
-    // ── Parse market cap string (e.g. "1.3T", "28.4B", "540M") ──
-    function parseCapStr(val: string): number {
-      const v = parseFloat(val);
-      if (isNaN(v)) return 0;
-      if (val.endsWith('T')) return v * 1_000_000;
-      if (val.endsWith('B')) return v * 1_000;
-      if (val.endsWith('M')) return v;
-      return v / 1_000_000; // raw number assumed dollars → convert to M
-    }
-    const capInMillions = parseCapStr(item.marketCap);
-    let matchesMarketCap = true;
-    if (filterMarketCap === 'Mega') matchesMarketCap = capInMillions >= 100_000;      // $100B+
-    else if (filterMarketCap === 'Large') matchesMarketCap = capInMillions >= 10_000 && capInMillions < 100_000; // $10B–$100B
-    else if (filterMarketCap === 'Mid') matchesMarketCap = capInMillions >= 2_000 && capInMillions < 10_000;   // $2B–$10B
-    else if (filterMarketCap === 'Small') matchesMarketCap = capInMillions > 0 && capInMillions < 2_000;         // <$2B
-
-    // P/E Ratio match
-    const pe = parseFloat(item.peRatio);
-    let matchesPE = true;
-    if (isNaN(pe)) {
-      if (filterPE !== 'All') matchesPE = false;
-    } else {
-      if (filterPE === 'Under15') matchesPE = pe < 15;
-      else if (filterPE === 'Under20') matchesPE = pe < 20;
-      else if (filterPE === 'Under30') matchesPE = pe < 30;
-      else if (filterPE === 'Over30') matchesPE = pe > 30;
-      else if (filterPE === 'Over50') matchesPE = pe > 50;
-    }
-
-    // Dividend Yield match
-    const dy = item.dividendYield;
-    let matchesDividend = true;
-    if (filterDividendYield === 'None') matchesDividend = dy === 'None';
-    else if (filterDividendYield === 'Positive') matchesDividend = dy !== 'None';
-    else if (filterDividendYield === 'Over2') matchesDividend = dy !== 'None' && parseFloat(dy) >= 2;
-    else if (filterDividendYield === 'Over5') matchesDividend = dy !== 'None' && parseFloat(dy) >= 5;
-
-    // Price match
-    const price = item.price;
-    let matchesPrice = true;
-    if (filterPrice === 'Under10') matchesPrice = price < 10;
-    else if (filterPrice === 'Under50') matchesPrice = price < 50;
-    else if (filterPrice === 'Under100') matchesPrice = price < 100;
-    else if (filterPrice === 'Over100') matchesPrice = price >= 100;
-    else if (filterPrice === 'Over500') matchesPrice = price >= 500;
-
-    // Change match
-    const change = item.changePercent;
-    let matchesChange = true;
-    if (filterChange === 'Positive') matchesChange = change > 0;
-    else if (filterChange === 'Negative') matchesChange = change < 0;
-    else if (filterChange === 'Over2') matchesChange = change >= 2;
-    else if (filterChange === 'UnderMinus2') matchesChange = change <= -2;
-
-    // ── Parse volume string (e.g. "28.4B", "14.2M", "800K") ──
-    function parseVolStr(val: string): number {
-      const v = parseFloat(val);
-      if (isNaN(v)) return 0;
-      if (val.endsWith('B')) return v * 1_000; // convert to millions
-      if (val.endsWith('M')) return v;
-      if (val.endsWith('K')) return v / 1_000;
-      return v / 1_000_000; // raw number → millions
-    }
-    const volInMillions = parseVolStr(item.volume);
-    let matchesVolume = true;
-    if (filterVolume === 'Under1') matchesVolume = volInMillions < 1;
-    else if (filterVolume === '1to10') matchesVolume = volInMillions >= 1 && volInMillions <= 10;
-    else if (filterVolume === 'Over10') matchesVolume = volInMillions > 10;
-    else if (filterVolume === 'Over30') matchesVolume = volInMillions > 30;
-
-    // Recommendation match
-    let matchesRec = true;
-    if (filterRecommendation === 'StrongBuy') matchesRec = item.recommendation === 'Strong Buy';
-    else if (filterRecommendation === 'BuyOrBetter') matchesRec = item.recommendation === 'Buy' || item.recommendation === 'Strong Buy';
-    else if (filterRecommendation === 'HoldOrWorse') matchesRec = item.recommendation === 'Hold' || item.recommendation === 'Sell';
-    else if (filterRecommendation === 'Sell') matchesRec = item.recommendation === 'Sell';
-
-    return matchesSearch && matchesExchange && matchesIndex && matchesSector && matchesIndustry && matchesCountry && matchesMarketCap && matchesPE && matchesDividend && matchesPrice && matchesChange && matchesVolume && matchesRec;
-  }).sort((a, b) => {
-    let valA = a[stockSortField];
-    let valB = b[stockSortField];
-
-    if (stockSortField === 'marketCap' && a.marketCapRaw !== undefined && b.marketCapRaw !== undefined) {
-      valA = a.marketCapRaw;
-      valB = b.marketCapRaw;
-    } else if (stockSortField === 'volume' && a.volumeRaw !== undefined && b.volumeRaw !== undefined) {
-      valA = a.volumeRaw;
-      valB = b.volumeRaw;
-    } else if (stockSortField === 'circulatingSupply' && a.circulatingSupplyRaw !== undefined && b.circulatingSupplyRaw !== undefined) {
-      valA = a.circulatingSupplyRaw;
-      valB = b.circulatingSupplyRaw;
-    } else if (stockSortField === 'maxSupply' && a.maxSupplyRaw !== undefined && b.maxSupplyRaw !== undefined) {
-      valA = a.maxSupplyRaw;
-      valB = b.maxSupplyRaw;
-    } else if (stockSortField === 'ath' && a.athChangePercent !== undefined && b.athChangePercent !== undefined) {
-      valA = a.athChangePercent;
-      valB = b.athChangePercent;
-    }
-
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return stockSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return stockSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
+  // Filter & sort logic (extracted to a pure hook for testability + reuse)
+  const {
+    filteredStocks,
+    filteredFunds,
+    filteredETFs,
+    filteredNewStocks,
+    filteredBlueChips,
+    filteredDividendStocks,
+  } = useScreenerFilters({
+    apiStocks, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
+    filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
+    filterChange, filterVolume, filterRecommendation, filterMetricType,
+    screenerTab, userCountry, stockSortField, stockSortOrder,
+    fundSearch, fundCategory, fundSortField, fundSortOrder,
+    etfSearch, etfCategory, etfSortField, etfSortOrder,
+    newStockSearch, newStockSortField, newStockSortOrder,
+    blueChipSearch, blueChipRating, blueChipSortField, blueChipSortOrder,
+    dividendSearch, dividendSortField, dividendSortOrder,
   });
 
   const toggleStockSort = (field: keyof StockItem) => {
@@ -870,24 +342,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   };
 
-  // Fund Filter & Sort logic
-  const filteredFunds = getRegionalFunds(userCountry).filter(item => {
-    const matchesSearch = item.symbol.toLowerCase().includes(fundSearch.toLowerCase()) || 
-                          item.name.toLowerCase().includes(fundSearch.toLowerCase());
-    const matchesCategory = fundCategory === 'All' || item.category === fundCategory;
-    return matchesSearch && matchesCategory;
-  }).sort((a, b) => {
-    const valA = a[fundSortField];
-    const valB = b[fundSortField];
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return fundSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return fundSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
-  });
-
   const toggleFundSort = (field: keyof FundItem) => {
     if (fundSortField === field) {
       setFundSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -896,24 +350,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       setFundSortOrder('asc');
     }
   };
-
-  // ETF Filter & Sort logic
-  const filteredETFs = getRegionalEtfs(userCountry).filter(item => {
-    const matchesSearch = item.symbol.toLowerCase().includes(etfSearch.toLowerCase()) || 
-                          item.name.toLowerCase().includes(etfSearch.toLowerCase());
-    const matchesCategory = etfCategory === 'All' || item.category === etfCategory;
-    return matchesSearch && matchesCategory;
-  }).sort((a, b) => {
-    const valA = a[etfSortField];
-    const valB = b[etfSortField];
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return etfSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return etfSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
-  });
 
   const toggleEtfSort = (field: keyof ETFItem) => {
     if (etfSortField === field) {
@@ -924,22 +360,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   };
 
-  // New Stocks Filter & Sort logic
-  const filteredNewStocks = getRegionalNewListings(userCountry).filter(item => {
-    return item.symbol.toLowerCase().includes(newStockSearch.toLowerCase()) || 
-           item.name.toLowerCase().includes(newStockSearch.toLowerCase());
-  }).sort((a, b) => {
-    const valA = a[newStockSortField];
-    const valB = b[newStockSortField];
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return newStockSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return newStockSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
-  });
-
   const toggleNewStockSort = (field: keyof NewStockItem) => {
     if (newStockSortField === field) {
       setNewStockSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -949,24 +369,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   };
 
-  // Blue Chips Filter & Sort logic
-  const filteredBlueChips = getRegionalBlueChips(userCountry).filter(item => {
-    const matchesSearch = item.symbol.toLowerCase().includes(blueChipSearch.toLowerCase()) || 
-                          item.name.toLowerCase().includes(blueChipSearch.toLowerCase());
-    const matchesRating = blueChipRating === 'All' || item.safetyRating === blueChipRating;
-    return matchesSearch && matchesRating;
-  }).sort((a, b) => {
-    const valA = a[blueChipSortField];
-    const valB = b[blueChipSortField];
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return blueChipSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return blueChipSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
-  });
-
   const toggleBlueChipSort = (field: keyof BlueChipItem) => {
     if (blueChipSortField === field) {
       setBlueChipSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -975,23 +377,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       setBlueChipSortOrder('asc');
     }
   };
-
-  // Dividend Stocks Filter & Sort logic
-  const filteredDividendStocks = getRegionalDividendStocks(userCountry).filter(item => {
-    const matchesSearch = item.symbol.toLowerCase().includes(dividendSearch.toLowerCase()) || 
-                          item.name.toLowerCase().includes(dividendSearch.toLowerCase());
-    return matchesSearch;
-  }).sort((a, b) => {
-    const valA = a[dividendSortField];
-    const valB = b[dividendSortField];
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return dividendSortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return dividendSortOrder === 'asc' ? valA - valB : valB - valA;
-    }
-    return 0;
-  });
 
   const toggleDividendSort = (field: keyof BlueChipItem) => {
     if (dividendSortField === field) {
