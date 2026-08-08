@@ -20,6 +20,7 @@ Never:
 - Delete working code to hide an error.
 - Change multiple unrelated systems at once.
 - Disable validation or suppress errors to hide the root cause.
+- Commit, push, or create branches/PRs unless the user explicitly asks.
 
 **Memory guidance:** If a build fails with `memory allocation ... bytes failed`, free RAM first (close heavy apps); don't fight the compiler on the large `market-overview.tsx`.
 

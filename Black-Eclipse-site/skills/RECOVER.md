@@ -58,6 +58,7 @@ Use the **smallest** level necessary to restore function.
 - Use commits as recovery points.
 - Never overwrite unrelated user changes.
 - Never perform destructive Git operations (`reset --hard`, `force-push`) without explicit authorization.
+- **Never commit, push, or create branches/PRs unless the user explicitly asks.**
 
 ## Memory-Specific Guidance
 

@@ -18,3 +18,4 @@ Rules:
 - Mark outdated info as `[DEPRECATED]` rather than silently deleting it.
 - Never store useless noise; keep entries concise and actionable.
 - Test after every change (`npm run test` + `npx tsc --noEmit`).
+- Never commit, push, or create branches/PRs unless the user explicitly asks.

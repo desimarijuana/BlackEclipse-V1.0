@@ -48,6 +48,7 @@
 
 ## Known Constraints
 
+- **Git**: never commit, push, or create branches/PRs unless the user explicitly asks. When asked, inspect status/diff, stage only intended files, never commit secrets.
 - **Memory**: The machine has 7.9GB RAM. `next build`/`next dev` on the large `market-overview.tsx` (~1900 lines) can hit 16GB allocation failures when free RAM is low. **Keep components small; split large files into hooks/modules.**
 - **@base-ui/react v1.5.0**: SSR/hydration quirks. Portal-based components (Tooltip, Dialog) must be **mounted-gated** (render `null` until client `mounted` state is true).
 - **Fonts**: `--font-sans` and `--font-serif` are the **same** system sans stack (intentional for consistency). `--font-mono` is JetBrains/IBM Plex mono.

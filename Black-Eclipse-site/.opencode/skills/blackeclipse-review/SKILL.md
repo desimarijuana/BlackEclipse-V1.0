@@ -3,7 +3,7 @@ name: blackeclipse-review
 description: Mandatory pre-completion checklist before finishing any BlackEclipse task. Use to verify work across functional, architectural, data, security, performance, UI, and regression categories before reporting a task complete.
 ---
 
-Treat `skills/REVIEW.md` as a mandatory pre-completion checklist. Before declaring a task done, verify:
+Treat `skills/REVIEW.md` as a mandatory pre-completion checklist. **Run it at the end of EVERY task automatically** — do not wait to be asked. Before declaring a task done, verify:
 
 - **Functional**: feature works, edge cases, loading/empty/error states
 - **Architectural**: follows `skills/ARCHITECT.md`, no duplication, correct layers
@@ -14,6 +14,8 @@ Treat `skills/REVIEW.md` as a mandatory pre-completion checklist. Before declari
 - **Regression**: inspect what could break, verify related code
 
 **Test-after-every-change rule:** Run `npm run test` (Vitest) and `npx tsc --noEmit` after every change.
+
+**Git rule:** Do **not** commit, push, or create branches/PRs unless the user explicitly asks.
 
 For major changes, internally confirm: IMPLEMENTED, TESTED, REVIEWED, NO KNOWN REGRESSIONS, ARCHITECTURE CONSISTENT, UI CONSISTENT, DATA VALIDATED.
 

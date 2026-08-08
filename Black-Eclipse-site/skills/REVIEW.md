@@ -1,7 +1,12 @@
 # REVIEW.md — Code, Architecture & Context Review System
 
-> Treat this as a **mandatory pre-completion checklist**. Before declaring any task done, run the relevant checks below against your actual changes.
+> Treat this as a **mandatory pre-completion checklist**. **Run it at the end of EVERY task**, automatically — do not wait to be asked.
 > For a **financial product**, data accuracy and correctness outweigh visual polish. Never claim something is complete if it has not actually been verified.
+
+## When to run this
+Run the full review checklist **before reporting any task complete**. This is not optional and not something to ask the user about — it is part of finishing the work.
+
+**Git rule:** Do **not** commit, push, or create branches/PRs unless the user explicitly asks. When they do, inspect `git status`/`git diff` first, stage only intended files, and never commit secrets.
 
 ---
 
