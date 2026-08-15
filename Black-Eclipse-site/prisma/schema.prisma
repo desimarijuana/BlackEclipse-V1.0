@@ -1,0 +1,148 @@
+// JDDS — Joint Data Distribution System
+// SQLite-backed data vault. Stores scraped market data once and distributes
+// it to every screen. Zero-config (local file DB).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// A market / exchange (e.g. US, Pakistan, India, China, Crypto).
+model Market {
+  id         String  @id
+  country    String  @unique // 'US', 'PK', 'IN', 'CN', 'CRYPTO', ...
+  exchange   String
+  timezone   String
+  openHour   Int
+  closeHour  Int
+  enabled    Boolean @default(true)
+  isCrypto   Boolean @default(false)
+  createdAt  DateTime @default(now())
+  assets     Asset[]
+}
+
+// A single tradable asset belonging to a market.
+// Dedup: the @@unique([marketId, symbol]) constraint guarantees at most one
+// asset per (market, symbol) — re-importing the same symbol updates in place
+// instead of creating a duplicate.
+model Asset {
+  id           String  @id @default(cuid())
+  symbol       String
+  name         String
+  marketId     String
+  sector       String?
+  industry     String?
+  country      String?
+  // Security type / asset class from the market universe (e.g. 'Common Stock',
+  // 'ETF', 'Mutual Fund', 'ADR', 'Preferred Stock', 'Warrant', ...).
+  securityType String?
+  assetClass   String?
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  price  Price?
+
+  @@unique([marketId, symbol])
+}
+
+// Latest price for an asset.
+// source: 'scraper' (live scrape) or 'csv' (imported historical/API data).
+model Price {
+  assetId    String   @id
+  price      Float
+  changePct  Float
+  marketCap  Float?
+  volume     Float?
+  peRatio    Float?
+  source     String   @default("scraper")
+  updatedAt  DateTime @updatedAt
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+// Learned source reliability — powers self-healing source rotation.
+model SourceHealth {
+  id          String  @id @default(cuid())
+  source      String  // strategy id, e.g. 'http', 'browser', 'search', 'crypto'
+  market      String
+  symbol      String  // '*' for whole-market default
+  successCount Int    @default(0)
+  failCount    Int    @default(0)
+  lastStatus   String
+  lastError    String?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([source, market, symbol])
+}
+
+// User-configured cron jobs.
+model CronJob {
+  id              String   @id @default(cuid())
+  type            String   @unique // 'price_refresh', 'universe_sync'
+  intervalMinutes Int      @default(15)
+  lastRunAt       DateTime?
+  nextRunAt       DateTime?
+  enabled         Boolean  @default(true)
+}
+
+// Key-value system/user config.
+model SystemConfig {
+  key   String @id
+  value String
+}
+
+// ─── Agentic Research Memory ─────────────────────────────────────────
+// Persists what the research agents did so they can cite past findings,
+// avoid redoing work, and "self-heal" (retry failed tool calls).
+
+// A single research run triggered by a user query (e.g. "research PSX").
+model ResearchReport {
+  id          String   @id @default(cuid())
+  query       String // the user's original request
+  ticker      String? // primary symbol researched, if any
+  market      String? // 'US', 'PK', 'IN', 'CRYPTO', ...
+  status      String   @default("running") // running | done | failed
+  summary     String? // final synthesized answer
+  verdict     String? // e.g. 'bullish' | 'bearish' | 'neutral' | 'hold'
+  confidence  Float? // 0..1
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  runs        AgentRun[]
+  findings    ResearchFinding[]
+}
+
+// A log of one agent's work within a report (tool calls + outcomes).
+model AgentRun {
+  id          String   @id @default(cuid())
+  reportId    String
+  agent       String // 'orchestrator' | 'news' | 'fundamentals' | 'technical' | 'risk'
+  status      String   @default("running") // running | done | failed
+  toolCalls   Int      @default(0)
+  toolErrors  Int      @default(0)
+  output      String? // agent's raw output / notes
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+// A discrete fact / data point an agent gathered (for citation + memory).
+model ResearchFinding {
+  id        String   @id @default(cuid())
+  reportId  String
+  agent     String
+  kind      String // 'price' | 'news' | 'fundamental' | 'technical' | 'risk' | 'search'
+  ticker    String?
+  title     String
+  detail    String
+  source    String?
+  url       String?
+  createdAt DateTime @default(now())
+
+  report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}

@@ -75,52 +75,46 @@ export function TradingViewChart({
   
   const isCrypto = symbol.endsWith('USD') || symbol.endsWith('USDT') || symbol.includes('-');
 
-  // Interactive Chart script loading
+  // Interactive Chart script loading (uses the reliable advanced-chart embed widget)
   useEffect(() => {
-    if (!containerRef.current || activeTab !== 'chart') return;
+    if (activeTab !== 'chart' || !mounted) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.innerHTML = '';
 
     const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/tv.js';
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     script.type = 'text/javascript';
     script.async = true;
-    script.onload = () => {
-      interface TradingViewWindow extends Window {
-        TradingView?: {
-          widget: new (options: Record<string, string | number | boolean>) => unknown;
-        };
-      }
-      const tvWindow = window as unknown as TradingViewWindow;
-      if (typeof window !== 'undefined' && tvWindow.TradingView) {
-        new tvWindow.TradingView.widget({
-          width: '100%',
-          height: '100%',
-          symbol: getTradingViewSymbol(symbol, isCrypto || country === 'CRYPTO'),
-          interval: 'D',
-          timezone: 'Etc/UTC',
-          theme: 'dark',
-          style: '1',
-          locale: 'en',
-          toolbar_bg: '#111',
-          enable_publishing: false,
-          hide_side_toolbar: false,
-          allow_symbol_change: true,
-          container_id: 'tradingview_widget_container',
-        });
-      }
-    };
-    document.head.appendChild(script);
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: getTradingViewSymbol(symbol, isCrypto || country === 'CRYPTO'),
+      interval: 'D',
+      timezone: 'Etc/UTC',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      gridColor: 'rgba(122, 255, 120, 0.05)',
+      allow_symbol_change: true,
+      hide_side_toolbar: false,
+      hide_legend: false,
+      studies: ['STD;RSI'],
+    });
+    container.appendChild(script);
 
     return () => {
-      script.remove();
+      container.innerHTML = '';
     };
-  }, [symbol, activeTab, mounted]);
+  }, [symbol, activeTab, mounted, isCrypto, country]);
 
   const isPositive = changePercent >= 0;
 
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col h-[100dvh] w-full text-foreground animate-fade-in font-sans">
+    <div className="tv-overlay fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col h-[100dvh] w-full text-foreground animate-fade-in font-sans">
       {/* Header Panel */}
       <div className="flex items-center justify-between border-b border-border/30 px-6 py-4 bg-card/45 backdrop-blur-md shadow-sm shrink-0">
         <div className="flex items-center gap-3">
@@ -140,7 +134,7 @@ export function TradingViewChart({
               )}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Interactive terminal node for stock & digital assets. Bloomberg-lite pricing matrix.
+              Interactive terminal node for stock &amp; digital assets.
             </p>
           </div>
         </div>

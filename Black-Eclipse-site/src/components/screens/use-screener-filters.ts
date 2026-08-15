@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import type {
-  StockItem, FundItem, ETFItem, NewStockItem, BlueChipItem,
+  StockItem, FundItem, ETFItem, BlueChipItem,
 } from './market-data';
 import {
-  getRegionalFunds, getRegionalEtfs, getRegionalNewListings,
-  getRegionalBlueChips, getRegionalDividendStocks,
+  getRegionalFunds, getRegionalEtfs, getRegionalDividendStocks,
 } from './market-data';
 
 export interface ScreenerFilterState {
   apiStocks: StockItem[];
+  apiEtfs?: ETFItem[];
   stockSearch: string;
   filterExchange: string;
   filterIndex: string;
@@ -23,6 +23,7 @@ export interface ScreenerFilterState {
   filterVolume: string;
   filterRecommendation: string;
   filterMetricType: string;
+  filterType: string;
   screenerTab: string;
   userCountry: string;
   stockSortField: keyof StockItem;
@@ -35,13 +36,6 @@ export interface ScreenerFilterState {
   etfCategory: string;
   etfSortField: keyof ETFItem;
   etfSortOrder: 'asc' | 'desc';
-  newStockSearch: string;
-  newStockSortField: keyof NewStockItem;
-  newStockSortOrder: 'asc' | 'desc';
-  blueChipSearch: string;
-  blueChipRating: string;
-  blueChipSortField: keyof BlueChipItem;
-  blueChipSortOrder: 'asc' | 'desc';
   dividendSearch: string;
   dividendSortField: keyof BlueChipItem;
   dividendSortOrder: 'asc' | 'desc';
@@ -88,12 +82,10 @@ export function useScreenerFilters(state: ScreenerFilterState) {
   const {
     apiStocks, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
-    filterChange, filterVolume, filterRecommendation, filterMetricType,
+    filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
     screenerTab, userCountry, stockSortField, stockSortOrder,
     fundSearch, fundCategory, fundSortField, fundSortOrder,
     etfSearch, etfCategory, etfSortField, etfSortOrder,
-    newStockSearch, newStockSortField, newStockSortOrder,
-    blueChipSearch, blueChipRating, blueChipSortField, blueChipSortOrder,
     dividendSearch, dividendSortField, dividendSortOrder,
   } = state;
 
@@ -105,6 +97,7 @@ export function useScreenerFilters(state: ScreenerFilterState) {
       const matchesExchange = filterExchange === 'All' || item.exchange === filterExchange;
       const matchesSector = filterSector === 'All' || item.sector === filterSector;
       const matchesIndustry = filterIndustry === 'All' || item.industry === filterIndustry;
+      const matchesType = filterType === 'All' || (item.securityType || '').toLowerCase().includes(filterType.toLowerCase());
 
       if (screenerTab === 'crypto') {
         const capMil = parseCapStr(item.marketCap);
@@ -203,14 +196,14 @@ export function useScreenerFilters(state: ScreenerFilterState) {
 
       return matchesSearch && matchesExchange && matchesIndex && matchesSector && matchesIndustry
         && matchesCountry && matchesMarketCap && matchesPE && matchesDividend
-        && matchesPrice && matchesChange && matchesVolume && matchesRec;
+        && matchesPrice && matchesChange && matchesVolume && matchesRec && matchesType;
     });
 
     return sortBy(filtered, stockSortField, stockSortOrder);
   }, [
     apiStocks, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
-    filterChange, filterVolume, filterRecommendation, filterMetricType,
+    filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
     screenerTab, userCountry, stockSortField, stockSortOrder,
   ]);
 
@@ -226,7 +219,7 @@ export function useScreenerFilters(state: ScreenerFilterState) {
   }, [userCountry, fundSearch, fundCategory, fundSortField, fundSortOrder]);
 
   const filteredETFs = useMemo(() => {
-    const filtered = getRegionalEtfs(userCountry).filter((item) => {
+    const filtered = (state.apiEtfs ?? getRegionalEtfs(userCountry)).filter((item) => {
       const matchesSearch =
         item.symbol.toLowerCase().includes(etfSearch.toLowerCase()) ||
         item.name.toLowerCase().includes(etfSearch.toLowerCase());
@@ -234,26 +227,7 @@ export function useScreenerFilters(state: ScreenerFilterState) {
       return matchesSearch && matchesCategory;
     });
     return sortBy(filtered, etfSortField, etfSortOrder);
-  }, [userCountry, etfSearch, etfCategory, etfSortField, etfSortOrder]);
-
-  const filteredNewStocks = useMemo(() => {
-    const filtered = getRegionalNewListings(userCountry).filter((item) =>
-      item.symbol.toLowerCase().includes(newStockSearch.toLowerCase()) ||
-      item.name.toLowerCase().includes(newStockSearch.toLowerCase())
-    );
-    return sortBy(filtered, newStockSortField, newStockSortOrder);
-  }, [userCountry, newStockSearch, newStockSortField, newStockSortOrder]);
-
-  const filteredBlueChips = useMemo(() => {
-    const filtered = getRegionalBlueChips(userCountry).filter((item) => {
-      const matchesSearch =
-        item.symbol.toLowerCase().includes(blueChipSearch.toLowerCase()) ||
-        item.name.toLowerCase().includes(blueChipSearch.toLowerCase());
-      const matchesRating = blueChipRating === 'All' || item.safetyRating === blueChipRating;
-      return matchesSearch && matchesRating;
-    });
-    return sortBy(filtered, blueChipSortField, blueChipSortOrder);
-  }, [userCountry, blueChipSearch, blueChipRating, blueChipSortField, blueChipSortOrder]);
+  }, [state.apiEtfs, userCountry, etfSearch, etfCategory, etfSortField, etfSortOrder]);
 
   const filteredDividendStocks = useMemo(() => {
     const filtered = getRegionalDividendStocks(userCountry).filter((item) =>
@@ -267,8 +241,6 @@ export function useScreenerFilters(state: ScreenerFilterState) {
     filteredStocks,
     filteredFunds,
     filteredETFs,
-    filteredNewStocks,
-    filteredBlueChips,
     filteredDividendStocks,
   };
 }

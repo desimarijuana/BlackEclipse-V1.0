@@ -9,7 +9,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Message } from '@/types/chat';
 
-export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart';
+export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'settings';
 
 export interface Conversation {
   id: string;
@@ -166,6 +166,7 @@ export function Sidebar({
             { id: 'market', label: 'My Portfolio', icon: PieChart },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
+            { id: 'settings', label: 'Data Settings', icon: SlidersHorizontal },
           ].map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
@@ -175,7 +176,7 @@ export function Sidebar({
                 <Tooltip key={tab.id}>
                   <TooltipTrigger
                     onClick={() => handleTabClick(tab.id as AppTab)}
-                    className={`p-2.5 rounded-xl transition-all duration-300 h-10 w-10 flex items-center justify-center cursor-pointer outline-none border border-transparent ${
+                    className={`p-2.5 rounded-none transition-all duration-300 h-10 w-10 flex items-center justify-center cursor-pointer outline-none border border-transparent ${
                       isSelected
                         ? 'text-primary bg-primary/10 border-primary/20 scale-105'
                         : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -194,7 +195,7 @@ export function Sidebar({
               <button
                 key={tab.id}
                 onClick={() => handleTabClick(tab.id as AppTab)}
-                className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border border-transparent ${
+                className={`flex items-center gap-3 rounded-none px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border border-transparent ${
                   isSelected
                     ? 'bg-primary/15 text-foreground shadow-sm shadow-primary/5'
                     : 'bg-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground'
@@ -227,6 +228,17 @@ export function Sidebar({
               <span className="font-semibold text-foreground truncate">BlackEclipse</span>
               <span className="text-[9px] text-muted-foreground uppercase">Terminal</span>
             </div>
+            {/* Settings gear button — bottom-right of the Terminal footer */}
+            <button
+              onClick={() => handleTabClick('settings')}
+              className={`p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
+                activeTab === 'settings' ? 'text-primary bg-primary/10' : ''
+              }`}
+              title="Settings"
+              aria-label="Open Settings"
+            >
+              <SlidersHorizontal size={16} />
+            </button>
           </div>
         )}
       </div>

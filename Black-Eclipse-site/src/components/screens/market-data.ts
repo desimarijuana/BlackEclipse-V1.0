@@ -27,6 +27,10 @@ export interface StockItem {
   name: string;
   sector: string;
   industry: string;
+  /** Security type from the market universe (e.g. 'Common Stock', 'ETF', 'Mutual Fund', 'ADR', ...). */
+  securityType?: string;
+  /** Asset class (e.g. 'Equity', 'ETF', 'Mutual Fund', 'Derivative'). */
+  assetClass?: string;
   country: string;
   price: number;
   changePercent: number;
@@ -66,6 +70,10 @@ export interface StockItem {
   volumeRaw?: number;
   circulatingSupplyRaw?: number;
   maxSupplyRaw?: number;
+  /** True when no price exists yet (render '--', click to scrape). */
+  priceMissing?: boolean;
+  /** 'scraper' (live) | 'csv' (imported historical/API data) | null. */
+  priceSource?: string | null;
 }
 
 export interface FundItem {

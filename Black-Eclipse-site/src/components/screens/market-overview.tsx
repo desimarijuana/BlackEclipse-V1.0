@@ -5,7 +5,7 @@ import {
   ArrowUpRight, ArrowDownRight, ArrowRight, Search, 
   Sparkles, Star, BarChart3, 
   Layers, Award, TrendingUp, TrendingDown, Sliders, X, Coins, ChevronDown, Download,
-  Info
+  Info, RefreshCw, Briefcase, Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
@@ -110,15 +110,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterChange, setFilterChange] = useState('All');
   const [filterVolume, setFilterVolume] = useState('All');
   const [filterRecommendation, setFilterRecommendation] = useState('All');
+  const [filterType, setFilterType] = useState('All');
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   // Removed selectedStock state
   const [selectedAnalysisStock, setSelectedAnalysisStock] = useState<StockItem | null>(null);
   const [filterMetricType, setFilterMetricType] = useState('All');
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
-  const userCountry: string = 'USA'; // Unified default region for stocks
+  // Selectable region for stocks: 'USA' (US), 'PK' (Pakistan), or 'CRYPTO'.
+  const [userCountry, setUserCountry] = useState<string>('USA');
   const [apiStocks, setApiStocks] = useState<StockItem[]>([]);
   const [loadingApi, setLoadingApi] = useState(true);
+  const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
 
   // Unified dynamic metrics states loaded from region-specific backend queries
   const [indexData, setIndexData] = useState<IndexCard[]>(INDEX_DATA);
@@ -140,11 +143,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   }, [isMarketBullish, onMarketStatusChange]);
 
-  // Active view tab inside dashboard ('stocks' | 'etfs' | 'new_stocks' | 'blue_chips' | 'funds' | 'dividend_stocks' | 'crypto')
-  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'new_stocks' | 'blue_chips' | 'funds' | 'dividend_stocks' | 'crypto'>('crypto');
+  // Active view tab inside dashboard ('stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto')
+  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto'>('stocks');
   const [loadingTab, setLoadingTab] = useState(false);
 
-  const handleTabChange = (tab: 'stocks' | 'etfs' | 'new_stocks' | 'blue_chips' | 'funds' | 'dividend_stocks' | 'crypto') => {
+  const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto') => {
     setScreenerTab(tab);
     setLoadingTab(true);
     setFilterExchange('All');
@@ -160,6 +163,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setFilterVolume('All');
     setFilterRecommendation('All');
     setFilterMetricType('All');
+    // Stocks tab defaults to equities (which carry sector/industry data).
+    setFilterType(tab === 'stocks' ? 'Stock' : 'All');
     setExpandedSymbol(null);
     setStockSearch('');
     setTimeout(() => {
@@ -169,24 +174,75 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalStocks, setTotalStocks] = useState(0);
-  const [limit, setLimit] = useState(30);
+  const [limit, setLimit] = useState(20);
+
+  // Combined Sector/Industry selection: a single dropdown that sets either
+  // the sector or the industry filter depending on which list the value is in.
+  const handleSectorIndustryChange = (value: string) => {
+    if (value === 'All') {
+      setFilterSector('All');
+      setFilterIndustry('All');
+      return;
+    }
+    if (filterOptions.sectors.includes(value)) {
+      setFilterSector(value);
+      setFilterIndustry('All');
+    } else {
+      setFilterIndustry(value);
+      setFilterSector('All');
+    }
+  };
+
+  // The value shown in the combined dropdown: prefer sector if set, else industry.
+  const sectorIndustryValue = filterSector !== 'All' ? filterSector : filterIndustry !== 'All' ? filterIndustry : 'All';
+
+  // price_scraper mode + CSV import state
+  const [scraperMode, setScraperMode] = useState<'auto' | 'off' | 'manual'>('auto');
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const [csvText, setCsvText] = useState('');
+  const [csvStatus, setCsvStatus] = useState<string | null>(null);
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [scrapingSymbols, setScrapingSymbols] = useState<string[]>([]);
 
   // Reset page on country, limit, search, sector, or tab changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [userCountry, limit, stockSearch, filterSector, screenerTab]);
+  }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, screenerTab]);
 
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   const [dataUpdatedTime, setDataUpdatedTime] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>('live');
 
-  // Load demo stocks and dashboard metadata based on user's country/tab
-  React.useEffect(() => {
-    const queryCountry = screenerTab === 'crypto' ? 'CRYPTO' : userCountry;
-    const demoStocks = getFallbackStocks(queryCountry);
-    const dash = getSimulatedDashboard(queryCountry);
+  const getQueryCountry = React.useCallback(() => (screenerTab === 'crypto' ? 'CRYPTO' : userCountry), [screenerTab, userCountry]);
+  const getMarketId = React.useCallback(() => {
+    if (screenerTab === 'crypto') return 'CRYPTO';
+    return userCountry === 'PK' ? 'PK' : 'US';
+  }, [screenerTab, userCountry]);
 
+  // Load price_scraper config (mode + page size) once on mount.
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/scraper');
+        const data = await res.json();
+        if (data) {
+          if (data.mode === 'auto' || data.mode === 'off' || data.mode === 'manual') {
+            setScraperMode(data.mode);
+          }
+          if (data.pageSize && [20, 50, 100].includes(data.pageSize)) {
+            setLimit(data.pageSize);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load price_scraper config', e);
+      }
+    })();
+  }, []);
+
+  const fallbackToDemo = React.useCallback((qc: string) => {
+    const demoStocks = getFallbackStocks(qc);
+    const dash = getSimulatedDashboard(qc);
     setApiStocks(demoStocks);
     setTotalStocks(demoStocks.length);
     setDataSource('demo');
@@ -195,9 +251,63 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setSectorPerformance(dash.sectors);
     setTopGainers(dash.shifters.gainers);
     setTopLosers(dash.shifters.losers);
-    setLoadingApi(false);
-    setLoadingDashboard(false);
-  }, [userCountry, screenerTab]);
+  }, []);
+
+  // Load stocks and dashboard metadata based on user's country/tab.
+  // Reads from JDDS via /api/stocks; falls back to demo data if empty/unreachable.
+  // Server-side pagination: only the current page is fetched, never the whole universe.
+  const refreshStocks = React.useCallback(async (qc: string, silent = false) => {
+    if (!silent) {
+      setLoadingApi(true);
+      setLoadingDashboard(true);
+    }
+    try {
+      const params = new URLSearchParams({ country: qc });
+      params.set('page', String(currentPage));
+      params.set('limit', String(limit));
+      if (filterType !== 'All') params.set('type', filterType);
+      if (filterSector !== 'All') params.set('sector', filterSector);
+      if (filterIndustry !== 'All') params.set('industry', filterIndustry);
+      if (filterCountry !== 'All') params.set('countryFilter', filterCountry);
+      if (filterMarketCap !== 'All') params.set('marketCap', filterMarketCap);
+      if (filterPE !== 'All') params.set('pe', filterPE);
+      if (filterPrice !== 'All') params.set('price', filterPrice);
+      if (filterChange !== 'All') params.set('change', filterChange);
+      if (filterVolume !== 'All') params.set('volume', filterVolume);
+      if (stockSearch.trim()) params.set('search', stockSearch.trim());
+
+      const res = await fetch(`/api/stocks?${params.toString()}`);
+      const data = await res.json();
+      if (data && data.stocks && data.stocks.length > 0) {
+        setApiStocks(data.stocks);
+        setTotalStocks(data.pagination?.total ?? data.stocks.length);
+        setDataSource(data.source || 'jdds');
+        setDataUpdatedTime(new Date().toISOString());
+        if (data.filterOptions) setFilterOptions(data.filterOptions);
+        if (data.indices) setIndexData(data.indices);
+        if (data.sectors) setSectorPerformance(data.sectors);
+        if (data.shifters) {
+          setTopGainers(data.shifters.gainers || []);
+          setTopLosers(data.shifters.losers || []);
+        }
+      } else {
+        fallbackToDemo(qc);
+      }
+    } catch (err) {
+      console.error('Failed to load from JDDS, using demo:', err);
+      if (!silent) fallbackToDemo(qc);
+    } finally {
+      if (!silent) {
+        setLoadingApi(false);
+        setLoadingDashboard(false);
+      }
+    }
+  }, [fallbackToDemo, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+
+  React.useEffect(() => {
+    refreshStocks(getQueryCountry());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
 
 
 
@@ -237,17 +347,43 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [etfCategory, setEtfCategory] = useState('All');
   const [etfSortField, setEtfSortField] = useState<keyof ETFItem>('symbol');
   const [etfSortOrder, setEtfSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [apiEtfs, setApiEtfs] = useState<ETFItem[]>([]);
+  const [totalEtfs, setTotalEtfs] = useState(0);
 
-  // New stock state
-  const [newStockSearch, setNewStockSearch] = useState('');
-  const [newStockSortField, setNewStockSortField] = useState<keyof NewStockItem>('symbol');
-  const [newStockSortOrder, setNewStockSortOrder] = useState<'asc' | 'desc'>('asc');
-
-  // Blue chip state
-  const [blueChipSearch, setBlueChipSearch] = useState('');
-  const [blueChipRating, setBlueChipRating] = useState('All');
-  const [blueChipSortField, setBlueChipSortField] = useState<keyof BlueChipItem>('symbol');
-  const [blueChipSortOrder, setBlueChipSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Fetch real ETF data from JDDS when the ETFs tab is active.
+  React.useEffect(() => {
+    if (screenerTab !== 'etfs') return;
+    let cancelled = false;
+    (async () => {
+      setLoadingTab(true);
+      try {
+        const params = new URLSearchParams({ country: 'US', type: 'ETF', limit: '500' });
+        if (etfCategory !== 'All') params.set('industry', etfCategory);
+        if (etfSearch.trim()) params.set('search', etfSearch.trim());
+        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.stocks)) {
+          const mapped: ETFItem[] = data.stocks.map((s: any) => ({
+            symbol: s.symbol,
+            name: s.name,
+            category: s.industry || 'General',
+            price: s.price || 0,
+            changePercent: s.changePercent || 0,
+            volume: s.volume || 'N/A',
+            aum: s.marketCap || 'N/A',
+            expenseRatio: 'N/A',
+          }));
+          setApiEtfs(mapped);
+          setTotalEtfs(data.pagination?.total ?? mapped.length);
+        }
+      } catch (err) {
+        console.error('Failed to load ETFs from JDDS', err);
+      } finally {
+        if (!cancelled) setLoadingTab(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, etfCategory, etfSearch]);
 
   // Dividend states
   const [dividendSearch, setDividendSearch] = useState('');
@@ -288,16 +424,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       rows = filteredStocks.map(s => [
         s.symbol, s.name, s.sector, s.marketCap, `$${s.price >= 1 ? s.price.toFixed(2) : s.price.toFixed(6)}`, `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`
       ]);
-    } else if (screenerTab === 'new_stocks') {
-      headers = ['Symbol', 'Company', 'IPO Date', 'Price', 'Change %', 'Market Cap', 'Offer Price'];
-      rows = filteredNewStocks.map(n => [
-        n.symbol, n.name, n.ipoDate, `$${n.price.toFixed(2)}`, `${n.changePercent >= 0 ? '+' : ''}${n.changePercent.toFixed(2)}%`, n.marketCap, `$${n.ipoPrice.toFixed(2)}`
-      ]);
-    } else if (screenerTab === 'blue_chips') {
-      headers = ['Symbol', 'Company', 'Div Yield', 'Price', 'Change %', 'Market Cap', 'P/E', 'Safety'];
-      rows = filteredBlueChips.map(b => [
-        b.symbol, b.name, b.dividendYield, `$${b.price.toFixed(2)}`, `${b.changePercent >= 0 ? '+' : ''}${b.changePercent.toFixed(2)}%`, b.marketCap, b.peRatio, b.safetyRating
-      ]);
     }
 
     autoTable(doc, {
@@ -318,20 +444,114 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     filteredStocks,
     filteredFunds,
     filteredETFs,
-    filteredNewStocks,
-    filteredBlueChips,
     filteredDividendStocks,
   } = useScreenerFilters({
-    apiStocks, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
+    apiStocks, apiEtfs, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
-    filterChange, filterVolume, filterRecommendation, filterMetricType,
+    filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
     screenerTab, userCountry, stockSortField, stockSortOrder,
     fundSearch, fundCategory, fundSortField, fundSortOrder,
     etfSearch, etfCategory, etfSortField, etfSortOrder,
-    newStockSearch, newStockSortField, newStockSortOrder,
-    blueChipSearch, blueChipRating, blueChipSortField, blueChipSortOrder,
     dividendSearch, dividendSortField, dividendSortOrder,
   });
+
+  // --- price_scraper helpers --------------------------------------------
+  // Scrape exactly the given symbols (page-scoped refresh or manual per-row).
+  const scrapeSymbols = React.useCallback(async (symbols: string[]) => {
+    if (!symbols.length || scraperMode === 'off') return;
+    setScrapingSymbols((prev) => Array.from(new Set([...prev, ...symbols])));
+    try {
+      await fetch('/api/scraper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market: getMarketId(), symbols }),
+      });
+    } catch (e) {
+      console.error('price_scraper refresh failed', e);
+    }
+    await refreshStocks(getQueryCountry(), true);
+    setScrapingSymbols((prev) => prev.filter((s) => !symbols.includes(s)));
+  }, [scraperMode, refreshStocks, getQueryCountry, getMarketId]);
+
+  // Auto mode: when the page or page-size changes, refresh exactly the
+  // stocks being displayed on that page.
+  const autoScrapeSkippedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!autoScrapeSkippedRef.current) {
+      autoScrapeSkippedRef.current = true;
+      return; // skip initial render — data just loaded / interval handles it
+    }
+    if (scraperMode !== 'auto') return;
+    const pageStocks = filteredStocks.slice((currentPage - 1) * limit, currentPage * limit);
+    if (!pageStocks.length) return;
+    const timer = setTimeout(() => {
+      scrapeSymbols(pageStocks.map((s) => s.symbol));
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, limit, scraperMode]);
+
+  // Apply a new scraper mode and persist it.
+  const applyMode = async (mode: 'auto' | 'off' | 'manual') => {
+    setScraperMode(mode);
+    try {
+      await fetch('/api/scraper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: { mode } }),
+      });
+    } catch (e) {
+      console.error('Failed to save scraper mode', e);
+    }
+  };
+
+  // Apply a new page size and persist it (drives per-page scrape count).
+  const applyPageSize = (size: number) => {
+    setLimit(size);
+    try {
+      fetch('/api/scraper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: { pageSize: size } }),
+      });
+    } catch (e) {
+      console.error('Failed to save page size', e);
+    }
+  };
+
+  // Manual: click a '--' price cell to scrape just that symbol.
+  const handleManualScrape = (symbol: string) => {
+    if (scraperMode === 'off') return;
+    scrapeSymbols([symbol]);
+  };
+
+  const handleCsvImport = async () => {
+    if (!csvText.trim()) {
+      setCsvStatus('Paste CSV data first.');
+      return;
+    }
+    setImportingCsv(true);
+    setCsvStatus(null);
+    try {
+      const res = await fetch('/api/scraper/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market: getMarketId(), csv: csvText }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCsvStatus(`Imported ${data.imported} prices (${data.skipped} skipped).`);
+        setCsvText('');
+        await refreshStocks(getQueryCountry(), true);
+      } else {
+        setCsvStatus(data.error || 'Import failed.');
+      }
+    } catch (e) {
+      setCsvStatus('Import failed.');
+    } finally {
+      setImportingCsv(false);
+    }
+  };
 
   const toggleStockSort = (field: keyof StockItem) => {
     if (stockSortField === field) {
@@ -357,24 +577,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     } else {
       setEtfSortField(field);
       setEtfSortOrder('asc');
-    }
-  };
-
-  const toggleNewStockSort = (field: keyof NewStockItem) => {
-    if (newStockSortField === field) {
-      setNewStockSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setNewStockSortField(field);
-      setNewStockSortOrder('asc');
-    }
-  };
-
-  const toggleBlueChipSort = (field: keyof BlueChipItem) => {
-    if (blueChipSortField === field) {
-      setBlueChipSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setBlueChipSortField(field);
-      setBlueChipSortOrder('asc');
     }
   };
 
@@ -438,12 +640,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-2xl border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
             <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
             <select
-              value={screenerTab === 'crypto' ? 'crypto' : 'stocks'}
-              onChange={e => handleTabChange(e.target.value as 'crypto' | 'stocks')}
+              value={userCountry}
+              onChange={e => {
+                setUserCountry(e.target.value);
+                if (screenerTab === 'crypto') handleTabChange('stocks');
+              }}
               className="bg-background border border-border/60 hover:border-primary/50 rounded-xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
+              title="Select country to load market data"
             >
-              <option value="crypto">Global (24/7) — Crypto</option>
-              <option value="stocks">United States (USA) — Stocks</option>
+              <option value="USA">United States</option>
+              <option value="PK">Pakistan (PSX)</option>
+              <option value="CRYPTO">Global Crypto</option>
             </select>
           </div>
         </div>
@@ -649,64 +856,103 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             )}
         
         {/* Tab Selection Row - Spacious and Clean */}
-        <div className="flex items-center justify-between border-b border-border/15 pb-5 mb-2 flex-wrap gap-4">
+        <div className="flex items-center justify-between border-b border-border/15 pb-2 mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-1.5 bg-accent/30 p-1.5 rounded-2xl overflow-x-auto max-w-full scrollbar-none flex-nowrap shrink-0 w-full md:w-auto">
-            {screenerTab !== 'crypto' ? (
+            {screenerTab === 'crypto' ? (
+              <span className="px-4 py-2 rounded-xl text-xs font-bold text-primary flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5" /> Global Crypto
+              </span>
+            ) : (
               <>
                 <button
                   onClick={() => handleTabChange('stocks')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'stocks' 
+                    screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock')
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
-                  <TrendingUp className="w-3.5 h-3.5" /> Trending Stocks
+                  <TrendingUp className="w-3.5 h-3.5" /> Stocks
                 </button>
                 <button
-                  onClick={() => handleTabChange('new_stocks')}
+                  onClick={() => handleTabChange('etfs')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'new_stocks' 
+                    screenerTab === 'etfs' 
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5" /> New Listings
+                  <Briefcase className="w-3.5 h-3.5" /> ETFs
                 </button>
                 <button
-                  onClick={() => handleTabChange('blue_chips')}
+                  onClick={() => handleTabChange('funds')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'blue_chips' 
+                    screenerTab === 'funds' 
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
-                  <Award className="w-3.5 h-3.5" /> Blue Chips
+                  <Layers className="w-3.5 h-3.5" /> Mutual Funds
+                </button>
+                <button
+                  onClick={() => { handleTabChange('stocks'); setFilterType('REIT'); }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    screenerTab === 'stocks' && filterType === 'REIT'
+                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Building2 className="w-3.5 h-3.5" /> REITs
+                </button>
+                <button
+                  onClick={() => { handleTabChange('stocks'); setFilterType('Listed Debt'); }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    screenerTab === 'stocks' && filterType === 'Listed Debt'
+                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Coins className="w-3.5 h-3.5" /> Bonds
                 </button>
               </>
-            ) : (
-              <button
-                onClick={() => handleTabChange('crypto')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                  screenerTab === 'crypto' 
-                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                }`}
-              >
-                <Coins className="w-3.5 h-3.5" /> Cryptocurrency
-              </button>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {loadingApi && <span className="text-[10px] text-muted-foreground/80 animate-pulse bg-accent/20 px-2.5 py-1 rounded-xl font-mono">Syncing Exchange...</span>}
-            <button
-              onClick={exportToPDF}
-              className="px-4 py-2 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 border border-border bg-background/50 hover:bg-accent/40 text-muted-foreground hover:text-foreground h-9"
-            >
-              <Download className="w-3.5 h-3.5 text-inherit" /> Download PDF
-            </button>
           </div>
         </div>
+
+        {/* CSV import panel */}
+        {showCsvImport && (
+          <div className="rounded-2xl border border-border/20 bg-accent/10 p-4 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-foreground">Import historical prices (CSV)</span>
+              <button onClick={() => setShowCsvImport(false)} className="text-muted-foreground hover:text-rose-400 cursor-pointer" title="Close">
+                <X size={14} />
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Columns: <span className="font-mono text-primary">symbol, price</span> (optional:{' '}
+              <span className="font-mono text-primary">name, changePct, volume, marketCap</span>). One row per stock. Imported
+              prices are shown in the table with a <span className="text-amber-400 font-mono font-bold">CSV</span> badge.
+            </p>
+            <textarea
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              rows={6}
+              placeholder={'symbol,price\nAAPL,189.84\nMSFT,429.20\nNVDA,1096.50'}
+              className="w-full bg-background/60 border border-border/40 rounded-xl p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 resize-y"
+            />
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className={`text-[11px] font-mono ${csvStatus && csvStatus.includes('failed') || (csvStatus && csvStatus.startsWith('Import')) && !csvStatus.startsWith('Imported') ? 'text-rose-400' : csvStatus?.startsWith('Imported') ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                {csvStatus}
+              </span>
+              <Button size="sm" onClick={handleCsvImport} disabled={importingCsv} className="cursor-pointer">
+                {importingCsv ? 'Importing...' : 'Import Prices'}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Dedicated SPACIOUS Filter Action Bar - Solves Congestion */}
         <div className="flex items-center justify-between bg-accent/10 border border-border/20 rounded-2xl p-4 md:p-5 flex-wrap gap-4">
@@ -736,23 +982,38 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
                   />
                 </div>
-                {/* Industry Selector */}
+                {/* Type Selector */}
                 <div className="relative min-w-[160px]">
                   <select
-                    value={filterIndustry}
-                    onChange={e => setFilterIndustry(e.target.value)}
+                    value={filterType}
+                    onChange={e => setFilterType(e.target.value)}
                     className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                   >
-                    <option value="All">All Industries</option>
-                    <option value="Consumer Electronics">Consumer Electronics</option>
-                    <option value="Semiconductors">Semiconductors</option>
-                    <option value="Software - Infrastructure">Software</option>
-                    <option value="Internet Retail">Internet Retail</option>
-                    <option value="IT Services">IT Services</option>
-                    <option value="Banks - Diversified">Banks</option>
-                    <option value="Cement">Cement</option>
-                    <option value="Fertilizers">Fertilizers</option>
-                    <option value="Oil & Gas">Oil & Gas</option>
+                    <option value="All">All Types</option>
+                    {filterOptions.types.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
+                </div>
+                {/* Sector/Industry Selector */}
+                <div className="relative min-w-[180px]">
+                  <select
+                    value={sectorIndustryValue}
+                    onChange={e => handleSectorIndustryChange(e.target.value)}
+                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                  >
+                    <option value="All">All Sectors / Industries</option>
+                    <optgroup label="Sectors">
+                      {filterOptions.sectors.map((s) => (
+                        <option key={`s-${s}`} value={s}>{s}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Industries">
+                      {filterOptions.industries.map((ind) => (
+                        <option key={`i-${ind}`} value={ind}>{ind}</option>
+                      ))}
+                    </optgroup>
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
@@ -849,57 +1110,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                   >
                     <option value="All">All Categories</option>
-                    <option value="Large Blend">Large Blend</option>
-                    <option value="Large Growth">Large Growth</option>
-                    <option value="Small Blend">Small Blend</option>
-                    <option value="Large Value">Large Value</option>
-                    <option value="Mid-Cap Growth">Mid-Cap Growth</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {screenerTab === 'new_stocks' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
-              <span className="text-xs font-bold text-foreground font-serif">New Stock Listings</span>
-              <div className="relative w-64 min-w-[200px]">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                <input
-                  type="text"
-                  placeholder="Search New Listings..."
-                  value={newStockSearch}
-                  onChange={e => setNewStockSearch(e.target.value)}
-                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                />
-              </div>
-            </div>
-          )}
-
-          {screenerTab === 'blue_chips' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
-              <span className="text-xs font-bold text-foreground font-serif">Blue Chip Investments</span>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search Blue Chips..."
-                    value={blueChipSearch}
-                    onChange={e => setBlueChipSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
-                <div className="relative min-w-[180px]">
-                  <select
-                    value={blueChipRating}
-                    onChange={e => setBlueChipRating(e.target.value)}
-                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
-                  >
-                    <option value="All">All Safety Ratings</option>
-                    <option value="AAA">AAA Rating</option>
-                    <option value="AA+">AA+ Rating</option>
+                    {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
@@ -963,7 +1176,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Advanced Filters</span>
-                <span className="text-[10px] text-muted-foreground/70 font-mono">(applied to current page)</span>
+                <span className="text-[10px] text-muted-foreground/70 font-mono">(applied across the full universe)</span>
               </div>
               <button 
                 onClick={() => {
@@ -971,6 +1184,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   setFilterIndustry('All'); setFilterCountry('All'); setFilterMarketCap('All');
                   setFilterPE('All'); setFilterDividendYield('All'); setFilterPrice('All');
                   setFilterChange('All'); setFilterVolume('All'); setFilterRecommendation('All');
+                  setFilterType('All');
                 }}
                 className="text-[10px] text-muted-foreground hover:text-rose-400 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
               >
@@ -980,21 +1194,38 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             
             {/* 3-column grid for filters */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {/* Sector */}
+              {/* Type */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Sector</span>
+                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Type</span>
                 <div className="relative">
-                  <select value={filterSector} onChange={e => setFilterSector(e.target.value)}
+                  <select value={filterType} onChange={e => setFilterType(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
-                    <option value="All">Any Sector</option>
-                    <option value="Technology">Technology</option>
-                    <option value="Healthcare">Healthcare</option>
-                    <option value="Financials">Financials</option>
-                    <option value="Consumer Discretionary">Consumer Disc.</option>
-                    <option value="Energy">Energy</option>
-                    <option value="Industrials">Industrials</option>
-                    <option value="Materials">Materials</option>
-                    <option value="Utilities">Utilities</option>
+                    <option value="All">Any Type</option>
+                    {filterOptions.types.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Sector / Industry */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Sector / Industry</span>
+                <div className="relative">
+                  <select value={sectorIndustryValue} onChange={e => handleSectorIndustryChange(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Sector / Industry</option>
+                    <optgroup label="Sectors">
+                      {filterOptions.sectors.map((s) => (
+                        <option key={`s-${s}`} value={s}>{s}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Industries">
+                      {filterOptions.industries.map((ind) => (
+                        <option key={`i-${ind}`} value={ind}>{ind}</option>
+                      ))}
+                    </optgroup>
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
@@ -1016,17 +1247,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
 
-              {/* Volume */}
+              {/* Country */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Volume</span>
+                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Country</span>
                 <div className="relative">
-                  <select value={filterVolume} onChange={e => setFilterVolume(e.target.value)}
+                  <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
-                    <option value="All">Any Volume</option>
-                    <option value="Under1">Under 1M</option>
-                    <option value="1to10">1M – 10M</option>
-                    <option value="Over10">Over 10M</option>
-                    <option value="Over30">Over 30M</option>
+                    <option value="All">Any Country</option>
+                    {filterOptions.countries.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
@@ -1049,17 +1279,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
 
-              {/* Dividend Yield */}
+              {/* Price */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">Dividend</span>
+                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">Price</span>
                 <div className="relative">
-                  <select value={filterDividendYield} onChange={e => setFilterDividendYield(e.target.value)}
+                  <select value={filterPrice} onChange={e => setFilterPrice(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
-                    <option value="All">Any Div.</option>
-                    <option value="None">No Dividend</option>
-                    <option value="Positive">Paying (&gt;0%)</option>
-                    <option value="Over2">Over 2%</option>
-                    <option value="Over5">Over 5%</option>
+                    <option value="All">Any Price</option>
+                    <option value="Under10">Under $10</option>
+                    <option value="Under50">Under $50</option>
+                    <option value="Under100">Under $100</option>
+                    <option value="Over100">Over $100</option>
+                    <option value="Over500">Over $500</option>
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
@@ -1154,7 +1385,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         {/* Active Filter Badges */}
         {(filterSector !== 'All' || filterMarketCap !== 'All' || filterPE !== 'All' ||
           filterDividendYield !== 'All' || filterChange !== 'All' || filterVolume !== 'All' ||
-          filterIndustry !== 'All') && (
+          filterIndustry !== 'All' || filterType !== 'All') && (
           <div className="flex items-center gap-2 flex-wrap p-3 rounded-xl border border-primary/20 bg-primary/5 text-[11px]">
             <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wider font-mono">Active:</span>
             {filterSector !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">{filterSector}</span>}
@@ -1164,12 +1395,14 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {filterChange !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Δ: {filterChange}</span>}
             {filterVolume !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Vol: {filterVolume}</span>}
             {filterIndustry !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Industry: {filterIndustry}</span>}
+            {filterType !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Type: {filterType}</span>}
             <button
               onClick={() => {
                 setFilterSector('All'); setFilterMarketCap('All'); setFilterPE('All');
                 setFilterDividendYield('All'); setFilterChange('All'); setFilterVolume('All');
                 setFilterIndustry('All'); setFilterExchange('All'); setFilterIndex('All');
                 setFilterCountry('All'); setFilterPrice('All'); setFilterRecommendation('All');
+                setFilterType('All');
               }}
               className="ml-auto text-[10px] text-rose-400 hover:text-rose-300 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
             >
@@ -1192,6 +1425,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('name')}>
                       Company {stockSortField === 'name' && (stockSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden md:table-cell whitespace-nowrap" onClick={() => toggleStockSort('securityType')}>
+                      Type {stockSortField === 'securityType' && (stockSortOrder === 'asc' ? '▲' : '▼')}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden lg:table-cell whitespace-nowrap" onClick={() => toggleStockSort('industry')}>
                       Industry {stockSortField === 'industry' && (stockSortOrder === 'asc' ? '▲' : '▼')}
@@ -1216,10 +1452,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </thead>
                 <tbody>
                   {(loadingTab || (loadingApi && filteredStocks.length === 0)) ? (
-                    <TableSkeleton cols={9} rows={8} />
+                    <TableSkeleton cols={10} rows={8} />
                   ) : filteredStocks.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
+                      <td colSpan={10} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
                         No matching stocks found.
                       </td>
                     </tr>
@@ -1242,16 +1478,55 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             {stock.symbol}
                           </td>
                           <td className="py-3 px-4 text-foreground/85 truncate max-w-[130px] whitespace-nowrap">{stock.name}</td>
+                          <td className="py-3 px-4 text-foreground/75 hidden md:table-cell whitespace-nowrap">
+                            <span className="bg-primary/5 text-primary border border-primary/10 rounded-full px-2 py-0.5 text-[9px] font-bold">
+                              {stock.securityType || 'N/A'}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 text-foreground/75 hidden lg:table-cell whitespace-nowrap">{stock.industry}</td>
                           <td className="py-3 px-4 text-foreground/75 hidden lg:table-cell whitespace-nowrap">{stock.country}</td>
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.marketCap}</td>
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.peRatio}</td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">${stock.price.toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                            {scraperMode === 'manual' || stock.priceMissing ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleManualScrape(stock.symbol);
+                                }}
+                                disabled={scraperMode === 'off'}
+                                title={
+                                  scraperMode === 'off'
+                                    ? 'price_scraper is disabled'
+                                    : `Scrape price for ${stock.symbol}`
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/30 bg-accent/20 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all text-[11px] font-mono font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                              >
+                                {scrapingSymbols.includes(stock.symbol) ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  '--'
+                                )}
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5">
+                                ${stock.price.toFixed(2)}
+                                {stock.priceSource === 'csv' && (
+                                  <span
+                                    className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                    title="Imported historical / API price"
+                                  >
+                                    CSV
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                          </td>
                           <td className={cn(
                             "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
-                            {isPositive ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                            {scraperMode === 'manual' || stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <Button
@@ -1282,11 +1557,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <span className="text-[10px] uppercase font-bold text-muted-foreground/80">Show:</span>
                   <select
                     value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
+                    onChange={(e) => applyPageSize(Number(e.target.value))}
                     className="bg-transparent text-[11px] font-bold text-foreground font-mono focus:outline-none cursor-pointer"
                   >
-                    <option value={30} className="bg-card text-foreground">30</option>
-                    <option value={60} className="bg-card text-foreground">60</option>
+                    <option value={20} className="bg-card text-foreground">20</option>
+                    <option value={50} className="bg-card text-foreground">50</option>
                     <option value={100} className="bg-card text-foreground">100</option>
                   </select>
                 </div>
@@ -1438,13 +1713,45 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                                ${formatCryptoPrice(stock.price)}
+                                {scraperMode === 'manual' || stock.priceMissing ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleManualScrape(stock.symbol);
+                                    }}
+                                    disabled={scraperMode === 'off'}
+                                    title={
+                                      scraperMode === 'off'
+                                        ? 'price_scraper is disabled'
+                                        : `Scrape price for ${stock.symbol}`
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/30 bg-accent/20 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all text-[11px] font-mono font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                  >
+                                    {scrapingSymbols.includes(stock.symbol) ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      '--'
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    ${formatCryptoPrice(stock.price)}
+                                    {stock.priceSource === 'csv' && (
+                                      <span
+                                        className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                        title="Imported historical / API price"
+                                      >
+                                        CSV
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
                               </td>
                               <td className={cn(
                                 "py-2 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                                 isPositive ? 'text-emerald-400' : 'text-rose-400'
                               )}>
-                                {isPositive ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                                {scraperMode === 'manual' || stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
                               </td>
                               <td className="py-3 px-4 font-mono text-foreground/75 whitespace-nowrap">
                                 <div className="flex flex-col gap-1 w-24 ml-auto">
@@ -1529,11 +1836,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <span className="text-[10px] uppercase font-bold text-muted-foreground/80">Show:</span>
                   <select
                     value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
+                    onChange={(e) => applyPageSize(Number(e.target.value))}
                     className="bg-transparent text-[11px] font-bold text-foreground font-mono focus:outline-none cursor-pointer"
                   >
-                    <option value={30} className="bg-card text-foreground">30</option>
-                    <option value={60} className="bg-card text-foreground">60</option>
+                    <option value={20} className="bg-card text-foreground">20</option>
+                    <option value={50} className="bg-card text-foreground">50</option>
                     <option value={100} className="bg-card text-foreground">100</option>
                   </select>
                 </div>
@@ -1632,164 +1939,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <Button
                             size="sm"
                             onClick={() => handleAction(etf.symbol)}
-                            className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-2 rounded-lg py-0.5 h-auto text-[9px] font-semibold transition-all hover:scale-105 cursor-pointer"
-                          >
-                            <Sparkles size={10} className="mr-1 inline" /> Analyze
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {screenerTab === 'new_stocks' && (
-          <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
-            <table className="w-full text-left border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleNewStockSort('symbol')}>
-                    Symbol {newStockSortField === 'symbol' && (newStockSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleNewStockSort('name')}>
-                    Company Name {newStockSortField === 'name' && (newStockSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleNewStockSort('ipoDate')}>
-                    IPO Date {newStockSortField === 'ipoDate' && (newStockSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleNewStockSort('price')}>
-                    Price {newStockSortField === 'price' && (newStockSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleNewStockSort('changePercent')}>
-                    Change % {newStockSortField === 'changePercent' && (newStockSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">Market Cap</th>
-                  <th className="py-3 px-4 text-right font-mono hidden lg:table-cell whitespace-nowrap">IPO Offer Price</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingTab ? (
-                  <TableSkeleton cols={8} rows={6} />
-                ) : filteredNewStocks.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
-                      No matching IPOs found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredNewStocks.map((newStock) => {
-                    const isPositive = newStock.changePercent >= 0;
-                    return (
-                      <tr 
-                        key={newStock.symbol}
-                        className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
-                      >
-                        <td 
-                          onClick={() => handleSymbolClick(newStock.symbol, newStock.name, { marketCap: newStock.marketCap, price: newStock.price, changePercent: newStock.changePercent, volume: newStock.volume })}
-                          className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap cursor-pointer"
-                        >
-                          {newStock.symbol}
-                        </td>
-                        <td className="py-3 px-4 text-foreground/80 truncate max-w-[130px] whitespace-nowrap">{newStock.name}</td>
-                        <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap">{newStock.ipoDate}</td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">${newStock.price.toFixed(2)}</td>
-                        <td className={cn(
-                          "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
-                          isPositive ? 'text-emerald-400' : 'text-rose-400'
-                        )}>
-                          {isPositive ? '+' : ''}{newStock.changePercent.toFixed(2)}%
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden md:table-cell whitespace-nowrap">{newStock.marketCap}</td>
-                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden lg:table-cell whitespace-nowrap">${newStock.ipoPrice.toFixed(2)}</td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          <Button
-                            size="sm"
-                            onClick={() => handleAction(newStock.symbol)}
-                            className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-2 rounded-lg py-0.5 h-auto text-[9px] font-semibold transition-all hover:scale-105 cursor-pointer"
-                          >
-                            <Sparkles size={10} className="mr-1 inline" /> Analyze
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {screenerTab === 'blue_chips' && (
-          <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
-            <table className="w-full text-left border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleBlueChipSort('symbol')}>
-                    Symbol {blueChipSortField === 'symbol' && (blueChipSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleBlueChipSort('name')}>
-                    Company Name {blueChipSortField === 'name' && (blueChipSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleBlueChipSort('dividendYield')}>
-                    Dividend Yield {blueChipSortField === 'dividendYield' && (blueChipSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleBlueChipSort('price')}>
-                    Price {blueChipSortField === 'price' && (blueChipSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleBlueChipSort('changePercent')}>
-                    Change % {blueChipSortField === 'changePercent' && (blueChipSortOrder === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">Market Cap</th>
-                  <th className="py-3 px-4 text-right font-mono hidden sm:table-cell whitespace-nowrap">P/E Ratio</th>
-                  <th className="py-3 px-4 text-center font-mono hidden lg:table-cell whitespace-nowrap">Safety Rating</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingTab ? (
-                  <TableSkeleton cols={9} rows={6} />
-                ) : filteredBlueChips.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
-                      No matching Blue Chips found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredBlueChips.map((blueChip) => {
-                    const isPositive = blueChip.changePercent >= 0;
-                    return (
-                      <tr 
-                        key={blueChip.symbol}
-                        className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
-                      >
-                        <td 
-                          onClick={() => handleSymbolClick(blueChip.symbol, blueChip.name, { peRatio: blueChip.peRatio, marketCap: blueChip.marketCap, dividendYield: blueChip.dividendYield, price: blueChip.price, changePercent: blueChip.changePercent, volume: blueChip.volume })}
-                          className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap cursor-pointer"
-                        >
-                          {blueChip.symbol}
-                        </td>
-                        <td className="py-3 px-4 text-foreground/80 truncate max-w-[130px] whitespace-nowrap">{blueChip.name}</td>
-                        <td className="py-3 px-4 text-foreground/75 font-mono hidden sm:table-cell whitespace-nowrap">{blueChip.dividendYield}</td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-foreground whitespace-nowrap">${blueChip.price.toFixed(2)}</td>
-                        <td className={cn(
-                          "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
-                          isPositive ? 'text-emerald-400' : 'text-rose-400'
-                        )}>
-                          {isPositive ? '+' : ''}{blueChip.changePercent.toFixed(2)}%
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden md:table-cell whitespace-nowrap">{blueChip.marketCap}</td>
-                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{blueChip.peRatio}</td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap hidden lg:table-cell text-emerald-400 font-bold font-mono">
-                          {blueChip.safetyRating}
-                        </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          <Button
-                            size="sm"
-                            onClick={() => handleAction(blueChip.symbol)}
                             className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-2 rounded-lg py-0.5 h-auto text-[9px] font-semibold transition-all hover:scale-105 cursor-pointer"
                           >
                             <Sparkles size={10} className="mr-1 inline" /> Analyze

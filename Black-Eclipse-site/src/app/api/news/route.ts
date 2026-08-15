@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import Parser from "rss-parser";
+import { getNewsFeeds } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
 const parser = new Parser();
-
-// Free, open RSS feeds — no API key required.
-const FEEDS = [
-  { url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,^DJI&region=US&lang=en-US", source: "Yahoo Finance" },
-  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk" },
-  { url: "https://cointelegraph.com/rss", source: "CoinTelegraph" },
-  { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", source: "CNBC" },
-];
 
 // How many items to pull per feed (feeds typically expose 20-50).
 const PER_FEED = 20;
@@ -52,8 +45,9 @@ export async function GET(request: Request) {
   const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "10", 10)));
 
   try {
+    const feeds = (await getNewsFeeds()).filter((f) => f.enabled);
     const results = await Promise.allSettled(
-      FEEDS.map(async (feed) => {
+      feeds.map(async (feed) => {
         const parsed = await parser.parseURL(feed.url);
         return (parsed.items || []).slice(0, PER_FEED).map((item, i) => {
           const title = item.title || "";

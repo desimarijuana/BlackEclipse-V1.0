@@ -15,10 +15,11 @@ import { MarketNews, NewsItem } from './market-news';
 
 import { MyPortfolio } from './my-portfolio';
 import { EmbeddedChart } from './embedded-chart';
+import { Settings } from './settings';
 import { Newspaper } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
-import { getAgentProvider } from '@/lib/agent';
+import { getAgentProvider } from '@/lib/agent/registry';
 
 function StockChatContent() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
@@ -153,6 +154,9 @@ function StockChatContent() {
     }
   };
 
+  const isResearchQuery = (text: string) =>
+    /research|analy|report|invest|tell me about|fundamental|technical|sentiment|outlook|should i|worth|evaluate|deep dive|psx|kse/i.test(text);
+
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
@@ -163,7 +167,42 @@ function StockChatContent() {
     
     const chatId = addMessageToActiveChat(userMsg);
 
-    // Ask the configured agent provider (falls back to the built-in mock).
+    // Research intents go through the multi-agent research engine.
+    if (isResearchQuery(userText)) {
+      const thinkingMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
+      };
+      appendAssistantReply(chatId, thinkingMsg);
+
+      try {
+        const res = await fetch('/api/agent/research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: userText }),
+        });
+        const data = await res.json();
+        const replyMsg: Message = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: data.success
+            ? data.answer
+            : `Research failed: ${data.error || 'unknown error'}`,
+        };
+        appendAssistantReply(chatId, replyMsg);
+      } catch (err) {
+        const replyMsg: Message = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
+        };
+        appendAssistantReply(chatId, replyMsg);
+      }
+      return;
+    }
+
+    // Otherwise ask the configured agent provider (falls back to the built-in mock).
     const provider = getAgentProvider();
     const history: { role: 'user' | 'assistant'; content: string }[] = messages.map((m) => ({
       role: m.role,
@@ -347,6 +386,12 @@ function StockChatContent() {
           {activeTab === 'chart' && (
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
               <EmbeddedChart symbol={selectedChartSymbol} />
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="flex-1 w-full h-full overflow-y-auto scrollbar-hide">
+              <Settings />
             </div>
           )}
         </div>
