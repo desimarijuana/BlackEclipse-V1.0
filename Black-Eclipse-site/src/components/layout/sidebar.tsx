@@ -85,7 +85,9 @@ export function Sidebar({
             )}
           </div>
           {!isCollapsed && (
-            <span className="text-sm font-semibold tracking-tight truncate">
+            <span className={`text-sm font-semibold tracking-tight truncate transition-all duration-300 ${
+              isCollapsed ? 'opacity-0 translate-x-2' : 'opacity-100 translate-x-0'
+            }`}>
               BlackEclipse
             </span>
           )}
@@ -98,7 +100,7 @@ export function Sidebar({
             className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200"
             title="Collapse Sidebar"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} className="transition-transform duration-300" />
           </button>
         )}
       </div>
@@ -171,38 +173,21 @@ export function Sidebar({
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
 
-            if (isCollapsed) {
-              return (
-                <Tooltip key={tab.id}>
-                  <TooltipTrigger
-                    onClick={() => handleTabClick(tab.id as AppTab)}
-                    className={`p-2.5 transition-all duration-300 h-10 w-10 flex items-center justify-center cursor-pointer outline-none border ${
-                      isSelected
-                        ? 'rounded-xl text-primary bg-primary/10 border-primary/20 scale-105'
-                        : 'rounded-none text-muted-foreground hover:text-foreground hover:bg-accent/50 border-transparent'
-                    }`}
-                  >
-                    <Icon size={18} />
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{tab.label}</p>
-                  </TooltipContent>
-                </Tooltip>
-              );
-            }
-
             return (
               <button
                 key={tab.id}
                 onClick={() => handleTabClick(tab.id as AppTab)}
-                className={`flex items-center gap-3 px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border ${
+                title={isCollapsed ? tab.label : undefined}
+                className={`h-10 flex items-center gap-3 px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden ${
                   isSelected
                     ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
                     : 'rounded-none bg-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground border-transparent'
-                }`}
+                } ${isCollapsed ? 'justify-center w-10 px-0' : 'justify-start w-full'}`}
               >
-                <Icon size={16} className={isSelected ? 'text-primary' : ''} />
-                <span>{tab.label}</span>
+                <Icon size={16} className={`shrink-0 transition-colors duration-300 ${isSelected ? 'text-primary' : ''}`} />
+                <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden ${
+                  isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
+                }`}>{tab.label}</span>
               </button>
             );
           })}
@@ -223,7 +208,9 @@ export function Sidebar({
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between px-1 text-[11px]">
+          <div className={`flex items-center justify-between px-1 text-[11px] transition-all duration-300 ${
+            isCollapsed ? 'opacity-0' : 'opacity-100'
+          }`}>
             <div className="flex flex-col truncate max-w-[130px]">
               <span className="font-semibold text-foreground truncate">BlackEclipse</span>
               <span className="text-[9px] text-muted-foreground uppercase">Terminal</span>
