@@ -341,6 +341,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [fundCategory, setFundCategory] = useState('All');
   const [fundSortField, setFundSortField] = useState<keyof FundItem>('symbol');
   const [fundSortOrder, setFundSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [apiFunds, setApiFunds] = useState<FundItem[]>([]);
+  const [totalFunds, setTotalFunds] = useState(0);
 
   // ETF state
   const [etfSearch, setEtfSearch] = useState('');
@@ -357,7 +359,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     (async () => {
       setLoadingTab(true);
       try {
-        const params = new URLSearchParams({ country: 'US', type: 'ETF', limit: '500' });
+        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'ETF', limit: '500' });
         if (etfCategory !== 'All') params.set('industry', etfCategory);
         if (etfSearch.trim()) params.set('search', etfSearch.trim());
         const res = await fetch(`/api/stocks?${params.toString()}`);
@@ -383,7 +385,42 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       }
     })();
     return () => { cancelled = true; };
-  }, [screenerTab, etfCategory, etfSearch]);
+  }, [screenerTab, etfCategory, etfSearch, userCountry]);
+
+  // Fetch real Mutual Fund data from JDDS when the funds tab is active.
+  React.useEffect(() => {
+    if (screenerTab !== 'funds') return;
+    let cancelled = false;
+    (async () => {
+      setLoadingTab(true);
+      try {
+        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'Mutual Fund', limit: '500' });
+        if (fundSearch.trim()) params.set('search', fundSearch.trim());
+        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.stocks)) {
+          const mapped: FundItem[] = data.stocks.map((s: any) => ({
+            symbol: s.symbol,
+            name: s.name,
+            category: s.industry || 'General',
+            nav: s.price || 0,
+            changePercent: s.changePercent || 0,
+            ytdReturn: 0,
+            expenseRatio: 0,
+            rating: 0,
+            aum: s.marketCap || 'N/A',
+          }));
+          setApiFunds(mapped);
+          setTotalFunds(data.pagination?.total ?? mapped.length);
+        }
+      } catch (err) {
+        console.error('Failed to load funds from JDDS', err);
+      } finally {
+        if (!cancelled) setLoadingTab(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, fundSearch, userCountry]);
 
   // Dividend states
   const [dividendSearch, setDividendSearch] = useState('');
@@ -446,7 +483,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     filteredETFs,
     filteredDividendStocks,
   } = useScreenerFilters({
-    apiStocks, apiEtfs, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
+    apiStocks, apiEtfs, apiFunds, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
     filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
     screenerTab, userCountry, stockSortField, stockSortOrder,
@@ -640,10 +677,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-2xl border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
             <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
             <select
-              value={userCountry}
+              value={userCountry === 'CRYPTO' ? 'CRYPTO' : userCountry}
               onChange={e => {
-                setUserCountry(e.target.value);
-                if (screenerTab === 'crypto') handleTabChange('stocks');
+                const v = e.target.value;
+                setUserCountry(v);
+                if (v === 'CRYPTO') {
+                  handleTabChange('crypto');
+                } else if (screenerTab === 'crypto') {
+                  handleTabChange('stocks');
+                }
               }}
               className="bg-background border border-border/60 hover:border-primary/50 rounded-xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
               title="Select country to load market data"
@@ -1141,10 +1183,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                   >
                     <option value="All">All Categories</option>
-                    <option value="Large Growth">Large Growth</option>
-                    <option value="Large Blend">Large Blend</option>
-                    <option value="Foreign Large Blend">Intl Blend</option>
-                    <option value="Intermediate Core Bond">Core Bond</option>
+                    {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
