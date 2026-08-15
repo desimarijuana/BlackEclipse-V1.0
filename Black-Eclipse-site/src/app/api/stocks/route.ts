@@ -8,18 +8,27 @@ export const dynamic = "force-dynamic";
 // Map JDDS Asset+Price records into the StockItem shape the screener expects.
 function toStockItem(
   asset: { symbol: string; name: string; sector: string | null; industry: string | null; country: string | null; securityType: string | null; assetClass: string | null },
-  price: { price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null; source?: string | null } | null,
+  price: { price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null; rank?: number | null; circulatingSupply?: number | null; totalSupply?: number | null; maxSupply?: number | null; ath?: number | null; atl?: number | null; athChangePct?: number | null; source?: string | null } | null,
   country: string
 ): StockItem {
   const marketCap = price?.marketCap ?? 0;
   const volume = price?.volume ?? 0;
+  const isCrypto = country === "CRYPTO";
+  const supplyFmt = (v?: number | null): string => {
+    if (v == null) return "N/A";
+    if (v >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return `${Math.floor(v)}`;
+  };
   return {
     symbol: asset.symbol,
     name: asset.name,
-    sector: asset.sector || "N/A",
-    industry: asset.industry || "N/A",
-    securityType: asset.securityType || "N/A",
-    assetClass: asset.assetClass || "N/A",
+    sector: asset.sector || "Other",
+    industry: asset.industry || "Other",
+    securityType: asset.securityType || (isCrypto ? "Crypto" : "N/A"),
+    assetClass: asset.assetClass || (isCrypto ? "Crypto" : "N/A"),
     country: asset.country || country,
     price: price?.price ?? 0,
     changePercent: price?.changePct ?? 0,
@@ -31,7 +40,7 @@ function toStockItem(
     dividendYield: "None",
     index: "JDDS",
     recommendation: "N/A",
-    exchange: country === "CRYPTO" ? "GLOBAL" : country,
+    exchange: isCrypto ? "GLOBAL" : country,
     forwardPE: "N/A",
     peg: "N/A",
     ps: "N/A",
@@ -49,7 +58,17 @@ function toStockItem(
     sma200: "N/A",
     marketCapRaw: marketCap,
     volumeRaw: volume,
-    rank: 999,
+    rank: price?.rank ?? undefined,
+    circulatingSupplyRaw: price?.circulatingSupply ?? undefined,
+    maxSupplyRaw: price?.maxSupply ?? undefined,
+    circulatingSupply: supplyFmt(price?.circulatingSupply),
+    maxSupply: supplyFmt(price?.maxSupply),
+    athChangePercent: price?.athChangePct ?? 0,
+    ath: price?.ath != null ? String(price.ath) : "N/A",
+    athDate: "N/A",
+    atl: price?.atl != null ? String(price.atl) : "N/A",
+    atlChangePercent: price?.athChangePct ?? 0,
+    totalSupply: supplyFmt(price?.totalSupply),
   };
 }
 
@@ -233,7 +252,9 @@ export async function GET(request: Request) {
       prisma.asset.findMany({
         where,
         include: { price: true },
-        orderBy: { symbol: "asc" },
+        orderBy: marketId === "CRYPTO"
+          ? [{ price: { rank: { sort: "asc", nulls: "last" } } }]
+          : { symbol: "asc" },
         skip: (page - 1) * limit,
         take: limit,
       }),

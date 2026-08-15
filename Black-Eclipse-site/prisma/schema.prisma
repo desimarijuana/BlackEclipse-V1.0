@@ -59,6 +59,15 @@ model Price {
   marketCap  Float?
   volume     Float?
   peRatio    Float?
+  // Crypto-specific fields (crypto market only).
+  rank               Float?
+  fdv                Float?
+  circulatingSupply  Float?
+  totalSupply        Float?
+  maxSupply          Float?
+  ath                Float?
+  atl                Float?
+  athChangePct       Float?
   source     String   @default("scraper")
   updatedAt  DateTime @updatedAt
 
