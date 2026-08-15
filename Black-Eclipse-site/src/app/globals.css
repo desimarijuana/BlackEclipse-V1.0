@@ -300,9 +300,14 @@
 }
 
 /* Premium Card Styles matching image.png (Solid card backdrops, rounded edges, subtle borders).
-   Scoped to :not(.tv-overlay *) so the tradingview detail terminal keeps its sharp translucent panels. */
-.bg-card:not(.tv-overlay .bg-card), 
-[class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]) {
+   Scoped to :not(.tv-overlay *) so the tradingview detail terminal keeps its sharp translucent panels.
+   The sidebar (.sidebar-root) is exempted so it stays flat/square. */
+.sidebar-root {
+  border-radius: 0 !important;
+  border: none !important;
+}
+.bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), 
+[class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
   border-radius: 24px !important;
   background: #ffffff !important; /* Solid white for light mode readability */
   border: 2px solid rgba(0, 0, 0, 0.08) !important;
@@ -310,8 +315,8 @@
 }
 
 .dark {
-  .bg-card:not(.tv-overlay .bg-card), 
-  [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]) {
+  .bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), 
+  [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
     background: #0f0f0f !important; /* Solid deep gray (#0f0f0f) for dark mode */
     border: 2px solid rgba(255, 255, 255, 0.05) !important;
   }
