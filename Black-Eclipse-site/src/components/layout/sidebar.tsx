@@ -176,10 +176,10 @@ export function Sidebar({
                 <Tooltip key={tab.id}>
                   <TooltipTrigger
                     onClick={() => handleTabClick(tab.id as AppTab)}
-                    className={`p-2.5 rounded-none transition-all duration-300 h-10 w-10 flex items-center justify-center cursor-pointer outline-none border border-transparent ${
+                    className={`p-2.5 transition-all duration-300 h-10 w-10 flex items-center justify-center cursor-pointer outline-none border ${
                       isSelected
-                        ? 'text-primary bg-primary/10 border-primary/20 scale-105'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                        ? 'rounded-xl text-primary bg-primary/10 border-primary/20 scale-105'
+                        : 'rounded-none text-muted-foreground hover:text-foreground hover:bg-accent/50 border-transparent'
                     }`}
                   >
                     <Icon size={18} />
@@ -195,10 +195,10 @@ export function Sidebar({
               <button
                 key={tab.id}
                 onClick={() => handleTabClick(tab.id as AppTab)}
-                className={`flex items-center gap-3 rounded-none px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border border-transparent ${
+                className={`flex items-center gap-3 px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer border ${
                   isSelected
-                    ? 'bg-primary/15 text-foreground shadow-sm shadow-primary/5'
-                    : 'bg-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                    ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
+                    : 'rounded-none bg-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground border-transparent'
                 }`}
               >
                 <Icon size={16} className={isSelected ? 'text-primary' : ''} />
