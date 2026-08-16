@@ -183,7 +183,16 @@ export async function GET(request: Request) {
       isActive: true,
     };
     if (typeFilter && typeFilter !== "all") {
-      where.securityType = { contains: typeFilter };
+      // Support multiple types via comma-separated values (e.g. "Stock,REIT").
+      const types = typeFilter.split(",").map((t) => t.trim()).filter(Boolean);
+      if (types.length === 1) {
+        where.securityType = { contains: types[0] };
+      } else if (types.length > 1) {
+        where.OR = [
+          ...(where.OR as Record<string, unknown>[] || []),
+          ...types.map((t) => ({ securityType: { contains: t } })),
+        ];
+      }
     }
     if (sector && sector !== "All") {
       where.sector = sector;

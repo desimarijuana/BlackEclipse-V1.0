@@ -339,7 +339,7 @@ a.bg-card:hover,
 
 /* Premium Button Styles matching button.png (Pill shape, dark background, subtle border, white text) */
 .btn-pill,
-button.bg-primary,
+button.bg-primary:not(.screener-tab),
 a.bg-primary {
   border-radius: 9999px !important;
   background: rgba(255, 255, 255, 0.95) !important; /* Light mode: clean white/light gray button */
@@ -359,7 +359,7 @@ a.bg-primary {
 
 .dark {
   .btn-pill,
-  button.bg-primary,
+  button.bg-primary:not(.screener-tab),
   a.bg-primary {
     background: rgba(16, 16, 16, 0.9) !important; /* Dark mode: dark button */
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -372,6 +372,22 @@ a.bg-primary {
       color: #ffffff !important;
       box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45) !important;
     }
+  }
+}
+
+/* Screener tab buttons: keep the green active highlight (exempt from the pill override above). */
+button.screener-tab.bg-primary {
+  border-radius: 0 !important;
+  background: #7aff78 !important;
+  border: none !important;
+  color: #000000 !important;
+  box-shadow: 0 4px 14px rgba(122, 255, 120, 0.25) !important;
+}
+
+.dark {
+  button.screener-tab.bg-primary {
+    background: #7aff78 !important;
+    color: #000000 !important;
   }
 }
 

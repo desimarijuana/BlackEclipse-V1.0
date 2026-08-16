@@ -111,6 +111,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterVolume, setFilterVolume] = useState('All');
   const [filterRecommendation, setFilterRecommendation] = useState('All');
   const [filterType, setFilterType] = useState('All');
+  // Multi-select asset types (e.g. ['Stock', 'REIT']). When non-empty, overrides filterType.
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   // Removed selectedStock state
@@ -165,6 +167,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setFilterMetricType('All');
     // Stocks tab defaults to equities (which carry sector/industry data).
     setFilterType(tab === 'stocks' ? 'Stock' : 'All');
+    setSelectedTypes([]);
     setExpandedSymbol(null);
     setStockSearch('');
     setTimeout(() => {
@@ -908,7 +911,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <>
                 <button
                   onClick={() => handleTabChange('stocks')}
-                  className={`px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock')
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -918,7 +921,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => handleTabChange('etfs')}
-                  className={`px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'etfs' 
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -928,7 +931,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => handleTabChange('funds')}
-                  className={`px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'funds' 
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -938,7 +941,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => { handleTabChange('stocks'); setFilterType('REIT'); }}
-                  className={`px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'REIT'
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -948,7 +951,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => { handleTabChange('stocks'); setFilterType('Listed Debt'); }}
-                  className={`px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'Listed Debt'
                       ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -1024,12 +1027,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
                   />
                 </div>
-                {/* Type Selector */}
-                <div className="relative min-w-[160px]">
+                {/* Type Selector (multi-select) */}
+                <div className="relative min-w-[200px]">
                   <select
-                    value={filterType}
-                    onChange={e => setFilterType(e.target.value)}
+                    multiple
+                    value={selectedTypes.length > 0 ? selectedTypes : ['All']}
+                    onChange={(e) => {
+                      const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                      if (vals.includes('All') || vals.length === 0) {
+                        setSelectedTypes([]);
+                        setFilterType('All');
+                      } else {
+                        setSelectedTypes(vals);
+                        setFilterType(vals.join(','));
+                      }
+                    }}
                     className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                    title="Hold Ctrl/Cmd to select multiple types"
                   >
                     <option value="All">All Types</option>
                     {filterOptions.types.map((t) => (
@@ -1132,7 +1146,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           )}
 
           {screenerTab === 'etfs' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-foreground font-serif">ETF Directory</span>
                 <button
@@ -1175,7 +1189,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           )}
 
           {screenerTab === 'funds' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-foreground font-serif">Mutual Funds</span>
                 <button
@@ -1218,7 +1232,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           )}
 
           {screenerTab === 'dividend_stocks' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-foreground font-serif">High Dividend Yield Stocks</span>
                 <button
@@ -1261,7 +1275,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   setFilterIndustry('All'); setFilterCountry('All'); setFilterMarketCap('All');
                   setFilterPE('All'); setFilterDividendYield('All'); setFilterPrice('All');
                   setFilterChange('All'); setFilterVolume('All'); setFilterRecommendation('All');
-                  setFilterType('All');
+                  setFilterType('All'); setSelectedTypes([]);
                 }}
                 className="text-[10px] text-muted-foreground hover:text-rose-400 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
               >
@@ -1271,12 +1285,22 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             
             {/* 3-column grid for filters */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {/* Type */}
+              {/* Type (multi-select) */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Type</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Type</span>
                 <div className="relative">
-                  <select value={filterType} onChange={e => setFilterType(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                  <select multiple value={selectedTypes.length > 0 ? selectedTypes : ['All']} onChange={(e) => {
+                    const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                    if (vals.includes('All') || vals.length === 0) {
+                      setSelectedTypes([]);
+                      setFilterType('All');
+                    } else {
+                      setSelectedTypes(vals);
+                      setFilterType(vals.join(','));
+                    }
+                  }}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer"
+                    title="Hold Ctrl/Cmd to select multiple types">
                     <option value="All">Any Type</option>
                     {filterOptions.types.map((t) => (
                       <option key={t} value={t}>{t}</option>
@@ -1310,10 +1334,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
               {/* Market Cap */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Market Cap</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Market Cap</span>
                 <div className="relative">
                   <select value={filterMarketCap} onChange={e => setFilterMarketCap(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Cap</option>
                     <option value="Mega">Mega ($100B+)</option>
                     <option value="Large">Large ($10B–$100B)</option>
@@ -1326,10 +1350,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
               {/* Country */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Country</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Country</span>
                 <div className="relative">
                   <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Country</option>
                     {filterOptions.countries.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -1341,10 +1365,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
               {/* P/E Ratio */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">P/E Ratio</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">P/E Ratio</span>
                 <div className="relative">
                   <select value={filterPE} onChange={e => setFilterPE(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any P/E</option>
                     <option value="Under15">Under 15</option>
                     <option value="Under20">Under 20</option>
@@ -1358,10 +1382,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
               {/* Price */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">Price</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Price</span>
                 <div className="relative">
                   <select value={filterPrice} onChange={e => setFilterPrice(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Price</option>
                     <option value="Under10">Under $10</option>
                     <option value="Under50">Under $50</option>
@@ -1375,10 +1399,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
               {/* 24h Change */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-amber-400/80 tracking-widest font-mono">Change %</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Change %</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-amber-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
@@ -1428,10 +1452,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Market Cap</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Market Cap</span>
                 <div className="relative">
                   <select value={filterMarketCap} onChange={e => setFilterMarketCap(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Cap</option>
                     <option value="Mega">Mega ($100B+)</option>
                     <option value="Large">Large ($10B–$100B)</option>
@@ -1442,10 +1466,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-amber-400/80 tracking-widest font-mono">24h Change</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">24h Change</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-amber-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
@@ -1489,10 +1513,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Change %</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
@@ -1503,10 +1527,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">Price</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Price</span>
                 <div className="relative">
                   <select value={filterPrice} onChange={e => setFilterPrice(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Price</option>
                     <option value="Under10">Under $10</option>
                     <option value="Under50">Under $50</option>
@@ -1551,10 +1575,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Change %</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
@@ -1565,10 +1589,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">YTD Return</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">YTD Return</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Return</option>
                     <option value="Positive">Positive</option>
                     <option value="Negative">Negative</option>
@@ -1610,10 +1634,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Change %</span>
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
@@ -1647,7 +1671,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 setFilterDividendYield('All'); setFilterChange('All'); setFilterVolume('All');
                 setFilterIndustry('All'); setFilterExchange('All'); setFilterIndex('All');
                 setFilterCountry('All'); setFilterPrice('All'); setFilterRecommendation('All');
-                setFilterType('All');
+                setFilterType('All'); setSelectedTypes([]);
               }}
               className="ml-auto text-[10px] text-rose-400 hover:text-rose-300 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
             >
