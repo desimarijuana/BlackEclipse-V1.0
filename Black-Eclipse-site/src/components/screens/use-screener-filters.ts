@@ -9,6 +9,7 @@ import {
 export interface ScreenerFilterState {
   apiStocks: StockItem[];
   apiEtfs?: ETFItem[];
+  apiFunds?: FundItem[];
   stockSearch: string;
   filterExchange: string;
   filterIndex: string;
@@ -208,15 +209,21 @@ export function useScreenerFilters(state: ScreenerFilterState) {
   ]);
 
   const filteredFunds = useMemo(() => {
-    const filtered = getRegionalFunds(userCountry).filter((item) => {
+    const filtered = (state.apiFunds ?? getRegionalFunds(userCountry)).filter((item) => {
       const matchesSearch =
         item.symbol.toLowerCase().includes(fundSearch.toLowerCase()) ||
         item.name.toLowerCase().includes(fundSearch.toLowerCase());
       const matchesCategory = fundCategory === 'All' || item.category === fundCategory;
-      return matchesSearch && matchesCategory;
+      const chg = item.changePercent;
+      let matchesChange = true;
+      if (filterChange === 'Positive') matchesChange = chg > 0;
+      else if (filterChange === 'Negative') matchesChange = chg < 0;
+      else if (filterChange === 'Over2') matchesChange = chg >= 2;
+      else if (filterChange === 'UnderMinus2') matchesChange = chg <= -2;
+      return matchesSearch && matchesCategory && matchesChange;
     });
     return sortBy(filtered, fundSortField, fundSortOrder);
-  }, [userCountry, fundSearch, fundCategory, fundSortField, fundSortOrder]);
+  }, [state.apiFunds, userCountry, fundSearch, fundCategory, fundSortField, fundSortOrder, filterChange]);
 
   const filteredETFs = useMemo(() => {
     const filtered = (state.apiEtfs ?? getRegionalEtfs(userCountry)).filter((item) => {
@@ -224,18 +231,44 @@ export function useScreenerFilters(state: ScreenerFilterState) {
         item.symbol.toLowerCase().includes(etfSearch.toLowerCase()) ||
         item.name.toLowerCase().includes(etfSearch.toLowerCase());
       const matchesCategory = etfCategory === 'All' || item.category === etfCategory;
-      return matchesSearch && matchesCategory;
+      const chg = item.changePercent;
+      let matchesChange = true;
+      if (filterChange === 'Positive') matchesChange = chg > 0;
+      else if (filterChange === 'Negative') matchesChange = chg < 0;
+      else if (filterChange === 'Over2') matchesChange = chg >= 2;
+      else if (filterChange === 'UnderMinus2') matchesChange = chg <= -2;
+      const price = item.price;
+      let matchesPrice = true;
+      if (filterPrice === 'Under10') matchesPrice = price < 10;
+      else if (filterPrice === 'Under50') matchesPrice = price < 50;
+      else if (filterPrice === 'Under100') matchesPrice = price < 100;
+      else if (filterPrice === 'Over100') matchesPrice = price >= 100;
+      else if (filterPrice === 'Over500') matchesPrice = price >= 500;
+      return matchesSearch && matchesCategory && matchesChange && matchesPrice;
     });
     return sortBy(filtered, etfSortField, etfSortOrder);
-  }, [state.apiEtfs, userCountry, etfSearch, etfCategory, etfSortField, etfSortOrder]);
+  }, [state.apiEtfs, userCountry, etfSearch, etfCategory, etfSortField, etfSortOrder, filterChange, filterPrice]);
 
   const filteredDividendStocks = useMemo(() => {
-    const filtered = getRegionalDividendStocks(userCountry).filter((item) =>
-      item.symbol.toLowerCase().includes(dividendSearch.toLowerCase()) ||
-      item.name.toLowerCase().includes(dividendSearch.toLowerCase())
-    );
+    const filtered = getRegionalDividendStocks(userCountry).filter((item) => {
+      const matchesSearch =
+        item.symbol.toLowerCase().includes(dividendSearch.toLowerCase()) ||
+        item.name.toLowerCase().includes(dividendSearch.toLowerCase());
+      const dy = item.dividendYield;
+      let matchesYield = true;
+      if (filterDividendYield === 'Positive') matchesYield = dy !== 'None';
+      else if (filterDividendYield === 'Over2') matchesYield = dy !== 'None' && parseFloat(dy) >= 2;
+      else if (filterDividendYield === 'Over5') matchesYield = dy !== 'None' && parseFloat(dy) >= 5;
+      const chg = item.changePercent;
+      let matchesChange = true;
+      if (filterChange === 'Positive') matchesChange = chg > 0;
+      else if (filterChange === 'Negative') matchesChange = chg < 0;
+      else if (filterChange === 'Over2') matchesChange = chg >= 2;
+      else if (filterChange === 'UnderMinus2') matchesChange = chg <= -2;
+      return matchesSearch && matchesYield && matchesChange;
+    });
     return sortBy(filtered, dividendSortField, dividendSortOrder);
-  }, [userCountry, dividendSearch, dividendSortField, dividendSortOrder]);
+  }, [userCountry, dividendSearch, dividendSortField, dividendSortOrder, filterDividendYield, filterChange]);
 
   return {
     filteredStocks,

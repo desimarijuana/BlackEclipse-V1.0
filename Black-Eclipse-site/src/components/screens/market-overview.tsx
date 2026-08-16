@@ -1133,7 +1133,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
           {screenerTab === 'etfs' && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
-              <span className="text-xs font-bold text-foreground font-serif">ETF Directory</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">ETF Directory</span>
+                <button
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                    showAdvancedFilters
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+                </button>
+              </div>
               <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -1164,7 +1176,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
           {screenerTab === 'funds' && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
-              <span className="text-xs font-bold text-foreground font-serif">Mutual Funds</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">Mutual Funds</span>
+                <button
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                    showAdvancedFilters
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+                </button>
+              </div>
               <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -1195,7 +1219,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
           {screenerTab === 'dividend_stocks' && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-4">
-              <span className="text-xs font-bold text-foreground font-serif">High Dividend Yield Stocks</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">High Dividend Yield Stocks</span>
+                <button
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                    showAdvancedFilters
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+                </button>
+              </div>
               <div className="relative w-64 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
@@ -1410,6 +1446,174 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <div className="relative">
                   <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-amber-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Change</option>
+                    <option value="Positive">Positive (&gt;0%)</option>
+                    <option value="Negative">Negative (&lt;0%)</option>
+                    <option value="Over2">Strong (+2%+)</option>
+                    <option value="UnderMinus2">Falling (-2%+)</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ETF advanced filters panel */}
+        {screenerTab === 'etfs' && showAdvancedFilters && (
+          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-sm text-foreground">ETF Filters</span>
+              </div>
+              <button
+                onClick={() => { setEtfCategory('All'); }}
+                className="text-[10px] text-muted-foreground hover:text-rose-400 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <X className="w-3 h-3" /> Reset
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Category</span>
+                <div className="relative">
+                  <select value={etfCategory} onChange={e => setEtfCategory(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">All Categories</option>
+                    {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <div className="relative">
+                  <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Change</option>
+                    <option value="Positive">Positive (&gt;0%)</option>
+                    <option value="Negative">Negative (&lt;0%)</option>
+                    <option value="Over2">Strong (+2%+)</option>
+                    <option value="UnderMinus2">Falling (-2%+)</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">Price</span>
+                <div className="relative">
+                  <select value={filterPrice} onChange={e => setFilterPrice(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Price</option>
+                    <option value="Under10">Under $10</option>
+                    <option value="Under50">Under $50</option>
+                    <option value="Under100">Under $100</option>
+                    <option value="Over100">Over $100</option>
+                    <option value="Over500">Over $500</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Funds advanced filters panel */}
+        {screenerTab === 'funds' && showAdvancedFilters && (
+          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-sm text-foreground">Fund Filters</span>
+              </div>
+              <button
+                onClick={() => { setFundCategory('All'); }}
+                className="text-[10px] text-muted-foreground hover:text-rose-400 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <X className="w-3 h-3" /> Reset
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Category</span>
+                <div className="relative">
+                  <select value={fundCategory} onChange={e => setFundCategory(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">All Categories</option>
+                    {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <div className="relative">
+                  <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Change</option>
+                    <option value="Positive">Positive (&gt;0%)</option>
+                    <option value="Negative">Negative (&lt;0%)</option>
+                    <option value="Over2">Strong (+2%+)</option>
+                    <option value="UnderMinus2">Falling (-2%+)</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-sky-400/80 tracking-widest font-mono">YTD Return</span>
+                <div className="relative">
+                  <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-sky-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Return</option>
+                    <option value="Positive">Positive</option>
+                    <option value="Negative">Negative</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dividend advanced filters panel */}
+        {screenerTab === 'dividend_stocks' && showAdvancedFilters && (
+          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-sm text-foreground">Dividend Filters</span>
+              </div>
+              <button
+                onClick={() => { setFilterDividendYield('All'); }}
+                className="text-[10px] text-muted-foreground hover:text-rose-400 font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <X className="w-3 h-3" /> Reset
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-primary/80 tracking-widest font-mono">Dividend Yield</span>
+                <div className="relative">
+                  <select value={filterDividendYield} onChange={e => setFilterDividendYield(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Yield</option>
+                    <option value="Positive">Positive</option>
+                    <option value="Over2">Over 2%</option>
+                    <option value="Over5">Over 5%</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-emerald-400/80 tracking-widest font-mono">Change %</span>
+                <div className="relative">
+                  <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-emerald-500/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Change</option>
                     <option value="Positive">Positive (&gt;0%)</option>
                     <option value="Negative">Negative (&lt;0%)</option>
