@@ -339,7 +339,7 @@ a.bg-card:hover,
 
 /* Premium Button Styles matching button.png (Pill shape, dark background, subtle border, white text) */
 .btn-pill,
-button.bg-primary:not(.screener-tab),
+button.bg-primary:not(.screener-tab):not(.filter-toggle),
 a.bg-primary {
   border-radius: 9999px !important;
   background: rgba(255, 255, 255, 0.95) !important; /* Light mode: clean white/light gray button */
@@ -359,7 +359,7 @@ a.bg-primary {
 
 .dark {
   .btn-pill,
-  button.bg-primary:not(.screener-tab),
+  button.bg-primary:not(.screener-tab):not(.filter-toggle),
   a.bg-primary {
     background: rgba(16, 16, 16, 0.9) !important; /* Dark mode: dark button */
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -389,6 +389,23 @@ button.screener-tab.bg-primary {
   button.screener-tab.bg-primary {
     background: transparent !important;
     color: #ffffff !important;
+  }
+}
+
+/* Filter toggle buttons (Advanced Filters): keep the green active fill.
+   Exempt from the pill override above so the rounded shape is preserved. */
+button.filter-toggle.bg-primary {
+  border-radius: 0.75rem !important;
+  background: #7aff78 !important;
+  border: 1px solid #7aff78 !important;
+  color: #000000 !important;
+  box-shadow: 0 4px 14px rgba(122, 255, 120, 0.25) !important;
+}
+
+.dark {
+  button.filter-toggle.bg-primary {
+    background: #7aff78 !important;
+    color: #000000 !important;
   }
 }
 

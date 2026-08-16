@@ -1006,13 +1006,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`px-5 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
                     showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25 scale-[1.02]'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
                       : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
-                  <Sliders className="w-4 h-4 text-inherit" /> Advanced Filters
+                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
                 </button>
               </div>
               <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
@@ -1082,7 +1082,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
                     showAdvancedFilters
                       ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
                       : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
