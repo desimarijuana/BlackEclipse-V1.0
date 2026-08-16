@@ -755,7 +755,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
                     onClick={() => setSizeMetric(opt.key as any)}
                     className={`px-3 py-1 rounded-md text-[10px] font-mono cursor-pointer transition-all ${
                       sizeMetric === opt.key 
-                        ? 'bg-primary/20 text-primary border border-primary/20' 
+                        ? 'bg-accent text-foreground border border-border/30' 
                         : 'text-muted-foreground hover:text-foreground border border-transparent'
                     }`}
                   >

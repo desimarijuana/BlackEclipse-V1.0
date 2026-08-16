@@ -169,16 +169,16 @@ export function TradingViewChart({
           <div className="flex items-center gap-1.5 p-3 bg-card/25 border-b border-border/10">
             <button
               onClick={() => setActiveTab('chart')}
-              className={`px-4 py-1.5 rounded-none text-xs font-bold transition-all ${
-                activeTab === 'chart' ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'chart' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
               }`}
             >
               Interactive Chart
             </button>
             <button
               onClick={() => setActiveTab('fundamentals')}
-              className={`px-4 py-1.5 rounded-none text-xs font-bold transition-all ${
-                activeTab === 'fundamentals' ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'fundamentals' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
               }`}
             >
               All Metrics

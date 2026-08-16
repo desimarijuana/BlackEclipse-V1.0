@@ -147,7 +147,7 @@ export function DataSettings() {
                 className={cn(
                   'px-4 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
                   active
-                    ? 'bg-primary/15 text-primary border-primary/30'
+                    ? 'bg-accent text-foreground border-border/40'
                     : 'bg-transparent text-muted-foreground border-border hover:text-foreground'
                 )}
               >
@@ -172,7 +172,7 @@ export function DataSettings() {
               className={cn(
                 'px-4 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
                 intervalMinutes === m
-                  ? 'bg-primary/15 text-primary border-primary/30'
+                  ? 'bg-accent text-foreground border-border/40'
                   : 'bg-transparent text-muted-foreground border-border hover:text-foreground'
               )}
             >

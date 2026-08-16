@@ -352,7 +352,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             <button
               onClick={() => setTaxMethod('FIFO')}
               className={`px-3 py-1.5 text-xs font-mono rounded-lg transition-all ${
-                taxMethod === 'FIFO' ? 'bg-primary text-primary-foreground font-semibold shadow' : 'text-muted-foreground hover:text-foreground'
+                taxMethod === 'FIFO' ? 'bg-accent text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               FIFO
@@ -360,7 +360,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             <button
               onClick={() => setTaxMethod('LIFO')}
               className={`px-3 py-1.5 text-xs font-mono rounded-lg transition-all ${
-                taxMethod === 'LIFO' ? 'bg-primary text-primary-foreground font-semibold shadow' : 'text-muted-foreground hover:text-foreground'
+                taxMethod === 'LIFO' ? 'bg-accent text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               LIFO
@@ -485,7 +485,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   onClick={() => setTimeframe(tf as any)}
                   className={`px-3 py-1 text-[10px] font-mono rounded-md transition-all ${
                     timeframe === tf 
-                      ? 'bg-primary text-primary-foreground font-semibold shadow' 
+                      ? 'bg-accent text-foreground font-semibold' 
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
