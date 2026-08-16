@@ -392,20 +392,20 @@ button.screener-tab.bg-primary {
   }
 }
 
-/* Filter toggle buttons (Advanced Filters): keep the green active fill.
-   Exempt from the pill override above so the rounded shape is preserved. */
+/* Filter toggle buttons (Advanced Filters): active state uses a neutral accent
+   background (NOT green). Exempt from the pill override above. */
 button.filter-toggle.bg-primary {
   border-radius: 0.75rem !important;
-  background: #7aff78 !important;
-  border: 1px solid #7aff78 !important;
-  color: #000000 !important;
-  box-shadow: 0 4px 14px rgba(122, 255, 120, 0.25) !important;
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
 }
 
 .dark {
   button.filter-toggle.bg-primary {
-    background: #7aff78 !important;
-    color: #000000 !important;
+    background: transparent !important;
+    color: #ffffff !important;
   }
 }
 

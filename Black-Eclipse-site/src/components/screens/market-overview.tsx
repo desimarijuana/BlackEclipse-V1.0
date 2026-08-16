@@ -8,9 +8,6 @@ import {
   Info, RefreshCw, Briefcase, Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
 import { TradingViewChart } from './tradingview-chart';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -116,6 +113,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterType, setFilterType] = useState('All');
   // Multi-select asset types (e.g. ['Stock', 'REIT']). When non-empty, overrides filterType.
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   // Removed selectedStock state
@@ -1011,7 +1009,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
                   className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
                     showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                      ? 'bg-accent text-foreground border-border'
                       : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -1032,39 +1030,51 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
                 {/* Type Selector (multi-select dropdown) */}
                 <div className="relative min-w-[200px]">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all flex items-center justify-between gap-2">
-                      <span className="truncate">
-                        {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'All Types'}
-                      </span>
-                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground pointer-events-none shrink-0" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56 max-h-72 overflow-y-auto">
-                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Asset Types</DropdownMenuLabel>
-                      <DropdownMenuCheckboxItem
-                        checked={selectedTypes.length === 0}
-                        onCheckedChange={() => { setSelectedTypes([]); setFilterType('All'); }}
-                      >
-                        All Types
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuSeparator />
-                      {filterOptions.types.map((t) => (
-                        <DropdownMenuCheckboxItem
-                          key={t}
-                          checked={selectedTypes.includes(t)}
-                          onCheckedChange={(checked) => {
-                            const next = checked
-                              ? [...selectedTypes, t]
-                              : selectedTypes.filter((x) => x !== t);
-                            setSelectedTypes(next);
-                            setFilterType(next.length > 0 ? next.join(',') : 'All');
-                          }}
-                        >
-                          {t}
-                        </DropdownMenuCheckboxItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <button
+                    type="button"
+                    onClick={() => setTypeMenuOpen((v) => !v)}
+                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">
+                      {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'All Types'}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${typeMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {typeMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setTypeMenuOpen(false)} />
+                      <div className="absolute z-50 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl border border-border/40 bg-popover p-1 shadow-xl">
+                        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-mono">Asset Types</div>
+                        <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer hover:bg-accent/40">
+                          <input
+                            type="checkbox"
+                            checked={selectedTypes.length === 0}
+                            onChange={() => { setSelectedTypes([]); setFilterType('All'); }}
+                            className="accent-[#7aff78]"
+                          />
+                          All Types
+                        </label>
+                        <div className="my-1 h-px bg-border/40" />
+                        {filterOptions.types.map((t) => (
+                          <label key={t} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer hover:bg-accent/40">
+                            <input
+                              type="checkbox"
+                              checked={selectedTypes.includes(t)}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...selectedTypes, t]
+                                  : selectedTypes.filter((x) => x !== t);
+                                setSelectedTypes(next);
+                                setFilterType(next.length > 0 ? next.join(',') : 'All');
+                              }}
+                              className="accent-[#7aff78]"
+                            />
+                            {t}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
                 {/* Sector/Industry Selector */}
                 <div className="relative min-w-[180px]">
@@ -1098,7 +1108,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
                   className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
                     showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                      ? 'bg-accent text-foreground border-border'
                       : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -1303,39 +1313,51 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="flex flex-col gap-1.5">
                 <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Type</span>
                 <div className="relative">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer flex items-center justify-between gap-2">
-                      <span className="truncate">
-                        {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'Any Type'}
-                      </span>
-                      <ChevronDown className="w-3 h-3 text-muted-foreground pointer-events-none shrink-0" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56 max-h-72 overflow-y-auto">
-                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Asset Types</DropdownMenuLabel>
-                      <DropdownMenuCheckboxItem
-                        checked={selectedTypes.length === 0}
-                        onCheckedChange={() => { setSelectedTypes([]); setFilterType('All'); }}
-                      >
-                        Any Type
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuSeparator />
-                      {filterOptions.types.map((t) => (
-                        <DropdownMenuCheckboxItem
-                          key={t}
-                          checked={selectedTypes.includes(t)}
-                          onCheckedChange={(checked) => {
-                            const next = checked
-                              ? [...selectedTypes, t]
-                              : selectedTypes.filter((x) => x !== t);
-                            setSelectedTypes(next);
-                            setFilterType(next.length > 0 ? next.join(',') : 'All');
-                          }}
-                        >
-                          {t}
-                        </DropdownMenuCheckboxItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <button
+                    type="button"
+                    onClick={() => setTypeMenuOpen((v) => !v)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">
+                      {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'Any Type'}
+                    </span>
+                    <ChevronDown className={`w-3 h-3 text-muted-foreground shrink-0 transition-transform ${typeMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {typeMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setTypeMenuOpen(false)} />
+                      <div className="absolute z-50 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl border border-border/40 bg-popover p-1 shadow-xl">
+                        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-mono">Asset Types</div>
+                        <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer hover:bg-accent/40">
+                          <input
+                            type="checkbox"
+                            checked={selectedTypes.length === 0}
+                            onChange={() => { setSelectedTypes([]); setFilterType('All'); }}
+                            className="accent-[#7aff78]"
+                          />
+                          Any Type
+                        </label>
+                        <div className="my-1 h-px bg-border/40" />
+                        {filterOptions.types.map((t) => (
+                          <label key={t} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs cursor-pointer hover:bg-accent/40">
+                            <input
+                              type="checkbox"
+                              checked={selectedTypes.includes(t)}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...selectedTypes, t]
+                                  : selectedTypes.filter((x) => x !== t);
+                                setSelectedTypes(next);
+                                setFilterType(next.length > 0 ? next.join(',') : 'All');
+                              }}
+                              className="accent-[#7aff78]"
+                            />
+                            {t}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
