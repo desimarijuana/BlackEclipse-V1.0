@@ -913,7 +913,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => handleTabChange('stocks')}
                   className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock')
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -923,7 +923,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => handleTabChange('etfs')}
                   className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'etfs' 
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -933,7 +933,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => handleTabChange('funds')}
                   className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'funds' 
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -943,7 +943,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => { handleTabChange('stocks'); setFilterType('REIT'); }}
                   className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'REIT'
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >
@@ -953,7 +953,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onClick={() => { handleTabChange('stocks'); setFilterType('Listed Debt'); }}
                   className={`screener-tab px-4 py-2 rounded-none text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'Listed Debt'
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/15' 
+                      ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
                   }`}
                 >

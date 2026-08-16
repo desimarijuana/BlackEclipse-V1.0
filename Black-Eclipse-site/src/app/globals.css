@@ -375,19 +375,20 @@ a.bg-primary {
   }
 }
 
-/* Screener tab buttons: keep the green active highlight (exempt from the pill override above). */
+/* Screener tab buttons: active state uses a neutral accent background (NOT green).
+   Exempt from the pill override above so the square shape is preserved. */
 button.screener-tab.bg-primary {
   border-radius: 0 !important;
-  background: #7aff78 !important;
+  background: transparent !important;
   border: none !important;
-  color: #000000 !important;
-  box-shadow: 0 4px 14px rgba(122, 255, 120, 0.25) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
 }
 
 .dark {
   button.screener-tab.bg-primary {
-    background: #7aff78 !important;
-    color: #000000 !important;
+    background: transparent !important;
+    color: #ffffff !important;
   }
 }
 
