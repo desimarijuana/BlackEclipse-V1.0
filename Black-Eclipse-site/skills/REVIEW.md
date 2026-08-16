@@ -64,6 +64,18 @@ Run `npm run test` (Vitest) **and** `npx tsc --noEmit` **after every change**, n
 - [ ] No overly large payloads
 - [ ] Respect external rate limits (RSS, APIs)
 
+## Simplicity & Lightness Review (STANDING GOAL)
+
+The site must be **simple, fast, and light**. Check every change against this:
+
+- [ ] Did the change reuse existing hooks/components/services instead of adding new ones?
+- [ ] Did the change add any new dependency? If so, is it justified and is it the lightest option?
+- [ ] Is filtering/pagination done server-side (not pulling the whole universe client-side)?
+- [ ] Did the change bloat a large file (e.g. `market-overview.tsx`)? Should logic be extracted into a hook/module?
+- [ ] Is the DOM/JSX lean (no unnecessary wrappers, no heavy animations)?
+- [ ] Is the bundle/payload kept small (no data shipped that the screen doesn't use)?
+- [ ] Is the change simpler than the alternative, not more complex?
+
 ## UI/UX Review (check against IMPRINT.md)
 
 - [ ] Visual consistency with the dark green-on-black identity

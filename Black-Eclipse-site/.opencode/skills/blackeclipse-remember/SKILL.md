@@ -5,7 +5,7 @@ description: Load persistent project memory and context for BlackEclipse before 
 
 Read the persistent project memory at `skills/REMEMBER.md` before major work. It records:
 
-- Product context and current priorities
+- Product context and current priorities (including the standing "simple, fast, light" goal)
 - Important decisions (zero-config, agentic-scraper-primary, agent abstraction, RSS news)
 - Established conventions (folder structure, client components, barrel exports)
 - Known constraints (memory, @base-ui/react SSR quirks, fonts, no DB)

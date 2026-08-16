@@ -86,8 +86,10 @@ async function getNews(query: string): Promise<string> {
 }
 
 async function getFundamentals(symbol: string): Promise<string> {
+  // JDDS stores symbols uppercase (BTC, AAPL). SQLite's Prisma connector does
+  // not support `mode: "insensitive"`, so normalize the input to uppercase.
   const asset = await prisma.asset.findFirst({
-    where: { symbol: { equals: symbol, mode: "insensitive" } },
+    where: { symbol: symbol.toUpperCase() },
     include: { price: true, market: true },
   });
 
@@ -107,8 +109,8 @@ async function getFundamentals(symbol: string): Promise<string> {
     lines.push(
       `  Price: ${asset.price.price}`,
       `  Change: ${asset.price.changePct}%`,
-      asset.price.marketCap ? `  Market Cap: ${asset.price.marketCap}` : null,
-      asset.price.volume ? `  Volume: ${asset.price.volume}` : null
+      asset.price.marketCap ? `  Market Cap: ${asset.price.marketCap}` : "",
+      asset.price.volume ? `  Volume: ${asset.price.volume}` : ""
     );
   }
   return lines.filter(Boolean).join("\n");

@@ -16,6 +16,17 @@ The design should feel: **professional, intelligent, technical, premium, data-de
 
 Avoid generic "AI dashboard" aesthetics (light cards, pastel gradients, oversized whitespace).
 
+## Performance & Simplicity (STANDING GOAL)
+
+The site must be **simple, fast, and light** — this is a permanent goal, not a one-time task. It applies to every UI change:
+
+- **Light DOM** — avoid unnecessary wrapper divs, heavy animations, and oversized whitespace. Dense but readable.
+- **Fast interactions** — no janky transitions, no blocking work on the main thread, no unnecessary re-renders.
+- **Small bundle** — prefer lighter libraries; reuse existing components instead of adding new ones.
+- **Reuse before rebuild** — before creating a new component, ask "does BlackEclipse already have a pattern for this?" If yes, reuse it.
+- **No arbitrary colors/spacing** — use existing design tokens; never introduce one-off values when a token covers the need.
+- **Accessible & responsive** — keyboard nav, contrast, focus states, and responsive layouts that don't just shrink desktop.
+
 ## Design Tokens (actual — from `src/app/globals.css`)
 
 ### Colors — dark (default, active)

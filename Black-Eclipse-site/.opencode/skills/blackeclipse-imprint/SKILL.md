@@ -11,6 +11,7 @@ Follow `skills/IMPRINT.md` whenever creating or modifying BlackEclipse UI. It de
 - Component standards (buttons, cards, tables, dialogs, skeletons, empty/error states)
 - Financial UI rules (mono numbers, green=positive, red=negative, consistent precision)
 - Responsive and accessibility requirements
+- **The standing "simple, fast, light" goal** — light DOM, fast interactions, small bundle, reuse before rebuild, no arbitrary colors/spacing
 
 UI Consistency Rule — before creating a new component, ask:
 > "Does BlackEclipse already have a component or pattern for this?"

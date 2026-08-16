@@ -37,4 +37,6 @@ The same 5 skills are also registered as opencode skills in `.opencode/skills/` 
 
 Correctness > Architecture > Data integrity > Security > Maintainability > Performance > UX > Visual polish.
 
+**Standing goal:** the site must be **simple, fast, and light** for the best user experience. This applies to every change, forever — see `GOALS.md` → "Performance & Simplicity".
+
 Optimize for actually making BlackEclipse better — not for making the task "look complete."

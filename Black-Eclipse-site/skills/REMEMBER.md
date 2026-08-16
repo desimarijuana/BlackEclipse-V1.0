@@ -18,6 +18,7 @@
 1. **Phase 1 — Data System**: an **agentic scraper** as the primary, free, zero-config data source (Yahoo Finance + cheerio fallback + smart scheduler). User-provided APIs are optional opt-ins. Demo data is the fallback. Source priority: **agentic scraper → user API → demo**.
 2. **Phase 2 — Agentic Research Agents**: extend `src/lib/agent/` with tools (query data, scrape, search) and skills (research, screen, portfolio, monitor), Hermes-style.
 3. User-provided API settings (Finnhub/Alpha Vantage/etc.) as optional opt-ins.
+4. **STANDING GOAL — Simple, fast, light**: the website must be simple, fast, and light for the best user experience. Applies to every change, forever. See `skills/GOALS.md` → "Performance & Simplicity".
 
 ## Important Decisions
 
@@ -27,6 +28,7 @@
 - **[2026] Agent provider abstraction** — `src/lib/agent/` defines `AgentProvider`; mock is default; real LLMs plug in later.
 - **[2026] RSS for news** — `/api/news` uses free RSS feeds, with `NEWS_MOCK` offline fallback.
 - **[2026] Test after every change** — run `npm run test` and `npx tsc --noEmit` after each change to catch issues early, not just at the end.
+- **[2026] Simple, fast, light is a standing goal** — every feature/refactor/dependency is evaluated against it. Prefer the simpler, lighter, faster option. See `skills/GOALS.md`.
 
 ## Established Conventions
 
@@ -60,6 +62,7 @@
 - News sentiment is a crude keyword heuristic — can misclassify.
 - Chat is a keyword-based mock (no real LLM yet).
 - `getTradingViewSymbol()` regex for ticker extraction is naive.
+- **SQLite Prisma connector does NOT support `mode: "insensitive"`** on string filters. JDDS stores symbols uppercase, so normalize input to uppercase (e.g. `symbol.toUpperCase()`) instead of using `mode`. (Fixed in `src/lib/agent/tools.ts`.)
 
 ## Things That Must Not Change
 

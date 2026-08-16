@@ -10,6 +10,7 @@ Treat `skills/REVIEW.md` as a mandatory pre-completion checklist. **Run it at th
 - **Data**: financial accuracy, stale/null values, timestamps, symbol normalization
 - **Security**: no secrets in client code, input validation, no unintended API exposure
 - **Performance**: no N+1, no memory leaks, no unnecessary re-renders
+- **Simplicity & Lightness**: reuse existing code, no unjustified dependencies, server-side filtering/pagination, no bloated files, lean payloads (standing "simple, fast, light" goal)
 - **UI/UX**: matches `skills/IMPRINT.md`, responsive, accessible, consistent
 - **Regression**: inspect what could break, verify related code
 
