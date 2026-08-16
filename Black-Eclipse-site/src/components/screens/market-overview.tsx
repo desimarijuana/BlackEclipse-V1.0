@@ -1518,7 +1518,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           >
                             {stock.symbol}
                           </td>
-                          <td className="py-3 px-4 text-foreground/85 truncate max-w-[130px] whitespace-nowrap">{stock.name}</td>
+                          <td className="py-3 px-4 text-foreground/85 whitespace-nowrap">{stock.name}</td>
                           <td className="py-3 px-4 text-foreground/75 hidden md:table-cell whitespace-nowrap">
                             <span className="bg-primary/5 text-primary border border-primary/10 rounded-full px-2 py-0.5 text-[9px] font-bold">
                               {stock.securityType || 'N/A'}
