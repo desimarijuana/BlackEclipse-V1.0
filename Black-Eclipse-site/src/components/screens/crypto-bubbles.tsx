@@ -255,21 +255,24 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
       const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
       // For equities markets, only show stocks (not ETFs/funds/bonds).
       const typeParam = country === 'CRYPTO' ? '' : '&type=Stock';
-      const res = await fetch(`/api/stocks?country=${country}${typeParam}&limit=100`);
+      // Order by market cap so the biggest assets appear first (not alphabetical).
+      const res = await fetch(`/api/stocks?country=${country}${typeParam}&sort=marketCap&limit=100`);
       const data = await res.json();
       if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
-        const mapped: BubbleData[] = data.stocks.map((s: any) => ({
-          symbol: s.symbol,
-          name: s.name,
-          price: s.price || 0,
-          changePercent: s.changePercent || 0,
-          marketCap: s.marketCap || 'N/A',
-          volume: s.volume || 'N/A',
-          sector: s.sector || 'Other',
-          rank: s.rank || 999,
-          circulatingSupply: s.circulatingSupply || 'N/A',
-          ath: s.ath || 'N/A',
-        }));
+        const mapped: BubbleData[] = data.stocks
+          .filter((s: any) => s.price && s.price > 0)
+          .map((s: any) => ({
+            symbol: s.symbol,
+            name: s.name,
+            price: s.price || 0,
+            changePercent: s.changePercent || 0,
+            marketCap: s.marketCap || 'N/A',
+            volume: s.volume || 'N/A',
+            sector: s.sector || 'Other',
+            rank: s.rank || 999,
+            circulatingSupply: s.circulatingSupply || 'N/A',
+            ath: s.ath || 'N/A',
+          }));
         setRawList(mapped);
       } else {
         setRawList(DEMO_CRYPTOS);

@@ -159,6 +159,7 @@ export async function GET(request: Request) {
   const priceFilter = (searchParams.get("price") || "").trim();
   const changeFilter = (searchParams.get("change") || "").trim();
   const volumeFilter = (searchParams.get("volume") || "").trim();
+  const sortParam = (searchParams.get("sort") || "").trim();
 
   // Pagination — default 20/page, allow 20/50/100.
   const page = clampInt(searchParams.get("page"), 1, 1, 100000);
@@ -261,9 +262,11 @@ export async function GET(request: Request) {
       prisma.asset.findMany({
         where,
         include: { price: true },
-        orderBy: marketId === "CRYPTO"
-          ? [{ price: { rank: { sort: "asc", nulls: "last" } } }]
-          : { symbol: "asc" },
+        orderBy: sortParam === "marketCap"
+          ? [{ price: { marketCap: { sort: "desc", nulls: "last" } } }]
+          : marketId === "CRYPTO"
+            ? [{ price: { rank: { sort: "asc", nulls: "last" } } }]
+            : { symbol: "asc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
