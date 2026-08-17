@@ -685,7 +685,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
             {/* Market Selector */}
             <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
@@ -702,7 +702,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
             </div>
 
             {/* Search tool */}
-            <div className="relative w-full md:w-64">
+            <div className="relative w-64 shrink-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <input
                 type="text"
