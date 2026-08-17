@@ -181,7 +181,7 @@ export function Sidebar({
                 className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden ${
                   isSelected
                     ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
-                    : 'rounded-none bg-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground border-transparent'
+                    : 'rounded-none bg-transparent text-muted-foreground hover:rounded-xl hover:bg-accent/40 hover:text-foreground border-transparent'
                 } ${isCollapsed ? 'justify-center w-10 px-0 gap-0' : 'justify-start w-full gap-3'}`}
               >
                 <Icon size={16} className={`shrink-0 transition-colors duration-300 ${isSelected ? 'text-primary' : ''}`} />
