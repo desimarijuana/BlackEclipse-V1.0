@@ -253,7 +253,9 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
     setLoading(true);
     try {
       const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
-      const res = await fetch(`/api/stocks?country=${country}&limit=100`);
+      // For equities markets, only show stocks (not ETFs/funds/bonds).
+      const typeParam = country === 'CRYPTO' ? '' : '&type=Stock';
+      const res = await fetch(`/api/stocks?country=${country}${typeParam}&limit=100`);
       const data = await res.json();
       if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
         const mapped: BubbleData[] = data.stocks.map((s: any) => ({
