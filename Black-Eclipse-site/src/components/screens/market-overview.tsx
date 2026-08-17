@@ -1001,7 +1001,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         )}
 
         {/* Dedicated SPACIOUS Filter Action Bar - Solves Congestion */}
-        <div className="flex items-center justify-between bg-accent/10 border border-border/20 rounded-2xl p-4 md:p-5 flex-wrap gap-4">
+        <div className="flex items-center justify-between bg-accent/10 border border-border/20 rounded-3xl p-4 md:p-5 flex-wrap gap-4">
           {screenerTab === 'stocks' && (
             <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
               <div className="flex items-center gap-3">
@@ -1286,7 +1286,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {/* Advanced Filters Panel - Clean, organized layout */}
         {screenerTab === 'stocks' && showAdvancedFilters && (
-          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+          <div className="w-full bg-card/35 border border-border/30 rounded-3xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
@@ -1469,7 +1469,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {/* Crypto filters panel */}
         {screenerTab === 'crypto' && showAdvancedFilters && (
-          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+          <div className="w-full bg-card/35 border border-border/30 rounded-3xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
@@ -1536,7 +1536,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {/* ETF advanced filters panel */}
         {screenerTab === 'etfs' && showAdvancedFilters && (
-          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+          <div className="w-full bg-card/35 border border-border/30 rounded-3xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
@@ -1598,7 +1598,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {/* Funds advanced filters panel */}
         {screenerTab === 'funds' && showAdvancedFilters && (
-          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+          <div className="w-full bg-card/35 border border-border/30 rounded-3xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
@@ -1657,7 +1657,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {/* Dividend advanced filters panel */}
         {screenerTab === 'dividend_stocks' && showAdvancedFilters && (
-          <div className="w-full bg-card/35 border border-border/30 rounded-2xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
+          <div className="w-full bg-card/35 border border-border/30 rounded-3xl p-4 md:p-5 backdrop-blur-2xl animate-fade-in text-xs shadow-lg">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/20">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-primary" />
