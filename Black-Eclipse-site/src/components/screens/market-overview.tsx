@@ -903,16 +903,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         
         {/* Tab Selection Row - Spacious and Clean */}
         <div className="flex items-center justify-between border-b border-border/15 pb-2 mb-1 flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 bg-accent/30 p-1.5 rounded-xl overflow-x-auto max-w-full scrollbar-none flex-nowrap shrink-0 w-full md:w-auto">
+          <div className="flex items-center gap-1.5 bg-accent/30 p-1.5 rounded-3xl overflow-x-auto max-w-full scrollbar-none flex-nowrap shrink-0 w-full md:w-auto">
             {screenerTab === 'crypto' ? (
-              <span className="px-4 py-2 rounded-xl text-xs font-bold text-primary flex items-center gap-1.5">
+              <span className="px-4 py-2 rounded-3xl text-xs font-bold text-primary flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5" /> Global Crypto
               </span>
             ) : (
               <>
                 <button
                   onClick={() => handleTabChange('stocks')}
-                  className={`screener-tab px-4 py-2 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock')
                       ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -922,7 +922,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => handleTabChange('etfs')}
-                  className={`screener-tab px-4 py-2 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'etfs' 
                       ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -932,7 +932,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => handleTabChange('funds')}
-                  className={`screener-tab px-4 py-2 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'funds' 
                       ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -942,7 +942,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => { handleTabChange('stocks'); setFilterType('REIT'); }}
-                  className={`screener-tab px-4 py-2 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'REIT'
                       ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -952,7 +952,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
                 <button
                   onClick={() => { handleTabChange('stocks'); setFilterType('Listed Debt'); }}
-                  className={`screener-tab px-4 py-2 rounded-lg text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     screenerTab === 'stocks' && filterType === 'Listed Debt'
                       ? 'bg-accent text-foreground' 
                       : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'

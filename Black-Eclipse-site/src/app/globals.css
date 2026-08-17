@@ -378,7 +378,7 @@ a.bg-primary {
 /* Screener tab buttons: active state uses a neutral accent background (NOT green).
    Exempt from the pill override above so the rounded shape is preserved. */
 button.screener-tab.bg-primary {
-  border-radius: 0.5rem !important;
+  border-radius: 1.5rem !important;
   background: transparent !important;
   border: none !important;
   color: #ffffff !important;
