@@ -164,7 +164,7 @@ export function Sidebar({
         }`}>
           {[
             { id: 'chat', label: 'ChatBot', icon: Bot },
-            { id: 'discovery', label: 'Market Screener', icon: Monitor },
+            { id: 'discovery', label: 'Market Screener', icon: LineChart },
             { id: 'market', label: 'My Portfolio', icon: PieChart },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
