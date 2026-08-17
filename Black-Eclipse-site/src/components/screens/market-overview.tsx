@@ -5,7 +5,7 @@ import {
   ArrowUpRight, ArrowDownRight, ArrowRight, Search, 
   Sparkles, Star, BarChart3, 
   Layers, Award, TrendingUp, TrendingDown, Sliders, X, Coins, ChevronDown, Download,
-  Info, RefreshCw, Briefcase, Building2
+  Info, RefreshCw, Briefcase, Building2, Globe, Landmark, Bitcoin, Wallet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
@@ -147,10 +147,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [isMarketBullish, onMarketStatusChange]);
 
   // Active view tab inside dashboard ('stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto')
-  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto'>('stocks');
+  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets'>('stocks');
   const [loadingTab, setLoadingTab] = useState(false);
 
-  const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto') => {
+  const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets') => {
     setScreenerTab(tab);
     setLoadingTab(true);
     setFilterExchange('All');
@@ -174,6 +174,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setTimeout(() => {
       setLoadingTab(false);
     }, 450);
+  };
+
+  // Select a market (US / PK / CRYPTO) and switch to the appropriate tab.
+  const handleMarketSelect = (market: string) => {
+    setUserCountry(market);
+    if (market === 'CRYPTO') {
+      handleTabChange('crypto');
+    } else if (screenerTab === 'crypto' || screenerTab === 'markets') {
+      handleTabChange('stocks');
+    }
   };
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -678,20 +688,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             </p>
           </div>
           
-          <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-none border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
+          <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
             <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
             <select
               value={userCountry === 'CRYPTO' ? 'CRYPTO' : userCountry}
-              onChange={e => {
-                const v = e.target.value;
-                setUserCountry(v);
-                if (v === 'CRYPTO') {
-                  handleTabChange('crypto');
-                } else if (screenerTab === 'crypto') {
-                  handleTabChange('stocks');
-                }
-              }}
-              className="bg-background border border-border/60 hover:border-primary/50 rounded-none px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
+              onChange={e => handleMarketSelect(e.target.value)}
+              className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
               title="Select country to load market data"
             >
               <option value="USA">United States</option>
@@ -910,6 +912,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               </span>
             ) : (
               <>
+                <button
+                  onClick={() => handleTabChange('markets')}
+                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    screenerTab === 'markets'
+                      ? 'bg-accent text-foreground' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" /> Markets
+                </button>
                 <button
                   onClick={() => handleTabChange('stocks')}
                   className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
@@ -1279,6 +1291,26 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   onChange={e => setDividendSearch(e.target.value)}
                   className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
                 />
+              </div>
+            </div>
+          )}
+
+          {screenerTab === 'markets' && (
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">Select a Market</span>
+              </div>
+              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+                <div className="relative w-64 min-w-[200px]">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search markets..."
+                    value={stockSearch}
+                    onChange={e => setStockSearch(e.target.value)}
+                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1734,6 +1766,67 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
         {/* Screening Table Renderings - Zero Horizontal Scrolling due to responsive cols */}
+        {screenerTab === 'markets' && (
+          <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
+            <table className="w-full text-left border-collapse text-[11px]">
+              <thead>
+                <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
+                  <th className="py-3 px-4 whitespace-nowrap">Market</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Region</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">Assets</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Status</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { id: 'USA', label: 'United States', region: 'North America', icon: Landmark, assets: '7,132 stocks · 4,155 ETFs' },
+                  { id: 'PK', label: 'Pakistan (PSX)', region: 'South Asia', icon: Landmark, assets: '521 stocks · 741 funds' },
+                  { id: 'CRYPTO', label: 'Global Crypto', region: 'Worldwide', icon: Bitcoin, assets: '1,455 tokens' },
+                ].map((m) => {
+                  const active = userCountry === m.id;
+                  const Icon = m.icon;
+                  return (
+                    <tr key={m.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer" onClick={() => handleMarketSelect(m.id)}>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+                            <Icon size={16} />
+                          </div>
+                          <div>
+                            <div className="font-bold text-foreground">{m.label}</div>
+                            <div className="text-[10px] text-muted-foreground font-mono">{m.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-foreground/75 whitespace-nowrap">{m.region}</td>
+                      <td className="py-3 px-4 text-right font-mono text-foreground/75 whitespace-nowrap">{m.assets}</td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <span className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold border",
+                          active ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25" : "text-muted-foreground bg-accent/20 border-border/30"
+                        )}>
+                          <span className={cn("w-1.5 h-1.5 rounded-full", active ? "bg-emerald-400" : "bg-muted-foreground/50")} />
+                          {active ? "Active" : "Available"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <Button
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); handleMarketSelect(m.id); }}
+                          className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-3 rounded-lg py-1 h-auto text-[10px] font-semibold transition-all hover:scale-105 cursor-pointer"
+                        >
+                          {active ? "Viewing" : "Select"}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {screenerTab === 'stocks' && (
           <>
             <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
