@@ -10,7 +10,7 @@ import { Message } from '@/types/chat';
 
 // Screens imports
 import { MarketOverviewScreen } from './market-overview';
-import { CryptoBubbles } from './crypto-bubbles';
+import { MarketBubbles } from './market-bubbles';
 import { MarketNews, NewsItem } from './market-news';
 
 import { MyPortfolio } from './my-portfolio';
@@ -20,6 +20,7 @@ import { Newspaper } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 function StockChatContent() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
@@ -33,6 +34,7 @@ function StockChatContent() {
   
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMarketBullish, setIsMarketBullish] = useState(true);
   const [isNewsBullish, setIsNewsBullish] = useState(true);
 
@@ -299,6 +301,7 @@ function StockChatContent() {
         onSelectConversation={handleSelectConversation}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
+        onOpenSettings={() => setSettingsOpen(true)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
@@ -380,7 +383,7 @@ function StockChatContent() {
           )}
 
           {activeTab === 'heatmap' && (
-            <CryptoBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
+            <MarketBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
           )}
 
           {activeTab === 'chart' && (
@@ -388,14 +391,15 @@ function StockChatContent() {
               <EmbeddedChart symbol={selectedChartSymbol} />
             </div>
           )}
-
-          {activeTab === 'settings' && (
-            <div className="flex-1 w-full h-full overflow-y-auto scrollbar-hide">
-              <Settings />
-            </div>
-          )}
         </div>
       </div>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-none">
+          <DialogTitle className="sr-only">Settings</DialogTitle>
+          <Settings />
+        </DialogContent>
+      </Dialog>
     </div>
     </TooltipProvider>
   );

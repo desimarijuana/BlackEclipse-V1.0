@@ -36,6 +36,17 @@ const DEMO_CRYPTOS: BubbleData[] = [
   { symbol: 'LTC', name: 'Litecoin', price: 84.3, changePercent: -0.5, marketCap: '6.3B', volume: '0.5B', sector: 'Payments', rank: 15, circulatingSupply: '74.5M', ath: '$410' },
 ];
 
+const DEMO_PSX: BubbleData[] = [
+  { symbol: 'LUCK', name: 'Lucky Cement', price: 1120.5, changePercent: 1.85, marketCap: '412.3B', volume: '12.4M', sector: 'Materials', rank: 1, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'HUBC', name: 'Hub Power Company', price: 128.4, changePercent: 0.92, marketCap: '148.2B', volume: '8.1M', sector: 'Utilities', rank: 2, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'ENGRO', name: 'Engro Corporation', price: 385.2, changePercent: -0.64, marketCap: '201.5B', volume: '5.3M', sector: 'Materials', rank: 3, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'FFC', name: 'Fauji Fertilizer', price: 342.8, changePercent: 1.12, marketCap: '435.1B', volume: '6.7M', sector: 'Materials', rank: 4, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'OGDC', name: 'Oil & Gas Development', price: 142.6, changePercent: 0.45, marketCap: '612.8B', volume: '9.2M', sector: 'Energy', rank: 5, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'SYS', name: 'Systems Limited', price: 645.9, changePercent: 2.34, marketCap: '190.4B', volume: '3.8M', sector: 'Technology', rank: 6, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'MCB', name: 'MCB Bank', price: 268.3, changePercent: 0.78, marketCap: '318.6B', volume: '4.5M', sector: 'Financials', rank: 7, circulatingSupply: 'N/A', ath: 'N/A' },
+  { symbol: 'MARI', name: 'Mari Petroleum', price: 2850.0, changePercent: -1.25, marketCap: '380.2B', volume: '1.9M', sector: 'Energy', rank: 8, circulatingSupply: 'N/A', ath: 'N/A' },
+];
+
 class PhysicsBubble {
   x: number;
   y: number;
@@ -182,11 +193,11 @@ class PhysicsBubble {
   }
 }
 
-interface CryptoBubblesProps {
+interface MarketBubblesProps {
   onAnalyzeTicker: (ticker: string) => void;
 }
 
-export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
+export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -251,8 +262,8 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
   // Load bubble data for the selected market from JDDS via /api/stocks.
   const loadMarketData = async (market: string) => {
     setLoading(true);
+    const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
     try {
-      const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
       // For equities markets, only show stocks (not ETFs/funds/bonds).
       const typeParam = country === 'CRYPTO' ? '' : '&type=Stock';
       // Order by market cap so the biggest assets appear first (not alphabetical).
@@ -273,13 +284,19 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
             circulatingSupply: s.circulatingSupply || 'N/A',
             ath: s.ath || 'N/A',
           }));
-        setRawList(mapped);
+        // If the market returned no priced stocks (e.g. PSX seed has no prices yet),
+        // fall back to demo data for that market so bubbles still render.
+        if (mapped.length > 0) {
+          setRawList(mapped);
+        } else {
+          setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
+        }
       } else {
-        setRawList(DEMO_CRYPTOS);
+        setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
       }
     } catch (e) {
       console.error('Failed to load market bubble data', e);
-      setRawList(DEMO_CRYPTOS);
+      setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
     } finally {
       setLoading(false);
     }
@@ -400,7 +417,7 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
     const interval = setInterval(() => loadMarketData(selectedMarket), 20000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedMarket]);
 
   // Reset page position to 1 when filters change
   useEffect(() => {

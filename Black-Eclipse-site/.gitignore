@@ -48,3 +48,8 @@ jdds_backup.sql
 next-env.d.ts
 
 /src/generated/prisma
+
+# database
+jdds.db
+jdds.db-*
+

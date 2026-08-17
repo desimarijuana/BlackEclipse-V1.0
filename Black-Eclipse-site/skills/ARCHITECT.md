@@ -53,7 +53,7 @@ UI / Chat (StockChat terminal)
  ├── Discovery tab   → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts + market-data.ts)
  ├── Market tab      → MyPortfolio (my-portfolio.tsx + use-portfolio-engine.ts)
  ├── News tab        → MarketNews (market-news.tsx) → /api/news (RSS)
- ├── Bubbles tab     → CryptoBubbles (crypto-bubbles.tsx)
+ ├── Bubbles tab     → MarketBubbles (market-bubbles.tsx)
  └── Chart tab       → EmbeddedChart (embedded-chart.tsx) → TradingView widget
  │
  ▼
