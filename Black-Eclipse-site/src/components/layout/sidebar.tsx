@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { 
   Sparkles, LayoutGrid, LineChart, Briefcase, Star, 
   Newspaper, Compass, Plus, Bot, Trash2, X, 
-  ChevronLeft, ChevronRight, Menu, SlidersHorizontal, PieChart, Monitor, Orbit
+  ChevronLeft, ChevronRight, Menu, Settings, PieChart, Monitor, Orbit, Search
 } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Message } from '@/types/chat';
@@ -26,6 +26,7 @@ interface SidebarProps {
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
   onDeleteConversation: (id: string) => void;
+  onOpenSettings?: () => void;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
@@ -38,6 +39,7 @@ export function Sidebar({
   onSelectConversation,
   onNewChat,
   onDeleteConversation,
+  onOpenSettings,
   mobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
@@ -164,11 +166,10 @@ export function Sidebar({
         }`}>
           {[
             { id: 'chat', label: 'ChatBot', icon: Bot },
-            { id: 'discovery', label: 'Market Screener', icon: LineChart },
+            { id: 'discovery', label: 'Market Screener', icon: Search },
             { id: 'market', label: 'My Portfolio', icon: PieChart },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
-            { id: 'settings', label: 'Data Settings', icon: SlidersHorizontal },
           ].map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
@@ -217,14 +218,14 @@ export function Sidebar({
             </div>
             {/* Settings gear button — bottom-right of the Terminal footer */}
             <button
-              onClick={() => handleTabClick('settings')}
-              className={`p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
+              onClick={onOpenSettings}
+              className={`p-1.5 rounded-none text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
                 activeTab === 'settings' ? 'text-primary bg-primary/10' : ''
               }`}
               title="Settings"
               aria-label="Open Settings"
             >
-              <SlidersHorizontal size={16} />
+              <Settings size={16} />
             </button>
           </div>
         )}
