@@ -194,6 +194,8 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
   const [gravityType, setGravityType] = useState<'single' | 'performers' | 'rank'>('single');
   const [loading, setLoading] = useState(false);
   const [rawList, setRawList] = useState<BubbleData[]>([]);
+  // Selected market for the bubble view (US / PK / CRYPTO).
+  const [selectedMarket, setSelectedMarket] = useState<string>('CRYPTO');
 
   // Advanced filters
   const [selectedSector, setSelectedSector] = useState<string>('All');
@@ -244,6 +246,49 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
     setLoading(true);
     setRawList(DEMO_CRYPTOS);
     setLoading(false);
+  };
+
+  // Load bubble data for the selected market from JDDS via /api/stocks.
+  const loadMarketData = async (market: string) => {
+    setLoading(true);
+    try {
+      const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
+      const res = await fetch(`/api/stocks?country=${country}&limit=100`);
+      const data = await res.json();
+      if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
+        const mapped: BubbleData[] = data.stocks.map((s: any) => ({
+          symbol: s.symbol,
+          name: s.name,
+          price: s.price || 0,
+          changePercent: s.changePercent || 0,
+          marketCap: s.marketCap || 'N/A',
+          volume: s.volume || 'N/A',
+          sector: s.sector || 'Other',
+          rank: s.rank || 999,
+          circulatingSupply: s.circulatingSupply || 'N/A',
+          ath: s.ath || 'N/A',
+        }));
+        setRawList(mapped);
+      } else {
+        setRawList(DEMO_CRYPTOS);
+      }
+    } catch (e) {
+      console.error('Failed to load market bubble data', e);
+      setRawList(DEMO_CRYPTOS);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Switch market and reload data.
+  const handleMarketChange = (market: string) => {
+    setSelectedMarket(market);
+    setSearchQuery('');
+    setSelectedSector('All');
+    setSelectedPerformance('All');
+    setSelectedRankTier('All');
+    setSelectedVolumeTier('All');
+    loadMarketData(market);
   };
 
   // Memoized lists of available sectors for filters
@@ -346,9 +391,10 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
 
   // Init live poll
   useEffect(() => {
-    fetchLiveCrypto();
-    const interval = setInterval(fetchLiveCrypto, 20000);
+    loadMarketData(selectedMarket);
+    const interval = setInterval(() => loadMarketData(selectedMarket), 20000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reset page position to 1 when filters change
@@ -632,23 +678,40 @@ export function CryptoBubbles({ onAnalyzeTicker }: CryptoBubblesProps) {
           <div>
             <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-2.5">
               <Orbit className="text-primary w-8 h-8 animate-spin-slow" />
-              Crypto Market Bubbles
+              Market Bubbles
             </h1>
             <p className="text-muted-foreground text-xs mt-1">
-              Interactive fluid-physics bubble catalog. Fully customizable sizing, scale parameters, and live advanced filters.
+              Interactive fluid-physics bubble catalog. Select a market, then customize sizing, scale, and filters.
             </p>
           </div>
 
-          {/* Search tool */}
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search / Highlight Coin..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value.toUpperCase())}
-              className="w-full bg-[#0f0f0f]/40 border border-border/40 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60 transition-all font-mono"
-            />
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Market Selector */}
+            <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
+              <select
+                value={selectedMarket}
+                onChange={e => handleMarketChange(e.target.value)}
+                className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
+                title="Select market to load bubble data"
+              >
+                <option value="CRYPTO">Global Crypto</option>
+                <option value="USA">United States</option>
+                <option value="PK">Pakistan (PSX)</option>
+              </select>
+            </div>
+
+            {/* Search tool */}
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search / Highlight Asset..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value.toUpperCase())}
+                className="w-full bg-[#0f0f0f]/40 border border-border/40 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60 transition-all font-mono"
+              />
+            </div>
           </div>
         </div>
 
