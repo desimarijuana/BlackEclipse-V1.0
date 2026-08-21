@@ -4,18 +4,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowUpRight, ArrowDownRight, ArrowRight, Search, 
   Sparkles, Star, BarChart3, 
-  Layers, Award, TrendingUp, TrendingDown, Sliders, X, Coins, ChevronDown, Download,
-  Info, RefreshCw, Briefcase, Building2, Globe, Landmark, Bitcoin, Wallet
+  Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
+  Info, Briefcase, Building2, Globe, RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
-import { cn, getTradingViewSymbol } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton, SkeletonHeader, SkeletonIndexCard, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
 import {
-  IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, NewStockItem, BlueChipItem,
+  IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
-  getSimulatedDashboard,
 } from './market-data';
 import { useScreenerFilters } from './use-screener-filters';
 
@@ -121,16 +120,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterMetricType, setFilterMetricType] = useState('All');
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
   // Selectable region for stocks: 'USA' (US), 'PK' (Pakistan), or 'CRYPTO'.
-  const [userCountry, setUserCountry] = useState<string>('USA');
+  const [userCountry, setUserCountry] = useState<string>('GLOBAL');
   const [apiStocks, setApiStocks] = useState<StockItem[]>([]);
-  const [loadingApi, setLoadingApi] = useState(true);
+  const [loadingApi, setLoadingApi] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
 
   // Unified dynamic metrics states loaded from region-specific backend queries
-  const [indexData, setIndexData] = useState<IndexCard[]>(INDEX_DATA);
-  const [sectorPerformance, setSectorPerformance] = useState<SectorPerformance[]>(SECTOR_PERFORMANCE);
-  const [topGainers, setTopGainers] = useState<ShifterItem[]>(TOP_GAINERS);
-  const [topLosers, setTopLosers] = useState<ShifterItem[]>(TOP_LOSERS);
+  const [indexData] = useState<IndexCard[]>(INDEX_DATA);
+  const [sectorPerformance] = useState<SectorPerformance[]>(SECTOR_PERFORMANCE);
+  const [topGainers] = useState<ShifterItem[]>(TOP_GAINERS);
+  const [topLosers] = useState<ShifterItem[]>(TOP_LOSERS);
 
   // Determine if the overall market is bullish (green index sum) or bearish (red index sum)
   const isMarketBullish = useMemo(() => {
@@ -147,7 +146,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [isMarketBullish, onMarketStatusChange]);
 
   // Active view tab inside dashboard ('stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto')
-  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets'>('stocks');
+  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets'>('markets');
   const [loadingTab, setLoadingTab] = useState(false);
 
   const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets') => {
@@ -171,17 +170,22 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setSelectedTypes([]);
     setExpandedSymbol(null);
     setStockSearch('');
-    setTimeout(() => {
-      setLoadingTab(false);
-    }, 450);
   };
 
-  // Select a market (US / PK / CRYPTO) and switch to the appropriate tab.
+  // Select a market (GLOBAL / US / PK / CRYPTO / ...).
+  //   GLOBAL → show the global markets overview (all indices).
+  //   any country → switch to that country's stock screener.
   const handleMarketSelect = (market: string) => {
     setUserCountry(market);
+    if (market === 'GLOBAL') {
+      handleTabChange('markets');
+      return;
+    }
     if (market === 'CRYPTO') {
       handleTabChange('crypto');
-    } else if (screenerTab === 'crypto' || screenerTab === 'markets') {
+      return;
+    }
+    if (screenerTab === 'markets' || screenerTab === 'crypto') {
       handleTabChange('stocks');
     }
   };
@@ -189,6 +193,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [currentPage, setCurrentPage] = useState(1);
   const [totalStocks, setTotalStocks] = useState(0);
   const [limit, setLimit] = useState(20);
+
+  // Cache of already-fetched pages keyed by page number, so paging backward/
+  // forward (especially into prefetched pages) is instant. Cleared whenever the
+  // market or filter context changes (see the reset effect below).
+  const [pageCache, setPageCache] = useState<Record<number, StockItem[]>>({});
 
   // Combined Sector/Industry selection: a single dropdown that sets either
   // the sector or the industry filter depending on which list the value is in.
@@ -210,118 +219,197 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // The value shown in the combined dropdown: prefer sector if set, else industry.
   const sectorIndustryValue = filterSector !== 'All' ? filterSector : filterIndustry !== 'All' ? filterIndustry : 'All';
 
-  // price_scraper mode + CSV import state
-  const [scraperMode, setScraperMode] = useState<'auto' | 'off' | 'manual'>('auto');
-  const [showCsvImport, setShowCsvImport] = useState(false);
-  const [csvText, setCsvText] = useState('');
-  const [csvStatus, setCsvStatus] = useState<string | null>(null);
-  const [importingCsv, setImportingCsv] = useState(false);
-  const [scrapingSymbols, setScrapingSymbols] = useState<string[]>([]);
-
-  // Reset page on country, limit, search, sector, or tab changes
+  // Reset page + drop prefetch cache on country, limit, search, sector, or tab changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, screenerTab]);
+    setPageCache({});
+  }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterCountry, screenerTab]);
 
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   const [dataUpdatedTime, setDataUpdatedTime] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>('live');
 
-  const getQueryCountry = React.useCallback(() => (screenerTab === 'crypto' ? 'CRYPTO' : userCountry), [screenerTab, userCountry]);
-  const getMarketId = React.useCallback(() => {
+  const getQueryCountry = React.useCallback(() => {
     if (screenerTab === 'crypto') return 'CRYPTO';
-    return userCountry === 'PK' ? 'PK' : 'US';
+    // The Markets/GLOBAL view has no stock universe; default to US stocks.
+    if (userCountry === 'GLOBAL' || userCountry === 'All') return 'US';
+    return userCountry;
   }, [screenerTab, userCountry]);
-
-  // Load price_scraper config (mode + page size) once on mount.
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/scraper');
-        const data = await res.json();
-        if (data) {
-          if (data.mode === 'auto' || data.mode === 'off' || data.mode === 'manual') {
-            setScraperMode(data.mode);
-          }
-          if (data.pageSize && [20, 50, 100].includes(data.pageSize)) {
-            setLimit(data.pageSize);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load price_scraper config', e);
-      }
-    })();
-  }, []);
 
   const fallbackToDemo = React.useCallback((qc: string) => {
     const demoStocks = getFallbackStocks(qc);
-    const dash = getSimulatedDashboard(qc);
     setApiStocks(demoStocks);
     setTotalStocks(demoStocks.length);
     setDataSource('demo');
     setDataUpdatedTime(new Date().toISOString());
-    setIndexData(dash.indices);
-    setSectorPerformance(dash.sectors);
-    setTopGainers(dash.shifters.gainers);
-    setTopLosers(dash.shifters.losers);
   }, []);
 
   // Load stocks and dashboard metadata based on user's country/tab.
   // Reads from JDDS via /api/stocks; falls back to demo data if empty/unreachable.
   // Server-side pagination: only the current page is fetched, never the whole universe.
+  // Fetched pages are cached so paging back is instant, and the next page is
+  // prefetched in the background based on the selected region.
+  const fetchPage = React.useCallback(async (page: number): Promise<{ stocks: StockItem[]; total: number; filterOptions?: { sectors: string[]; industries: string[]; types: string[]; countries: string[] } } | null> => {
+    const qc = getQueryCountry();
+    const params = new URLSearchParams({ country: qc });
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+    if (filterType !== 'All') params.set('type', filterType);
+    if (filterSector !== 'All') params.set('sector', filterSector);
+    if (filterIndustry !== 'All') params.set('industry', filterIndustry);
+    if (filterCountry !== 'All') params.set('countryFilter', filterCountry);
+    if (filterMarketCap !== 'All') params.set('marketCap', filterMarketCap);
+    if (filterPE !== 'All') params.set('pe', filterPE);
+    if (filterPrice !== 'All') params.set('price', filterPrice);
+    if (filterChange !== 'All') params.set('change', filterChange);
+    if (filterVolume !== 'All') params.set('volume', filterVolume);
+    if (stockSearch.trim()) params.set('search', stockSearch.trim());
+
+    try {
+      const res = await fetch(`/api/stocks?${params.toString()}`);
+      const data = await res.json();
+      if (data && data.stocks && data.stocks.length > 0) {
+        return { stocks: data.stocks, total: data.pagination?.total ?? data.stocks.length, filterOptions: data.filterOptions };
+      }
+      return null;
+    } catch (err) {
+      console.error('Failed to load from JDBC, using demo:', err);
+      return null;
+    }
+  }, [getQueryCountry, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+
   const refreshStocks = React.useCallback(async (qc: string, silent = false) => {
-    if (!silent) {
+    // Stale-while-revalidate: only block on a skeleton when we have nothing to
+    // show yet. Otherwise keep the current data visible while refreshing.
+    if (!silent && apiStocks.length === 0) {
       setLoadingApi(true);
       setLoadingDashboard(true);
     }
     try {
-      const params = new URLSearchParams({ country: qc });
-      params.set('page', String(currentPage));
-      params.set('limit', String(limit));
-      if (filterType !== 'All') params.set('type', filterType);
-      if (filterSector !== 'All') params.set('sector', filterSector);
-      if (filterIndustry !== 'All') params.set('industry', filterIndustry);
-      if (filterCountry !== 'All') params.set('countryFilter', filterCountry);
-      if (filterMarketCap !== 'All') params.set('marketCap', filterMarketCap);
-      if (filterPE !== 'All') params.set('pe', filterPE);
-      if (filterPrice !== 'All') params.set('price', filterPrice);
-      if (filterChange !== 'All') params.set('change', filterChange);
-      if (filterVolume !== 'All') params.set('volume', filterVolume);
-      if (stockSearch.trim()) params.set('search', stockSearch.trim());
-
-      const res = await fetch(`/api/stocks?${params.toString()}`);
-      const data = await res.json();
-      if (data && data.stocks && data.stocks.length > 0) {
-        setApiStocks(data.stocks);
-        setTotalStocks(data.pagination?.total ?? data.stocks.length);
-        setDataSource(data.source || 'jdds');
-        setDataUpdatedTime(new Date().toISOString());
-        if (data.filterOptions) setFilterOptions(data.filterOptions);
-        if (data.indices) setIndexData(data.indices);
-        if (data.sectors) setSectorPerformance(data.sectors);
-        if (data.shifters) {
-          setTopGainers(data.shifters.gainers || []);
-          setTopLosers(data.shifters.losers || []);
+      // Serve from cache instantly if this page was already fetched.
+      if (pageCache[currentPage]) {
+        setApiStocks(pageCache[currentPage]);
+        if (!silent && apiStocks.length === 0) {
+          setLoadingApi(false);
+          setLoadingDashboard(false);
         }
       } else {
-        fallbackToDemo(qc);
+        const data = await fetchPage(currentPage);
+        if (data) {
+          setApiStocks(data.stocks);
+          setTotalStocks(data.total);
+          setDataSource('jdds');
+          setDataUpdatedTime(new Date().toISOString());
+          if (data.filterOptions) setFilterOptions(data.filterOptions);
+          // Cache the fetched page.
+          setPageCache((prev) => ({ ...prev, [currentPage]: data.stocks }));
+        } else {
+          fallbackToDemo(qc);
+        }
+      }
+      // Prefetch the next page for the selected region in the background so
+      // paging forward is instant. Never blocks the current render.
+      const nextPage = currentPage + 1;
+      if (!pageCache[nextPage]) {
+        fetchPage(nextPage).then((data) => {
+          if (data && data.stocks.length > 0) {
+            setPageCache((prev) => ({ ...prev, [nextPage]: data.stocks }));
+          }
+        });
       }
     } catch (err) {
-      console.error('Failed to load from JDDS, using demo:', err);
-      if (!silent) fallbackToDemo(qc);
+      console.error('Failed to load from JD, using demo:', err);
+      if (!silent && apiStocks.length === 0) fallbackToDemo(qc);
     } finally {
-      if (!silent) {
+      if (!silent && apiStocks.length === 0) {
         setLoadingApi(false);
         setLoadingDashboard(false);
       }
     }
-  }, [fallbackToDemo, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+  }, [fallbackToDemo, fetchPage, currentPage, pageCache, apiStocks.length]);
 
   React.useEffect(() => {
-    refreshStocks(getQueryCountry());
+    // Global markets view shows all indices, not one country's screener.
+    if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
+    // Debounce so rapid filter/search changes coalesce into one request.
+    const timer = setTimeout(() => {
+      refreshStocks(getQueryCountry());
+    }, stockSearch ? 300 : 0);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+
+  // Automatic yfinance price backfill: whenever a region's screener is shown,
+  // silently pull live prices for the symbols on this page from yfinance so the
+  // table is populated with current prices without requiring a manual "Refresh
+  // Prices" click. Refreshes only once per page (tracks last-auto-refresh page).
+  const [autoRefreshedPage, setAutoRefreshedPage] = useState<number | null>(null);
+  const [autoRefreshBusy, setAutoRefreshBusy] = useState(false);
+  React.useEffect(() => {
+    const qc = getQueryCountry();
+    // Skip global markets overview & the demo/empty fallback.
+    if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
+    if (!apiStocks.length) return;
+    if (autoRefreshedPage === currentPage || autoRefreshBusy) return;
+    // Only pull when the current page actually lacks live prices.
+    const needsPrice = apiStocks.some((s) => s.priceMissing || !s.price || s.price <= 0);
+    if (!needsPrice) {
+      setAutoRefreshedPage(currentPage);
+      return;
+    }
+    let cancelled = false;
+    setAutoRefreshBusy(true);
+    const pageSymbols = apiStocks.map((s) => s.symbol);
+    (async () => {
+      try {
+        const res = await fetch('/api/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ market: qc, symbols: pageSymbols }),
+        });
+        const data = await res.json();
+        if (!cancelled && data && data.success && data.ok > 0) {
+          // Live prices now persisted → reload silently so the page reflects them.
+          await refreshStocks(qc, true);
+          setAutoRefreshedPage(currentPage);
+        } else {
+          // Mark as attempted so we don't hammer the endpoint on every render.
+          setAutoRefreshedPage(currentPage);
+        }
+      } catch {
+        if (!cancelled) setAutoRefreshedPage(currentPage);
+      } finally {
+        if (!cancelled) setAutoRefreshBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiStocks, currentPage, userCountry, screenerTab, getQueryCountry]);
+
+  // Global markets overview: load available markets + asset counts so the
+  // Markets tab shows real data instead of an "unavailable" placeholder.
+  const [globalMarkets, setGlobalMarkets] = useState<{ id: string; country: string; exchange: string; isCrypto: boolean; enabled: boolean; assetCount: number; pricedCount: number }[]>([]);
+  const [loadingGlobalMarkets, setLoadingGlobalMarkets] = useState(false);
+  React.useEffect(() => {
+    if (screenerTab !== 'markets') return;
+    let cancelled = false;
+    (async () => {
+      setLoadingGlobalMarkets(true);
+      try {
+        const res = await fetch('/api/markets');
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.markets)) {
+          setGlobalMarkets(data.markets);
+        }
+      } catch (err) {
+        console.error('Failed to load markets overview:', err);
+      } finally {
+        if (!cancelled) setLoadingGlobalMarkets(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab]);
 
 
 
@@ -506,103 +594,37 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     dividendSearch, dividendSortField, dividendSortOrder,
   });
 
-  // --- price_scraper helpers --------------------------------------------
-  // Scrape exactly the given symbols (page-scoped refresh or manual per-row).
-  const scrapeSymbols = React.useCallback(async (symbols: string[]) => {
-    if (!symbols.length || scraperMode === 'off') return;
-    setScrapingSymbols((prev) => Array.from(new Set([...prev, ...symbols])));
+  // Refresh live prices from yfinance into JDDS for the current market.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+  const handleRefreshPrices = React.useCallback(async () => {
+    const marketId = getQueryCountry();
+    setRefreshing(true);
+    setRefreshMsg(null);
     try {
-      await fetch('/api/scraper', {
+      // Refresh the symbols currently shown on this page so the user sees
+      // live prices immediately.
+      const pageSymbols = filteredStocks
+        .slice((currentPage - 1) * limit, currentPage * limit)
+        .map((s) => s.symbol);
+      const res = await fetch('/api/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ market: getMarketId(), symbols }),
-      });
-    } catch (e) {
-      console.error('price_scraper refresh failed', e);
-    }
-    await refreshStocks(getQueryCountry(), true);
-    setScrapingSymbols((prev) => prev.filter((s) => !symbols.includes(s)));
-  }, [scraperMode, refreshStocks, getQueryCountry, getMarketId]);
-
-  // Auto mode: when the page or page-size changes, refresh exactly the
-  // stocks being displayed on that page.
-  const autoScrapeSkippedRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!autoScrapeSkippedRef.current) {
-      autoScrapeSkippedRef.current = true;
-      return; // skip initial render — data just loaded / interval handles it
-    }
-    if (scraperMode !== 'auto') return;
-    const pageStocks = filteredStocks.slice((currentPage - 1) * limit, currentPage * limit);
-    if (!pageStocks.length) return;
-    const timer = setTimeout(() => {
-      scrapeSymbols(pageStocks.map((s) => s.symbol));
-    }, 500);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, scraperMode]);
-
-  // Apply a new scraper mode and persist it.
-  const applyMode = async (mode: 'auto' | 'off' | 'manual') => {
-    setScraperMode(mode);
-    try {
-      await fetch('/api/scraper', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: { mode } }),
-      });
-    } catch (e) {
-      console.error('Failed to save scraper mode', e);
-    }
-  };
-
-  // Apply a new page size and persist it (drives per-page scrape count).
-  const applyPageSize = (size: number) => {
-    setLimit(size);
-    try {
-      fetch('/api/scraper', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: { pageSize: size } }),
-      });
-    } catch (e) {
-      console.error('Failed to save page size', e);
-    }
-  };
-
-  // Manual: click a '--' price cell to scrape just that symbol.
-  const handleManualScrape = (symbol: string) => {
-    if (scraperMode === 'off') return;
-    scrapeSymbols([symbol]);
-  };
-
-  const handleCsvImport = async () => {
-    if (!csvText.trim()) {
-      setCsvStatus('Paste CSV data first.');
-      return;
-    }
-    setImportingCsv(true);
-    setCsvStatus(null);
-    try {
-      const res = await fetch('/api/scraper/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ market: getMarketId(), csv: csvText }),
+        body: JSON.stringify({ market: marketId, symbols: pageSymbols }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setCsvStatus(`Imported ${data.imported} prices (${data.skipped} skipped).`);
-        setCsvText('');
-        await refreshStocks(getQueryCountry(), true);
+      if (data.success) {
+        setRefreshMsg(`Refreshed ${data.ok} prices from yfinance.`);
+        await refreshStocks(marketId, true);
       } else {
-        setCsvStatus(data.error || 'Import failed.');
+        setRefreshMsg(data.error || 'Refresh failed.');
       }
-    } catch (e) {
-      setCsvStatus('Import failed.');
+    } catch {
+      setRefreshMsg('Refresh failed.');
     } finally {
-      setImportingCsv(false);
+      setRefreshing(false);
     }
-  };
+  }, [getQueryCountry, refreshStocks, filteredStocks, currentPage, limit]);
 
   const toggleStockSort = (field: keyof StockItem) => {
     if (stockSortField === field) {
@@ -691,16 +713,58 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
             <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
             <select
-              value={userCountry === 'CRYPTO' ? 'CRYPTO' : userCountry}
+              value={userCountry === 'CRYPTO' ? 'CRYPTO' : (userCountry === 'GLOBAL' && screenerTab === 'stocks') ? 'USA' : userCountry}
               onChange={e => handleMarketSelect(e.target.value)}
               className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
               title="Select country to load market data"
             >
+              <option value="GLOBAL">Global Market</option>
               <option value="USA">United States</option>
+              <option value="CN">China</option>
+              <option value="TW">Taiwan</option>
+              <option value="HK">Hong Kong</option>
+              <option value="JP">Japan</option>
+              <option value="KR">South Korea</option>
+              <option value="IN">India</option>
               <option value="PK">Pakistan (PSX)</option>
+              <option value="SG">Singapore</option>
+              <option value="MY">Malaysia</option>
+              <option value="AU">Australia</option>
+              <option value="UK">United Kingdom</option>
+              <option value="DE">Germany</option>
+              <option value="FR">France</option>
+              <option value="NL">Netherlands</option>
+              <option value="CA">Canada</option>
+              <option value="BR">Brazil</option>
+              <option value="MX">Mexico</option>
+              <option value="SA">Saudi Arabia</option>
+              <option value="AE">UAE</option>
+              <option value="ZA">South Africa</option>
+              <option value="EG">Egypt</option>
+              <option value="NG">Nigeria</option>
+              <option value="RU">Russia</option>
+              <option value="TR">Turkey</option>
+              <option value="ID">Indonesia</option>
+              <option value="TH">Thailand</option>
+              <option value="VN">Vietnam</option>
               <option value="CRYPTO">Global Crypto</option>
             </select>
+            <Button
+              size="sm"
+              onClick={handleRefreshPrices}
+              disabled={refreshing || userCountry === 'GLOBAL'}
+              className="cursor-pointer shrink-0"
+              title="Fetch live prices from yfinance into JDDS"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 mr-1", refreshing && 'animate-spin')} />
+              {refreshing ? 'Refreshing...' : 'Refresh Prices'}
+            </Button>
           </div>
+          {refreshMsg && (
+            <div className="text-[10px] text-muted-foreground font-mono mt-1 text-right">
+              {refreshMsg}
+            </div>
+          )}
         </div>
       )}
 
@@ -979,38 +1043,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {loadingApi && <span className="text-[10px] text-muted-foreground/80 animate-pulse bg-accent/20 px-2.5 py-1 rounded-xl font-mono">Syncing Exchange...</span>}
           </div>
         </div>
-
-        {/* CSV import panel */}
-        {showCsvImport && (
-          <div className="rounded-2xl border border-border/20 bg-accent/10 p-4 space-y-3 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground">Import historical prices (CSV)</span>
-              <button onClick={() => setShowCsvImport(false)} className="text-muted-foreground hover:text-rose-400 cursor-pointer" title="Close">
-                <X size={14} />
-              </button>
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Columns: <span className="font-mono text-primary">symbol, price</span> (optional:{' '}
-              <span className="font-mono text-primary">name, changePct, volume, marketCap</span>). One row per stock. Imported
-              prices are shown in the table with a <span className="text-amber-400 font-mono font-bold">CSV</span> badge.
-            </p>
-            <textarea
-              value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
-              rows={6}
-              placeholder={'symbol,price\nAAPL,189.84\nMSFT,429.20\nNVDA,1096.50'}
-              className="w-full bg-background/60 border border-border/40 rounded-xl p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 resize-y"
-            />
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className={`text-[11px] font-mono ${csvStatus && csvStatus.includes('failed') || (csvStatus && csvStatus.startsWith('Import')) && !csvStatus.startsWith('Imported') ? 'text-rose-400' : csvStatus?.startsWith('Imported') ? 'text-emerald-400' : 'text-muted-foreground'}`}>
-                {csvStatus}
-              </span>
-              <Button size="sm" onClick={handleCsvImport} disabled={importingCsv} className="cursor-pointer">
-                {importingCsv ? 'Importing...' : 'Import Prices'}
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Dedicated SPACIOUS Filter Action Bar - Solves Congestion */}
         <div className="flex items-center justify-between bg-accent/10 border border-border/20 rounded-3xl p-4 md:p-5 flex-wrap gap-4">
@@ -1768,62 +1800,50 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         {/* Screening Table Renderings - Zero Horizontal Scrolling due to responsive cols */}
         {screenerTab === 'markets' && (
           <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
-            <table className="w-full text-left border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
-                  <th className="py-3 px-4 whitespace-nowrap">Market</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Region</th>
-                  <th className="py-3 px-4 text-right whitespace-nowrap">Assets</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">Status</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { id: 'USA', label: 'United States', region: 'North America', icon: Landmark, assets: '7,132 stocks · 4,155 ETFs' },
-                  { id: 'PK', label: 'Pakistan (PSX)', region: 'South Asia', icon: Landmark, assets: '521 stocks · 741 funds' },
-                  { id: 'CRYPTO', label: 'Global Crypto', region: 'Worldwide', icon: Bitcoin, assets: '1,455 tokens' },
-                ].map((m) => {
-                  const active = userCountry === m.id;
-                  const Icon = m.icon;
-                  return (
-                    <tr key={m.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer" onClick={() => handleMarketSelect(m.id)}>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-                            <Icon size={16} />
-                          </div>
-                          <div>
-                            <div className="font-bold text-foreground">{m.label}</div>
-                            <div className="text-[10px] text-muted-foreground font-mono">{m.id}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-foreground/75 whitespace-nowrap">{m.region}</td>
-                      <td className="py-3 px-4 text-right font-mono text-foreground/75 whitespace-nowrap">{m.assets}</td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <span className={cn(
-                          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold border",
-                          active ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/25" : "text-muted-foreground bg-accent/20 border-border/30"
-                        )}>
-                          <span className={cn("w-1.5 h-1.5 rounded-full", active ? "bg-emerald-400" : "bg-muted-foreground/50")} />
-                          {active ? "Active" : "Available"}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <Button
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); handleMarketSelect(m.id); }}
-                          className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-3 rounded-lg py-1 h-auto text-[10px] font-semibold transition-all hover:scale-105 cursor-pointer"
-                        >
-                          {active ? "Viewing" : "Select"}
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Globe className="text-primary w-4 h-4" />
+                <span className="text-xs font-bold text-foreground uppercase tracking-wider font-mono">Global Markets</span>
+              </div>
+            </div>
+            {loadingGlobalMarkets ? (
+              <div className="py-10 text-center text-muted-foreground text-xs">Loading markets...</div>
+            ) : globalMarkets.length === 0 ? (
+              <div className="py-10 text-center text-muted-foreground text-xs">
+                No markets loaded yet. Select a market above to view its screener and prices will be pulled automatically.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
+                {globalMarkets.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => handleMarketSelect(m.isCrypto ? 'CRYPTO' : m.id)}
+                    className="text-left p-4 rounded-2xl bg-[#0f0f0f]/50 hover:bg-[#0f0f0f]/80 border border-white/10 dark:border-white/5 hover:border-primary/50 transition-all duration-300 cursor-pointer flex flex-col gap-1.5 group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-serif font-semibold text-sm text-foreground truncate">{m.country}</span>
+                      {m.isCrypto && (
+                        <span className="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 rounded-full px-2 py-0.5 font-mono">CRYPTO</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">{m.exchange}</span>
+                    <div className="mt-1 flex items-center gap-3 text-[10px] font-mono">
+                      <span className="text-foreground/80 font-bold">{m.pricedCount.toLocaleString()}</span>
+                      <span className="text-muted-foreground/70">/ {m.assetCount.toLocaleString()} assets priced</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-accent/40 rounded-full overflow-hidden mt-1">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500"
+                        style={{ width: `${m.assetCount > 0 ? Math.min(100, (m.pricedCount / m.assetCount) * 100) : 0}%` }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-primary/80 font-semibold mt-1 opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-wider">
+                      Open screener →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1901,45 +1921,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.marketCap}</td>
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.peRatio}</td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                            {scraperMode === 'manual' || stock.priceMissing ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleManualScrape(stock.symbol);
-                                }}
-                                disabled={scraperMode === 'off'}
-                                title={
-                                  scraperMode === 'off'
-                                    ? 'price_scraper is disabled'
-                                    : `Scrape price for ${stock.symbol}`
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/30 bg-accent/20 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all text-[11px] font-mono font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                              >
-                                {scrapingSymbols.includes(stock.symbol) ? (
-                                  <RefreshCw className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  '--'
-                                )}
-                              </button>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5">
-                                ${stock.price.toFixed(2)}
-                                {stock.priceSource === 'csv' && (
-                                  <span
-                                    className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                    title="Imported historical / API price"
-                                  >
-                                    CSV
-                                  </span>
-                                )}
-                              </span>
-                            )}
+                            <span className="inline-flex items-center gap-1.5">
+                              ${stock.price.toFixed(2)}
+                              {stock.priceSource === 'csv' && (
+                                <span
+                                  className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                  title="Imported historical / API price"
+                                >
+                                  CSV
+                                </span>
+                              )}
+                            </span>
                           </td>
                           <td className={cn(
                             "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
-                            {scraperMode === 'manual' || stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
+                            {stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <Button
@@ -1970,7 +1968,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <span className="text-[10px] uppercase font-bold text-muted-foreground/80">Show:</span>
                   <select
                     value={limit}
-                    onChange={(e) => applyPageSize(Number(e.target.value))}
+                    onChange={(e) => setLimit(Number(e.target.value))}
                     className="bg-transparent text-[11px] font-bold text-foreground font-mono focus:outline-none cursor-pointer"
                   >
                     <option value={20} className="bg-card text-foreground">20</option>
@@ -2126,45 +2124,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                                {scraperMode === 'manual' || stock.priceMissing ? (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleManualScrape(stock.symbol);
-                                    }}
-                                    disabled={scraperMode === 'off'}
-                                    title={
-                                      scraperMode === 'off'
-                                        ? 'price_scraper is disabled'
-                                        : `Scrape price for ${stock.symbol}`
-                                    }
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/30 bg-accent/20 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all text-[11px] font-mono font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                  >
-                                    {scrapingSymbols.includes(stock.symbol) ? (
-                                      <RefreshCw className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      '--'
-                                    )}
-                                  </button>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5">
-                                    ${formatCryptoPrice(stock.price)}
-                                    {stock.priceSource === 'csv' && (
-                                      <span
-                                        className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                        title="Imported historical / API price"
-                                      >
-                                        CSV
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
+                                <span className="inline-flex items-center gap-1.5">
+                                  ${formatCryptoPrice(stock.price)}
+                                  {stock.priceSource === 'csv' && (
+                                    <span
+                                      className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                      title="Imported historical / API price"
+                                    >
+                                      CSV
+                                    </span>
+                                  )}
+                                </span>
                               </td>
                               <td className={cn(
                                 "py-2 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                                 isPositive ? 'text-emerald-400' : 'text-rose-400'
                               )}>
-                                {scraperMode === 'manual' || stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
+                                {stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
                               </td>
                               <td className="py-3 px-4 font-mono text-foreground/75 whitespace-nowrap">
                                 <div className="flex flex-col gap-1 w-24 ml-auto">
@@ -2249,7 +2225,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <span className="text-[10px] uppercase font-bold text-muted-foreground/80">Show:</span>
                   <select
                     value={limit}
-                    onChange={(e) => applyPageSize(Number(e.target.value))}
+                    onChange={(e) => setLimit(Number(e.target.value))}
                     className="bg-transparent text-[11px] font-bold text-foreground font-mono focus:outline-none cursor-pointer"
                   >
                     <option value={20} className="bg-card text-foreground">20</option>

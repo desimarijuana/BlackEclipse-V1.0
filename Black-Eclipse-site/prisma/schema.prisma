@@ -48,6 +48,11 @@ model Asset {
   price  Price?
 
   @@unique([marketId, symbol])
+  @@index([marketId, isActive])
+  @@index([sector])
+  @@index([industry])
+  @@index([securityType])
+  @@index([country])
 }
 
 // Latest price for an asset.
@@ -59,6 +64,18 @@ model Price {
   marketCap  Float?
   volume     Float?
   peRatio    Float?
+  // Richer fundamentals from yfinance (stocks).
+  forwardPE          Float?
+  dividendYield      Float? // percent, e.g. 2.5
+  dividendRate       Float?
+  eps                Float?
+  beta               Float?
+  dayHigh            Float?
+  dayLow             Float?
+  open               Float?
+  previousClose      Float?
+  fiftyTwoWeekHigh   Float?
+  fiftyTwoWeekLow    Float?
   // Crypto-specific fields (crypto market only).
   rank               Float?
   fdv                Float?
@@ -68,10 +85,47 @@ model Price {
   ath                Float?
   atl                Float?
   athChangePct       Float?
+  atlChangePct       Float?
   source     String   @default("scraper")
   updatedAt  DateTime @updatedAt
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([marketCap])
+  @@index([price])
+  @@index([changePct])
+  @@index([volume])
+  @@index([peRatio])
+}
+
+// Cached index quotes per market, stored in JDDS so page loads never hit the
+// network. Refreshed in the background by the scheduler.
+model IndexQuote {
+  id          String   @id @default(cuid())
+  marketId    String
+  symbol      String
+  name        String
+  price       Float
+  change      Float
+  changePct   Float
+  updatedAt   DateTime @updatedAt
+
+  @@unique([marketId, symbol])
+}
+
+// Cached news items ingested from RSS feeds in the background, so /api/news
+// reads from JDDS instead of hitting every feed live on each request.
+model NewsItem {
+  id        String   @id @default(cuid())
+  source    String
+  ticker    String?
+  headline  String
+  summary   String?
+  sentiment String   @default("neutral")
+  timestamp DateTime
+  url       String?
+
+  @@index([timestamp])
 }
 
 // Learned source reliability — powers self-healing source rotation.

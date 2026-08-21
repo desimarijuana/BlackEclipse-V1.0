@@ -325,7 +325,6 @@ function StockChatContent() {
                 <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
                   <ChatHistory messages={messages} />
                   <div className="w-full max-w-4xl relative group mt-auto shrink-0 pb-2 md:pb-4">
-                    <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-accent/20 to-primary/20 rounded-[2rem] blur-xl opacity-0 group-focus-within:opacity-100 transition duration-500 pointer-events-none"></div>
                     <ChatInput 
                       query={query} 
                       setQuery={setQuery} 

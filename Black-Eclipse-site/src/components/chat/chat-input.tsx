@@ -30,12 +30,12 @@ export function ChatInput({
   const [selectedModel, setSelectedModel] = useState('Flash-Lite');
 
   return (
-    <form onSubmit={onSend} className="relative flex items-center w-full bg-card rounded-[2rem] px-2 sm:px-4 py-1.5 border border-border shadow-lg shadow-black/20 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+    <form onSubmit={onSend} className="relative flex items-center w-full bg-white/50 dark:bg-[#0f0f0f]/40 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-hidden">
       <Button 
         type="button" 
         variant="ghost" 
         size="icon" 
-        className="hidden sm:flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-10 w-10"
+        className="hidden sm:flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-10 w-10 focus-visible:ring-0 focus-visible:outline-none"
       >
         <Plus size={20} />
       </Button>
@@ -54,7 +54,7 @@ export function ChatInput({
           <DropdownMenu>
             <DropdownMenuTrigger
               type="button"
-              className="hidden min-[400px]:flex items-center gap-1.5 px-3 py-1.5 h-8 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground transition-colors text-xs sm:text-sm font-medium whitespace-nowrap cursor-pointer outline-none"
+              className="hidden min-[400px]:flex items-center gap-1.5 px-3 py-1.5 h-8 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground transition-colors text-xs sm:text-sm font-medium whitespace-nowrap cursor-pointer outline-none focus-visible:ring-0 focus-visible:outline-none"
             >
               {selectedModel} <ChevronDown size={14} />
             </DropdownMenuTrigger>
@@ -75,7 +75,7 @@ export function ChatInput({
           type="button" 
           variant="ghost" 
           size="icon" 
-          className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-9 w-9"
+          className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-9 w-9 focus-visible:ring-0 focus-visible:outline-none"
         >
           <Mic size={18} className="sm:size-5" />
         </Button>
@@ -83,7 +83,7 @@ export function ChatInput({
           type="submit" 
           size="icon" 
           disabled={!query.trim()}
-          className="p-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-9 w-9 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center"
+          className="p-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-9 w-9 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
         >
           <ArrowUp size={18} className="sm:size-5" />
         </Button>
