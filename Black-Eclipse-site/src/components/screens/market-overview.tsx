@@ -126,10 +126,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
 
   // Unified dynamic metrics states loaded from region-specific backend queries
-  const [indexData] = useState<IndexCard[]>(INDEX_DATA);
-  const [sectorPerformance] = useState<SectorPerformance[]>(SECTOR_PERFORMANCE);
-  const [topGainers] = useState<ShifterItem[]>(TOP_GAINERS);
-  const [topLosers] = useState<ShifterItem[]>(TOP_LOSERS);
+  const [indexData, setIndexData] = useState<IndexCard[]>(INDEX_DATA);
+  const [sectorPerformance, setSectorPerformance] = useState<SectorPerformance[]>(SECTOR_PERFORMANCE);
+  const [topGainers, setTopGainers] = useState<ShifterItem[]>(TOP_GAINERS);
+  const [topLosers, setTopLosers] = useState<ShifterItem[]>(TOP_LOSERS);
 
   // Determine if the overall market is bullish (green index sum) or bearish (red index sum)
   const isMarketBullish = useMemo(() => {
@@ -237,6 +237,41 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return userCountry;
   }, [screenerTab, userCountry]);
 
+  // Live dashboard metrics (index quotes, sector performance, shifters) from
+  // /api/indices — refreshed whenever the selected market changes. Falls back
+  // to the static demo data if the endpoint is unreachable.
+  React.useEffect(() => {
+    if (screenerTab === 'markets') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const qc = getQueryCountry();
+        const res = await fetch(`/api/indices?market=${encodeURIComponent(qc)}`);
+        const data = await res.json();
+        if (!cancelled && data) {
+          if (Array.isArray(data.indices) && data.indices.length > 0) {
+            setIndexData(data.indices);
+          }
+          if (Array.isArray(data.sectors) && data.sectors.length > 0) {
+            setSectorPerformance(data.sectors);
+          }
+          if (data.shifters) {
+            if (Array.isArray(data.shifters.gainers) && data.shifters.gainers.length > 0) {
+              setTopGainers(data.shifters.gainers);
+            }
+            if (Array.isArray(data.shifters.losers) && data.shifters.losers.length > 0) {
+              setTopLosers(data.shifters.losers);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard metrics:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenerTab, userCountry]);
+
   const fallbackToDemo = React.useCallback((qc: string) => {
     const demoStocks = getFallbackStocks(qc);
     setApiStocks(demoStocks);
@@ -326,12 +361,21 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         setLoadingApi(false);
         setLoadingDashboard(false);
       }
+      setLoadingTab(false);
     }
   }, [fallbackToDemo, fetchPage, currentPage, pageCache, apiStocks.length]);
 
   React.useEffect(() => {
     // Global markets view shows all indices, not one country's screener.
-    if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
+    if (screenerTab === 'markets') {
+      setLoadingTab(false);
+      return;
+    }
+    // GLOBAL country falls back to US stocks via getQueryCountry.
+    if (userCountry === 'GLOBAL' && screenerTab !== 'stocks' && screenerTab !== 'crypto') {
+      setLoadingTab(false);
+      return;
+    }
     // Debounce so rapid filter/search changes coalesce into one request.
     const timer = setTimeout(() => {
       refreshStocks(getQueryCountry());
@@ -406,6 +450,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         console.error('Failed to load markets overview:', err);
       } finally {
         if (!cancelled) setLoadingGlobalMarkets(false);
+        setLoadingTab(false);
       }
     })();
     return () => { cancelled = true; };

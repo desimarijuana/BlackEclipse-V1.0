@@ -306,7 +306,7 @@ export function Settings() {
   ];
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-background">
+    <div className="flex h-full w-full overflow-hidden">
       {/* Left nav rail */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 bg-white/40 dark:bg-[#0f0f0f]/30 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">

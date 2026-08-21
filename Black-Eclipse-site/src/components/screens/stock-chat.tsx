@@ -394,7 +394,7 @@ function StockChatContent() {
       </div>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-none">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 bg-white/70 dark:bg-[#0f0f0f]/70 backdrop-blur-2xl shadow-2xl text-foreground">
           <DialogTitle className="sr-only">Settings</DialogTitle>
           <Settings />
         </DialogContent>
