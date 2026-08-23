@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { fetchYahooQuote } from "@/lib/yfinance";
+import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
 
 export const dynamic = "force-dynamic";
 
-// Yahoo aggressively rate-limits concurrent requests (404/429 when a burst of
-// chart calls fires at once). We bound concurrency and insert a small delay
-// between requests so a full-page refresh stays under the throttle and returns
-// live prices instead of 404s.
-const CONCURRENCY = 3;
-const BETWEEN_DELAY_MS = 250;
-const MAX_RETRIES = 2;
+// The yfinance bridge batches all symbols over ONE shared Python session
+// (fast_info, chart endpoint only) — no per-symbol HTTP round-trips, no
+// Yahoo 404/429 bursts on full-page refreshes.
 
 // Map UI country codes to JDDS market ids (mirrors /api/stocks).
 const MARKET_ID_MAP: Record<string, string> = {
@@ -51,13 +47,10 @@ const MARKET_ID_MAP: Record<string, string> = {
 // Guards against concurrent refreshes for the same market.
 const refreshInFlight = new Set<string>();
 
-// How many assets to refresh per request (bounded to keep the response fast).
-const MAX_REFRESH = 50;
-
 // POST /api/refresh — fetch live yfinance prices for a market's assets and
 // write them into JDDS. Body: { market: "US" | "PK" | "CRYPTO" | ..., symbols?: string[] }
 // When `symbols` is provided, only those symbols are refreshed (e.g. the page
-// currently shown in the screener). Otherwise the first MAX_REFRESH assets are.
+// currently shown in the screener). Otherwise the market's full universe is.
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -71,47 +64,48 @@ export async function POST(request: Request) {
     refreshInFlight.add(market);
 
     try {
-      // Pull the market's active assets (bounded). If symbols given, match them.
+      // Pull the market's active assets. When no explicit symbols are given,
+      // refresh the ENTIRE universe (no cap) — small markets now hold 30-200
+      // assets and users expect every row on the page to get priced.
       const assets = await prisma.asset.findMany({
         where: {
           marketId: market,
           isActive: true,
           ...(symbols.length > 0 ? { symbol: { in: symbols } } : {}),
         },
-        take: symbols.length > 0 ? symbols.length : MAX_REFRESH,
         select: { id: true, symbol: true },
       });
 
       let ok = 0;
       let failed = 0;
 
-      // Sequential worker pool with a small delay between requests keeps us
-      // under Yahoo's rate limit. The v7 fundamentals endpoint (market cap,
-      // P/E, dividend) is now permanently 401-blocked by Yahoo, so we rely on
-      // the price + volume the chart endpoint already returns and leave the
-      // fundamental fields untouched (they stay whatever the last scrape wrote).
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < assets.length) {
-          const idx = cursor++;
-          const asset = assets[idx];
-          let quote: Awaited<ReturnType<typeof fetchYahooQuote>> = null;
-          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            quote = await fetchYahooQuote(asset.symbol, market);
-            if (quote) break;
-            if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 800));
-          }
-          if (!quote) {
+      // Batched bridge calls (chunked for big universes) — the bridge keeps one
+      // shared session and a small thread pool per call, then we persist each hit.
+      const CHUNK = 200;
+      for (let i = 0; i < assets.length; i += CHUNK) {
+        const chunk = assets.slice(i, i + CHUNK);
+        const chunkResults = await fetchYahooBatchQuote(
+          chunk.map((a) => a.symbol),
+          market
+        );
+        for (let j = 0; j < chunkResults.length; j++) {
+          const result = chunkResults[j];
+          if (result.status !== "ok" || !result.quote) {
             failed++;
             continue;
           }
+          const asset = chunk[j];
+          if (!asset) continue;
 
           // Only persist columns that exist on the Price model. (Day high/low,
-          // open, previous close, 52w range are NOT stored in JDDS.)
+          // open, previous close, 52w range are NOT stored in JDDS. The v7
+          // fundamentals endpoint is 401-blocked by Yahoo, so we rely on the
+          // price + volume the chart endpoint already returns and leave the
+          // fundamental fields untouched.)
           const data = {
-            price: quote.price,
-            changePct: quote.changePct,
-            volume: quote.volume ?? undefined,
+            price: result.quote.price,
+            changePct: result.quote.changePct,
+            volume: result.quote.volume ?? undefined,
             source: "yfinance",
           };
 
@@ -121,11 +115,8 @@ export async function POST(request: Request) {
             create: { assetId: asset.id, ...data },
           });
           ok++;
-          await new Promise((r) => setTimeout(r, BETWEEN_DELAY_MS));
         }
-      };
-
-      await Promise.all(Array.from({ length: Math.max(1, Math.min(CONCURRENCY, assets.length)) }, worker));
+      }
 
       return NextResponse.json({ success: true, total: assets.length, ok, failed });
     } finally {

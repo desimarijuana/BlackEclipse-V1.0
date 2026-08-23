@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/db";
 import { MARKET_SEEDS } from "./markets";
 import { fetchQuoteWithFallback } from "./fetchers";
+import { fetchYahooBatchQuote } from "./fetchers/yfinance";
 import type { FetchResult, ScrapeOutcome } from "./types";
 
 /**
@@ -140,6 +141,83 @@ export interface ScrapeOptions {
   symbols?: string[];
   /** Cap how many assets to scrape (defaults to page size). */
   limit?: number;
+}
+
+/**
+ * Refresh live prices for a market's assets in batched yfinance bridge calls
+ * (fast path), falling back to per-symbol scraping only for symbols the bridge
+ * could not resolve. limit=0 refreshes every active asset. Large universes are
+ * chunked (200/round) so one full pass never blocks for minutes.
+ */
+export async function refreshMarketBatch(market: string, limit: number): Promise<{ total: number; ok: number; failed: number }> {
+  const assets = await prisma.asset.findMany({
+    where: { marketId: market, isActive: true },
+    select: { id: true, symbol: true },
+    take: limit > 0 ? limit : undefined,
+  });
+  if (assets.length === 0) return { total: 0, ok: 0, failed: 0 };
+
+  let ok = 0;
+  let failed = 0;
+
+  const CHUNK = 200;
+  for (let i = 0; i < assets.length; i += CHUNK) {
+    const chunk = assets.slice(i, i + CHUNK);
+    const results = await fetchYahooBatchQuote(
+      chunk.map((a) => a.symbol),
+      market
+    );
+
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
+      const asset = chunk[j];
+      if (!asset) continue;
+      if (result.status === "ok" && result.quote) {
+        await prisma.price.upsert({
+          where: { assetId: asset.id },
+          update: {
+            price: result.quote.price,
+            changePct: result.quote.changePct,
+            volume: result.quote.volume ?? undefined,
+            source: "yfinance",
+          },
+          create: {
+            assetId: asset.id,
+            price: result.quote.price,
+            changePct: result.quote.changePct,
+            volume: result.quote.volume ?? undefined,
+            source: "yfinance",
+          },
+        });
+        ok++;
+        continue;
+      }
+      // Bridge miss (e.g. delisted / Yahoo data gap) — try the adaptive chain once.
+      const fallback: FetchResult = await fetchQuoteWithFallback(asset.symbol, market);
+      if (fallback.status === "ok" && fallback.quote) {
+        await prisma.price.upsert({
+          where: { assetId: asset.id },
+          update: {
+            price: fallback.quote.price,
+            changePct: fallback.quote.changePct,
+            volume: fallback.quote.volume ?? undefined,
+            source: fallback.source,
+          },
+          create: {
+            assetId: asset.id,
+            price: fallback.quote.price,
+            changePct: fallback.quote.changePct,
+            volume: fallback.quote.volume ?? undefined,
+            source: fallback.source,
+          },
+        });
+        ok++;
+      } else {
+        failed++;
+      }
+    }
+  }
+  return { total: assets.length, ok, failed };
 }
 
 /**

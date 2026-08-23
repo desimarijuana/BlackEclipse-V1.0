@@ -1,7 +1,8 @@
 // Adaptive fetcher chain — the self-healing escalation:
-//   1. cheap HTTP + cheerio
-//   2. browser (playwright) for blocked/JS-rendered sites
+//   1. yfinance bridge (batched Python session — the PRIMARY strategy)
+//   2. cheap HTTP + cheerio
 //   3. (crypto) dedicated public endpoint
+//   4. browser (playwright) for blocked/JS-rendered sites
 // Source health from JDDS is used to skip known-bad strategies.
 
 import type { FetchResult } from "../types";
@@ -10,9 +11,10 @@ import { fetchHttpQuote } from "./http";
 import { fetchBrowserQuote } from "./browser";
 import { fetchCryptoQuote } from "./crypto";
 import { fetchScraplingQuote } from "./scrapling";
+import { fetchYfinanceQuote } from "./yfinance";
 import { prisma } from "@/lib/db";
 
-export type Strategy = "http" | "browser" | "crypto" | "scrapling";
+export type Strategy = "http" | "browser" | "crypto" | "scrapling" | "yfinance";
 
 /**
  * Given a symbol + market, try strategies in order until one succeeds.
@@ -22,11 +24,17 @@ export async function fetchQuoteWithFallback(
   symbol: string,
   market: string
 ): Promise<FetchResult> {
-  // Crypto uses its own endpoint first.
+  // Crypto uses its own endpoint first (dedicated free ticker, no key).
   if (market === "CRYPTO") {
     const cryptoResult = await tryStrategy("crypto", () => fetchCryptoQuote(symbol));
     if (cryptoResult.status === "ok") return cryptoResult;
     // Fall through to web fetch for crypto if the endpoint fails.
+  }
+
+  // yfinance bridge (batched, session-reusing) — the primary strategy.
+  if (await shouldUseStrategy("yfinance", market)) {
+    const yfResult = await tryStrategy("yfinance", () => fetchYfinanceQuote(symbol, market));
+    if (yfResult.status === "ok") return yfResult;
   }
 
   // HTTP + cheerio (cheapest, works on static pages)

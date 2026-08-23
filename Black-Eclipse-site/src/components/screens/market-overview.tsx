@@ -385,44 +385,41 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
 
   // Automatic yfinance price backfill: whenever a region's screener is shown,
-  // silently pull live prices for the symbols on this page from yfinance so the
-  // table is populated with current prices without requiring a manual "Refresh
-  // Prices" click. Refreshes only once per page (tracks last-auto-refresh page).
-  const [autoRefreshedPage, setAutoRefreshedPage] = useState<number | null>(null);
+  // pull live prices for the WHOLE market from yfinance so every row on the
+  // page (and the rest of the universe) is populated without a manual
+  // "Refresh Prices" click. Runs once per country selection; the refresh
+  // endpoint chunk-batches large universes server-side.
+  const [autoRefreshedMarket, setAutoRefreshedMarket] = useState<string | null>(null);
   const [autoRefreshBusy, setAutoRefreshBusy] = useState(false);
   React.useEffect(() => {
     const qc = getQueryCountry();
     // Skip global markets overview & the demo/empty fallback.
     if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
     if (!apiStocks.length) return;
-    if (autoRefreshedPage === currentPage || autoRefreshBusy) return;
+    if (autoRefreshedMarket === qc || autoRefreshBusy) return;
     // Only pull when the current page actually lacks live prices.
     const needsPrice = apiStocks.some((s) => s.priceMissing || !s.price || s.price <= 0);
     if (!needsPrice) {
-      setAutoRefreshedPage(currentPage);
+      setAutoRefreshedMarket(qc);
       return;
     }
     let cancelled = false;
     setAutoRefreshBusy(true);
-    const pageSymbols = apiStocks.map((s) => s.symbol);
     (async () => {
       try {
         const res = await fetch('/api/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ market: qc, symbols: pageSymbols }),
+          body: JSON.stringify({ market: qc }),
         });
         const data = await res.json();
         if (!cancelled && data && data.success && data.ok > 0) {
           // Live prices now persisted → reload silently so the page reflects them.
           await refreshStocks(qc, true);
-          setAutoRefreshedPage(currentPage);
-        } else {
-          // Mark as attempted so we don't hammer the endpoint on every render.
-          setAutoRefreshedPage(currentPage);
         }
+        if (!cancelled) setAutoRefreshedMarket(qc);
       } catch {
-        if (!cancelled) setAutoRefreshedPage(currentPage);
+        if (!cancelled) setAutoRefreshedMarket(qc);
       } finally {
         if (!cancelled) setAutoRefreshBusy(false);
       }
@@ -1966,23 +1963,34 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.marketCap}</td>
                           <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden sm:table-cell whitespace-nowrap">{stock.peRatio}</td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1.5">
-                              ${stock.price.toFixed(2)}
-                              {stock.priceSource === 'csv' && (
-                                <span
-                                  className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                  title="Imported historical / API price"
-                                >
-                                  CSV
-                                </span>
-                              )}
-                            </span>
+                            {stock.priceMissing || !stock.price || stock.price <= 0 ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Skeleton className="h-3.5 w-16 inline-block" />
+                                <span className="text-[9px] text-muted-foreground/60 animate-pulse">fetching...</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5">
+                                ${stock.price.toFixed(2)}
+                                {stock.priceSource === 'csv' && (
+                                  <span
+                                    className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                    title="Imported historical / API price"
+                                  >
+                                    CSV
+                                  </span>
+                                )}
+                              </span>
+                            )}
                           </td>
                           <td className={cn(
                             "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
-                            {stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
+                            {stock.priceMissing || !stock.price || stock.price <= 0 ? (
+                              <Skeleton className="h-3.5 w-12 inline-block" />
+                            ) : (
+                              `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`
+                            )}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <Button
@@ -2169,23 +2177,34 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 </span>
                               </td>
                               <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                                <span className="inline-flex items-center gap-1.5">
-                                  ${formatCryptoPrice(stock.price)}
-                                  {stock.priceSource === 'csv' && (
-                                    <span
-                                      className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                      title="Imported historical / API price"
-                                    >
-                                      CSV
-                                    </span>
-                                  )}
-                                </span>
+                                {stock.priceMissing || !stock.price || stock.price <= 0 ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <Skeleton className="h-3.5 w-16 inline-block" />
+                                    <span className="text-[9px] text-muted-foreground/60 animate-pulse">fetching...</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    ${formatCryptoPrice(stock.price)}
+                                    {stock.priceSource === 'csv' && (
+                                      <span
+                                        className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                        title="Imported historical / API price"
+                                      >
+                                        CSV
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
                               </td>
                               <td className={cn(
                                 "py-2 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                                 isPositive ? 'text-emerald-400' : 'text-rose-400'
                               )}>
-                                {stock.priceMissing ? '--' : `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`}
+                                {stock.priceMissing || !stock.price || stock.price <= 0 ? (
+                                  <Skeleton className="h-3.5 w-12 inline-block" />
+                                ) : (
+                                  `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`
+                                )}
                               </td>
                               <td className="py-3 px-4 font-mono text-foreground/75 whitespace-nowrap">
                                 <div className="flex flex-col gap-1 w-24 ml-auto">

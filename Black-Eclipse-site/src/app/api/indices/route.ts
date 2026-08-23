@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { fetchYahooQuote } from "@/lib/yfinance";
+import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +24,6 @@ const INDEX_UNIVERSE: Record<string, Array<{ symbol: string; name: string }>> = 
     { symbol: "DOGE-USD", name: "Dogecoin" },
   ],
 };
-
-const CONCURRENCY = 3;
-const BETWEEN_DELAY_MS = 250;
-const MAX_RETRIES = 2;
 
 // Map UI country codes to JDDS market ids (mirrors /api/stocks).
 const MARKET_ID_MAP: Record<string, string> = {
@@ -156,39 +152,34 @@ export async function GET(request: Request) {
   const universe = INDEX_UNIVERSE[market] || INDEX_UNIVERSE.US;
 
   try {
-    // 1) Live quotes from Yahoo (bounded worker pool, cached in IndexQuote).
+    // 1) Live quotes from the yfinance bridge (one batched call over one
+    //    shared session), cached in IndexQuote.
     const cached = await prisma.indexQuote.findMany({
       where: { marketId: market },
       select: { symbol: true, name: true, price: true, change: true, changePct: true },
     });
     const cachedBySymbol = new Map(cached.map((c) => [c.symbol, c]));
 
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < universe.length) {
-        const idx = cursor++;
-        const item = universe[idx];
-        let quote: Awaited<ReturnType<typeof fetchYahooQuote>> = null;
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-          quote = await fetchYahooQuote(item.symbol, "US");
-          if (quote) break;
-          if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 800));
-        }
-        if (!quote) continue;
+    const results = await fetchYahooBatchQuote(
+      universe.map((item) => item.symbol),
+      "US"
+    );
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const item = universe[i];
+      if (result.status !== "ok" || !result.quote || !item) continue;
 
-        const change = quote.previousClose && quote.previousClose > 0
-          ? +(quote.price - quote.previousClose).toFixed(2)
-          : 0;
-        await prisma.indexQuote.upsert({
-          where: { marketId_symbol: { marketId: market, symbol: item.symbol } },
-          update: { price: quote.price, change, changePct: quote.changePct },
-          create: { marketId: market, symbol: item.symbol, name: item.name, price: quote.price, change, changePct: quote.changePct },
-        });
-        cachedBySymbol.set(item.symbol, { symbol: item.symbol, name: item.name, price: quote.price, change, changePct: quote.changePct });
-        await new Promise((r) => setTimeout(r, BETWEEN_DELAY_MS));
-      }
-    };
-    await Promise.all(Array.from({ length: Math.max(1, Math.min(CONCURRENCY, universe.length)) }, worker));
+      const prevClose = result.quote.changePct !== 0
+        ? result.quote.price / (1 + result.quote.changePct / 100)
+        : result.quote.price;
+      const change = +(result.quote.price - prevClose).toFixed(2);
+      await prisma.indexQuote.upsert({
+        where: { marketId_symbol: { marketId: market, symbol: item.symbol } },
+        update: { price: result.quote.price, change, changePct: result.quote.changePct },
+        create: { marketId: market, symbol: item.symbol, name: item.name, price: result.quote.price, change, changePct: result.quote.changePct },
+      });
+      cachedBySymbol.set(item.symbol, { symbol: item.symbol, name: item.name, price: result.quote.price, change, changePct: result.quote.changePct });
+    }
 
     let live = 0;
     const indices = universe.map((item) => {

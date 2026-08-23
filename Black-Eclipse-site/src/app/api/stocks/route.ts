@@ -27,8 +27,11 @@ function toStockItem(
     name: asset.name,
     sector: asset.sector || "Other",
     industry: asset.industry || "Other",
-    securityType: asset.securityType || (isCrypto ? "Crypto" : "N/A"),
-    assetClass: asset.assetClass || (isCrypto ? "Crypto" : "N/A"),
+    // Markets imported without securityType metadata (HK/IN/JP/CN/TW/UK/DE/TR)
+    // are equities by definition; default to "Stock" so the type filter and
+    // the Stocks tab work client-side.
+    securityType: asset.securityType || (isCrypto ? "Crypto" : "Stock"),
+    assetClass: asset.assetClass || (isCrypto ? "Crypto" : "Equity"),
     country: asset.country || country,
     price: price?.price ?? 0,
     changePercent: price?.changePct ?? 0,
@@ -184,15 +187,24 @@ export async function GET(request: Request) {
       isActive: true,
     };
     if (typeFilter && typeFilter !== "all") {
-      // Support multiple types via comma-separated values (e.g. "Stock,REIT").
-      const types = typeFilter.split(",").map((t) => t.trim()).filter(Boolean);
-      if (types.length === 1) {
-        where.securityType = { contains: types[0] };
-      } else if (types.length > 1) {
-        where.OR = [
-          ...(where.OR as Record<string, unknown>[] || []),
-          ...types.map((t) => ({ securityType: { contains: t } })),
-        ];
+      // Only enforce the type filter when this market actually carries
+      // securityType metadata. Small markets (HK/IN/JP/CN/TW/UK/DE/TR...) are
+      // imported without it, so filtering would empty the whole screener.
+      const hasTypeMetadata = await prisma.asset.findFirst({
+        where: { marketId, isActive: true, securityType: { not: null } },
+        select: { id: true },
+      });
+      if (hasTypeMetadata) {
+        // Support multiple types via comma-separated values (e.g. "Stock,REIT").
+        const types = typeFilter.split(",").map((t) => t.trim()).filter(Boolean);
+        if (types.length === 1) {
+          where.securityType = { contains: types[0] };
+        } else if (types.length > 1) {
+          where.OR = [
+            ...(where.OR as Record<string, unknown>[] || []),
+            ...types.map((t) => ({ securityType: { contains: t } })),
+          ];
+        }
       }
     }
     if (sector && sector !== "All") {
