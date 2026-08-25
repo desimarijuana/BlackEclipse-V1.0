@@ -6,6 +6,7 @@ import {
   getIntervalMinutes,
   getPriceScraperConfig,
   setPriceScraperConfig,
+  runUniverseSync,
   type PriceScraperConfig,
 } from "@/lib/scraper";
 
@@ -65,6 +66,13 @@ export async function POST(request: Request) {
       if (cfg.mode || cfg.pageSize) {
         await setPriceScraperConfig(cfg);
       }
+    }
+
+    // Explicit universe-sync trigger: scan every TradingView-covered market
+    // and upsert its full universe (auto-adds new listings, refreshes prices).
+    if (body.sync === true) {
+      const sync = await runUniverseSync();
+      return NextResponse.json({ success: true, sync });
     }
 
     // A scrape runs only when explicitly requested. Config-only calls (mode /

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Map JDDS Asset+Price records into the StockItem shape the screener expects.
 function toStockItem(
   asset: { symbol: string; name: string; sector: string | null; industry: string | null; country: string | null; securityType: string | null; assetClass: string | null },
-  price: { price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null; rank?: number | null; circulatingSupply?: number | null; totalSupply?: number | null; maxSupply?: number | null; ath?: number | null; atl?: number | null; athChangePct?: number | null; source?: string | null } | null,
+  price: { price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null; dividendYield: number | null; rank?: number | null; circulatingSupply?: number | null; totalSupply?: number | null; maxSupply?: number | null; ath?: number | null; atl?: number | null; athChangePct?: number | null; source?: string | null; updatedAt?: Date | string | null } | null,
   country: string
 ): StockItem {
   const marketCap = price?.marketCap ?? 0;
@@ -37,6 +37,7 @@ function toStockItem(
     changePercent: price?.changePct ?? 0,
     priceMissing: !price,
     priceSource: price?.source || null,
+    updatedAt: price?.updatedAt ? new Date(price.updatedAt).toISOString() : null,
     volume: volume > 0 ? formatVol(volume) : "N/A",
     marketCap: marketCap > 0 ? formatCap(marketCap) : "N/A",
     peRatio: price?.peRatio != null ? price.peRatio.toFixed(2) : "N/A",

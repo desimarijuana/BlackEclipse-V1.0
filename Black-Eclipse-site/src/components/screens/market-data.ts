@@ -72,8 +72,10 @@ export interface StockItem {
   maxSupplyRaw?: number;
   /** True when no price exists yet (render '--', click to scrape). */
   priceMissing?: boolean;
-  /** 'scraper' (live) | 'csv' (imported historical/API data) | null. */
+  /** 'scraper' (live) | 'csv' (imported historical/API data) | 'tradingview' | null. */
   priceSource?: string | null;
+  /** ISO timestamp of the last price update — used to decide auto-refresh. */
+  updatedAt?: string | null;
 }
 
 export interface FundItem {

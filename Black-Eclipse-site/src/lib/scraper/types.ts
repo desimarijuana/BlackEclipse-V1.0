@@ -9,6 +9,30 @@ export interface Quote {
   volume?: number;
 }
 
+/**
+ * A normalized row from a TradingView whole-market scan. Carries the
+ * fundamentals the yfinance bridge omits (P/E, EPS, div yield, 52w range,
+ * beta) plus sector/industry, so a single scan fully enriches a universe.
+ */
+export interface ScanRow {
+  symbol: string;
+  exchange: string; // e.g. 'SZSE', 'NSE', 'TWSE', 'XETR'
+  name: string;
+  price: number;
+  changePct: number;
+  marketCap?: number;
+  volume?: number;
+  peRatio?: number;
+  eps?: number;
+  dividendYield?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  beta?: number;
+  sector?: string | null;
+  industry?: string | null;
+  yahooSymbol: string;
+}
+
 export type FetchStatus =
   | "ok"
   | "blocked" // 403/429, CAPTCHA, bot-wall

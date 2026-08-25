@@ -1,8 +1,9 @@
 // Adaptive fetcher chain — the self-healing escalation:
-//   1. yfinance bridge (batched Python session — the PRIMARY strategy)
-//   2. cheap HTTP + cheerio
-//   3. (crypto) dedicated public endpoint
-//   4. browser (playwright) for blocked/JS-rendered sites
+//   1. TradingView whole-market scan (the PRIMARY strategy for covered markets)
+//   2. yfinance bridge (batched Python session — primary for non-TV markets)
+//   3. cheap HTTP + cheerio
+//   4. (crypto) dedicated public endpoint
+//   5. browser (playwright) for blocked/JS-rendered sites
 // Source health from JDDS is used to skip known-bad strategies.
 
 import type { FetchResult } from "../types";
@@ -12,9 +13,10 @@ import { fetchBrowserQuote } from "./browser";
 import { fetchCryptoQuote } from "./crypto";
 import { fetchScraplingQuote } from "./scrapling";
 import { fetchYfinanceQuote } from "./yfinance";
+import { fetchTradingViewQuote, isTradingViewMarket } from "./tradingview";
 import { prisma } from "@/lib/db";
 
-export type Strategy = "http" | "browser" | "crypto" | "scrapling" | "yfinance";
+export type Strategy = "tradingview" | "http" | "browser" | "crypto" | "scrapling" | "yfinance";
 
 /**
  * Given a symbol + market, try strategies in order until one succeeds.
@@ -31,7 +33,14 @@ export async function fetchQuoteWithFallback(
     // Fall through to web fetch for crypto if the endpoint fails.
   }
 
-  // yfinance bridge (batched, session-reusing) — the primary strategy.
+  // TradingView whole-market scan — the PRIMARY strategy for covered markets.
+  if (isTradingViewMarket(market) && (await shouldUseStrategy("tradingview", market))) {
+    const tvResult = await tryStrategy("tradingview", () => fetchTradingViewQuote(symbol, market));
+    if (tvResult.status === "ok") return tvResult;
+  }
+
+  // yfinance bridge (batched, session-reusing) — the primary strategy for
+  // markets not covered by TradingView (e.g. US).
   if (await shouldUseStrategy("yfinance", market)) {
     const yfResult = await tryStrategy("yfinance", () => fetchYfinanceQuote(symbol, market));
     if (yfResult.status === "ok") return yfResult;

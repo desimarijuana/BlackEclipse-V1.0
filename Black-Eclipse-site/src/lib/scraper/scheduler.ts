@@ -113,14 +113,16 @@ export interface ScrapeSummary {
 }
 
 // Round-robin: the background cycle refreshes MARKET_BATCH_PER_TICK markets
-// per tick, cycling through the configured list. Every market is refreshed
-// FULLY (limit=0 → whole universe, chunked server-side) so users always find
-// every row priced; the interval keeps prices fresh.
-const MARKET_BATCH_PER_TICK = 2;
+// per tick, cycling through the configured list. TradingView markets refresh
+// as a SINGLE whole-market scan (~1s), so we can do more per tick than the
+// old per-symbol yfinance loop ever allowed.
+const MARKET_BATCH_PER_TICK = 4;
 
-// Markets where Yahoo has no data (PSX/NSE-dead tickers, NGX dropped) — a full
-// pass just burns 1-2 min of bridge spawns and 404s, so skip them entirely.
-const YAHOO_GAP_MARKETS = new Set(["PK", "NG"]);
+// Markets where Yahoo has no data (PSX/NSE-dead tickers) — skipped ONLY on the
+// per-symbol yfinance fallback path. TradingView covers PSX, so these markets
+// ARE refreshed via the whole-market scan and no longer need hard-skipping.
+// Kept for the per-symbol path only (see fetchQuoteWithFallback health).
+const YAHOO_GAP_MARKETS = new Set<string>([]);
 
 let marketCursor = 0;
 
@@ -155,7 +157,9 @@ export async function triggerScrape(
       });
     } else {
       // Background cycle: refresh MARKET_BATCH_PER_TICK markets per tick
-      // (round-robin), each with FULL-universe batched bridge calls.
+      // (round-robin), each with a whole-market TradingView scan OR batched
+      // bridge calls (for non-TV markets). refreshMarketBatch() routes to the
+      // right path internally.
       const markets = allMarkets.slice(marketCursor, marketCursor + MARKET_BATCH_PER_TICK);
       marketCursor = (marketCursor + MARKET_BATCH_PER_TICK) % Math.max(allMarkets.length, 1);
       summary = { total: 0, ok: 0, failed: 0 };
@@ -239,6 +243,101 @@ export function restartScheduler() {
     scheduledTask = null;
   }
   void startScheduler();
+}
+
+// ─── Universe sync (auto-add new listings) ────────────────────────────────
+// Runs on a separate daily cron. Every TradingView-covered market is scanned
+// and its universe + prices upserted into JDDS, so NEW listings (IPOs) auto-
+// appear and delisted symbols get deactivated after the miss threshold.
+
+const UNIVERSE_SYNC_TYPE = "universe_sync";
+const DEFAULT_SYNC_INTERVAL_MIN = 24 * 60; // daily
+
+let syncTask: ScheduledTask | null = null;
+let syncRunning = false;
+
+/** Sync every TradingView-covered market's universe (prices + new listings). */
+export async function runUniverseSync(): Promise<{
+  markets: number;
+  ok: number;
+  created: number;
+}> {
+  if (syncRunning) return { markets: 0, ok: 0, created: 0 };
+  syncRunning = true;
+  const { syncMarketUniverse } = await import("./universe-sync");
+  const { isTradingViewMarket } = await import("./fetchers/tradingview");
+  try {
+    const allMarkets = await getConfiguredMarkets();
+    const tvMarkets = allMarkets.filter((m) => isTradingViewMarket(m));
+    let ok = 0;
+    let created = 0;
+    for (const market of tvMarkets) {
+      try {
+        const r = await syncMarketUniverse(market);
+        ok += r.ok;
+        created += r.created;
+        console.log(
+          `[UniverseSync] ${market}: scanned ${r.scanned}, created ${r.created}, updated ${r.updated}, deactivated ${r.deactivated}`
+        );
+      } catch (err) {
+        console.error(`[UniverseSync] ${market} failed:`, err);
+      }
+    }
+    await prisma.cronJob.upsert({
+      where: { type: UNIVERSE_SYNC_TYPE },
+      update: { lastRunAt: new Date(), enabled: true },
+      create: {
+        type: UNIVERSE_SYNC_TYPE,
+        lastRunAt: new Date(),
+        intervalMinutes: DEFAULT_SYNC_INTERVAL_MIN,
+        enabled: true,
+      },
+    });
+    return { markets: tvMarkets.length, ok, created };
+  } finally {
+    syncRunning = false;
+  }
+}
+
+/** Start the daily universe-sync cron. Called once at app startup. */
+export async function startUniverseSync() {
+  if (syncTask) return;
+  try {
+    await prisma.cronJob.upsert({
+      where: { type: UNIVERSE_SYNC_TYPE },
+      update: {},
+      create: {
+        type: UNIVERSE_SYNC_TYPE,
+        intervalMinutes: DEFAULT_SYNC_INTERVAL_MIN,
+        enabled: true,
+      },
+    });
+  } catch (err) {
+    console.error("[UniverseSync] init failed:", err);
+  }
+  syncTask = cron.schedule("*/30 * * * *", async () => {
+    try {
+      const job = await prisma.cronJob.findUnique({ where: { type: UNIVERSE_SYNC_TYPE } });
+      const enabled = job?.enabled ?? true;
+      if (!enabled) return;
+      const lastRun = job?.lastRunAt?.getTime() || 0;
+      const intervalMs = (job?.intervalMinutes ?? DEFAULT_SYNC_INTERVAL_MIN) * 60000;
+      if (Date.now() - lastRun >= intervalMs) {
+        console.log("[UniverseSync] due — running daily universe sync");
+        await runUniverseSync();
+      }
+    } catch (err) {
+      console.error("[UniverseSync] cycle error:", err);
+    }
+  });
+}
+
+export function restartUniverseSync() {
+  if (syncTask) {
+    syncTask.stop();
+    syncTask = null;
+  }
+  void startUniverseSync();
 }
 
 /**

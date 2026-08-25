@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
+import { isTradingViewMarket } from "@/lib/scraper/fetchers/tradingview";
+import { syncMarketUniverse } from "@/lib/scraper/universe-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,22 @@ export async function POST(request: Request) {
     refreshInFlight.add(market);
 
     try {
+      // TradingView-covered markets: a single whole-market scan syncs the full
+      // universe + prices in ~1s (fast, scalable — no per-symbol yfinance loop
+      // that hangs on big universes like CN 5.3k / DE 1.4k). When explicit
+      // symbols are passed we still run the whole scan (cheap) so the page's
+      // symbols are guaranteed fresh.
+      if (isTradingViewMarket(market)) {
+        const sync = await syncMarketUniverse(market);
+        return NextResponse.json({
+          success: true,
+          total: sync.scanned,
+          ok: sync.ok,
+          failed: sync.failed,
+          source: "tradingview",
+        });
+      }
+
       // Pull the market's active assets. When no explicit symbols are given,
       // refresh the ENTIRE universe (no cap) — small markets now hold 30-200
       // assets and users expect every row on the page to get priced.

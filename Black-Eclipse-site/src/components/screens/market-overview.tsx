@@ -397,8 +397,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
     if (!apiStocks.length) return;
     if (autoRefreshedMarket === qc || autoRefreshBusy) return;
-    // Only pull when the current page actually lacks live prices.
-    const needsPrice = apiStocks.some((s) => s.priceMissing || !s.price || s.price <= 0);
+    // Refresh when prices are missing OR stale (older than 15 min). The old
+    // guard only checked for a missing price, so markets seeded with static
+    // CSV prices (CN/DE/CA/HK/FR...) never refreshed — they stayed frozen at
+    // the import-day snapshot. Now we refresh on staleness so every country
+    // click re-pulls live prices.
+    const STALE_MS = 1000 * 60 * 15;
+    const needsPrice = apiStocks.some((s) => {
+      if (s.priceMissing || !s.price || s.price <= 0) return true;
+      if (!s.updatedAt) return true; // no timestamp → assume stale
+      return Date.now() - new Date(s.updatedAt).getTime() > STALE_MS;
+    });
     if (!needsPrice) {
       setAutoRefreshedMarket(qc);
       return;

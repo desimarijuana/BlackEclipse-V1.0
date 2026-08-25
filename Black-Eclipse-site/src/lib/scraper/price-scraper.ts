@@ -8,6 +8,8 @@ import { prisma } from "@/lib/db";
 import { MARKET_SEEDS } from "./markets";
 import { fetchQuoteWithFallback } from "./fetchers";
 import { fetchYahooBatchQuote } from "./fetchers/yfinance";
+import { isTradingViewMarket } from "./fetchers/tradingview";
+import { syncMarketUniverse } from "./universe-sync";
 import type { FetchResult, ScrapeOutcome } from "./types";
 
 /**
@@ -144,12 +146,24 @@ export interface ScrapeOptions {
 }
 
 /**
- * Refresh live prices for a market's assets in batched yfinance bridge calls
- * (fast path), falling back to per-symbol scraping only for symbols the bridge
- * could not resolve. limit=0 refreshes every active asset. Large universes are
- * chunked (200/round) so one full pass never blocks for minutes.
+ * Refresh live prices for a market's assets.
+ *
+ * TradingView-covered markets: a single whole-market scan syncs the full
+ * universe + prices in one call (fast, scalable — no per-symbol loop, no 60s
+ * bridge timeout on big universes like CN/DE/CA).
+ *
+ * Non-TradingView markets (e.g. US): batched yfinance bridge calls, falling
+ * back to per-symbol scraping only for symbols the bridge could not resolve.
+ * limit=0 refreshes every active asset. Large universes are chunked (200/round)
+ * so one full pass never blocks for minutes.
  */
 export async function refreshMarketBatch(market: string, limit: number): Promise<{ total: number; ok: number; failed: number }> {
+  // TradingView path — the scalable whole-market sync.
+  if (isTradingViewMarket(market)) {
+    const result = await syncMarketUniverse(market);
+    return { total: result.scanned, ok: result.ok, failed: result.failed };
+  }
+
   const assets = await prisma.asset.findMany({
     where: { marketId: market, isActive: true },
     select: { id: true, symbol: true },
