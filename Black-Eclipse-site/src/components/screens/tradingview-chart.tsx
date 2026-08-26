@@ -2,9 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, DollarSign, Globe, Percent, Flame, Layers, Info, Sparkles } from 'lucide-react';
+import { X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, Layers, Info, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
+import { formatPriceWithCurrency } from '@/lib/market-currency';
 
 interface TradingViewChartProps {
   symbol: string;
@@ -143,7 +144,7 @@ export function TradingViewChart({
         <div className="hidden md:flex items-center gap-6 text-right mr-4">
           <div>
             <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">Last Price</div>
-            <div className="font-mono text-base font-extrabold text-foreground">${price.toFixed(price < 1 ? 4 : 2)}</div>
+            <div className="font-mono text-base font-extrabold text-foreground">{formatPriceWithCurrency(country, price)}</div>
           </div>
           <div>
             <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">24H Change</div>
@@ -305,9 +306,9 @@ export function TradingViewChart({
                         return (
                           <div className="space-y-2">
                             <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold tracking-wider">
-                              <span>ATL (${atlNum.toFixed(2)})</span>
+                              <span>ATL ({formatPriceWithCurrency(country, atlNum)})</span>
                               <span className="text-primary font-mono">{sliderStr}</span>
-                              <span>ATH (${athNum.toFixed(2)})</span>
+                              <span>ATH ({formatPriceWithCurrency(country, athNum)})</span>
                             </div>
                             <p className="text-[11px] text-muted-foreground text-center font-mono">
                               Current Position: <span className="font-bold text-foreground">{Math.min(100, Math.max(0, rangePercent))}%</span> of historical range
@@ -443,7 +444,7 @@ export function TradingViewChart({
             <div className="flex overflow-x-auto lg:grid lg:grid-cols-2 gap-3 pb-2 lg:pb-0 scrollbar-none snap-x snap-mandatory">
               <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Price</span>
-                <div className="text-sm font-bold text-foreground mt-0.5">${price.toFixed(price < 1 ? 4 : 2)}</div>
+                <div className="text-sm font-bold text-foreground mt-0.5">{formatPriceWithCurrency(country, price)}</div>
               </div>
               <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Change %</span>

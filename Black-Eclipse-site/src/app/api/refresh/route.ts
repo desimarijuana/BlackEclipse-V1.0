@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, yieldToEventLoop } from "@/lib/db";
 import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
 import { isTradingViewMarket } from "@/lib/scraper/fetchers/tradingview";
 import { syncMarketUniverse } from "@/lib/scraper/universe-sync";
+import { guardExpensiveMutation } from "@/lib/api-guard";
+import { toMarketId } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
 
@@ -10,55 +12,71 @@ export const dynamic = "force-dynamic";
 // (fast_info, chart endpoint only) — no per-symbol HTTP round-trips, no
 // Yahoo 404/429 bursts on full-page refreshes.
 
-// Map UI country codes to JDDS market ids (mirrors /api/stocks).
-const MARKET_ID_MAP: Record<string, string> = {
-  US: "US",
-  USA: "US",
-  PK: "PK",
-  IN: "IN",
-  CRYPTO: "CRYPTO",
-  China: "CN",
-  CN: "CN",
-  Taiwan: "TW",
-  TW: "TW",
-  HK: "HK",
-  JP: "JP",
-  KR: "KR",
-  SG: "SG",
-  MY: "MY",
-  AU: "AU",
-  UK: "UK",
-  DE: "DE",
-  FR: "FR",
-  NL: "NL",
-  CA: "CA",
-  BR: "BR",
-  MX: "MX",
-  SA: "SA",
-  AE: "AE",
-  ZA: "ZA",
-  EG: "EG",
-  NG: "NG",
-  RU: "RU",
-  TR: "TR",
-  ID: "ID",
-  TH: "TH",
-  VN: "VN",
-};
-
 // Guards against concurrent refreshes for the same market.
 const refreshInFlight = new Set<string>();
 
-// POST /api/refresh — fetch live yfinance prices for a market's assets and
-// write them into JDDS. Body: { market: "US" | "PK" | "CRYPTO" | ..., symbols?: string[] }
-// When `symbols` is provided, only those symbols are refreshed (e.g. the page
-// currently shown in the screener). Otherwise the market's full universe is.
+// Persist a batch of quote results into JDDS. Shared by the yfinance paths.
+// Writes are grouped into small chunked transactions with event-loop yields
+// between them — SQLite statements block the loop, so this keeps live
+// requests responsive during bulk refreshes.
+const WRITE_CHUNK = 250;
+
+async function persistQuotes(
+  assets: Array<{ id: string; symbol: string }>,
+  results: Awaited<ReturnType<typeof fetchYahooBatchQuote>>
+) {
+  const ops: ReturnType<typeof prisma.price.upsert>[] = [];
+
+  for (let j = 0; j < results.length; j++) {
+    const result = results[j];
+    if (!result || result.status !== "ok" || !result.quote) continue;
+    const asset = assets[j];
+    if (!asset) continue;
+
+    // Only persist columns that exist on the Price model. (Day high/low,
+    // open, previous close, 52w range are NOT stored in JDDS. The v7
+    // fundamentals endpoint is 401-blocked by Yahoo, so we rely on the
+    // price + volume the chart endpoint already returns and leave the
+    // fundamental fields untouched.)
+    const data = {
+      price: result.quote.price,
+      changePct: result.quote.changePct,
+      volume: result.quote.volume ?? undefined,
+      source: "yfinance",
+    };
+
+    ops.push(
+      prisma.price.upsert({
+        where: { assetId: asset.id },
+        update: data,
+        create: { assetId: asset.id, ...data },
+      })
+    );
+  }
+
+  for (let i = 0; i < ops.length; i += WRITE_CHUNK) {
+    await prisma.$transaction(ops.slice(i, i + WRITE_CHUNK));
+    await yieldToEventLoop();
+  }
+  return { ok: ops.length, failed: results.length - ops.length };
+}
+
+// POST /api/refresh — fetch live prices for a market's assets and write them
+// into JDDS. Body: { market: "US" | "PK" | "CRYPTO" | ..., symbols?: string[] }
+// When `symbols` is provided ONLY those symbols are refreshed (the visible
+// screener page) — this keeps country switches fast; the background
+// schedulers cover the rest of each universe.
 export async function POST(request: Request) {
+  const blocked = guardExpensiveMutation(request, "refresh", { limit: 30, windowMs: 60_000 });
+  if (blocked) {
+    return NextResponse.json(blocked.body, { status: blocked.status, headers: blocked.headers });
+  }
   try {
     const body = await request.json().catch(() => ({}));
-    const rawMarket: string = (body.market || "US").toUpperCase();
-    const market: string = MARKET_ID_MAP[rawMarket] || rawMarket;
-    const symbols: string[] = Array.isArray(body.symbols) ? body.symbols : [];
+    const market = toMarketId((body.market || "US").toUpperCase());
+    const symbols: string[] = Array.isArray(body.symbols)
+      ? body.symbols.filter((s: unknown) => typeof s === "string" && s.trim()).map((s: string) => s.trim().toUpperCase())
+      : [];
 
     if (refreshInFlight.has(market)) {
       return NextResponse.json({ success: true, total: 0, ok: 0, failed: 0, skipped: true });
@@ -66,12 +84,25 @@ export async function POST(request: Request) {
     refreshInFlight.add(market);
 
     try {
-      // TradingView-covered markets: a single whole-market scan syncs the full
-      // universe + prices in ~1s (fast, scalable — no per-symbol yfinance loop
-      // that hangs on big universes like CN 5.3k / DE 1.4k). When explicit
-      // symbols are passed we still run the whole scan (cheap) so the page's
-      // symbols are guaranteed fresh.
+      // TradingView-covered markets: a whole-market scan syncs the full
+      // universe + prices. That scan is expensive (large markets can take
+      // minutes), so when the caller passes explicit symbols we first try the
+      // fast scoped yfinance bridge and only fall back to the full scan when
+      // Yahoo yields nothing (e.g. PSX, which Yahoo no longer carries).
       if (isTradingViewMarket(market)) {
+        if (symbols.length > 0) {
+          const assets = await prisma.asset.findMany({
+            where: { marketId: market, isActive: true, symbol: { in: symbols } },
+            select: { id: true, symbol: true },
+          });
+          if (assets.length > 0) {
+            const results = await fetchYahooBatchQuote(assets.map((a) => a.symbol), market);
+            const { ok, failed } = await persistQuotes(assets, results);
+            if (ok > 0) {
+              return NextResponse.json({ success: true, total: assets.length, ok, failed, source: "yfinance" });
+            }
+          }
+        }
         const sync = await syncMarketUniverse(market);
         return NextResponse.json({
           success: true,
@@ -83,8 +114,7 @@ export async function POST(request: Request) {
       }
 
       // Pull the market's active assets. When no explicit symbols are given,
-      // refresh the ENTIRE universe (no cap) — small markets now hold 30-200
-      // assets and users expect every row on the page to get priced.
+      // refresh the ENTIRE universe (no cap).
       const assets = await prisma.asset.findMany({
         where: {
           marketId: market,
@@ -94,11 +124,10 @@ export async function POST(request: Request) {
         select: { id: true, symbol: true },
       });
 
-      let ok = 0;
-      let failed = 0;
-
       // Batched bridge calls (chunked for big universes) — the bridge keeps one
       // shared session and a small thread pool per call, then we persist each hit.
+      let ok = 0;
+      let failed = 0;
       const CHUNK = 200;
       for (let i = 0; i < assets.length; i += CHUNK) {
         const chunk = assets.slice(i, i + CHUNK);
@@ -106,34 +135,9 @@ export async function POST(request: Request) {
           chunk.map((a) => a.symbol),
           market
         );
-        for (let j = 0; j < chunkResults.length; j++) {
-          const result = chunkResults[j];
-          if (result.status !== "ok" || !result.quote) {
-            failed++;
-            continue;
-          }
-          const asset = chunk[j];
-          if (!asset) continue;
-
-          // Only persist columns that exist on the Price model. (Day high/low,
-          // open, previous close, 52w range are NOT stored in JDDS. The v7
-          // fundamentals endpoint is 401-blocked by Yahoo, so we rely on the
-          // price + volume the chart endpoint already returns and leave the
-          // fundamental fields untouched.)
-          const data = {
-            price: result.quote.price,
-            changePct: result.quote.changePct,
-            volume: result.quote.volume ?? undefined,
-            source: "yfinance",
-          };
-
-          await prisma.price.upsert({
-            where: { assetId: asset.id },
-            update: data,
-            create: { assetId: asset.id, ...data },
-          });
-          ok++;
-        }
+        const res = await persistQuotes(chunk, chunkResults);
+        ok += res.ok;
+        failed += res.failed;
       }
 
       return NextResponse.json({ success: true, total: assets.length, ok, failed });

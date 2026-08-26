@@ -70,6 +70,7 @@ The site must be **simple, fast, and light** — this is a permanent goal, not a
 - **Tables:** dense, `font-mono` for numeric columns, `border-white/5` row dividers, `text-[11px]`, hover row highlight.
 - **Navigation:** `src/components/layout/sidebar.tsx` (collapsible, `bg-card/85`, `w-60`/`w-16`).
 - **Loading states:** use `src/components/ui/skeleton.tsx` (neutral black/grey primitives) + `TopLoader`.
+  - **Skeleton-layout rule:** every skeleton must mirror the real element it replaces — same padding, border-radius, and zone structure, with bars sized/positioned like the actual content (e.g. `SkeletonIndexCard` = name+badge row, price bar, change bar). A mismatched or fixed-height skeleton reads as a visual glitch. When you change a component's layout, update its skeleton in the same change.
 - **Empty states:** a centered muted message with the relevant icon.
 - **Error states:** `src/components/ui/error-boundary.tsx` fallback.
 

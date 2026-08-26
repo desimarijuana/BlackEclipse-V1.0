@@ -23,7 +23,7 @@ export interface PortfolioStats {
 
 export function usePortfolioEngine(
   transactions: Transaction[],
-  liveAssets: any[], // From JDdS
+  liveAssets: Array<{ symbol: string; price?: number; changePercent?: number }>, // From JDDS
   taxMethod: 'FIFO' | 'LIFO' = 'FIFO'
 ): PortfolioStats {
   return useMemo(() => {

@@ -36,7 +36,7 @@ function StockChatContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMarketBullish, setIsMarketBullish] = useState(true);
-  const [isNewsBullish, setIsNewsBullish] = useState(true);
+  const [, setIsNewsBullish] = useState(true);
 
   useEffect(() => {
     setMounted(true);

@@ -4,13 +4,17 @@
 // For each selected market, it scrapes prices for that market's assets,
 // stores them in JDDS, and learns source reliability so it self-heals.
 
-import { prisma } from "@/lib/db";
+import { prisma, yieldToEventLoop } from "@/lib/db";
 import { MARKET_SEEDS } from "./markets";
 import { fetchQuoteWithFallback } from "./fetchers";
 import { fetchYahooBatchQuote } from "./fetchers/yfinance";
 import { isTradingViewMarket } from "./fetchers/tradingview";
 import { syncMarketUniverse } from "./universe-sync";
 import type { FetchResult, ScrapeOutcome } from "./types";
+
+// Rows per transaction when persisting quote batches — small chunks plus
+// event-loop yields keep bulk writes from stalling live requests.
+const WRITE_CHUNK = 250;
 
 /**
  * Seed JDDS with markets + assets that aren't yet present.
@@ -52,36 +56,34 @@ export async function seedUniverse(markets: string[] = ["US", "CRYPTO"]) {
 
 /**
  * Record a scrape outcome into SourceHealth (the self-healing memory).
+ *
+ * Health is tracked per (source × market) with the wildcard symbol '*'
+ * instead of per symbol: one row per source/market bounds table growth and
+ * matches how shouldUseStrategy() reads it. The counter updates are atomic
+ * increments, so concurrent scrapes can't clobber each other.
  */
 async function learn(outcome: ScrapeOutcome) {
   try {
-    const id = `${outcome.source}:${outcome.market}:${outcome.symbol}`;
-    const existing = await prisma.sourceHealth.findUnique({ where: { id } });
-
-    if (existing) {
-      await prisma.sourceHealth.update({
-        where: { id },
-        data: {
-          successCount: existing.successCount + (outcome.status === "ok" ? 1 : 0),
-          failCount: existing.failCount + (outcome.status === "ok" ? 0 : 1),
-          lastStatus: outcome.status,
-          lastError: outcome.error || null,
-        },
-      });
-    } else {
-      await prisma.sourceHealth.create({
-        data: {
-          id,
-          source: outcome.source,
-          market: outcome.market,
-          symbol: outcome.symbol,
-          successCount: outcome.status === "ok" ? 1 : 0,
-          failCount: outcome.status === "ok" ? 0 : 1,
-          lastStatus: outcome.status,
-          lastError: outcome.error || null,
-        },
-      });
-    }
+    const id = `${outcome.source}:${outcome.market}:*`;
+    await prisma.sourceHealth.upsert({
+      where: { id },
+      create: {
+        id,
+        source: outcome.source,
+        market: outcome.market,
+        symbol: "*",
+        successCount: outcome.status === "ok" ? 1 : 0,
+        failCount: outcome.status === "ok" ? 0 : 1,
+        lastStatus: outcome.status,
+        lastError: outcome.error || null,
+      },
+      update: {
+        successCount: { increment: outcome.status === "ok" ? 1 : 0 },
+        failCount: { increment: outcome.status === "ok" ? 0 : 1 },
+        lastStatus: outcome.status,
+        lastError: outcome.error || null,
+      },
+    });
   } catch (err) {
     console.error("[price_scraper] learn() failed:", err);
   }
@@ -174,6 +176,10 @@ export async function refreshMarketBatch(market: string, limit: number): Promise
   let ok = 0;
   let failed = 0;
 
+  // Batched bridge calls (chunked for big universes). Successful quotes are
+  // grouped into chunked transactions — SQLite statements block the event
+  // loop, so N individual awaits become N/CHUNK transactions. Only symbols
+  // the bridge missed pay the sequential adaptive-chain fallback.
   const CHUNK = 200;
   for (let i = 0; i < assets.length; i += CHUNK) {
     const chunk = assets.slice(i, i + CHUNK);
@@ -182,35 +188,57 @@ export async function refreshMarketBatch(market: string, limit: number): Promise
       market
     );
 
+    const hits: Array<{ assetId: string; price: number; changePct: number; volume?: number; source: string }> = [];
+    const misses: Array<{ asset: { id: string; symbol: string }; result: (typeof results)[number] }> = [];
     for (let j = 0; j < results.length; j++) {
       const result = results[j];
       const asset = chunk[j];
       if (!asset) continue;
       if (result.status === "ok" && result.quote) {
-        await prisma.price.upsert({
-          where: { assetId: asset.id },
+        hits.push({
+          assetId: asset.id,
+          price: result.quote.price,
+          changePct: result.quote.changePct,
+          volume: result.quote.volume ?? undefined,
+          source: "yfinance",
+        });
+      } else {
+        misses.push({ asset, result });
+      }
+    }
+
+    if (hits.length > 0) {
+      const ops = hits.map((h) =>
+        prisma.price.upsert({
+          where: { assetId: h.assetId },
           update: {
-            price: result.quote.price,
-            changePct: result.quote.changePct,
-            volume: result.quote.volume ?? undefined,
-            source: "yfinance",
+            price: h.price,
+            changePct: h.changePct,
+            volume: h.volume ?? undefined,
+            source: h.source,
           },
           create: {
-            assetId: asset.id,
-            price: result.quote.price,
-            changePct: result.quote.changePct,
-            volume: result.quote.volume ?? undefined,
-            source: "yfinance",
+            assetId: h.assetId,
+            price: h.price,
+            changePct: h.changePct,
+            volume: h.volume ?? undefined,
+            source: h.source,
           },
-        });
-        ok++;
-        continue;
+        })
+      );
+      for (let k = 0; k < ops.length; k += WRITE_CHUNK) {
+        await prisma.$transaction(ops.slice(k, k + WRITE_CHUNK));
+        await yieldToEventLoop();
       }
-      // Bridge miss (e.g. delisted / Yahoo data gap) — try the adaptive chain once.
-      const fallback: FetchResult = await fetchQuoteWithFallback(asset.symbol, market);
+      ok += hits.length;
+    }
+
+    // Bridge miss (e.g. delisted / Yahoo data gap) — try the adaptive chain once.
+    for (const miss of misses) {
+      const fallback: FetchResult = await fetchQuoteWithFallback(miss.asset.symbol, market);
       if (fallback.status === "ok" && fallback.quote) {
         await prisma.price.upsert({
-          where: { assetId: asset.id },
+          where: { assetId: miss.asset.id },
           update: {
             price: fallback.quote.price,
             changePct: fallback.quote.changePct,
@@ -218,7 +246,7 @@ export async function refreshMarketBatch(market: string, limit: number): Promise
             source: fallback.source,
           },
           create: {
-            assetId: asset.id,
+            assetId: miss.asset.id,
             price: fallback.quote.price,
             changePct: fallback.quote.changePct,
             volume: fallback.quote.volume ?? undefined,

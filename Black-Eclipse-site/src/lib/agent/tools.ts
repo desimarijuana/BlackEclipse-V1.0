@@ -4,6 +4,7 @@
 
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
+import { guessSentiment } from "@/lib/sentiment";
 import Parser from "rss-parser";
 
 export interface ToolDefinition {
@@ -25,18 +26,6 @@ const NEWS_FEEDS = [
   { url: "https://cointelegraph.com/rss", source: "CoinTelegraph" },
   { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", source: "CNBC" },
 ];
-
-function guessSentiment(text: string): "bullish" | "bearish" | "neutral" {
-  const t = text.toLowerCase();
-  const bull = ["surge", "gain", "rally", "record", "beat", "up", "jump", "soar", "growth", "bullish", "profit", "upgrade"];
-  const bear = ["drop", "fall", "decline", "loss", "miss", "down", "plunge", "slump", "bearish", "crash", "downgrade", "lawsuit"];
-  let score = 0;
-  for (const w of bull) if (t.includes(w)) score++;
-  for (const w of bear) if (t.includes(w)) score--;
-  if (score > 0) return "bullish";
-  if (score < 0) return "bearish";
-  return "neutral";
-}
 
 async function getPrice(symbol: string, market = "US"): Promise<string> {
   const result = await fetchQuoteWithFallback(symbol, market);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getIntervalMinutes, setIntervalMinutes, setMarkets, getConfiguredMarkets } from "@/lib/scraper";
+import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export async function GET() {
 
 // POST /api/cron — set interval and/or markets.
 export async function POST(request: Request) {
+  const blocked = guardMutation(request, "cron");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const body = await request.json();
     const { intervalMinutes, markets } = body;

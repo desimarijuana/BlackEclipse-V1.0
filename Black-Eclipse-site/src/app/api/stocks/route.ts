@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSimulatedDashboard, type StockItem } from "@/components/screens/market-data";
 import { MARKET_SEEDS } from "@/lib/scraper";
+import { toMarketId } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
+
+// Per-market filter dropdown options (sectors/industries/types/countries).
+const filterOptionsCache = new Map<string, { t: number; data: { sectors: string[]; industries: string[]; types: string[]; countries: string[] } }>();
 
 // Map JDDS Asset+Price records into the StockItem shape the screener expects.
 function toStockItem(
@@ -171,16 +175,7 @@ export async function GET(request: Request) {
 
   try {
     // Map UI country codes to JDDS market ids.
-    const marketIdMap: Record<string, string> = {
-      US: "US",
-      USA: "US",
-      PK: "PK",
-      IN: "IN",
-      CRYPTO: "CRYPTO",
-      China: "CN",
-      Taiwan: "TW",
-    };
-    const marketId = marketIdMap[country] || country;
+    const marketId = toMarketId(rawCountry);
 
     // Build the DB-level filter so we never pull the whole universe into memory.
     const where: Record<string, unknown> = {
@@ -277,7 +272,9 @@ export async function GET(request: Request) {
         include: { price: true },
         orderBy: sortParam === "marketCap"
           ? [{ price: { marketCap: { sort: "desc", nulls: "last" } } }]
-          : marketId === "CRYPTO"
+          : sortParam === "volume"
+            ? [{ price: { volume: { sort: "desc", nulls: "last" } } }]
+            : marketId === "CRYPTO"
             ? [{ price: { rank: { sort: "asc", nulls: "last" } } }]
             : { symbol: "asc" },
         skip: (page - 1) * limit,
@@ -300,20 +297,29 @@ export async function GET(request: Request) {
     const dash = getSimulatedDashboard(marketId === "CRYPTO" ? "CRYPTO" : "US");
 
     // Distinct filter options for dynamic dropdowns (only for non-crypto markets).
+    // These barely change, but computing them means four distinct scans over the
+    // market's whole asset table on every page change — cache them in memory.
     let filterOptions: { sectors: string[]; industries: string[]; types: string[]; countries: string[] } | null = null;
     if (marketId !== "CRYPTO") {
-      const [sectorRows, industryRows, typeRows, countryRows] = await Promise.all([
-        prisma.asset.findMany({ where: { marketId, isActive: true }, select: { sector: true }, distinct: ["sector"] }),
-        prisma.asset.findMany({ where: { marketId, isActive: true }, select: { industry: true }, distinct: ["industry"] }),
-        prisma.asset.findMany({ where: { marketId, isActive: true }, select: { securityType: true }, distinct: ["securityType"] }),
-        prisma.asset.findMany({ where: { marketId, isActive: true, country: { not: null } }, select: { country: true }, distinct: ["country"] }),
-      ]);
-      filterOptions = {
-        sectors: sectorRows.map((r) => r.sector).filter((s): s is string => !!s).sort(),
-        industries: industryRows.map((r) => r.industry).filter((s): s is string => !!s).sort(),
-        types: typeRows.map((r) => r.securityType).filter((s): s is string => !!s).sort(),
-        countries: countryRows.map((r) => r.country).filter((s): s is string => !!s).sort(),
-      };
+      const FILTER_OPTS_TTL_MS = 5 * 60 * 1000;
+      const cachedOpts = filterOptionsCache.get(marketId);
+      if (cachedOpts && Date.now() - cachedOpts.t < FILTER_OPTS_TTL_MS) {
+        filterOptions = cachedOpts.data;
+      } else {
+        const [sectorRows, industryRows, typeRows, countryRows] = await Promise.all([
+          prisma.asset.findMany({ where: { marketId, isActive: true }, select: { sector: true }, distinct: ["sector"] }),
+          prisma.asset.findMany({ where: { marketId, isActive: true }, select: { industry: true }, distinct: ["industry"] }),
+          prisma.asset.findMany({ where: { marketId, isActive: true }, select: { securityType: true }, distinct: ["securityType"] }),
+          prisma.asset.findMany({ where: { marketId, isActive: true, country: { not: null } }, select: { country: true }, distinct: ["country"] }),
+        ]);
+        filterOptions = {
+          sectors: sectorRows.map((r) => r.sector).filter((s): s is string => !!s).sort(),
+          industries: industryRows.map((r) => r.industry).filter((s): s is string => !!s).sort(),
+          types: typeRows.map((r) => r.securityType).filter((s): s is string => !!s).sort(),
+          countries: countryRows.map((r) => r.country).filter((s): s is string => !!s).sort(),
+        };
+        filterOptionsCache.set(marketId, { t: Date.now(), data: filterOptions });
+      }
     }
 
     return NextResponse.json({
@@ -323,10 +329,14 @@ export async function GET(request: Request) {
       shifters: dash.shifters,
       filterOptions,
       source: total > 0 ? "jdds" : "seed",
+      // Seed/demo payloads are simulated — clients must label them as such.
+      simulated: total === 0,
       pagination: { total, page, limit, totalPages },
     });
   } catch (err) {
     console.error("[api/stocks] Error:", err);
+    // Real 5xx — clients treat any failure (or an empty payload) as a signal
+    // to fall back to demo data, so this no longer masquerades as success.
     const dash = getSimulatedDashboard(country === "CRYPTO" ? "CRYPTO" : "US");
     return NextResponse.json(
       {
@@ -335,9 +345,10 @@ export async function GET(request: Request) {
         sectors: dash.sectors,
         shifters: dash.shifters,
         source: "error",
+        simulated: true,
         pagination: { total: 0, page: 1, limit: 0, totalPages: 0 },
       },
-      { status: 200 }
+      { status: 500 }
     );
   }
 }

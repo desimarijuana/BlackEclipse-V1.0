@@ -8,6 +8,8 @@ export interface IndexCard {
   change: number;
   changePercent: number;
   sparkline: number[];
+  /** Currency code or "$" that belongs to this instrument (from /api/indices). */
+  currency?: string;
 }
 
 export interface SectorPerformance {

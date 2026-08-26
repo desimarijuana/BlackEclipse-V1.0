@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { guardExpensiveMutation } from "@/lib/api-guard";
 import {
   triggerScrape,
   getConfiguredMarkets,
@@ -51,6 +52,10 @@ export async function GET() {
 //   { symbols?: string[] }              — scrape exactly these symbols (manual / page refresh)
 //   { config?: { mode, pageSize } }     — update the mode config and persist it
 export async function POST(request: Request) {
+  const blocked = guardExpensiveMutation(request, "scraper", { limit: 20, windowMs: 60_000 });
+  if (blocked) {
+    return NextResponse.json(blocked.body, { status: blocked.status, headers: blocked.headers });
+  }
   try {
     const body = await request.json().catch(() => ({}));
     const { market, symbols, limit, config } = body;

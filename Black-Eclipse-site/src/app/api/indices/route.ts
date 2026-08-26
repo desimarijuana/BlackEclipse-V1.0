@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
+import { toMarketId, MARKET_CURRENCY as marketCurrencyMap } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
 
@@ -23,41 +24,59 @@ const INDEX_UNIVERSE: Record<string, Array<{ symbol: string; name: string }>> = 
     { symbol: "XRP-USD", name: "Ripple" },
     { symbol: "DOGE-USD", name: "Dogecoin" },
   ],
+  // Yahoo no longer carries PSX data (^KSE100 / .PSX all return delisted).
+  // Empty universe → the TOP STOCKS fallback below serves KSE cards instead.
+  PK: [],
+  IN: [
+    { symbol: "^NSEI", name: "Nifty 50" },
+    { symbol: "^BSESN", name: "Sensex" },
+    { symbol: "^NSEBANK", name: "Bank Nifty" },
+  ],
+  CN: [
+    { symbol: "000001.SS", name: "Shanghai Composite" },
+    { symbol: "399001.SZ", name: "Shenzhen Component" },
+    { symbol: "399006.SZ", name: "ChiNext" },
+  ],
+  TW: [{ symbol: "^TWII", name: "TAIEX Weighted" }],
+  HK: [
+    { symbol: "^HSI", name: "Hang Seng" },
+    { symbol: "^HSCE", name: "Hang Seng China Ent." },
+  ],
+  JP: [{ symbol: "^N225", name: "Nikkei 225" }],
+  KR: [
+    { symbol: "^KS11", name: "KOSPI" },
+    { symbol: "^KOSDAQ", name: "KOSDAQ" },
+  ],
+  SG: [{ symbol: "^STI", name: "Straits Times" }],
+  MY: [{ symbol: "^KLSE", name: "FTSE Bursa KLCI" }],
+  AU: [
+    { symbol: "^AXJO", name: "S&P/ASX 200" },
+    { symbol: "^AORD", name: "All Ordinaries" },
+  ],
+  UK: [
+    { symbol: "^FTSE", name: "FTSE 100" },
+    { symbol: "^FTMC", name: "FTSE Mid 250" },
+  ],
+  DE: [{ symbol: "^GDAXI", name: "DAX" }],
+  FR: [{ symbol: "^FCHI", name: "CAC 40" }],
+  NL: [{ symbol: "^AEX", name: "AEX Index" }],
+  CA: [{ symbol: "^GSPTSE", name: "S&P/TSX Composite" }],
+  BR: [{ symbol: "^BVSP", name: "Ibovespa" }],
+  MX: [{ symbol: "^MXX", name: "IPC Mexico" }],
+  SA: [{ symbol: "^TASI.SR", name: "Tadawul All Share" }],
+  AE: [{ symbol: "^DFMGI", name: "DFM General" }],
+  ZA: [{ symbol: "^JALSH", name: "JSE All Share" }],
+  EG: [{ symbol: "^EGX30", name: "EGX 30" }],
+  NG: [{ symbol: "^NGXALLSH", name: "NGX All Share" }],
+  RU: [{ symbol: "^IMOEX.ME", name: "MOEX Russia" }],
+  TR: [{ symbol: "^XU100", name: "BIST 100" }],
+  ID: [{ symbol: "^JKSE", name: "Jakarta Composite" }],
+  TH: [{ symbol: "^SET.BK", name: "SET Index" }],
+  VN: [{ symbol: "^VNINDEX", name: "VN Index" }],
 };
 
-// Map UI country codes to JDDS market ids (mirrors /api/stocks).
-const MARKET_ID_MAP: Record<string, string> = {
-  US: "US",
-  USA: "US",
-  PK: "PK",
-  IN: "IN",
-  CRYPTO: "CRYPTO",
-  CN: "CN",
-  TW: "TW",
-  HK: "HK",
-  JP: "JP",
-  KR: "KR",
-  SG: "SG",
-  MY: "MY",
-  AU: "AU",
-  UK: "UK",
-  DE: "DE",
-  FR: "FR",
-  NL: "NL",
-  CA: "CA",
-  BR: "BR",
-  MX: "MX",
-  SA: "SA",
-  AE: "AE",
-  ZA: "ZA",
-  EG: "EG",
-  NG: "NG",
-  RU: "RU",
-  TR: "TR",
-  ID: "ID",
-  TH: "TH",
-  VN: "VN",
-};
+// Currency that belongs to each market's instruments (shared with /api/quote).
+const MARKET_CURRENCY = marketCurrencyMap;
 
 const SIMULATED: Record<string, { indices: { name: string; symbol: string; price: number; change: number; changePercent: number; sparkline: number[] }[]; sectors: { name: string; change: number }[]; shifters: { gainers: { symbol: string; name: string; price: number; changePercent: number }[]; losers: { symbol: string; name: string; price: number; changePercent: number }[] } }> = {
   US: {
@@ -145,10 +164,54 @@ function sparkline(price: number): number[] {
 // GET /api/indices?market=US — live index quotes + sector performance + market
 // shifters for the given market. Quotes come from Yahoo Finance and are cached
 // in the IndexQuote table (JDDS) so repeated page loads never hit the network.
+//
+// SWR memory cache: a live fetch spawns Python + hits Yahoo (7-30s), which on
+// every tab/market switch made the UI feel frozen. Serve cached payloads
+// instantly; rebuild in the background when older than 2 minutes.
+const INDICES_CACHE_TTL_MS = 2 * 60 * 1000;
+const indicesCache = new Map<string, { t: number; data: unknown }>();
+const indicesRebuilding = new Set<string>();
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const rawMarket = (searchParams.get("market") || "US").toUpperCase();
-  const market = MARKET_ID_MAP[rawMarket] || rawMarket;
+  const market = toMarketId((searchParams.get("market") || "US").toUpperCase());
+
+  const cachedEntry = indicesCache.get(market);
+  if (cachedEntry) {
+    if (Date.now() - cachedEntry.t < INDICES_CACHE_TTL_MS) {
+      return NextResponse.json(cachedEntry.data);
+    }
+    if (!indicesRebuilding.has(market)) {
+      indicesRebuilding.add(market);
+      buildIndicesPayload(market)
+        .then((data) => indicesCache.set(market, { t: Date.now(), data }))
+        .catch((err) => console.error("[api/indices] background rebuild error:", err))
+        .finally(() => indicesRebuilding.delete(market));
+    }
+    return NextResponse.json(cachedEntry.data);
+  }
+
+  try {
+    const data = await buildIndicesPayload(market);
+    indicesCache.set(market, { t: Date.now(), data });
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[api/indices] GET error:", err);
+    const fallback = simulatedFor(market);
+    return NextResponse.json({
+      market,
+      indices: fallback.indices,
+      sectors: fallback.sectors,
+      shifters: fallback.shifters,
+      live: 0,
+      total: (INDEX_UNIVERSE[market] || INDEX_UNIVERSE.US).length,
+      source: "fallback",
+      simulated: true,
+    });
+  }
+}
+
+async function buildIndicesPayload(market: string) {
   const universe = INDEX_UNIVERSE[market] || INDEX_UNIVERSE.US;
 
   try {
@@ -182,18 +245,48 @@ export async function GET(request: Request) {
     }
 
     let live = 0;
-    const indices = universe.map((item) => {
-      const c = cachedBySymbol.get(item.symbol);
-      if (c) live++;
-      return {
-        name: c?.name || item.name,
-        symbol: c?.symbol || item.symbol,
-        price: c?.price ?? 0,
-        change: c?.change ?? 0,
-        changePercent: c?.changePct ?? 0,
-        sparkline: sparkline(c?.price ?? 0),
-      };
-    });
+    const marketCurrency = MARKET_CURRENCY[market] || "$";
+    const indices = universe
+      .map((item) => {
+        const c = cachedBySymbol.get(item.symbol);
+        if (c) live++;
+        return {
+          name: c?.name || item.name,
+          symbol: c?.symbol || item.symbol,
+          price: c?.price ?? 0,
+          change: c?.change ?? 0,
+          changePercent: c?.changePct ?? 0,
+          sparkline: sparkline(c?.price ?? 0),
+          currency: marketCurrency,
+        };
+      })
+      // Drop indices with no live/cached quote so a country never shows
+      // broken zero-price cards — the grid simply renders fewer cards.
+      .filter((idx) => idx.price > 0);
+
+    // Some markets have no index coverage on Yahoo (e.g. PSX). When nothing
+    // resolves, fall back to the country's TOP STOCKS from JDDS as the ticker
+    // cards so every country always shows its own leading instruments.
+    if (indices.length === 0 && market !== "US") {
+      const topAssets = await prisma.asset.findMany({
+        where: { marketId: market, isActive: true, price: { isNot: null } },
+        select: { symbol: true, name: true, price: { select: { price: true, changePct: true } } },
+        orderBy: [{ price: { marketCap: "desc" } }, { price: { volume: "desc" } }],
+        take: 6,
+      });
+      for (const a of topAssets) {
+        if (!a.price || a.price.price <= 0) continue;
+        indices.push({
+          name: a.name,
+          symbol: a.symbol,
+          price: a.price.price,
+          change: +(a.price.price - a.price.price / (1 + a.price.changePct / 100)).toFixed(2),
+          changePercent: a.price.changePct,
+          sparkline: sparkline(a.price.price),
+          currency: marketCurrency,
+        });
+      }
+    }
 
     // 2) Sector performance from JDDS (average % change per sector).
     let sectors: { name: string; change: number }[] = [];
@@ -267,7 +360,7 @@ export async function GET(request: Request) {
       shifters.losers = shifters.losers.length ? shifters.losers : fallback.losers;
     }
 
-    return NextResponse.json({
+    return {
       market,
       indices,
       sectors,
@@ -275,11 +368,11 @@ export async function GET(request: Request) {
       live,
       total: universe.length,
       source: live > 0 ? "yfinance" : "cache",
-    });
+    };
   } catch (err) {
     console.error("[api/indices] Error:", err);
     const fallback = simulatedFor(market);
-    return NextResponse.json({
+    return {
       market,
       indices: fallback.indices,
       sectors: fallback.sectors,
@@ -287,6 +380,7 @@ export async function GET(request: Request) {
       live: 0,
       total: universe.length,
       source: "fallback",
-    });
+      simulated: true,
+    };
   }
 }

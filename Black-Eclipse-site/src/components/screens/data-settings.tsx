@@ -51,8 +51,8 @@ export function DataSettings() {
         setIntervalMinutes(data.intervalMinutes || 15);
       }
       setStatus(data);
-    } catch (e) {
-      console.error('Failed to load scraper status', e);
+    } catch (err) {
+      console.error('Failed to load scraper status', err);
     } finally {
       setLoading(false);
     }
@@ -84,7 +84,7 @@ export function DataSettings() {
       } else {
         setMessage(data.error || 'Failed to save');
       }
-    } catch (e) {
+    } catch {
       setMessage('Failed to save configuration');
     } finally {
       setSaving(false);
@@ -98,7 +98,7 @@ export function DataSettings() {
       await fetch('/api/scraper', { method: 'POST' });
       setMessage('Scrape triggered. Refreshing status...');
       setTimeout(fetchStatus, 2000);
-    } catch (e) {
+    } catch {
       setMessage('Failed to trigger scrape');
     } finally {
       setTriggering(false);

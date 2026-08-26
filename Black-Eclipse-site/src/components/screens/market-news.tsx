@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Newspaper, Sparkles, MessageSquare, Eye } from 'lucide-react';
+import { Newspaper, Sparkles, Eye } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -108,8 +108,8 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
         setNewsList(news);
         setPage(pageNum);
         setTotalPages(data.pagination?.totalPages || 1);
-        const bullishCount = news.filter((n: any) => n.sentiment === 'bullish').length;
-        const bearishCount = news.filter((n: any) => n.sentiment === 'bearish').length;
+        const bullishCount = news.filter((n: { sentiment: string }) => n.sentiment === 'bullish').length;
+        const bearishCount = news.filter((n: { sentiment: string }) => n.sentiment === 'bearish').length;
         onNewsStatusChange?.(bullishCount >= bearishCount);
       } else {
         // Fallback to built-in demo data if the feed is empty/unreachable.
@@ -135,6 +135,8 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
 
   useEffect(() => {
     fetchNews(1);
+    // fetchNews is stable per-render; only run on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDiscuss = (item?: NewsItem) => {

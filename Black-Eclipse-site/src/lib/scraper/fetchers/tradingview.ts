@@ -97,6 +97,21 @@ export const MARKET_SUFFIX: Record<string, string> = {
   TR: ".IS",
 };
 
+/**
+ * Convert an absolute price change into a percentage.
+ *
+ * The TradingView scanner's `change` column is ABSOLUTE (e.g. -1.25), not a
+ * percentage. JDDS stores `changePct` everywhere, so derive it from
+ * (close − change) = previous close, guarding against divide-by-zero and
+ * sign flips when a price crosses zero.
+ */
+export function changePctFromAbsolute(close: number, change: number): number {
+  if (!Number.isFinite(close) || !Number.isFinite(change) || close === 0) return 0;
+  const prevClose = close - change;
+  if (!Number.isFinite(prevClose) || prevClose === 0) return 0;
+  return +((change / Math.abs(prevClose)) * 100).toFixed(4);
+}
+
 /** Resolve a bare symbol to its Yahoo ticker (for the yfinance fallback path). */
 export function yahooSymbol(symbol: string, market: string): string {
   const suffix = MARKET_SUFFIX[market] ?? "";
@@ -178,7 +193,8 @@ export async function scanMarket(
       exchange: item.s.split(":")[0],
       name: String(d[0] ?? rawSym),
       price,
-      changePct: Number(d[14]) || 0,
+      // `change` (col 14) is absolute — convert to the % JDDS stores.
+      changePct: changePctFromAbsolute(price, Number(d[14]) || 0),
       marketCap: numOrUndef(d[2]),
       volume: numOrUndef(d[7]),
       peRatio: numOrUndef(d[8]),
@@ -196,15 +212,70 @@ export async function scanMarket(
   return rows;
 }
 
+// ─── Cached whole-market scans ──────────────────────────────────────────
+// A full scan costs one large HTTP round-trip (up to ~180s for big markets).
+// The adaptive fallback chain used to trigger a FRESH scan for every missed
+// symbol — a burst of delisted tickers could fan out into dozens of identical
+// multi-minute requests. These helpers make per-symbol lookups reuse a recent
+// scan, dedupe concurrent callers onto one in-flight request, and bound how
+// many scans may run at once.
+
+const SCAN_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_CONCURRENT_SCANS = 2;
+
+interface CacheEntry {
+  rows: ScanRow[];
+  at: number;
+}
+const scanCache = new Map<string, CacheEntry>();
+const scanInFlight = new Map<string, Promise<ScanRow[]>>();
+let activeScans = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Whole-market scan with short-TTL caching and in-flight dedup.
+ * Universe syncs that REQUIRE fresh data should call scanMarket() directly;
+ * everything else (per-symbol lookups, UI probes) should use this.
+ */
+export async function getCachedMarketScan(market: string): Promise<ScanRow[]> {
+  const cached = scanCache.get(market);
+  if (cached && Date.now() - cached.at < SCAN_CACHE_TTL_MS) return cached.rows;
+
+  const inFlight = scanInFlight.get(market);
+  if (inFlight) return inFlight;
+
+  const task = (async () => {
+    // Concurrency cap: queue instead of hammering the scanner endpoint.
+    while (activeScans >= MAX_CONCURRENT_SCANS) {
+      await sleep(1000);
+    }
+    activeScans++;
+    try {
+      const rows = await scanMarket(market);
+      scanCache.set(market, { rows, at: Date.now() });
+      return rows;
+    } finally {
+      activeScans--;
+      scanInFlight.delete(market);
+    }
+  })();
+  scanInFlight.set(market, task);
+  return task;
+}
+
 /** Markets whose primary source is TradingView (used by refresh/sync paths). */
 export function isTradingViewMarket(market: string): boolean {
   return MARKET_SLUG[market] !== undefined;
 }
 
 /**
- * Per-symbol quote via a whole-market scan (used by the adaptive fallback
- * chain when a specific symbol isn't in JDDS yet). A single scan is more
- * expensive than per-symbol, so this is a last-resort, not the main path.
+ * Per-symbol quote via a cached whole-market scan (used by the adaptive
+ * fallback chain when a specific symbol isn't in JDDS yet). Uses the shared
+ * scan cache + concurrency cap so a burst of misses cannot fan out into a
+ * storm of full-market requests.
  */
 export async function fetchTradingViewQuote(
   symbol: string,
@@ -214,7 +285,7 @@ export async function fetchTradingViewQuote(
     return { status: "empty", error: "market not TV-covered", source: "tradingview" };
   }
   try {
-    const rows = await scanMarket(market);
+    const rows = await getCachedMarketScan(market);
     const found = rows.find(
       (r) =>
         r.symbol === symbol ||

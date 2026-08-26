@@ -8,10 +8,22 @@ import {
   setPreferences,
   getIntegrationsStatus,
 } from "@/lib/settings";
+import { guardMutation, checkOutboundUrl } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
+// Never send the stored API key back to any caller — only whether one exists.
+function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
+  return {
+    provider: llm.provider,
+    baseUrl: llm.baseUrl,
+    model: llm.model,
+    hasApiKey: Boolean(llm.apiKey),
+  };
+}
+
 // GET /api/settings — return all current settings + integration status.
+// The LLM API key is intentionally omitted (masked as `hasApiKey`).
 export async function GET() {
   try {
     const [llm, feeds, prefs, integrations] = await Promise.all([
@@ -21,7 +33,7 @@ export async function GET() {
       getIntegrationsStatus(),
     ]);
     return NextResponse.json({
-      llm,
+      llm: maskLLMConfig(llm),
       newsFeeds: feeds,
       preferences: prefs,
       integrations,
@@ -33,17 +45,34 @@ export async function GET() {
 }
 
 // POST /api/settings — update settings. Body may contain any/all of:
-//   { llm?: { provider, baseUrl, apiKey, model } }
+//   { llm?: { provider, baseUrl, apiKey?, model } }
 //   { newsFeeds?: NewsFeed[] }
 //   { preferences?: Partial<AppPreferences> }
+//
+// `apiKey` handling: an empty/undefined apiKey keeps the previously stored key
+// so the masked UI doesn't force re-entry. News feed URLs are validated against
+// the SSRF guard before being persisted.
 export async function POST(request: Request) {
+  const blocked = guardMutation(request, "settings");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const body = await request.json().catch(() => ({}));
 
     if (body.llm) {
-      await setLLMConfig(body.llm);
+      const incoming = { ...body.llm };
+      if (!incoming.apiKey) delete incoming.apiKey; // keep stored key
+      await setLLMConfig(incoming);
     }
     if (Array.isArray(body.newsFeeds)) {
+      const unsafe = body.newsFeeds.filter(
+        (f: { url?: string }) => typeof f.url !== "string" || !checkOutboundUrl(f.url).safe
+      );
+      if (unsafe.length > 0) {
+        return NextResponse.json(
+          { error: `Blocked feed URL(s): ${unsafe.map((f: { url: string }) => f.url).join(", ")}` },
+          { status: 400 }
+        );
+      }
       await setNewsFeeds(body.newsFeeds);
     }
     if (body.preferences) {
@@ -55,7 +84,12 @@ export async function POST(request: Request) {
       getNewsFeeds(),
       getPreferences(),
     ]);
-    return NextResponse.json({ success: true, llm, newsFeeds: feeds, preferences: prefs });
+    return NextResponse.json({
+      success: true,
+      llm: maskLLMConfig(llm),
+      newsFeeds: feeds,
+      preferences: prefs,
+    });
   } catch (err) {
     console.error("[api/settings] POST error:", err);
     return NextResponse.json(

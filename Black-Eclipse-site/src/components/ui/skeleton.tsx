@@ -49,15 +49,18 @@ export function SkeletonCard({ className }: { className?: string }) {
   );
 }
 
-/** Compact card for narrow grids (e.g. index tickers). */
+/** Compact card placeholder mirroring the real index-ticker card layout:
+ *  name+badge row, price line, change line — same padding/rhythm as the card
+ *  it stands in for, so loading never shifts or looks off-pattern. */
 export function SkeletonIndexCard({ className }: { className?: string }) {
   return (
-    <SkeletonBlock className={cn("h-20 p-3.5 flex flex-col justify-between", className)}>
+    <SkeletonBlock className={cn("p-3.5 flex flex-col", className)}>
       <div className="flex items-center justify-between gap-2">
-        <Skeleton className="h-3 w-12" />
-        <Skeleton className="h-3 w-8" />
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-4 w-9" />
       </div>
-      <Skeleton className="h-4 w-16" />
+      <Skeleton className="h-5 w-20 mt-3" />
+      <Skeleton className="h-2.5 w-14 mt-2" />
     </SkeletonBlock>
   );
 }

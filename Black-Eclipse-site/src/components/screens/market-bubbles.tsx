@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Sparkles, Orbit, RefreshCw, Layers, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
+import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -197,15 +197,58 @@ interface MarketBubblesProps {
   onAnalyzeTicker: (ticker: string) => void;
 }
 
+const BUBBLE_CURRENCY: Record<string, string> = {
+  US: 'USD',
+  USA: 'USD',
+  PK: 'PKR',
+  IN: 'INR',
+  CN: 'CNY',
+  TW: 'TWD',
+  HK: 'HKD',
+  JP: 'JPY',
+  KR: 'KRW',
+  UK: 'GBP',
+  DE: 'EUR',
+  FR: 'EUR',
+  NL: 'EUR',
+  TR: 'TRY',
+  SG: 'SGD',
+  MY: 'MYR',
+  AU: 'AUD',
+  CA: 'CAD',
+  BR: 'BRL',
+  MX: 'MXN',
+  SA: 'SAR',
+  AE: 'AED',
+  ZA: 'ZAR',
+  EG: 'EGP',
+  RU: 'RUB',
+  ID: 'IDR',
+  TH: 'THB',
+  VN: 'VND',
+  CRYPTO: '$',
+};
+
+const bubbleCurrencyFor = (market: string) => BUBBLE_CURRENCY[market.toUpperCase()] || '$';
+
+interface MarketOption {
+  id: string;
+  label: string;
+  isCrypto: boolean;
+  pricedCount: number;
+}
+
 export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [sizeMetric, setSizeMetric] = useState<'marketCap' | 'volume' | 'change'>('marketCap');
+  // Goal of this screen: compare which stock moves the most volume — default to volume sizing.
+  const [sizeMetric, setSizeMetric] = useState<'marketCap' | 'volume' | 'change'>('volume');
   const [gravityType, setGravityType] = useState<'single' | 'performers' | 'rank'>('single');
   const [loading, setLoading] = useState(false);
   const [rawList, setRawList] = useState<BubbleData[]>([]);
-  // Selected market for the bubble view (US / PK / CRYPTO).
+  // Markets available in JDDS (loaded from /api/markets) + selected market.
+  const [markets, setMarkets] = useState<MarketOption[]>([]);
   const [selectedMarket, setSelectedMarket] = useState<string>('CRYPTO');
 
   // Advanced filters
@@ -244,7 +287,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   const hasMovedRef = useRef<boolean>(false);
 
   // Helper: robust parsing of metric strings to numbers
-  const parseVal = (val: any): number => {
+  const parseVal = (val: unknown): number => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
     const str = String(val).toUpperCase().trim();
@@ -253,54 +296,82 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     return isNaN(num) ? 0 : num * mult;
   };
 
-  const fetchLiveCrypto = () => {
-    setLoading(true);
-    setRawList(DEMO_CRYPTOS);
-    setLoading(false);
-  };
-
   // Load bubble data for the selected market from JDDS via /api/stocks.
   const loadMarketData = async (market: string) => {
     setLoading(true);
-    const country = market === 'CRYPTO' ? 'CRYPTO' : market === 'PK' ? 'PK' : 'US';
+    const isCrypto = market.toUpperCase() === 'CRYPTO';
     try {
-      // For equities markets, only show stocks (not ETFs/funds/bonds).
-      const typeParam = country === 'CRYPTO' ? '' : '&type=Stock';
-      // Order by market cap so the biggest assets appear first (not alphabetical).
-      const res = await fetch(`/api/stocks?country=${country}${typeParam}&sort=marketCap&limit=100`);
+      // For equities markets, only show stocks (not ETFs/funds/bonds). Markets
+      // without securityType metadata skip this filter server-side anyway.
+      const typeParam = isCrypto ? '' : '&type=Stock';
+      // Order by volume so the most-traded asset leads — that's the point of
+      // this screen. /api/stocks maps the market id straight to JDDS.
+      const res = await fetch(`/api/stocks?country=${encodeURIComponent(market)}${typeParam}&sort=volume&limit=100`);
       const data = await res.json();
+      const fallback = markets.find(m => m.id === market)?.isCrypto ? DEMO_CRYPTOS : DEMO_PSX;
       if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
-        const mapped: BubbleData[] = data.stocks
-          .filter((s: any) => s.price && s.price > 0)
-          .map((s: any) => ({
-            symbol: s.symbol,
-            name: s.name,
-            price: s.price || 0,
-            changePercent: s.changePercent || 0,
-            marketCap: s.marketCap || 'N/A',
-            volume: s.volume || 'N/A',
-            sector: s.sector || 'Other',
-            rank: s.rank || 999,
-            circulatingSupply: s.circulatingSupply || 'N/A',
-            ath: s.ath || 'N/A',
+        const mapped: BubbleData[] = (data.stocks as Array<Record<string, unknown>>)
+          .filter(s => typeof s.price === 'number' && (s.price as number) > 0)
+          .map(s => ({
+            symbol: String(s.symbol ?? ''),
+            name: String(s.name ?? ''),
+            price: (s.price as number) || 0,
+            changePercent: (s.changePercent as number) || 0,
+            marketCap: (s.marketCap as string) || 'N/A',
+            volume: (s.volume as string) || 'N/A',
+            sector: (s.sector as string) || 'Other',
+            rank: (s.rank as number) || 999,
+            circulatingSupply: (s.circulatingSupply as string) || 'N/A',
+            ath: (s.ath as string) || 'N/A',
           }));
-        // If the market returned no priced stocks (e.g. PSX seed has no prices yet),
-        // fall back to demo data for that market so bubbles still render.
+        // If the market returned no priced stocks yet, fall back to demo data so bubbles still render.
         if (mapped.length > 0) {
           setRawList(mapped);
         } else {
-          setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
+          setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
         }
       } else {
-        setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
+        setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
       }
     } catch (e) {
       console.error('Failed to load market bubble data', e);
-      setRawList(country === 'PK' ? DEMO_PSX : DEMO_CRYPTOS);
+      setRawList(isCrypto ? DEMO_CRYPTOS : DEMO_PSX);
     } finally {
       setLoading(false);
     }
   };
+
+  // Load which countries/markets exist in JDDS and populate the selector.
+  useEffect(() => {
+    let cancelled = false;
+    const loadMarkets = async () => {
+      try {
+        const res = await fetch('/api/markets');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.markets)) return;
+        // Only offer markets that actually have priced data in JDDS; crypto first.
+        const usable = (data.markets as Array<Record<string, unknown>>)
+          .filter(m => m.enabled && (m.assetCount as number) > 0)
+          .map((m): MarketOption => ({
+            id: String(m.id),
+            label: m.isCrypto ? `Global Crypto (${m.pricedCount})` : `${m.country} — ${m.exchange} (${m.pricedCount})`,
+            isCrypto: !!m.isCrypto,
+            pricedCount: (m.pricedCount as number) ?? 0,
+          }))
+          .sort((a: MarketOption, b: MarketOption) =>
+            a.isCrypto === b.isCrypto ? b.pricedCount - a.pricedCount : a.isCrypto ? -1 : 1);
+        if (!cancelled && usable.length > 0) {
+          setMarkets(usable);
+          setSelectedMarket(prev => (usable.some((m: MarketOption) => m.id === prev) ? prev : usable[0].id));
+        }
+      } catch (e) {
+        console.error('Failed to load JDDS markets', e);
+      }
+    };
+    loadMarkets();
+    return () => { cancelled = true; };
+  }, []);
 
   // Switch market and reload data.
   const handleMarketChange = (market: string) => {
@@ -409,6 +480,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     if (rawList.length > 0) {
       syncBubbles(filteredAssets);
     }
+    // syncBubbles is stable per-render and reads current state internally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sizeMetric, rawList, filteredAssets, bubbleSizeMultiplier]);
 
   // Init live poll
@@ -654,8 +727,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       );
     }
     return list.sort((a, b) => {
-      let aVal: any = a[sortField];
-      let bVal: any = b[sortField];
+      let aVal: string | number = a[sortField] ?? 0;
+      let bVal: string | number = b[sortField] ?? 0;
 
       if (sortField === 'marketCap' || sortField === 'volume') {
         aVal = parseVal(aVal);
@@ -708,18 +781,26 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
           </div>
 
           <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
-            {/* Market Selector */}
+            {/* Market Selector — populated from markets loaded in JDDS */}
             <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
               <select
                 value={selectedMarket}
                 onChange={e => handleMarketChange(e.target.value)}
                 className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
-                title="Select market to load bubble data"
+                title="Select country / market to load bubble data from JDDS"
               >
-                <option value="CRYPTO">Global Crypto</option>
-                <option value="USA">United States</option>
-                <option value="PK">Pakistan (PSX)</option>
+                {markets.length > 0 ? (
+                  markets.map(m => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))
+                ) : (
+                  <>
+                    <option value="CRYPTO">Global Crypto</option>
+                    <option value="US">United States</option>
+                    <option value="PK">Pakistan (PSX)</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -817,7 +898,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
               <span className="text-muted-foreground font-semibold">Physics Layout:</span>
               <select
                 value={gravityType}
-                onChange={e => setGravityType(e.target.value as any)}
+                onChange={e => setGravityType(e.target.value as 'single' | 'performers' | 'rank')}
                 className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-mono text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"
               >
                 <option value="single" className="bg-[#121212] text-foreground">Single Center Pool</option>
@@ -837,7 +918,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                 ].map(opt => (
                   <button
                     key={opt.key}
-                    onClick={() => setSizeMetric(opt.key as any)}
+                    onClick={() => setSizeMetric(opt.key as 'marketCap' | 'volume' | 'change')}
                     className={`px-3 py-1 rounded-md text-[10px] font-mono cursor-pointer transition-all ${
                       sizeMetric === opt.key 
                         ? 'bg-accent text-foreground border border-border/30' 
@@ -1015,11 +1096,10 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                             <td className="py-3.5 px-4 font-bold text-primary tracking-wider">{c.symbol}</td>
                             <td className="py-3.5 px-4 text-muted-foreground font-sans truncate max-w-[150px]">{c.name}</td>
                             <td className="py-3.5 px-4 text-right font-semibold">
-                              ${c.price >= 1 ? c.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : c.price.toFixed(4)}
+                              {bubbleCurrencyFor(selectedMarket) === '$' ? '$' : `${bubbleCurrencyFor(selectedMarket)} `}{c.price >= 1 ? c.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : c.price.toFixed(4)}
                             </td>
                             <td className={`py-3.5 px-4 text-right font-semibold ${isPositive ? 'text-primary' : 'text-rose-400'}`}>
-                              {isPositive ? '+' : ''}{c.changePercent.toFixed(2)}%
-                            </td>
+                              {isPositive ? '+' : ''}{c.changePercent.toFixed(2)}%                            </td>
                             <td className="py-3.5 px-4 text-right">{c.marketCap}</td>
                             <td className="py-3.5 px-4 text-right text-muted-foreground">{c.volume}</td>
                             <td className="py-1 px-4 text-center">
@@ -1121,7 +1201,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
               <p className="text-muted-foreground font-semibold truncate leading-tight">{hoveredData.name}</p>
               <div className="flex justify-between mt-1 text-[11px]">
                 <span className="text-muted-foreground">Price:</span>
-                <span className="font-mono font-semibold">${hoveredData.price >= 1 ? hoveredData.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : hoveredData.price.toFixed(4)}</span>
+                <span className="font-mono font-semibold">{bubbleCurrencyFor(selectedMarket) === '$' ? '$' : `${bubbleCurrencyFor(selectedMarket)} `}{hoveredData.price >= 1 ? hoveredData.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : hoveredData.price.toFixed(4)}</span>
               </div>
               <div className="flex justify-between text-[11px]">
                 <span className="text-muted-foreground">Mkt Cap:</span>

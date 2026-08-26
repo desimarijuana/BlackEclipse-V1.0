@@ -2,12 +2,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { seedUniverse } from "@/lib/scraper";
 import { parseCsv } from "@/lib/scraper/csv";
+import { guardExpensiveMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 // POST /api/scraper/import — import old/historical prices from a CSV payload.
 // Body: { market, csv } — csv is the raw text; market defaults to "US".
+const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
 export async function POST(request: Request) {
+  const blocked = guardExpensiveMutation(request, "scraper-import", { limit: 10, windowMs: 60_000 });
+  if (blocked) {
+    return NextResponse.json(blocked.body, { status: blocked.status, headers: blocked.headers });
+  }
   try {
     const body = await request.json().catch(() => ({}));
     const market: string = (body.market || "US").toUpperCase();
@@ -15,6 +22,9 @@ export async function POST(request: Request) {
 
     if (!csv.trim()) {
       return NextResponse.json({ error: "Empty CSV payload" }, { status: 400 });
+    }
+    if (csv.length > MAX_CSV_BYTES) {
+      return NextResponse.json({ error: "CSV payload too large (max 5 MB)" }, { status: 413 });
     }
 
     const rows = parseCsv(csv);

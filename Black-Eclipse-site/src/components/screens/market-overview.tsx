@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  ArrowUpRight, ArrowDownRight, ArrowRight, Search, 
-  Sparkles, Star, BarChart3, 
+  ArrowUpRight, ArrowDownRight, ArrowRight, Search,
+  Sparkles, Star, BarChart3,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
-  Info, Briefcase, Building2, Globe, RefreshCw
+  Info, Briefcase, Building2, Globe, RefreshCw, GripVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
@@ -17,6 +17,51 @@ import {
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
 } from './market-data';
 import { useScreenerFilters } from './use-screener-filters';
+import { currencyCodeFor as currencyFor, formatPriceWithCurrency } from '@/lib/market-currency';
+
+// Currency helpers come from @/lib/market-currency (shared with the API
+// routes and the chart panel) — dollar assets keep "$", everything else
+// shows its native ISO code ("PKR 327.43", "CNY 12.40", ...).
+const priceWithCurrency = (country: string, value: number) => formatPriceWithCurrency(country, value);
+
+// Human-readable market cap ("2.97T", "412.5B", "18.3M").
+const fmtCap = (n?: number | null) => {
+  if (!n || n <= 0) return '—';
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  return n.toLocaleString();
+};
+
+// ── ASCII dot-grid progress loader ─────────────────────────────────────────
+// Braille spinner + block bar + live %. Shown alongside skeletons (hybrid):
+// skeletons on first load, this banner on top of existing data during
+// refreshes so users always see that (and how much) data is coming in.
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function AsciiProgress({ pct, label }: { pct: number; label: string }) {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame(f => (f + 1) % SPINNER_FRAMES.length), 90);
+    return () => clearInterval(t);
+  }, []);
+  const cells = 20;
+  const filled = Math.max(1, Math.min(cells, Math.round((pct / 100) * cells)));
+  const bar = '█'.repeat(filled) + '░'.repeat(cells - filled);
+  return (
+    <div
+      className="flex items-center gap-2.5 font-mono text-[11px] px-3.5 py-2 rounded-lg bg-accent/30 border border-border/40 w-fit max-w-full"
+      role="status"
+      aria-live="polite"
+      aria-label={`Loading ${Math.floor(pct)}%`}
+    >
+      <span className="text-primary w-3 text-sm leading-none">{SPINNER_FRAMES[frame]}</span>
+      <span className="tracking-[0.08em] text-primary/80 whitespace-nowrap">{bar}</span>
+      <span className="text-foreground font-bold w-9 text-right">{Math.floor(pct)}%</span>
+      {label && <span className="text-muted-foreground/80 truncate">· {label}</span>}
+    </div>
+  );
+}
 
 function TableSkeleton({ cols = 11, rows = 6 }: { cols?: number; rows?: number }) {
   return (
@@ -131,6 +176,145 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [topGainers, setTopGainers] = useState<ShifterItem[]>(TOP_GAINERS);
   const [topLosers, setTopLosers] = useState<ShifterItem[]>(TOP_LOSERS);
 
+  // Customizable ticker strip above the screener: what the user wants to see
+  // on top — market indices, top gainers/losers, or a custom symbol list.
+  // Persisted in localStorage so the choice survives reloads.
+  type StripMode = 'indices' | 'gainers' | 'losers' | 'custom';
+  const STRIP_MODE_KEY = 'be_strip_mode';
+  const STRIP_CUSTOM_KEY = 'be_strip_custom_symbols';
+  const [stripMode, setStripMode] = useState<StripMode>('indices');
+  const [customSymbols, setCustomSymbols] = useState<string[]>([]);
+  const [stripConfigOpen, setStripConfigOpen] = useState(false);
+  const [stripInput, setStripInput] = useState('');
+  useEffect(() => {
+    try {
+      const m = window.localStorage.getItem(STRIP_MODE_KEY) as StripMode | null;
+      if (m && ['indices', 'gainers', 'losers', 'custom'].includes(m)) setStripMode(m);
+      const s = window.localStorage.getItem(STRIP_CUSTOM_KEY);
+      if (s) {
+        const arr = JSON.parse(s);
+        if (Array.isArray(arr)) setCustomSymbols(arr.map((x: unknown) => String(x).toUpperCase()));
+      }
+    } catch { /* ignore corrupted storage */ }
+  }, []);
+  const applyStripMode = (mode: StripMode) => {
+    setStripMode(mode);
+    try { window.localStorage.setItem(STRIP_MODE_KEY, mode); } catch { /* ignore */ }
+  };
+  const applyCustomSymbols = (list: string[]) => {
+    const unique = [...new Set(list.map(s => s.trim().toUpperCase()).filter(Boolean))];
+    setCustomSymbols(unique);
+    try { window.localStorage.setItem(STRIP_CUSTOM_KEY, JSON.stringify(unique)); } catch { /* ignore */ }
+  };
+
+  // Pinned symbols resolve against the WHOLE database (every market), so a
+  // custom strip like [AAPL, OGDC, BTC] stays identical across all countries.
+  type PinnedCard = IndexCard & { found?: boolean; marketId?: string; source?: string; updatedAt?: string };
+  const [customQuotes, setCustomQuotes] = useState<Record<string, PinnedCard>>({});
+  React.useEffect(() => {
+    if (stripMode !== 'custom' || customSymbols.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/quote?symbols=${encodeURIComponent(customSymbols.join(','))}`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.quotes)) {
+          const map: Record<string, PinnedCard> = {};
+          for (const q of data.quotes) {
+            map[q.symbol] = {
+              name: q.found ? q.name : `${q.symbol}`,
+              symbol: q.symbol,
+              price: q.price,
+              change: q.price * q.changePercent / 100,
+              changePercent: q.changePercent,
+              sparkline: [],
+              currency: q.currency,
+              found: q.found,
+              marketId: q.marketId,
+              source: q.source,
+              updatedAt: q.updatedAt,
+            };
+          }
+          setCustomQuotes(map);
+        }
+      } catch (err) {
+        console.error('Failed to resolve pinned symbols:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stripMode, customSymbols]);
+
+  // DB-backed autocomplete for the pin input — only real, priced symbols
+  // from the database can be added, so typos never create dead cards.
+  const [stripSuggestions, setStripSuggestions] = useState<{ symbol: string; name: string; marketId: string; currency: string; price: number }[]>([]);
+  React.useEffect(() => {
+    if (stripMode !== 'custom') { setStripSuggestions([]); return; }
+    const query = stripInput.trim();
+    if (query.length < 1) { setStripSuggestions([]); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/quote?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.suggestions)) setStripSuggestions(data.suggestions);
+      } catch { /* ignore search failures */ }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [stripInput, stripMode]);
+
+  const timeAgo = (iso?: string | Date) => {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0 || Number.isNaN(diff)) return '';
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  };
+
+  // Resolve the currency that BELONGS to an index card: prefer the currency
+  // stamped by /api/indices; fall back to the selected market.
+  // (cardCurrency removed — cards now always carry a currency from the API.)
+
+  // The cards actually rendered on the customizable strip.
+  const stripCards: IndexCard[] = useMemo(() => {
+    if (stripMode === 'gainers') {
+      return topGainers.slice(0, 6).map(g => ({
+        name: g.name, symbol: g.symbol, price: g.price,
+        change: g.price * g.changePercent / 100, changePercent: g.changePercent,
+        sparkline: [], currency: currencyFor(userCountry),
+      }));
+    }
+    if (stripMode === 'losers') {
+      return topLosers.slice(0, 6).map(g => ({
+        name: g.name, symbol: g.symbol, price: g.price,
+        change: g.price * g.changePercent / 100, changePercent: g.changePercent,
+        sparkline: [], currency: currencyFor(userCountry),
+      }));
+    }
+    if (stripMode === 'custom') {
+      return customSymbols.map(sym => {
+        const quote = customQuotes[sym];
+        if (quote) return quote;
+        // Instant local fill while /api/quote resolves in the background.
+        const stock = apiStocks.find(x => x.symbol.toUpperCase() === sym);
+        if (stock) {
+          return {
+            name: stock.name || sym, symbol: sym, price: stock.price,
+            change: stock.price * stock.changePercent / 100, changePercent: stock.changePercent,
+            sparkline: [], currency: currencyFor(stock.country),
+          };
+        }
+        const idx = indexData.find(x => x.symbol.toUpperCase() === sym);
+        if (idx) return idx;
+        return { name: `${sym} · loading…`, symbol: sym, price: 0, change: 0, changePercent: 0, sparkline: [] };
+      });
+    }
+    return indexData;
+  }, [stripMode, topGainers, topLosers, customSymbols, customQuotes, apiStocks, indexData, userCountry]);
+
   // Determine if the overall market is bullish (green index sum) or bearish (red index sum)
   const isMarketBullish = useMemo(() => {
     if (!indexData || indexData.length === 0) return true;
@@ -243,6 +427,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   React.useEffect(() => {
     if (screenerTab === 'markets') return;
     let cancelled = false;
+    // Drop the previous country's cards right away and show skeletons so a
+    // slow fetch never leaves another market's instruments on screen.
+    setIndexData([]);
+    setSectorPerformance([]);
+    setLoadingDashboard(true);
     (async () => {
       try {
         const qc = getQueryCountry();
@@ -266,6 +455,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         }
       } catch (err) {
         console.error('Failed to load dashboard metrics:', err);
+      } finally {
+        if (!cancelled) setLoadingDashboard(false);
       }
     })();
     return () => { cancelled = true; };
@@ -314,6 +505,33 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   }, [getQueryCountry, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
 
+  // Table load progress (ASCII loader): creeps toward 95% while work runs,
+  // snaps to 100% on completion. "soft" starts keep an already-running bar.
+  const [tableLoader, setTableLoader] = useState<{ active: boolean; pct: number; label: string }>({ active: false, pct: 0, label: '' });
+  const tableLoaderTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTableLoader = React.useCallback((label: string, soft = false) => {
+    setTableLoader(prev => {
+      if (soft && prev.active) return { ...prev, label };
+      return { active: true, pct: soft ? Math.max(prev.pct, 3) : 3, label };
+    });
+    if (!tableLoaderTimer.current) {
+      tableLoaderTimer.current = setInterval(() => {
+        setTableLoader(prev => prev.active
+          ? { ...prev, pct: Math.min(95, prev.pct + Math.max(0.6, (95 - prev.pct) * 0.07)) }
+          : prev);
+      }, 280);
+    }
+  }, []);
+  const finishTableLoader = React.useCallback(() => {
+    if (tableLoaderTimer.current) { clearInterval(tableLoaderTimer.current); tableLoaderTimer.current = null; }
+    setTableLoader(prev => ({ ...prev, pct: 100 }));
+    setTimeout(() => setTableLoader({ active: false, pct: 0, label: '' }), 700);
+  }, []);
+  // Stop any running loader when the screen unmounts.
+  useEffect(() => () => {
+    if (tableLoaderTimer.current) clearInterval(tableLoaderTimer.current);
+  }, []);
+
   const refreshStocks = React.useCallback(async (qc: string, silent = false) => {
     // Stale-while-revalidate: only block on a skeleton when we have nothing to
     // show yet. Otherwise keep the current data visible while refreshing.
@@ -321,6 +539,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       setLoadingApi(true);
       setLoadingDashboard(true);
     }
+    startTableLoader(silent ? `syncing ${qc} prices…` : `loading ${qc} market data…`, silent);
     try {
       // Serve from cache instantly if this page was already fetched.
       if (pageCache[currentPage]) {
@@ -356,14 +575,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     } catch (err) {
       console.error('Failed to load from JD, using demo:', err);
       if (!silent && apiStocks.length === 0) fallbackToDemo(qc);
+      finishTableLoader();
     } finally {
       if (!silent && apiStocks.length === 0) {
         setLoadingApi(false);
         setLoadingDashboard(false);
       }
+      if (!silent) finishTableLoader();
       setLoadingTab(false);
     }
-  }, [fallbackToDemo, fetchPage, currentPage, pageCache, apiStocks.length]);
+  }, [fallbackToDemo, fetchPage, currentPage, pageCache, apiStocks.length, startTableLoader, finishTableLoader]);
 
   React.useEffect(() => {
     // Global markets view shows all indices, not one country's screener.
@@ -384,24 +605,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
 
-  // Automatic yfinance price backfill: whenever a region's screener is shown,
-  // pull live prices for the WHOLE market from yfinance so every row on the
-  // page (and the rest of the universe) is populated without a manual
-  // "Refresh Prices" click. Runs once per country selection; the refresh
-  // endpoint chunk-batches large universes server-side.
+  // Automatic price backfill: whenever a region's screener is shown and its
+  // prices are missing/stale (>15 min), pull live quotes for THE VISIBLE PAGE
+  // from yfinance/TradingView so rows show fresh prices within seconds.
+  // (Passing symbols scopes /api/refresh to just this page — a full-market
+  // backfill here took minutes on big universes like US/CN and made country
+  // switches feel frozen. Background schedulers cover the whole universe.)
   const [autoRefreshedMarket, setAutoRefreshedMarket] = useState<string | null>(null);
-  const [autoRefreshBusy, setAutoRefreshBusy] = useState(false);
   React.useEffect(() => {
     const qc = getQueryCountry();
     // Skip global markets overview & the demo/empty fallback.
     if (userCountry === 'GLOBAL' || screenerTab === 'markets') return;
     if (!apiStocks.length) return;
-    if (autoRefreshedMarket === qc || autoRefreshBusy) return;
-    // Refresh when prices are missing OR stale (older than 15 min). The old
-    // guard only checked for a missing price, so markets seeded with static
-    // CSV prices (CN/DE/CA/HK/FR...) never refreshed — they stayed frozen at
-    // the import-day snapshot. Now we refresh on staleness so every country
-    // click re-pulls live prices.
+    if (autoRefreshedMarket === qc) return;
     const STALE_MS = 1000 * 60 * 15;
     const needsPrice = apiStocks.some((s) => {
       if (s.priceMissing || !s.price || s.price <= 0) return true;
@@ -413,13 +629,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       return;
     }
     let cancelled = false;
-    setAutoRefreshBusy(true);
     (async () => {
       try {
+        startTableLoader(`syncing live ${qc} prices from exchange…`, true);
         const res = await fetch('/api/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ market: qc }),
+          body: JSON.stringify({ market: qc, symbols: apiStocks.map((s) => s.symbol).filter(Boolean) }),
         });
         const data = await res.json();
         if (!cancelled && data && data.success && data.ok > 0) {
@@ -430,30 +646,285 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       } catch {
         if (!cancelled) setAutoRefreshedMarket(qc);
       } finally {
-        if (!cancelled) setAutoRefreshBusy(false);
+        if (!cancelled) finishTableLoader();
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiStocks, currentPage, userCountry, screenerTab, getQueryCountry]);
 
-  // Global markets overview: load available markets + asset counts so the
-  // Markets tab shows real data instead of an "unavailable" placeholder.
-  const [globalMarkets, setGlobalMarkets] = useState<{ id: string; country: string; exchange: string; isCrypto: boolean; enabled: boolean; assetCount: number; pricedCount: number }[]>([]);
+  // Global markets overview: top stocks per market so the Markets tab shows
+  // what is actually moving across world markets (not loader metadata).
+  // Fully user-customizable: layout, countries, visible columns, rows per
+  // market — persisted in localStorage.
+  type GmLayout = 'compact' | 'comfortable' | 'focus';
+  type GmColumns = { ticker: boolean; name: boolean; price: boolean; change: boolean; cap: boolean };
+  type GmConfig = {
+    layout: GmLayout;
+    columns: GmColumns;
+    rows: number;
+    countries: string[] | null;
+    sortBy: 'cap' | 'change' | 'price' | 'name';
+    movers: 'all' | 'gainers' | 'losers';
+    dense: boolean;
+    showRank: boolean;
+    highlightExtremes: boolean;
+    groupOrder: 'az' | 'movers';
+    order: string[] | null; // manual country-card order (drag & drop)
+  };
+  const GM_CONFIG_KEY = 'be_gm_config';
+  const GM_DEFAULTS: GmConfig = {
+    layout: 'compact',
+    columns: { ticker: true, name: true, price: true, change: true, cap: true },
+    rows: 5,
+    countries: null, // null = all countries
+    sortBy: 'cap',
+    movers: 'all',
+    dense: false,
+    showRank: false,
+    highlightExtremes: false,
+    groupOrder: 'az',
+    order: null,
+  };
+  const [gmConfig, setGmConfig] = useState<GmConfig>(GM_DEFAULTS);
+  const [gmConfigOpen, setGmConfigOpen] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(GM_CONFIG_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setGmConfig((prev) => ({
+          ...prev,
+          ...parsed,
+          columns: { ...prev.columns, ...(parsed.columns || {}) },
+        }));
+      }
+    } catch { /* ignore corrupted storage */ }
+  }, []);
+  const applyGmConfig = (patch: Partial<GmConfig>) => {
+    setGmConfig((prev) => {
+      const next = { ...prev, ...patch };
+      try { window.localStorage.setItem(GM_CONFIG_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // Drag & drop reordering of the market tables — custom pointer-based drag.
+  // 100% DOM-driven while dragging: the floating copy follows the cursor via
+  // direct transforms, and the preview reorder moves real DOM nodes with FLIP
+  // animations. ZERO React re-renders during the drag (state only changes on
+  // drag start/end), which is what keeps it buttery smooth.
+  const [gmDragId, setGmDragId] = useState<string | null>(null);
+  const [gmDragWidth, setGmDragWidth] = useState(0);
+  const [gmGrabOffset, setGmGrabOffset] = useState({ x: 0, y: 0 });
+  const gmFloatRef = React.useRef<HTMLDivElement | null>(null);
+  const gmLastTargetRef = React.useRef<string | null>(null);
+  const gmScrollerRef = React.useRef<HTMLElement | null>(null);
+  const gmScrollTopRef = React.useRef(0);
+  const gmScrollSpeedRef = React.useRef(0);
+  const gmScrollRAF = React.useRef<number | null>(null);
+  const gmSuppressClick = React.useRef(false);
+
+  const handleGmReorder = (draggedId: string, targetId: string) => {
+    if (!draggedId || draggedId === targetId) return;
+    // Normalize: track every current market id, drop stale ones.
+    let base = gmConfig.order ?? [];
+    for (const g of globalOverview) {
+      if (!base.includes(g.id)) base = [...base, g.id];
+    }
+    base = base.filter(id => globalOverview.some(g => g.id === id));
+    const from = base.indexOf(draggedId);
+    if (from === -1) return;
+    const arr = [...base];
+    const [moved] = arr.splice(from, 1);
+    const to = arr.indexOf(targetId);
+    if (moved) arr.splice(to === -1 ? arr.length : to, 0, moved);
+    applyGmConfig({ order: arr });
+  };
+
+  // DOM-level preview reorder: move the (hidden) dragged card's node to the
+  // target's slot, then FLIP-animate every other card from its old position.
+  // No React state involved — the grid re-renders only on drop.
+  const domPreviewReorder = (grid: HTMLElement, draggedId: string, targetId: string) => {
+    const cards = [...grid.querySelectorAll<HTMLElement>('[data-gm-card]')];
+    const draggedEl = cards.find(el => el.getAttribute('data-gm-id') === draggedId);
+    const targetEl = cards.find(el => el.getAttribute('data-gm-id') === targetId);
+    if (!draggedEl || !targetEl || draggedEl === targetEl) return;
+    const from = cards.indexOf(draggedEl);
+    const to = cards.indexOf(targetEl);
+    if (to === from) return;
+
+    // Record old centers for FLIP.
+    const old = new Map<string, { x: number; y: number }>();
+    cards.forEach(el => {
+      const r = el.getBoundingClientRect();
+      old.set(el.getAttribute('data-gm-id')!, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    });
+
+    // Move the dragged node to the target's slot.
+    if (to > from) {
+      grid.insertBefore(draggedEl, cards[to + 1] ?? null);
+    } else {
+      grid.insertBefore(draggedEl, cards[to]);
+    }
+
+    // FLIP every other card from its old center to its new one.
+    grid.querySelectorAll<HTMLElement>('[data-gm-card]').forEach(el => {
+      if (el === draggedEl) return;
+      const gid = el.getAttribute('data-gm-id');
+      if (!gid) return;
+      const f = old.get(gid);
+      if (!f) return;
+      const r = el.getBoundingClientRect();
+      const dx = f.x - (r.left + r.width / 2);
+      const dy = f.y - (r.top + r.height / 2);
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform 300ms cubic-bezier(.22,.9,.24,1)';
+        el.style.transform = '';
+      });
+    });
+  };
+
+  const beginGmDrag = (clientX: number, clientY: number, button: number, anchor: HTMLElement) => {
+    if (button !== 0) return;
+    const card = anchor.closest('[data-gm-card]') as HTMLElement | null;
+    if (!card) return;
+    const grid = card.parentElement;
+    if (!grid) return;
+    const id = card.getAttribute('data-gm-id');
+    if (!id) return;
+
+    // Snapshot every card's rect once — cheap and stable during a drag.
+    const rects = new Map<string, DOMRect>();
+    grid.querySelectorAll<HTMLElement>('[data-gm-card]').forEach((el) => {
+      const gid = el.getAttribute('data-gm-id');
+      if (gid) rects.set(gid, el.getBoundingClientRect());
+    });
+
+    // The scroll container (the page's main scroller) for edge auto-scroll.
+    // Must actually be scrollable — an overflow-y:auto ancestor with no
+    // overflow (scrollHeight === clientHeight) is not the real scroller.
+    const scroller = (() => {
+      let el: HTMLElement | null = card;
+      while (el) {
+        const s = getComputedStyle(el);
+        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+          return el;
+        }
+        el = el.parentElement;
+      }
+      return document.scrollingElement as HTMLElement | null;
+    })();
+    gmScrollerRef.current = scroller;
+    gmScrollTopRef.current = scroller?.scrollTop ?? 0;
+
+    const startX = clientX;
+    const startY = clientY;
+    const cardRect = card.getBoundingClientRect();
+    let started = false;
+
+    const hitTest = (x: number, y: number): string | null => {
+      for (const [gid, r] of rects) {
+        if (gid === id) continue;
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return gid;
+      }
+      return null;
+    };
+
+    // Edge auto-scroll: near the top/bottom of the viewport, scroll the
+    // container so the user can reach tables above/below the fold.
+    const EDGE = 90;
+    const MAX_SPEED = 18;
+    const scrollStep = () => {
+      if (!started) return;
+      const speed = gmScrollSpeedRef.current;
+      if (speed === 0 || !scroller) return;
+      scroller.scrollTop += speed;
+      gmScrollTopRef.current = scroller.scrollTop;
+      gmScrollRAF.current = requestAnimationFrame(scrollStep);
+    };
+    const updateAutoScroll = (y: number) => {
+      const vh = window.innerHeight;
+      let speed = 0;
+      if (y < EDGE) speed = -Math.min(MAX_SPEED, ((EDGE - y) / EDGE) * MAX_SPEED);
+      else if (y > vh - EDGE) speed = Math.min(MAX_SPEED, ((y - (vh - EDGE)) / EDGE) * MAX_SPEED);
+      gmScrollSpeedRef.current = speed;
+      if (speed !== 0 && gmScrollRAF.current === null) {
+        gmScrollRAF.current = requestAnimationFrame(scrollStep);
+      }
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!started) {
+        if (Math.abs(ev.clientX - startX) < 5 && Math.abs(ev.clientY - startY) < 5) return;
+        started = true;
+        setGmDragId(id);
+        setGmDragWidth(cardRect.width);
+        setGmGrabOffset({ x: ev.clientX - cardRect.left, y: ev.clientY - cardRect.top });
+        document.body.style.userSelect = 'none';
+      }
+      // The floating copy follows the cursor via direct DOM transform (no
+      // state → no re-render → no lag).
+      const floatEl = gmFloatRef.current;
+      if (floatEl) {
+        floatEl.style.transform = `translate3d(${ev.clientX - gmGrabOffset.x}px, ${ev.clientY - gmGrabOffset.y}px, 0) scale(1.02)`;
+      }
+      // Live preview: move the real DOM node + FLIP the others. Pure DOM work,
+      // zero React renders — this is what keeps the drag smooth.
+      const target = hitTest(ev.clientX, ev.clientY);
+      if (target && gmLastTargetRef.current !== target) {
+        gmLastTargetRef.current = target;
+        domPreviewReorder(grid, id, target);
+      }
+      updateAutoScroll(ev.clientY);
+    };
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      if (gmScrollRAF.current !== null) {
+        cancelAnimationFrame(gmScrollRAF.current);
+        gmScrollRAF.current = null;
+      }
+      gmScrollSpeedRef.current = 0;
+      gmLastTargetRef.current = null;
+      gmScrollerRef.current = null;
+      setGmDragId(null);
+    };
+    const onUp = (ev: MouseEvent) => {
+      const target = hitTest(ev.clientX, ev.clientY);
+      cleanup();
+      if (!started) return;
+      if (target) {
+        gmSuppressClick.current = true;
+        setTimeout(() => { gmSuppressClick.current = false; }, 150);
+        handleGmReorder(id, target);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+  type OverviewGroup = { id: string; country: string; exchange: string; isCrypto: boolean; currency: string; stocks: Array<{ symbol: string; name: string; price: number; changePct: number; marketCap?: number | null }> };
+  const [globalOverview, setGlobalOverview] = useState<OverviewGroup[]>([]);
   const [loadingGlobalMarkets, setLoadingGlobalMarkets] = useState(false);
+  // Visually marks the clicked row so selection stays obvious across cards.
+  const [gmSelectedRow, setGmSelectedRow] = useState<{ marketId: string; symbol: string } | null>(null);
   React.useEffect(() => {
     if (screenerTab !== 'markets') return;
     let cancelled = false;
     (async () => {
       setLoadingGlobalMarkets(true);
       try {
-        const res = await fetch('/api/markets');
+        const res = await fetch('/api/global-overview');
         const data = await res.json();
-        if (!cancelled && data && Array.isArray(data.markets)) {
-          setGlobalMarkets(data.markets);
+        if (!cancelled && data && Array.isArray(data.groups)) {
+          setGlobalOverview(data.groups);
         }
       } catch (err) {
-        console.error('Failed to load markets overview:', err);
+        console.error('Failed to load global overview:', err);
       } finally {
         if (!cancelled) setLoadingGlobalMarkets(false);
         setLoadingTab(false);
@@ -482,20 +953,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
 
-  const [advFilters, setAdvFilters] = useState<Record<string, string>>({
-    shortFloat: 'All', optionShort: 'All', earningsDate: 'All', avgVolume: 'All', relVolume: 'All', currentVolume: 'All', trades: 'All', targetPrice: 'All', ipoDate: 'All', sharesOutstanding: 'All', float: 'All', theme: 'All', subTheme: 'All',
-    forwardPE: 'All', peg: 'All', ps: 'All', pb: 'All', priceCash: 'All', priceFreeCashFlow: 'All', evEbitda: 'All', evSales: 'All', dividendGrowth: 'All', epsGrowthThisYear: 'All', epsGrowthNextYear: 'All', epsGrowthQtrOverQtr: 'All', epsGrowthTTM: 'All', epsGrowthPast3Years: 'All', epsGrowthPast5Years: 'All', epsGrowthNext5Years: 'All', salesGrowthQtrOverQtr: 'All', salesGrowthTTM: 'All', salesGrowthPast3Years: 'All', salesGrowthPast5Years: 'All', earningsSurprise: 'All', returnOnAssets: 'All', returnOnEquity: 'All', returnOnInvestedCapital: 'All', currentRatio: 'All', quickRatio: 'All', ltDebtEquity: 'All', debtEquity: 'All', grossMargin: 'All', operatingMargin: 'All', netProfitMargin: 'All', payoutRatio: 'All', insiderOwnership: 'All', insiderTransactions: 'All', institutionalOwnership: 'All', institutionalTransactions: 'All',
-    performance: 'All', performance2: 'All', volatility: 'All', rsi14: 'All', gap: 'All', sma20: 'All', sma50: 'All', sma200: 'All', changeFromOpen: 'All', highLow20: 'All', highLow50: 'All', highLow52w: 'All', highLowAllTime: 'All', pattern: 'All', candlestick: 'All', beta: 'All', atr: 'All', afterHoursClose: 'All', afterHoursChange: 'All',
-    etfCategory: 'All', etfAssetType: 'All', etfType: 'All', etfSectorTheme: 'All', etfRegion: 'All', etfBondType: 'All', etfAvgMaturity: 'All', etfQuantType: 'All', etfCommodityType: 'All', etfEsgType: 'All', etfDividendType: 'All', etfStructureType: 'All', etfActivePassive: 'All', etfInverseLeveraged: 'All', etfGrowthValue: 'All', etfMarketCap: 'All', etfDevelopedEmerging: 'All', etfCurrency: 'All', etfIndexWeighting: 'All', etfSponsor: 'All', etfNetExpenseRatio: 'All', etfNetFundFlows: 'All', etfAnnualizedReturn: 'All', etfNavPercent: 'All', etfTags: 'All', etfHeldBy: 'All'
-  });
-
   // Fund state
   const [fundSearch, setFundSearch] = useState('');
   const [fundCategory, setFundCategory] = useState('All');
   const [fundSortField, setFundSortField] = useState<keyof FundItem>('symbol');
   const [fundSortOrder, setFundSortOrder] = useState<'asc' | 'desc'>('asc');
   const [apiFunds, setApiFunds] = useState<FundItem[]>([]);
-  const [totalFunds, setTotalFunds] = useState(0);
+  const [, setTotalFunds] = useState(0);
 
   // ETF state
   const [etfSearch, setEtfSearch] = useState('');
@@ -503,7 +967,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [etfSortField, setEtfSortField] = useState<keyof ETFItem>('symbol');
   const [etfSortOrder, setEtfSortOrder] = useState<'asc' | 'desc'>('asc');
   const [apiEtfs, setApiEtfs] = useState<ETFItem[]>([]);
-  const [totalEtfs, setTotalEtfs] = useState(0);
+  const [, setTotalEtfs] = useState(0);
 
   // Fetch real ETF data from JDDS when the ETFs tab is active.
   React.useEffect(() => {
@@ -518,14 +982,14 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         const res = await fetch(`/api/stocks?${params.toString()}`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.stocks)) {
-          const mapped: ETFItem[] = data.stocks.map((s: any) => ({
-            symbol: s.symbol,
-            name: s.name,
-            category: s.industry || 'General',
-            price: s.price || 0,
-            changePercent: s.changePercent || 0,
-            volume: s.volume || 'N/A',
-            aum: s.marketCap || 'N/A',
+          const mapped: ETFItem[] = (data.stocks as Array<Record<string, unknown>>).map(s => ({
+            symbol: String(s.symbol ?? ''),
+            name: String(s.name ?? ''),
+            category: (s.industry as string) || 'General',
+            price: (s.price as number) || 0,
+            changePercent: (s.changePercent as number) || 0,
+            volume: (s.volume as string) || 'N/A',
+            aum: (s.marketCap as string) || 'N/A',
             expenseRatio: 'N/A',
           }));
           setApiEtfs(mapped);
@@ -552,16 +1016,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         const res = await fetch(`/api/stocks?${params.toString()}`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.stocks)) {
-          const mapped: FundItem[] = data.stocks.map((s: any) => ({
-            symbol: s.symbol,
-            name: s.name,
-            category: s.industry || 'General',
-            nav: s.price || 0,
-            changePercent: s.changePercent || 0,
+          const mapped: FundItem[] = (data.stocks as Array<Record<string, unknown>>).map(s => ({
+            symbol: String(s.symbol ?? ''),
+            name: String(s.name ?? ''),
+            category: (s.industry as string) || 'General',
+            nav: (s.price as number) || 0,
+            changePercent: (s.changePercent as number) || 0,
             ytdReturn: 0,
             expenseRatio: 0,
             rating: 0,
-            aum: s.marketCap || 'N/A',
+            aum: (s.marketCap as string) || 'N/A',
           }));
           setApiFunds(mapped);
           setTotalFunds(data.pagination?.total ?? mapped.length);
@@ -583,50 +1047,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   const handleAction = (ticker: string) => {
     onAnalyzeTicker(ticker);
-  };
-
-  const exportToPDF = async () => {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
-    const doc = new jsPDF();
-    
-    // Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(`Black Eclipse Market Report - ${screenerTab.replace('_', ' ').toUpperCase()}`, 14, 15);
-    
-    // Subtitle / Date
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    const regionText = screenerTab === 'crypto' ? 'Global' : userCountry;
-    doc.text(`Generated on: ${new Date().toLocaleString()} (Region: ${regionText})`, 14, 22);
-
-    let headers: string[] = [];
-    let rows: (string | number)[][] = [];
-
-    if (screenerTab === 'stocks') {
-      headers = ['Ticker', 'Company', 'Industry', 'Country', 'Market Cap', 'P/E', 'Price', 'Change %'];
-      rows = filteredStocks.map(s => [
-        s.symbol, s.name, s.industry, s.country, s.marketCap, s.peRatio, `$${s.price.toFixed(2)}`, `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`
-      ]);
-    } else if (screenerTab === 'crypto') {
-      headers = ['Ticker', 'Token Name', 'Category', 'Market Cap', 'Price (USDT)', '24h Change'];
-      rows = filteredStocks.map(s => [
-        s.symbol, s.name, s.sector, s.marketCap, `$${s.price >= 1 ? s.price.toFixed(2) : s.price.toFixed(6)}`, `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`
-      ]);
-    }
-
-    autoTable(doc, {
-      startY: 28,
-      head: [headers],
-      body: rows,
-      theme: 'grid',
-      headStyles: { fillColor: [15, 118, 110] }, // Primary Teal
-      styles: { fontSize: 8, cellPadding: 2 },
-    });
-
-    const fileRegion = screenerTab === 'crypto' ? 'crypto' : userCountry.toLowerCase();
-    doc.save(`black-eclipse-${screenerTab}-${fileRegion}.pdf`);
   };
 
   // Filter & sort logic (extracted to a pure hook for testability + reuse)
@@ -819,48 +1239,178 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         </div>
       )}
 
-      {/* Index Tickers Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 animate-fade-in-up [animation-delay:100ms]">
-        {loadingDashboard ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonIndexCard key={i} />
-          ))
-        ) : (
-          indexData.map((idxCard) => {
-            const isPositive = idxCard.changePercent >= 0;
-            return (
-              <div 
-                key={idxCard.symbol}
-                onClick={() => {
-                  if (onSelectChartSymbol) {
-                    onSelectChartSymbol(idxCard.symbol);
-                  } else {
-                    handleAction(idxCard.symbol);
-                  }
-                }}
-                className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 hover:border-primary/50 transition-all duration-300 flex flex-col justify-between group cursor-pointer"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground font-semibold uppercase">{idxCard.name}</span>
-                    <span className="text-[10px] font-mono font-bold bg-accent/40 px-1.5 py-0.5 rounded text-foreground">{idxCard.symbol}</span>
+      {/* Customizable Ticker Strip */}
+      <div className="animate-fade-in-up [animation-delay:100ms]">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider px-1">
+            {stripMode === 'indices' ? 'Market Indices' : stripMode === 'gainers' ? 'Top Gainers' : stripMode === 'losers' ? 'Top Losers' : 'My Symbols'}
+          </span>
+          <button
+            onClick={() => setStripConfigOpen(o => !o)}
+            className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer ${
+              stripConfigOpen
+                ? 'text-primary bg-primary/10 border-primary/40'
+                : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
+            }`}
+            title="Customize what shows here"
+          >
+            <Sliders size={14} /> Customize
+          </button>
+        </div>
+        {/* Inline config panel — expands in flow so content below moves down
+            instead of being covered by a floating popover. */}
+        {stripConfigOpen && (
+          <div className="mb-3 p-3 sm:p-4 rounded-xl bg-background border border-border shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:max-w-md">
+              {([
+                ['indices', 'Indices'],
+                ['gainers', 'Top Gainers'],
+                ['losers', 'Top Losers'],
+                ['custom', 'My Symbols'],
+              ] as [StripMode, string][]).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  onClick={() => applyStripMode(mode)}
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border whitespace-nowrap ${
+                    stripMode === mode
+                      ? 'bg-primary/15 text-primary border-primary/40'
+                      : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {stripMode === 'custom' && (
+              <div className="mt-3">
+                <div className="flex flex-col sm:flex-row gap-1.5 w-full">
+                  <input
+                    value={stripInput}
+                    onChange={e => setStripInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && stripInput.trim()) {
+                        applyCustomSymbols([...customSymbols, stripInput]);
+                        setStripInput('');
+                      }
+                    }}
+                    placeholder="Type any symbol, e.g. AAPL, OGDC, BTC"
+                    className="flex-1 min-w-0 bg-accent/30 border border-border/60 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => { if (stripInput.trim()) { applyCustomSymbols([...customSymbols, stripInput]); setStripInput(''); } }}
+                    className="h-auto py-1.5 px-3 text-xs cursor-pointer shrink-0"
+                  >
+                    Add
+                  </Button>
+                </div>
+                {stripSuggestions.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1">Matches from database — click to pin</p>
+                    <div className="flex flex-col gap-1">
+                      {stripSuggestions.map(s => (
+                        <button
+                          key={`${s.marketId}-${s.symbol}`}
+                          onClick={() => {
+                            applyCustomSymbols([...customSymbols, s.symbol]);
+                            setStripInput('');
+                            setStripSuggestions([]);
+                          }}
+                          className="flex items-center justify-between gap-2 w-full text-left bg-accent/20 hover:bg-primary/10 border border-border/40 hover:border-primary/40 rounded-lg px-2.5 py-1.5 transition-all cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-[11px] font-bold text-primary">{s.symbol}</span>
+                            <span className="text-[11px] text-muted-foreground truncate">{s.name}</span>
+                          </span>
+                          <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
+                            {s.price > 0 ? priceWithCurrency(s.currency, s.price) : '—'}
+                            <span className="ml-1.5 text-[9px] text-muted-foreground/70">{s.marketId}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-2 flex items-baseline gap-1">
-                    <span className="font-mono text-base font-bold text-foreground">
-                      {idxCard.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
+                )}
+                {customSymbols.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {customSymbols.map(sym => (
+                      <span key={sym} className="inline-flex items-center gap-1 bg-accent/40 border border-border/40 rounded-full pl-2 pr-1 py-0.5 text-[10px] font-mono font-bold">
+                        {sym}
+                        <button
+                          onClick={() => applyCustomSymbols(customSymbols.filter(s => s !== sym))}
+                          className="text-muted-foreground hover:text-rose-400 cursor-pointer leading-none"
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
                   </div>
-                  <div className={`text-[10px] font-mono font-semibold flex items-center gap-0.5 mt-0.5 ${
-                    isPositive ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {isPositive ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-                    {isPositive ? '+' : ''}{idxCard.changePercent}%
+                )}
+                <p className="text-[9px] text-muted-foreground mt-2">Searches every market (US, PSX, India, crypto…). Pinned symbols stay fixed across all countries.</p>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+          {(loadingDashboard && stripMode !== 'custom') ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonIndexCard key={i} />
+            ))
+          ) : stripCards.length > 0 ? (
+            stripCards.map((idxCard) => {
+              const isPositive = idxCard.changePercent >= 0;
+              const pinned = stripMode === 'custom' ? customQuotes[idxCard.symbol] : undefined;
+              return (
+                <div
+                  key={`${stripMode}-${idxCard.symbol}`}
+                  onClick={() => {
+                    if (onSelectChartSymbol) {
+                      onSelectChartSymbol(idxCard.symbol);
+                    } else {
+                      handleAction(idxCard.symbol);
+                    }
+                  }}
+                  className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 hover:border-primary/50 transition-all duration-300 flex flex-col justify-between group cursor-pointer"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground font-semibold uppercase truncate" title={idxCard.name}>{idxCard.name}</span>
+                      <span className="text-[10px] font-mono font-bold bg-accent/40 px-1.5 py-0.5 rounded text-foreground">{idxCard.symbol}</span>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1">
+                      <span className="font-mono text-base font-bold text-foreground">
+                        {idxCard.price > 0 ? priceWithCurrency(idxCard.currency || userCountry, idxCard.price) : '—'}
+                      </span>
+                    </div>
+                    {stripMode === 'custom' && customQuotes[idxCard.symbol]?.found === false ? (
+                      <div className="text-[10px] font-mono font-semibold text-muted-foreground mt-0.5">
+                        not found in any market
+                      </div>
+                    ) : (
+                      <div className={`text-[10px] font-mono font-semibold flex items-center gap-0.5 mt-0.5 ${
+                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {isPositive ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                        {isPositive ? '+' : ''}{idxCard.changePercent}%
+                      </div>
+                    )}
+                    {pinned?.found && (
+                      <div className="text-[9px] font-mono text-muted-foreground/70 mt-1 truncate" title={`Source: ${pinned.source || 'db'} · ${pinned.updatedAt ? new Date(pinned.updatedAt).toLocaleString() : ''}`}>
+                        {pinned.marketId || pinned.currency} · {pinned.updatedAt ? `updated ${timeAgo(pinned.updatedAt)}` : 'from database'}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          ) : (
+            <div className="col-span-full p-4 rounded-2xl bg-accent/20 border border-border/30 text-center text-xs text-muted-foreground">
+              {stripMode === 'custom'
+                ? 'No pinned symbols yet — click Customize above and type any symbol from any market (e.g. AAPL, OGDC, BTC).'
+                : 'Nothing to show for this market yet.'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Split: Sectors Overview & Gainers/Losers */}
@@ -1015,6 +1565,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   </div>
                 </div>
                 <span className="text-[9px] bg-emerald-500/15 px-2 py-0.5 rounded font-mono font-bold">CACHE DATA</span>
+              </div>
+            )}
+
+            {/* DEMO badge — never present simulated data as live market data. */}
+            {dataSource === 'demo' && (
+              <div className="bg-amber-500/5 border border-amber-500/10 backdrop-blur-md rounded-2xl p-3.5 flex items-center justify-between animate-fade-in text-amber-400">
+                <div className="flex items-center gap-3">
+                  <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div className="text-xs font-semibold">
+                    SIMULATED DATA — these are demo values, not live market prices. Import a universe or enable the scraper to load real data.
+                  </div>
+                </div>
+                <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
               </div>
             )}
         
@@ -1848,55 +2411,439 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
 
-        {/* Screening Table Renderings - Zero Horizontal Scrolling due to responsive cols */}
-        {screenerTab === 'markets' && (
-          <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <Globe className="text-primary w-4 h-4" />
-                <span className="text-xs font-bold text-foreground uppercase tracking-wider font-mono">Global Markets</span>
-              </div>
-            </div>
-            {loadingGlobalMarkets ? (
-              <div className="py-10 text-center text-muted-foreground text-xs">Loading markets...</div>
-            ) : globalMarkets.length === 0 ? (
-              <div className="py-10 text-center text-muted-foreground text-xs">
-                No markets loaded yet. Select a market above to view its screener and prices will be pulled automatically.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
-                {globalMarkets.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleMarketSelect(m.isCrypto ? 'CRYPTO' : m.id)}
-                    className="text-left p-4 rounded-2xl bg-[#0f0f0f]/50 hover:bg-[#0f0f0f]/80 border border-white/10 dark:border-white/5 hover:border-primary/50 transition-all duration-300 cursor-pointer flex flex-col gap-1.5 group"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-serif font-semibold text-sm text-foreground truncate">{m.country}</span>
-                      {m.isCrypto && (
-                        <span className="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 rounded-full px-2 py-0.5 font-mono">CRYPTO</span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">{m.exchange}</span>
-                    <div className="mt-1 flex items-center gap-3 text-[10px] font-mono">
-                      <span className="text-foreground/80 font-bold">{m.pricedCount.toLocaleString()}</span>
-                      <span className="text-muted-foreground/70">/ {m.assetCount.toLocaleString()} assets priced</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-accent/40 rounded-full overflow-hidden mt-1">
-                      <div
-                        className="h-full bg-primary rounded-full transition-all duration-500"
-                        style={{ width: `${m.assetCount > 0 ? Math.min(100, (m.pricedCount / m.assetCount) * 100) : 0}%` }}
-                      />
-                    </div>
-                    <span className="text-[9px] text-primary/80 font-semibold mt-1 opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-wider">
-                      Open screener →
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Global Markets overview — fully customizable: layout, countries, columns */}
+        {/* Hybrid load indicator: skeletons cover first paint; this ASCII
+            dot-grid bar shows live progress on top of existing data during
+            loads/refreshes so users always see that data is coming in. */}
+        {tableLoader.active && (
+          <AsciiProgress pct={tableLoader.pct} label={tableLoader.label} />
         )}
+
+        {screenerTab === 'markets' && (() => {
+          const col = gmConfig.columns;
+          const gridClass = gmConfig.layout === 'focus'
+            ? 'grid-cols-1'
+            : gmConfig.layout === 'comfortable'
+              ? 'grid-cols-1 lg:grid-cols-2'
+              : 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3';
+          // Per-market stock processing: movers filter → sort → page size.
+          const processStocks = (stocks: OverviewGroup['stocks']) => {
+            let list = [...stocks];
+            if (gmConfig.movers === 'gainers') list = list.filter(s => s.changePct > 0);
+            else if (gmConfig.movers === 'losers') list = list.filter(s => s.changePct < 0);
+            switch (gmConfig.sortBy) {
+              case 'change': list.sort((a, b) => b.changePct - a.changePct); break;
+              case 'price': list.sort((a, b) => b.price - a.price); break;
+              case 'name': list.sort((a, b) => a.name.localeCompare(b.name)); break;
+              default: list.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0));
+            }
+            return list.slice(0, gmConfig.rows);
+          };
+          const groups: OverviewGroup[] = gmConfig.countries
+            ? globalOverview.filter(g => gmConfig.countries!.includes(g.id))
+            : [...globalOverview];
+          if (gmConfig.groupOrder === 'movers') {
+            const avgChange = (g: OverviewGroup) => {
+              const rows = processStocks(g.stocks);
+              return rows.length ? rows.reduce((acc, s) => acc + s.changePct, 0) / rows.length : -Infinity;
+            };
+            groups.sort((a, b) => avgChange(b) - avgChange(a));
+          }
+          // Manual drag order wins over the automatic group ordering.
+          if (gmConfig.order && gmConfig.order.length > 0) {
+            const idx = (id: string) => {
+              const i = gmConfig.order!.indexOf(id);
+              return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+            };
+            groups.sort((a, b) => idx(a.id) - idx(b.id));
+          }
+          const anyColumn = col.ticker || col.name || col.price || col.change || col.cap;
+          const rowPad = gmConfig.dense ? 'py-1' : 'py-2';
+          return (
+            <div className="w-full">
+              <div className="flex items-center justify-between gap-3 mb-3 px-1">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Globe className="text-primary w-4 h-4 shrink-0" />
+                  <span className="text-xs font-bold text-foreground uppercase tracking-wider font-mono">Global Markets Overview</span>
+                  <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
+                    {groups.length} markets · top {gmConfig.rows} by market cap · local currency
+                  </span>
+                </span>
+                <button
+                  onClick={() => setGmConfigOpen(o => !o)}
+                  className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer shrink-0 ${
+                    gmConfigOpen
+                      ? 'text-primary bg-primary/10 border-primary/40'
+                      : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
+                  }`}
+                  title="Customize this overview"
+                >
+                  <Sliders size={14} /> Customize
+                </button>
+              </div>
+
+              {/* Inline config panel — expands in flow, pushes content down */}
+              {gmConfigOpen && (
+                <div className="mb-3 p-3 sm:p-4 rounded-xl bg-[#0f0f0f]/70 dark:bg-[#0f0f0f]/70 bg-white/80 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-foreground uppercase tracking-wider">Overview Preferences</p>
+                    <button
+                      onClick={() => applyGmConfig(GM_DEFAULTS)}
+                      className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors"
+                    >
+                      Reset to defaults
+                    </button>
+                  </div>
+                  {/* Layout */}
+                  <div>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Layout <span className="normal-case font-medium text-muted-foreground/60">— drag any table by its header to reorder</span></p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        ['compact', 'Compact (3 cols)'],
+                        ['comfortable', 'Comfortable (2 cols)'],
+                        ['focus', 'Focus (1 col)'],
+                      ] as [GmLayout, string][]).map(([l, label]) => (
+                        <button
+                          key={l}
+                          onClick={() => applyGmConfig({ layout: l })}
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border whitespace-nowrap ${
+                            gmConfig.layout === l ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Rows:</span>
+                        {[3, 5, 10].map(n => (
+                          <button
+                            key={n}
+                            onClick={() => applyGmConfig({ rows: n })}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              gmConfig.rows === n ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Columns */}
+                  <div>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Columns</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        ['ticker', 'Ticker'],
+                        ['name', 'Name'],
+                        ['price', 'Price'],
+                        ['change', 'Change %'],
+                        ['cap', 'Mkt Cap'],
+                      ] as [keyof GmColumns, string][]).map(([key, label]) => (
+                        <button
+                          key={key}
+                          onClick={() => applyGmConfig({ columns: { ...col, [key]: !col[key] } })}
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                            col[key] ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sorting & filters */}
+                  <div>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Sorting &amp; Filters</p>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Sort by</span>
+                        {([
+                          ['cap', 'Mkt Cap'],
+                          ['change', 'Change %'],
+                          ['price', 'Price'],
+                          ['name', 'Name'],
+                        ] as [GmConfig['sortBy'], string][]).map(([k, label]) => (
+                          <button
+                            key={k}
+                            onClick={() => applyGmConfig({ sortBy: k })}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              gmConfig.sortBy === k ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Show</span>
+                        {([
+                          ['all', 'All'],
+                          ['gainers', 'Gainers'],
+                          ['losers', 'Losers'],
+                        ] as [GmConfig['movers'], string][]).map(([k, label]) => (
+                          <button
+                            key={k}
+                            onClick={() => applyGmConfig({ movers: k })}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              gmConfig.movers === k ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Rows</span>
+                        {([
+                          ['dense', 'Dense'],
+                          ['showRank', '# Rank'],
+                          ['highlightExtremes', 'Highlight ±'],
+                        ] as [keyof GmConfig, string][]).map(([key, label]) => (
+                          <button
+                            key={String(key)}
+                            onClick={() => applyGmConfig({ [key]: !gmConfig[key] } as Partial<GmConfig>)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              gmConfig[key] ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Order markets</span>
+                        {([
+                          ['az', 'A → Z'],
+                          ['movers', 'Movers first'],
+                        ] as [GmConfig['groupOrder'], string][]).map(([k, label]) => (
+                          <button
+                            key={k}
+                            onClick={() => applyGmConfig({ groupOrder: k })}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                              gmConfig.groupOrder === k ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Countries */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Countries</p>
+                      <span className="flex gap-1.5">
+                        <button onClick={() => applyGmConfig({ countries: null })} className="text-[10px] font-bold text-primary hover:underline cursor-pointer uppercase tracking-wider">All</button>
+                        <button onClick={() => applyGmConfig({ countries: [] })} className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 cursor-pointer uppercase tracking-wider">None</button>
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {globalOverview.map(g => {
+                        const active = !gmConfig.countries || gmConfig.countries.includes(g.id);
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => {
+                              const cur = new Set(gmConfig.countries ?? globalOverview.map(x => x.id));
+                              if (cur.has(g.id)) cur.delete(g.id); else cur.add(g.id);
+                              applyGmConfig({ countries: [...cur] });
+                            }}
+                            className={`px-2 py-1 rounded-full text-[10px] font-bold font-mono transition-all cursor-pointer border ${
+                              active ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40 opacity-60'
+                            }`}
+                          >
+                            {g.id}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {loadingGlobalMarkets ? (
+                <div className={`grid ${gridClass} gap-3`}>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5">
+                      <Skeleton className="h-3 w-28 mb-3" />
+                      <div className="space-y-2.5">
+                        {Array.from({ length: gmConfig.rows }).map((_, j) => (
+                          <div key={j} className="flex items-center justify-between gap-2">
+                            <Skeleton className="h-3 w-24" />
+                            <Skeleton className="h-3 w-16" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : groups.length === 0 ? (
+                <div className="py-10 text-center text-muted-foreground text-xs">
+                  {globalOverview.length === 0
+                    ? 'No priced markets yet — open a country screener and refresh prices to populate the overview.'
+                    : 'All countries hidden — click Customize above and select the markets you want to see.'}
+                </div>
+              ) : (
+                <div className={`relative grid ${gridClass} gap-3`}>
+                  {groups.map((g) => {
+                    const isDragged = gmDragId === g.id;
+                    return (
+                    <div
+                      key={g.id}
+                      data-gm-card
+                      data-gm-id={g.id}
+                      className={cn(
+                        'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 overflow-hidden flex flex-col transition-all',
+                        isDragged && 'opacity-0',
+                        !isDragged && 'hover:border-primary/40'
+                      )}
+                    >
+                      {/* Pointer-based drag: grab the header strip to move the card. */}
+                      <div
+                        data-gm-header
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${g.country} — drag to reorder, press Enter to open screener`}
+                        onMouseDown={(e) => beginGmDrag(e.clientX, e.clientY, e.button, e.currentTarget as HTMLElement)}
+                        onClick={() => { if (!gmSuppressClick.current) handleMarketSelect(g.isCrypto ? 'CRYPTO' : g.id); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleMarketSelect(g.isCrypto ? 'CRYPTO' : g.id); }}
+                        className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/5 hover:bg-accent/30 transition-colors cursor-grab active:cursor-grabbing text-left select-none"
+                        style={{ touchAction: 'none' }}
+                        title={`Drag to reorder · click to open ${g.country} screener`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <GripVertical size={14} className={cn('shrink-0 transition-colors', isDragged ? 'text-primary' : 'text-muted-foreground/60')} aria-hidden />
+                          <span className="font-serif font-semibold text-sm text-foreground truncate">{g.country}</span>
+                          <span className="text-[9px] text-muted-foreground font-mono truncate">{g.exchange}</span>
+                        </span>
+                        <span className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0">Open →</span>
+                      </div>
+                      {anyColumn && (() => {
+                        const rows = processStocks(g.stocks);
+                        const best = rows.length ? Math.max(...rows.map(r => r.changePct)) : 0;
+                        const worst = rows.length ? Math.min(...rows.map(r => r.changePct)) : 0;
+                        return (
+                          <table className="w-full text-left text-[11px]">
+                            <thead>
+                              <tr className="text-muted-foreground/70 text-[9px] uppercase tracking-wider font-mono">
+                                {col.ticker && <th className={`${rowPad} pl-3.5 pr-2 font-semibold`}>Ticker</th>}
+                                {col.name && <th className={`${rowPad} px-2 font-semibold hidden sm:table-cell`}>Name</th>}
+                                {col.price && <th className={`${rowPad} px-2 text-right font-semibold`}>Price</th>}
+                                {col.cap && <th className={`${rowPad} px-2 text-right font-semibold hidden md:table-cell`}>Mkt Cap</th>}
+                                {col.change && <th className={`${rowPad} pr-3.5 pl-2 text-right font-semibold`}>Chg%</th>}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.length === 0 ? (
+                                <tr><td colSpan={5} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>
+                                  No {gmConfig.movers === 'all' ? '' : gmConfig.movers} in top {gmConfig.rows}
+                                </td></tr>
+                              ) : rows.map((s, idx) => {
+                                const isPositive = s.changePct >= 0;
+                                const isBest = gmConfig.highlightExtremes && rows.length > 1 && s.changePct === best && best > 0;
+                                const isWorst = gmConfig.highlightExtremes && rows.length > 1 && s.changePct === worst && worst < 0;
+                                const isSelected = gmSelectedRow?.marketId === g.id && gmSelectedRow?.symbol === s.symbol;
+                                return (
+                                  <tr
+                                    key={s.symbol}
+                                    onClick={() => {
+                                      setGmSelectedRow({ marketId: g.id, symbol: s.symbol });
+                                      handleSymbolClick(s.symbol, s.name, { price: s.price, changePercent: s.changePct });
+                                    }}
+                                    className={cn(
+                                      'border-t border-white/5 transition-colors cursor-pointer',
+                                      isSelected
+                                        ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_0_#7aff78]'
+                                        : 'hover:bg-primary/[0.04]'
+                                    )}
+                                  >
+                                    {col.ticker && (
+                                      <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap ${isSelected ? 'text-primary' : 'text-primary/90'}`}>
+                                        {gmConfig.showRank && <span className="text-muted-foreground/60 font-mono font-semibold mr-1">{idx + 1}.</span>}
+                                        {/* Numeric exchange codes (e.g. CN 000001, HK 0700) mean
+                                            nothing to users — show the company name instead. */}
+                                        {/^\d{2,}$/.test(s.symbol)
+                                          ? <span className="font-sans text-[11px] font-semibold text-foreground/85 inline-block truncate max-w-[120px] align-bottom" title={`${s.name} (${s.symbol})`}>{s.name}</span>
+                                          : <span className="font-mono">{s.symbol}</span>}
+                                      </td>
+                                    )}
+                                    {col.name && <td className={`${rowPad} px-2 truncate max-w-[110px] hidden sm:table-cell ${isSelected ? 'text-foreground' : 'text-foreground/75'}`}>{s.name}</td>}
+                                    {col.price && <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
+                                      {priceWithCurrency(g.currency, s.price)}
+                                    </td>}
+                                    {col.cap && <td className={`${rowPad} px-2 text-right font-mono ${isSelected ? 'text-foreground/90' : 'text-foreground/75'} hidden md:table-cell whitespace-nowrap`}>{fmtCap(s.marketCap)}</td>}
+                                    {col.change && (
+                                      <td className={`${rowPad} pr-3.5 pl-2 text-right whitespace-nowrap`}>
+                                        <span className={`inline-block rounded px-1.5 font-mono font-bold ${
+                                          isSelected
+                                            ? 'bg-primary text-black'
+                                            : isBest ? 'bg-primary/15 text-primary' : isWorst ? 'bg-rose-500/10 text-rose-400' : isPositive ? 'text-emerald-400' : 'text-rose-400'
+                                        }`}>
+                                          {isPositive ? '+' : ''}{s.changePct.toFixed(2)}%
+                                        </span>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
+                    </div>
+                    );
+                  })}
+                  {/* Floating copy of the dragged table — follows the cursor
+                      via direct DOM transform (ref), zero re-renders. */}
+                  {gmDragId && (() => {
+                    const src = globalOverview.find(x => x.id === gmDragId);
+                    if (!src) return null;
+                    return (
+                      <div
+                        ref={gmFloatRef}
+                        className="fixed z-[70] pointer-events-none rounded-2xl overflow-hidden border border-primary/50 bg-[#0f0f0f]/90 dark:bg-[#0f0f0f]/90 bg-white/90 backdrop-blur-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6),0_0_40px_rgba(122,255,120,0.12)] will-change-transform"
+                        style={{
+                          left: 0,
+                          top: 0,
+                          width: gmDragWidth || 320,
+                          transform: 'translate3d(-9999px, -9999px, 0) scale(1.02)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
+                            <span className="font-serif font-semibold text-sm text-foreground truncate">{src.country}</span>
+                            <span className="text-[9px] text-muted-foreground font-mono truncate">{src.exchange}</span>
+                          </span>
+                          <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
+                        </div>
+                        <div className="px-3.5 py-2.5 space-y-1.5">
+                          {src.stocks.slice(0, Math.min(3, gmConfig.rows)).map(s => (
+                            <div key={s.symbol} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-mono font-bold text-primary/90">{s.symbol}</span>
+                              <span className="font-mono text-foreground/80">{priceWithCurrency(src.currency, s.price)}</span>
+                            </div>
+                          ))}
+                          <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">
+                            {src.stocks.length} rows · drop to place
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {screenerTab === 'stocks' && (
           <>
@@ -1979,7 +2926,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5">
-                                ${stock.price.toFixed(2)}
+                                {priceWithCurrency(stock.country || userCountry, stock.price)}
                                 {stock.priceSource === 'csv' && (
                                   <span
                                     className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
@@ -2193,7 +3140,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5">
-                                    ${formatCryptoPrice(stock.price)}
+                                    {currencyFor('CRYPTO')}{formatCryptoPrice(stock.price)}
                                     {stock.priceSource === 'csv' && (
                                       <span
                                         className="text-[8px] uppercase font-bold px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
@@ -2387,7 +3334,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         </td>
                         <td className="py-3 px-4 text-foreground/80 truncate max-w-[130px] whitespace-nowrap">{etf.name}</td>
                         <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap">{etf.category}</td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">${etf.price.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">{priceWithCurrency(userCountry, etf.price)}</td>
                         <td className={cn(
                           "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                           isPositive ? 'text-emerald-400' : 'text-rose-400'
@@ -2471,7 +3418,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         </td>
                         <td className="py-3 px-4 text-foreground/80 truncate max-w-[130px] whitespace-nowrap">{fund.name}</td>
                         <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap">{fund.category}</td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-foreground whitespace-nowrap">${fund.nav.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right font-mono font-semibold text-foreground whitespace-nowrap">{priceWithCurrency(userCountry, fund.nav)}</td>
                         <td className={cn(
                           "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                           isPositive ? 'text-emerald-400' : 'text-rose-400'
@@ -2563,7 +3510,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         </td>
                         <td className="py-3 px-4 text-foreground/80 truncate max-w-[130px] whitespace-nowrap">{dividendStock.name}</td>
                         <td className="py-3 px-4 text-emerald-400 font-bold font-mono hidden sm:table-cell whitespace-nowrap">{dividendStock.dividendYield}</td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-foreground whitespace-nowrap">${dividendStock.price.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right font-mono font-semibold text-foreground whitespace-nowrap">{priceWithCurrency(userCountry, dividendStock.price)}</td>
                         <td className={cn(
                           "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                           isPositive ? 'text-emerald-400' : 'text-rose-400'

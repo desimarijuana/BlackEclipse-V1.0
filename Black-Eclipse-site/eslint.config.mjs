@@ -18,6 +18,12 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Generated Prisma client — vendored output, never hand-edited.
+      "src/generated/**",
+      // One-off Node import/utility scripts (plain JS, not part of the app).
+      "scripts/**",
+      "check-browser.ts",
+      "check-gf.ts",
     ],
   },
 ];

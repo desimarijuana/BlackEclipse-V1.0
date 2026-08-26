@@ -26,6 +26,63 @@ export const DEFAULT_CONFIG: PriceScraperConfig = { mode: "auto", pageSize: DEFA
 export const CONFIG_KEY = "price_scraper_config";
 
 let isRunning = false;
+// True while the boot warm-up owns the heavy whole-market refresh path.
+let warmUpBusy = false;
+
+/** Whether a bulk background job (warm-up) currently holds the write path. */
+export function isWarmUpBusy(): boolean {
+  return warmUpBusy;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Current wall-clock hour (0-23) and weekday (0=Sun..6=Sat) in a timezone.
+ * Returns null when the timezone is invalid — callers then treat the market
+ * as always open.
+ */
+function localTimeIn(tz: string): { hour: number; weekday: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour: "numeric",
+      hour12: false,
+      weekday: "short",
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((p) => p.type === "hour")?.value ?? NaN);
+    const wdName = parts.find((p) => p.type === "weekday")?.value ?? "";
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const weekday = weekdays.indexOf(wdName);
+    if (!Number.isFinite(hour) || weekday < 0) return null;
+    return { hour: hour % 24, weekday };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a market is currently trading, per its stored hours/timezone.
+ *
+ * Conservative by design: unknown hours (open == close, e.g. TradingView-synced
+ * markets), invalid timezones, and DB errors all resolve to "open" so a data
+ * gap can never silently stop refreshing.
+ */
+export async function isMarketOpen(marketId: string): Promise<boolean> {
+  try {
+    const m = await prisma.market.findUnique({ where: { id: marketId } });
+    if (!m || m.isCrypto) return true;
+    if (m.openHour === m.closeHour) return true; // hours unknown
+    // Weekend: closed unless hours say otherwise (crypto handled above).
+    const t = localTimeIn(m.timezone);
+    if (!t) return true;
+    if (t.weekday === 0 || t.weekday === 6) return false;
+    return t.hour >= m.openHour && t.hour < m.closeHour;
+  } catch {
+    return true;
+  }
+}
 
 export async function getConfiguredMarkets(): Promise<string[]> {
   try {
@@ -141,6 +198,13 @@ export async function triggerScrape(
   }
   if (isRunning) return { total: 0, ok: 0, failed: 0 };
 
+  // Whole-market cycles must not compete with the boot warm-up — whichever
+  // started first owns the write path. Page-scoped/manual refreshes
+  // (options.symbols) are tiny and stay responsive either way.
+  if (!options.symbols && warmUpBusy) {
+    return { total: 0, ok: 0, failed: 0 };
+  }
+
   isRunning = true;
   try {
     const allMarkets = options.market
@@ -159,9 +223,18 @@ export async function triggerScrape(
       // Background cycle: refresh MARKET_BATCH_PER_TICK markets per tick
       // (round-robin), each with a whole-market TradingView scan OR batched
       // bridge calls (for non-TV markets). refreshMarketBatch() routes to the
-      // right path internally.
-      const markets = allMarkets.slice(marketCursor, marketCursor + MARKET_BATCH_PER_TICK);
-      marketCursor = (marketCursor + MARKET_BATCH_PER_TICK) % Math.max(allMarkets.length, 1);
+      // right path internally. Closed markets are skipped — refreshing them
+      // wastes provider quota and serves frozen changePct anyway. An explicit
+      // options.market (manual trigger) is always honored.
+      const openMarkets: string[] = [];
+      for (const market of allMarkets) {
+        if (await isMarketOpen(market)) openMarkets.push(market);
+      }
+      if (openMarkets.length === 0) {
+        return { total: 0, ok: 0, failed: 0 };
+      }
+      const markets = openMarkets.slice(marketCursor, marketCursor + MARKET_BATCH_PER_TICK);
+      marketCursor = (marketCursor + MARKET_BATCH_PER_TICK) % Math.max(openMarkets.length, 1);
       summary = { total: 0, ok: 0, failed: 0 };
       for (const market of markets) {
         const r = await refreshMarketBatch(market, 0);
@@ -341,30 +414,55 @@ export function restartUniverseSync() {
 }
 
 /**
- * Pre-warm JDDS at server boot: price every market's full universe in the
- * background (chunked bridge calls), so the moment a user clicks a country
- * every row already has a live price. Fails silently — the cron cycle keeps
- * everything fresh afterwards. Also marks the CronJob row as just-run so the
- * first scheduled tick doesn't double-work.
+ * Pre-warm JDDS after server boot so the moment a user clicks a country every
+ * row already has a live price.
  *
- * Markets that already have prices for every asset get a quick shallow keep
- * (page-size) pass — deep refresh is left to the round-robin cycle — so boot
- * warm-up finishes in a couple of minutes, not a half hour.
+ * Responsiveness rules (learned the hard way — this used to freeze the whole
+ * site for minutes):
+ *   - Waits `delayMs` before starting, so the first page loads never compete
+ *     with bulk writes.
+ *   - Only warms OPEN markets (per stored hours/timezone). Closed markets are
+ *     picked up by the scheduled cycle when they open.
+ *   - Yields to user-triggered scrapes: if a manual scrape starts mid-warm-up,
+ *     the warm-up pauses until it finishes.
+ *   - Sleeps between markets so the event loop (and node-cron) can breathe.
  */
-export async function warmUpAllMarkets() {
+export async function warmUpAllMarkets(options: { delayMs?: number } = {}) {
+  const delayMs = options.delayMs ?? 20_000;
+  if (delayMs > 0) await sleep(delayMs);
+  if (warmUpBusy || isRunning) return;
+  warmUpBusy = true;
   try {
-    const markets = (await getConfiguredMarkets()).filter((m) => !YAHOO_GAP_MARKETS.has(m));
+    const allMarkets = (await getConfiguredMarkets()).filter((m) => !YAHOO_GAP_MARKETS.has(m));
+
+    // Only open markets need pricing right now — refreshing a closed market
+    // wastes provider quota and blocks the loop for nothing.
+    const openMarkets: string[] = [];
+    for (const market of allMarkets) {
+      if (await isMarketOpen(market)) openMarkets.push(market);
+    }
+
     const started = Date.now();
-    console.log(`[WarmUp] pricing ${markets.length} markets (full universes)...`);
+    console.log(`[WarmUp] warming ${openMarkets.length}/${allMarkets.length} OPEN markets (skipping closed)...`);
     let total = 0;
-    for (const market of markets) {
-      const unpriced = await prisma.asset.count({
-        where: { marketId: market, isActive: true, price: { is: null } },
-      });
-      // Full universe when rows are missing; otherwise a shallow keep-fresh pass.
-      const r = await refreshMarketBatch(market, unpriced > 0 ? 0 : 20);
-      total += r.ok;
-      console.log(`[WarmUp] ${market}: ${r.ok}/${r.total} priced`);
+    for (const market of openMarkets) {
+      // Defer to explicit user-triggered scrapes; they take priority.
+      while (isRunning) {
+        await sleep(2_000);
+      }
+      try {
+        const unpriced = await prisma.asset.count({
+          where: { marketId: market, isActive: true, price: { is: null } },
+        });
+        // Full universe when rows are missing; otherwise a shallow keep-fresh pass.
+        const r = await refreshMarketBatch(market, unpriced > 0 ? 0 : 20);
+        total += r.ok;
+        console.log(`[WarmUp] ${market}: ${r.ok}/${r.total} priced`);
+      } catch (err) {
+        console.error(`[WarmUp] ${market} failed:`, err);
+      }
+      // Let queued HTTP requests and timers run before the next heavy batch.
+      await sleep(1_500);
     }
     console.log(`[WarmUp] done in ${((Date.now() - started) / 1000).toFixed(0)}s — ${total} prices written`);
     await prisma.cronJob.upsert({
@@ -374,5 +472,7 @@ export async function warmUpAllMarkets() {
     });
   } catch (err) {
     console.error("[WarmUp] failed:", err);
+  } finally {
+    warmUpBusy = false;
   }
 }

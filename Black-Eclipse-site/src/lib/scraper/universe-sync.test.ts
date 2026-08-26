@@ -1,42 +1,39 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock Prisma (the module under test imports `prisma` from "@/lib/db").
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mUpsert = vi.fn();
+const mAssetUpsert = vi.fn();
 const mFindMany = vi.fn();
 const mFindUnique = vi.fn();
-const mUpdate = vi.fn();
+const mUpdateMany = vi.fn();
+const mTransaction = vi.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 
 vi.mock("@/lib/db", () => ({
+  yieldToEventLoop: () => Promise.resolve(),
   prisma: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     market: { upsert: () => Promise.resolve({ id: "m" }) },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     asset: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      upsert: (...a: any[]) => mUpsert(...a),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      findMany: (...a: any[]) => mFindMany(...a),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      update: (...a: any[]) => mUpdate(...a),
+      upsert: (...a: unknown[]) => mAssetUpsert(...a),
+      findMany: (...a: unknown[]) => mFindMany(...a),
+      updateMany: (...a: unknown[]) => mUpdateMany(...a),
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     price: {
       upsert: () => Promise.resolve({ id: "p" }),
     },
     systemConfig: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      findUnique: (...a: any[]) => mFindUnique(...a),
+      findUnique: (...a: unknown[]) => mFindUnique(...a),
       upsert: () => Promise.resolve({}),
     },
+    $transaction: (ops: Promise<unknown>[]) => mTransaction(ops),
   },
 }));
 
-// Mock scanMarket + isTradingViewMarket from the fetcher module.
+// Mock the TradingView fetcher module.
 const mScan = vi.fn();
 vi.mock("./fetchers/tradingview", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  scanMarket: (...a: any[]) => mScan(...a),
+  scanMarket: (...a: unknown[]) => mScan(...a),
+  // The cached path delegates to scanMarket — tests stub scanMarket and the
+  // cache is per-process so every test gets a fresh call.
+  getCachedMarketScan: async (market: string) => mScan(market),
   isTradingViewMarket: (m: string) => m !== "US",
 }));
 
@@ -70,16 +67,17 @@ describe("universe-sync", () => {
   });
 
   it("creates a new asset + price when the symbol is not in JDDS", async () => {
-    mFindMany.mockResolvedValue([]); // empty universe
-    mUpsert.mockResolvedValue({ id: "a1" }); // upsert created (no existing)
+    mFindMany
+      .mockResolvedValueOnce([]) // pre-loop universe lookup (existing)
+      .mockResolvedValue([{ id: "a1", symbol: "000001" }]); // post-upsert id map
 
     const r = await syncMarketUniverse("CN");
     expect(r.scanned).toBe(1);
     expect(r.created).toBe(1);
     expect(r.ok).toBe(1);
-    expect(mUpsert).toHaveBeenCalledTimes(1);
+    expect(mAssetUpsert).toHaveBeenCalledTimes(1);
     // Upsert called with the CN market + symbol + create payload
-    const arg = mUpsert.mock.calls[0][0];
+    const arg = mAssetUpsert.mock.calls[0][0];
     expect(arg.where.marketId_symbol.marketId).toBe("CN");
     expect(arg.where.marketId_symbol.symbol).toBe("000001");
     expect(arg.create.marketId).toBe("CN");
@@ -91,35 +89,51 @@ describe("universe-sync", () => {
     mFindMany.mockResolvedValue([
       { id: "a1", symbol: "000001", isActive: true },
     ]);
-    mUpsert.mockResolvedValue({ id: "a1" });
 
     const r = await syncMarketUniverse("CN");
     expect(r.created).toBe(0);
     expect(r.updated).toBe(1);
     expect(r.ok).toBe(1);
-    expect(mUpsert).toHaveBeenCalledTimes(1);
+    expect(mAssetUpsert).toHaveBeenCalledTimes(1);
     // Update path sets isActive=true + refreshes name
-    expect(mUpsert.mock.calls[0][0].update.isActive).toBe(true);
-    expect(mUpsert.mock.calls[0][0].update.name).toBe("Ping An Bank");
+    expect(mAssetUpsert.mock.calls[0][0].update.isActive).toBe(true);
+    expect(mAssetUpsert.mock.calls[0][0].update.name).toBe("Ping An Bank");
+  });
+
+  it("writes in batched transactions rather than one await per row", async () => {
+    const rows = Array.from({ length: 25 }, (_, i) =>
+      baseRow({ symbol: `SYM${i}` })
+    );
+    mScan.mockResolvedValue(rows);
+    // Pre-loop universe lookup is empty; the post-upsert id map resolves ids
+    // for every scanned symbol so prices get written too.
+    mFindMany.mockResolvedValueOnce([]);
+    const idMap = rows.map((r, i) => ({ id: `a${i}`, symbol: r.symbol }));
+    mFindMany.mockResolvedValue(idMap);
+
+    await syncMarketUniverse("CN");
+    // WRITE_CHUNK=500 → one transaction for assets + one for prices
+    expect(mTransaction).toHaveBeenCalledTimes(2);
+    expect(mTransaction.mock.calls[0][0]).toHaveLength(25); // assets
+    expect(mTransaction.mock.calls[1][0]).toHaveLength(25); // prices
   });
 
   it("deactivates a symbol absent from the scan after DELIST_THRESHOLD misses", async () => {
     // One existing symbol NOT in the scan result.
-    mFindMany.mockResolvedValue([
-      { id: "a1", symbol: "999999", isActive: true },
-    ]);
+    mFindMany
+      .mockResolvedValueOnce([{ id: "a1", symbol: "999999", isActive: true }])
+      .mockResolvedValue([{ id: "a1", symbol: "999999" }]);
     mFindUnique.mockResolvedValue({
       value: JSON.stringify({ 999999: DELIST_THRESHOLD - 1 }),
     });
-    mUpdate.mockResolvedValue({ id: "a1" }); // deactivation update
+    mUpdateMany.mockResolvedValue({ count: 1 });
 
     const r = await syncMarketUniverse("CN");
     expect(r.deactivated).toBe(1);
-    // The deactivation update is the one that flips isActive=false.
-    const deactCall = mUpdate.mock.calls.find(
-      (c) => c[0].data?.isActive === false
-    );
-    expect(deactCall).toBeTruthy();
+    expect(mUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a1"] } },
+      data: { isActive: false },
+    });
   });
 
   it("does NOT deactivate a symbol below the threshold", async () => {
@@ -129,14 +143,11 @@ describe("universe-sync", () => {
     mFindUnique.mockResolvedValue({
       value: JSON.stringify({ 999999: 0 }), // 0 prior misses, threshold=2
     });
-    mUpdate.mockResolvedValue({ id: "a1" });
+    mUpdateMany.mockResolvedValue({ count: 1 });
 
     const r = await syncMarketUniverse("CN");
     expect(r.deactivated).toBe(0);
-    const anyDeact = mUpdate.mock.calls.some(
-      (c) => c[0].data?.isActive === false
-    );
-    expect(anyDeact).toBe(false);
+    expect(mUpdateMany).not.toHaveBeenCalled();
   });
 
   it("no-ops for a non-TradingView market (US stays on yfinance)", async () => {

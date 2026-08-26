@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useState } from 'react';
-import { 
-  Sparkles, LayoutGrid, LineChart, Briefcase, Star, 
-  Newspaper, Compass, Plus, Bot, Trash2, X, 
-  ChevronLeft, ChevronRight, Menu, Settings, PieChart, Monitor, Orbit, Search
+import {
+  Sparkles,
+  Newspaper, Plus, Bot, Trash2, X,
+  ChevronLeft, ChevronRight, Menu, Settings, PieChart, Orbit, Search
 } from 'lucide-react';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Message } from '@/types/chat';
 
 export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'settings';

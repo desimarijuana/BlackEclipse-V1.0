@@ -68,24 +68,36 @@ export function yahooSymbol(symbol: string, market: string): string {
 }
 
 // Cache the availability check so we don't spawn Python on every call.
-// Only a *success* is cached — a transient probe failure (e.g. a Python
-// startup timeout under concurrent spawns) must NOT disable yfinance for the
-// rest of the process lifetime, or every batch silently 404s afterwards.
+// A failure is cached too, but with a TTL: a transient probe failure (e.g. a
+// Python startup timeout under concurrent spawns) must not permanently
+// disable yfinance, yet we also must not re-probe (and pay the spawn cost)
+// on every single batch while Python is genuinely missing.
 let availabilityCache: boolean | null = null;
+let availabilityCheckedAt = 0;
 let probeInFlight: Promise<boolean> | null = null;
+const AVAILABILITY_TTL_MS = 5 * 60 * 1000;
+
+async function probeYfinance(): Promise<boolean> {
+  try {
+    await execFileAsync("python", ["-c", "import yfinance"], { timeout: 10000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function isYfinanceAvailable(): Promise<boolean> {
-  if (availabilityCache === true) return true;
+  const fresh = Date.now() - availabilityCheckedAt < AVAILABILITY_TTL_MS;
+  if (availabilityCache === true && fresh) return true;
+  if (availabilityCache === false && fresh) return false;
+
   if (!probeInFlight) {
-    probeInFlight = (async () => {
-      try {
-        await execFileAsync("python", ["-c", "import yfinance"], { timeout: 10000 });
-        availabilityCache = true;
-      } catch {
-        // Optimistic: let the actual bridge call decide and surface real errors.
-      }
-      return true;
-    })();
+    probeInFlight = probeYfinance().then((ok) => {
+      availabilityCache = ok;
+      availabilityCheckedAt = Date.now();
+      probeInFlight = null;
+      return ok;
+    });
   }
   return probeInFlight;
 }

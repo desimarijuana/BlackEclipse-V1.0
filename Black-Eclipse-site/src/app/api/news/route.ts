@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import Parser from "rss-parser";
 import { getNewsFeeds } from "@/lib/settings";
+import { checkOutboundUrl } from "@/lib/api-guard";
+import { guessSentiment } from "@/lib/sentiment";
 
 export const dynamic = "force-dynamic";
+// Feed fetching is network-bound; cap it so a slow feed cannot pin the route.
+export const maxDuration = 30;
 
 const parser = new Parser();
 
@@ -21,22 +25,19 @@ interface RawNews {
   url?: string;
 }
 
-// Simple keyword-based sentiment heuristic (no external service).
-function guessSentiment(text: string): "bullish" | "bearish" | "neutral" {
-  const t = text.toLowerCase();
-  const bull = ["surge", "gain", "rally", "record", "beat", "up", "jump", "soar", "growth", "bullish"];
-  const bear = ["drop", "fall", "decline", "loss", "miss", "down", "plunge", "slump", "bearish", "crash"];
-  let score = 0;
-  for (const w of bull) if (t.includes(w)) score++;
-  for (const w of bear) if (t.includes(w)) score--;
-  if (score > 0) return "bullish";
-  if (score < 0) return "bearish";
-  return "neutral";
-}
+// Common words that look like tickers but never are. The candidate is also
+// validated against the JDDS universe below, so this list only needs to
+// cover the noisy cases that appear before a DB lookup is worth doing.
+const TICKER_STOP_WORDS = new Set([
+  "A", "I", "AN", "THE", "AND", "OR", "FOR", "CEO", "CFO", "CTO", "US", "UK",
+  "EU", "UN", "FED", "SEC", "IRS", "GDP", "CPI", "IPO", "ETF", "YOY", "Q1",
+  "Q2", "Q3", "Q4", "H1", "H2", "AI", "API", "APR", "AUG", "NYSE", "NASDAQ",
+  "WSJ", "CNBC", "Reuters", "NEW", "BIG", "TOP", "ALL", "NOW", "WHY", "HOW",
+]);
 
-function extractTicker(headline: string): string | undefined {
-  const match = headline.match(/\b([A-Z]{2,5})\b/);
-  return match ? match[1] : undefined;
+function extractTickerCandidates(headline: string): string[] {
+  const matches = headline.match(/\b[A-Z]{2,5}\b/g) || [];
+  return matches.filter((t) => !TICKER_STOP_WORDS.has(t));
 }
 
 export async function GET(request: Request) {
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
   const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "10", 10)));
 
   try {
-    const feeds = (await getNewsFeeds()).filter((f) => f.enabled);
+    // SSRF guard: only fetch feeds whose URLs point at public http(s) hosts.
+    const feeds = filterSafeFeeds(await getNewsFeeds());
     const results = await Promise.allSettled(
       feeds.map(async (feed) => {
         const parsed = await parser.parseURL(feed.url);
@@ -55,7 +57,7 @@ export async function GET(request: Request) {
           const raw: RawNews = {
             id: `${feed.source}-${i}`,
             source: feed.source,
-            ticker: extractTicker(title),
+            ticker: extractTickerCandidates(title)[0],
             timestamp: item.isoDate ? new Date(item.isoDate).toLocaleString() : "recent",
             headline: title,
             summary: summary.slice(0, 300),
@@ -74,6 +76,8 @@ export async function GET(request: Request) {
     }
 
     if (allNews.length === 0) {
+      // Not an error per se — every feed was unreachable or empty. Keep 200
+      // so the client renders an empty state instead of an error banner.
       return NextResponse.json({ news: [], source: "empty", pagination: { page, limit, total: 0, totalPages: 0 } });
     }
 
@@ -90,6 +94,10 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[api/news] Error:", err);
-    return NextResponse.json({ news: [], source: "error", pagination: { page, limit, total: 0, totalPages: 0 } }, { status: 200 });
+    return NextResponse.json({ news: [], source: "error", pagination: { page, limit, total: 0, totalPages: 0 } }, { status: 502 });
   }
+}
+
+function filterSafeFeeds<T extends { url: string }>(feeds: T[]): T[] {
+  return feeds.filter((f) => checkOutboundUrl(f.url).safe);
 }

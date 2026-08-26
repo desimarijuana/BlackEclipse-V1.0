@@ -23,6 +23,8 @@ interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Server reports whether a key is stored; the raw key is never sent back. */
+  hasApiKey?: boolean;
 }
 
 interface NewsFeed {
@@ -220,7 +222,11 @@ export function Settings() {
       const s = await settingsRes.json();
       const m = await marketsRes.json();
 
-      if (s.llm) setLlm(s.llm);
+      if (s.llm) {
+        // The server masks the stored key — keep the local input empty but
+        // remember that a key exists so the placeholder can show it.
+        setLlm({ ...s.llm, apiKey: "" });
+      }
       if (s.newsFeeds) setFeeds(s.newsFeeds);
       if (s.preferences) setPrefs(s.preferences);
       if (s.integrations) setIntegrations(s.integrations);
@@ -488,7 +494,13 @@ export function Settings() {
                         type={showApiKey ? "text" : "password"}
                         value={llm.apiKey}
                         onChange={(e) => setLlm((p) => ({ ...p, apiKey: e.target.value }))}
-                        placeholder={llm.provider === "mock" ? "Not required for mock" : "sk-..."}
+                        placeholder={
+                          llm.hasApiKey
+                            ? "Key stored — leave blank to keep it"
+                            : llm.provider === "mock"
+                            ? "Not required for mock"
+                            : "sk-..."
+                        }
                         className="pl-8 pr-9 font-mono"
                       />
                       <button
