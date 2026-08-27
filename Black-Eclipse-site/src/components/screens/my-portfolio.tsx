@@ -15,8 +15,11 @@ import { SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '
 import { usePortfolioEngine, PortfolioStats } from '@/hooks/use-portfolio-engine';
 
 // ─── Shared panel / tile styling (site design system) ──────────────────────
-const PANEL = 'bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm';
-const TILE = 'bg-muted/10 border border-border/20 rounded-xl';
+// Frost glass — this is the site's default glass panel style. The same
+// bg/blur/border recipe used across market-overview, market-news and
+// portfolio-watchlist so every screen looks consistent.
+const PANEL = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm';
+const TILE = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-xl';
 const UP = '#34d399';
 const DOWN = '#fb7185';
 
@@ -43,6 +46,13 @@ const DEFAULT_TRANSACTIONS: Transaction[] = [
   { id: 'tx-1', type: 'BUY', symbol: 'BTC', quantity: 0.25, price: 61500.00, fee: 15.00, date: '2026-06-01' },
   { id: 'tx-2', type: 'BUY', symbol: 'ETH', quantity: 4.20, price: 2950.00, fee: 12.50, date: '2026-06-02' },
   { id: 'tx-3', type: 'BUY', symbol: 'SOL', quantity: 25.00, price: 110.00, fee: 2.50, date: '2026-06-03' },
+  // PSX equities — UBL, Meezan Bank, Sazgar (prices in PKR).
+  { id: 'tx-4', type: 'BUY', symbol: 'UBL', quantity: 150, price: 300.00, fee: 45.00, date: '2026-05-12' },
+  { id: 'tx-5', type: 'BUY', symbol: 'UBL', quantity: 80, price: 338.00, fee: 28.00, date: '2026-07-20' },
+  { id: 'tx-6', type: 'BUY', symbol: 'MEBL', quantity: 400, price: 152.50, fee: 60.00, date: '2026-04-18' },
+  { id: 'tx-7', type: 'BUY', symbol: 'MEBL', quantity: 250, price: 171.00, fee: 40.00, date: '2026-08-05' },
+  { id: 'tx-8', type: 'BUY', symbol: 'SAZEW', quantity: 60, price: 880.00, fee: 55.00, date: '2026-06-25' },
+  { id: 'tx-9', type: 'SELL', symbol: 'SAZEW', quantity: 15, price: 1010.00, fee: 15.00, date: '2026-08-18' },
 ];
 
 interface DemoAsset {
@@ -52,6 +62,7 @@ interface DemoAsset {
   changePercent: number;
   category: string;
   aiTag?: string;
+  currency?: 'USD' | 'PKR';
 }
 
 const DEMO_LIVE_PRICES: DemoAsset[] = [
@@ -62,6 +73,10 @@ const DEMO_LIVE_PRICES: DemoAsset[] = [
   { symbol: 'XRP', name: 'Ripple', price: 0.53, changePercent: -0.84, category: 'Payments' },
   { symbol: 'DOGE', name: 'Dogecoin', price: 0.16, changePercent: 1.12, category: 'Meme', aiTag: 'Sentiment-driven; correlation to BTC spikes during risk-off moves.' },
   { symbol: 'ADA', name: 'Cardano', price: 0.45, changePercent: -1.32, category: 'Smart Contracts' },
+  // PSX equities (prices in PKR) — UBL, Meezan Bank, Sazgar.
+  { symbol: 'UBL', name: 'United Bank Limited', price: 350.50, changePercent: 1.20, category: 'Banking', currency: 'PKR', aiTag: 'Strong net interest income; dividend yield above market average.' },
+  { symbol: 'MEBL', name: 'Meezan Bank Limited', price: 185.25, changePercent: 0.85, category: 'Banking', currency: 'PKR', aiTag: 'Shariah-compliant growth — deposits compounding faster than the sector.' },
+  { symbol: 'SAZEW', name: 'Sazgar Engineering Works', price: 1045.00, changePercent: 2.10, category: 'Automobile', currency: 'PKR', aiTag: 'Rising local EV/3-wheeler volumes supporting margin expansion.' },
 ];
 
 // Per-asset risk profile used by stress testing, risk metrics & Monte Carlo.
@@ -73,16 +88,25 @@ const RISK: Record<string, { beta: number; vol: number; sharpe: number; mdd: num
   XRP:  { beta: 1.08, vol: 66.0, sharpe: 0.72, mdd: -52.0, target: 8 },
   DOGE: { beta: 1.42, vol: 95.0, sharpe: 0.58, mdd: -70.0, target: 4 },
   ADA:  { beta: 1.22, vol: 71.0, sharpe: 0.49, mdd: -58.0, target: 3 },
+  // PSX equities (lower vol vs crypto, PKR).
+  UBL:  { beta: 0.65, vol: 24.0, sharpe: 1.25, mdd: -18.0, target: 12 },
+  MEBL: { beta: 0.78, vol: 28.0, sharpe: 1.35, mdd: -22.0, target: 12 },
+  SAZEW: { beta: 0.92, vol: 34.0, sharpe: 1.10, mdd: -28.0, target: 8 },
+  // Generic fallback for any other JDDS asset the user adds (equity-like).
+  DEFAULT: { beta: 0.9, vol: 30.0, sharpe: 0.9, mdd: -25.0, target: 10 },
 };
 
 const CORR: Record<string, Record<string, number>> = {
-  BTC:  { BTC: 1, ETH: 0.86, SOL: 0.78, BNB: 0.81, XRP: 0.72, DOGE: 0.74, ADA: 0.7 },
-  ETH:  { ETH: 1, SOL: 0.82, BNB: 0.79, XRP: 0.68, DOGE: 0.71, ADA: 0.76 },
-  SOL:  { SOL: 1, BNB: 0.7, XRP: 0.64, DOGE: 0.69, ADA: 0.73 },
-  BNB:  { BNB: 1, XRP: 0.66, DOGE: 0.62, ADA: 0.65 },
-  XRP:  { XRP: 1, DOGE: 0.6, ADA: 0.63 },
-  DOGE: { DOGE: 1, ADA: 0.61 },
-  ADA:  { ADA: 1 },
+  BTC:  { BTC: 1, ETH: 0.86, SOL: 0.78, BNB: 0.81, XRP: 0.72, DOGE: 0.74, ADA: 0.7, UBL: 0.28, MEBL: 0.31, SAZEW: 0.26 },
+  ETH:  { ETH: 1, SOL: 0.82, BNB: 0.79, XRP: 0.68, DOGE: 0.71, ADA: 0.76, UBL: 0.25, MEBL: 0.28, SAZEW: 0.22 },
+  SOL:  { SOL: 1, BNB: 0.7, XRP: 0.64, DOGE: 0.69, ADA: 0.73, UBL: 0.22, MEBL: 0.24, SAZEW: 0.19 },
+  BNB:  { BNB: 1, XRP: 0.66, DOGE: 0.62, ADA: 0.65, UBL: 0.3, MEBL: 0.33, SAZEW: 0.27 },
+  XRP:  { XRP: 1, DOGE: 0.6, ADA: 0.63, UBL: 0.2, MEBL: 0.22, SAZEW: 0.18 },
+  DOGE: { DOGE: 1, ADA: 0.61, UBL: 0.15, MEBL: 0.17, SAZEW: 0.13 },
+  ADA:  { ADA: 1, UBL: 0.18, MEBL: 0.2, SAZEW: 0.16 },
+  UBL:  { UBL: 1, MEBL: 0.82, SAZEW: 0.58 },
+  MEBL: { MEBL: 1, SAZEW: 0.55 },
+  SAZEW: { SAZEW: 1 },
 };
 
 const STRESS_SCENARIOS = [
@@ -111,6 +135,12 @@ const fmtK = (n: number) => {
   return `$${Math.round(n)}`;
 };
 const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+// Price formatter that respects the asset's currency (PKR for PSX equities).
+const fmtPrice = (n: number, currency?: 'USD' | 'PKR', dp = 2) => {
+  const sym = currency === 'PKR' ? '₨' : '$';
+  return `${n < 0 ? '-' : ''}${sym}${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+};
 
 // Deterministic pseudo-random so charts stay stable across re-renders.
 function seeded(seed: number, n: number): number[] {
@@ -180,6 +210,10 @@ interface LiveAsset {
   changePercent?: number;
   exchange?: string;
   rank?: number;
+  currency?: 'USD' | 'PKR';
+  category?: string;
+  aiTag?: string;
+  marketId?: string;
 }
 
 interface MyPortfolioProps {
@@ -209,6 +243,9 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
   const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
   const symbolDropdownRef = useRef<HTMLDivElement>(null);
+  // JDDS-wide search results (any asset across all markets).
+  const [jddsSuggestions, setJddsSuggestions] = useState<Array<{ symbol: string; name: string; marketId: string; currency: string; price: number }>>([]);
+  const [searchingSymbols, setSearchingSymbols] = useState(false);
 
   // Table controls
   const [filterText, setFilterText] = useState('');
@@ -244,11 +281,58 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const fetchLivePrices = useCallback((isInitial = false) => {
+  // Pull live prices from JDDS via /api/quote (same source as the rest of the
+  // app) for every tracked symbol — the demo set plus anything the user has
+  // added (transactions, watchlist, alerts). Merges in demo metadata where it
+  // exists; JDDS-only assets get their real name/currency from the quote.
+  // Falls back to the static demo prices if the endpoint is unreachable, slow,
+  // or a symbol has no live quote yet. A hard timeout guards against a hung
+  // request so the portfolio never blocks on skeletons forever.
+  const fetchLivePrices = useCallback(async (isInitial = false) => {
     if (isInitial) setLoadingLive(true);
-    setLiveAssets(DEMO_LIVE_PRICES);
-    if (isInitial) setLoadingLive(false);
-  }, []);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const tracked = new Set<string>(DEMO_LIVE_PRICES.map(a => a.symbol));
+      transactions.forEach(t => tracked.add(t.symbol));
+      Object.keys(watchlist).forEach(s => tracked.add(s));
+      alerts.forEach(a => tracked.add(a.symbol));
+      const symbols = [...tracked].join(',');
+      const res = await fetch(`/api/quote?symbols=${encodeURIComponent(symbols)}`, { signal: controller.signal });
+      const data = await res.json();
+      if (Array.isArray(data.quotes) && data.quotes.length > 0) {
+        const quoteMap = new Map<string, { symbol: string; name: string; price: number; changePercent: number; currency?: string; marketId?: string }>(
+          data.quotes.map((q: { symbol: string; name: string; price: number; changePercent: number; currency?: string; marketId?: string }) => [q.symbol, q])
+        );
+        const merged = [...tracked].map(sym => {
+          const demo = DEMO_LIVE_PRICES.find(a => a.symbol === sym);
+          const q = quoteMap.get(sym);
+          if (q && q.price > 0) {
+            return {
+              symbol: sym,
+              name: demo?.name ?? q.name ?? sym,
+              price: q.price,
+              changePercent: q.changePercent,
+              currency: (q.currency === 'PKR' ? 'PKR' : demo?.currency ?? 'USD') as 'USD' | 'PKR',
+              category: demo?.category ?? 'JDDS',
+              aiTag: demo?.aiTag,
+              marketId: q.marketId,
+            };
+          }
+          if (demo) return demo;
+          return { symbol: sym, name: sym, price: 0, changePercent: 0, currency: 'USD' as const, category: 'JDDS' };
+        });
+        setLiveAssets(merged);
+      } else {
+        setLiveAssets(DEMO_LIVE_PRICES);
+      }
+    } catch {
+      setLiveAssets(DEMO_LIVE_PRICES);
+    } finally {
+      clearTimeout(timer);
+      if (isInitial) setLoadingLive(false);
+    }
+  }, [transactions, watchlist, alerts]);
 
   useEffect(() => {
     if (loadingPortfolio) return;
@@ -263,10 +347,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     const savedTx = localStorage.getItem('portfolio_tx_guest');
     const savedAlerts = localStorage.getItem('portfolio_alerts_guest');
     const savedWatchlist = localStorage.getItem('portfolio_watchlist_guest');
-    if (savedTx) setTransactions(JSON.parse(savedTx));
+    
+    const parsedTx = savedTx ? JSON.parse(savedTx) : null;
+    if (parsedTx && parsedTx.length > 0) setTransactions(parsedTx);
     else setTransactions(DEFAULT_TRANSACTIONS);
+    
     if (savedAlerts) setAlerts(JSON.parse(savedAlerts));
     if (savedWatchlist) setWatchlist(JSON.parse(savedWatchlist));
+    else setWatchlist({ BTC: true, ETH: true, SOL: true, UBL: true, MEBL: true, SAZEW: true });
     if (showSkeleton) setLoadingPortfolio(false);
   };
 
@@ -292,13 +380,53 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     if (price > 0) setTxQty(val ? String(spent / price) : '');
   };
 
-  const filteredSymbolOptions = useMemo(() => {
-    if (!symbolSearchQuery) return DEMO_LIVE_PRICES;
-    const q = symbolSearchQuery.toUpperCase();
-    return DEMO_LIVE_PRICES.filter(a =>
-      a.symbol.toUpperCase().includes(q) || a.name.toUpperCase().includes(q)
-    );
+  // JDDS-wide symbol search: any asset across all markets (US, PK, IN, CN,
+  // CRYPTO, ...) can be added to the portfolio. Debounced against /api/quote's
+  // autocomplete endpoint, which resolves real symbols + live prices from the DB.
+  useEffect(() => {
+    const q = symbolSearchQuery.trim();
+    if (!q || q.length < 1) {
+      setJddsSuggestions([]);
+      setSearchingSymbols(false);
+      return;
+    }
+    setSearchingSymbols(true);
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/quote?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.suggestions)) {
+          setJddsSuggestions(data.suggestions);
+        }
+      } catch {
+        if (!cancelled) setJddsSuggestions([]);
+      } finally {
+        if (!cancelled) setSearchingSymbols(false);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [symbolSearchQuery]);
+
+  // Combined dropdown: JDDS matches first (they carry live prices + currency),
+  // then the already-tracked demo/live assets as a fallback.
+  const filteredSymbolOptions = useMemo(() => {
+    const q = symbolSearchQuery.toUpperCase();
+    const jdds = jddsSuggestions.map(s => ({
+      symbol: s.symbol,
+      name: s.name,
+      price: s.price,
+      changePercent: 0,
+      currency: (s.currency === 'PKR' ? 'PKR' : 'USD') as 'USD' | 'PKR',
+      category: 'JDDS',
+      marketId: s.marketId,
+    }));
+    const tracked = liveAssets
+      .filter(a => !q || a.symbol.toUpperCase().includes(q) || (a.name ?? '').toUpperCase().includes(q))
+      .map(a => ({ ...a, marketId: 'TRACKED' }));
+    if (!q) return [...jdds, ...tracked];
+    return [...jdds, ...tracked];
+  }, [jddsSuggestions, liveAssets, symbolSearchQuery]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -378,18 +506,20 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   }, [stats.dailyChangeValue, loadingLive, loadingPortfolio, onMarketStatusChange]);
 
   const priceOf = useCallback((sym: string) =>
-    DEMO_LIVE_PRICES.find(a => a.symbol === sym)?.price ?? 0, []);
+    liveAssets.find(a => a.symbol === sym)?.price ?? 0, [liveAssets]);
   const dayOf = useCallback((sym: string) =>
-    DEMO_LIVE_PRICES.find(a => a.symbol === sym)?.changePercent ?? 0, []);
+    liveAssets.find(a => a.symbol === sym)?.changePercent ?? 0, [liveAssets]);
   const metaOf = useCallback((sym: string) =>
-    DEMO_LIVE_PRICES.find(a => a.symbol === sym), []);
+    liveAssets.find(a => a.symbol === sym), [liveAssets]);
+  const currencyOf = useCallback((sym: string) =>
+    liveAssets.find(a => a.symbol === sym)?.currency ?? 'USD', [liveAssets]);
 
   const totalCost = stats.costBasis || 1;
   const weightOf = useCallback((h: PortfolioStats['holdings'][number]) =>
     stats.totalValue > 0 ? h.value / stats.totalValue : 0, [stats.totalValue]);
 
   const wsum = useCallback((fn: (r: typeof RISK[string]) => number) =>
-    stats.holdings.reduce((acc, h) => acc + fn(RISK[h.symbol] ?? RISK.BTC) * weightOf(h), 0),
+    stats.holdings.reduce((acc, h) => acc + fn(RISK[h.symbol] ?? RISK.DEFAULT) * weightOf(h), 0),
     [stats.holdings, weightOf]);
 
   const pBeta = wsum(r => r.beta);
@@ -556,7 +686,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const rebalanceRows = useMemo(() =>
     stats.holdings.map(h => {
       const cur = weightOf(h) * 100;
-      const target = RISK[h.symbol]?.target ?? 10;
+      const target = RISK[h.symbol]?.target ?? RISK.DEFAULT.target;
       const drift = cur - target;
       return {
         symbol: h.symbol,
@@ -623,7 +753,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const stress = useMemo(() => {
     const scen = STRESS_SCENARIOS.find(s => s.id === stressId) ?? STRESS_SCENARIOS[0];
     const rows = stats.holdings.map(h => {
-      const r = RISK[h.symbol] ?? RISK.BTC;
+      const r = RISK[h.symbol] ?? RISK.DEFAULT;
       const isMajor = ['BTC', 'ETH'].includes(h.symbol);
       const pct = (scen.mkt * (isMajor ? r.beta : r.beta) + scen.alt * (isMajor ? 0.4 : 1.1)) * severity;
       return { symbol: h.symbol, pct, dollar: h.value * (pct / 100) };
@@ -776,8 +906,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
 
     const projBeta = stats.holdings.reduce((a, h) => {
       const w = h.symbol === wiSymbol ? (newVal / (projTotal || 1)) : weightOf(h);
-      return a + (RISK[h.symbol]?.beta ?? 1) * w;
-    }, 0) + (!holding && delta > 0 ? (RISK[wiSymbol]?.beta ?? 1) * (newVal / (projTotal || 1)) : 0);
+      return a + (RISK[h.symbol]?.beta ?? RISK.DEFAULT.beta) * w;
+    }, 0) + (!holding && delta > 0 ? (RISK[wiSymbol]?.beta ?? RISK.DEFAULT.beta) * (newVal / (projTotal || 1)) : 0);
 
     return { qty, price, delta, cost, newCash, newWeight, oldWeight, newBeta: projBeta };
   }, [wiQty, wiSymbol, wiSide, stats.holdings, stats.totalValue, priceOf, weightOf]);
@@ -1335,13 +1465,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                         </div>
                       </td>
                       <td className="p-4 text-foreground/90">{h.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                      <td className="p-4 text-foreground/90">${h.avgCost.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                      <td className="p-4 text-foreground/90">${h.currentPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                      <td className="p-4 font-bold">{fmtUsd(h.value)}</td>
+                      <td className="p-4 text-foreground/90">{fmtPrice(h.avgCost, currencyOf(h.symbol), 2)}</td>
+                      <td className="p-4 text-foreground/90">{fmtPrice(h.currentPrice, currencyOf(h.symbol), 2)}</td>
+                      <td className="p-4 font-bold">{fmtPrice(h.value, currencyOf(h.symbol))}</td>
                       <td className={`p-4 font-semibold ${up ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(h.dayPct)}</td>
                       <td className="p-4">
                         <div className={`font-semibold ${h.unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {h.unrealizedPnL >= 0 ? '+' : '-'}{fmtUsd(Math.abs(h.unrealizedPnL))}
+                          {h.unrealizedPnL >= 0 ? '+' : '-'}{fmtPrice(Math.abs(h.unrealizedPnL), currencyOf(h.symbol))}
                         </div>
                         <div className={`text-[10px] font-bold ${h.unrealizedPnL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                           {fmtPct(h.totalPct)}
@@ -1408,7 +1538,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   <span className="text-[10px] text-muted-foreground hidden sm:inline">{metaOf(w.symbol)?.name}</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-sm">${w.price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                  <div className="font-mono text-sm">{fmtPrice(w.price, currencyOf(w.symbol), 2)}</div>
                   <div className={`font-mono text-[11px] ${w.dayPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(w.dayPct)}</div>
                 </div>
               </div>
@@ -1439,8 +1569,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     <td className="pr-3 font-bold">{t.symbol}</td>
                     <td className={`pr-3 font-bold ${t.sideColor}`}>{t.type}</td>
                     <td className="pr-3">{t.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                    <td className="pr-3">${t.price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                    <td className="pr-3 text-muted-foreground">${t.fee.toFixed(2)}</td>
+                    <td className="pr-3">{fmtPrice(t.price, currencyOf(t.symbol), 2)}</td>
+                    <td className="pr-3 text-muted-foreground">{fmtPrice(t.fee, currencyOf(t.symbol), 2)}</td>
                     <td>{t.balanceFmt}</td>
                   </tr>
                 ))}
@@ -1547,7 +1677,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             onChange={e => setWiSymbol(e.target.value)}
             className="w-full bg-muted/20 border border-border/40 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-primary/50 mb-2 cursor-pointer [&>option]:bg-[#111]"
           >
-            {DEMO_LIVE_PRICES.map(a => <option key={a.symbol} value={a.symbol}>{a.symbol} — {a.name}</option>)}
+            {liveAssets.map(a => <option key={a.symbol} value={a.symbol}>{a.symbol} — {a.name}</option>)}
           </select>
 
           <div className="flex gap-2 mb-3">
@@ -1674,10 +1804,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               let status = '';
               if (a.type === 'PRICE_ABOVE') {
                 triggered = price > 0 && price >= a.target;
-                status = `Now $${price.toLocaleString(undefined, { maximumFractionDigits: 2 })} · ${triggered ? 'triggered' : price > 0 ? `${(((a.target / price) - 1) * 100).toFixed(1)}% away` : 'waiting'}`;
+                status = `Now ${fmtPrice(price, currencyOf(a.symbol))} · ${triggered ? 'triggered' : price > 0 ? `${(((a.target / price) - 1) * 100).toFixed(1)}% away` : 'waiting'}`;
               } else if (a.type === 'PRICE_BELOW') {
                 triggered = price > 0 && price <= a.target;
-                status = `Now $${price.toLocaleString(undefined, { maximumFractionDigits: 2 })} · ${triggered ? 'triggered' : price > 0 ? `${(((1 - a.target / price)) * 100).toFixed(1)}% away` : 'waiting'}`;
+                status = `Now ${fmtPrice(price, currencyOf(a.symbol))} · ${triggered ? 'triggered' : price > 0 ? `${(((1 - a.target / price)) * 100).toFixed(1)}% away` : 'waiting'}`;
               } else if (a.type === 'DAILY_MOVE') {
                 triggered = move > a.target;
                 status = `Today ${move.toFixed(2)}% · ${triggered ? 'triggered' : 'watching'}`;
@@ -1691,8 +1821,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     <div className="text-xs">
                       <span className="font-mono font-bold">{a.symbol}</span>{' '}
                       <span className="text-foreground/80">
-                        {a.type === 'PRICE_ABOVE' ? `above $${a.target.toLocaleString()}`
-                          : a.type === 'PRICE_BELOW' ? `below $${a.target.toLocaleString()}`
+                        {a.type === 'PRICE_ABOVE' ? `above ${fmtPrice(a.target, currencyOf(a.symbol), 0)}`
+                          : a.type === 'PRICE_BELOW' ? `below ${fmtPrice(a.target, currencyOf(a.symbol), 0)}`
                           : `move > ${a.target}%`}
                       </span>
                     </div>
@@ -1784,9 +1914,9 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   <span className={`font-mono text-[11px] font-bold ${spread >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(spread)}</span>
                 </div>
                 <div className="text-[10px] text-muted-foreground space-y-0.5">
-                  <div>Avg <span className="font-mono text-foreground/80">${h.avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                  <div>Now <span className="font-mono text-foreground/80">${h.currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                  <div>Break-even <span className="font-mono text-foreground/80">${(h.avgCost * 1.002).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                  <div>Avg <span className="font-mono text-foreground/80">{fmtPrice(h.avgCost, currencyOf(h.symbol), 2)}</span></div>
+                  <div>Now <span className="font-mono text-foreground/80">{fmtPrice(h.currentPrice, currencyOf(h.symbol), 2)}</span></div>
+                  <div>Break-even <span className="font-mono text-foreground/80">{fmtPrice(h.avgCost * 1.002, currencyOf(h.symbol), 2)}</span></div>
                 </div>
               </div>
             );
@@ -1843,11 +1973,22 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   />
                 </div>
 
-                {showSymbolDropdown && filteredSymbolOptions.length > 0 && (
+                {showSymbolDropdown && (
                   <div className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-card border border-border/80 rounded-xl shadow-xl divide-y divide-border/20">
+                    {searchingSymbols && (
+                      <div className="px-4 py-2.5 text-[10px] font-mono text-muted-foreground flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70 animate-spin" aria-hidden />
+                        Searching JDDS…
+                      </div>
+                    )}
+                    {filteredSymbolOptions.length === 0 && !searchingSymbols && (
+                      <div className="px-4 py-2.5 text-[10px] font-mono text-muted-foreground">
+                        No assets found. Try a symbol like AAPL, OGDC, BTC…
+                      </div>
+                    )}
                     {filteredSymbolOptions.map(asset => (
                       <div
-                        key={asset.symbol}
+                        key={asset.symbol + (asset.marketId ?? '')}
                         onClick={() => {
                           setTxSymbol(asset.symbol);
                           setSymbolSearchQuery(asset.symbol);
@@ -1858,11 +1999,18 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                         }}
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors text-xs font-mono"
                       >
-                        <div className="flex flex-col">
+                        <div className="flex flex-col min-w-0">
                           <span className="font-bold text-foreground">{asset.symbol}</span>
-                          <span className="text-[10px] text-muted-foreground">{asset.name}</span>
+                          <span className="text-[10px] text-muted-foreground truncate max-w-[220px]">{asset.name}</span>
                         </div>
-                        <span className="text-muted-foreground font-semibold">${asset.price.toLocaleString()}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {asset.marketId && asset.marketId !== 'TRACKED' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground uppercase tracking-wider">
+                              {asset.marketId}
+                            </span>
+                          )}
+                          <span className="text-muted-foreground font-semibold">{fmtPrice(asset.price, asset.currency, 2)}</span>
+                        </div>
                       </div>
                     ))}
                   </div>

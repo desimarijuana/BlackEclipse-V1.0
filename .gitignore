@@ -1,0 +1,9 @@
+# SQLite database files (WAL mode)
+0
+0-shm
+0-wal
+
+# Local backups / QA artifacts
+/_backups/
+/opencode/
+/scripts/

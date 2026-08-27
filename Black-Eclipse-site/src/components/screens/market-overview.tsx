@@ -1,6 +1,7 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   ArrowUpRight, ArrowDownRight, ArrowRight, Search,
   Sparkles, Star, BarChart3,
@@ -11,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
-import { Skeleton, SkeletonHeader, SkeletonIndexCard, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
@@ -33,49 +33,28 @@ const fmtCap = (n?: number | null) => {
   return n.toLocaleString();
 };
 
-// ── ASCII dot-grid progress loader ─────────────────────────────────────────
-// Braille spinner + block bar + live %. Shown alongside skeletons (hybrid):
-// skeletons on first load, this banner on top of existing data during
-// refreshes so users always see that (and how much) data is coming in.
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-function AsciiProgress({ pct, label }: { pct: number; label: string }) {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setFrame(f => (f + 1) % SPINNER_FRAMES.length), 90);
-    return () => clearInterval(t);
-  }, []);
-  const cells = 20;
-  const filled = Math.max(1, Math.min(cells, Math.round((pct / 100) * cells)));
-  const bar = '█'.repeat(filled) + '░'.repeat(cells - filled);
+// â”€â”€ ASCII dot-grid progress loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Per-section data loads use a quiet text line instead, so the page
+// never floods with multiple dot grids.
+function TableLoading({ pct, label }: { pct: number; label: string }) {
   return (
-    <div
-      className="flex items-center gap-2.5 font-mono text-[11px] px-3.5 py-2 rounded-lg bg-accent/30 border border-border/40 w-fit max-w-full"
-      role="status"
-      aria-live="polite"
-      aria-label={`Loading ${Math.floor(pct)}%`}
-    >
-      <span className="text-primary w-3 text-sm leading-none">{SPINNER_FRAMES[frame]}</span>
-      <span className="tracking-[0.08em] text-primary/80 whitespace-nowrap">{bar}</span>
-      <span className="text-foreground font-bold w-9 text-right">{Math.floor(pct)}%</span>
-      {label && <span className="text-muted-foreground/80 truncate">· {label}</span>}
+    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
+      <span className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70 animate-spin" aria-hidden />
+      <span className="font-bold">{Math.floor(pct)}%</span>
+      {label && <span className="truncate">· {label}</span>}
     </div>
   );
 }
 
 function TableSkeleton({ cols = 11, rows = 6 }: { cols?: number; rows?: number }) {
   return (
-    <>
-      {Array.from({ length: rows }).map((_, idx) => (
-        <tr key={idx} className="border-b border-border/10">
-          {Array.from({ length: cols }).map((_, cIdx) => (
-            <td key={cIdx} className="p-3.5">
-              <Skeleton className="h-4 w-3/4 mx-auto" />
-            </td>
-          ))}
-        </tr>
-      ))}
-    </>
+    <tr>
+      <td colSpan={cols} className="p-6">
+        <div className="flex items-center justify-center">
+          <TableLoading pct={Math.min(95, 30 + rows * 8)} label="loading table" />
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -329,11 +308,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   }, [isMarketBullish, onMarketStatusChange]);
 
-  // Active view tab inside dashboard ('stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto')
-  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets'>('markets');
+  // Active view tab inside dashboard ('stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets' | 'forex' | 'commodities')
+  const [screenerTab, setScreenerTab] = useState<'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets' | 'forex' | 'commodities'>('markets');
   const [loadingTab, setLoadingTab] = useState(false);
 
-  const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets') => {
+  const handleTabChange = (tab: 'stocks' | 'etfs' | 'funds' | 'dividend_stocks' | 'crypto' | 'markets' | 'forex' | 'commodities') => {
     setScreenerTab(tab);
     setLoadingTab(true);
     setFilterExchange('All');
@@ -360,16 +339,26 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   //   GLOBAL → show the global markets overview (all indices).
   //   any country → switch to that country's stock screener.
   const handleMarketSelect = (market: string) => {
-    setUserCountry(market);
-    if (market === 'GLOBAL') {
+    // Market cards carry DB ids (e.g. "US"); the <select> uses "USA" — normalize.
+    const normalized = market === 'US' ? 'USA' : market;
+    setUserCountry(normalized);
+    if (normalized === 'GLOBAL') {
       handleTabChange('markets');
       return;
     }
-    if (market === 'CRYPTO') {
+    if (normalized === 'FOREX') {
+      handleTabChange('forex');
+      return;
+    }
+    if (normalized === 'COMMODITIES') {
+      handleTabChange('commodities');
+      return;
+    }
+    if (normalized === 'CRYPTO') {
       handleTabChange('crypto');
       return;
     }
-    if (screenerTab === 'markets' || screenerTab === 'crypto') {
+    if (screenerTab === 'markets' || screenerTab === 'crypto' || screenerTab === 'forex' || screenerTab === 'commodities') {
       handleTabChange('stocks');
     }
   };
@@ -716,7 +705,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // drag start/end), which is what keeps it buttery smooth.
   const [gmDragId, setGmDragId] = useState<string | null>(null);
   const [gmDragWidth, setGmDragWidth] = useState(0);
-  const [gmGrabOffset, setGmGrabOffset] = useState({ x: 0, y: 0 });
   const gmFloatRef = React.useRef<HTMLDivElement | null>(null);
   const gmLastTargetRef = React.useRef<string | null>(null);
   const gmScrollerRef = React.useRef<HTMLElement | null>(null);
@@ -725,21 +713,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const gmScrollRAF = React.useRef<number | null>(null);
   const gmSuppressClick = React.useRef(false);
 
-  const handleGmReorder = (draggedId: string, targetId: string) => {
-    if (!draggedId || draggedId === targetId) return;
-    // Normalize: track every current market id, drop stale ones.
-    let base = gmConfig.order ?? [];
-    for (const g of globalOverview) {
-      if (!base.includes(g.id)) base = [...base, g.id];
-    }
-    base = base.filter(id => globalOverview.some(g => g.id === id));
-    const from = base.indexOf(draggedId);
-    if (from === -1) return;
-    const arr = [...base];
-    const [moved] = arr.splice(from, 1);
-    const to = arr.indexOf(targetId);
-    if (moved) arr.splice(to === -1 ? arr.length : to, 0, moved);
-    applyGmConfig({ order: arr });
+  // Commit the CURRENT on-screen DOM order as the saved preference. The live
+  // preview already moved the dragged card to exactly where the user dropped
+  // it — persisting what they see is always correct, in every direction.
+  const commitGmDomOrder = (grid: HTMLElement) => {
+    const order: string[] = [];
+    grid.querySelectorAll<HTMLElement>('[data-gm-card]').forEach((el) => {
+      const gid = el.getAttribute('data-gm-id');
+      if (gid) order.push(gid);
+    });
+    if (order.length > 0) applyGmConfig({ order });
   };
 
   // DOM-level preview reorder: move the (hidden) dragged card's node to the
@@ -797,13 +780,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     const id = card.getAttribute('data-gm-id');
     if (!id) return;
 
-    // Snapshot every card's rect once — cheap and stable during a drag.
-    const rects = new Map<string, DOMRect>();
-    grid.querySelectorAll<HTMLElement>('[data-gm-card]').forEach((el) => {
-      const gid = el.getAttribute('data-gm-id');
-      if (gid) rects.set(gid, el.getBoundingClientRect());
-    });
-
     // The scroll container (the page's main scroller) for edge auto-scroll.
     // Must actually be scrollable — an overflow-y:auto ancestor with no
     // overflow (scrollHeight === clientHeight) is not the real scroller.
@@ -826,12 +802,27 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     const cardRect = card.getBoundingClientRect();
     let started = false;
 
-    const hitTest = (x: number, y: number): string | null => {
-      for (const [gid, r] of rects) {
-        if (gid === id) continue;
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return gid;
+    // LIVE hit-test against the current on-screen card rects (NOT a drag-start
+    // snapshot — cards FLIP to new slots as the preview reorders, so stale
+    // rects made placing into center/other rows fail). Padding covers the
+    // small grid gaps so dropping between cards also works.
+    const liveHitTest = (x: number, y: number): string | null => {
+      const PAD = 8;
+      let best: string | null = null;
+      let bestDist = Infinity;
+      const cards = grid.querySelectorAll<HTMLElement>('[data-gm-card]');
+      for (const el of cards) {
+        const gid = el.getAttribute('data-gm-id');
+        if (!gid || gid === id) continue;
+        const r = el.getBoundingClientRect();
+        if (x < r.left - PAD || x > r.right + PAD || y < r.top - PAD || y > r.bottom + PAD) continue;
+        const d = Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2));
+        if (d < bestDist) {
+          bestDist = d;
+          best = gid;
+        }
       }
-      return null;
+      return best;
     };
 
     // Edge auto-scroll: near the top/bottom of the viewport, scroll the
@@ -863,18 +854,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         started = true;
         setGmDragId(id);
         setGmDragWidth(cardRect.width);
-        setGmGrabOffset({ x: ev.clientX - cardRect.left, y: ev.clientY - cardRect.top });
         document.body.style.userSelect = 'none';
       }
       // The floating copy follows the cursor via direct DOM transform (no
-      // state → no re-render → no lag).
+      // state → no re-render → no lag). Centered on the pointer (-50%,-50%)
+      // so it stays glued to the mouse arrow wherever it moves.
       const floatEl = gmFloatRef.current;
       if (floatEl) {
-        floatEl.style.transform = `translate3d(${ev.clientX - gmGrabOffset.x}px, ${ev.clientY - gmGrabOffset.y}px, 0) scale(1.02)`;
+        floatEl.style.transform = `translate3d(${ev.clientX}px, ${ev.clientY}px, 0) translate(-50%, -50%) scale(1.02)`;
       }
       // Live preview: move the real DOM node + FLIP the others. Pure DOM work,
       // zero React renders — this is what keeps the drag smooth.
-      const target = hitTest(ev.clientX, ev.clientY);
+      const target = liveHitTest(ev.clientX, ev.clientY);
       if (target && gmLastTargetRef.current !== target) {
         gmLastTargetRef.current = target;
         domPreviewReorder(grid, id, target);
@@ -895,14 +886,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       setGmDragId(null);
     };
     const onUp = (ev: MouseEvent) => {
-      const target = hitTest(ev.clientX, ev.clientY);
+      // The preview moved the (invisible) dragged card into its final slot.
+      // Commit the on-screen DOM order — exactly what the user sees.
       cleanup();
       if (!started) return;
-      if (target) {
-        gmSuppressClick.current = true;
-        setTimeout(() => { gmSuppressClick.current = false; }, 150);
-        handleGmReorder(id, target);
-      }
+      gmSuppressClick.current = true;
+      setTimeout(() => { gmSuppressClick.current = false; }, 150);
+      commitGmDomOrder(grid);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -1039,6 +1029,98 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return () => { cancelled = true; };
   }, [screenerTab, fundSearch, userCountry]);
 
+  // Forex states + fetch — live major currency pairs from /api/forex.
+  type ForexPair = { symbol: string; name: string; base: string; quote: string; price: number; changePct: number; found: boolean };
+  const [forexPairs, setForexPairs] = useState<ForexPair[]>([]);
+  const [forexSearch, setForexSearch] = useState('');
+  const [forexSortField, setForexSortField] = useState<keyof ForexPair>('symbol');
+  const [forexSortOrder, setForexSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [loadingForex, setLoadingForex] = useState(false);
+  React.useEffect(() => {
+    if (screenerTab !== 'markets' && screenerTab !== 'forex') return;
+    // Already loaded — switching between the overview card and the dedicated
+    // table must be instant, not refetch the (slow) bridge.
+    if (forexPairs.length > 0) { setLoadingTab(false); return; }
+    let cancelled = false;
+    (async () => {
+      setLoadingForex(true);
+      try {
+        const res = await fetch('/api/forex');
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.pairs)) {
+          setForexPairs(data.pairs);
+        }
+      } catch (err) {
+        console.error('Failed to load forex pairs', err);
+      } finally {
+        if (!cancelled) setLoadingForex(false);
+        setLoadingTab(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, forexPairs.length]);
+
+  const toggleForexSort = (field: keyof ForexPair) => {
+    if (forexSortField === field) {
+      setForexSortOrder(forexSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setForexSortField(field);
+      setForexSortOrder('asc');
+    }
+  };
+  const filteredForex = useMemo(() => {
+    let list = forexPairs;
+    if (forexSearch.trim()) {
+      const q = forexSearch.trim().toLowerCase();
+      list = list.filter(p => p.symbol.toLowerCase().includes(q) || p.name.toLowerCase().includes(q) || p.base.toLowerCase().includes(q) || p.quote.toLowerCase().includes(q));
+    }
+    const dir = forexSortOrder === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const av = a[forexSortField];
+      const bv = b[forexSortField];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [forexPairs, forexSearch, forexSortField, forexSortOrder]);
+
+  // Commodities states + fetch — live major commodity futures from /api/commodities.
+  type CommodityItem = { symbol: string; name: string; unit: string; price: number; changePct: number; found: boolean };
+  const [commodities, setCommodities] = useState<CommodityItem[]>([]);
+  const [commoditySearch, setCommoditySearch] = useState('');
+  const [loadingCommodities, setLoadingCommodities] = useState(false);
+  React.useEffect(() => {
+    if (screenerTab !== 'markets' && screenerTab !== 'commodities') return;
+    // Already loaded — switching between the overview card and the dedicated
+    // table must be instant, not refetch the (slow) bridge.
+    if (commodities.length > 0) { setLoadingTab(false); return; }
+    let cancelled = false;
+    (async () => {
+      setLoadingCommodities(true);
+      try {
+        const res = await fetch('/api/commodities');
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.commodities)) {
+          setCommodities(data.commodities);
+        }
+      } catch (err) {
+        console.error('Failed to load commodities', err);
+      } finally {
+        if (!cancelled) setLoadingCommodities(false);
+        setLoadingTab(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, commodities.length]);
+
+  const filteredCommodities = useMemo(() => {
+    let list = commodities;
+    if (commoditySearch.trim()) {
+      const q = commoditySearch.trim().toLowerCase();
+      list = list.filter(c => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
+    }
+    return list;
+  }, [commodities, commoditySearch]);
+
   // Dividend states
   const [dividendSearch, setDividendSearch] = useState('');
   const [dividendSortField, setDividendSortField] = useState<keyof BlueChipItem>('symbol');
@@ -1141,20 +1223,34 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           "w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 pb-20",
           !embedded && "flex-1 overflow-y-auto h-full scrollbar-hide bg-transparent"
         )}>
-          {!embedded && <SkeletonHeader />}
+          {!embedded && (
+            <div className="flex items-center justify-between gap-4 pb-6">
+              <div className="space-y-2.5">
+                <TableLoading pct={25} label="loading" />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <SkeletonIndexCard key={i} />
+              <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 flex items-center justify-center">
+                <TableLoading pct={Math.min(95, 20 + i * 12)} label="loading" />
+              </div>
             ))}
           </div>
 
           <div className="grid lg:grid-cols-3 gap-6">
-            <SkeletonPanel className="lg:col-span-2 h-64" />
-            <SkeletonPanel className="h-64" />
+            <div className="lg:col-span-2 h-64 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 flex items-center justify-center">
+              <TableLoading pct={55} label="loading market data" />
+            </div>
+            <div className="h-64 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 flex items-center justify-center">
+              <TableLoading pct={55} label="loading shifters" />
+            </div>
           </div>
 
-          <SkeletonTable rows={5} />
+          <div className="rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 p-6 flex items-center justify-center">
+            <TableLoading pct={70} label="loading screener table" />
+          </div>
         </div>
       </>
     );
@@ -1184,7 +1280,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0 self-start md:self-auto">
             <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
             <select
-              value={userCountry === 'CRYPTO' ? 'CRYPTO' : (userCountry === 'GLOBAL' && screenerTab === 'stocks') ? 'USA' : userCountry}
+              value={userCountry === 'CRYPTO' ? 'CRYPTO' : (userCountry === 'GLOBAL' && screenerTab === 'stocks') ? 'USA' : userCountry === 'US' ? 'USA' : userCountry}
               onChange={e => handleMarketSelect(e.target.value)}
               className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
               title="Select country to load market data"
@@ -1219,6 +1315,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <option value="TH">Thailand</option>
               <option value="VN">Vietnam</option>
               <option value="CRYPTO">Global Crypto</option>
+              <option value="FOREX">Forex</option>
+              <option value="COMMODITIES">Commodities</option>
             </select>
             <Button
               size="sm"
@@ -1247,7 +1345,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           </span>
           <button
             onClick={() => setStripConfigOpen(o => !o)}
-            className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 text-xs font-bold tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer ${
               stripConfigOpen
                 ? 'text-primary bg-primary/10 border-primary/40'
                 : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
@@ -1319,11 +1417,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           className="flex items-center justify-between gap-2 w-full text-left bg-accent/20 hover:bg-primary/10 border border-border/40 hover:border-primary/40 rounded-lg px-2.5 py-1.5 transition-all cursor-pointer"
                         >
                           <span className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono text-[11px] font-bold text-primary">{s.symbol}</span>
+                            <span className="font-mono text-[11px] font-bold text-foreground/80">{s.symbol}</span>
                             <span className="text-[11px] text-muted-foreground truncate">{s.name}</span>
                           </span>
                           <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
-                            {s.price > 0 ? priceWithCurrency(s.currency, s.price) : '—'}
+                            {s.price > 0 ? priceWithCurrency(s.marketId || s.currency, s.price) : '—'}
                             <span className="ml-1.5 text-[9px] text-muted-foreground/70">{s.marketId}</span>
                           </span>
                         </button>
@@ -1354,7 +1452,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
           {(loadingDashboard && stripMode !== 'custom') ? (
             Array.from({ length: 6 }).map((_, i) => (
-              <SkeletonIndexCard key={i} />
+              <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 flex items-center justify-center">
+                <TableLoading pct={Math.min(95, 15 + i * 13)} label="loading" />
+              </div>
             ))
           ) : stripCards.length > 0 ? (
             stripCards.map((idxCard) => {
@@ -1425,12 +1525,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
           <div className="grid md:grid-cols-2 gap-4 flex-1">
             {loadingDashboard ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex flex-col justify-center gap-2">
-                  <Skeleton className="h-3 w-1/3" />
-                  <Skeleton className="h-1.5 w-full rounded-full" />
-                </div>
-              ))
+              <div className="col-span-full flex items-center justify-center py-6">
+                <TableLoading pct={45} label="loading sectors" />
+              </div>
             ) : (
               sectorPerformance.map(sector => {
                 const isPositive = sector.change >= 0;
@@ -1472,20 +1569,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
           <div className="grid grid-cols-2 gap-4 h-full">
             {loadingDashboard ? (
-              <>
-                <div className="space-y-2">
-                  <Skeleton className="h-3 w-20" />
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full rounded-xl" />
-                  ))}
-                </div>
-                <div className="space-y-2">
-                  <Skeleton className="h-3 w-20" />
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full rounded-xl" />
-                  ))}
-                </div>
-              </>
+              <div className="col-span-full flex items-center justify-center py-6">
+                <TableLoading pct={45} label="loading shifters" />
+              </div>
             ) : (
               <>
                 {/* Gainers List */}
@@ -1588,18 +1674,20 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <span className="px-4 py-2 rounded-3xl text-xs font-bold text-primary flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5" /> Global Crypto
               </span>
+            ) : screenerTab === 'markets' ? (
+              <span className="px-4 py-2 rounded-3xl text-xs font-bold text-primary flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5" /> Global Market
+              </span>
+            ) : screenerTab === 'forex' ? (
+              <span className="px-4 py-2 rounded-3xl text-xs font-bold text-primary flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5" /> Forex
+              </span>
+            ) : screenerTab === 'commodities' ? (
+              <span className="px-4 py-2 rounded-3xl text-xs font-bold text-primary flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5" /> Commodities
+              </span>
             ) : (
               <>
-                <button
-                  onClick={() => handleTabChange('markets')}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'markets'
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Globe className="w-3.5 h-3.5" /> Markets
-                </button>
                 <button
                   onClick={() => handleTabChange('stocks')}
                   className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
@@ -1674,7 +1762,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
                 </button>
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
                 {/* Search Input */}
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -1773,7 +1861,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <Sliders className="w-3.5 h-3.5 text-inherit" /> Filters
                 </button>
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
                 {/* Search Input */}
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -1842,7 +1930,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
                 </button>
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <input
@@ -1885,7 +1973,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
                 </button>
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <input
@@ -1946,7 +2034,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-foreground font-serif">Select a Market</span>
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 max-w-2xl justify-end">
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
                 <div className="relative w-64 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <input
@@ -1954,6 +2042,48 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     placeholder="Search markets..."
                     value={stockSearch}
                     onChange={e => setStockSearch(e.target.value)}
+                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {screenerTab === 'forex' && (
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">Forex Pairs</span>
+                <span className="text-[10px] text-muted-foreground font-mono">live from Yahoo Finance</span>
+              </div>
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
+                <div className="relative w-64 min-w-[200px]">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search pairs e.g. EUR, PKR..."
+                    value={forexSearch}
+                    onChange={e => setForexSearch(e.target.value)}
+                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {screenerTab === 'commodities' && (
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-foreground font-serif">Commodities</span>
+                <span className="text-[10px] text-muted-foreground font-mono">live from Yahoo Finance</span>
+              </div>
+              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
+                <div className="relative w-64 min-w-[200px]">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search commodities e.g. Gold, Oil..."
+                    value={commoditySearch}
+                    onChange={e => setCommoditySearch(e.target.value)}
                     className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
                   />
                 </div>
@@ -2390,7 +2520,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {filterMarketCap !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Cap: {filterMarketCap}</span>}
             {filterPE !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">P/E: {filterPE}</span>}
             {filterDividendYield !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Div: {filterDividendYield}</span>}
-            {filterChange !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Δ: {filterChange}</span>}
+            {filterChange !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Î”: {filterChange}</span>}
             {filterVolume !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Vol: {filterVolume}</span>}
             {filterIndustry !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Industry: {filterIndustry}</span>}
             {filterType !== 'All' && <span className="bg-primary/10 border border-primary/25 text-primary px-2 py-0.5 rounded-lg font-mono font-bold">Type: {filterType}</span>}
@@ -2416,7 +2546,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             dot-grid bar shows live progress on top of existing data during
             loads/refreshes so users always see that data is coming in. */}
         {tableLoader.active && (
-          <AsciiProgress pct={tableLoader.pct} label={tableLoader.label} />
+          <TableLoading pct={tableLoader.pct} label={tableLoader.label} />
         )}
 
         {screenerTab === 'markets' && (() => {
@@ -2449,13 +2579,20 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             };
             groups.sort((a, b) => avgChange(b) - avgChange(a));
           }
-          // Manual drag order wins over the automatic group ordering.
+          // Manual drag order wins over the automatic group ordering. The
+          // saved order spans ALL cards — country ids plus the special FOREX
+          // and COMMODITIES cards — so dragging any card persists.
+          const cardOrder: string[] = [
+            ...groups.map((g) => g.id),
+            'FOREX',
+            'COMMODITIES',
+          ];
           if (gmConfig.order && gmConfig.order.length > 0) {
             const idx = (id: string) => {
               const i = gmConfig.order!.indexOf(id);
               return i === -1 ? Number.MAX_SAFE_INTEGER : i;
             };
-            groups.sort((a, b) => idx(a.id) - idx(b.id));
+            cardOrder.sort((a, b) => idx(a) - idx(b));
           }
           const anyColumn = col.ticker || col.name || col.price || col.change || col.cap;
           const rowPad = gmConfig.dense ? 'py-1' : 'py-2';
@@ -2471,7 +2608,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </span>
                 <button
                   onClick={() => setGmConfigOpen(o => !o)}
-                  className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer shrink-0 ${
+                  className={`flex items-center gap-1.5 text-xs font-bold tracking-wider border rounded-lg px-3.5 py-2 transition-all cursor-pointer shrink-0 ${
                     gmConfigOpen
                       ? 'text-primary bg-primary/10 border-primary/40'
                       : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
@@ -2672,16 +2809,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               {loadingGlobalMarkets ? (
                 <div className={`grid ${gridClass} gap-3`}>
                   {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5">
-                      <Skeleton className="h-3 w-28 mb-3" />
-                      <div className="space-y-2.5">
-                        {Array.from({ length: gmConfig.rows }).map((_, j) => (
-                          <div key={j} className="flex items-center justify-between gap-2">
-                            <Skeleton className="h-3 w-24" />
-                            <Skeleton className="h-3 w-16" />
-                          </div>
-                        ))}
-                      </div>
+                    <div key={i} className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 flex items-center justify-center">
+                      <TableLoading pct={Math.min(95, 15 + i * 13)} label="loading" />
                     </div>
                   ))}
                 </div>
@@ -2693,7 +2822,164 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
               ) : (
                 <div className={`relative grid ${gridClass} gap-3`}>
-                  {groups.map((g) => {
+                  {cardOrder.map((cardId) => {
+                    if (cardId === 'FOREX') {
+                      return (
+                        <div
+                          key="FOREX"
+                          data-gm-card
+                          data-gm-id="FOREX"
+                          className={cn(
+                            'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 overflow-hidden flex flex-col transition-all',
+                            gmDragId === 'FOREX' && 'invisible'
+                          )}
+                        >
+                          <div
+                            data-gm-header
+                            className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/5 hover:bg-accent/30 transition-colors select-none"
+                          >
+                            <span
+                              data-gm-handle
+                              role="button"
+                              tabIndex={0}
+                              aria-label="Drag Forex to reorder"
+                              onMouseDown={(e) => beginGmDrag(e.clientX, e.clientY, e.button, e.currentTarget.closest('[data-gm-header]') as HTMLElement)}
+                              className="flex items-center gap-2 min-w-0 cursor-grab active:cursor-grabbing text-left"
+                              style={{ touchAction: 'none' }}
+                              title="Drag to reorder"
+                            >
+                              <GripVertical size={14} className="text-muted-foreground/60 shrink-0" aria-hidden />
+                              <span className="font-serif font-semibold text-sm text-foreground truncate">Forex</span>
+                              <span className="text-[9px] text-muted-foreground font-mono truncate">Major Pairs</span>
+                            </span>
+                            <button
+                              onClick={() => handleTabChange('forex')}
+                              className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
+                              title="Open Forex table"
+                            >
+                              Open →
+                            </button>
+                          </div>
+                          <table className="w-full text-left text-[11px]">
+                            <thead>
+                              <tr className="text-muted-foreground/70 text-[9px] uppercase tracking-wider font-mono">
+                                <th className={`${rowPad} pl-3.5 pr-2 font-semibold`}>Pair</th>
+                                <th className={`${rowPad} px-2 text-right font-semibold`}>Rate</th>
+                                <th className={`${rowPad} pr-3.5 pl-2 text-right font-semibold`}>Chg%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {loadingForex ? (
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading forex…</td></tr>
+                              ) : filteredForex.length === 0 ? (
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>No forex data</td></tr>
+                              ) : filteredForex.slice(0, gmConfig.rows).map((pair) => {
+                                const isPositive = pair.changePct >= 0;
+                                return (
+                                  <tr
+                                    key={pair.symbol}
+                                    onClick={() => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct })}
+                                    className="border-t border-white/5 transition-colors cursor-pointer hover:bg-primary/[0.04]"
+                                  >
+                                    <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap text-foreground/80`}>
+                                      {pair.symbol.replace('=X', '')}
+                                    </td>
+                                    <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
+                                      {pair.found ? pair.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '—'}
+                                    </td>
+                                    <td className={`${rowPad} pr-3.5 pl-2 text-right whitespace-nowrap`}>
+                                      <span className={`inline-block rounded px-1.5 font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    }
+                    if (cardId === 'COMMODITIES') {
+                      return (
+                        <div
+                          key="COMMODITIES"
+                          data-gm-card
+                          data-gm-id="COMMODITIES"
+                          className={cn(
+                            'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 overflow-hidden flex flex-col transition-all',
+                            gmDragId === 'COMMODITIES' && 'invisible'
+                          )}
+                        >
+                          <div
+                            data-gm-header
+                            className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/5 hover:bg-accent/30 transition-colors select-none"
+                          >
+                            <span
+                              data-gm-handle
+                              role="button"
+                              tabIndex={0}
+                              aria-label="Drag Commodities to reorder"
+                              onMouseDown={(e) => beginGmDrag(e.clientX, e.clientY, e.button, e.currentTarget.closest('[data-gm-header]') as HTMLElement)}
+                              className="flex items-center gap-2 min-w-0 cursor-grab active:cursor-grabbing text-left"
+                              style={{ touchAction: 'none' }}
+                              title="Drag to reorder"
+                            >
+                              <GripVertical size={14} className="text-muted-foreground/60 shrink-0" aria-hidden />
+                              <span className="font-serif font-semibold text-sm text-foreground truncate">Commodities</span>
+                              <span className="text-[9px] text-muted-foreground font-mono truncate">Gold · Silver · Oil</span>
+                            </span>
+                            <button
+                              onClick={() => handleTabChange('commodities')}
+                              className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
+                              title="Open Commodities table"
+                            >
+                              Open →
+                            </button>
+                          </div>
+                          <table className="w-full text-left text-[11px]">
+                            <thead>
+                              <tr className="text-muted-foreground/70 text-[9px] uppercase tracking-wider font-mono">
+                                <th className={`${rowPad} pl-3.5 pr-2 font-semibold`}>Commodity</th>
+                                <th className={`${rowPad} px-2 text-right font-semibold`}>Price</th>
+                                <th className={`${rowPad} pr-3.5 pl-2 text-right font-semibold`}>Chg%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {loadingCommodities ? (
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading commodities…</td></tr>
+                              ) : commodities.length === 0 ? (
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>No commodity data</td></tr>
+                              ) : commodities.slice(0, gmConfig.rows).map((c) => {
+                                const isPositive = c.changePct >= 0;
+                                return (
+                                  <tr
+                                    key={c.symbol}
+                                    onClick={() => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct })}
+                                    className="border-t border-white/5 transition-colors cursor-pointer hover:bg-primary/[0.04]"
+                                  >
+                                    <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap text-foreground/80`}>
+                                      {c.name}
+                                      <span className="ml-1.5 text-[8px] font-mono text-muted-foreground/60 font-semibold">{c.unit}</span>
+                                    </td>
+                                    <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
+                                      {c.found ? c.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                                    </td>
+                                    <td className={`${rowPad} pr-3.5 pl-2 text-right whitespace-nowrap`}>
+                                      <span className={`inline-block rounded px-1.5 font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    }
+                    const g = groups.find((x) => x.id === cardId);
+                    if (!g) return null;
                     const isDragged = gmDragId === g.id;
                     return (
                     <div
@@ -2702,29 +2988,36 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       data-gm-id={g.id}
                       className={cn(
                         'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 overflow-hidden flex flex-col transition-all',
-                        isDragged && 'opacity-0',
-                        !isDragged && 'hover:border-primary/40'
+                        isDragged && 'invisible'
                       )}
                     >
-                      {/* Pointer-based drag: grab the header strip to move the card. */}
+                      {/* Drag via the grip handle only; the rest of the header
+                          is a click-to-open action (pointer cursor). */}
                       <div
                         data-gm-header
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${g.country} — drag to reorder, press Enter to open screener`}
-                        onMouseDown={(e) => beginGmDrag(e.clientX, e.clientY, e.button, e.currentTarget as HTMLElement)}
-                        onClick={() => { if (!gmSuppressClick.current) handleMarketSelect(g.isCrypto ? 'CRYPTO' : g.id); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleMarketSelect(g.isCrypto ? 'CRYPTO' : g.id); }}
-                        className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/5 hover:bg-accent/30 transition-colors cursor-grab active:cursor-grabbing text-left select-none"
-                        style={{ touchAction: 'none' }}
-                        title={`Drag to reorder · click to open ${g.country} screener`}
+                        className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/5 hover:bg-accent/30 transition-colors select-none"
                       >
-                        <span className="flex items-center gap-2 min-w-0">
-                          <GripVertical size={14} className={cn('shrink-0 transition-colors', isDragged ? 'text-primary' : 'text-muted-foreground/60')} aria-hidden />
+                        <span
+                          data-gm-handle
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Drag ${g.country} to reorder`}
+                          onMouseDown={(e) => beginGmDrag(e.clientX, e.clientY, e.button, e.currentTarget.closest('[data-gm-header]') as HTMLElement)}
+                          className="flex items-center gap-2 min-w-0 cursor-grab active:cursor-grabbing text-left"
+                          style={{ touchAction: 'none' }}
+                          title={`Drag to reorder ${g.country}`}
+                        >
+                          <GripVertical size={14} className="text-muted-foreground/60 shrink-0" aria-hidden />
                           <span className="font-serif font-semibold text-sm text-foreground truncate">{g.country}</span>
                           <span className="text-[9px] text-muted-foreground font-mono truncate">{g.exchange}</span>
                         </span>
-                        <span className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0">Open →</span>
+                        <button
+                          onClick={() => handleMarketSelect(g.isCrypto ? 'CRYPTO' : g.id)}
+                          className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
+                          title={`Open ${g.country} screener`}
+                        >
+                          Open →
+                        </button>
                       </div>
                       {anyColumn && (() => {
                         const rows = processStocks(g.stocks);
@@ -2766,7 +3059,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                     )}
                                   >
                                     {col.ticker && (
-                                      <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap ${isSelected ? 'text-primary' : 'text-primary/90'}`}>
+                                      <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap ${isSelected ? 'text-foreground' : 'text-foreground/80'}`}>
                                         {gmConfig.showRank && <span className="text-muted-foreground/60 font-mono font-semibold mr-1">{idx + 1}.</span>}
                                         {/* Numeric exchange codes (e.g. CN 000001, HK 0700) mean
                                             nothing to users — show the company name instead. */}
@@ -2777,7 +3070,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                     )}
                                     {col.name && <td className={`${rowPad} px-2 truncate max-w-[110px] hidden sm:table-cell ${isSelected ? 'text-foreground' : 'text-foreground/75'}`}>{s.name}</td>}
                                     {col.price && <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
-                                      {priceWithCurrency(g.currency, s.price)}
+                                      {priceWithCurrency(g.id, s.price)}
                                     </td>}
                                     {col.cap && <td className={`${rowPad} px-2 text-right font-mono ${isSelected ? 'text-foreground/90' : 'text-foreground/75'} hidden md:table-cell whitespace-nowrap`}>{fmtCap(s.marketCap)}</td>}
                                     {col.change && (
@@ -2801,49 +3094,256 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </div>
                     );
                   })}
-                  {/* Floating copy of the dragged table — follows the cursor
-                      via direct DOM transform (ref), zero re-renders. */}
-                  {gmDragId && (() => {
-                    const src = globalOverview.find(x => x.id === gmDragId);
-                    if (!src) return null;
-                    return (
-                      <div
-                        ref={gmFloatRef}
-                        className="fixed z-[70] pointer-events-none rounded-2xl overflow-hidden border border-primary/50 bg-[#0f0f0f]/90 dark:bg-[#0f0f0f]/90 bg-white/90 backdrop-blur-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6),0_0_40px_rgba(122,255,120,0.12)] will-change-transform"
-                        style={{
-                          left: 0,
-                          top: 0,
-                          width: gmDragWidth || 320,
-                          transform: 'translate3d(-9999px, -9999px, 0) scale(1.02)',
-                        }}
-                      >
-                        <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
-                          <span className="flex items-center gap-2 min-w-0">
-                            <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
-                            <span className="font-serif font-semibold text-sm text-foreground truncate">{src.country}</span>
-                            <span className="text-[9px] text-muted-foreground font-mono truncate">{src.exchange}</span>
-                          </span>
-                          <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
-                        </div>
-                        <div className="px-3.5 py-2.5 space-y-1.5">
-                          {src.stocks.slice(0, Math.min(3, gmConfig.rows)).map(s => (
-                            <div key={s.symbol} className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-mono font-bold text-primary/90">{s.symbol}</span>
-                              <span className="font-mono text-foreground/80">{priceWithCurrency(src.currency, s.price)}</span>
+                  {/* Floating copy of the dragged table — follows the cursor via
+                      direct DOM transform (ref), zero re-renders. Rendered through
+                      a portal to document.body and ALWAYS mounted: an ancestor
+                      with backdrop-blur / transform would otherwise become the
+                      containing block for position:fixed and the ghost would fly
+                      off away from the mouse. visibility:hidden hides it when not
+                      dragging so the ref is always available on drag start. */}
+                  {createPortal(
+                    <div
+                      ref={gmFloatRef}
+                      className="fixed z-[70] pointer-events-none rounded-2xl overflow-hidden bg-[#0e0e0e] dark:bg-[#0e0e0e] text-foreground shadow-[0_30px_80px_rgba(0,0,0,0.6)] will-change-transform"
+                      style={{
+                        left: 0,
+                        top: 0,
+                        width: gmDragWidth || 320,
+                        visibility: gmDragId ? 'visible' : 'hidden',
+                        transform: 'translate3d(-9999px, -9999px, 0) translate(-50%, -50%) scale(1.02)',
+                      }}
+                    >
+                      {gmDragId && (() => {
+                        const src = globalOverview.find(x => x.id === gmDragId);
+                        if (gmDragId === 'FOREX') {
+                          const rows = filteredForex.slice(0, Math.min(3, gmConfig.rows));
+                          return (
+                            <>
+                              <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
+                                  <span className="font-serif font-semibold text-sm text-foreground truncate">Forex</span>
+                                  <span className="text-[9px] text-muted-foreground font-mono truncate">Major Pairs</span>
+                                </span>
+                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
+                              </div>
+                              <div className="px-3.5 py-2.5 space-y-1.5">
+                                {rows.map(pair => (
+                                  <div key={pair.symbol} className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="font-mono font-bold text-foreground/80 truncate">{pair.symbol.replace('=X', '')}</span>
+                                    <span className="font-mono text-foreground/80">{pair.found ? pair.price.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</span>
+                                  </div>
+                                ))}
+                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{filteredForex.length} pairs · drop to place</div>
+                              </div>
+                            </>
+                          );
+                        }
+                        if (gmDragId === 'COMMODITIES') {
+                          const rows = commodities.slice(0, Math.min(3, gmConfig.rows));
+                          return (
+                            <>
+                              <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
+                                  <span className="font-serif font-semibold text-sm text-foreground truncate">Commodities</span>
+                                  <span className="text-[9px] text-muted-foreground font-mono truncate">Gold · Silver · Oil</span>
+                                </span>
+                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
+                              </div>
+                              <div className="px-3.5 py-2.5 space-y-1.5">
+                                {rows.map(c => (
+                                  <div key={c.symbol} className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="font-mono font-bold text-foreground/80 truncate">{c.name}</span>
+                                    <span className="font-mono text-foreground/80">{c.found ? c.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>
+                                  </div>
+                                ))}
+                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{commodities.length} commodities · drop to place</div>
+                              </div>
+                            </>
+                          );
+                        }
+                        if (!src) return null;
+                        return (
+                          <>
+                            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
+                              <span className="flex items-center gap-2 min-w-0">
+                                <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
+                                <span className="font-serif font-semibold text-sm text-foreground truncate">{src.country}</span>
+                                <span className="text-[9px] text-muted-foreground font-mono truncate">{src.exchange}</span>
+                              </span>
+                              <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
                             </div>
-                          ))}
-                          <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">
-                            {src.stocks.length} rows · drop to place
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                            <div className="px-3.5 py-2.5 space-y-1.5">
+                              {src.stocks.slice(0, Math.min(3, gmConfig.rows)).map(s => (
+                                <div key={s.symbol} className="flex items-center justify-between gap-2 text-[11px]">
+                                  <span className="font-mono font-bold text-foreground/80 truncate">{/^\d{2,}$/.test(s.symbol) ? s.name : s.symbol}</span>
+                                  <span className="font-mono text-foreground/80">{priceWithCurrency(src.id, s.price)}</span>
+                                </div>
+                              ))}
+                              <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">
+                                {src.stocks.length} rows · drop to place
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>,
+                    document.body
+                  )}
                 </div>
               )}
             </div>
           );
         })()}
+
+        {screenerTab === 'forex' && (
+          <>
+            <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
+                    <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleForexSort('symbol')}>
+                      Pair {forexSortField === 'symbol' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('name')}>
+                      Name {forexSortField === 'name' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleForexSort('base')}>
+                      Base {forexSortField === 'base' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleForexSort('quote')}>
+                      Quote {forexSortField === 'quote' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('price')}>
+                      Rate {forexSortField === 'price' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('changePct')}>
+                      Change % {forexSortField === 'changePct' && (forexSortOrder === 'asc' ? '▲' : '▼')}
+                    </th>
+                    <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingForex ? (
+                    <TableSkeleton cols={7} rows={8} />
+                  ) : filteredForex.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
+                        No matching forex pairs found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredForex.map((pair) => {
+                      const isPositive = pair.changePct >= 0;
+                      return (
+                        <tr
+                          key={pair.symbol}
+                          className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
+                        >
+                          <td
+                            onClick={() => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct })}
+                            className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
+                          >
+                            {pair.symbol.replace('=X', '')}
+                          </td>
+                          <td className="py-3 px-4 text-foreground/80 truncate max-w-[180px] whitespace-nowrap">{pair.name}</td>
+                          <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{pair.base}</td>
+                          <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{pair.quote}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                            {pair.found ? pair.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '—'}
+                          </td>
+                          <td className={cn(
+                            "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
+                            isPositive ? 'text-emerald-400' : 'text-rose-400'
+                          )}>
+                            {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '—'}
+                          </td>
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <Button
+                              size="sm"
+                              onClick={() => handleAction(pair.symbol)}
+                              className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-2 rounded-lg py-0.5 h-auto text-[9px] font-semibold transition-all hover:scale-105 cursor-pointer"
+                            >
+                              <Sparkles size={10} className="mr-1 inline" /> Analyze
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {screenerTab === 'commodities' && (
+          <>
+            <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
+                    <th className="py-3 px-4 whitespace-nowrap">Commodity</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Symbol</th>
+                    <th className="py-3 px-4 hidden sm:table-cell whitespace-nowrap">Unit</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap">Price</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap">Change %</th>
+                    <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingCommodities ? (
+                    <TableSkeleton cols={6} rows={8} />
+                  ) : filteredCommodities.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-muted-foreground font-medium whitespace-nowrap ">
+                        No commodity data found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredCommodities.map((c) => {
+                      const isPositive = c.changePct >= 0;
+                      return (
+                        <tr
+                          key={c.symbol}
+                          className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
+                        >
+                          <td
+                            onClick={() => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct })}
+                            className="py-1 px-2 border border-border/30 font-bold text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
+                          >
+                            {c.name}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-foreground/75 whitespace-nowrap">{c.symbol.replace('=F', '')}</td>
+                          <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{c.unit}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                            {c.found ? c.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                          </td>
+                          <td className={cn(
+                            "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
+                            isPositive ? 'text-emerald-400' : 'text-rose-400'
+                          )}>
+                            {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '—'}
+                          </td>
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <Button
+                              size="sm"
+                              onClick={() => handleAction(c.symbol)}
+                              className="inline-flex items-center gap-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 px-2 rounded-lg py-0.5 h-auto text-[9px] font-semibold transition-all hover:scale-105 cursor-pointer"
+                            >
+                              <Sparkles size={10} className="mr-1 inline" /> Analyze
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
         {screenerTab === 'stocks' && (
           <>
@@ -2904,7 +3404,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               e.stopPropagation();
                               handleSymbolClick(stock.symbol, stock.name, stock);
                             }}
-                            className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap"
+                            className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap"
                           >
                             {stock.symbol}
                           </td>
@@ -2921,8 +3421,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
                             {stock.priceMissing || !stock.price || stock.price <= 0 ? (
                               <span className="inline-flex items-center gap-1.5">
-                                <Skeleton className="h-3.5 w-16 inline-block" />
-                                <span className="text-[9px] text-muted-foreground/60 animate-pulse">fetching...</span>
+                                <span className="text-[9px] text-muted-foreground/60 animate-pulse">â ¹ fetching…</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5">
@@ -2943,7 +3442,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
                             {stock.priceMissing || !stock.price || stock.price <= 0 ? (
-                              <Skeleton className="h-3.5 w-12 inline-block" />
+                              <span className="text-[9px] text-muted-foreground/60 animate-pulse">â ¹</span>
                             ) : (
                               `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`
                             )}
@@ -3114,7 +3613,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                   e.stopPropagation();
                                   handleSymbolClick(stock.symbol, stock.name, stock);
                                 }}
-                                className="py-2 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap"
+                                className="py-2 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap"
                               >
                                 {stock.symbol}
                               </td>
@@ -3135,8 +3634,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
                                 {stock.priceMissing || !stock.price || stock.price <= 0 ? (
                                   <span className="inline-flex items-center gap-1.5">
-                                    <Skeleton className="h-3.5 w-16 inline-block" />
-                                    <span className="text-[9px] text-muted-foreground/60 animate-pulse">fetching...</span>
+                                    <span className="text-[9px] text-muted-foreground/60 animate-pulse">â ¹ fetching…</span>
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5">
@@ -3157,7 +3655,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 isPositive ? 'text-emerald-400' : 'text-rose-400'
                               )}>
                                 {stock.priceMissing || !stock.price || stock.price <= 0 ? (
-                                  <Skeleton className="h-3.5 w-12 inline-block" />
+                                  <span className="text-[9px] text-muted-foreground/60 animate-pulse">â ¹</span>
                                 ) : (
                                   `${isPositive ? '+' : ''}${stock.changePercent.toFixed(2)}%`
                                 )}
@@ -3328,7 +3826,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       >
                         <td 
                           onClick={() => handleSymbolClick(etf.symbol, etf.name, { marketCap: etf.aum, price: etf.price, changePercent: etf.changePercent, volume: etf.volume })}
-                          className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap cursor-pointer"
+                          className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {etf.symbol}
                         </td>
@@ -3412,7 +3910,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       >
                         <td 
                           onClick={() => handleSymbolClick(fund.symbol, fund.name, { marketCap: fund.aum, price: fund.nav, changePercent: fund.changePercent })}
-                          className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap cursor-pointer"
+                          className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {fund.symbol}
                         </td>
@@ -3504,7 +4002,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       >
                         <td 
                           onClick={() => handleSymbolClick(dividendStock.symbol, dividendStock.name, { peRatio: dividendStock.peRatio, marketCap: dividendStock.marketCap, dividendYield: dividendStock.dividendYield, price: dividendStock.price, changePercent: dividendStock.changePercent, volume: dividendStock.volume })}
-                          className="py-1 px-2 border border-border/30 font-bold font-mono text-primary hover:underline whitespace-nowrap cursor-pointer"
+                          className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {dividendStock.symbol}
                         </td>
