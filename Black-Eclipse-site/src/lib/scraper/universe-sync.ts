@@ -41,9 +41,11 @@ const WRITE_CHUNK = 250;
 
 /**
  * Sync one market's universe + prices from a TradingView scan.
+ * `limit` caps how many scanned rows are actually upserted (0 = all) so
+ * boot warm-ups can't hammer SQLite with 5k+ writes while pages load.
  * Returns summary. No-op (empty result) for non-TradingView markets.
  */
-export async function syncMarketUniverse(market: string): Promise<SyncResult> {
+export async function syncMarketUniverse(market: string, limit = 0): Promise<SyncResult> {
   if (!isTradingViewMarket(market)) {
     return { market, scanned: 0, created: 0, updated: 0, deactivated: 0, ok: 0, failed: 0 };
   }
@@ -69,6 +71,11 @@ export async function syncMarketUniverse(market: string): Promise<SyncResult> {
   };
 
   if (rows.length === 0) return result;
+
+  // Cap the write volume when requested (boot warm-up): sync the top rows by
+  // market cap so the most visible instruments get fresh prices first.
+  const effectiveRows = limit > 0 ? rows.slice(0, limit) : rows;
+  result.scanned = rows.length;
 
   // Ensure the Market row exists (idempotent).
   await prisma.market.upsert({
@@ -145,19 +152,23 @@ export async function syncMarketUniverse(market: string): Promise<SyncResult> {
     });
 
   try {
-    for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
-      const chunk = rows.slice(i, i + WRITE_CHUNK);
+    for (let i = 0; i < effectiveRows.length; i += WRITE_CHUNK) {
+      const chunk = effectiveRows.slice(i, i + WRITE_CHUNK);
       await prisma.$transaction(chunk.map(assetUpsert));
       // Hand the event loop back to pending HTTP requests between chunks.
+      // A short sleep (not just setImmediate) lets queued responses actually
+      // drain — thousands of back-to-back transactions otherwise pin the
+      // loop and freeze every API route for minutes.
       await yieldToEventLoop();
+      await new Promise((r) => setTimeout(r, 25));
     }
   } catch (err) {
     console.error(`[universe-sync] asset upsert failed for ${market}:`, err);
-    result.failed += rows.length;
+    result.failed += effectiveRows.length;
     return result;
   }
 
-  for (const row of rows) {
+  for (const row of effectiveRows) {
     if (existingBySymbol.has(row.symbol)) result.updated++;
     else result.created++;
   }
@@ -204,13 +215,14 @@ export async function syncMarketUniverse(market: string): Promise<SyncResult> {
     });
   };
 
-  const pricedRows = rows.filter((row) => idBySymbol.has(row.symbol));
-  result.failed += rows.length - pricedRows.length;
+  const pricedRows = effectiveRows.filter((row) => idBySymbol.has(row.symbol));
+  result.failed += effectiveRows.length - pricedRows.length;
   try {
     for (let i = 0; i < pricedRows.length; i += WRITE_CHUNK) {
       const chunk = pricedRows.slice(i, i + WRITE_CHUNK);
       await prisma.$transaction(chunk.map(priceUpsert));
       await yieldToEventLoop();
+      await new Promise((r) => setTimeout(r, 25));
     }
   } catch (err) {
     console.error(`[universe-sync] price upsert failed for ${market}:`, err);

@@ -58,15 +58,20 @@ if (killedProcess) {
   }
 }
 
-// 2. Clean .next cache to prevent Next.js layout router mounting errors
-try {
-  const nextCacheDir = path.join(__dirname, '../.next');
-  if (fs.existsSync(nextCacheDir)) {
-    console.log('Clearing Next.js build cache directory (.next)...');
-    fs.rmSync(nextCacheDir, { recursive: true, force: true });
-    console.log('Next.js build cache cleared.');
+// 2. Clean .next cache ONLY when explicitly requested (BE_CLEAR_CACHE=1).
+//    Wiping .next on every dev start forced every route to recompile from
+//    scratch (40s+ per API route), making the whole site feel broken. The
+//    persistent webpack cache makes restarts near-instant instead.
+if (process.env.BE_CLEAR_CACHE === '1') {
+  try {
+    const nextCacheDir = path.join(__dirname, '../.next');
+    if (fs.existsSync(nextCacheDir)) {
+      console.log('Clearing Next.js build cache directory (.next)...');
+      fs.rmSync(nextCacheDir, { recursive: true, force: true });
+      console.log('Next.js build cache cleared.');
+    }
+  } catch (cacheErr) {
+    console.warn('Warning: Could not clear .next directory:', cacheErr.message);
   }
-} catch (cacheErr) {
-  console.warn('Warning: Could not clear .next directory:', cacheErr.message);
 }
 

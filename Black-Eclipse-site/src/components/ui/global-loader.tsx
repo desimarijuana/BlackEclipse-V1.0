@@ -42,12 +42,21 @@ export function GlobalLoader({ maxDelay = 8000 }: { maxDelay?: number }) {
   }, []);
 
   // Fire the warm-up requests (fire-and-forget; the tracker in
-  // fetch-progress updates done/total as each settles).
+  // fetch-progress updates done/total as each settles). Each gets a hard
+  // abort timeout so a stalled endpoint can never leave the tracker (or the
+  // loader) hanging, and rejections are swallowed — warm-up failures must
+  // never surface as console errors.
   useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), maxDelay);
     for (const url of WARMUP_ENDPOINTS) {
-      fetch(url).catch(() => {});
+      fetch(url, { signal: controller.signal }).catch(() => {});
     }
-  }, []);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [maxDelay]);
 
   // Guaranteed count-up: every 120ms bump the percentage by at least one
   // step so the number visibly climbs 1 → 100 over maxDelay, while the real
@@ -90,7 +99,7 @@ export function GlobalLoader({ maxDelay = 8000 }: { maxDelay?: number }) {
 
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-5 bg-background/98 backdrop-blur-md" data-global-loader data-pct={Math.floor(shown)}>
-      <AsciiProgress pct={shown} label="loading markets" size={32} />
+       <AsciiProgress pct={shown} label="" size={32} />
     </div>
   );
 }

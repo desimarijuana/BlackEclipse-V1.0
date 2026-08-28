@@ -42,7 +42,10 @@ export function installBootFetchTracking(): () => void {
   const orig = window.fetch.bind(window);
   const wrapped: typeof fetch = (input, init) => {
     const stop = trackBootFetch();
-    return orig(input, init).finally(stop);
+    return orig(input, init).then(
+      (res) => { stop(); return res; },
+      (err) => { stop(); throw err; },
+    );
   };
   window.fetch = wrapped;
   return () => {

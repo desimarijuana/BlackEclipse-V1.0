@@ -197,6 +197,11 @@ export async function triggerScrape(
     return { total: 0, ok: 0, failed: 0, disabled: true };
   }
   if (isRunning) return { total: 0, ok: 0, failed: 0 };
+  // Never run a whole-market cycle while the universe sync is mid-flight —
+  // two heavy write storms at once freeze every API route.
+  if (!options.symbols && syncBusy()) {
+    return { total: 0, ok: 0, failed: 0 };
+  }
 
   // Whole-market cycles must not compete with the boot warm-up — whichever
   // started first owns the write path. Page-scoped/manual refreshes
@@ -288,9 +293,14 @@ export async function startScheduler() {
   const run = async () => {
     await triggerScrape();
   };
+  // Grace period after boot: don't run a heavy refresh cycle while the first
+  // page loads are compiling/competing — it starves the event loop.
+  const bootTime = Date.now();
+  const PRICE_BOOT_GRACE_MS = 45 * 1000;
   // Poll every minute to evaluate if a refresh is due (respects interval changes).
   scheduledTask = cron.schedule("* * * * *", async () => {
     try {
+      if (Date.now() - bootTime < PRICE_BOOT_GRACE_MS) return;
       const config = await getPriceScraperConfig();
       if (config.mode === "off" || config.mode === "manual") return;
       const job = await prisma.cronJob.findUnique({ where: { type: "price_refresh" } });
@@ -329,6 +339,11 @@ const DEFAULT_SYNC_INTERVAL_MIN = 24 * 60; // daily
 let syncTask: ScheduledTask | null = null;
 let syncRunning = false;
 
+/** Whether the daily universe-sync write storm is currently running. */
+export function syncBusy(): boolean {
+  return syncRunning;
+}
+
 /** Sync every TradingView-covered market's universe (prices + new listings). */
 export async function runUniverseSync(): Promise<{
   markets: number;
@@ -336,6 +351,13 @@ export async function runUniverseSync(): Promise<{
   created: number;
 }> {
   if (syncRunning) return { markets: 0, ok: 0, created: 0 };
+  // Mutual exclusion with the boot warm-up: two heavy whole-market jobs
+  // writing thousands of SQLite rows at once starve every HTTP request.
+  // Wait (bounded) for the warm-up to finish instead of competing with it.
+  const waitStart = Date.now();
+  while ((warmUpBusy || isRunning) && Date.now() - waitStart < 10 * 60 * 1000) {
+    await sleep(10_000);
+  }
   syncRunning = true;
   const { syncMarketUniverse } = await import("./universe-sync");
   const { isTradingViewMarket } = await import("./fetchers/tradingview");
@@ -355,6 +377,9 @@ export async function runUniverseSync(): Promise<{
       } catch (err) {
         console.error(`[UniverseSync] ${market} failed:`, err);
       }
+      // Pause between markets so pending HTTP responses drain — back-to-back
+      // whole-market write storms are what freeze the API.
+      await sleep(3_000);
     }
     await prisma.cronJob.upsert({
       where: { type: UNIVERSE_SYNC_TYPE },
@@ -388,8 +413,14 @@ export async function startUniverseSync() {
   } catch (err) {
     console.error("[UniverseSync] init failed:", err);
   }
+  // Grace period after boot: a due sync must NOT fire while the first page
+  // loads are compiling routes and fetching data — thousands of synchronous
+  // SQLite writes starve the event loop and freeze every API request.
+  const bootTime = Date.now();
+  const BOOT_GRACE_MS = 5 * 60 * 1000; // 5 minutes
   syncTask = cron.schedule("*/30 * * * *", async () => {
     try {
+      if (Date.now() - bootTime < BOOT_GRACE_MS) return;
       const job = await prisma.cronJob.findUnique({ where: { type: UNIVERSE_SYNC_TYPE } });
       const enabled = job?.enabled ?? true;
       if (!enabled) return;
@@ -430,6 +461,12 @@ export function restartUniverseSync() {
 export async function warmUpAllMarkets(options: { delayMs?: number } = {}) {
   const delayMs = options.delayMs ?? 20_000;
   if (delayMs > 0) await sleep(delayMs);
+  // Let an already-running universe sync finish first — the two jobs
+  // together would block the event loop for minutes.
+  const waitStart = Date.now();
+  while (syncRunning && Date.now() - waitStart < 10 * 60 * 1000) {
+    await sleep(10_000);
+  }
   if (warmUpBusy || isRunning) return;
   warmUpBusy = true;
   try {
@@ -454,15 +491,19 @@ export async function warmUpAllMarkets(options: { delayMs?: number } = {}) {
         const unpriced = await prisma.asset.count({
           where: { marketId: market, isActive: true, price: { is: null } },
         });
-        // Full universe when rows are missing; otherwise a shallow keep-fresh pass.
-        const r = await refreshMarketBatch(market, unpriced > 0 ? 0 : 20);
+        // Full universe when rows are missing; otherwise a shallow keep-fresh
+        // pass. Cap the full-universe pass at 1000 rows: a boot warm-up that
+        // scans 5k+ symbols (CN/JP/KR/DE...) hammers SQLite for minutes and
+        // freezes every API route. The scheduled cycle covers the rest.
+        const r = await refreshMarketBatch(market, unpriced > 0 ? Math.min(1000, unpriced) : 20);
         total += r.ok;
         console.log(`[WarmUp] ${market}: ${r.ok}/${r.total} priced`);
       } catch (err) {
         console.error(`[WarmUp] ${market} failed:`, err);
       }
       // Let queued HTTP requests and timers run before the next heavy batch.
-      await sleep(1_500);
+      // Longer pause: bulk writes are synchronous and starve in-flight requests.
+      await sleep(4_000);
     }
     console.log(`[WarmUp] done in ${((Date.now() - started) / 1000).toFixed(0)}s — ${total} prices written`);
     await prisma.cronJob.upsert({

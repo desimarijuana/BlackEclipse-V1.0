@@ -105,9 +105,9 @@ export function AsciiProgress({
         <DotGrid size={size} />
       </div>
       <div className="flex items-center justify-center gap-2.5">
-        <span className="text-muted-foreground font-bold w-8 text-right tabular-nums">
-          {Math.floor(pct)}%
-        </span>
+         <span className="text-muted-foreground font-bold tabular-nums">
+           {Math.floor(pct)}%
+         </span>
         {label && <span className="text-muted-foreground/60 truncate">· {label}</span>}
       </div>
     </div>

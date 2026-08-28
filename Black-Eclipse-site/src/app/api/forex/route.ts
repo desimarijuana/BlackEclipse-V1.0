@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,33 @@ const CACHE_TTL_MS = 2 * 60 * 1000;
 let cache: { t: number; data: unknown } | null = null;
 let rebuildInFlight = false;
 
+// Persisted copy of the last good payload (SystemConfig key). Survives server
+// restarts so a cold start serves instantly instead of blocking 7-8s on the
+// Python bridge while the user stares at "loading forex…".
+const PERSIST_KEY = "api_cache:forex";
+
+async function loadPersisted(): Promise<unknown | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key: PERSIST_KEY } });
+    if (!row?.value) return null;
+    const parsed = JSON.parse(row.value);
+    if (parsed && Array.isArray(parsed.pairs) && parsed.pairs.some((p: { found: boolean }) => p.found)) {
+      return parsed;
+    }
+  } catch { /* ignore — fall through to a live build */ }
+  return null;
+}
+
+async function persist(data: unknown) {
+  try {
+    await prisma.systemConfig.upsert({
+      where: { key: PERSIST_KEY },
+      update: { value: JSON.stringify(data) },
+      create: { key: PERSIST_KEY, value: JSON.stringify(data) },
+    });
+  } catch { /* ignore — persistence is best-effort */ }
+}
+
 async function buildForex() {
   const results = await fetchYahooBatchQuote(
     FOREX_PAIRS.map((p) => p.symbol),
@@ -69,13 +97,21 @@ async function buildForex() {
   return { pairs, source: pairs.some((p) => p.found) ? "yfinance" : "cache" };
 }
 
-function startBackgroundRebuild() {
+async function startBackgroundRebuild() {
   if (rebuildInFlight) return;
   rebuildInFlight = true;
-  buildForex()
-    .then((data) => { cache = { t: Date.now(), data }; })
-    .catch((err) => console.error("[api/forex] background rebuild error:", err))
-    .finally(() => { rebuildInFlight = false; });
+  try {
+    const data = await buildForex();
+    const anyFound = data.pairs.some((p) => p.found);
+    if (anyFound) {
+      cache = { t: Date.now(), data };
+      await persist(data);
+    }
+  } catch (err) {
+    console.error("[api/forex] background rebuild error:", err);
+  } finally {
+    rebuildInFlight = false;
+  }
 }
 
 // GET /api/forex — live major forex pair quotes.
@@ -85,11 +121,20 @@ export async function GET() {
       if (Date.now() - cache.t < CACHE_TTL_MS) {
         return NextResponse.json(cache.data);
       }
-      startBackgroundRebuild();
+      void startBackgroundRebuild();
       return NextResponse.json(cache.data);
+    }
+    // Cold start (no in-memory cache): serve the persisted payload instantly
+    // when one exists and refresh in the background.
+    const persisted = await loadPersisted();
+    if (persisted) {
+      cache = { t: Date.now(), data: persisted };
+      void startBackgroundRebuild();
+      return NextResponse.json(persisted);
     }
     const data = await buildForex();
     cache = { t: Date.now(), data };
+    await persist(data);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[api/forex] GET error:", err);

@@ -244,6 +244,29 @@
   scrollbar-color: rgba(122, 255, 120, 0.2) transparent;
 }
 
+/* Stock-detail metrics rail: always-visible, wider scrollbar so the rail is
+   clearly scrollable (the global 6px thumb was too easy to miss). */
+.tv-metrics-rail {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(122, 255, 120, 0.45) rgba(122, 255, 120, 0.06);
+}
+.tv-metrics-rail::-webkit-scrollbar {
+  width: 10px;
+}
+.tv-metrics-rail::-webkit-scrollbar-track {
+  background: rgba(122, 255, 120, 0.06);
+  border-radius: 9999px;
+}
+.tv-metrics-rail::-webkit-scrollbar-thumb {
+  background: rgba(122, 255, 120, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.tv-metrics-rail::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 255, 120, 0.8);
+}
+
 /* Consistent, highly-visible shimmer skeleton styles */
 .animate-pulse div,
 .animate-pulse span,

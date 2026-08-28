@@ -81,66 +81,66 @@ const MARKET_CURRENCY = marketCurrencyMap;
 const SIMULATED: Record<string, { indices: { name: string; symbol: string; price: number; change: number; changePercent: number; sparkline: number[] }[]; sectors: { name: string; change: number }[]; shifters: { gainers: { symbol: string; name: string; price: number; changePercent: number }[]; losers: { symbol: string; name: string; price: number; changePercent: number }[] } }> = {
   US: {
     indices: [
-      { name: "S&P 500", symbol: "^GSPC", price: 5304.72, change: 42.1, changePercent: 0.8, sparkline: [5260, 5280, 5275, 5290, 5304.72] },
-      { name: "Nasdaq Composite", symbol: "^IXIC", price: 16920.72, change: 182.2, changePercent: 1.09, sparkline: [16700, 16820, 16780, 16850, 16920.72] },
-      { name: "Dow Jones", symbol: "^DJI", price: 39069.59, change: -88.1, changePercent: -0.22, sparkline: [39200, 39150, 39180, 39020, 39069.59] },
-      { name: "Russell 2000", symbol: "^RUT", price: 2068.32, change: 11.45, changePercent: 0.56, sparkline: [2050, 2062, 2055, 2060, 2068.32] },
-      { name: "Bitcoin", symbol: "BTC-USD", price: 67840, change: 1420, changePercent: 2.14, sparkline: [66200, 66800, 67200, 67000, 67840] },
-      { name: "Gold", symbol: "GC=F", price: 2348.8, change: -12.4, changePercent: -0.52, sparkline: [2365, 2360, 2355, 2358, 2348.8] },
+      { name: "S&P 500", symbol: "^GSPC", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Nasdaq Composite", symbol: "^IXIC", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Dow Jones", symbol: "^DJI", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Russell 2000", symbol: "^RUT", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Bitcoin", symbol: "BTC-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Gold", symbol: "GC=F", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
     ],
     sectors: [
-      { name: "Information Technology", change: 1.84 },
-      { name: "Communication Services", change: 1.25 },
-      { name: "Health Care", change: 0.88 },
-      { name: "Financials", change: 0.42 },
-      { name: "Materials", change: 0.15 },
-      { name: "Energy", change: -0.12 },
-      { name: "Industrials", change: -0.34 },
-      { name: "Consumer Staples", change: -0.45 },
-      { name: "Real Estate", change: -0.72 },
-      { name: "Utilities", change: -0.85 },
-      { name: "Consumer Discretionary", change: -1.12 },
+      { name: "Information Technology", change: 0 },
+      { name: "Communication Services", change: 0 },
+      { name: "Health Care", change: 0 },
+      { name: "Financials", change: 0 },
+      { name: "Materials", change: 0 },
+      { name: "Energy", change: 0 },
+      { name: "Industrials", change: 0 },
+      { name: "Consumer Staples", change: 0 },
+      { name: "Real Estate", change: 0 },
+      { name: "Utilities", change: 0 },
+      { name: "Consumer Discretionary", change: 0 },
     ],
     shifters: {
       gainers: [
-        { symbol: "NVDA", name: "NVIDIA Corp.", price: 1096.5, changePercent: 4.6 },
-        { symbol: "LLY", name: "Eli Lilly & Co.", price: 818.5, changePercent: 2.1 },
-        { symbol: "NFLX", name: "Netflix Inc.", price: 645.2, changePercent: 1.96 },
+        { symbol: "NVDA", name: "NVIDIA Corp.", price: 0, changePercent: 0 },
+        { symbol: "LLY", name: "Eli Lilly & Co.", price: 0, changePercent: 0 },
+        { symbol: "NFLX", name: "Netflix Inc.", price: 0, changePercent: 0 },
       ],
       losers: [
-        { symbol: "TSLA", name: "Tesla Inc.", price: 178.5, changePercent: -2.35 },
-        { symbol: "META", name: "Meta Platforms", price: 475.4, changePercent: -1.7 },
-        { symbol: "UNH", name: "UnitedHealth Group", price: 494.6, changePercent: -1.3 },
+        { symbol: "TSLA", name: "Tesla Inc.", price: 0, changePercent: 0 },
+        { symbol: "META", name: "Meta Platforms", price: 0, changePercent: 0 },
+        { symbol: "UNH", name: "UnitedHealth Group", price: 0, changePercent: 0 },
       ],
     },
   },
   CRYPTO: {
     indices: [
-      { name: "Bitcoin", symbol: "BTC-USD", price: 67840, change: 1420, changePercent: 2.14, sparkline: [66200, 66800, 67200, 67000, 67840] },
-      { name: "Ethereum", symbol: "ETH-USD", price: 3500.2, change: 82.5, changePercent: 2.41, sparkline: [3400, 3420, 3450, 3480, 3500.2] },
-      { name: "Solana", symbol: "SOL-USD", price: 168.4, change: 6.2, changePercent: 3.82, sparkline: [160, 162, 165, 164, 168.4] },
-      { name: "Binance Coin", symbol: "BNB-USD", price: 585.5, change: 12.1, changePercent: 2.11, sparkline: [570, 575, 580, 578, 585.5] },
-      { name: "Ripple", symbol: "XRP-USD", price: 0.52, change: 0.015, changePercent: 2.97, sparkline: [0.5, 0.51, 0.5, 0.51, 0.52] },
-      { name: "Dogecoin", symbol: "DOGE-USD", price: 0.154, change: 0.008, changePercent: 5.48, sparkline: [0.142, 0.145, 0.148, 0.15, 0.154] },
+      { name: "Bitcoin", symbol: "BTC-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Ethereum", symbol: "ETH-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Solana", symbol: "SOL-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Binance Coin", symbol: "BNB-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Ripple", symbol: "XRP-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
+      { name: "Dogecoin", symbol: "DOGE-USD", price: 0, change: 0, changePercent: 0, sparkline: [0, 0, 0, 0, 0] },
     ],
     sectors: [
-      { name: "Layer 1", change: 2.85 },
-      { name: "DeFi", change: 1.45 },
+      { name: "Layer 1", change: 0 },
+      { name: "DeFi", change: 0 },
       { name: "Stablecoins", change: 0 },
-      { name: "Meme Coins", change: 8.5 },
-      { name: "Exchange Tokens", change: -1.2 },
-      { name: "Layer 2", change: 1.8 },
+      { name: "Meme Coins", change: 0 },
+      { name: "Exchange Tokens", change: 0 },
+      { name: "Layer 2", change: 0 },
     ],
     shifters: {
       gainers: [
-        { symbol: "DOGE", name: "Dogecoin", price: 0.154, changePercent: 5.48 },
-        { symbol: "SOL", name: "Solana", price: 168.4, changePercent: 3.82 },
-        { symbol: "ETH", name: "Ethereum", price: 3500.2, changePercent: 2.41 },
+        { symbol: "DOGE", name: "Dogecoin", price: 0, changePercent: 0 },
+        { symbol: "SOL", name: "Solana", price: 0, changePercent: 0 },
+        { symbol: "ETH", name: "Ethereum", price: 0, changePercent: 0 },
       ],
       losers: [
-        { symbol: "BNB", name: "Binance Coin", price: 585.5, changePercent: -1.2 },
-        { symbol: "XRP", name: "Ripple", price: 0.52, changePercent: -0.45 },
-        { symbol: "BTC", name: "Bitcoin", price: 67840, changePercent: -0.15 },
+        { symbol: "BNB", name: "Binance Coin", price: 0, changePercent: 0 },
+        { symbol: "XRP", name: "Ripple", price: 0, changePercent: 0 },
+        { symbol: "BTC", name: "Bitcoin", price: 0, changePercent: 0 },
       ],
     },
   },
@@ -191,6 +191,30 @@ export async function GET(request: Request) {
     return NextResponse.json(cachedEntry.data);
   }
 
+  // Cold start: if the IndexQuote table already has quotes for this market
+  // (persisted by a previous build), serve them INSTANTLY and refresh from
+  // Yahoo in the background. Never make the browser wait 15-40s on the
+  // Python bridge — that's what caused the "Failed to fetch" aborts.
+  try {
+    const persisted = await prisma.indexQuote.findMany({
+      where: { marketId: market },
+      select: { symbol: true, name: true, price: true, change: true, changePct: true },
+    });
+    const usable = persisted.filter((q) => q.price > 0);
+    if (usable.length > 0) {
+      const data = buildPayloadFromCache(market, usable);
+      indicesCache.set(market, { t: Date.now(), data });
+      if (!indicesRebuilding.has(market)) {
+        indicesRebuilding.add(market);
+        buildIndicesPayload(market)
+          .then((fresh) => indicesCache.set(market, { t: Date.now(), data: fresh }))
+          .catch((err) => console.error("[api/indices] background rebuild error:", err))
+          .finally(() => indicesRebuilding.delete(market));
+      }
+      return NextResponse.json(data);
+    }
+  } catch { /* DB miss — fall through to a live build */ }
+
   try {
     const data = await buildIndicesPayload(market);
     indicesCache.set(market, { t: Date.now(), data });
@@ -209,6 +233,35 @@ export async function GET(request: Request) {
       simulated: true,
     });
   }
+}
+
+// Assemble the same payload shape from persisted IndexQuote rows only (no
+// network). Used for the instant cold-start serve above.
+function buildPayloadFromCache(
+  market: string,
+  rows: Array<{ symbol: string; name: string; price: number; change: number; changePct: number }>
+) {
+  const marketCurrency = MARKET_CURRENCY[market] || "$";
+  const indices = rows
+    .filter((r) => r.price > 0)
+    .map((r) => ({
+      name: r.name,
+      symbol: r.symbol,
+      price: r.price,
+      change: r.change,
+      changePercent: r.changePct,
+      sparkline: sparkline(r.price),
+      currency: marketCurrency,
+    }));
+  return {
+    market,
+    indices,
+    sectors: [] as { name: string; change: number }[],
+    shifters: { gainers: [], losers: [] },
+    live: indices.length,
+    total: rows.length,
+    source: "cache",
+  };
 }
 
 async function buildIndicesPayload(market: string) {

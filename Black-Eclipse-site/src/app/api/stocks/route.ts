@@ -12,7 +12,15 @@ const filterOptionsCache = new Map<string, { t: number; data: { sectors: string[
 // Map JDDS Asset+Price records into the StockItem shape the screener expects.
 function toStockItem(
   asset: { symbol: string; name: string; sector: string | null; industry: string | null; country: string | null; securityType: string | null; assetClass: string | null },
-  price: { price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null; dividendYield: number | null; rank?: number | null; circulatingSupply?: number | null; totalSupply?: number | null; maxSupply?: number | null; ath?: number | null; atl?: number | null; athChangePct?: number | null; source?: string | null; updatedAt?: Date | string | null } | null,
+  price: {
+    price: number; changePct: number; marketCap: number | null; volume: number | null; peRatio: number | null;
+    dividendYield: number | null; rank?: number | null; circulatingSupply?: number | null; totalSupply?: number | null;
+    maxSupply?: number | null; ath?: number | null; atl?: number | null; athChangePct?: number | null;
+    source?: string | null; updatedAt?: Date | string | null;
+    eps?: number | null; fiftyTwoWeekHigh?: number | null; fiftyTwoWeekLow?: number | null;
+    forwardPE?: number | null; beta?: number | null; dayHigh?: number | null; dayLow?: number | null;
+    open?: number | null; previousClose?: number | null; dividendRate?: number | null; fdv?: number | null;
+  } | null,
   country: string
 ): StockItem {
   const marketCap = price?.marketCap ?? 0;
@@ -45,11 +53,11 @@ function toStockItem(
     volume: volume > 0 ? formatVol(volume) : "N/A",
     marketCap: marketCap > 0 ? formatCap(marketCap) : "N/A",
     peRatio: price?.peRatio != null ? price.peRatio.toFixed(2) : "N/A",
-    dividendYield: "None",
+    dividendYield: price?.dividendYield != null && price.dividendYield > 0 ? `${price.dividendYield.toFixed(2)}%` : "None",
     index: "JDDS",
     recommendation: "N/A",
     exchange: isCrypto ? "GLOBAL" : country,
-    forwardPE: "N/A",
+    forwardPE: price?.forwardPE != null ? price.forwardPE.toFixed(2) : "N/A",
     peg: "N/A",
     ps: "N/A",
     pb: "N/A",
@@ -77,6 +85,17 @@ function toStockItem(
     atl: price?.atl != null ? String(price.atl) : "N/A",
     atlChangePercent: price?.athChangePct ?? 0,
     totalSupply: supplyFmt(price?.totalSupply),
+    eps: price?.eps != null ? price.eps.toFixed(2) : "N/A",
+    fiftyTwoWeekHigh: price?.fiftyTwoWeekHigh ?? null,
+    fiftyTwoWeekLow: price?.fiftyTwoWeekLow ?? null,
+    // Day session data (open / high / low / prev close) for the detail view.
+    dayHigh: price?.dayHigh ?? null,
+    dayLow: price?.dayLow ?? null,
+    dayOpen: price?.open ?? null,
+    previousClose: price?.previousClose ?? null,
+    beta: price?.beta != null ? price.beta.toFixed(2) : "N/A",
+    dividendRate: price?.dividendRate != null ? price.dividendRate.toFixed(2) : "N/A",
+    fdv: price?.fdv != null ? formatCap(price.fdv) : "N/A",
   };
 }
 

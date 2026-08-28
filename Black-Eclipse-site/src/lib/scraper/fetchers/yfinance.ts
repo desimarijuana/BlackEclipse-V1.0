@@ -126,16 +126,22 @@ interface BridgeQuotesOutput {
  */
 export async function fetchYahooBatchRaw(
   symbols: string[],
-  market: string
+  market: string,
+  interval?: string,
+  period?: string
 ): Promise<BridgeQuotesOutput> {
   const clean = symbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
   if (clean.length === 0) return { quotes: {} };
 
-  const { stdout } = await execFileAsync(
-    "python",
-    [BRIDGE_PATH, market, clean.join(",")],
-    { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }
-  );
+  const args = [BRIDGE_PATH, market, clean.join(",")];
+  // Passing interval/period switches the bridge to its history path
+  // (one shared yf.download for all symbols) instead of the quote path.
+  if (interval && period) args.push(interval, period);
+
+  const { stdout } = await execFileAsync("python", args, {
+    timeout: 60000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
 
   const output = stdout.trim();
   const jsonStart = output.indexOf("{");

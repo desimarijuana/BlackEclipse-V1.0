@@ -16,7 +16,7 @@ import { MarketNews, NewsItem } from './market-news';
 import { MyPortfolio } from './my-portfolio';
 import { EmbeddedChart } from './embedded-chart';
 import { Settings } from './settings';
-import { Newspaper } from 'lucide-react';
+import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -41,6 +41,22 @@ function StockChatContent() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Deep-link boot: /?symbol=AAPL opens that symbol's chart tab directly.
+  // Powers ctrl+click "open in new tab" from the screener tables.
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const sym = params.get('symbol');
+      if (sym) {
+        setSelectedChartSymbol(sym.toUpperCase());
+        setActiveTab('chart');
+        // Clean the URL so refresh keeps the chart (history replace).
+        window.history.replaceState(null, '', '/');
+      }
+    } catch { /* ignore malformed URLs */ }
+  }, [mounted]);
 
   // Load conversations from local storage
   useEffect(() => {
@@ -306,7 +322,7 @@ function StockChatContent() {
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 overflow-hidden backdrop-blur-3xl min-w-0 h-full">
+      <div className="flex-1 flex flex-col relative z-10 overflow-hidden backdrop-blur-3xl bg-white/30 dark:bg-[#0f0f0f]/30 min-w-0 h-full before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent">
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
         />
@@ -387,6 +403,12 @@ function StockChatContent() {
 
           {activeTab === 'chart' && (
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
+              <button
+                onClick={() => setActiveTab('discovery')}
+                className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
+              >
+                <ArrowLeft size={13} /> Back to Market Screener
+              </button>
               <EmbeddedChart symbol={selectedChartSymbol} />
             </div>
           )}

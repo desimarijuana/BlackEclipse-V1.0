@@ -6,7 +6,7 @@ import {
   ArrowUpRight, ArrowDownRight, ArrowRight, Search,
   Sparkles, Star, BarChart3,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
-  Info, Briefcase, Building2, Globe, RefreshCw, GripVertical
+  Info, Briefcase, Building2, Globe, RefreshCw, GripVertical, ArrowLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TradingViewChart } from './tradingview-chart';
@@ -37,10 +37,24 @@ const fmtCap = (n?: number | null) => {
 // Per-section data loads use a quiet text line instead, so the page
 // never floods with multiple dot grids.
 function TableLoading({ pct, label }: { pct: number; label: string }) {
+  const [currentPct, setCurrentPct] = useState(pct);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (currentPct < 95) {
+      timer = setInterval(() => {
+        setCurrentPct(prev => Math.min(95, prev + Math.max(0.5, (95 - prev) * 0.05)));
+      }, 300);
+    } else if (pct === 100) {
+      setCurrentPct(100);
+    }
+    return () => clearInterval(timer);
+  }, [pct]);
+
   return (
     <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
       <span className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70 animate-spin" aria-hidden />
-      <span className="font-bold">{Math.floor(pct)}%</span>
+      <span className="font-bold">{Math.floor(currentPct)}%</span>
       {label && <span className="truncate">· {label}</span>}
     </div>
   );
@@ -67,7 +81,21 @@ interface MarketOverviewScreenProps {
 
 export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange }: MarketOverviewScreenProps) {
 
-  const handleSymbolClick = (symbol: string, name: string, extra?: Partial<StockItem>) => {
+  // Ctrl/Cmd+click on any symbol row opens that symbol in a NEW browser tab
+  // (deep link: /?symbol=XYZ boots the app straight into its chart), instead
+  // of the in-page overlay. Shift+click keeps the normal in-page behavior.
+  const openInNewTab = (symbol: string, e: { ctrlKey?: boolean; metaKey?: boolean }) => {
+    if (!(e.ctrlKey || e.metaKey)) return false;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('symbol', symbol.toUpperCase());
+      window.open(url.toString(), '_blank', 'noopener');
+    } catch { /* ignore malformed URLs */ }
+    return true;
+  };
+
+  const handleSymbolClick = (symbol: string, name: string, extra?: Partial<StockItem>, e?: React.MouseEvent) => {
+    if (e && openInNewTab(symbol, e)) return;
     setSelectedAnalysisStock({
         symbol,
         name,
@@ -112,6 +140,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         volumeRaw: extra?.volumeRaw || 0,
         circulatingSupplyRaw: extra?.circulatingSupplyRaw || 0,
         maxSupplyRaw: extra?.maxSupplyRaw || 0,
+        fiftyTwoWeekHigh: extra?.fiftyTwoWeekHigh ?? null,
+        fiftyTwoWeekLow: extra?.fiftyTwoWeekLow ?? null,
+        eps: extra?.eps || 'N/A',
+        dayHigh: extra?.dayHigh ?? null,
+        dayLow: extra?.dayLow ?? null,
+        dayOpen: extra?.dayOpen ?? null,
+        previousClose: extra?.previousClose ?? null,
+        beta: extra?.beta || 'N/A',
+        dividendRate: extra?.dividendRate || 'N/A',
+        fdv: extra?.fdv || 'N/A',
       });
   };
   
@@ -149,11 +187,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [loadingApi, setLoadingApi] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
 
-  // Unified dynamic metrics states loaded from region-specific backend queries
-  const [indexData, setIndexData] = useState<IndexCard[]>(INDEX_DATA);
-  const [sectorPerformance, setSectorPerformance] = useState<SectorPerformance[]>(SECTOR_PERFORMANCE);
-  const [topGainers, setTopGainers] = useState<ShifterItem[]>(TOP_GAINERS);
-  const [topLosers, setTopLosers] = useState<ShifterItem[]>(TOP_LOSERS);
+  // Unified dynamic metrics states loaded from region-specific backend queries.
+  // Start EMPTY with the dashboard loader active — placeholder demo constants
+  // are never rendered as if they were data.
+  const [indexData, setIndexData] = useState<IndexCard[]>([]);
+  const [sectorPerformance, setSectorPerformance] = useState<SectorPerformance[]>([]);
+  const [topGainers, setTopGainers] = useState<ShifterItem[]>([]);
+  const [topLosers, setTopLosers] = useState<ShifterItem[]>([]);
 
   // Customizable ticker strip above the screener: what the user wants to see
   // on top — market indices, top gainers/losers, or a custom symbol list.
@@ -414,16 +454,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // /api/indices — refreshed whenever the selected market changes. Falls back
   // to the static demo data if the endpoint is unreachable.
   React.useEffect(() => {
-    if (screenerTab === 'markets') return;
     let cancelled = false;
-    // Drop the previous country's cards right away and show skeletons so a
+    // Drop the previous market's cards right away and show loaders so a
     // slow fetch never leaves another market's instruments on screen.
     setIndexData([]);
     setSectorPerformance([]);
     setLoadingDashboard(true);
     (async () => {
       try {
-        const qc = getQueryCountry();
+        // The Markets/GLOBAL overview still needs index cards + sectors +
+        // shifters — it just scopes the screener table to US by default.
+        const qc = screenerTab === 'markets' ? 'US' : getQueryCountry();
         const res = await fetch(`/api/indices?market=${encodeURIComponent(qc)}`);
         const data = await res.json();
         if (!cancelled && data) {
@@ -436,9 +477,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           if (data.shifters) {
             if (Array.isArray(data.shifters.gainers) && data.shifters.gainers.length > 0) {
               setTopGainers(data.shifters.gainers);
+            } else {
+              setTopGainers([]);
             }
             if (Array.isArray(data.shifters.losers) && data.shifters.losers.length > 0) {
               setTopLosers(data.shifters.losers);
+            } else {
+              setTopLosers([]);
             }
           }
         }
@@ -925,16 +970,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
 
-  // Dynamic fallback generator to ensure screen is always populated
+  // Demo fallback rows are placeholders — all prices/changes are zero (never
+  // present simulated values as market data). The UI renders them as "—".
   function getFallbackStocks(country: string): StockItem[] {
     const list = [
-      { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology', industry: 'Consumer Electronics', country: 'USA', price: 189.84, changePercent: 1.25, volume: '52.4M', marketCap: '2.97T', peRatio: '28.4', dividendYield: '0.52%', index: 'S&P 500', recommendation: 'Strong Buy', exchange: 'NASDAQ', forwardPE: '26.1', peg: '2.4', ps: '7.8', pb: '38.2', evEbitda: '21.4', grossMargin: '44.3%', operatingMargin: '29.8%', netProfitMargin: '25.6%', insiderOwnership: '0.07%', institutionalOwnership: '61.4%', shortFloat: '1.2%', rsi14: '54.2', sma20: '+1.2%', sma50: '+3.4%', sma200: '+12.1%' },
-      { symbol: 'MSFT', name: 'Microsoft Corp.', sector: 'Technology', industry: 'Software - Infrastructure', country: 'USA', price: 429.20, changePercent: -0.42, volume: '22.8M', marketCap: '3.19T', peRatio: '35.6', dividendYield: '0.70%', index: 'S&P 500', recommendation: 'Buy', exchange: 'NASDAQ', forwardPE: '31.2', peg: '2.8', ps: '12.4', pb: '15.6', evEbitda: '25.2', grossMargin: '68.9%', operatingMargin: '43.2%', netProfitMargin: '35.4%', insiderOwnership: '0.05%', institutionalOwnership: '72.1%', shortFloat: '0.8%', rsi14: '48.5', sma20: '-0.5%', sma50: '+2.1%', sma200: '+18.5%' },
-      { symbol: 'NVDA', name: 'NVIDIA Corp.', sector: 'Technology', industry: 'Semiconductors', country: 'USA', price: 1096.50, changePercent: 4.60, volume: '44.2M', marketCap: '2.70T', peRatio: '72.1', dividendYield: '0.04%', index: 'S&P 500', recommendation: 'Strong Buy', exchange: 'NASDAQ', forwardPE: '35.4', peg: '1.2', ps: '32.1', pb: '54.8', evEbitda: '45.1', grossMargin: '76.2%', operatingMargin: '62.4%', netProfitMargin: '53.1%', insiderOwnership: '4.20%', institutionalOwnership: '68.2%', shortFloat: '1.1%', rsi14: '74.2', sma20: '+8.4%', sma50: '+22.5%', sma200: '+85.2%' },
-      { symbol: 'BTC', name: 'Bitcoin', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 67840.00, changePercent: 2.14, volume: '28.4B', marketCap: '1.3T', peRatio: 'N/A', dividendYield: 'None', index: 'Crypto', recommendation: 'Buy', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: '100%', operatingMargin: '100%', netProfitMargin: '100%', insiderOwnership: '0%', institutionalOwnership: '5%', shortFloat: '0%', rsi14: '58.2', sma20: '+2.4%', sma50: '+12.8%', sma200: '+45.2%' },
-      { symbol: 'ETH', name: 'Ethereum', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 3500.20, changePercent: 2.41, volume: '14.2B', marketCap: '420B', peRatio: 'N/A', dividendYield: 'None', index: 'Crypto', recommendation: 'Strong Buy', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: '100%', operatingMargin: '100%', netProfitMargin: '100%', insiderOwnership: '0%', institutionalOwnership: '12%', shortFloat: '0%', rsi14: '62.4', sma20: '+3.5%', sma50: '+14.2%', sma200: '+52.1%' },
-      { symbol: 'SOL', name: 'Solana', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 168.40, changePercent: 3.82, volume: '3.8B', marketCap: '76B', peRatio: 'N/A', dividendYield: 'None', index: 'Crypto', recommendation: 'Strong Buy', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: '100%', operatingMargin: '100%', netProfitMargin: '100%', insiderOwnership: '0%', institutionalOwnership: '8%', shortFloat: '0%', rsi14: '68.5', sma20: '+8.2%', sma50: '+22.4%', sma200: '+88.4%' },
-      { symbol: 'BNB', name: 'Binance Coin', sector: 'Exchange Tokens', industry: 'Exchange Tokens', country: 'CRYPTO', price: 585.50, changePercent: -1.20, volume: '1.5B', marketCap: '86B', peRatio: 'N/A', dividendYield: 'None', index: 'Crypto', recommendation: 'Hold', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: '100%', operatingMargin: '100%', netProfitMargin: '100%', insiderOwnership: '0%', institutionalOwnership: '3%', shortFloat: '0%', rsi14: '45.2', sma20: '-2.1%', sma50: '+4.2%', sma200: '+32.1%' }
+      { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology', industry: 'Consumer Electronics', country: 'USA', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'N/A', recommendation: 'N/A', exchange: 'NASDAQ', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'MSFT', name: 'Microsoft Corp.', sector: 'Technology', industry: 'Software - Infrastructure', country: 'USA', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'N/A', recommendation: 'N/A', exchange: 'NASDAQ', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'NVDA', name: 'NVIDIA Corp.', sector: 'Technology', industry: 'Semiconductors', country: 'USA', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'N/A', recommendation: 'N/A', exchange: 'NASDAQ', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'BTC', name: 'Bitcoin', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'Crypto', recommendation: 'N/A', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'ETH', name: 'Ethereum', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'Crypto', recommendation: 'N/A', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'SOL', name: 'Solana', sector: 'Layer 1', industry: 'Layer 1', country: 'CRYPTO', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'Crypto', recommendation: 'N/A', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
+      { symbol: 'BNB', name: 'Binance Coin', sector: 'Exchange Tokens', industry: 'Exchange Tokens', country: 'CRYPTO', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'Crypto', recommendation: 'N/A', exchange: 'BINANCE', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' }
     ];
     if (country === 'All') return list;
     const resolved = country === 'CRYPTO' || country === 'Crypto' ? 'CRYPTO' : 'USA';
@@ -1033,6 +1079,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   type ForexPair = { symbol: string; name: string; base: string; quote: string; price: number; changePct: number; found: boolean };
   const [forexPairs, setForexPairs] = useState<ForexPair[]>([]);
   const [forexSearch, setForexSearch] = useState('');
+  const [forexChange, setForexChange] = useState('All');
+  const [forexCurrency, setForexCurrency] = useState('All');
   const [forexSortField, setForexSortField] = useState<keyof ForexPair>('symbol');
   const [forexSortOrder, setForexSortOrder] = useState<'asc' | 'desc'>('asc');
   const [loadingForex, setLoadingForex] = useState(false);
@@ -1074,6 +1122,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       const q = forexSearch.trim().toLowerCase();
       list = list.filter(p => p.symbol.toLowerCase().includes(q) || p.name.toLowerCase().includes(q) || p.base.toLowerCase().includes(q) || p.quote.toLowerCase().includes(q));
     }
+    // Preference filters: change direction, base currency, quote currency.
+    if (forexChange === 'Gainers') list = list.filter(p => p.found && p.changePct > 0);
+    else if (forexChange === 'Losers') list = list.filter(p => p.found && p.changePct < 0);
+    else if (forexChange === 'Flat') list = list.filter(p => !p.found || p.changePct === 0);
+    if (forexCurrency !== 'All') {
+      list = list.filter(p => p.base === forexCurrency || p.quote === forexCurrency);
+    }
     const dir = forexSortOrder === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {
       const av = a[forexSortField];
@@ -1081,12 +1136,14 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [forexPairs, forexSearch, forexSortField, forexSortOrder]);
+  }, [forexPairs, forexSearch, forexChange, forexCurrency, forexSortField, forexSortOrder]);
 
   // Commodities states + fetch — live major commodity futures from /api/commodities.
   type CommodityItem = { symbol: string; name: string; unit: string; price: number; changePct: number; found: boolean };
   const [commodities, setCommodities] = useState<CommodityItem[]>([]);
   const [commoditySearch, setCommoditySearch] = useState('');
+  const [commodityChange, setCommodityChange] = useState('All');
+  const [commodityCategory, setCommodityCategory] = useState('All');
   const [loadingCommodities, setLoadingCommodities] = useState(false);
   React.useEffect(() => {
     if (screenerTab !== 'markets' && screenerTab !== 'commodities') return;
@@ -1118,8 +1175,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       const q = commoditySearch.trim().toLowerCase();
       list = list.filter(c => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q));
     }
+    // Preference filters: change direction + category (energy/metals/agriculture).
+    if (commodityChange === 'Gainers') list = list.filter(c => c.found && c.changePct > 0);
+    else if (commodityChange === 'Losers') list = list.filter(c => c.found && c.changePct < 0);
+    else if (commodityChange === 'Flat') list = list.filter(c => !c.found || c.changePct === 0);
+    if (commodityCategory !== 'All') {
+      const energy = ['GC=F', 'SI=F', 'HG=F', 'PL=F', 'PA=F', 'ALI=F'];
+      const agri = ['ZW=F', 'ZC=F', 'ZS=F', 'KC=F', 'CC=F', 'SB=F', 'CT=F', 'LE=F'];
+      list = list.filter(c =>
+        commodityCategory === 'Energy'
+          ? ['CL=F', 'BZ=F', 'NG=F'].includes(c.symbol)
+          : commodityCategory === 'Metals'
+            ? energy.includes(c.symbol)
+            : agri.includes(c.symbol)
+      );
+    }
     return list;
-  }, [commodities, commoditySearch]);
+  }, [commodities, commoditySearch, commodityChange, commodityCategory]);
 
   // Dividend states
   const [dividendSearch, setDividendSearch] = useState('');
@@ -1463,13 +1535,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               return (
                 <div
                   key={`${stripMode}-${idxCard.symbol}`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    if (openInNewTab(idxCard.symbol, e)) return;
                     if (onSelectChartSymbol) {
                       onSelectChartSymbol(idxCard.symbol);
                     } else {
                       handleAction(idxCard.symbol);
                     }
                   }}
+                  title="Ctrl+click to open in new tab"
                   className="p-3.5 rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 hover:border-primary/50 transition-all duration-300 flex flex-col justify-between group cursor-pointer"
                 >
                   <div>
@@ -1528,7 +1602,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="col-span-full flex items-center justify-center py-6">
                 <TableLoading pct={45} label="loading sectors" />
               </div>
-            ) : (
+            ) : sectorPerformance.length > 0 ? (
               sectorPerformance.map(sector => {
                 const isPositive = sector.change >= 0;
                 return (
@@ -1554,6 +1628,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   </div>
                 );
               })
+            ) : (
+              <div className="col-span-full flex items-center justify-center py-6 text-xs text-muted-foreground/70 font-mono">
+                No sector data available for this market yet.
+              </div>
             )}
           </div>
         </div>
@@ -1572,6 +1650,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="col-span-full flex items-center justify-center py-6">
                 <TableLoading pct={45} label="loading shifters" />
               </div>
+            ) : topGainers.length === 0 && topLosers.length === 0 ? (
+              <div className="col-span-full flex items-center justify-center py-6 text-xs text-muted-foreground/70 font-mono">
+                No shifter data available for this market yet.
+              </div>
             ) : (
               <>
                 {/* Gainers List */}
@@ -1580,9 +1662,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     ▲ Top Gainers
                   </span>
                   {topGainers.map(item => (
-                    <div 
+                    <div
                       key={item.symbol}
-                      onClick={() => {
+                      onClick={(e) => {
+                        if (openInNewTab(item.symbol, e)) return;
                         if (onSelectChartSymbol) {
                           onSelectChartSymbol(item.symbol);
                         } else {
@@ -1606,9 +1689,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     ▼ Top Losers
                   </span>
                   {topLosers.map(item => (
-                    <div 
+                    <div
                       key={item.symbol}
-                      onClick={() => {
+                      onClick={(e) => {
+                        if (openInNewTab(item.symbol, e)) return;
                         if (onSelectChartSymbol) {
                           onSelectChartSymbol(item.symbol);
                         } else {
@@ -1667,7 +1751,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               </div>
             )}
         
-        {/* Tab Selection Row - Spacious and Clean */}
+        {/* Tab Selection Row — market chip left, back button right */}
         <div className="flex items-center justify-between border-b border-border/15 pb-2 mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-1.5 bg-accent/30 p-1.5 rounded-3xl overflow-x-auto max-w-full scrollbar-none flex-nowrap shrink-0 w-full md:w-auto">
             {screenerTab === 'crypto' ? (
@@ -1743,49 +1827,54 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {loadingApi && <span className="text-[10px] text-muted-foreground/80 animate-pulse bg-accent/20 px-2.5 py-1 rounded-xl font-mono">Syncing Exchange...</span>}
+            {screenerTab !== 'markets' && (
+              <button
+                onClick={() => handleMarketSelect('GLOBAL')}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer shrink-0"
+              >
+                <ArrowLeft size={13} /> Back to Market Screener
+              </button>
+            )}
           </div>
         </div>
 
         {/* Dedicated SPACIOUS Filter Action Bar - Solves Congestion */}
         <div className="flex items-center justify-between bg-accent/10 border border-border/20 rounded-3xl p-4 md:p-5 flex-wrap gap-4">
           {screenerTab === 'stocks' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
-                    showAdvancedFilters
-                      ? 'bg-accent text-foreground border-border'
-                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
-                </button>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  showAdvancedFilters
+                    ? 'bg-accent text-foreground border-border'
+                    : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+              </button>
+              {/* Search Input */}
+              <div className="relative flex-1 min-w-[160px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search stocks by ticker or name..."
+                  value={stockSearch}
+                  onChange={e => setStockSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                {/* Search Input */}
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search stocks by ticker or name..."
-                    value={stockSearch}
-                    onChange={e => setStockSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
-                {/* Type Selector (multi-select dropdown) */}
-                <div className="relative min-w-[200px]">
-                  <button
-                    type="button"
-                    onClick={() => setTypeMenuOpen((v) => !v)}
-                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate">
-                      {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'All Types'}
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${typeMenuOpen ? 'rotate-180' : ''}`} />
-                  </button>
+              {/* Type Selector (multi-select dropdown) */}
+              <div className="relative w-[140px] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTypeMenuOpen((v) => !v)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">
+                    {selectedTypes.length > 0 ? selectedTypes.join(', ') : 'All Types'}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${typeMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
                   {typeMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setTypeMenuOpen(false)} />
@@ -1823,7 +1912,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   )}
                 </div>
                 {/* Sector/Industry Selector */}
-                <div className="relative min-w-[180px]">
+                <div className="relative w-[180px] shrink-0">
                   <select
                     value={sectorIndustryValue}
                     onChange={e => handleSectorIndustryChange(e.target.value)}
@@ -1843,51 +1932,47 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
-              </div>
             </div>
           )}
 
           {screenerTab === 'crypto' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
-                    showAdvancedFilters
-                      ? 'bg-accent text-foreground border-border'
-                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Filters
-                </button>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`filter-toggle px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  showAdvancedFilters
+                    ? 'bg-accent text-foreground border-border'
+                    : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-inherit" /> Filters
+              </button>
+              {/* Search Input */}
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search crypto by symbol or name..."
+                  value={stockSearch}
+                  onChange={e => setStockSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                {/* Search Input */}
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search crypto by symbol or name..."
-                    value={stockSearch}
-                    onChange={e => setStockSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
-                {/* Category Selector */}
-                <div className="relative min-w-[160px]">
-                  <select
-                    value={filterSector}
-                    onChange={e => setFilterSector(e.target.value)}
-                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
-                  >
-                    <option value="All">All Categories</option>
-                    <option value="Layer 1">Layer 1</option>
-                    <option value="Layer 2">Layer 2</option>
-                    <option value="DeFi">DeFi</option>
-                    <option value="Meme Coins">Meme Coins</option>
-                    <option value="Gaming">Gaming</option>
-                    <option value="AI">AI / Data</option>
-                    <option value="DePIN">DePIN</option>
+              {/* Category Selector */}
+              <div className="relative w-[150px] shrink-0">
+                <select
+                  value={filterSector}
+                  onChange={e => setFilterSector(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Categories</option>
+                  <option value="Layer 1">Layer 1</option>
+                  <option value="Layer 2">Layer 2</option>
+                  <option value="DeFi">DeFi</option>
+                  <option value="Meme Coins">Meme Coins</option>
+                  <option value="Gaming">Gaming</option>
+                  <option value="AI">AI / Data</option>
+                  <option value="DePIN">DePIN</option>
                     <option value="Privacy">Privacy</option>
                     <option value="Payment">Payment</option>
                     <option value="Exchange Tokens">Exchange Tokens</option>
@@ -1896,7 +1981,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
                 {/* Metric Selector / Quick Filters */}
-                <div className="relative min-w-[180px]">
+                <div className="relative w-[170px] shrink-0">
                   <select
                     value={filterMetricType}
                     onChange={e => setFilterMetricType(e.target.value)}
@@ -1911,112 +1996,101 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
-              </div>
             </div>
           )}
 
           {screenerTab === 'etfs' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">ETF Directory</span>
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
-                    showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
-                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
-                </button>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">ETF Directory</span>
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  showAdvancedFilters
+                    ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                    : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+              </button>
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search ETFs..."
+                  value={etfSearch}
+                  onChange={e => setEtfSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search ETFs..."
-                    value={etfSearch}
-                    onChange={e => setEtfSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
-                <div className="relative min-w-[160px]">
-                  <select
-                    value={etfCategory}
-                    onChange={e => setEtfCategory(e.target.value)}
-                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
-                  >
-                    <option value="All">All Categories</option>
-                    {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
-                </div>
+              <div className="relative w-[150px] shrink-0">
+                <select
+                  value={etfCategory}
+                  onChange={e => setEtfCategory(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Categories</option>
+                  {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
               </div>
             </div>
           )}
 
           {screenerTab === 'funds' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">Mutual Funds</span>
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
-                    showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
-                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
-                </button>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">Mutual Funds</span>
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  showAdvancedFilters
+                    ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                    : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+              </button>
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search Funds..."
+                  value={fundSearch}
+                  onChange={e => setFundSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search Funds..."
-                    value={fundSearch}
-                    onChange={e => setFundSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
-                <div className="relative min-w-[180px]">
-                  <select
-                    value={fundCategory}
-                    onChange={e => setFundCategory(e.target.value)}
-                    className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
-                  >
-                    <option value="All">All Categories</option>
-                    {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
-                </div>
+              <div className="relative w-[170px] shrink-0">
+                <select
+                  value={fundCategory}
+                  onChange={e => setFundCategory(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Categories</option>
+                  {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
               </div>
             </div>
           )}
 
           {screenerTab === 'dividend_stocks' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">High Dividend Yield Stocks</span>
-                <button
-                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
-                    showAdvancedFilters
-                      ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
-                      : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
-                </button>
-              </div>
-              <div className="relative w-64 min-w-[200px]">
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">High Dividend Yield Stocks</span>
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-2 border h-10 shrink-0 ${
+                  showAdvancedFilters
+                    ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/25'
+                    : 'text-muted-foreground border-border bg-background/50 hover:border-primary/50 hover:text-foreground hover:bg-accent/40'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-inherit" /> Advanced Filters
+              </button>
+              <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
                   type="text"
@@ -2030,63 +2104,105 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           )}
 
           {screenerTab === 'markets' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">Select a Market</span>
-              </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search markets..."
-                    value={stockSearch}
-                    onChange={e => setStockSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">Select a Market</span>
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search markets..."
+                  value={stockSearch}
+                  onChange={e => setStockSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
             </div>
           )}
 
           {screenerTab === 'forex' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">Forex Pairs</span>
-                <span className="text-[10px] text-muted-foreground font-mono">live from Yahoo Finance</span>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">Forex Pairs</span>
+              <span className="text-[10px] text-muted-foreground font-mono shrink-0 hidden md:inline">live from Yahoo Finance</span>
+              <div className="relative flex-1 min-w-[160px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search pairs e.g. EUR, PKR..."
+                  value={forexSearch}
+                  onChange={e => setForexSearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search pairs e.g. EUR, PKR..."
-                    value={forexSearch}
-                    onChange={e => setForexSearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
+              {/* Preference filters */}
+              <div className="relative w-[130px] shrink-0">
+                <select
+                  value={forexChange}
+                  onChange={e => setForexChange(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Movers</option>
+                  <option value="Gainers">Gainers only</option>
+                  <option value="Losers">Losers only</option>
+                  <option value="Flat">Flat / no data</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
+              </div>
+              <div className="relative w-[150px] shrink-0">
+                <select
+                  value={forexCurrency}
+                  onChange={e => setForexCurrency(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Currencies</option>
+                  {Array.from(new Set(forexPairs.flatMap(p => [p.base, p.quote]))).sort().map((cur) => (
+                    <option key={cur} value={cur}>{cur}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
               </div>
             </div>
           )}
 
           {screenerTab === 'commodities' && (
-            <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between w-full gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-foreground font-serif">Commodities</span>
-                <span className="text-[10px] text-muted-foreground font-mono">live from Yahoo Finance</span>
+            <div className="flex items-center gap-3 w-full flex-nowrap overflow-x-auto scrollbar-none py-0.5">
+              <span className="text-xs font-bold text-foreground font-serif shrink-0">Commodities</span>
+              <span className="text-[10px] text-muted-foreground font-mono shrink-0 hidden md:inline">live from Yahoo Finance</span>
+              <div className="relative flex-1 min-w-[160px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search commodities e.g. Gold, Oil..."
+                  value={commoditySearch}
+                  onChange={e => setCommoditySearch(e.target.value)}
+                  className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
+                />
               </div>
-              <div className="flex items-center gap-4 flex-wrap flex-1 justify-end">
-                <div className="relative w-64 min-w-[200px]">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <input
-                    type="text"
-                    placeholder="Search commodities e.g. Gold, Oil..."
-                    value={commoditySearch}
-                    onChange={e => setCommoditySearch(e.target.value)}
-                    className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
-                  />
-                </div>
+              {/* Preference filters */}
+              <div className="relative w-[130px] shrink-0">
+                <select
+                  value={commodityChange}
+                  onChange={e => setCommodityChange(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Movers</option>
+                  <option value="Gainers">Gainers only</option>
+                  <option value="Losers">Losers only</option>
+                  <option value="Flat">Flat / no data</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
+              </div>
+              <div className="relative w-[150px] shrink-0">
+                <select
+                  value={commodityCategory}
+                  onChange={e => setCommodityCategory(e.target.value)}
+                  className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
+                >
+                  <option value="All">All Categories</option>
+                  <option value="Energy">Energy</option>
+                  <option value="Metals">Metals</option>
+                  <option value="Agriculture">Agriculture</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
               </div>
             </div>
           )}
@@ -2878,7 +2994,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 return (
                                   <tr
                                     key={pair.symbol}
-                                    onClick={() => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct })}
+                                    onClick={(e) => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct }, e)}
+                                    title="Ctrl+click to open in new tab"
                                     className="border-t border-white/5 transition-colors cursor-pointer hover:bg-primary/[0.04]"
                                   >
                                     <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap text-foreground/80`}>
@@ -2955,7 +3072,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 return (
                                   <tr
                                     key={c.symbol}
-                                    onClick={() => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct })}
+                                    onClick={(e) => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct }, e)}
+                                    title="Ctrl+click to open in new tab"
                                     className="border-t border-white/5 transition-colors cursor-pointer hover:bg-primary/[0.04]"
                                   >
                                     <td className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap text-foreground/80`}>
@@ -3242,7 +3360,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
                         >
                           <td
-                            onClick={() => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct })}
+                            onClick={(e) => handleSymbolClick(pair.symbol, pair.name, { price: pair.price, changePercent: pair.changePct }, e)}
+                            title="Ctrl+click to open in new tab"
                             className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                           >
                             {pair.symbol.replace('=X', '')}
@@ -3310,7 +3429,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
                         >
                           <td
-                            onClick={() => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct })}
+                            onClick={(e) => handleSymbolClick(c.symbol, c.name, { price: c.price, changePercent: c.changePct }, e)}
+                            title="Ctrl+click to open in new tab"
                             className="py-1 px-2 border border-border/30 font-bold text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                           >
                             {c.name}
@@ -3394,16 +3514,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     filteredStocks.map((stock) => {
                       const isPositive = stock.changePercent >= 0;
                       return (
-                        <tr 
+                        <tr
                           key={stock.symbol}
-                          onClick={() => handleSymbolClick(stock.symbol, stock.name, stock)}
+                          onClick={(e) => handleSymbolClick(stock.symbol, stock.name, stock, e)}
                           className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer group"
                         >
-                          <td 
+                          <td
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleSymbolClick(stock.symbol, stock.name, stock);
+                              handleSymbolClick(stock.symbol, stock.name, stock, e);
                             }}
+                            title="Ctrl+click to open in new tab"
                             className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap"
                           >
                             {stock.symbol}
@@ -3608,20 +3729,22 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               <td className="py-3 px-4 text-muted-foreground text-center font-mono">
                                 #{stock.rank || 999}
                               </td>
-                              <td 
+                              <td
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSymbolClick(stock.symbol, stock.name, stock);
+                                  handleSymbolClick(stock.symbol, stock.name, stock, e);
                                 }}
+                                title="Ctrl+click to open in new tab"
                                 className="py-2 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap"
                               >
                                 {stock.symbol}
                               </td>
-                              <td 
+                              <td
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSymbolClick(stock.symbol, stock.name, stock);
+                                  handleSymbolClick(stock.symbol, stock.name, stock, e);
                                 }}
+                                title="Ctrl+click to open in new tab"
                                 className="py-2 px-2 border border-border/30 text-foreground/85 truncate max-w-[130px] whitespace-nowrap hover:underline"
                               >
                                 {stock.name}
@@ -3824,8 +3947,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         key={etf.symbol}
                         className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
                       >
-                        <td 
-                          onClick={() => handleSymbolClick(etf.symbol, etf.name, { marketCap: etf.aum, price: etf.price, changePercent: etf.changePercent, volume: etf.volume })}
+                        <td
+                          onClick={(e) => handleSymbolClick(etf.symbol, etf.name, { marketCap: etf.aum, price: etf.price, changePercent: etf.changePercent, volume: etf.volume }, e)}
+                          title="Ctrl+click to open in new tab"
                           className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {etf.symbol}
@@ -3908,8 +4032,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         key={fund.symbol}
                         className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
                       >
-                        <td 
-                          onClick={() => handleSymbolClick(fund.symbol, fund.name, { marketCap: fund.aum, price: fund.nav, changePercent: fund.changePercent })}
+                        <td
+                          onClick={(e) => handleSymbolClick(fund.symbol, fund.name, { marketCap: fund.aum, price: fund.nav, changePercent: fund.changePercent }, e)}
+                          title="Ctrl+click to open in new tab"
                           className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {fund.symbol}
@@ -4000,8 +4125,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         key={dividendStock.symbol}
                         className="hover:bg-accent/20 even:bg-accent/5 odd:bg-transparent transition-colors font-medium"
                       >
-                        <td 
-                          onClick={() => handleSymbolClick(dividendStock.symbol, dividendStock.name, { peRatio: dividendStock.peRatio, marketCap: dividendStock.marketCap, dividendYield: dividendStock.dividendYield, price: dividendStock.price, changePercent: dividendStock.changePercent, volume: dividendStock.volume })}
+                        <td
+                          onClick={(e) => handleSymbolClick(dividendStock.symbol, dividendStock.name, { peRatio: dividendStock.peRatio, marketCap: dividendStock.marketCap, dividendYield: dividendStock.dividendYield, price: dividendStock.price, changePercent: dividendStock.changePercent, volume: dividendStock.volume }, e)}
+                          title="Ctrl+click to open in new tab"
                           className="py-1 px-2 border border-border/30 font-bold font-mono text-foreground/80 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           {dividendStock.symbol}
@@ -4072,6 +4198,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           volumeRaw={selectedAnalysisStock.volumeRaw}
           circulatingSupplyRaw={selectedAnalysisStock.circulatingSupplyRaw}
           maxSupplyRaw={selectedAnalysisStock.maxSupplyRaw}
+          fiftyTwoWeekHigh={selectedAnalysisStock.fiftyTwoWeekHigh}
+          fiftyTwoWeekLow={selectedAnalysisStock.fiftyTwoWeekLow}
+          eps={selectedAnalysisStock.eps}
+          dayHigh={selectedAnalysisStock.dayHigh}
+          dayLow={selectedAnalysisStock.dayLow}
+          dayOpen={selectedAnalysisStock.dayOpen}
+          previousClose={selectedAnalysisStock.previousClose}
+          beta={selectedAnalysisStock.beta}
+          dividendRate={selectedAnalysisStock.dividendRate}
+          fdv={selectedAnalysisStock.fdv}
           onClose={() => setSelectedAnalysisStock(null)}
         />
       )}

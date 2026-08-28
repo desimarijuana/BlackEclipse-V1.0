@@ -2,7 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, Layers, Info, Sparkles } from 'lucide-react';
+import {
+  X, TrendingUp, TrendingDown, BarChart2, ShieldAlert, Layers, Info,
+  Sparkles, BookOpen, HelpCircle, Landmark, Gauge,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { formatPriceWithCurrency } from '@/lib/market-currency';
@@ -35,10 +38,38 @@ interface TradingViewChartProps {
   volumeRaw?: number;
   circulatingSupplyRaw?: number;
   maxSupplyRaw?: number;
+  fiftyTwoWeekHigh?: number | null;
+  fiftyTwoWeekLow?: number | null;
+  eps?: string;
+  dayHigh?: number | null;
+  dayLow?: number | null;
+  dayOpen?: number | null;
+  previousClose?: number | null;
+  beta?: string;
+  dividendRate?: string;
+  fdv?: string;
 }
 
-export function TradingViewChart({ 
-  symbol, 
+// One-line plain-English explanations shown under each metric so new
+// investors learn what the number means while they look at it.
+const GLOSSARY: Record<string, string> = {
+  marketCap: 'Total value of all shares combined — size of the company.',
+  peRatio: 'Price vs yearly profit. Lower = cheaper per unit of profit (typically <20).',
+  eps: 'Profit the company makes per share each year.',
+  dividendYield: 'Cash paid to you yearly as a % of the price.',
+  volume: 'Shares traded today — high volume means active interest.',
+  change: "How much the price moved today vs yesterday's close.",
+  range: "Where today's price sits between the year's low and high.",
+  rsi: 'Momentum score on the chart: >70 overbought, <30 oversold.',
+  beta: 'Volatility vs the whole market — 1 means it moves together with it.',
+  open: 'The first price traded when the market opened today.',
+  prevClose: "Yesterday's final price — today's change is measured from it.",
+  forwardPE: 'Price vs next year\u2019s expected profit — shows if growth is affordable.',
+  fdv: 'Value of all possible coins, even those not released yet.',
+};
+
+export function TradingViewChart({
+  symbol,
   onClose,
   stockName,
   peRatio = 'N/A',
@@ -64,21 +95,37 @@ export function TradingViewChart({
   marketCapRaw = 0,
   volumeRaw = 0,
   circulatingSupplyRaw = 0,
-  maxSupplyRaw = 0
+  maxSupplyRaw = 0,
+  fiftyTwoWeekHigh = null,
+  fiftyTwoWeekLow = null,
+  eps = 'N/A',
+  dayHigh = null,
+  dayLow = null,
+  dayOpen = null,
+  previousClose = null,
+  beta = 'N/A',
+  dividendRate = 'N/A',
+  fdv = 'N/A',
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals'>('chart');
+  const [showGlossary, setShowGlossary] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-  
+
   const isCrypto = symbol.endsWith('USD') || symbol.endsWith('USDT') || symbol.includes('-');
+  const isCryptoAsset = isCrypto || country === 'CRYPTO';
+
+  // Exchange-qualified TradingView symbol — numeric tickers ("000006", "786",
+  // "1301") only resolve with their exchange prefix (SZSE:, PSX:, TSE:...).
+  const tvResolved = getTradingViewSymbol(symbol, isCryptoAsset, country || undefined);
+  const tvSymbolDisplay = tvResolved;
 
   // Interactive Chart script loading (uses the reliable advanced-chart embed widget)
   useEffect(() => {
-    if (activeTab !== 'chart' || !mounted) return;
+    if (!mounted) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -90,7 +137,7 @@ export function TradingViewChart({
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: getTradingViewSymbol(symbol, isCrypto || country === 'CRYPTO'),
+      symbol: tvResolved,
       interval: 'D',
       timezone: 'Etc/UTC',
       theme: 'dark',
@@ -108,456 +155,478 @@ export function TradingViewChart({
     return () => {
       container.innerHTML = '';
     };
-  }, [symbol, activeTab, mounted, isCrypto, country]);
+  }, [symbol, mounted, isCryptoAsset, tvResolved]);
+
+  // ESC closes the overlay — a standard exit users expect.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const isPositive = changePercent >= 0;
 
+  // Accurate 52-week range from real data; graceful fallback when missing.
+  const has52w = !!(fiftyTwoWeekHigh && fiftyTwoWeekLow && fiftyTwoWeekHigh > fiftyTwoWeekLow);
+  const rangePct = has52w
+    ? Math.min(100, Math.max(0, ((price - fiftyTwoWeekLow!) / (fiftyTwoWeekHigh! - fiftyTwoWeekLow!)) * 100))
+    : null;
+
+  // Market-cap tier — helps users gauge company size at a glance.
+  const capTier = (() => {
+    const cap = marketCapRaw || parseFloat(String(marketCap).replace(/[^0-9.]/g, '')) || 0;
+    if (cap >= 200e9) return { label: 'Mega Cap', hint: 'A market giant (>$200B)' };
+    if (cap >= 10e9) return { label: 'Large Cap', hint: 'An established big company ($10B–200B)' };
+    if (cap >= 2e9) return { label: 'Mid Cap', hint: 'A growing mid-size company ($2B–10B)' };
+    if (cap >= 300e6) return { label: 'Small Cap', hint: 'A smaller, faster-moving company (<$2B)' };
+    return { label: 'Micro Cap', hint: 'A very small company — higher risk' };
+  })();
+
+  // Valuation read: is the P/E cheap/expensive relative to typical markets?
+  const peRead = (() => {
+    const pe = parseFloat(peRatio);
+    if (!Number.isFinite(pe) || pe <= 0) return null;
+    if (pe < 12) return { label: 'Low P/E', tone: 'emerald', note: 'Cheap vs typical market (~15–25)' };
+    if (pe <= 25) return { label: 'Fair P/E', tone: 'primary', note: 'In line with typical market (~15–25)' };
+    if (pe <= 45) return { label: 'High P/E', tone: 'amber', note: 'Priced for strong growth' };
+    return { label: 'Very High P/E', tone: 'rose', note: 'Expensive — future profit is priced in' };
+  })();
+
+  // ── Live growth series (1-month daily closes) ──────────────────────────
+  // Fetched from /api/price-history (yfinance first, DB snapshot fallback).
+  // Rendered as an inline SVG line chart — pure SVG, no chart lib needed.
+  const [history, setHistory] = useState<{ points: number[]; source: string } | null>(null);
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/price-history?symbol=${encodeURIComponent(symbol)}&market=${encodeURIComponent(country || 'US')}`,
+          { signal: AbortSignal.timeout(20000) },
+        );
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.points) && data.points.length >= 2) {
+          setHistory({ points: data.points, source: data.source });
+        }
+      } catch { /* silent — sparkline is optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol, country, mounted]);
+
   if (!mounted) return null;
 
+  // Sparkline geometry (viewBox 0 0 100 32).
+  const spark = (() => {
+    const pts = history?.points ?? [];
+    if (pts.length < 2) return null;
+    const min = Math.min(...pts);
+    const max = Math.max(...pts);
+    const span = max - min || 1;
+    const coords = pts.map((p, i) => ({
+      x: (i / (pts.length - 1)) * 100,
+      y: 30 - ((p - min) / span) * 26,
+    }));
+    const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const area = `${line} L100,32 L0,32 Z`;
+    const up = pts[pts.length - 1] >= pts[0];
+    return { line, area, up, changePct: ((pts[pts.length - 1] - pts[0]) / pts[0]) * 100 };
+  })();
+
   return createPortal(
-    <div className="tv-overlay fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col h-[100dvh] w-full text-foreground animate-fade-in font-sans">
+    <div className="tv-overlay fixed inset-0 z-50 bg-white/30 dark:bg-[#0f0f0f]/30 backdrop-blur-3xl flex flex-col h-[100dvh] w-full text-foreground animate-fade-in font-sans">
       {/* Header Panel */}
-      <div className="flex items-center justify-between border-b border-border/30 px-6 py-4 bg-card/45 backdrop-blur-md shadow-sm shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-none bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+      <div className="flex items-center justify-between gap-4 border-b border-border/30 px-4 md:px-6 py-3 bg-white/40 dark:bg-[#0f0f0f]/40 backdrop-blur-xl shadow-sm shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
             <BarChart2 className="w-5 h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xl font-bold bg-accent/60 px-2 py-0.5 rounded text-foreground">{symbol}</span>
-              <h1 className="font-serif text-lg font-semibold text-foreground truncate max-w-[200px] md:max-w-[400px]">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-lg md:text-xl font-bold bg-accent/60 px-2 py-0.5 rounded-lg text-foreground shrink-0">{symbol}</span>
+              <h1 className="font-serif text-base md:text-lg font-semibold text-foreground truncate">
                 {stockName || symbol}
               </h1>
               {sector && (
-                <span className="text-[10px] bg-accent/40 text-muted-foreground px-2 py-0.5 rounded hidden md:inline">
+                <span className="text-[10px] bg-accent/40 text-muted-foreground px-2 py-0.5 rounded-lg hidden md:inline shrink-0">
                   {sector}
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Interactive terminal node for stock &amp; digital assets.
+            <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+              Live chart & key metrics — everything you need on one screen.
             </p>
           </div>
         </div>
-        
-        {/* Real-time ticker details in header */}
-        <div className="hidden md:flex items-center gap-6 text-right mr-4">
-          <div>
-            <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">Last Price</div>
-            <div className="font-mono text-base font-extrabold text-foreground">{formatPriceWithCurrency(country, price)}</div>
-          </div>
-          <div>
-            <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">24H Change</div>
-            <div className={`font-mono text-sm font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isPositive ? '▲ +' : '▼ '}{changePercent.toFixed(2)}%
+
+        <div className="flex items-center gap-4 md:gap-6 shrink-0">
+          {/* Real-time ticker details in header */}
+          <div className="hidden sm:flex items-center gap-4 md:gap-6 text-right">
+            <div>
+              <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">Last Price</div>
+              <div className="font-mono text-base font-extrabold text-foreground">{formatPriceWithCurrency(country, price)}</div>
+            </div>
+            <div>
+              <div className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">24H Change</div>
+              <div className={`font-mono text-sm font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {isPositive ? '▲ +' : '▼ '}{changePercent.toFixed(2)}%
+              </div>
             </div>
           </div>
-        </div>
 
-        <button
-          onClick={onClose}
-          className="p-2 rounded-none hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer transition-colors border border-border/40"
-        >
-          <X size={18} />
-        </button>
+          <button
+            onClick={onClose}
+            title="Back to screener (Esc)"
+            className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer transition-colors border border-border/40"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
-      {/* Main Grid: Control Tabs & Displays */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
-        {/* Left Column: Interactive Area based on selected Tab */}
-        <div className="flex-1 h-full relative border-r border-border/20 bg-black/20 flex flex-col">
-          {/* Internal Tab Menu */}
-          <div className="flex items-center gap-1.5 p-3 bg-card/25 border-b border-border/10">
-            <button
-              onClick={() => setActiveTab('chart')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'chart' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-              }`}
-            >
-              Interactive Chart
-            </button>
-            <button
-              onClick={() => setActiveTab('fundamentals')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'fundamentals' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-              }`}
-            >
-              All Metrics
-            </button>
+      {/* Main column: chart TOP, analytics scrolling BELOW */}
+      <div className="flex-1 overflow-y-auto tv-metrics-rail min-h-0 p-3 space-y-3">
+        {/* Growth sparkline (1-month live daily closes) */}
+        <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="flex items-center gap-2 text-xs font-bold text-foreground">
+              <TrendingUp size={14} className="text-primary" /> 1-Month Growth
+              <span className={`text-[10px] font-mono font-bold ${(spark?.changePct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {spark ? `${spark.changePct >= 0 ? '+' : ''}${spark.changePct.toFixed(2)}%` : ''}
+              </span>
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground/70">
+              {history?.source === 'yfinance' ? 'live · Yahoo Finance' : history ? 'snapshot · cached' : 'loading…'}
+            </span>
           </div>
-
-          <div className="flex-1 w-full h-full relative min-h-0 overflow-y-auto">
-            {activeTab === 'chart' && (
-              <div id="tradingview_widget_container" ref={containerRef} className="w-full h-full bg-background" />
-            )}
-
-            {activeTab === 'fundamentals' && (
-              <div className="p-6 md:p-8 space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-primary flex items-center gap-2 border-b border-border/20 pb-2">
-                    <Layers size={14} /> {(isCrypto || country === 'CRYPTO') ? 'Market Intelligence & Tokenomics' : 'Full Fundamental Profile'}
-                  </h3>
-                </div>
-
-                {(isCrypto || country === 'CRYPTO') ? (
-                  <div className="space-y-6">
-                    {/* Market Intelligence Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Market Cap Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">Market Cap</span>
-                        <div className="text-xl font-bold text-foreground font-mono">{marketCap}</div>
-                        <p className="text-[10px] text-muted-foreground">Measures total network value.</p>
-                      </div>
-
-                      {/* Liquidity Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">24H Trading Volume</span>
-                        <div className="text-xl font-bold text-foreground font-mono">{volume}</div>
-                        <p className="text-[10px] text-muted-foreground">Indicates market activity and liquidity.</p>
-                      </div>
-
-                      {/* Circulating Ratio Card */}
-                      <div className="space-y-1.5 p-4 rounded-none border border-border/60 bg-card/30">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">Circulating Ratio</span>
-                        {(() => {
-                          const ratio = maxSupplyRaw && maxSupplyRaw > 0 ? (circulatingSupplyRaw || 0) / maxSupplyRaw : 1;
-                          const ratioPercent = (ratio * 100).toFixed(1);
-                          const filledBars = Math.round(ratio * 10);
-                          const emptyBars = 10 - filledBars;
-                          const barStr = '██████████'.slice(0, filledBars) + '░░░░░░░░░░'.slice(0, emptyBars);
-                          return (
-                            <>
-                              <div className="text-xl font-bold text-foreground font-mono">{ratioPercent}%</div>
-                              <div className="flex flex-col gap-1">
-                                <div className="text-primary font-mono text-xs">{barStr}</div>
-                                <p className="text-[10px] text-muted-foreground">Supply already released into the market.</p>
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Circulating Supply Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30 font-mono">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-sans">Circulating Supply</span>
-                        <div className="text-lg font-bold text-foreground">{circulatingSupply}</div>
-                      </div>
-
-                      {/* Total Supply Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30 font-mono">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-sans">Total Supply</span>
-                        <div className="text-lg font-bold text-foreground">{totalSupply}</div>
-                      </div>
-
-                      {/* Max Supply Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30 font-mono">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-sans">Max Supply</span>
-                        <div className="text-lg font-bold text-foreground">{maxSupply}</div>
-                      </div>
-                    </div>
-
-                    {/* Historical Price Intelligence Section */}
-                    <div>
-                      <h3 className="text-sm font-bold text-primary flex items-center gap-2 border-b border-border/20 pb-2">
-                        <TrendingUp size={14} /> Historical Price Intelligence
-                      </h3>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* ATH Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">All-Time High (ATH)</span>
-                        <div className="text-xl font-bold text-foreground font-mono">{ath}</div>
-                        <p className="text-[11px] text-rose-400 font-bold flex items-center gap-1">
-                          <TrendingDown className="w-3.5 h-3.5 text-rose-400" /> {Math.abs(athChangePercent).toFixed(1)}% below ATH
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/70">Date: {athDate ? new Date(athDate).toLocaleDateString() : 'N/A'}</p>
-                      </div>
-
-                      {/* ATL Card */}
-                      <div className="space-y-1 p-4 rounded-none border border-border/60 bg-card/30">
-                        <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">All-Time Low (ATL)</span>
-                        <div className="text-xl font-bold text-foreground font-mono">{atl}</div>
-                        <p className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
-                          <TrendingUp className="w-3.5 h-3.5 text-emerald-400" /> {Math.abs(atlChangePercent).toFixed(1)}% above ATL
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/70">Date: {atlDate ? new Date(atlDate).toLocaleDateString() : 'N/A'}</p>
-                      </div>
-                    </div>
-
-                    {/* Range visual */}
-                    <div className="p-5 rounded-none border border-border/60 bg-card/30 space-y-3">
-                      <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest block font-mono">Price Position Within Historical Range</span>
-                      {(() => {
-                        const athNum = parseFloat(String(ath).replace(/[^0-9.]/g, '')) || price * 1.5;
-                        const atlNum = parseFloat(String(atl).replace(/[^0-9.]/g, '')) || price * 0.1;
-                        const rangePercent = Math.round(((price - atlNum) / (athNum - atlNum || 1)) * 100);
-                        
-                        // ATL ─────────●────── ATH
-                        const sliderLength = 30;
-                        const activeDotIndex = Math.round((Math.min(100, Math.max(0, rangePercent)) / 100) * sliderLength);
-                        const sliderStr = '──────────────────────────────'.split('')
-                          .map((char, index) => index === activeDotIndex ? '●' : char)
-                          .join('');
-
-                        return (
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold tracking-wider">
-                              <span>ATL ({formatPriceWithCurrency(country, atlNum)})</span>
-                              <span className="text-primary font-mono">{sliderStr}</span>
-                              <span>ATH ({formatPriceWithCurrency(country, athNum)})</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground text-center font-mono">
-                              Current Position: <span className="font-bold text-foreground">{Math.min(100, Math.max(0, rangePercent))}%</span> of historical range
-                            </p>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Section A */}
-                    <div className="space-y-3 p-4 rounded-none border border-border/60 bg-card/30">
-                      <h4 className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                        {isCrypto ? 'Token Value' : 'Valuation'}
-                      </h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                          <span className="text-muted-foreground">Market Capitalization</span>
-                          <span className="font-mono font-bold text-foreground">{marketCap}</span>
-                        </div>
-                        {isCrypto ? (
-                          <>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">All-Time High</span>
-                              <span className="font-mono font-bold text-foreground">{ath}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">All-Time Low</span>
-                              <span className="font-mono font-bold text-foreground">{atl}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">P/E Ratio</span>
-                              <span className="font-mono font-bold text-foreground">{peRatio}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Dividend Yield</span>
-                              <span className="font-mono font-bold text-foreground">{dividendYield}</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Section B */}
-                    <div className="space-y-3 p-4 rounded-none border border-border/60 bg-card/30">
-                      <h4 className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
-                        {isCrypto ? 'Tokenomics' : 'Market Stats'}
-                      </h4>
-                      <div className="space-y-2">
-                        {isCrypto ? (
-                          <>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Circulating Supply</span>
-                              <span className="font-mono font-bold text-foreground">{circulatingSupply}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Total Supply</span>
-                              <span className="font-mono font-bold text-foreground">{totalSupply}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Max Supply</span>
-                              <span className="font-mono font-bold text-foreground">{maxSupply}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Short Interest Float</span>
-                              <span className="font-mono font-bold text-foreground">{shortFloat}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">24h Vol / Liquidity</span>
-                              <span className="font-mono font-bold text-foreground">{volume}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                              <span className="text-muted-foreground">Exchange Pool</span>
-                              <span className="font-mono font-bold text-foreground">US Stock Market</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Section C */}
-                    <div className="space-y-3 p-4 rounded-none border border-border/60 bg-card/30">
-                      <h4 className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Profile Detail</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                          <span className="text-muted-foreground">Sector Group</span>
-                          <span className="font-mono font-bold text-foreground truncate max-w-[120px]">{sector || 'N/A'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                          <span className="text-muted-foreground">Industry Subclass</span>
-                          <span className="font-mono font-bold text-foreground truncate max-w-[120px]">{industry || 'N/A'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-xs border-b border-border/10 pb-1.5">
-                          <span className="text-muted-foreground">Origin Region</span>
-                          <span className="font-mono font-bold text-foreground">{country || 'US'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="p-4 rounded-none border border-primary/20 bg-primary/5 text-xs text-muted-foreground leading-relaxed flex gap-3">
-                  <Info className="text-primary w-5 h-5 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-foreground block mb-0.5">Terminal Notice</span>
-                    This node receives cached feeds refreshed via the local JDdS daemon process loop. For granular technical indicators or full real-time analysis, check the Resources tab or use the advisor sidebar prompts.
-                  </div>
-                </div>
-              </div>
-            )}
-
-
-          </div>
+          {spark ? (
+            <svg viewBox="0 0 100 32" preserveAspectRatio="none" className="w-full h-16">
+              <defs>
+                <linearGradient id={`sparkFill-${symbol.replace(/[^A-Z0-9]/gi, '')}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={spark.up ? '#34d399' : '#fb7185'} stopOpacity="0.35" />
+                  <stop offset="100%" stopColor={spark.up ? '#34d399' : '#fb7185'} stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d={spark.area} fill={`url(#sparkFill-${symbol.replace(/[^A-Z0-9]/gi, '')})`} />
+              <path d={spark.line} fill="none" stroke={spark.up ? '#34d399' : '#fb7185'} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+            </svg>
+          ) : (
+            <div className="h-16 flex items-center justify-center text-[11px] text-muted-foreground/60 font-mono">
+              {history === null ? 'Loading growth data…' : 'No price history available yet'}
+            </div>
+          )}
         </div>
 
-        {/* Right Column: In-depth Summary Sidebar */}
-        <div className="w-full lg:w-80 p-6 overflow-y-auto space-y-6 bg-card/10 flex flex-col justify-between shrink-0 scrollbar-hide">
-          <div className="space-y-6">
-            <div>
+        {/* Interactive chart card */}
+        <div className="h-[52dvh] min-h-[320px] flex flex-col rounded-2xl border border-border/40 bg-white/40 dark:bg-[#0f0f0f]/40 backdrop-blur-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 shrink-0">
+            <span className="flex items-center gap-2 text-xs font-bold text-foreground">
+              <Gauge size={14} className="text-primary" /> Interactive Chart
+              <span className="text-[10px] font-medium text-muted-foreground/70 hidden md:inline">RSI momentum is on the lower pane</span>
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground/70">{tvSymbolDisplay}</span>
+          </div>
+          <div id="tradingview_widget_container" ref={containerRef} className="flex-1 w-full bg-background/40 dark:bg-transparent min-h-0" />
+        </div>
+
+        {/* Analytics grid below the chart */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {/* Core metrics */}
+          <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+            <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
+              <TrendingUp size={14} className="text-primary" /> Core Metrics
+            </h2>
+            <div className="grid grid-cols-2 gap-2.5">
+              <MetricCard label="Price" value={formatPriceWithCurrency(country, price)} />
+              <MetricCard label="Change %" value={`${isPositive ? '+' : ''}${changePercent.toFixed(2)}%`} tone={isPositive ? 'emerald' : 'rose'} hint={GLOSSARY.change} />
+              <MetricCard label="Market Cap" value={marketCap} sub={capTier.label} hint={GLOSSARY.marketCap} />
+              <MetricCard label="P/E Ratio" value={peRatio} sub={peRead?.label} hint={GLOSSARY.peRatio} />
+              {!isCryptoAsset && <MetricCard label="EPS" value={eps} hint={GLOSSARY.eps} />}
+              {!isCryptoAsset && <MetricCard label="Dividend Yield" value={dividendYield} hint={GLOSSARY.dividendYield} />}
+              {isCryptoAsset && <MetricCard label="Rank" value={rank && rank < 9999 ? `#${rank}` : 'N/A'} hint="Size position among all cryptocurrencies." />}
+              <MetricCard label="Volume" value={volume} hint={GLOSSARY.volume} />
+            </div>
+            {peRead && (
+              <div className={cn(
+                'rounded-xl border px-3 py-2 text-[11px] leading-relaxed',
+                peRead.tone === 'emerald' && 'border-emerald-500/25 bg-emerald-500/5 text-emerald-300',
+                peRead.tone === 'primary' && 'border-primary/25 bg-primary/5 text-primary',
+                peRead.tone === 'amber' && 'border-amber-500/25 bg-amber-500/5 text-amber-300',
+                peRead.tone === 'rose' && 'border-rose-500/25 bg-rose-500/5 text-rose-300',
+              )}>
+                <span className="font-bold">{peRead.label}:</span> {peRead.note}
+              </div>
+            )}
+          </div>
+
+          {/* 52-week range with REAL data */}
+          {!isCryptoAsset && (
+            <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground font-bold tracking-wider uppercase">
+                <span>52-Week Range</span>
+                {rangePct != null && <span className="text-foreground font-mono">{Math.round(rangePct)}% of range</span>}
+              </div>
+              <div className="relative h-1.5 bg-accent/40 rounded-full w-full mt-1.5">
+                {rangePct != null && (
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-background transition-all"
+                    style={{ left: `calc(${rangePct}% - 5px)` }}
+                  />
+                )}
+                {rangePct == null && <div className="absolute top-1/2 left-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-muted-foreground/50 ring-2 ring-background" />}
+              </div>
+              <div className="flex justify-between font-mono text-[10px] text-muted-foreground">
+                <span>{has52w ? formatPriceWithCurrency(country, fiftyTwoWeekLow!) : 'Low N/A'}</span>
+                <span className="text-[9px] text-muted-foreground/60 font-sans max-w-[60%] text-center truncate">{GLOSSARY.range}</span>
+                <span>{has52w ? formatPriceWithCurrency(country, fiftyTwoWeekHigh!) : 'High N/A'}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Today's session — OHLC vs previous close */}
+          {(dayOpen != null || dayHigh != null || previousClose != null) && (
+            <div className="rounded-2xl border border-border/40 bg-card/25 backdrop-blur-xl p-4 space-y-2.5">
               <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
-                <TrendingUp size={14} className="text-primary" /> Core Metrics Overview
+                <Gauge size={14} className="text-primary" /> Today&apos;s Session
               </h2>
-            </div>
-
-            {/* Quick metrics grid / swipeable on mobile */}
-            <div className="flex overflow-x-auto lg:grid lg:grid-cols-2 gap-3 pb-2 lg:pb-0 scrollbar-none snap-x snap-mandatory">
-              <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Price</span>
-                <div className="text-sm font-bold text-foreground mt-0.5">{formatPriceWithCurrency(country, price)}</div>
+              <div className="grid grid-cols-4 gap-2">
+                <MetricCard label="Open" value={dayOpen != null ? formatPriceWithCurrency(country, dayOpen) : '—'} hint="First traded price today." />
+                <MetricCard label="High" value={dayHigh != null ? formatPriceWithCurrency(country, dayHigh) : '—'} />
+                <MetricCard label="Low" value={dayLow != null ? formatPriceWithCurrency(country, dayLow) : '—'} />
+                <MetricCard label="Prev Close" value={previousClose != null ? formatPriceWithCurrency(country, previousClose) : '—'} hint="Yesterday's final price — the base for today's change." />
               </div>
-              <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Change %</span>
-                <div className={`text-sm font-bold mt-0.5 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {isPositive ? '+' : ''}{changePercent.toFixed(2)}%
-                </div>
-              </div>
-              <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Market Cap</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate">{marketCap}</div>
-              </div>
-              <div className="p-3 rounded-none border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
-                <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">{(isCrypto || country === 'CRYPTO') ? 'Rank' : 'P/E Ratio'}</span>
-                <div className="text-xs font-bold text-foreground mt-0.5 truncate">{(isCrypto || country === 'CRYPTO') ? `#${rank || 'N/A'}` : peRatio}</div>
-              </div>
-            </div>
-
-            {/* Asset Health Score Card */}
-            {(isCrypto || country === 'CRYPTO') && (
-              <div className="p-4 rounded-none border border-border/60 bg-card/45 space-y-2">
-                <div className="text-[10px] text-muted-foreground font-bold tracking-wider uppercase">Asset Health Score</div>
-                {(() => {
-                  let score = 50;
-                  const circRatio = maxSupplyRaw && maxSupplyRaw > 0 ? (circulatingSupplyRaw || 0) / maxSupplyRaw : 1;
-                  score += Math.round(circRatio * 20);
-
-                  if (marketCapRaw && marketCapRaw > 0 && volumeRaw) {
-                    const volToCap = volumeRaw / marketCapRaw;
-                    if (volToCap > 0.1) score += 15;
-                    else if (volToCap > 0.02) score += 10;
-                    else score += 5;
-                  } else {
-                    score += 10;
-                  }
-
-                  if (athChangePercent) {
-                    if (athChangePercent >= -15) score += 15;
-                    else if (athChangePercent >= -50) score += 10;
-                    else score += 5;
-                  } else {
-                    score += 10;
-                  }
-
-                  const finalScore = Math.min(100, Math.max(0, score));
-                  let healthLabel = 'Low Health';
-                  let healthColor = 'text-rose-400 border-rose-500/25 bg-rose-500/5';
-                  let HealthIcon = TrendingDown;
-                  if (finalScore >= 75) {
-                    healthLabel = 'Healthy';
-                    healthColor = 'text-emerald-400 border-emerald-500/25 bg-emerald-500/5';
-                    HealthIcon = TrendingUp;
-                  } else if (finalScore >= 40) {
-                    healthLabel = 'Mid Range';
-                    healthColor = 'text-amber-400 border-amber-500/25 bg-amber-500/5';
-                    HealthIcon = Info;
-                  }
-
+              {previousClose != null && previousClose > 0 && dayHigh != null && dayLow != null && dayHigh > dayLow && (
+                (() => {
+                  const posPct = Math.min(100, Math.max(0, ((price - dayLow) / (dayHigh - dayLow)) * 100));
                   return (
-                    <div className="flex items-center justify-between font-mono">
-                      <div className="text-xl font-black text-foreground">{finalScore} <span className="text-xs text-muted-foreground font-normal">/ 100</span></div>
-                      <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border", healthColor)}>
-                        <HealthIcon className="w-3 h-3 text-inherit" /> {healthLabel}
-                      </span>
+                    <div className="space-y-1">
+                      <div className="relative h-1 bg-accent/40 rounded-full">
+                        <div className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary ring-2 ring-background" style={{ left: `calc(${posPct}% - 4px)` }} />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground text-center">Today&apos;s price vs its intraday range — near the top means buyers are in control.</p>
                     </div>
                   );
-                })()}
-              </div>
-            )}
+                })()
+              )}
+            </div>
+          )}
 
-            {/* 52-Week Visual Slider */}
-            {!isCrypto && country !== 'CRYPTO' && (
-              <div className="p-4 rounded-none border border-border/60 bg-card/45 space-y-2">
-                <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold tracking-wider uppercase">
-                  <span>52W Range</span>
-                  <span className="text-foreground">{shortFloat !== 'N/A' ? `Short: ${shortFloat}` : ''}</span>
-                </div>
-                <div className="relative h-1 bg-accent/40 rounded-full w-full mt-1.5">
-                  <div className="absolute top-1/2 left-[45%] -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-background" />
-                </div>
-                <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
-                  <span>Low</span>
-                  <span>High</span>
-                </div>
+          {/* Risk & income stats */}
+          {!isCryptoAsset && (beta !== 'N/A' || dividendRate !== 'N/A' || peRatio !== 'N/A') && (
+            <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2.5">
+              <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
+                <ShieldAlert size={14} className="text-primary" /> Risk & Income
+              </h2>
+              <div className="grid grid-cols-2 gap-2">
+                <MetricCard label="Beta (Volatility)" value={beta} hint="How much it swings vs the market: >1 = wilder, <1 = calmer." />
+                <MetricCard label="Forward P/E" value={peRatio !== 'N/A' ? peRatio : 'N/A'} hint="Price vs yearly profit — see the P/E read below." />
+                <MetricCard label="Dividend / Share" value={dividendRate !== 'N/A' ? dividendRate : 'None'} hint="Actual cash paid per share each year." />
+                <MetricCard label="Annual Income" value={dividendRate !== 'N/A' && dividendRate !== 'None' && price > 0 ? `${((parseFloat(dividendRate) / price) * 100).toFixed(2)}%` : '—'} hint="Dividend as % of today's price (yield)." />
               </div>
-            )}
+              {(() => {
+                const b = parseFloat(beta);
+                if (!Number.isFinite(b) || b === 0) return null;
+                const tone = b >= 1.5 ? 'rose' : b >= 1 ? 'amber' : 'emerald';
+                const note = b >= 1.5 ? 'High volatility — expect big swings vs the market.' : b >= 1 ? 'Moves roughly with the market, slightly amplified.' : 'Calmer than the overall market.';
+                return (
+                  <div className={cn(
+                    'rounded-xl border px-3 py-2 text-[11px] leading-relaxed',
+                    tone === 'emerald' && 'border-emerald-500/25 bg-emerald-500/5 text-emerald-300',
+                    tone === 'amber' && 'border-amber-500/25 bg-amber-500/5 text-amber-300',
+                    tone === 'rose' && 'border-rose-500/25 bg-rose-500/5 text-rose-300',
+                  )}>
+                    <span className="font-bold">Beta {b.toFixed(2)}:</span> {note}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
-            <div className="p-4 rounded-none border border-emerald-500/20 bg-emerald-500/5 space-y-1">
-              <h3 className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                <ShieldAlert size={12} /> Core Asset Sync
-              </h3>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Database registers updates within ingestion buffers dynamically. If parameters require deep analysis or report compilations, launch the AI prompt below.
-              </p>
+          {/* Crypto tokenomics */}
+          {isCryptoAsset && (
+            <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+              <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
+                <Landmark size={14} className="text-primary" /> Tokenomics
+              </h2>
+              <div className="grid grid-cols-3 gap-2">
+                <MetricCard label="Circulating" value={circulatingSupply} />
+                <MetricCard label="Total" value={totalSupply} />
+                <MetricCard label="Max" value={maxSupply} />
+              </div>
+              {(() => {
+                const ratio = maxSupplyRaw && maxSupplyRaw > 0 ? (circulatingSupplyRaw || 0) / maxSupplyRaw : 1;
+                const ratioPercent = (ratio * 100).toFixed(1);
+                const filledBars = Math.round(ratio * 10);
+                const emptyBars = 10 - filledBars;
+                const barStr = '██████████'.slice(0, filledBars) + '░░░░░░░░░░'.slice(0, emptyBars);
+                return (
+                  <div className="rounded-xl border border-border/30 bg-background/40 px-3 py-2 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
+                      <span>Circulating Ratio</span><span className="text-foreground font-mono">{ratioPercent}%</span>
+                    </div>
+                    <div className="text-primary font-mono text-xs">{barStr}</div>
+                    <p className="text-[10px] text-muted-foreground">Share of all coins already released — higher means less future dilution.</p>
+                  </div>
+                );
+              })()}
+              <div className="grid grid-cols-2 gap-2">
+                <MetricCard label="All-Time High" value={ath} sub={`${Math.abs(athChangePercent).toFixed(1)}% below ATH`} hint="Highest price ever reached." />
+                <MetricCard label="All-Time Low" value={atl} sub={`${Math.abs(atlChangePercent).toFixed(1)}% above ATL`} hint="Lowest price ever reached." />
+              </div>
+              {fdv !== 'N/A' && (
+                <MetricCard label="Fully Diluted Value" value={fdv} hint="Total value if every possible coin were in circulation." />
+              )}
+            </div>
+          )}
+
+          {/* Profile */}
+          <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2">
+            <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
+              <Layers size={14} className="text-primary" /> Company Profile
+            </h2>
+            <div className="grid grid-cols-1 gap-1.5 text-xs">
+              <ProfileRow k="Sector" v={sector || 'N/A'} />
+              <ProfileRow k="Industry" v={industry || 'N/A'} />
+              <ProfileRow k="Exchange / Market" v={isCryptoAsset ? 'Global Crypto' : (country || 'US')} />
+              {!isCryptoAsset && <ProfileRow k="Short Float" v={shortFloat} />}
             </div>
           </div>
 
-          <div className="pt-6 border-t border-border/10 flex flex-col gap-2 shrink-0">
+          {/* Health score (crypto) */}
+          {isCryptoAsset && (() => {
+            let score = 50;
+            const circRatio = maxSupplyRaw && maxSupplyRaw > 0 ? (circulatingSupplyRaw || 0) / maxSupplyRaw : 1;
+            score += Math.round(circRatio * 20);
+            if (marketCapRaw && marketCapRaw > 0 && volumeRaw) {
+              const volToCap = volumeRaw / marketCapRaw;
+              if (volToCap > 0.1) score += 15;
+              else if (volToCap > 0.02) score += 10;
+              else score += 5;
+            } else {
+              score += 10;
+            }
+            if (athChangePercent) {
+              if (athChangePercent >= -15) score += 15;
+              else if (athChangePercent >= -50) score += 10;
+              else score += 5;
+            } else {
+              score += 10;
+            }
+            const finalScore = Math.min(100, Math.max(0, score));
+            let healthLabel = 'Low Health';
+            let healthColor = 'text-rose-400 border-rose-500/25 bg-rose-500/5';
+            let HealthIcon = TrendingDown;
+            if (finalScore >= 75) {
+              healthLabel = 'Healthy';
+              healthColor = 'text-emerald-400 border-emerald-500/25 bg-emerald-500/5';
+              HealthIcon = TrendingUp;
+            } else if (finalScore >= 40) {
+              healthLabel = 'Mid Range';
+              healthColor = 'text-amber-400 border-amber-500/25 bg-amber-500/5';
+              HealthIcon = Info;
+            }
+            return (
+              <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2">
+                <div className="text-[10px] text-muted-foreground font-bold tracking-wider uppercase">Asset Health Score</div>
+                <div className="flex items-center justify-between font-mono">
+                  <div className="text-xl font-black text-foreground">{finalScore} <span className="text-xs text-muted-foreground font-normal">/ 100</span></div>
+                  <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg border', healthColor)}>
+                    <HealthIcon className="w-3 h-3 text-inherit" /> {healthLabel}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Blend of liquidity, supply maturity and distance from all-time highs.</p>
+              </div>
+            );
+          })()}
+
+          {/* Data provenance notice */}
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-1">
+            <h3 className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+              <ShieldAlert size={12} /> Core Asset Sync
+            </h3>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Quotes refresh through the local JDDS daemon. For deep analysis or report compilations, launch the AI research agent below.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-col gap-2 pb-2 xl:col-span-2">
             <Button
-              className="w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 font-semibold py-2.5 rounded-none text-xs cursor-pointer flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
+              className="w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 font-semibold py-2.5 rounded-xl text-xs cursor-pointer flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
             >
               <Sparkles size={12} /> Run AI Research Agent
             </Button>
             <Button
               variant="outline"
               onClick={onClose}
-              className="w-full border-border hover:bg-accent hover:text-foreground font-semibold py-2.5 rounded-none text-xs cursor-pointer"
+              className="w-full border-border hover:bg-accent hover:text-foreground font-semibold py-2.5 rounded-xl text-xs cursor-pointer"
             >
-              Close Asset View
+              Back to Market Screener
             </Button>
           </div>
         </div>
       </div>
+
+      {/* Learn-the-terms glossary toggle */}
+      <button
+        onClick={() => setShowGlossary(v => !v)}
+        className="fixed bottom-4 left-4 z-[60] inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-primary bg-card/80 hover:bg-accent border border-border/40 hover:border-primary/40 rounded-xl px-3 py-2 backdrop-blur-xl transition-all cursor-pointer"
+      >
+        <BookOpen size={13} /> {showGlossary ? 'Hide' : 'Learn the terms'}
+      </button>
+      {showGlossary && (
+        <div className="fixed bottom-16 left-4 z-[60] w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-border/40 bg-card/90 backdrop-blur-xl p-4 shadow-2xl space-y-2 animate-fade-in max-h-[50dvh] overflow-y-auto">
+          <h3 className="text-xs font-bold text-primary flex items-center gap-1.5">
+            <HelpCircle size={13} /> What these numbers mean
+          </h3>
+          {[
+            ['Market Cap', GLOSSARY.marketCap],
+            ['P/E Ratio', GLOSSARY.peRatio],
+            ['Forward P/E', GLOSSARY.forwardPE],
+            ['EPS', GLOSSARY.eps],
+            ['Dividend Yield', GLOSSARY.dividendYield],
+            ['Volume', GLOSSARY.volume],
+            ['Open / Prev Close', `${GLOSSARY.open} ${GLOSSARY.prevClose}`],
+            ['Beta', GLOSSARY.beta],
+            ['52-Week Range', GLOSSARY.range],
+            ['RSI (on chart)', GLOSSARY.rsi],
+          ].map(([k, v]) => (
+            <div key={k} className="text-[11px] leading-relaxed border-b border-border/10 pb-1.5 last:border-0">
+              <span className="font-bold text-foreground">{k}:</span>{' '}
+              <span className="text-muted-foreground">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>,
     document.body
+  );
+}
+
+function MetricCard({ label, value, sub, tone, hint }: {
+  label: string; value: string; sub?: string; tone?: 'emerald' | 'rose'; hint?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2 min-w-0" title={hint || undefined}>
+      <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider truncate">{label}</div>
+      <div className={cn(
+        'text-sm font-bold font-mono text-foreground truncate',
+        tone === 'emerald' && 'text-emerald-400',
+        tone === 'rose' && 'text-rose-400',
+      )}>{value}</div>
+      {sub && <div className="text-[9px] text-muted-foreground/80 truncate">{sub}</div>}
+    </div>
+  );
+}
+
+function ProfileRow({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-1.5 last:border-0">
+      <span className="text-muted-foreground shrink-0">{k}</span>
+      <span className="font-mono font-bold text-foreground truncate text-right">{v}</span>
+    </div>
   );
 }

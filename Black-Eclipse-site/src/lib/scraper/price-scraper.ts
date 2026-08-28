@@ -160,9 +160,10 @@ export interface ScrapeOptions {
  * so one full pass never blocks for minutes.
  */
 export async function refreshMarketBatch(market: string, limit: number): Promise<{ total: number; ok: number; failed: number }> {
-  // TradingView path — the scalable whole-market sync.
+  // TradingView path — the scalable whole-market sync. Honor `limit` so
+  // shallow passes (boot warm-up) don't write the entire universe at once.
   if (isTradingViewMarket(market)) {
-    const result = await syncMarketUniverse(market);
+    const result = await syncMarketUniverse(market, limit);
     return { total: result.scanned, ok: result.ok, failed: result.failed };
   }
 

@@ -29,7 +29,7 @@ export function ChatHistory({ messages }: ChatHistoryProps) {
             <div className={`px-4 py-3 md:px-5 md:py-3.5 max-w-[92%] sm:max-w-[85%] text-[14px] md:text-[15px] leading-relaxed break-words ${
               msg.role === 'user' 
                 ? 'bg-card text-foreground rounded-[1.5rem] md:rounded-[2rem] border border-border' 
-                : 'text-foreground'
+                : 'text-foreground bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-[1.5rem] md:rounded-[2rem] shadow-lg shadow-black/10'
             }`}>
               {msg.content}
             </div>

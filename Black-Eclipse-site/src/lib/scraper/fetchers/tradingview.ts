@@ -58,21 +58,22 @@ export const PREFERRED_EXCHANGE: Record<string, string[]> = {
 
 /** Columns requested from the scanner, in order. Index = position in `d[]`. */
 const COLUMNS = [
-  "name", // 0
-  "close", // 1
-  "market_cap_basic", // 2
-  "type", // 3
-  "currency", // 4
-  "sector", // 5
-  "industry", // 6
-  "volume", // 7
-  "price_earnings_ttm", // 8
-  "earnings_per_share_basic_ttm", // 9
-  "dividend_yield_recent", // 10
-  "price_52_week_high", // 11
-  "price_52_week_low", // 12
-  "beta_1_year", // 13
-  "change", // 14
+  "name", // 0 — ticker-ish; many markets return the bare ticker here
+  "description", // 1 — the human-readable company name (e.g. "786 Investments Limited")
+  "close", // 2
+  "market_cap_basic", // 3
+  "type", // 4
+  "currency", // 5
+  "sector", // 6
+  "industry", // 7
+  "volume", // 8
+  "price_earnings_ttm", // 9
+  "earnings_per_share_basic_ttm", // 10
+  "dividend_yield_recent", // 11
+  "price_52_week_high", // 12
+  "price_52_week_low", // 13
+  "beta_1_year", // 14
+  "change", // 15
 ];
 
 // Map a bare symbol to its Yahoo suffix per market (kept in sync with
@@ -182,29 +183,34 @@ export async function scanMarket(
   const rows: ScanRow[] = [];
   for (const item of json.data || []) {
     const d = item.d || [];
-    const type = String(d[3] ?? "stock");
+    const type = String(d[4] ?? "stock");
     // Only keep real stocks (drop funds/bonds/indices/ETFs).
     if (type !== "stock") continue;
-    const price = Number(d[1]);
+    const price = Number(d[2]);
     if (!price || price <= 0) continue;
     const rawSym = bareSymbol(item.s);
+    // `description` (col 1) carries the real company name; the `name` column
+    // often just repeats the ticker (e.g. PSX "786", HKEX "1", TSE "1301"),
+    // which rendered numeric junk in the screener. Fall back to the ticker
+    // only when the description is missing.
+    const displayName = String(d[1] ?? "").trim() || String(d[0] ?? "").trim() || rawSym;
     rows.push({
       symbol: rawSym,
       exchange: item.s.split(":")[0],
-      name: String(d[0] ?? rawSym),
+      name: displayName,
       price,
-      // `change` (col 14) is absolute — convert to the % JDDS stores.
-      changePct: changePctFromAbsolute(price, Number(d[14]) || 0),
-      marketCap: numOrUndef(d[2]),
-      volume: numOrUndef(d[7]),
-      peRatio: numOrUndef(d[8]),
-      eps: numOrUndef(d[9]),
-      dividendYield: numOrUndef(d[10]),
-      fiftyTwoWeekHigh: numOrUndef(d[11]),
-      fiftyTwoWeekLow: numOrUndef(d[12]),
-      beta: numOrUndef(d[13]),
-      sector: strOrNull(d[5]),
-      industry: strOrNull(d[6]),
+      // `change` (col 15) is absolute — convert to the % JDDS stores.
+      changePct: changePctFromAbsolute(price, Number(d[15]) || 0),
+      marketCap: numOrUndef(d[3]),
+      volume: numOrUndef(d[8]),
+      peRatio: numOrUndef(d[9]),
+      eps: numOrUndef(d[10]),
+      dividendYield: numOrUndef(d[11]),
+      fiftyTwoWeekHigh: numOrUndef(d[12]),
+      fiftyTwoWeekLow: numOrUndef(d[13]),
+      beta: numOrUndef(d[14]),
+      sector: strOrNull(d[6]),
+      industry: strOrNull(d[7]),
       yahooSymbol: yahooSymbol(rawSym, market),
     });
   }
