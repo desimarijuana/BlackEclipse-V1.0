@@ -459,6 +459,12 @@ export function restartUniverseSync() {
  *   - Sleeps between markets so the event loop (and node-cron) can breathe.
  */
 export async function warmUpAllMarkets(options: { delayMs?: number } = {}) {
+  // Dev guard: bulk boot warm-up hammers SQLite and starves first page loads.
+  // Opt in with BE_WARMUP=1 when you actually want dev prices prewarmed.
+  if (process.env.NODE_ENV !== "production" && process.env.BE_WARMUP !== "1") {
+    console.log("[WarmUp] skipped in dev (set BE_WARMUP=1 to enable)");
+    return;
+  }
   const delayMs = options.delayMs ?? 20_000;
   if (delayMs > 0) await sleep(delayMs);
   // Let an already-running universe sync finish first — the two jobs

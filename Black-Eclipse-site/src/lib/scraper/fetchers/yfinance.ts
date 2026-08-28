@@ -6,14 +6,11 @@
 // Zero-config: if Python + yfinance are not available, this returns a
 // "network_error" and the adaptive chain falls back to other strategies.
 
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { existsSync } from "fs";
 import path from "path";
 import type { FetchResult, Quote } from "../types";
 import { toErrorLike } from "../types";
-
-const execFileAsync = promisify(execFile);
+import { findPython, runPythonBridge } from "./python";
 
 const BRIDGE_PATH = path.join(process.cwd(), "scripts", "yfinance_bridge.py");
 
@@ -78,12 +75,8 @@ let probeInFlight: Promise<boolean> | null = null;
 const AVAILABILITY_TTL_MS = 5 * 60 * 1000;
 
 async function probeYfinance(): Promise<boolean> {
-  try {
-    await execFileAsync("python", ["-c", "import yfinance"], { timeout: 10000 });
-    return true;
-  } catch {
-    return false;
-  }
+  const py = await findPython("yfinance");
+  return py !== null;
 }
 
 async function isYfinanceAvailable(): Promise<boolean> {
@@ -133,14 +126,14 @@ export async function fetchYahooBatchRaw(
   const clean = symbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
   if (clean.length === 0) return { quotes: {} };
 
-  const args = [BRIDGE_PATH, market, clean.join(",")];
   // Passing interval/period switches the bridge to its history path
   // (one shared yf.download for all symbols) instead of the quote path.
-  if (interval && period) args.push(interval, period);
+  const extraArgs = interval && period ? [interval, period] : [];
 
-  const { stdout } = await execFileAsync("python", args, {
+  const { stdout } = await runPythonBridge(BRIDGE_PATH, [market, clean.join(","), ...extraArgs], {
     timeout: 60000,
     maxBuffer: 8 * 1024 * 1024,
+    mod: "yfinance",
   });
 
   const output = stdout.trim();

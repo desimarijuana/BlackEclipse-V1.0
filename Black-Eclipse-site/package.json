@@ -2,9 +2,14 @@
   "name": "black-eclipse",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "black": "bin/black.js"
+  },
   "scripts": {
+    "postinstall": "prisma generate",
     "predev": "node scripts/kill-port.js",
     "dev": "next dev",
+    "up": "node scripts/up.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

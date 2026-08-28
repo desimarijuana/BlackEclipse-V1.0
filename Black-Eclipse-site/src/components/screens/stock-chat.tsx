@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
@@ -8,19 +9,48 @@ import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { Message } from '@/types/chat';
 
-// Screens imports
-import { MarketOverviewScreen } from './market-overview';
-import { MarketBubbles } from './market-bubbles';
-import { MarketNews, NewsItem } from './market-news';
+// Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
+// only fetched when their tab is opened, so the first paint compiles/loads
+// just the chat shell instead of the whole app.
+import type { NewsItem } from './market-news';
 
-import { MyPortfolio } from './my-portfolio';
-import { EmbeddedChart } from './embedded-chart';
-import { Settings } from './settings';
+const MarketOverviewScreen = dynamic(
+  () => import('./market-overview').then((m) => m.MarketOverviewScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const MarketBubbles = dynamic(() => import('./market-bubbles').then((m) => m.MarketBubbles), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
+const MarketNews = dynamic(() => import('./market-news').then((m) => m.MarketNews), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
+const MyPortfolio = dynamic(() => import('./my-portfolio').then((m) => m.MyPortfolio), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
+const EmbeddedChart = dynamic(() => import('./embedded-chart').then((m) => m.EmbeddedChart), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
+const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false });
+
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { DotGrid } from '@/components/ui/ascii-loader';
+
+function ScreenSkeleton() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-muted-foreground gap-3">
+      <DotGrid size={32} />
+      <span className="text-sm">Loading…</span>
+    </div>
+  );
+}
 
 function StockChatContent() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');

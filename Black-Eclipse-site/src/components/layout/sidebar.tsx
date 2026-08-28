@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import {
   Sparkles,
   Newspaper, Plus, Bot, Trash2, X,
-  ChevronLeft, ChevronRight, Menu, Settings, PieChart, Orbit, Search
+  ChevronLeft, ChevronRight, Menu, Settings, PieChart, Orbit, ChartCandlestick
 } from 'lucide-react';
 import { Message } from '@/types/chat';
 
@@ -165,7 +165,7 @@ export function Sidebar({
         }`}>
           {[
             { id: 'chat', label: 'ChatBot', icon: Bot },
-            { id: 'discovery', label: 'Market Screener', icon: Search },
+            { id: 'discovery', label: 'Market Screener', icon: ChartCandlestick },
             { id: 'market', label: 'My Portfolio', icon: PieChart },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },

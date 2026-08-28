@@ -1,23 +1,38 @@
 import { useMemo } from 'react';
-import { Transaction } from '@/components/screens/my-portfolio';
+import type { Transaction } from '@/components/screens/my-portfolio';
 
 export interface PortfolioStats {
+  /** Total portfolio value expressed in the base (reporting) currency USD. */
   totalValue: number;
+  /** Blended portfolio cost basis in USD-equivalent. */
   costBasis: number;
   unrealizedPnL: number;
+  /** Realized P/L realized in each asset's native currency and converted at the live FX rate (approximation). */
   realizedPnL: number;
   roiPercent: number;
   dailyChangeValue: number;
   dailyChangePercent: number;
+  /** Reporting currency. Fixed to USD — all aggregates are USD-equivalents. */
+  base: 'USD';
   holdings: Array<{
     symbol: string;
+    name: string;
+    currency: 'USD' | 'PKR';
+    /** Native currency price. */
+    currentPrice: number;
+    /** Live FX rate: 1 unit of `currency` = fxToUsd USD. */
+    fxToUsd: number;
     quantity: number;
     avgCost: number;
-    currentPrice: number;
     value: number;
+    /** USD-equivalent value for cross-asset aggregation. */
+    valueUsd: number;
     unrealizedPnL: number;
+    unrealizedPnLUsd: number;
     allocation: number;
     realizedPnL: number;
+    realizedPnLUsd: number;
+    dayPct: number;
   }>;
 }
 
@@ -25,149 +40,135 @@ export interface LiveAssetInput {
   symbol: string;
   price?: number;
   changePercent?: number;
+  currency?: 'USD' | 'PKR' | string;
+  fxToUsd?: number;
+  name?: string;
 }
 
-// Pure portfolio engine — deterministic function of (transactions, liveAssets,
-// taxMethod). Extracted from the hook so it can be unit-tested directly.
+const EPS = 1e-9;
+const precisionThreshold = 1e-6;
+
+// ── FIFO/LIFO costs in native currency, then converted at live FX ───────────
 export function computePortfolioStats(
   transactions: Transaction[],
   liveAssets: LiveAssetInput[],
   taxMethod: 'FIFO' | 'LIFO' = 'FIFO'
 ): PortfolioStats {
-  // 1. Group transactions by symbol
-  const txBySymbol = new Map<string, Transaction[]>();
-  for (const tx of transactions) {
-    if (tx.type === 'DEPOSIT' || tx.type === 'WITHDRAWAL') continue; // Handled separately if needed
+  const liveMap = new Map<string, LiveAssetInput>();
+  for (const a of liveAssets) liveMap.set(a.symbol, a);
 
-    const list = txBySymbol.get(tx.symbol) || [];
+  const grouped = new Map<string, Transaction[]>();
+  for (const tx of transactions) {
+    if (tx.type === 'DEPOSIT' || tx.type === 'WITHDRAWAL') continue;
+    const list = grouped.get(tx.symbol) || [];
     list.push(tx);
-    txBySymbol.set(tx.symbol, list);
+    grouped.set(tx.symbol, list);
   }
 
-  let totalValue = 0;
-  let totalCostBasis = 0;
-  let totalRealizedPnL = 0;
-  let dailyChangeValue = 0;
-
   const holdings: PortfolioStats['holdings'] = [];
+  let totalValueUsd = 0;
+  let totalCostBasisUsd = 0;
+  let totalRealizedUsd = 0;
+  let dailyChangeValueUsd = 0;
+  const realizedBySymbol: Record<string, number> = {};
 
-  // Map live prices
-  const liveMap = new Map<string, { price: number; change24h: number }>();
-  for (const asset of liveAssets) {
-    liveMap.set(asset.symbol, {
-      price: asset.price || 0,
-      change24h: asset.changePercent || 0,
+  for (const [symbol, txs] of grouped) {
+    const sorted = [...txs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const live = liveMap.get(symbol);
+    const currency: 'USD' | 'PKR' = (live?.currency === 'PKR' ? 'PKR' : 'USD');
+    const fxToUsd = live?.fxToUsd ?? (currency === 'PKR' ? 1 / 278 : 1);
+
+    const buyLots: Array<{ qty: number; price: number }> = [];
+    let realized = 0;
+    let qty = 0;
+    let costBasis = 0;
+
+    for (const tx of sorted) {
+      if (tx.type === 'BUY') {
+        buyLots.push({ qty: tx.quantity, price: tx.price });
+        qty += tx.quantity;
+        costBasis += tx.quantity * tx.price + tx.fee;
+      } else if (tx.type === 'SELL') {
+        let toSell = tx.quantity;
+        let costOfSold = 0;
+        while (toSell > EPS && buyLots.length > 0) {
+          const i = taxMethod === 'FIFO' ? 0 : buyLots.length - 1;
+          const lot = buyLots[i];
+          if (lot.qty <= toSell) {
+            toSell -= lot.qty;
+            costOfSold += lot.qty * lot.price;
+            buyLots.splice(i, 1);
+          } else {
+            lot.qty -= toSell;
+            costOfSold += toSell * lot.price;
+            toSell = 0;
+          }
+        }
+        const proceeds = tx.quantity * tx.price - tx.fee;
+        realized += proceeds - costOfSold;
+        qty -= tx.quantity;
+        costBasis -= costOfSold;
+      }
+    }
+    realizedBySymbol[symbol] = realized;
+
+    if (qty <= precisionThreshold) {
+      if (realized !== 0) totalRealizedUsd += realized * fxToUsd;
+      continue;
+    }
+
+    const currentPrice = live?.price ?? 0;
+    const dayPct = live?.changePercent ?? 0;
+    const value = qty * currentPrice;
+    const avgCost = costBasis / qty;
+    const unrealized = value - costBasis;
+    const valueUsd = value * fxToUsd;
+
+    totalValueUsd += valueUsd;
+    totalCostBasisUsd += costBasis * fxToUsd;
+    totalRealizedUsd += realized * fxToUsd;
+
+    const prevPrice = currentPrice / (1 + dayPct / 100);
+    dailyChangeValueUsd += (value - qty * prevPrice) * fxToUsd;
+
+    holdings.push({
+      symbol,
+      name: live?.name ?? symbol,
+      currency,
+      currentPrice,
+      fxToUsd,
+      quantity: qty,
+      avgCost,
+      value,
+      valueUsd,
+      unrealizedPnL: unrealized,
+      unrealizedPnLUsd: unrealized * fxToUsd,
+      allocation: 0,
+      realizedPnL: realized,
+      realizedPnLUsd: realized * fxToUsd,
+      dayPct,
     });
   }
 
-  // 2. Process each symbol
-  for (const [symbol, txs] of txBySymbol.entries()) {
-    // Sort by date ascending
-    const sortedTxs = [...txs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    let realizedPnL = 0;
-
-    // We keep track of lots to match buys with sells
-    const buyLots: { qty: number; price: number }[] = [];
-
-    let currentQty = 0;
-    let costBasis = 0;
-
-    for (const tx of sortedTxs) {
-      if (tx.type === 'BUY') {
-        buyLots.push({ qty: tx.quantity, price: tx.price });
-        currentQty += tx.quantity;
-        costBasis += (tx.quantity * tx.price) + tx.fee;
-      } else if (tx.type === 'SELL') {
-        // Process sell against lots
-        let qtyToSell = tx.quantity;
-        let costOfSoldLots = 0;
-
-        while (qtyToSell > 0 && buyLots.length > 0) {
-          const lotIndex = taxMethod === 'FIFO' ? 0 : buyLots.length - 1;
-          const lot = buyLots[lotIndex];
-
-          if (lot.qty <= qtyToSell) {
-            // Consume whole lot
-            qtyToSell -= lot.qty;
-            costOfSoldLots += lot.qty * lot.price;
-            buyLots.splice(lotIndex, 1);
-          } else {
-            // Consume partial lot
-            lot.qty -= qtyToSell;
-            costOfSoldLots += qtyToSell * lot.price;
-            qtyToSell = 0;
-          }
-        }
-
-        // Calculate realized PnL for this sell
-        const proceeds = (tx.quantity * tx.price) - tx.fee;
-        realizedPnL += (proceeds - costOfSoldLots);
-
-        currentQty -= tx.quantity;
-        costBasis -= costOfSoldLots; // Remove sold cost from active cost basis
-      }
-    }
-
-    // If we have remaining quantity, add to holdings
-    if (currentQty > 0.000001) { // Precision threshold
-      const liveData = liveMap.get(symbol);
-      const currentPrice = liveData?.price || 0;
-      const change24h = liveData?.change24h || 0;
-
-      const value = currentQty * currentPrice;
-      const avgCost = costBasis / currentQty;
-      const unrealizedPnL = value - costBasis;
-
-      // Calculate daily impact
-      const prevPrice = currentPrice / (1 + (change24h / 100));
-      const dayChange = value - (currentQty * prevPrice);
-
-      totalValue += value;
-      totalCostBasis += costBasis;
-      totalRealizedPnL += realizedPnL;
-      dailyChangeValue += dayChange;
-
-      holdings.push({
-        symbol,
-        quantity: currentQty,
-        avgCost,
-        currentPrice,
-        value,
-        unrealizedPnL,
-        allocation: 0, // Calculated after totalValue is known
-        realizedPnL,
-      });
-    } else {
-      totalRealizedPnL += realizedPnL;
-    }
-  }
-
-  // 3. Finalize stats
   for (const h of holdings) {
-    if (totalValue > 0) {
-      h.allocation = (h.value / totalValue) * 100;
-    }
+    h.allocation = totalValueUsd > 0 ? (h.valueUsd / totalValueUsd) * 100 : 0;
   }
+  holdings.sort((a, b) => b.valueUsd - a.valueUsd);
 
-  // Sort holdings by value
-  holdings.sort((a, b) => b.value - a.value);
-
-  const unrealizedPnL = totalValue - totalCostBasis;
-  const roiPercent = totalCostBasis > 0 ? (unrealizedPnL / totalCostBasis) * 100 : 0;
-
-  // Daily percentage
-  const prevTotalValue = totalValue - dailyChangeValue;
-  const dailyChangePercent = prevTotalValue > 0 ? (dailyChangeValue / prevTotalValue) * 100 : 0;
+  const unrealizedPnLUsd = totalValueUsd - totalCostBasisUsd;
+  const roiPercent = totalCostBasisUsd > 0 ? (unrealizedPnLUsd / totalCostBasisUsd) * 100 : 0;
+  const prevTotalUsd = totalValueUsd - dailyChangeValueUsd;
+  const dailyChangePercent = prevTotalUsd > 0 ? (dailyChangeValueUsd / prevTotalUsd) * 100 : 0;
 
   return {
-    totalValue,
-    costBasis: totalCostBasis,
-    unrealizedPnL,
-    realizedPnL: totalRealizedPnL,
+    totalValue: totalValueUsd,
+    costBasis: totalCostBasisUsd,
+    unrealizedPnL: unrealizedPnLUsd,
+    realizedPnL: totalRealizedUsd,
     roiPercent,
-    dailyChangeValue,
+    dailyChangeValue: dailyChangeValueUsd,
     dailyChangePercent,
+    base: 'USD',
     holdings,
   };
 }

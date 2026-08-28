@@ -8,11 +8,16 @@ import {
   Wallet, TrendingUp, History, PieChart,
   Plus, Trash2, Shield, Activity, PlusCircle,
   AlertCircle, BarChart2, DollarSign, Calendar,
-  X, Search, Star, ChevronDown, ChevronUp, Flame} from 'lucide-react';
+  X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
 import { SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
 import { usePortfolioEngine, PortfolioStats } from '@/hooks/use-portfolio-engine';
+import { usePriceHistories } from '@/hooks/use-price-histories';
+import {
+  computeHealthScore, buildBrief, buildChanges,
+  type HoldingMeta,
+} from '@/lib/portfolio-analysis';
 
 // ─── Shared panel / tile styling (site design system) ──────────────────────
 // Frost glass — this is the site's default glass panel style. The same
@@ -54,6 +59,14 @@ const DEFAULT_TRANSACTIONS: Transaction[] = [
   { id: 'tx-8', type: 'BUY', symbol: 'SAZEW', quantity: 60, price: 880.00, fee: 55.00, date: '2026-06-25' },
   { id: 'tx-9', type: 'SELL', symbol: 'SAZEW', quantity: 15, price: 1010.00, fee: 15.00, date: '2026-08-18' },
 ];
+
+// Which JDDS market each symbol lives in — drives /api/price-history ticker
+// resolution (PK tickers get the .PSX/.KA fallback chain, crypto gets -USD).
+const MARKET_HINT: Record<string, string> = {
+  BTC: 'CRYPTO', ETH: 'CRYPTO', SOL: 'CRYPTO', BNB: 'CRYPTO', XRP: 'CRYPTO',
+  DOGE: 'CRYPTO', ADA: 'CRYPTO',
+  UBL: 'PK', MEBL: 'PK', SAZEW: 'PK', OGDC: 'PK', LUCK: 'PK', HBL: 'PK', PSO: 'PK', ENGRO: 'PK', SYS: 'PK',
+};
 
 interface DemoAsset {
   symbol: string;
@@ -142,20 +155,44 @@ const fmtPrice = (n: number, currency?: 'USD' | 'PKR', dp = 2) => {
   return `${n < 0 ? '-' : ''}${sym}${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
 };
 
-// Deterministic pseudo-random so charts stay stable across re-renders.
-function seeded(seed: number, n: number): number[] {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return Array.from({ length: n }, () => {
-    s = (s * 16807) % 2147483647;
-    return s / 2147483647;
-  });
+// ── oklch → hex conversion ─────────────────────────────────────────────────
+// zrender (ECharts' renderer) cannot parse oklch() strings — its color math
+// (modifyHSL / treemap calculateBorderColor) throws on them and crashes the
+// chart, taking the whole screen down via the error boundary. CSS variables
+// in globals.css are defined in oklch, so resolve + convert them to hex
+// before any value reaches an ECharts option.
+function oklchToHex(lch: string): string {
+  const m = lch.match(/oklch\(\s*([\d.]+)%?\s+([\d.]+)%?\s+([\d.]+)/i);
+  if (!m) return lch;
+  const L = parseFloat(m[1]);
+  const C = m[2].includes('%') ? (parseFloat(m[2]) / 100) * 0.4 : parseFloat(m[2]);
+  const H = parseFloat(m[3]);
+  const rad = (H * Math.PI) / 180;
+  const a = C * Math.cos(rad);
+  const b = C * Math.sin(rad);
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ ** 3;
+  const mm = m_ ** 3;
+  const s = s_ ** 3;
+  let r = 4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s;
+  let g = -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s;
+  let bl = -0.0041960863 * l - 0.7034186147 * mm + 1.7076147010 * s;
+  const gam = (c: number) => {
+    c = Math.min(1, Math.max(0, c));
+    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  };
+  const hx = (c: number) => Math.round(gam(c) * 255).toString(16).padStart(2, '0');
+  return `#${hx(r)}${hx(g)}${hx(bl)}`;
 }
 
 function cssVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
+  if (!v) return fallback;
+  // Some browsers resolve oklch() to rgb() natively; only convert if needed.
+  return v.startsWith('oklch(') ? oklchToHex(v) : v;
 }
 
 // ── Apache ECharts wrapper ──────────────────────────────────────────────────
@@ -190,12 +227,29 @@ function EChart({ option, height = 300, className, notMerge = true }: EChartProp
   return <div ref={ref} className={className} style={{ width: '100%', height }} />;
 }
 
-// Tiny inline sparkline for expanded holding rows.
-function Sparkline({ up }: { up: boolean }) {
-  const pts = up ? [30, 26, 27, 21, 17, 18, 11, 6] : [10, 14, 13, 19, 23, 22, 28, 34];
-  const d = pts.map((y, i) => `${i === 0 ? 'M' : 'L'} ${(i / (pts.length - 1)) * 140} ${y}`).join(' ');
+// Tiny inline sparkline fed with REAL close data; renders flat-line empty
+// state when the series is unavailable (no fabricated paths).
+function Sparkline({ data, up }: { data: number[]; up: boolean }) {
+  if (data.length < 2) {
+    return (
+      <div className="text-[10px] font-mono text-muted-foreground/60 w-[140px] text-center">
+        — no series —
+      </div>
+    );
+  }
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const span = max - min || 1;
+  const W = 140, H = 40, PAD = 3;
+  const d = data
+    .map((v, i) => {
+      const x = (i / (data.length - 1)) * W;
+      const y = PAD + (1 - (v - min) / span) * (H - PAD * 2);
+      return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
   return (
-    <svg width="140" height="40" viewBox="0 0 140 40">
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
       <path d={d} fill="none" stroke={up ? UP : DOWN} strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
@@ -288,6 +342,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   // Falls back to the static demo prices if the endpoint is unreachable, slow,
   // or a symbol has no live quote yet. A hard timeout guards against a hung
   // request so the portfolio never blocks on skeletons forever.
+  const [usdPkr, setUsdPkr] = useState(278);
   const fetchLivePrices = useCallback(async (isInitial = false) => {
     if (isInitial) setLoadingLive(true);
     const controller = new AbortController();
@@ -333,6 +388,22 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       if (isInitial) setLoadingLive(false);
     }
   }, [transactions, watchlist, alerts]);
+
+  // Live USD→PKR FX rate from /api/forex (same Yahoo source as the forex
+  // screen). Falls back to 278 when the endpoint is unavailable.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/forex', { signal: AbortSignal.timeout(9000) });
+        const data = await res.json();
+        const usdPkr = (data.pairs as Array<{ base: string; quote: string; price: number; found: boolean }> | undefined)
+          ?.find(p => p.base === 'USD' && p.quote === 'PKR' && p.found);
+        if (!cancelled && usdPkr && usdPkr.price > 0) setUsdPkr(usdPkr.price);
+      } catch { /* fallback rate stands */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (loadingPortfolio) return;
@@ -497,7 +568,25 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     localStorage.setItem('portfolio_alerts_guest', JSON.stringify(next));
   };
 
-  const stats: PortfolioStats = usePortfolioEngine(transactions, liveAssets, taxMethod);
+  const liveForEngine = useMemo(
+    () => liveAssets.map(a => ({
+      ...a,
+      fxToUsd: a.currency === 'PKR' ? 1 / usdPkr : 1,
+    })),
+    [liveAssets, usdPkr]
+  );
+  const stats: PortfolioStats = usePortfolioEngine(transactions, liveForEngine, taxMethod);
+
+  // Real daily series per holding (Yahoo-backed). Powers the NAV chart,
+  // sparklines and per-asset expanded charts. No fabrication: symbols with
+  // no fetchable series are simply absent.
+  const trackedSymbols = useMemo(() => {
+    const s = new Set<string>();
+    stats.holdings.forEach(h => s.add(h.symbol));
+    Object.entries(watchlist).forEach(([sym, on]) => { if (on) s.add(sym); });
+    return [...s];
+  }, [stats.holdings, watchlist]);
+  const history = usePriceHistories(trackedSymbols, MARKET_HINT);
 
   useEffect(() => {
     if (!loadingLive && !loadingPortfolio && onMarketStatusChange) {
@@ -538,43 +627,85 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     fontMono: 'JetBrains Mono, IBM Plex Mono, SF Mono, Consolas, monospace',
   }), []);
 
-  // ── Performance history (per timeframe) ───────────────────────────────────
+  // ── Performance history (REAL data) ─────────────────────────────────────
+  // Aligned-date indexed aggregation of every holding's real close series:
+  //   NAV_i = Σ holding.value_usd × (close_symbol,i / close_symbol,0)
+  // PKR series are converted at the live FX rate. Series are clipped to the
+  // common window where ALL holdings have data, and windowed by timeframe
+  // (1M ≈ 21 trading days, 7D ≈ 5, ALL = full fetched range). The benchmark
+  // is the portfolio's own cost basis indexed the same way — an honest
+  // "break-even" reference rather than an invented index. Endpoints are
+  // forward/reverse-filled for the earliest date a symbol starts trading.
   const performanceSeries = useMemo(() => {
-    const points = timeframe === '1D' ? 24 : timeframe === '7D' ? 7 * 4 : timeframe === '1M' ? 30 : 90;
-    const noise = seeded(timeframe.length * 7919 + Math.round(stats.unrealizedPnL), points);
-    let base = stats.totalValue - stats.unrealizedPnL;
-    const step = stats.unrealizedPnL / points;
+    const validHoldings = stats.holdings.filter(h => history.closes[h.symbol]?.length);
+    if (validHoldings.length === 0 || history.loading) {
+      return { labels: [], portData: [], benchData: [], real: false, granular: false };
+    }
+
+    // 1) Convert each series to USD-equivalent closes.
+    const usdCloses: Record<string, number[]> = {};
+    const usdDates: Record<string, string[]> = {};
+    for (const h of validHoldings) {
+      const fx = h.currency === 'PKR' ? 1 / usdPkr : 1;
+      usdCloses[h.symbol] = (history.closes[h.symbol] ?? []).map(c => c * fx);
+      usdDates[h.symbol] = history.dates[h.symbol] ?? [];
+    }
+
+    // 2) Union of all dates, ascending.
+    const dateSet = new Set<string>();
+    Object.values(usdDates).forEach(ds => ds.forEach(d => dateSet.add(d)));
+    const allDates = [...dateSet].sort();
+    const labels = allDates.map(d =>
+      new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    );
+
+    // 3) For each symbol: forward-fill before first date and reverse-fill after
+    //    its last date (assets that IPO'd/ticker-listed mid-window stall at
+    //    first/last price rather than dropping out of the portfolio).
     const portData: number[] = [];
-    for (let i = 0; i < points; i++) {
-      base += step + (noise[i] - 0.5) * (base * 0.014);
-      portData.push(Math.max(base, 1));
+    const benchData: number[] = [];
+    for (const date of allDates) {
+      let nav = 0;
+      let bench = 0;
+      for (const h of validHoldings) {
+        const ds = usdDates[h.symbol];
+        const cs = usdCloses[h.symbol];
+        if (!ds || !cs || cs.length === 0) continue;
+        let idx = ds.indexOf(date);
+        if (idx === -1) {
+          if (date < ds[0]) idx = 0;
+          else if (date > ds[ds.length - 1]) idx = ds.length - 1;
+          else {
+            let lo = 0;
+            while (lo < ds.length - 1 && ds[lo + 1] <= date) lo++;
+            idx = lo;
+          }
+        }
+        const base0 = cs[0];
+        nav += h.valueUsd * (cs[idx] / base0);
+        bench += (h.quantity * h.avgCost * h.fxToUsd) * (cs[idx] / base0);
+      }
+      portData.push(nav);
+      benchData.push(bench);
     }
-    portData[points - 1] = stats.totalValue;
 
-    const benchData = portData.map(v => {
-      const start = portData[0];
-      return start + ((v / start) - 1) * start * 0.55;
-    });
+    // 4) Timeframe window (business days → calendar back-count).
+    const backDays = timeframe === '1D' ? 1 : timeframe === '7D' ? 7 : timeframe === '1M' ? 30 : allDates.length;
+    const startIdx = Math.max(0, allDates.length - Math.min(allDates.length, backDays === 1 ? 2 : backDays));
+    const slicedLabels = labels.slice(startIdx);
+    const slicedPort = portData.slice(startIdx);
+    const slicedBench = benchData.slice(startIdx);
+    // Rebase the window to 100 so the % change axis reads honestly.
+    const rebasedPort = slicedPort.length ? slicedPort.map(v => v / (slicedPort[0] || 1)) : [];
+    const rebasedBench = slicedBench.length ? slicedBench.map(v => v / (slicedBench[0] || 1)) : [];
 
-    const labels: string[] = [];
-    const now = new Date();
-    for (let i = points - 1; i >= 0; i--) {
-      const d = new Date(now);
-      if (timeframe === '1D') d.setHours(d.getHours() - i);
-      else d.setDate(d.getDate() - i);
-      labels.push(
-        timeframe === '1D'
-          ? d.toLocaleTimeString('en-US', { hour: 'numeric' })
-          : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      );
-    }
-
-    return { labels, portData, benchData };
-  }, [timeframe, stats.totalValue, stats.unrealizedPnL]);
+    return { labels: slicedLabels, portData: rebasedPort, benchData: rebasedBench, real: true, granular: true };
+  }, [stats.holdings, history, usdPkr, timeframe]);
 
   const perfDelta = useMemo(() => {
     const p = performanceSeries.portData;
     const b = performanceSeries.benchData;
+    if (p.length === 0 || b.length === 0) return { port: 0, bench: 0 };
     return {
       port: ((p[p.length - 1] / p[0]) - 1) * 100,
       bench: ((b[b.length - 1] / b[0]) - 1) * 100,
@@ -589,7 +720,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       backgroundColor: theme.tooltipBg,
       borderColor: theme.tooltipBorder,
       textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
-      valueFormatter: (v) => fmtUsd(Number(v)),
+      valueFormatter: (v) => fmtPct((Number(v) - 1) * 100),
       axisPointer: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
     },
     xAxis: {
@@ -602,15 +733,16 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     },
     yAxis: {
       type: 'value',
+      scale: true,
       splitLine: { lineStyle: { color: theme.border } },
       axisLabel: {
         color: theme.muted, fontSize: 10, fontFamily: theme.fontMono,
-        formatter: (v: number) => fmtK(v),
+        formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%`,
       },
     },
     series: [
       {
-        name: 'NAV',
+        name: 'Portfolio (indexed)',
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -624,7 +756,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         },
       },
       {
-        name: 'Benchmark',
+        name: 'Cost basis (break-even)',
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -635,7 +767,11 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     ],
   }), [performanceSeries, theme]);
 
-  const CHART_COLORS = useMemo(() => ['#7aff78', 'oklch(0.70 0.15 280)', 'oklch(0.65 0.18 340)', 'oklch(0.80 0.14 70)', 'oklch(0.60 0.12 220)', 'oklch(0.75 0.15 130)', 'oklch(0.50 0.10 180)'], []);
+  // NOTE: ECharts/zrender cannot parse oklch(...) colors (treemap's
+  // calculateBorderColor throws on them and crashes the screen), so this
+  // palette must stay in hex. Values are the sRGB equivalents of the
+  // previous oklch tokens.
+  const CHART_COLORS = useMemo(() => ['#7aff78', '#8d92f9', '#d35bb1', '#f7ac4d', '#0090b1', '#8ec053', '#007565'], []);
 
 // ── Allocation donut ──────────────────────────────────────────────────────
 
@@ -661,26 +797,11 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       emphasis: { scaleSize: 4 },
       data: stats.holdings.map((h, i) => ({
         name: h.symbol,
-        value: Number(h.value.toFixed(2)),
+        value: Number(h.valueUsd.toFixed(2)),
         itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
       })),
     }],
   }), [stats.holdings, theme, CHART_COLORS]);
-
-  // ── Category exposure bars ────────────────────────────────────────────────
-  const categoryRows = useMemo(() => {
-    const map: Record<string, number> = {};
-    stats.holdings.forEach(h => {
-      const cat = metaOf(h.symbol)?.category ?? 'Other';
-      map[cat] = (map[cat] ?? 0) + h.value;
-    });
-    const max = Math.max(...Object.values(map), 1);
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, v]) => ({
-      name,
-      pct: (v / stats.totalValue) * 100,
-      barPct: (v / max) * 100,
-    }));
-  }, [stats.holdings, stats.totalValue, metaOf]);
 
   // ── Rebalancing suggestions ───────────────────────────────────────────────
   const rebalanceRows = useMemo(() =>
@@ -722,21 +843,21 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     else { setSortCol(col); setSortDir('desc'); }
   };
 
-  // ── Recent transactions (running balance) ─────────────────────────────────
-  const recentTransactions = useMemo(() => {
-    let balance = stats.totalValue;
-    return [...transactions]
+  // ── Recent transactions (accurate notionals, no fabricated balance) ───────
+  const recentTransactions = useMemo(() =>
+    [...transactions]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 8)
       .map(t => {
-        balance += t.type === 'SELL' ? t.quantity * t.price : -(t.quantity * t.price);
+        const fx = (metaOf(t.symbol)?.currency ?? 'USD') === 'PKR' ? 1 / usdPkr : 1;
+        const notional = t.quantity * t.price * fx;
         return {
           ...t,
           sideColor: t.type === 'BUY' ? 'text-emerald-400' : t.type === 'SELL' ? 'text-rose-400' : 'text-muted-foreground',
-          balanceFmt: fmtUsd(balance),
+          notionalFmt: fmtUsd(notional),
         };
-      });
-  }, [transactions, stats.totalValue]);
+      }),
+    [transactions, metaOf, usdPkr]);
 
   const watchlistRows = useMemo(() =>
     Object.entries(watchlist).filter(([, v]) => v).map(([sym]) => {
@@ -749,14 +870,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     }).filter(w => w.price > 0),
     [watchlist, metaOf]);
 
-  // ── Stress test ───────────────────────────────────────────────────────────
+  // ── Stress test (all impacts in USD-equivalent) ───────────────────────────
   const stress = useMemo(() => {
     const scen = STRESS_SCENARIOS.find(s => s.id === stressId) ?? STRESS_SCENARIOS[0];
     const rows = stats.holdings.map(h => {
       const r = RISK[h.symbol] ?? RISK.DEFAULT;
       const isMajor = ['BTC', 'ETH'].includes(h.symbol);
       const pct = (scen.mkt * (isMajor ? r.beta : r.beta) + scen.alt * (isMajor ? 0.4 : 1.1)) * severity;
-      return { symbol: h.symbol, pct, dollar: h.value * (pct / 100) };
+      return { symbol: h.symbol, pct, dollar: h.valueUsd * (pct / 100) };
     }).sort((a, b) => a.pct - b.pct);
 
     const dollar = rows.reduce((a, r) => a + r.dollar, 0);
@@ -892,15 +1013,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const whatIf = useMemo(() => {
     const qty = Math.max(0, parseFloat(wiQty) || 0);
     const price = priceOf(wiSymbol);
+    const fx = (metaOf(wiSymbol)?.currency ?? 'USD') === 'PKR' ? 1 / usdPkr : 1;
     const holding = stats.holdings.find(h => h.symbol === wiSymbol);
     const heldQty = holding?.quantity ?? 0;
     const delta = wiSide === 'Buy' ? qty : -Math.min(qty, heldQty);
-    const cost = delta * price;
-    const newCash = AVAILABLE_CASH - cost;
-    const newMap = new Map(stats.holdings.map(h => [h.symbol, h]));
-    const ex = newMap.get(wiSymbol);
-    const newVal = ((ex?.quantity ?? 0) + delta) * price;
-    const projTotal = stats.totalValue + cost;
+    const cost = delta * price; // native currency
+    const newCash = AVAILABLE_CASH - cost * fx; // cash is USD
+    const newVal = ((holding?.quantity ?? 0) + delta) * price * fx;
+    const projTotal = stats.totalValue + cost * fx;
     const newWeight = projTotal > 0 ? (newVal / projTotal) * 100 : 0;
     const oldWeight = holding ? weightOf(holding) * 100 : 0;
 
@@ -909,8 +1029,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       return a + (RISK[h.symbol]?.beta ?? RISK.DEFAULT.beta) * w;
     }, 0) + (!holding && delta > 0 ? (RISK[wiSymbol]?.beta ?? RISK.DEFAULT.beta) * (newVal / (projTotal || 1)) : 0);
 
-    return { qty, price, delta, cost, newCash, newWeight, oldWeight, newBeta: projBeta };
-  }, [wiQty, wiSymbol, wiSide, stats.holdings, stats.totalValue, priceOf, weightOf]);
+    return { qty, price, fx, delta, cost, newCash, newWeight, oldWeight, newBeta: projBeta };
+  }, [wiQty, wiSymbol, wiSide, stats.holdings, stats.totalValue, priceOf, weightOf, metaOf, usdPkr]);
 
   // ── Position sizing ───────────────────────────────────────────────────────
   const sizing = useMemo(() => {
@@ -1008,8 +1128,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     stats.holdings
       .map(h => ({
         symbol: h.symbol,
-        pts: (h.unrealizedPnL / totalCost) * 100,
-        dollar: h.unrealizedPnL,
+        pts: (h.unrealizedPnLUsd / totalCost) * 100,
+        dollar: h.unrealizedPnLUsd,
       }))
       .sort((a, b) => b.pts - a.pts),
     [stats.holdings, totalCost]);
@@ -1092,13 +1212,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         name: 'Avg cost',
         type: 'bar', barWidth: 14, barGap: '20%',
         itemStyle: { color: 'rgba(251,191,36,0.65)', borderRadius: [4, 4, 0, 0] },
-        data: stats.holdings.map(h => Number(h.avgCost.toFixed(2))),
+        data: stats.holdings.map(h => Number((h.avgCost * h.fxToUsd).toFixed(2))),
       },
       {
-        name: 'Live price',
+        name: 'Live price (USD-eq.)',
         type: 'bar', barWidth: 14,
         itemStyle: { color: 'rgba(122,255,120,0.75)', borderRadius: [4, 4, 0, 0] },
-        data: stats.holdings.map(h => Number(h.currentPrice.toFixed(2))),
+        data: stats.holdings.map(h => Number((h.currentPrice * h.fxToUsd).toFixed(2))),
       },
     ],
   }), [stats.holdings, theme]);
@@ -1110,6 +1230,185 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     const hhi = stats.holdings.reduce((a, h) => a + weightOf(h) * weightOf(h), 0);
     return Math.round((1 - (hhi - 1 / n) / (1 - 1 / n)) * 100);
   }, [stats.holdings, weightOf]);
+
+  // ── Health score + Eclipse brief (deterministic decision engine) ──────────
+  const healthMeta = useMemo(() => {
+    const meta: Record<string, HoldingMeta> = {};
+    stats.holdings.forEach(h => {
+      const r = RISK[h.symbol] ?? RISK.DEFAULT;
+      meta[h.symbol] = {
+        name: metaOf(h.symbol)?.name ?? h.symbol,
+        category: metaOf(h.symbol)?.category ?? 'Other',
+        dayPct: h.dayPct,
+        beta: r.beta,
+        vol: r.vol,
+        sharpe: r.sharpe,
+        mdd: r.mdd,
+        target: r.target,
+        aiTag: metaOf(h.symbol)?.aiTag,
+      };
+    });
+    return meta;
+  }, [stats.holdings, metaOf]);
+
+  const health = useMemo(
+    () => computeHealthScore(stats.holdings, healthMeta),
+    [stats.holdings, healthMeta]
+  );
+  const brief = useMemo(
+    () => buildBrief(stats, stats.holdings, healthMeta),
+    [stats, healthMeta]
+  );
+  const changes = useMemo(
+    () => buildChanges(stats.holdings, healthMeta),
+    [stats.holdings, healthMeta]
+  );
+
+  // ── Health gauge (ECharts) ────────────────────────────────────────────────
+  const healthGaugeOption: EChartsOption = useMemo(() => ({
+    animationDuration: 700,
+    series: [{
+      type: 'gauge',
+      startAngle: 210,
+      endAngle: -30,
+      min: 0,
+      max: 100,
+      radius: '98%',
+      center: ['50%', '58%'],
+      progress: {
+        show: true,
+        width: 12,
+        roundCap: true,
+        itemStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: '#34d399' },
+            { offset: 0.5, color: '#7aff78' },
+            { offset: 1, color: '#fbbf24' },
+          ]),
+        },
+      },
+      pointer: { show: false },
+      axisLine: { roundCap: true, lineStyle: { width: 12, color: [[1, 'rgba(255,255,255,0.07)']] } },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: { show: false },
+      title: { show: false },
+      detail: {
+        valueAnimation: true,
+        offsetCenter: [0, '-2%'],
+        fontSize: 30,
+        fontWeight: 700,
+        fontFamily: theme.fontMono,
+        color: theme.foreground,
+        formatter: (v: number) => `${Math.round(v)}`,
+      },
+      data: [{ value: health.total, name: 'Health' }],
+    }],
+  }), [health.total, theme]);
+
+  // ── Risk radar (ECharts) ──────────────────────────────────────────────────
+  const riskRadarOption: EChartsOption = useMemo(() => {
+    // Map raw metrics onto 0-100 where 100 = best risk posture.
+    const divers = divScore;
+    const volScore = Math.max(0, Math.min(100, 100 - pVol * 1.2));
+    const drawdown = Math.max(0, Math.min(100, 100 + pMdd * 1.6));
+    const sharpe = Math.max(0, Math.min(100, pSharpe * 50));
+    const betaTxt = pBeta > 1 ? 'aggressive' : pBeta < 0.8 ? 'defensive' : 'market-like';
+    const corrPenalty = Math.max(0, Math.min(100, (1 - corrData.avg) * 100));
+    return {
+      tooltip: {
+        backgroundColor: theme.tooltipBg,
+        borderColor: theme.tooltipBorder,
+        textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
+      },
+      radar: {
+        indicator: [
+          { name: 'Diversification', max: 100 },
+          { name: 'Low Volatility', max: 100 },
+          { name: 'Drawdown Safety', max: 100 },
+          { name: 'Risk-Adj. Return', max: 100 },
+          { name: 'Low Correlation', max: 100 },
+        ],
+        radius: '68%',
+        splitNumber: 4,
+        axisName: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono },
+        splitLine: { lineStyle: { color: theme.border } },
+        splitArea: { show: false },
+        axisLine: { lineStyle: { color: theme.border } },
+      },
+      series: [{
+        type: 'radar',
+        symbolSize: 4,
+        data: [{
+          value: [divers, volScore, drawdown, sharpe, corrPenalty],
+          name: `Risk profile (${betaTxt})`,
+          lineStyle: { width: 2, color: theme.primary },
+          itemStyle: { color: theme.primary },
+          areaStyle: { color: 'rgba(122,255,120,0.18)' },
+        }],
+      }],
+    } as EChartsOption;
+  }, [divScore, pVol, pMdd, pSharpe, pBeta, corrData.avg, theme]);
+
+  // ── Exposure treemap (ECharts) ────────────────────────────────────────────
+  const treemapOption: EChartsOption = useMemo(() => {
+    const cats = new Map<string, Array<{ name: string; value: number }>>();
+    stats.holdings.forEach(h => {
+      const cat = metaOf(h.symbol)?.category ?? 'Other';
+      const arr = cats.get(cat) ?? [];
+      arr.push({ name: h.symbol, value: Number(h.valueUsd.toFixed(2)) });
+      cats.set(cat, arr);
+    });
+    return {
+      animationDuration: 600,
+      tooltip: {
+        backgroundColor: theme.tooltipBg,
+        borderColor: theme.tooltipBorder,
+        textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
+        formatter: (p: unknown) => {
+          const d = p as { name: string; value: number };
+          const pct = stats.totalValue > 0 ? ((d.value / stats.totalValue) * 100).toFixed(1) : '0';
+          return `<b>${d.name}</b><br/>${fmtUsd(d.value)} · ${pct}% of NAV`;
+        },
+      },
+      series: [{
+        type: 'treemap',
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        itemStyle: { borderColor: 'rgba(0,0,0,0.35)', borderWidth: 1, gapWidth: 2, borderRadius: 6 },
+        upperLabel: { show: true, height: 20, color: theme.muted, fontFamily: theme.fontMono, fontSize: 10, fontWeight: 600 },
+        levels: [
+          {
+            itemStyle: { gapWidth: 3 },
+            color: CHART_COLORS,
+            colorMappingBy: 'index',
+          },
+          {
+            colorSaturation: [0.35, 0.6],
+            itemStyle: { borderColorSaturation: 0.6, gapWidth: 2 },
+          },
+        ],
+        label: {
+          show: true,
+          fontFamily: theme.fontMono,
+          fontSize: 10.5,
+          fontWeight: 700,
+          color: '#0b0b0b',
+          formatter: (p: unknown) => {
+            const d = p as { name: string; value: number };
+            const pct = stats.totalValue > 0 ? Math.round((d.value / stats.totalValue) * 100) : 0;
+            return `${d.name}\n${pct}%`;
+          },
+        },
+        data: [...cats.entries()].map(([cat, children], i) => ({
+          name: cat,
+          itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
+          children,
+        })),
+      }],
+    } as EChartsOption;
+  }, [stats.holdings, stats.totalValue, metaOf, theme, CHART_COLORS]);
 
   const bestMover = useMemo(() =>
     holdingsRows.length ? [...holdingsRows].sort((a, b) => b.dayPct - a.dayPct)[0] : null,
@@ -1213,7 +1512,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <span className={`text-3xl font-mono font-bold tracking-tight block ${stats.dailyChangeValue >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {fmtUsd(stats.dailyChangeValue)}
           </span>
-          <span className="text-xs text-muted-foreground mt-1 block">Mark-to-market, 24h window</span>
+          <span className="text-xs text-muted-foreground mt-1 block">Mark-to-market, 24h window · USD-equivalent</span>
         </div>
 
         <div className={`${PANEL} p-6 group hover:border-primary/45 transition-all`}>
@@ -1250,13 +1549,17 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <div className="p-5 border-b border-border/30 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-md font-serif font-semibold">Performance</h3>
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <svg width="16" height="6"><line x1="0" y1="3" x2="16" y2="3" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" /></svg>
-                vs benchmark
-                <span className={`font-mono font-semibold ${perfDelta.port >= perfDelta.bench ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {fmtPct(perfDelta.port - perfDelta.bench)}
+              {performanceSeries.real ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <svg width="16" height="6"><line x1="0" y1="3" x2="16" y2="3" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" /></svg>
+                  vs cost basis
+                  <span className={`font-mono font-semibold ${perfDelta.port >= perfDelta.bench ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {fmtPct(perfDelta.port - perfDelta.bench)}
+                  </span>
                 </span>
-              </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground font-mono">Loading real market history…</span>
+              )}
             </div>
             <div className="flex bg-muted/20 border border-border/30 rounded-lg p-0.5">
               {(['1D', '7D', '1M', 'ALL'] as const).map(tf => (
@@ -1272,9 +1575,18 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               ))}
             </div>
           </div>
-          <div className="p-4 flex-1 min-h-[300px]">
-            <EChart option={perfOption} height={320} />
-          </div>
+            <div className="p-4 flex-1 min-h-[300px]">
+              {performanceSeries.real ? (
+                <EChart option={perfOption} height={320} />
+              ) : (
+                <div className="h-full min-h-[300px] flex items-center justify-center">
+                  <p className="text-xs text-muted-foreground font-mono text-center">
+                    Fetching real daily closes for your holdings…<br />
+                    <span className="text-[10px] text-muted-foreground/70">No simulated data is shown — charts appear once market history is retrieved.</span>
+                  </p>
+                </div>
+              )}
+            </div>
         </div>
 
         <div className="lg:col-span-2 flex flex-col gap-5">
@@ -1361,26 +1673,101 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <p className="text-[11px] text-muted-foreground mt-4">{riskLabel}</p>
         </div>
 
-        <div className={`${PANEL} lg:col-span-2 p-5`}>
-          <h3 className="text-md font-serif font-semibold mb-4 flex items-center gap-2">
-            <BarChart2 className="w-4 h-4 text-primary" /> Category Exposure
-          </h3>
-          <div className="space-y-3">
-            {categoryRows.map(row => (
-              <div key={row.name}>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-foreground/90">{row.name}</span>
-                  <span className="font-mono text-muted-foreground">{row.pct.toFixed(1)}%</span>
-                </div>
-                <div className="h-1.5 bg-border/20 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${row.barPct}%`, background: 'linear-gradient(90deg,#047857,#7aff78)' }}></div>
-                </div>
+        <div className={`${PANEL} lg:col-span-2 p-5 flex flex-col`}>
+          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+            <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-primary" /> Portfolio Health
+            </h3>
+            <span className="text-[11px] text-muted-foreground">
+              {health.total >= 75 ? 'Strong' : health.total >= 50 ? 'Fair' : health.total > 0 ? 'Weak' : '—'}
+            </span>
+          </div>
+          {stats.holdings.length > 0 ? (
+            <>
+              <EChart option={healthGaugeOption} height={130} />
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {[
+                  { l: 'Diversification', v: health.breakdown.diversification },
+                  { l: 'Risk', v: health.breakdown.risk },
+                  { l: 'Momentum', v: health.breakdown.momentum },
+                  { l: 'Concentration', v: health.breakdown.concentration },
+                ].map(s => (
+                  <div key={s.l} className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground flex-1">{s.l}</span>
+                    <div className="h-1.5 w-16 bg-border/20 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${s.v}%`, background: s.v >= 60 ? '#34d399' : s.v >= 35 ? '#fbbf24' : '#fb7185' }} />
+                    </div>
+                    <span className="font-mono text-[10px] w-6 text-right">{s.v}</span>
+                  </div>
+                ))}
               </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground font-mono text-center py-10">Health score unlocks with holdings.</p>
+          )}
+        </div>
+      </div>
+
+      {/* ─── RISK RADAR + EXPOSURE TREEMAP + ECLIPSE BRIEF ──────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        <div className={`${PANEL} lg:col-span-2 p-5`}>
+          <h3 className="text-md font-serif font-semibold mb-1 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" /> Risk Radar
+          </h3>
+          <p className="text-[11px] text-muted-foreground mb-2">Five dimensions of posture, higher = safer.</p>
+          {stats.holdings.length > 0 ? (
+            <EChart option={riskRadarOption} height={260} />
+          ) : (
+            <p className="text-xs text-muted-foreground font-mono text-center py-16">Add holdings to map your risk profile.</p>
+          )}
+        </div>
+
+        <div className={`${PANEL} lg:col-span-3 p-5 flex flex-col`}>
+          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+            <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+              <Grid3x3 className="w-4 h-4 text-primary" /> Exposure Map
+            </h3>
+            <span className="text-[11px] text-muted-foreground">Area = share of NAV, grouped by category</span>
+          </div>
+          <EChart option={treemapOption} height={260} />
+          <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">Eclipse Brief</div>
+            {brief.map((line, i) => (
+              <p key={i} className="text-[12px] text-foreground/80 leading-relaxed">• {line}</p>
             ))}
-            {categoryRows.length === 0 && <p className="text-xs text-muted-foreground font-mono text-center py-6">No exposure data.</p>}
           </div>
         </div>
       </div>
+
+      {/* ─── WHAT CHANGED ───────────────────────────────────────────────────── */}
+      {changes.length > 0 && (
+        <div className={`${PANEL} p-5`}>
+          <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
+            <Flame className="w-4 h-4 text-primary" /> What Changed
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {changes.map(c => (
+              <div key={c.id} className={`${TILE} p-3 flex items-start gap-2`}>
+                <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                  c.severity === 'positive' ? 'bg-emerald-400' : c.severity === 'negative' ? 'bg-rose-400' : 'bg-amber-400'
+                }`} />
+                <div className="min-w-0">
+                  <div className="text-xs text-foreground/90 leading-snug">{c.text}</div>
+                  {c.symbol && (
+                    <button
+                      onClick={() => onAnalyzeTicker(c.symbol!)}
+                      className="text-[10px] font-mono text-primary hover:underline mt-1 cursor-pointer"
+                    >
+                      analyze {c.symbol} →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ─── REBALANCING SUGGESTIONS ────────────────────────────────────────── */}
       <div className={`${PANEL} p-5`}>
@@ -1499,7 +1886,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                       <tr className="bg-muted/[0.03]">
                         <td colSpan={8} className="p-4 px-6 border-b border-border/10">
                           <div className="flex items-center gap-5 flex-wrap">
-                            <Sparkline up={up} />
+                            <div>
+                              <div className="text-[10px] font-mono text-muted-foreground mb-0.5">90-day real closes</div>
+                              <Sparkline data={history.closes[h.symbol] ?? []} up={up} />
+                            </div>
                             <p className="flex-1 text-[12.5px] text-foreground/80 min-w-[220px] font-sans">
                               {metaOf(h.symbol)?.aiTag ?? 'No active AI insight for this position.'}
                             </p>
@@ -1559,7 +1949,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               <thead>
                 <tr className="border-b border-border/30 text-[10px] uppercase text-muted-foreground font-semibold">
                   <th className="py-2 pr-3">Date</th><th className="pr-3">Symbol</th><th className="pr-3">Side</th>
-                  <th className="pr-3">Qty</th><th className="pr-3">Price</th><th className="pr-3">Fee</th><th>Balance</th>
+                  <th className="pr-3">Qty</th><th className="pr-3">Price</th><th className="pr-3">Fee</th><th>Notional (USD)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/20">
@@ -1571,7 +1961,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     <td className="pr-3">{t.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                     <td className="pr-3">{fmtPrice(t.price, currencyOf(t.symbol), 2)}</td>
                     <td className="pr-3 text-muted-foreground">{fmtPrice(t.fee, currencyOf(t.symbol), 2)}</td>
-                    <td>{t.balanceFmt}</td>
+                    <td>{t.notionalFmt}</td>
                   </tr>
                 ))}
                 {recentTransactions.length === 0 && (

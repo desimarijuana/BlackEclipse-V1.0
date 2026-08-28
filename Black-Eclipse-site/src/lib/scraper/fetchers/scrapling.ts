@@ -5,14 +5,11 @@
 // Zero-config: if Python + Scrapling are not available, this returns
 // a "network_error" and the adaptive chain falls back to other strategies.
 
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { existsSync } from "fs";
 import path from "path";
 import type { FetchResult, Quote } from "../types";
 import { toErrorLike } from "../types";
-
-const execFileAsync = promisify(execFile);
+import { findPython, runPythonBridge } from "./python";
 
 const SERVICE_PATH = path.join(process.cwd(), "scripts", "scrapling_service.py");
 
@@ -21,12 +18,7 @@ let availabilityCache: boolean | null = null;
 
 async function isScraplingAvailable(): Promise<boolean> {
   if (availabilityCache !== null) return availabilityCache;
-  try {
-    await execFileAsync("python", ["-c", "import scrapling"], { timeout: 10000 });
-    availabilityCache = true;
-  } catch {
-    availabilityCache = false;
-  }
+  availabilityCache = (await findPython("scrapling")) !== null;
   return availabilityCache;
 }
 
@@ -43,11 +35,11 @@ export async function fetchScraplingQuote(
   }
 
   try {
-    const { stdout } = await execFileAsync(
-      "python",
-      [SERVICE_PATH, symbol, market],
-      { timeout: 45000, maxBuffer: 1024 * 1024 }
-    );
+    const { stdout } = await runPythonBridge(SERVICE_PATH, [symbol, market], {
+      timeout: 45000,
+      maxBuffer: 1024 * 1024,
+      mod: "scrapling",
+    });
 
     // The service prints JSON to stdout; Scrapling logs go to stderr.
     const output = stdout.trim();

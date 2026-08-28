@@ -172,6 +172,33 @@ const INDICES_CACHE_TTL_MS = 2 * 60 * 1000;
 const indicesCache = new Map<string, { t: number; data: unknown }>();
 const indicesRebuilding = new Set<string>();
 
+// Persisted full payload (indices + sectors + shifters) per market. Survives
+// server restarts so a cold start serves sectors/shifters too — the
+// IndexQuote-only fallback above only covers index cards.
+const PERSIST_PREFIX = "api_cache:indices:";
+
+async function loadPersistedPayload(market: string): Promise<unknown | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key: PERSIST_PREFIX + market } });
+    if (!row?.value) return null;
+    const parsed = JSON.parse(row.value);
+    if (parsed && Array.isArray(parsed.indices) && parsed.indices.some((i: { price: number }) => i.price > 0)) {
+      return parsed;
+    }
+  } catch { /* ignore — fall through to a live build */ }
+  return null;
+}
+
+async function persistPayload(market: string, data: unknown) {
+  try {
+    await prisma.systemConfig.upsert({
+      where: { key: PERSIST_PREFIX + market },
+      update: { value: JSON.stringify(data) },
+      create: { key: PERSIST_PREFIX + market, value: JSON.stringify(data) },
+    });
+  } catch { /* persistence is best-effort */ }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const market = toMarketId((searchParams.get("market") || "US").toUpperCase());
@@ -184,18 +211,37 @@ export async function GET(request: Request) {
     if (!indicesRebuilding.has(market)) {
       indicesRebuilding.add(market);
       buildIndicesPayload(market)
-        .then((data) => indicesCache.set(market, { t: Date.now(), data }))
+        .then(async (data) => {
+          indicesCache.set(market, { t: Date.now(), data });
+          await persistPayload(market, data);
+        })
         .catch((err) => console.error("[api/indices] background rebuild error:", err))
         .finally(() => indicesRebuilding.delete(market));
     }
     return NextResponse.json(cachedEntry.data);
   }
 
-  // Cold start: if the IndexQuote table already has quotes for this market
-  // (persisted by a previous build), serve them INSTANTLY and refresh from
-  // Yahoo in the background. Never make the browser wait 15-40s on the
-  // Python bridge — that's what caused the "Failed to fetch" aborts.
+  // Cold start: prefer the LAST FULL payload (indices + sectors + shifters)
+  // persisted in SystemConfig, then fall back to IndexQuote rows. Both are
+  // served INSTANTLY while a fresh build runs in the background — never make
+  // the browser wait 15-40s on the Python bridge (that caused the
+  // "Failed to fetch" aborts).
   try {
+    const persistedFull = await loadPersistedPayload(market);
+    if (persistedFull) {
+      indicesCache.set(market, { t: Date.now(), data: persistedFull });
+      if (!indicesRebuilding.has(market)) {
+        indicesRebuilding.add(market);
+        buildIndicesPayload(market)
+          .then(async (fresh) => {
+            indicesCache.set(market, { t: Date.now(), data: fresh });
+            await persistPayload(market, fresh);
+          })
+          .catch((err) => console.error("[api/indices] background rebuild error:", err))
+          .finally(() => indicesRebuilding.delete(market));
+      }
+      return NextResponse.json(persistedFull);
+    }
     const persisted = await prisma.indexQuote.findMany({
       where: { marketId: market },
       select: { symbol: true, name: true, price: true, change: true, changePct: true },
@@ -207,7 +253,10 @@ export async function GET(request: Request) {
       if (!indicesRebuilding.has(market)) {
         indicesRebuilding.add(market);
         buildIndicesPayload(market)
-          .then((fresh) => indicesCache.set(market, { t: Date.now(), data: fresh }))
+          .then(async (fresh) => {
+            indicesCache.set(market, { t: Date.now(), data: fresh });
+            await persistPayload(market, fresh);
+          })
           .catch((err) => console.error("[api/indices] background rebuild error:", err))
           .finally(() => indicesRebuilding.delete(market));
       }
@@ -218,6 +267,7 @@ export async function GET(request: Request) {
   try {
     const data = await buildIndicesPayload(market);
     indicesCache.set(market, { t: Date.now(), data });
+    await persistPayload(market, data);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[api/indices] GET error:", err);

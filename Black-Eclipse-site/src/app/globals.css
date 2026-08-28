@@ -595,16 +595,6 @@ div.group\/sidebar,
   border-radius: 0px !important;
 }
 
-@keyframes loadingProgress {
-  0% { transform: scaleX(0); }
-  50% { transform: scaleX(0.7); }
-  100% { transform: scaleX(1); transform: translateX(100%); }
-}
-
-.animate-loading-bar {
-  animation: loadingProgress 1.5s infinite ease-in-out;
-}
-
 /* Custom scrollbar styling for Chrome, Safari, Edge, Opera */
 ::-webkit-scrollbar {
   width: 8px;
