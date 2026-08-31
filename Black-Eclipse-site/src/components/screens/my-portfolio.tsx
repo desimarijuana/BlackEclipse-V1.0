@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import {
@@ -8,12 +9,19 @@ import {
   Wallet, TrendingUp, History, PieChart,
   Plus, Trash2, Shield, Activity, PlusCircle,
   AlertCircle, BarChart2, DollarSign, Calendar,
-  X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3} from 'lucide-react';
+  X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3,
+  Home, GraduationCap, PiggyBank, Plane, Car, Heart,
+  Gift, Rocket, Landmark, Coins, LayoutDashboard, SquarePen} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
 import { SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
-import { usePortfolioEngine, PortfolioStats } from '@/hooks/use-portfolio-engine';
+import { usePortfolioEngine, computePortfolioStats, PortfolioStats } from '@/hooks/use-portfolio-engine';
 import { usePriceHistories } from '@/hooks/use-price-histories';
+import {
+  getDisplayCurrency, setDisplayCurrency, fetchFxMatrix, convertFromUsd, fmtMoney, fmtMoneyCompact,
+  DISPLAY_CURRENCIES,
+  type Currency,
+} from '@/lib/currency';
 import {
   computeHealthScore, buildBrief, buildChanges,
   type HoldingMeta,
@@ -30,7 +38,7 @@ const DOWN = '#fb7185';
 
 export interface Transaction {
   id: string;
-  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAWAL';
+  type: 'BUY' | 'SELL' | 'DEPOSIT' | 'WITHDRAWAL' | 'DIVIDEND';
   symbol: string;
   quantity: number;
   price: number;
@@ -138,6 +146,202 @@ const ALERT_TYPES: Array<{ value: Alert['type']; label: string }> = [
 
 const AVAILABLE_CASH = 8450.32;
 
+// ── Multi-fund model ────────────────────────────────────────────────────────
+// Users can create multiple goal-scoped portfolios ("House Fund", "College
+// Fund", …). Each fund owns its own transaction ledger and lives in localStorage
+// under `portfolio_funds_guest` as { id, name, icon, color, goalUsd?, tx: [] }.
+// A legacy single-portfolio (key `portfolio_tx_guest`) is auto-migrated into a
+// "Main Portfolio" fund on first load.
+
+interface Fund {
+  id: string;
+  name: string;
+  icon: string;      // lucide icon key — see FUND_ICONS
+  color: string;     // hex accent used across cards & charts
+  goalUsd?: number;  // optional savings goal for progress display
+  tx: Transaction[];
+}
+
+const FUND_COLORS = ['#7aff78', '#8d92f9', '#d35bb1', '#f7ac4d', '#0090b1', '#8ec053', '#fbbf24'];
+
+const FUND_ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  home: Home,
+  education: GraduationCap,
+  savings: PiggyBank,
+  travel: Plane,
+  car: Car,
+  health: Heart,
+  gift: Gift,
+  growth: Rocket,
+  reserve: Landmark,
+  crypto: Coins,
+  briefcase: Briefcase,
+};
+
+const FUND_ICON_OPTIONS = Object.keys(FUND_ICONS);
+
+// Demo ledgers for the starter goal funds shown to first-time users.
+const HOUSE_TX: Transaction[] = [
+  { id: 'h-tx-1', type: 'BUY', symbol: 'UBL', quantity: 200, price: 292.00, fee: 55.00, date: '2026-03-14' },
+  { id: 'h-tx-2', type: 'BUY', symbol: 'MEBL', quantity: 300, price: 148.00, fee: 48.00, date: '2026-05-02' },
+  { id: 'h-tx-3', type: 'BUY', symbol: 'OGDC', quantity: 500, price: 21.40, fee: 30.00, date: '2026-06-11' },
+];
+const COLLEGE_TX: Transaction[] = [
+  { id: 'c-tx-1', type: 'BUY', symbol: 'BTC', quantity: 0.12, price: 60200.00, fee: 11.00, date: '2026-04-08' },
+  { id: 'c-tx-2', type: 'BUY', symbol: 'HBL', quantity: 350, price: 128.50, fee: 40.00, date: '2026-06-22' },
+];
+
+// Additional goal-fund ledgers for the seeded demo book.
+const TRAVEL_TX: Transaction[] = [
+  { id: 't-tx-1', type: 'BUY', symbol: 'SOL', quantity: 18.00, price: 102.00, fee: 6.50, date: '2026-05-19' },
+  { id: 't-tx-2', type: 'BUY', symbol: 'PSO', quantity: 250, price: 342.00, fee: 35.00, date: '2026-05-30' },
+  { id: 't-tx-3', type: 'BUY', symbol: 'SOL', quantity: 12.00, price: 141.75, fee: 4.20, date: '2026-07-09' },
+  { id: 't-tx-4', type: 'SELL', symbol: 'PSO', quantity: 50, price: 368.00, fee: 12.00, date: '2026-08-14' },
+  { id: 't-tx-5', type: 'BUY', symbol: 'ETH', quantity: 0.65, price: 3120.00, fee: 9.00, date: '2026-07-28' },
+];
+const RAINY_TX: Transaction[] = [
+  { id: 'r-tx-1', type: 'BUY', symbol: 'HBL', quantity: 420, price: 131.20, fee: 42.00, date: '2026-02-20' },
+  { id: 'r-tx-2', type: 'BUY', symbol: 'ENGRO', quantity: 180, price: 288.50, fee: 36.00, date: '2026-04-25' },
+  { id: 't-tx-5', type: 'BUY', symbol: 'SYS', quantity: 120, price: 462.00, fee: 28.00, date: '2026-08-01' },
+  { id: 'r-tx-4', type: 'BUY', symbol: 'ETH', quantity: 1.10, price: 2870.00, fee: 8.00, date: '2026-06-15' },
+  { id: 'r-tx-3', type: 'SELL', symbol: 'HBL', quantity: 100, price: 147.20, fee: 18.00, date: '2026-08-12' },
+];
+const GROWTH_TX: Transaction[] = [
+  { id: 'g-tx-1', type: 'BUY', symbol: 'ETH', quantity: 2.60, price: 3010.00, fee: 14.00, date: '2026-03-19' },
+  { id: 'g-tx-2', type: 'BUY', symbol: 'SOL', quantity: 40.00, price: 96.50, fee: 10.00, date: '2026-04-02' },
+  { id: 'g-tx-3', type: 'BUY', symbol: 'SYS', quantity: 120, price: 470.00, fee: 32.00, date: '2026-06-30' },
+  { id: 'g-tx-4', type: 'BUY', symbol: 'SOL', quantity: 15.00, price: 128.60, fee: 6.00, date: '2026-08-12' },
+];
+
+// Default seed: one main portfolio plus five goal funds. Existing users with
+// a legacy single ledger are migrated into "Main Portfolio" on first load.
+const DEFAULT_FUNDS: Fund[] = [
+  {
+    id: 'fund-main',
+    name: 'Main Portfolio',
+    icon: 'briefcase',
+    color: FUND_COLORS[0],
+    tx: DEFAULT_TRANSACTIONS,
+  },
+  {
+    id: 'fund-house',
+    name: 'House Fund',
+    icon: 'home',
+    color: FUND_COLORS[1],
+    goalUsd: 50000,
+    tx: HOUSE_TX,
+  },
+  {
+    id: 'fund-college',
+    name: 'College Fund',
+    icon: 'education',
+    color: FUND_COLORS[2],
+    goalUsd: 40000,
+    tx: COLLEGE_TX,
+  },
+  {
+    id: 'fund-travel',
+    name: 'Travel Fund',
+    icon: 'travel',
+    color: FUND_COLORS[3],
+    goalUsd: 8000,
+    tx: TRAVEL_TX,
+  },
+  {
+    id: 'fund-rainy',
+    name: 'Rainy Day',
+    icon: 'reserve',
+    color: FUND_COLORS[4],
+    goalUsd: 15000,
+    tx: RAINY_TX,
+  },
+  {
+    id: 'fund-growth',
+    name: 'Growth Fund',
+    icon: 'growth',
+    color: FUND_COLORS[5],
+    goalUsd: 100000,
+    tx: GROWTH_TX,
+  },
+];
+
+const FUNDS_KEY = 'portfolio_funds_guest';
+const PROTECTED_FUND_IDS = new Set(['fund-main', 'fund-house', 'fund-college', 'fund-travel', 'fund-rainy', 'fund-growth']);
+
+const makeFundId = () => 'fund-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+// Seed funds can be renamed but not deleted, so the demo book never breaks.
+const isFundProtected = (id: string) => PROTECTED_FUND_IDS.has(id);
+
+// ── Fund storage (load / merge-seeds / migrate / persist) ──────────────────
+// Seed funds that ship with the app (House, College, Travel, …) are merged
+// into any saved book that is missing them, so updates reach existing users
+// without clobbering their edits.
+function loadFunds(): { funds: Fund[]; activeId: string } {
+  if (typeof window === 'undefined') return { funds: DEFAULT_FUNDS, activeId: DEFAULT_FUNDS[0].id };
+  let saved: Fund[] | null = null;
+  try {
+    const raw = localStorage.getItem(FUNDS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Fund[];
+      if (Array.isArray(parsed)) {
+        saved = parsed
+          .filter(f => f && typeof f.id === 'string' && Array.isArray(f.tx))
+          .map(f => ({
+            ...f,
+            name: f.name || 'Unnamed Fund',
+            icon: FUND_ICONS[f.icon] ? f.icon : 'briefcase',
+            color: /^#[0-9a-fA-F]{6}$/.test(f.color ?? '') ? f.color : FUND_COLORS[0],
+            goalUsd: typeof f.goalUsd === 'number' && f.goalUsd > 0 ? f.goalUsd : undefined,
+          }));
+      }
+    }
+  } catch { saved = null; }
+
+  if (saved && saved.length > 0) {
+    // Merge: add any seed fund the saved set doesn't have yet.
+    const merged = [...saved];
+    for (const seed of DEFAULT_FUNDS) {
+      if (!merged.some(f => f.id === seed.id)) merged.push(seed);
+    }
+    // Keep Main Portfolio first, seeds in declared order, user funds after.
+    merged.sort((a, b) => {
+      const ia = DEFAULT_FUNDS.findIndex(f => f.id === a.id);
+      const ib = DEFAULT_FUNDS.findIndex(f => f.id === b.id);
+      return (ia === -1 ? DEFAULT_FUNDS.length : ia) - (ib === -1 ? DEFAULT_FUNDS.length : ib);
+    });
+    if (merged.length !== saved.length) saveFunds(merged);
+    return { funds: merged, activeId: merged[0].id };
+  }
+
+  // Migration: existing single-portfolio users get their transactions kept
+  // as "Main Portfolio" instead of being reset.
+  try {
+    const legacyTx = localStorage.getItem('portfolio_tx_guest');
+    const migrated: Fund[] = legacyTx
+      ? [{ ...DEFAULT_FUNDS[0], tx: JSON.parse(legacyTx) as Transaction[] }, ...DEFAULT_FUNDS.slice(1)]
+      : DEFAULT_FUNDS;
+    localStorage.setItem(FUNDS_KEY, JSON.stringify(migrated));
+    return { funds: migrated, activeId: migrated[0].id };
+  } catch {
+    return { funds: DEFAULT_FUNDS, activeId: DEFAULT_FUNDS[0].id };
+  }
+}
+
+function saveFunds(funds: Fund[]) {
+  try {
+    localStorage.setItem(FUNDS_KEY, JSON.stringify(funds));
+  } catch { /* quota exceeded — in-memory state still holds */ }
+}
+
+// Demo metadata for quick-start suggestions in the New Fund dialog.
+const STARTER_GOAL_FUNDS: Array<Pick<Fund, 'name' | 'icon' | 'color' | 'goalUsd'>> = [
+  { name: 'House Fund', icon: 'home', color: FUND_COLORS[1], goalUsd: 50000 },
+  { name: 'College Fund', icon: 'education', color: FUND_COLORS[2], goalUsd: 40000 },
+  { name: 'Travel Fund', icon: 'travel', color: FUND_COLORS[3], goalUsd: 8000 },
+  { name: 'Rainy Day', icon: 'reserve', color: FUND_COLORS[4], goalUsd: 15000 },
+];
+
 // ── Formatting helpers ──────────────────────────────────────────────────────
 const fmtUsd = (n: number, dp = 2) =>
   `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
@@ -148,6 +352,22 @@ const fmtK = (n: number) => {
   return `$${Math.round(n)}`;
 };
 const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+// ── CSV export helpers (client-side download) ───────────────────────────────
+function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
+  const esc = (v: string | number) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = rows.map(r => r.map(esc).join(',')).join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 // Price formatter that respects the asset's currency (PKR for PSX equities).
 const fmtPrice = (n: number, currency?: 'USD' | 'PKR', dp = 2) => {
@@ -255,6 +475,432 @@ function Sparkline({ data, up }: { data: number[]; up: boolean }) {
   );
 }
 
+// ── Overview: cross-fund dashboard with quick-glance cards ─────────────────
+// Each card is a real_portfolio engine run over that fund's ledger (same
+// FIFO/LIFO math as the fund view), so headline numbers always agree with
+// what the user sees after clicking through.
+interface OverviewViewProps {
+  funds: Fund[];
+  usdPkr: number;
+  liveAssets: LiveAsset[];
+  onOpenFund: (id: string) => void;
+  onEditFund: (fund: Fund) => void;
+  onDeleteFund: (id: string) => void;
+  onCreateFund: () => void;
+  onAnalyzeTicker: (ticker: string) => void;
+  displayFx: Currency;
+  fxRates: Record<string, number>;
+  hasFx: boolean;
+  fmtD: (usd: number, dp?: number) => string;
+  fmtDK: (usd: number) => string;
+  dispLabel: string;
+  fundHistory: { closes: Record<string, number[]>; dates: Record<string, string[]> };
+}
+
+function FundCard({
+  fund, usdPkr, liveAssets, onOpen, onEdit, onDelete, onAnalyzeTicker, canDelete, fmtD, fmtDK,
+}: {
+  fund: Fund;
+  usdPkr: number;
+  liveAssets: LiveAsset[];
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onAnalyzeTicker: (t: string) => void;
+  canDelete: boolean;
+  fmtD: (usd: number, dp?: number) => string;
+  fmtDK: (usd: number) => string;
+}) {
+  const liveForEngine = useMemo(
+    () => liveAssets.map(a => ({ ...a, fxToUsd: a.currency === 'PKR' ? 1 / usdPkr : 1 })),
+    [liveAssets, usdPkr]
+  );
+  const s = usePortfolioEngine(fund.tx, liveForEngine, 'FIFO');
+  const Icon = FUND_ICONS[fund.icon] ?? Briefcase;
+  const up = s.dailyChangeValue >= 0;
+  const goalPct = fund.goalUsd && fund.goalUsd > 0 ? Math.min(100, (s.totalValue / fund.goalUsd) * 100) : null;
+  const topHoldings = s.holdings.slice(0, 3);
+  const allocationMax = 100;
+
+  return (
+    <div
+      onClick={onOpen}
+      className={`${PANEL} ${up
+        ? 'bg-gradient-to-br from-emerald-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30 dark:from-emerald-500/[0.03]'
+        : 'bg-gradient-to-br from-rose-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30 dark:from-rose-500/[0.03]'} p-5 relative overflow-hidden group cursor-pointer hover:-translate-y-0.5 transition-all duration-300 hover:shadow-xl flex flex-col`}
+      style={{ ['--fund-accent' as string]: fund.color }}
+    >
+      {/* Ambient glow — profit green / loss red, echoes market-news sentiment glows */}
+      <div
+        className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-48 h-48 rounded-full blur-[60px] pointer-events-none opacity-20 group-hover:opacity-30 transition-all duration-300 ${
+          up ? 'bg-emerald-500 shadow-[0_0_40px_rgba(52,211,153,0.35)]' : 'bg-rose-500 shadow-[0_0_40px_rgba(251,113,133,0.35)]'
+        }`}
+      />
+
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${fund.color}1f`, border: `1px solid ${fund.color}45` }}>
+            <Icon className="w-5 h-5" style={{ color: fund.color }} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-serif font-semibold text-base truncate">{fund.name}</h3>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {s.holdings.length} holding{s.holdings.length === 1 ? '' : 's'} · {fund.tx.length} tx
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            title="Edit fund"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 cursor-pointer"
+          >
+            <SquarePen className="w-3.5 h-3.5" />
+          </button>
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title="Delete fund"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-2xl font-mono font-bold tracking-tight">{fmtD(s.totalValue)}</span>
+          <span className={`text-xs font-semibold ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {up ? <ArrowUpRight className="inline w-3.5 h-3.5" /> : <ArrowDownRight className="inline w-3.5 h-3.5" />}
+            {fmtPct(s.dailyChangePercent)}
+          </span>
+        </div>
+        <div className="text-[11px] text-muted-foreground mt-0.5">
+          Today {fmtD(s.dailyChangeValue)} · ROI <span className={s.roiPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtPct(s.roiPercent)}</span> all-time
+        </div>
+      </div>
+
+      {/* Goal progress */}
+      {goalPct !== null && (
+        <div className="mb-4">
+          <div className="flex justify-between text-[10px] font-mono text-muted-foreground mb-1">
+            <span>Goal {fmtD(fund.goalUsd!, 0)}</span>
+            <span className={goalPct >= 100 ? 'text-emerald-400' : ''}>{goalPct.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-border/25 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${Math.max(2, goalPct)}%`, background: goalPct >= 100 ? '#34d399' : fund.color }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Mini allocation bars */}
+      <div className="space-y-1.5 mb-4">
+        {topHoldings.length > 0 ? topHoldings.map((h, i) => (
+          <div key={h.symbol} className="flex items-center gap-2 text-[11px] font-mono">
+            <span className="w-12 font-bold truncate">{h.symbol}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-border/20 overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${(h.allocation / allocationMax) * 100}%`,
+                  background: i === 0 ? fund.color : `${fund.color}77`,
+                }}
+              />
+            </div>
+            <span className="text-muted-foreground w-9 text-right">{h.allocation.toFixed(0)}%</span>
+          </div>
+        )) : (
+          <p className="text-[11px] text-muted-foreground font-mono py-1">No holdings yet — click to add transactions.</p>
+        )}
+        {s.holdings.length > 3 && (
+          <div className="text-[10px] text-muted-foreground font-mono text-right">+{s.holdings.length - 3} more…</div>
+        )}
+      </div>
+
+      <div className="mt-auto pt-3 border-t border-border/20 flex items-center justify-between">
+        <button
+          onClick={(e) => { e.stopPropagation(); onAnalyzeTicker('PORTFOLIO'); }}
+          className="text-[11px] font-mono text-primary hover:underline cursor-pointer"
+        >
+          Discuss with AI →
+        </button>
+        <span className="text-[11px] font-mono text-muted-foreground group-hover:text-primary transition-colors flex items-center gap-1">
+          Open fund <ArrowUpRight className="w-3.5 h-3.5" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function OverviewView({
+  funds, usdPkr, liveAssets, onOpenFund, onEditFund, onDeleteFund, onCreateFund, onAnalyzeTicker,
+  displayFx, fxRates, hasFx, fmtD, fmtDK, dispLabel, fundHistory,
+}: OverviewViewProps) {
+  // Aggregate KPIs across every fund (each ran through the same engine).
+  const agg = useMemo(() => {
+    const liveForEngine = liveAssets.map(a => ({ ...a, fxToUsd: a.currency === 'PKR' ? 1 / usdPkr : 1 }));
+    let value = 0, cost = 0, day = 0, unreal = 0;
+    const symbolAlloc = new Map<string, { value: number; color?: string }>();
+    for (const f of funds) {
+      const s = computePortfolioStats(f.tx, liveForEngine, 'FIFO');
+      value += s.totalValue;
+      cost += s.costBasis;
+      day += s.dailyChangeValue;
+      unreal += s.unrealizedPnL;
+      for (const h of s.holdings) {
+        const cur = symbolAlloc.get(h.symbol);
+        symbolAlloc.set(h.symbol, { value: (cur?.value ?? 0) + h.valueUsd, color: cur?.color });
+      }
+    }
+    const roi = cost > 0 ? (unreal / cost) * 100 : 0;
+    const dayPct = value - day > 0 ? (day / (value - day)) * 100 : 0;
+    const top = [...symbolAlloc.entries()].map(([symbol, d]) => ({ symbol, value: d.value }))
+      .sort((a, b) => b.value - a.value);
+    const total = value || 1;
+    return { value, cost, day, unreal, roi, dayPct, top: top.map(t => ({ ...t, pct: (t.value / total) * 100 })) };
+  }, [funds, liveAssets, usdPkr]);
+
+  // ── Fund-vs-fund comparison: indexed NAV curves from real close series ─────
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    try { setShowOnboarding(!localStorage.getItem('eclipse_onboarded')); } catch { setShowOnboarding(false); }
+  }, []);
+  const fundCompare = useMemo(() => {
+    const series: Array<{ id: string; name: string; color: string; pct: number; data: number[]; firstDates: string[] }> = [];
+    for (const f of funds) {
+      const syms = [...new Set(f.tx.filter(t => t.type !== 'DIVIDEND').map(t => t.symbol))];
+      const statsForFund = computePortfolioStats(f.tx, liveAssets.map(a => ({ ...a, fxToUsd: a.currency === 'PKR' ? 1 / usdPkr : 1 })), 'FIFO');
+      const valueBySym = new Map<string, number>();
+      for (const h of statsForFund.holdings) valueBySym.set(h.symbol, h.valueUsd);
+      // Weights from current value; NAV path = Σ w_i × (close_i,t / close_i,0)
+      const usable = syms.filter(s => (fundHistory.closes[s]?.length ?? 0) >= 2 && (valueBySym.get(s) ?? 0) > 0);
+      if (usable.length === 0) continue;
+      const totalVal = usable.reduce((a, s) => a + (valueBySym.get(s) ?? 0), 0);
+      const minLen = Math.min(...usable.map(s => fundHistory.closes[s].length));
+      if (minLen < 2) continue;
+      const nav: number[] = [];
+      for (let t = 0; t < minLen; t++) {
+        let v = 0;
+        for (let i = 0; i < usable.length; i++) {
+          const sym = usable[i];
+          if (fundHistory.dates[sym].length < minLen) continue;
+          const cs = fundHistory.closes[sym];
+          const w = (valueBySym.get(sym) ?? 0) / totalVal;
+          v += w * (cs[t] / cs[0]);
+        }
+        nav.push(v);
+      }
+      if (nav.length < 2) continue;
+      series.push({
+        id: f.id,
+        name: f.name,
+        color: f.color,
+        pct: ((nav[nav.length - 1] / nav[0]) - 1) * 100,
+        data: nav.map(v => v / nav[0]),
+        firstDates: fundHistory.dates[usable[0]],
+      });
+    }
+    return series.sort((a, b) => b.pct - a.pct);
+  }, [funds, liveAssets, usdPkr, fundHistory]);
+
+  const fundCompareOption: EChartsOption = useMemo(() => ({
+    animationDuration: 600,
+    grid: { left: 8, right: 8, top: 28, bottom: 4, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#141414',
+      borderColor: 'rgba(255,255,255,0.12)',
+      textStyle: { color: '#f4f4f5', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+      valueFormatter: (v) => fmtPct((Number(v) - 1) * 100),
+    },
+    legend: {
+      top: 0, right: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10,
+      textStyle: { color: '#9ca3af', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: (fundCompare[0]?.firstDates ?? []).map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: '#9ca3af', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      axisLabel: {
+        color: '#9ca3af', fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+        formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%`,
+      },
+    },
+    series: fundCompare.map(s => ({
+      name: s.name,
+      type: 'line' as const,
+      smooth: true,
+      showSymbol: false,
+      data: s.data,
+      lineStyle: { width: 2, color: s.color },
+      itemStyle: { color: s.color },
+    })),
+  }), [fundCompare, funds, fundHistory]);
+
+  return (
+    <div className="space-y-6">
+      {/* Aggregate KPI strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className={`${PANEL} p-6`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-primary" /> Total Value
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground">{funds.length} funds · {dispLabel}</span>
+          </div>
+          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtD(agg.value)}</span>
+          <span className={`text-xs font-semibold mt-1 block ${agg.day >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {fmtD(agg.day)} ({fmtPct(agg.dayPct)}) today
+          </span>
+        </div>
+        <div className={`${PANEL} p-6`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" /> Unrealized P/L
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground">All time</span>
+          </div>
+          <span className={`text-3xl font-mono font-bold tracking-tight block ${agg.unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {agg.unreal >= 0 ? '+' : '-'}{fmtD(Math.abs(agg.unreal))}
+          </span>
+          <span className="text-xs text-muted-foreground mt-1 block">Blended ROI {fmtPct(agg.roi)}</span>
+        </div>
+        <div className={`${PANEL} p-6`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-primary" /> Top Exposure
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground">Across funds</span>
+          </div>
+          {agg.top.length > 0 ? (
+            <>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-mono font-bold">{agg.top[0].symbol}</span>
+                <span className="text-xs text-muted-foreground">{agg.top[0].pct.toFixed(0)}% of book</span>
+              </div>
+              <div className="flex gap-1 mt-2 h-1.5">
+                {agg.top.slice(0, 5).map(t => (
+                  <div key={t.symbol} className="h-full rounded-full bg-primary/50" style={{ width: `${t.pct}%` }} title={`${t.symbol} ${t.pct.toFixed(1)}%`} />
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">No holdings yet.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Fund-vs-fund performance comparison (real indexed NAV curves) */}
+      {fundCompare.length > 0 && (
+        <div className={`${PANEL} p-5`}>
+          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+            <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" /> Fund Comparison
+            </h3>
+            <span className="text-[11px] text-muted-foreground">
+              Indexed NAV, best-to-worst · leader <span className="text-emerald-400 font-mono font-bold">{fundCompare[0].name} {fmtPct(fundCompare[0].pct)}</span>
+            </span>
+          </div>
+          <EChart option={fundCompareOption} height={260} />
+        </div>
+      )}
+
+      {/* Fund cards */}
+      <div>
+        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+            <Briefcase className="w-4 h-4 text-primary" /> Your Funds
+          </h3>
+          <span className="text-[11px] text-muted-foreground">Click a card to open that fund&apos;s full portfolio</span>
+        </div>
+
+        {/* First-run onboarding: 3-step checklist, dismissible */}
+        {showOnboarding && (
+          <div className={`${PANEL} p-5 mb-5 border-primary/25 relative`}>
+            <button
+              onClick={() => { setShowOnboarding(false); try { localStorage.setItem('eclipse_onboarded', '1'); } catch { /* ignore */ } }}
+              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground cursor-pointer p-1"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h4 className="text-sm font-serif font-semibold mb-3 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" /> Welcome to Eclipse Portfolios
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { done: agg.value > 0, title: '1 · Record a trade', desc: 'Add your first BUY — crypto, PSX, or any JDDS market.', action: 'Add transaction' },
+                { done: displayFx !== 'USD' || getDisplayCurrency() !== 'USD', title: '2 · Pick your currency', desc: 'Totals show in USD by default — switch anytime.', action: 'Open Settings' },
+                { done: false, title: '3 · Explore analytics', desc: 'Stress tests, risk radar, Monte Carlo & AI briefs.', action: 'Scroll down' },
+              ].map(step => (
+                <div key={step.title} className={`${TILE} p-3.5 flex flex-col gap-1.5`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${step.done ? 'bg-primary border-primary' : 'border-border/50'}`}>
+                      {step.done && <span className="text-[9px] font-bold text-[#0b0b0b]">✓</span>}
+                    </span>
+                    <span className="text-xs font-bold">{step.title}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{step.desc}</p>
+                  {!step.done && (
+                    <button
+                      onClick={() => {
+                        if (step.action.startsWith('Add')) onOpenFund(funds[0]?.id ?? '');
+                      }}
+                      className="text-[10.5px] font-mono text-primary hover:underline text-left cursor-pointer mt-auto"
+                    >
+                      {step.action} →
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {funds.map(f => (
+            <FundCard
+              key={f.id}
+              fund={f}
+              usdPkr={usdPkr}
+              liveAssets={liveAssets}
+              onOpen={() => onOpenFund(f.id)}
+              onEdit={() => onEditFund(f)}
+              onDelete={() => onDeleteFund(f.id)}
+              onAnalyzeTicker={onAnalyzeTicker}
+              canDelete={!isFundProtected(f.id)}
+              fmtD={fmtD}
+              fmtDK={fmtDK}
+            />
+          ))}
+          <button
+            onClick={onCreateFund}
+            className="min-h-[220px] rounded-2xl border-2 border-dashed border-border/40 hover:border-primary/50 hover:bg-primary/[0.03] transition-all flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary cursor-pointer group"
+          >
+            <span className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Plus className="w-5 h-5" />
+            </span>
+            <span className="text-sm font-semibold">Create New Fund</span>
+            <span className="text-[11px]">House fund, college fund, trip — any goal.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Live asset shape kept for compatibility with existing consumers ─────────
 interface LiveAsset {
   symbol: string;
@@ -277,15 +923,28 @@ interface MyPortfolioProps {
 
 export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfolioProps) {
 
+  // ── Multi-fund state ───────────────────────────────────────────────────────
+  // viewMode 'overview' shows the cross-fund dashboard; otherwise the id of
+  // the fund whose full portfolio is being viewed.
+  const [funds, setFunds] = useState<Fund[]>([]);
+  const [viewMode, setViewMode] = useState<string>('overview');
+  const [isFundDialogOpen, setIsFundDialogOpen] = useState(false);
+  const [fundEditorId, setFundEditorId] = useState<string | null>(null); // null = creating
+
+  // New-fund form
+  const [fundName, setFundName] = useState('');
+  const [fundIcon, setFundIcon] = useState('savings');
+  const [fundColor, setFundColor] = useState(FUND_COLORS[0]);
+  const [fundGoal, setFundGoal] = useState('');
+
   // Customization states
   const [timeframe, setTimeframe] = useState<'1D' | '7D' | '1M' | 'ALL'>('1M');
-  const [taxMethod, setTaxMethod] = useState<'FIFO' | 'LIFO'>('FIFO');
 
   // Dialog state
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   // Add-transaction form states
-  const [txType, setTxType] = useState<'BUY' | 'SELL'>('BUY');
+  const [txType, setTxType] = useState<'BUY' | 'SELL' | 'DIVIDEND'>('BUY');
   const [txSymbol, setTxSymbol] = useState('');
   const [txQty, setTxQty] = useState('');
   const [txPrice, setTxPrice] = useState('');
@@ -325,13 +984,26 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [alertType, setAlertType] = useState<Alert['type']>('PRICE_ABOVE');
   const [alertTarget, setAlertTarget] = useState('');
 
+  // Server-side alert sync: register the ledger so the scheduler evaluates
+  // thresholds against live prices even when this tab is closed. clientId is
+  // a stable anonymous id; trigger marks persist server-side.
+  const alertClientId = useRef<string>('');
+  if (!alertClientId.current) {
+    try {
+      alertClientId.current = localStorage.getItem('eclipse_client_id') || (() => {
+        const id = 'c-' + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem('eclipse_client_id', id);
+        return id;
+      })();
+    } catch { alertClientId.current = 'c-anon'; }
+  }
+
   // Live data state
   const [liveAssets, setLiveAssets] = useState<LiveAsset[]>([]);
   const [loadingLive, setLoadingLive] = useState(true);
   const [loadingPortfolio, setLoadingPortfolio] = useState(true);
 
-  // Persistent state
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  // Persistent state — transactions now derive from the ACTIVE fund.
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -343,13 +1015,44 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   // or a symbol has no live quote yet. A hard timeout guards against a hung
   // request so the portfolio never blocks on skeletons forever.
   const [usdPkr, setUsdPkr] = useState(278);
+
+  // ── Display currency (presentation layer; engine stays USD) ────────────────
+  // Persisted in localStorage; settings changes broadcast `eclipse:currency-change`.
+  const [fxRates, setFxRates] = useState<Record<string, number>>({ USD: 1 });
+  const [fxAsOf, setFxAsOf] = useState<string | null>(null);
+  const [displayFx, setDisplayFx] = useState<Currency>('USD');
+  useEffect(() => {
+    setDisplayFx(getDisplayCurrency());
+    fetchFxMatrix().then(m => {
+      setFxRates(m.rates); setFxAsOf(m.asOf);
+      // Keep the engine's PKR fx chain synced to the freshest fetched rate.
+      if (m.rates.PKR && m.rates.PKR > 0) setUsdPkr(m.rates.PKR);
+    });
+    const onChange = (e: Event) => {
+      setDisplayFx((e as CustomEvent<string>).detail || 'USD');
+      fetchFxMatrix().then(m => { setFxRates(m.rates); setFxAsOf(m.asOf); });
+    };
+    window.addEventListener('eclipse:currency-change', onChange);
+    return () => window.removeEventListener('eclipse:currency-change', onChange);
+  }, []);
+  const fxRate = displayFx === 'USD' ? 1 : (fxRates[displayFx] ?? 0);
+  const hasFx = displayFx === 'USD' || fxRate > 0;
+  // USD-denominated value → display currency (falls back to USD when the
+  // rate is unknown so numbers stay honest instead of wrong).
+  const toDisp = useCallback((usd: number) => hasFx ? convertFromUsd(usd, displayFx, fxRates) : usd, [hasFx, displayFx, fxRates]);
+  const fmtD = useCallback((usd: number, dp = 2) => fmtMoney(toDisp(usd), hasFx ? displayFx : 'USD', dp), [toDisp, hasFx, displayFx]);
+  const fmtDK = useCallback((usd: number) => fmtMoneyCompact(toDisp(usd), hasFx ? displayFx : 'USD'), [toDisp, hasFx, displayFx]);
+  const DISP_LABEL = hasFx ? displayFx : 'USD';
+
   const fetchLivePrices = useCallback(async (isInitial = false) => {
     if (isInitial) setLoadingLive(true);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const tracked = new Set<string>(DEMO_LIVE_PRICES.map(a => a.symbol));
-      transactions.forEach(t => tracked.add(t.symbol));
+      // Every fund's ledger contributes symbols — the Overview needs live
+      // prices for holdings in funds that aren't currently open.
+      funds.forEach(f => f.tx.forEach(t => tracked.add(t.symbol)));
       Object.keys(watchlist).forEach(s => tracked.add(s));
       alerts.forEach(a => tracked.add(a.symbol));
       const symbols = [...tracked].join(',');
@@ -387,7 +1090,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       clearTimeout(timer);
       if (isInitial) setLoadingLive(false);
     }
-  }, [transactions, watchlist, alerts]);
+  }, [funds, watchlist, alerts]);
 
   // Live USD→PKR FX rate from /api/forex (same Yahoo source as the forex
   // screen). Falls back to 278 when the endpoint is unavailable.
@@ -413,23 +1116,55 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return () => clearInterval(interval);
   }, [loadingPortfolio, fetchLivePrices, liveAssets.length]);
 
+  // Cached copies so repeated loads (tab switches) don't re-read/clobber.
+  const savedAlertsRef = useRef<Alert[] | null>(null);
+  const savedWatchlistRef = useRef<Record<string, boolean> | null>(null);
+
   const loadPortfolioData = (showSkeleton = true) => {
     if (showSkeleton) setLoadingPortfolio(true);
-    const savedTx = localStorage.getItem('portfolio_tx_guest');
-    const savedAlerts = localStorage.getItem('portfolio_alerts_guest');
-    const savedWatchlist = localStorage.getItem('portfolio_watchlist_guest');
-    
-    const parsedTx = savedTx ? JSON.parse(savedTx) : null;
-    if (parsedTx && parsedTx.length > 0) setTransactions(parsedTx);
-    else setTransactions(DEFAULT_TRANSACTIONS);
-    
-    if (savedAlerts) setAlerts(JSON.parse(savedAlerts));
-    if (savedWatchlist) setWatchlist(JSON.parse(savedWatchlist));
-    else setWatchlist({ BTC: true, ETH: true, SOL: true, UBL: true, MEBL: true, SAZEW: true });
+    const { funds: loaded } = loadFunds();
+    setFunds(loaded);
+    if (savedAlertsRef.current) { setAlerts(savedAlertsRef.current); }
+    else {
+      try {
+        const savedAlerts = localStorage.getItem('portfolio_alerts_guest');
+        if (savedAlerts) {
+          const parsed: Alert[] = JSON.parse(savedAlerts);
+          savedAlertsRef.current = parsed;
+          setAlerts(parsed);
+        }
+      } catch { /* ignore corrupt alerts */ }
+    }
+    if (savedWatchlistRef.current) { setWatchlist(savedWatchlistRef.current); }
+    else {
+      try {
+        const savedWatchlist = localStorage.getItem('portfolio_watchlist_guest');
+        if (savedWatchlist) {
+          const parsed: Record<string, boolean> = JSON.parse(savedWatchlist);
+          savedWatchlistRef.current = parsed;
+          setWatchlist(parsed);
+        }
+        else setWatchlist({ BTC: true, ETH: true, SOL: true, UBL: true, MEBL: true, SAZEW: true });
+      } catch { setWatchlist({ BTC: true, ETH: true, SOL: true, UBL: true, MEBL: true, SAZEW: true }); }
+    }
     if (showSkeleton) setLoadingPortfolio(false);
   };
 
   useEffect(() => { loadPortfolioData(); }, []);
+
+  // Push the alert ledger to the server whenever it changes so the scheduler
+  // evaluates thresholds even while this tab is closed.
+  useEffect(() => {
+    if (alerts.length === 0) return;
+    fetch('/api/portfolio-alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: alertClientId.current,
+        alerts: alerts.map(a => ({ id: a.id, symbol: a.symbol, type: a.type, target: a.target, isActive: a.isActive })),
+      }),
+    }).catch(() => { /* offline — alerts still work client-side */ });
+  }, [alerts]);
 
   // Fractional transaction auto-calculations
   const handleQtyChange = (val: string) => {
@@ -509,19 +1244,90 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── Fund CRUD ──────────────────────────────────────────────────────────────
+  const activeFund = useMemo(
+    () => funds.find(f => f.id === viewMode) ?? null,
+    [funds, viewMode]
+  );
+
+  // The full screen operates on the active fund's ledger. In overview mode
+  // (or when the active fund vanished) fall back to the first fund so hooks
+  // below always receive a stable array.
+  const transactions = useMemo(
+    () => activeFund?.tx ?? funds[0]?.tx ?? [],
+    [activeFund, funds]
+  );
+
+  const persistFunds = (next: Fund[]) => {
+    setFunds(next);
+    saveFunds(next);
+  };
+
   const persistTx = (next: Transaction[]) => {
-    setTransactions(next);
-    localStorage.setItem('portfolio_tx_guest', JSON.stringify(next));
+    if (!activeFund) return;
+    persistFunds(funds.map(f => (f.id === activeFund.id ? { ...f, tx: next } : f)));
+  };
+
+  const openCreateFundDialog = () => {
+    setFundEditorId(null);
+    setFundName('');
+    setFundIcon('savings');
+    setFundColor(FUND_COLORS[Math.min(funds.length, FUND_COLORS.length - 1)]);
+    setFundGoal('');
+    setIsFundDialogOpen(true);
+  };
+
+  const openEditFundDialog = (fund: Fund) => {
+    setFundEditorId(fund.id);
+    setFundName(fund.name);
+    setFundIcon(fund.icon);
+    setFundColor(fund.color);
+    setFundGoal(fund.goalUsd ? String(fund.goalUsd) : '');
+    setIsFundDialogOpen(true);
+  };
+
+  const handleSaveFund = () => {
+    const name = fundName.trim();
+    if (!name) return;
+    const goal = parseFloat(fundGoal);
+    if (fundEditorId) {
+      persistFunds(funds.map(f =>
+        f.id === fundEditorId
+          ? { ...f, name, icon: fundIcon, color: fundColor, goalUsd: isFinite(goal) && goal > 0 ? goal : undefined }
+          : f
+      ));
+    } else {
+      const newFund: Fund = {
+        id: makeFundId(),
+        name,
+        icon: FUND_ICONS[fundIcon] ? fundIcon : 'savings',
+        color: fundColor,
+        goalUsd: isFinite(goal) && goal > 0 ? goal : undefined,
+        tx: [],
+      };
+      persistFunds([...funds, newFund]);
+      setViewMode(newFund.id);
+    }
+    setIsFundDialogOpen(false);
+  };
+
+  const handleDeleteFund = (id: string) => {
+    const next = funds.filter(f => f.id !== id);
+    if (next.length === 0) return; // never allow an empty book
+    persistFunds(next);
+    if (viewMode === id) setViewMode('overview');
   };
 
   const handleAddTransaction = () => {
     if (!txSymbol) return;
     setIsUpdating(true);
+    const isDiv = txType === 'DIVIDEND';
     const newTx: Transaction = {
       id: 'tx-' + Date.now(),
       type: txType,
       symbol: txSymbol.toUpperCase(),
-      quantity: parseFloat(txQty) || 0,
+      // Dividend: qty is optional — a bare total (price) records as 1×price.
+      quantity: isDiv ? (parseFloat(txQty) || 1) : (parseFloat(txQty) || 0),
       price: parseFloat(txPrice) || 0,
       fee: parseFloat(txFee) || 0,
       date: txDate,
@@ -536,6 +1342,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     setIsUpdating(false);
   };
 
+  // Legacy no-op — transactions now persist through `persistFunds`.
   const handleDeleteTransaction = (symbol: string) => {
     persistTx(transactions.filter(t => t.symbol !== symbol));
   };
@@ -575,7 +1382,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     })),
     [liveAssets, usdPkr]
   );
-  const stats: PortfolioStats = usePortfolioEngine(transactions, liveForEngine, taxMethod);
+  const stats: PortfolioStats = usePortfolioEngine(transactions, liveForEngine, 'FIFO');
 
   // Real daily series per holding (Yahoo-backed). Powers the NAV chart,
   // sparklines and per-asset expanded charts. No fabrication: symbols with
@@ -587,6 +1394,46 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     return [...s];
   }, [stats.holdings, watchlist]);
   const history = usePriceHistories(trackedSymbols, MARKET_HINT);
+
+  // ── Benchmark index comparison ────────────────────────────────────────────
+  // Users compare their portfolio against real market indexes. Each entry
+  // fetches the same Yahoo-backed daily series as holdings (GLOB market =
+  // bare Yahoo ticker, no suffix). "cost" is the default: the portfolio's
+  // own break-even line.
+  const BENCHMARKS: Array<{ id: string; label: string; symbol: string }> = [
+    { id: 'cost', label: 'Cost Basis', symbol: '' },
+    { id: 'gspc', label: 'S&P 500', symbol: '^GSPC' },
+    { id: 'ixic', label: 'Nasdaq', symbol: '^IXIC' },
+    { id: 'dji', label: 'Dow Jones', symbol: '^DJI' },
+    { id: 'ndx', label: 'Nasdaq 100', symbol: '^NDX' },
+    { id: 'rut', label: 'Russell 2000', symbol: '^RUT' },
+    { id: 'vix', label: 'VIX', symbol: '^VIX' },
+    { id: 'kse100', label: 'KSE-100 (PSX)', symbol: '^KSE' },
+    { id: 'nifty', label: 'Nifty 50 (India)', symbol: '^NSEI' },
+    { id: 'hsi', label: 'Hang Seng', symbol: '^HSI' },
+    { id: 'nikkei', label: 'Nikkei 225', symbol: '^N225' },
+    { id: 'dax', label: 'DAX (Germany)', symbol: '^GDAXI' },
+    { id: 'ftse', label: 'FTSE 100 (UK)', symbol: '^FTSE' },
+    { id: 'btc', label: 'Bitcoin', symbol: 'BTC' },
+    { id: 'eth', label: 'Ethereum', symbol: 'ETH' },
+    { id: 'gold', label: 'Gold', symbol: 'GC=F' },
+  ];
+  const [benchmarkId, setBenchmarkId] = useState('cost');
+  const activeBenchmark = BENCHMARKS.find(b => b.id === benchmarkId) ?? BENCHMARKS[0];
+  const benchSymbols = useMemo(
+    () => (activeBenchmark.symbol ? [activeBenchmark.symbol] : []),
+    [activeBenchmark.symbol]
+  );
+  const benchHistory = usePriceHistories(benchSymbols, { [activeBenchmark.symbol]: 'GLOB' });
+
+  // Fund comparison (overview): one shared history fetch across every fund's
+  // holdings so the fund-vs-fund chart can build indexed NAV curves.
+  const allFundSymbols = useMemo(() => {
+    const s = new Set<string>();
+    funds.forEach(f => f.tx.forEach(t => { if (t.type !== 'DIVIDEND') s.add(t.symbol); }));
+    return [...s];
+  }, [funds]);
+  const fundHistRaw = usePriceHistories(allFundSymbols, MARKET_HINT);
 
   useEffect(() => {
     if (!loadingLive && !loadingPortfolio && onMarketStatusChange) {
@@ -639,7 +1486,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const performanceSeries = useMemo(() => {
     const validHoldings = stats.holdings.filter(h => history.closes[h.symbol]?.length);
     if (validHoldings.length === 0 || history.loading) {
-      return { labels: [], portData: [], benchData: [], real: false, granular: false };
+      return { labels: [], portData: [], benchData: [], benchLabel: '', real: false, granular: false };
     }
 
     // 1) Convert each series to USD-equivalent closes.
@@ -650,6 +1497,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       usdCloses[h.symbol] = (history.closes[h.symbol] ?? []).map(c => c * fx);
       usdDates[h.symbol] = history.dates[h.symbol] ?? [];
     }
+
+    // Optional real-index benchmark series (same daily-close shape).
+    const benchCloses = activeBenchmark.symbol ? (benchHistory.closes[activeBenchmark.symbol] ?? []) : [];
+    const benchDates = activeBenchmark.symbol ? (benchHistory.dates[activeBenchmark.symbol] ?? []) : [];
 
     // 2) Union of all dates, ascending.
     const dateSet = new Set<string>();
@@ -683,7 +1534,23 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         }
         const base0 = cs[0];
         nav += h.valueUsd * (cs[idx] / base0);
-        bench += (h.quantity * h.avgCost * h.fxToUsd) * (cs[idx] / base0);
+        if (benchCloses.length < 2) {
+          bench += (h.quantity * h.avgCost * h.fxToUsd) * (cs[idx] / base0);
+        }
+      }
+      // Real-index benchmark: same aligned forward-fill as holdings.
+      if (benchCloses.length >= 2 && benchDates.length === benchCloses.length) {
+        let bidx = benchDates.indexOf(date);
+        if (bidx === -1) {
+          if (date < benchDates[0]) bidx = 0;
+          else if (date > benchDates[benchDates.length - 1]) bidx = benchDates.length - 1;
+          else {
+            let lo = 0;
+            while (lo < benchDates.length - 1 && benchDates[lo + 1] <= date) lo++;
+            bidx = lo;
+          }
+        }
+        bench = benchCloses[bidx];
       }
       portData.push(nav);
       benchData.push(bench);
@@ -699,8 +1566,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     const rebasedPort = slicedPort.length ? slicedPort.map(v => v / (slicedPort[0] || 1)) : [];
     const rebasedBench = slicedBench.length ? slicedBench.map(v => v / (slicedBench[0] || 1)) : [];
 
-    return { labels: slicedLabels, portData: rebasedPort, benchData: rebasedBench, real: true, granular: true };
-  }, [stats.holdings, history, usdPkr, timeframe]);
+    return { labels: slicedLabels, portData: rebasedPort, benchData: rebasedBench, benchLabel: activeBenchmark.label, real: true, granular: true };
+  }, [stats.holdings, history, benchHistory, activeBenchmark, usdPkr, timeframe]);
 
   const perfDelta = useMemo(() => {
     const p = performanceSeries.portData;
@@ -712,9 +1579,42 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     };
   }, [performanceSeries]);
 
+  // Drawdown series: % below running peak at each point (the "underwater" view).
+  const drawdownSeries = useMemo(() => {
+    const p = performanceSeries.portData;
+    if (p.length < 2) return [];
+    let peak = p[0];
+    return p.map(v => {
+      peak = Math.max(peak, v);
+      return peak > 0 ? (v / peak - 1) * 100 : 0;
+    });
+  }, [performanceSeries]);
+
+  // Time-weighted return over the visible window — the standard portfolio
+  // performance metric (removes the effect of cash-flow timing on simple ROI).
+  const twr = useMemo(() => {
+    if (drawdownSeries.length === 0) return null;
+    // Daily TWR chain: r_t = NAV_t / NAV_{t-1} - 1, compounded.
+    const p = performanceSeries.portData;
+    let compounded = 1;
+    for (let i = 1; i < p.length; i++) {
+      if (p[i - 1] > 0) compounded *= p[i] / p[i - 1];
+    }
+    return (compounded - 1) * 100;
+  }, [performanceSeries, drawdownSeries.length]);
+
   const perfOption: EChartsOption = useMemo(() => ({
     animationDuration: 600,
-    grid: { left: 8, right: 8, top: 24, bottom: 4, containLabel: true },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    grid: [
+      { left: 8, right: 8, top: 24, height: '58%', containLabel: true },
+      { left: 8, right: 8, top: '78%', bottom: 28, containLabel: true },
+    ],
+    // Drag/brush any window to zoom; pinch on touch. Sliders hidden — the
+    // row of timeframe buttons handles explicit windows, this adds free-drag.
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], filterMode: 'none' },
+    ],
     tooltip: {
       trigger: 'axis',
       backgroundColor: theme.tooltipBg,
@@ -723,27 +1623,55 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       valueFormatter: (v) => fmtPct((Number(v) - 1) * 100),
       axisPointer: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
     },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: performanceSeries.labels,
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono },
-    },
-    yAxis: {
-      type: 'value',
-      scale: true,
-      splitLine: { lineStyle: { color: theme.border } },
-      axisLabel: {
-        color: theme.muted, fontSize: 10, fontFamily: theme.fontMono,
-        formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%`,
+    xAxis: [
+      {
+        type: 'category',
+        gridIndex: 0,
+        boundaryGap: false,
+        data: performanceSeries.labels,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { show: false },
       },
-    },
+      {
+        type: 'category',
+        gridIndex: 1,
+        boundaryGap: false,
+        data: performanceSeries.labels,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono },
+      },
+    ],
+    yAxis: [
+      {
+        type: 'value',
+        gridIndex: 0,
+        scale: true,
+        splitLine: { lineStyle: { color: theme.border } },
+        axisLabel: {
+          color: theme.muted, fontSize: 10, fontFamily: theme.fontMono,
+          formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%`,
+        },
+      },
+      {
+        type: 'value',
+        gridIndex: 1,
+        min: -100,
+        max: 0,
+        splitLine: { show: false },
+        axisLabel: {
+          color: theme.muted, fontSize: 9, fontFamily: theme.fontMono,
+          formatter: (v: number) => `${v.toFixed(0)}%`,
+        },
+      },
+    ],
     series: [
       {
         name: 'Portfolio (indexed)',
         type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
         smooth: true,
         showSymbol: false,
         data: performanceSeries.portData,
@@ -756,16 +1684,29 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         },
       },
       {
-        name: 'Cost basis (break-even)',
+        name: performanceSeries.benchLabel || 'Cost basis (break-even)',
         type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
         smooth: true,
         showSymbol: false,
         data: performanceSeries.benchData,
         lineStyle: { width: 1.4, type: [4, 4], color: theme.muted },
         itemStyle: { color: theme.muted },
       },
+      {
+        name: 'Drawdown',
+        type: 'line',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        showSymbol: false,
+        data: drawdownSeries,
+        lineStyle: { width: 1, color: 'rgba(255,62,62,0.55)' },
+        areaStyle: { color: 'rgba(255,62,62,0.16)' },
+        tooltip: { show: false },
+      },
     ],
-  }), [performanceSeries, theme]);
+  }), [performanceSeries, drawdownSeries, theme]);
 
   // NOTE: ECharts/zrender cannot parse oklch(...) colors (treemap's
   // calculateBorderColor throws on them and crashes the screen), so this
@@ -784,7 +1725,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
       formatter: (p: unknown) => {
         const d = p as { name: string; value: number; percent: number };
-        return `<b>${d.name}</b><br/>${fmtUsd(d.value)} · ${d.percent}%`;
+        return `<b>${d.name}</b><br/>${fmtD(d.value)} · ${d.percent}%`;
       },
     },
     legend: { show: false },
@@ -801,7 +1742,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
       })),
     }],
-  }), [stats.holdings, theme, CHART_COLORS]);
+  }), [stats.holdings, theme, CHART_COLORS, fmtD]);
 
   // ── Rebalancing suggestions ───────────────────────────────────────────────
   const rebalanceRows = useMemo(() =>
@@ -816,8 +1757,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         targetFmt: `${target}%`,
         driftFmt: `${drift >= 0 ? '+' : ''}${drift.toFixed(1)} pts`,
         action: Math.abs(drift) < 1.5 ? 'Hold'
-          : drift > 0 ? `Trim ${fmtK((drift / 100) * stats.totalValue)}`
-          : `Add ${fmtK((-drift / 100) * stats.totalValue)}`,
+          : drift > 0 ? `Trim ${fmtDK((drift / 100) * stats.totalValue)}`
+          : `Add ${fmtDK((-drift / 100) * stats.totalValue)}`,
         color: Math.abs(drift) < 1.5 ? 'text-muted-foreground' : drift > 0 ? 'text-rose-400' : 'text-emerald-400',
       };
     }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift)),
@@ -831,8 +1772,9 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       .map(h => ({ ...h, dayPct: dayOf(h.symbol), totalPct: (h.unrealizedPnL / (h.avgCost * h.quantity || 1)) * 100 }))
       .filter(h => h.symbol.toLowerCase().includes(filterText.toLowerCase()))
       .sort((a, b) => {
-        const av = key === 'day' ? a.dayPct : key === 'total' ? a.totalPct : (a[key as 'symbol' | 'value'] as string | number);
-        const bv = key === 'day' ? b.dayPct : key === 'total' ? b.totalPct : (b[key as 'symbol' | 'value'] as string | number);
+        // Sort by USD-equivalent value so mixed PKR/USD books rank correctly.
+        const av = key === 'day' ? a.dayPct : key === 'total' ? a.totalPct : key === 'value' ? a.valueUsd : (a[key as 'symbol'] as string);
+        const bv = key === 'day' ? b.dayPct : key === 'total' ? b.totalPct : key === 'value' ? b.valueUsd : (b[key as 'symbol'] as string);
         return (av > bv ? 1 : av < bv ? -1 : 0) * dir;
       });
   }, [stats.holdings, sortCol, sortDir, filterText, dayOf]);
@@ -853,11 +1795,11 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         const notional = t.quantity * t.price * fx;
         return {
           ...t,
-          sideColor: t.type === 'BUY' ? 'text-emerald-400' : t.type === 'SELL' ? 'text-rose-400' : 'text-muted-foreground',
-          notionalFmt: fmtUsd(notional),
+          sideColor: t.type === 'BUY' ? 'text-emerald-400' : t.type === 'SELL' ? 'text-rose-400' : t.type === 'DIVIDEND' ? 'text-amber-300' : 'text-muted-foreground',
+          notionalFmt: fmtD(notional),
         };
       }),
-    [transactions, metaOf, usdPkr]);
+    [transactions, metaOf, usdPkr, fmtD]);
 
   const watchlistRows = useMemo(() =>
     Object.entries(watchlist).filter(([, v]) => v).map(([sym]) => {
@@ -900,7 +1842,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
       formatter: (p: unknown) => {
         const d = p as { name: string; value: number };
-        return `<b>${d.name}</b><br/>${fmtPct(d.value)} · ${fmtUsd(stats.totalValue * (d.value / 100))}`;
+        return `<b>${d.name}</b><br/>${fmtPct(d.value)} · ${fmtD(stats.totalValue * (d.value / 100))}`;
       },
     },
     xAxis: {
@@ -946,20 +1888,60 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         label: { show: false },
       },
     }],
-  }), [stress, stats.totalValue, theme]);
+  }), [stress, stats.totalValue, theme, fmtD]);
 
   // ── Correlation heatmap ───────────────────────────────────────────────────
+  // Real Pearson correlation of daily returns computed from the fetched close
+  // series (falls back to the static hint table only when a series is absent).
   const corrSymbols = useMemo(() => stats.holdings.map(h => h.symbol), [stats.holdings]);
   const corrData = useMemo(() => {
+    // Daily returns per symbol from real history (same-length series only).
+    const returns: Record<string, number[]> = {};
+    for (const sym of corrSymbols) {
+      const cs = history.closes[sym];
+      if (cs && cs.length >= 3) {
+        const r: number[] = [];
+        for (let i = 1; i < cs.length; i++) {
+          if (cs[i - 1] > 0) r.push(cs[i] / cs[i - 1] - 1);
+        }
+        if (r.length >= 2) returns[sym] = r;
+      }
+    }
+    const pearson = (a: number[], b: number[]): number | null => {
+      // Align lengths conservatively: use the overlapping tail (dates ascend together
+      // for same-window fetches; misaligned series fall back to the hint table).
+      const n = Math.min(a.length, b.length);
+      if (n < 2) return null;
+      const xa = a.slice(a.length - n), xb = b.slice(b.length - n);
+      const ma = xa.reduce((s, v) => s + v, 0) / n;
+      const mb = xb.reduce((s, v) => s + v, 0) / n;
+      let num = 0, da = 0, db = 0;
+      for (let i = 0; i < n; i++) {
+        num += (xa[i] - ma) * (xb[i] - mb);
+        da += (xa[i] - ma) ** 2;
+        db += (xb[i] - mb) ** 2;
+      }
+      const den = Math.sqrt(da * db);
+      return den > 0 ? Math.max(-1, Math.min(1, num / den)) : null;
+    };
+
+    const hint = (a: string, b: string) => (a === b ? 1 : (CORR[a]?.[b] ?? 0.5));
     const cells: Array<[number, number, number]> = [];
-    corrSymbols.forEach((a, i) => corrSymbols.forEach((b, j) => {
-      cells.push([j, i, a === b ? 1 : (CORR[a]?.[b] ?? 0.5)]);
-    }));
     const pairs: number[] = [];
-    corrSymbols.forEach((a, i) => corrSymbols.forEach((b, j) => { if (j > i) pairs.push(CORR[a]?.[b] ?? 0.5); }));
+    corrSymbols.forEach((a, i) => corrSymbols.forEach((b, j) => {
+      let v: number;
+      if (a === b) v = 1;
+      else {
+        const ra = returns[a], rb = returns[b];
+        const p = ra && rb ? pearson(ra, rb) : null;
+        v = p ?? hint(a, b);
+      }
+      cells.push([j, i, v]);
+      if (j > i) pairs.push(v);
+    }));
     const avg = pairs.length ? pairs.reduce((x, y) => x + y, 0) / pairs.length : 0;
     return { cells, avg };
-  }, [corrSymbols]);
+  }, [corrSymbols, history.closes]);
 
   const corrOption: EChartsOption = useMemo(() => ({
     tooltip: {
@@ -1079,7 +2061,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       backgroundColor: theme.tooltipBg,
       borderColor: theme.tooltipBorder,
       textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
-      valueFormatter: (v) => fmtK(Number(v)),
+      valueFormatter: (v) => fmtDK(Number(v)),
     },
     xAxis: {
       type: 'category',
@@ -1091,7 +2073,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     yAxis: {
       type: 'value',
       splitLine: { lineStyle: { color: theme.border } },
-      axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono, formatter: (v: number) => fmtK(v) },
+      axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono, formatter: (v: number) => fmtDK(v) },
     },
     series: [
       {
@@ -1121,7 +2103,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         lineStyle: { width: 1, type: [3, 3], color: 'rgba(122,255,120,0.6)' },
       },
     ],
-  }), [monteCarlo, theme]);
+  }), [monteCarlo, theme, fmtD]);
 
   // ── Return attribution diverging bars ─────────────────────────────────────
   const attributionRows = useMemo(() =>
@@ -1145,7 +2127,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       formatter: (p: unknown) => {
         const d = p as { name: string; value: number; dataIndex: number };
         const row = attributionRows[d.dataIndex];
-        return `<b>${d.name}</b><br/>${row.dollar >= 0 ? '+' : ''}${fmtUsd(row.dollar)} contribution`;
+        return `<b>${d.name}</b><br/>${row.dollar >= 0 ? '+' : ''}${fmtD(row.dollar)} contribution`;
       },
     },
     xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false } },
@@ -1179,7 +2161,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         lineStyle: { color: 'rgba(255,255,255,0.25)', width: 1 }, label: { show: false },
       },
     }],
-  }), [attributionRows, theme]);
+  }), [attributionRows, theme, fmtD]);
 
   // ── Cost basis comparison chart ───────────────────────────────────────────
   const costBasisOption: EChartsOption = useMemo(() => ({
@@ -1190,7 +2172,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       backgroundColor: theme.tooltipBg,
       borderColor: theme.tooltipBorder,
       textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
-      valueFormatter: (v) => fmtUsd(Number(v), 2),
+      valueFormatter: (v) => fmtD(Number(v), 2),
     },
     legend: {
       top: 0, right: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10,
@@ -1205,7 +2187,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     yAxis: {
       type: 'value',
       splitLine: { lineStyle: { color: theme.border } },
-      axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono, formatter: (v: number) => fmtK(v) },
+      axisLabel: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono, formatter: (v: number) => fmtDK(v) },
     },
     series: [
       {
@@ -1275,18 +2257,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       max: 100,
       radius: '98%',
       center: ['50%', '58%'],
-      progress: {
-        show: true,
-        width: 12,
-        roundCap: true,
-        itemStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: '#34d399' },
-            { offset: 0.5, color: '#7aff78' },
-            { offset: 1, color: '#fbbf24' },
-          ]),
+        progress: {
+          show: true,
+          width: 12,
+          roundCap: true,
+          itemStyle: {
+            color: health.total >= 50 ? '#7aff78' : '#ff3e3e',
+          },
         },
-      },
       pointer: { show: false },
       axisLine: { roundCap: true, lineStyle: { width: 12, color: [[1, 'rgba(255,255,255,0.07)']] } },
       axisTick: { show: false },
@@ -1307,14 +2285,28 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   }), [health.total, theme]);
 
   // ── Risk radar (ECharts) ──────────────────────────────────────────────────
-  const riskRadarOption: EChartsOption = useMemo(() => {
+  const riskRadarScores = useMemo(() => {
     // Map raw metrics onto 0-100 where 100 = best risk posture.
-    const divers = divScore;
-    const volScore = Math.max(0, Math.min(100, 100 - pVol * 1.2));
-    const drawdown = Math.max(0, Math.min(100, 100 + pMdd * 1.6));
-    const sharpe = Math.max(0, Math.min(100, pSharpe * 50));
+    // Scales are calibrated to realistic ranges: vol 20%→100 / 90%→0,
+    // drawdown -10%→100 / -60%→0, sharpe 0→0 / 2→100. Without this the
+    // polygon collapses to 0 for ordinary crypto-heavy books.
+    const clamp100 = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+    return [
+      { label: 'Diversification', v: clamp100(divScore) },
+      { label: 'Low Volatility', v: clamp100(((90 - pVol) / 70) * 100) },
+      { label: 'Drawdown Safety', v: clamp100(((pMdd + 60) / 50) * 100) },
+      { label: 'Risk-Adj. Return', v: clamp100(pSharpe * 50) },
+      { label: 'Low Correlation', v: clamp100((1 - corrData.avg) * 100) },
+    ];
+  }, [divScore, pVol, pMdd, pSharpe, corrData.avg]);
+
+  const riskRadarOption: EChartsOption = useMemo(() => {
+    const values = riskRadarScores.map(s => s.v);
+    const clampAvg = values.reduce((a, b) => a + b, 0) / values.length;
     const betaTxt = pBeta > 1 ? 'aggressive' : pBeta < 0.8 ? 'defensive' : 'market-like';
-    const corrPenalty = Math.max(0, Math.min(100, (1 - corrData.avg) * 100));
+    // Branding: green when the risk posture is healthy, red when fragile.
+    const radarColor = clampAvg >= 50 ? '#7aff78' : '#ff3e3e';
+    const radarGlow = clampAvg >= 50 ? 'rgba(122,255,120,' : 'rgba(255,62,62,';
     return {
       tooltip: {
         backgroundColor: theme.tooltipBg,
@@ -1322,6 +2314,9 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
       },
       radar: {
+        // Explicit polygon shape; nameGap keeps axis names off the ring
+        // without clipping at panel edges.
+        shape: 'polygon',
         indicator: [
           { name: 'Diversification', max: 100 },
           { name: 'Low Volatility', max: 100 },
@@ -1329,8 +2324,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           { name: 'Risk-Adj. Return', max: 100 },
           { name: 'Low Correlation', max: 100 },
         ],
-        radius: '68%',
+        radius: '55%',
+        center: ['50%', '52%'],
         splitNumber: 4,
+        nameGap: 14,
         axisName: { color: theme.muted, fontSize: 10, fontFamily: theme.fontMono },
         splitLine: { lineStyle: { color: theme.border } },
         splitArea: { show: false },
@@ -1338,27 +2335,33 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       },
       series: [{
         type: 'radar',
-        symbolSize: 4,
+        symbol: 'circle',
+        symbolSize: 5,
         data: [{
-          value: [divers, volScore, drawdown, sharpe, corrPenalty],
+          value: values,
           name: `Risk profile (${betaTxt})`,
-          lineStyle: { width: 2, color: theme.primary },
-          itemStyle: { color: theme.primary },
-          areaStyle: { color: 'rgba(122,255,120,0.18)' },
+          lineStyle: { width: 2, color: radarColor },
+          itemStyle: { color: radarColor },
+          areaStyle: { color: `${radarGlow}0.20)` },
         }],
       }],
     } as EChartsOption;
-  }, [divScore, pVol, pMdd, pSharpe, pBeta, corrData.avg, theme]);
+  }, [riskRadarScores, pBeta, theme]);
 
   // ── Exposure treemap (ECharts) ────────────────────────────────────────────
+  // Branding: green when the holding (or category) is up, red when down.
   const treemapOption: EChartsOption = useMemo(() => {
-    const cats = new Map<string, Array<{ name: string; value: number }>>();
+    const cats = new Map<string, Array<{ name: string; value: number; day: number }>>();
     stats.holdings.forEach(h => {
       const cat = metaOf(h.symbol)?.category ?? 'Other';
       const arr = cats.get(cat) ?? [];
-      arr.push({ name: h.symbol, value: Number(h.valueUsd.toFixed(2)) });
+      arr.push({ name: h.symbol, value: Number(h.valueUsd.toFixed(2)), day: h.dayPct });
       cats.set(cat, arr);
     });
+    const cellColor = (day: number) =>
+      day >= 0
+        ? `rgba(122,255,120,${Math.min(0.85, 0.28 + Math.abs(day) * 0.12)})`
+        : `rgba(255,62,62,${Math.min(0.85, 0.28 + Math.abs(day) * 0.12)})`;
     return {
       animationDuration: 600,
       tooltip: {
@@ -1366,9 +2369,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         borderColor: theme.tooltipBorder,
         textStyle: { color: theme.foreground, fontFamily: theme.fontMono, fontSize: 11 },
         formatter: (p: unknown) => {
-          const d = p as { name: string; value: number };
+          const d = p as { name: string; value: number; data?: { day?: number } };
           const pct = stats.totalValue > 0 ? ((d.value / stats.totalValue) * 100).toFixed(1) : '0';
-          return `<b>${d.name}</b><br/>${fmtUsd(d.value)} · ${pct}% of NAV`;
+          const day = d.data?.day;
+          return `<b>${d.name}</b><br/>${fmtD(d.value)} · ${pct}% of NAV${day !== undefined ? `<br/><span style="color:${day >= 0 ? '#7aff78' : '#ff3e3e'}">${day >= 0 ? '+' : ''}${day.toFixed(2)}% today</span>` : ''}`;
         },
       },
       series: [{
@@ -1376,17 +2380,25 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         roam: false,
         nodeClick: false,
         breadcrumb: { show: false },
-        itemStyle: { borderColor: 'rgba(0,0,0,0.35)', borderWidth: 1, gapWidth: 2, borderRadius: 6 },
-        upperLabel: { show: true, height: 20, color: theme.muted, fontFamily: theme.fontMono, fontSize: 10, fontWeight: 600 },
+        itemStyle: { borderColor: 'rgba(0,0,0,0.6)', borderWidth: 1.5, gapWidth: 2, borderRadius: 8 },
+        upperLabel: {
+          show: true, height: 22, color: '#ffffff', fontFamily: theme.fontMono, fontSize: 10, fontWeight: 700,
+          textBorderColor: 'rgba(0,0,0,0.6)',
+          textBorderWidth: 2,
+          formatter: (p: unknown) => {
+            const d = p as { name: string; value: number; children?: Array<{ day: number; value: number }> };
+            const kids = d.children ?? [];
+            const wday = kids.reduce((a, c) => a + c.day * c.value, 0) / (kids.reduce((a, c) => a + c.value, 0) || 1);
+            return `${d.name}  ${wday >= 0 ? '+' : ''}${wday.toFixed(2)}%`;
+          },
+        },
         levels: [
           {
-            itemStyle: { gapWidth: 3 },
-            color: CHART_COLORS,
-            colorMappingBy: 'index',
+            itemStyle: { gapWidth: 4, borderColor: 'rgba(0,0,0,0.65)', borderWidth: 2, borderRadius: 10 },
           },
           {
-            colorSaturation: [0.35, 0.6],
-            itemStyle: { borderColorSaturation: 0.6, gapWidth: 2 },
+            colorMappingBy: 'value',
+            itemStyle: { borderColorSaturation: 0.55, gapWidth: 2, borderRadius: 6 },
           },
         ],
         label: {
@@ -1394,21 +2406,31 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           fontFamily: theme.fontMono,
           fontSize: 10.5,
           fontWeight: 700,
-          color: '#0b0b0b',
+          color: '#ffffff',
+          textBorderColor: 'rgba(0,0,0,0.6)',
+          textBorderWidth: 2,
           formatter: (p: unknown) => {
-            const d = p as { name: string; value: number };
+            const d = p as { name: string; value: number; data?: { day?: number } };
             const pct = stats.totalValue > 0 ? Math.round((d.value / stats.totalValue) * 100) : 0;
-            return `${d.name}\n${pct}%`;
+            const day = d.data?.day;
+            return `${d.name}\n${pct}%${day !== undefined ? `  ${day >= 0 ? '+' : ''}${day.toFixed(1)}%` : ''}`;
           },
         },
-        data: [...cats.entries()].map(([cat, children], i) => ({
-          name: cat,
-          itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
-          children,
-        })),
+        data: [...cats.entries()].map(([cat, children]) => {
+          const wsum = children.reduce((a, c) => a + c.value, 0);
+          const wday = children.reduce((a, c) => a + c.day * c.value, 0) / (wsum || 1);
+          return {
+            name: cat,
+            itemStyle: { color: cellColor(wday) },
+            children: children.map(c => ({
+              ...c,
+              itemStyle: { color: cellColor(c.day) },
+            })),
+          };
+        }),
       }],
     } as EChartsOption;
-  }, [stats.holdings, stats.totalValue, metaOf, theme, CHART_COLORS]);
+  }, [stats.holdings, stats.totalValue, metaOf, theme]);
 
   const bestMover = useMemo(() =>
     holdingsRows.length ? [...holdingsRows].sort((a, b) => b.dayPct - a.dayPct)[0] : null,
@@ -1444,6 +2466,49 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     );
   }
 
+  // ─── FUND TAB STRIP (visible in both views) ────────────────────────────────
+  const fundTabs = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <button
+        onClick={() => setViewMode('overview')}
+        className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold border transition-all cursor-pointer shrink-0 ${
+          viewMode === 'overview'
+            ? 'bg-primary/15 border-primary/50 text-primary'
+            : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-primary/30 bg-card/40'
+        }`}
+      >
+        <LayoutDashboard className="w-3.5 h-3.5" />
+        Overview
+      </button>
+      {funds.map(f => {
+        const Icon = FUND_ICONS[f.icon] ?? Briefcase;
+        const active = viewMode === f.id;
+        return (
+          <button
+            key={f.id}
+            onClick={() => setViewMode(f.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold border transition-all cursor-pointer shrink-0 ${
+              active
+                ? 'text-foreground'
+                : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-primary/30 bg-card/40'
+            }`}
+            style={active ? { background: `${f.color}1f`, borderColor: `${f.color}80` } : { borderColor: undefined }}
+          >
+            <Icon className="w-3.5 h-3.5" style={{ color: f.color }} />
+            {f.name}
+          </button>
+        );
+      })}
+      <button
+        onClick={openCreateFundDialog}
+        title="Create a new fund"
+        className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold border border-dashed border-border/50 text-muted-foreground hover:text-primary hover:border-primary/50 transition-all cursor-pointer shrink-0"
+      >
+        <Plus className="w-3.5 h-3.5" /> New Fund
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-screen text-foreground animate-in fade-in duration-500 relative overflow-x-hidden">
 
@@ -1451,41 +2516,74 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-serif font-semibold tracking-tight flex items-center gap-3 flex-wrap">
-            <Briefcase className="h-9 w-9 text-primary" />
-            My Portfolio
-            <span className="bg-card/85 text-[10px] uppercase font-mono tracking-wider px-3 py-1 rounded-full text-primary border border-primary/20 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-primary animate-ping"></span>
-              Live Synced
-            </span>
+            {viewMode === 'overview'
+              ? <PieChart className="h-9 w-9 text-primary" />
+              : (() => { const I = FUND_ICONS[activeFund?.icon ?? 'briefcase'] ?? Briefcase; return <I className="h-9 w-9" style={{ color: activeFund?.color }} />; })()}
+            {viewMode === 'overview' ? 'Portfolio Overview' : (activeFund?.name ?? 'Portfolio')}
           </h1>
           <p className="text-muted-foreground text-sm mt-2">
-            Holdings, performance, and AI-driven insights in real time.
+            {viewMode === 'overview'
+              ? `Aggregated performance across ${funds.length} fund${funds.length === 1 ? '' : 's'} — click any card to open a fund.`
+              : 'Holdings, performance, and AI-driven insights in real time.'}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center bg-card/40 border border-border/40 rounded-xl p-1">
-            {(['FIFO', 'LIFO'] as const).map(m => (
-              <button
-                key={m}
-                onClick={() => setTaxMethod(m)}
-                className={`px-3 py-1.5 text-xs font-mono rounded-lg transition-all cursor-pointer ${
-                  taxMethod === m ? 'bg-accent text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
+        {viewMode !== 'overview' && (
+          <div className="flex flex-wrap items-center gap-4">
+            <select
+              value={displayFx}
+              onChange={e => setDisplayCurrency(e.target.value)}
+              title="Display currency — all totals and charts convert instantly"
+              className="bg-muted/20 border border-border/40 rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 cursor-pointer text-foreground [&>option]:bg-[#1a1a1a] [&>option]:text-foreground"
+            >
+              {DISPLAY_CURRENCIES.map(c => (
+                <option key={c.code} value={c.code}>{c.code}</option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              className="border-border/50 text-muted-foreground hover:text-foreground rounded-xl px-4 py-5 text-sm cursor-pointer flex items-center gap-2"
+              onClick={() => openEditFundDialog(activeFund!)}
+            >
+              <SquarePen className="w-4 h-4" /> Edit Fund
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-5 py-5 text-sm transition-all shadow-lg shadow-primary/15 flex items-center gap-2 cursor-pointer"
+              onClick={() => { setTxType('BUY'); setIsAddOpen(true); }}
+            >
+              <Plus className="w-4 h-4" />
+              Add Transaction
+            </Button>
           </div>
-          <Button
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-5 py-5 text-sm transition-all shadow-lg shadow-primary/15 flex items-center gap-2 cursor-pointer"
-            onClick={() => { setTxType('BUY'); setIsAddOpen(true); }}
-          >
-            <Plus className="w-4 h-4" />
-            Add Transaction
-          </Button>
-        </div>
+        )}
       </div>
+
+      {/* ─── FUND TABS ───────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Funds</span>
+        {fundTabs}
+      </div>
+
+      {viewMode === 'overview' && (
+        <OverviewView
+          funds={funds}
+          usdPkr={usdPkr}
+          liveAssets={liveAssets}
+          onOpenFund={(id) => setViewMode(id)}
+          onEditFund={openEditFundDialog}
+          onDeleteFund={handleDeleteFund}
+          onCreateFund={openCreateFundDialog}
+          onAnalyzeTicker={onAnalyzeTicker}
+          displayFx={displayFx}
+          fxRates={fxRates}
+          hasFx={hasFx}
+          fundHistory={{ closes: fundHistRaw.closes, dates: fundHistRaw.dates }}
+          fmtD={fmtD}
+          fmtDK={fmtDK}
+          dispLabel={DISP_LABEL}
+        />
+      )}
+      {viewMode !== 'overview' && (<>
 
       {/* ─── KPI BOARD ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -1494,13 +2592,19 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
               <Wallet className="w-4 h-4 text-primary" /> Net Asset Value
             </span>
-            <span className="text-xs font-mono text-muted-foreground">USD</span>
+            <span className="text-xs font-mono text-muted-foreground">{DISP_LABEL}</span>
           </div>
-          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtUsd(stats.totalValue)}</span>
+          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtD(stats.totalValue)}</span>
           <div className={`flex items-center gap-1.5 text-xs font-semibold mt-1 ${stats.dailyChangeValue >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {stats.dailyChangeValue >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-            {fmtUsd(stats.dailyChangeValue)} ({fmtPct(stats.dailyChangePercent)}) today
+            {fmtD(stats.dailyChangeValue)} ({fmtPct(stats.dailyChangePercent)}) today
           </div>
+          {DISP_LABEL !== 'USD' && fxAsOf && (
+            <div className="text-[9.5px] text-muted-foreground/70 mt-1.5">
+              1 USD = {hasFx ? fxRate.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'} {DISP_LABEL} · rates as of{' '}
+              {new Date(fxAsOf).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
         </div>
 
         <div className={`${PANEL} p-6 group hover:border-primary/45 transition-all`}>
@@ -1510,9 +2614,9 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             </span>
           </div>
           <span className={`text-3xl font-mono font-bold tracking-tight block ${stats.dailyChangeValue >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {fmtUsd(stats.dailyChangeValue)}
+            {fmtD(stats.dailyChangeValue)}
           </span>
-          <span className="text-xs text-muted-foreground mt-1 block">Mark-to-market, 24h window · USD-equivalent</span>
+          <span className="text-xs text-muted-foreground mt-1 block">Mark-to-market, 24h window · {DISP_LABEL}-equivalent</span>
         </div>
 
         <div className={`${PANEL} p-6 group hover:border-primary/45 transition-all`}>
@@ -1523,7 +2627,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             <span className="text-[10px] px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground">All time</span>
           </div>
           <span className={`text-3xl font-mono font-bold tracking-tight block ${stats.unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {stats.unrealizedPnL >= 0 ? '+' : '-'}{fmtUsd(Math.abs(stats.unrealizedPnL))}
+            {stats.unrealizedPnL >= 0 ? '+' : '-'}{fmtD(Math.abs(stats.unrealizedPnL))}
           </span>
           <div className="text-xs mt-1 flex items-center gap-1">
             <span className="text-muted-foreground">ROI</span>
@@ -1538,8 +2642,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-muted/50 border border-border/30 text-muted-foreground">Deployable</span>
           </div>
-          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtUsd(AVAILABLE_CASH)}</span>
-          <span className="text-xs text-muted-foreground mt-1 block">Realized P/L {stats.realizedPnL >= 0 ? '+' : '-'}{fmtUsd(Math.abs(stats.realizedPnL))} · {taxMethod}</span>
+          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtD(AVAILABLE_CASH)}</span>
+          <span className="text-xs text-muted-foreground mt-1 block">
+            Realized P/L {stats.realizedPnL >= 0 ? '+' : '-'}{fmtD(Math.abs(stats.realizedPnL))} · FIFO
+            {stats.dividendsUsd > 0 && (
+              <> · Dividends <span className="text-amber-300 font-semibold">+{fmtD(stats.dividendsUsd)}</span></>
+            )}
+          </span>
         </div>
       </div>
 
@@ -1552,32 +2661,49 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               {performanceSeries.real ? (
                 <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <svg width="16" height="6"><line x1="0" y1="3" x2="16" y2="3" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" /></svg>
-                  vs cost basis
+                  vs {performanceSeries.benchLabel || 'cost basis'}
                   <span className={`font-mono font-semibold ${perfDelta.port >= perfDelta.bench ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {fmtPct(perfDelta.port - perfDelta.bench)}
                   </span>
+                  {twr !== null && (
+                    <span className="font-mono" title="Time-weighted return over the window — the standard performance metric">
+                      · TWR <span className={twr >= 0 ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>{fmtPct(twr)}</span>
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className="text-[11px] text-muted-foreground font-mono">Loading real market history…</span>
               )}
             </div>
-            <div className="flex bg-muted/20 border border-border/30 rounded-lg p-0.5">
-              {(['1D', '7D', '1M', 'ALL'] as const).map(tf => (
-                <button
-                  key={tf}
-                  onClick={() => setTimeframe(tf)}
-                  className={`px-3 py-1 text-[10px] font-mono rounded-md transition-all cursor-pointer ${
-                    timeframe === tf ? 'bg-accent text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {tf}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={benchmarkId}
+                onChange={e => setBenchmarkId(e.target.value)}
+                className="bg-muted/20 border border-border/30 rounded-lg px-2 py-1.5 text-[10px] font-mono outline-none focus:border-primary/50 cursor-pointer text-foreground max-w-[150px] [&>option]:bg-[#1a1a1a] [&>option]:text-foreground [&>option]:text-[11px]"
+                title="Benchmark to compare portfolio performance against"
+              >
+                {BENCHMARKS.map(b => (
+                  <option key={b.id} value={b.id}>vs {b.label}</option>
+                ))}
+              </select>
+              <div className="flex bg-muted/20 border border-border/30 rounded-lg p-0.5">
+                {(['1D', '7D', '1M', 'ALL'] as const).map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setTimeframe(tf)}
+                    className={`px-3 py-1 text-[10px] font-mono rounded-md transition-all cursor-pointer ${
+                      timeframe === tf ? 'bg-accent text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
             <div className="p-4 flex-1 min-h-[300px]">
               {performanceSeries.real ? (
-                <EChart option={perfOption} height={320} />
+                <EChart option={perfOption} height={420} />
               ) : (
                 <div className="h-full min-h-[300px] flex items-center justify-center">
                   <p className="text-xs text-muted-foreground font-mono text-center">
@@ -1696,7 +2822,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     <span className="text-[10px] text-muted-foreground flex-1">{s.l}</span>
                     <div className="h-1.5 w-16 bg-border/20 rounded-full overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${s.v}%`, background: s.v >= 60 ? '#34d399' : s.v >= 35 ? '#fbbf24' : '#fb7185' }} />
+                        style={{ width: `${s.v}%`, background: s.v >= 35 ? '#7aff78' : '#ff3e3e' }} />
                     </div>
                     <span className="font-mono text-[10px] w-6 text-right">{s.v}</span>
                   </div>
@@ -1717,7 +2843,21 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           </h3>
           <p className="text-[11px] text-muted-foreground mb-2">Five dimensions of posture, higher = safer.</p>
           {stats.holdings.length > 0 ? (
-            <EChart option={riskRadarOption} height={260} />
+            <>
+              <EChart option={riskRadarOption} height={280} />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
+                {riskRadarScores.map(s => (
+                  <div key={s.label} className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground flex-1 truncate">{s.label}</span>
+                    <div className="h-1 w-14 bg-border/20 rounded-full overflow-hidden shrink-0">
+                      <div className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${s.v}%`, background: s.v >= 50 ? '#7aff78' : '#ff3e3e' }} />
+                    </div>
+                    <span className="font-mono text-[10px] w-6 text-right">{s.v}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <p className="text-xs text-muted-foreground font-mono text-center py-16">Add holdings to map your risk profile.</p>
           )}
@@ -1730,7 +2870,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             </h3>
             <span className="text-[11px] text-muted-foreground">Area = share of NAV, grouped by category</span>
           </div>
-          <EChart option={treemapOption} height={260} />
+          <EChart option={treemapOption} height={480} className="-mx-2" />
           <div className="mt-3 pt-3 border-t border-border/20 space-y-1.5">
             <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-1">Eclipse Brief</div>
             {brief.map((line, i) => (
@@ -1801,12 +2941,34 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
             <History className="w-5 h-5 text-primary" /> Active Holdings
           </h3>
-          <input
-            value={filterText}
-            onChange={e => setFilterText(e.target.value)}
-            placeholder="Filter by symbol…"
-            className="bg-muted/20 border border-border/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-primary/50 w-48"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              placeholder="Filter by symbol…"
+              className="bg-muted/20 border border-border/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-primary/50 w-48"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              title="Export holdings to CSV"
+              onClick={() => {
+                const rows: Array<Array<string | number>> = [
+                  ['Symbol', 'Name', 'Quantity', 'Avg Cost (native)', 'Price (native)', 'Currency', 'Value (USD)', 'Value (DISP)', '24h %', 'Unrealized P/L (USD)', 'Allocation %'],
+                  ...stats.holdings.map(h => [
+                    h.symbol, metaOf(h.symbol)?.name ?? h.symbol, h.quantity,
+                    h.avgCost.toFixed(4), h.currentPrice.toFixed(4), h.currency,
+                    h.valueUsd.toFixed(2), convertFromUsd(h.valueUsd, hasFx ? displayFx : 'USD', fxRates).toFixed(2),
+                    dayOf(h.symbol).toFixed(2), h.unrealizedPnLUsd.toFixed(2), h.allocation.toFixed(2),
+                  ]),
+                ];
+                downloadCsv(`eclipse-holdings-${(activeFund?.name ?? 'portfolio').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`, rows);
+              }}
+              className="border-border/40 text-muted-foreground hover:text-primary hover:border-primary/40 rounded-lg font-mono text-[11px] cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5 mr-1" /> CSV
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[760px]">
@@ -1825,7 +2987,19 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             <tbody className="divide-y divide-border/20 text-sm font-mono">
               {holdingsRows.length === 0 ? (
                 <tr><td colSpan={8} className="p-10 text-center text-muted-foreground">
-                  No holdings match. Click &quot;Add Transaction&quot; to record buys/sells.
+                  <div className="flex flex-col items-center gap-3">
+                    <p>{filterText ? `No holdings match "${filterText}".` : 'This fund has no holdings yet.'}</p>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => { setTxType('BUY'); setIsAddOpen(true); }}
+                        className="bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 text-xs font-bold cursor-pointer">
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Record Transaction
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => onAnalyzeTicker('PORTFOLIO')}
+                        className="border-border/40 text-xs font-mono cursor-pointer">
+                        <Sparkles className="w-3.5 h-3.5 mr-1" /> Ask AI How to Start
+                      </Button>
+                    </div>
+                  </div>
                 </td></tr>
               ) : holdingsRows.map(h => {
                 const up = h.dayPct >= 0;
@@ -1941,10 +3115,57 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         </div>
 
         <div className={`${PANEL} lg:col-span-3 p-5`}>
-          <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-primary" /> Recent Transactions
-          </h3>
-          <div className="overflow-x-auto">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-primary" /> Recent Transactions
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              title="Export full transaction ledger to CSV"
+              onClick={() => {
+                const rows: Array<Array<string | number>> = [
+                  ['Date', 'Type', 'Symbol', 'Quantity', 'Price (native)', 'Fee (native)', 'Notional (USD)'],
+                  ...transactions.map(t => {
+                    const fx = (metaOf(t.symbol)?.currency ?? 'USD') === 'PKR' ? 1 / usdPkr : 1;
+                    return [t.date, t.type, t.symbol, t.quantity, t.price.toFixed(4), t.fee.toFixed(2), (t.quantity * t.price * fx).toFixed(2)];
+                  }),
+                ];
+                downloadCsv(`eclipse-transactions-${(activeFund?.name ?? 'portfolio').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`, rows);
+              }}
+              className="border-border/40 text-muted-foreground hover:text-primary hover:border-primary/40 rounded-lg font-mono text-[11px] cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5 mr-1" /> CSV
+            </Button>
+          </div>
+        {/* Mobile: card list (table is unusable below md) */}
+        <div className="md:hidden divide-y divide-border/20">
+          {holdingsRows.length === 0 ? (
+            <p className="p-8 text-center text-xs text-muted-foreground font-mono">No holdings match.</p>
+          ) : holdingsRows.map(h => {
+            const mUp = h.dayPct >= 0;
+            return (
+              <div key={h.symbol} className="p-4 cursor-pointer active:bg-muted/10" onClick={() => onAnalyzeTicker(h.symbol)}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <Star className={`w-3.5 h-3.5 ${watchlist[h.symbol] ? 'fill-primary text-primary' : 'text-muted-foreground/40'}`}
+                      onClick={(e) => { e.stopPropagation(); toggleStar(h.symbol); }} />
+                    <span className="font-mono font-bold text-sm">{h.symbol}</span>
+                  </div>
+                  <span className={`text-xs font-semibold ${mUp ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(h.dayPct)}</span>
+                </div>
+                <div className="flex items-baseline justify-between text-[11px] font-mono">
+                  <span className="text-muted-foreground">{h.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} × {fmtPrice(h.currentPrice, currencyOf(h.symbol))}</span>
+                  <span className="font-bold">{fmtPrice(h.value, currencyOf(h.symbol))}</span>
+                </div>
+                <div className={`text-[10px] font-mono mt-0.5 ${h.unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  P/L {h.unrealizedPnL >= 0 ? '+' : '-'}{fmtPrice(Math.abs(h.unrealizedPnL), currencyOf(h.symbol))} ({fmtPct(h.totalPct)})
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs font-mono min-w-[520px]">
               <thead>
                 <tr className="border-b border-border/30 text-[10px] uppercase text-muted-foreground font-semibold">
@@ -2015,12 +3236,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div className={`${TILE} p-3`}>
               <div className="text-[10px] text-muted-foreground mb-1">Projected Value</div>
-              <div className="font-mono font-bold">{fmtK(stats.totalValue + stress.dollar)}</div>
+              <div className="font-mono font-bold">{fmtDK(stats.totalValue + stress.dollar)}</div>
             </div>
             <div className={`${TILE} p-3`}>
               <div className="text-[10px] text-muted-foreground mb-1">Impact</div>
               <div className={`font-mono font-bold ${stress.dollar >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {fmtUsd(stress.dollar, 0)}
+                {fmtD(stress.dollar, 0)}
               </div>
             </div>
             <div className={`${TILE} p-3`}>
@@ -2037,7 +3258,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         <div className={`${PANEL} lg:col-span-2 p-5`}>
           <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Correlation Matrix</h3>
-            <span className="text-[11px] text-muted-foreground">Rolling 90-day returns</span>
+            <span className="text-[11px] text-muted-foreground">Pearson ρ on real daily returns</span>
           </div>
           {corrSymbols.length > 1 ? (
             <>
@@ -2065,7 +3286,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <select
             value={wiSymbol}
             onChange={e => setWiSymbol(e.target.value)}
-            className="w-full bg-muted/20 border border-border/40 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-primary/50 mb-2 cursor-pointer [&>option]:bg-[#111]"
+            className="w-full bg-muted/20 border border-border/40 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-primary/50 mb-2 cursor-pointer [&>option]:bg-[#1a1a1a] [&>option]:text-foreground"
           >
             {liveAssets.map(a => <option key={a.symbol} value={a.symbol}>{a.symbol} — {a.name}</option>)}
           </select>
@@ -2093,8 +3314,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <div className="space-y-2.5">
             {[
               { l: `${wiSymbol} weight`, before: `${whatIf.oldWeight.toFixed(1)}%`, after: `${whatIf.newWeight.toFixed(1)}%`, ok: null as boolean | null },
-              { l: 'Portfolio value', before: fmtK(stats.totalValue), after: fmtK(stats.totalValue + whatIf.cost), ok: whatIf.cost >= 0 },
-              { l: 'Est. cash after', before: fmtUsd(AVAILABLE_CASH, 0), after: fmtUsd(whatIf.newCash, 0), ok: whatIf.newCash >= 0 },
+              { l: 'Portfolio value', before: fmtDK(stats.totalValue), after: fmtDK(stats.totalValue + whatIf.cost), ok: whatIf.cost >= 0 },
+              { l: 'Est. cash after', before: fmtD(AVAILABLE_CASH, 0), after: fmtD(whatIf.newCash, 0), ok: whatIf.newCash >= 0 },
             ].map(row => (
               <div key={row.l} className="flex items-baseline justify-between text-[11.5px] pb-2 border-b border-border/20">
                 <span className="text-muted-foreground">{row.l}</span>
@@ -2109,12 +3330,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
 
           <p className="mt-3 text-[11px] text-muted-foreground leading-relaxed">
             {whatIf.newCash < 0
-              ? `Insufficient cash — needs ${fmtUsd(-whatIf.newCash, 0)} more than available.`
+              ? `Insufficient cash — needs ${fmtD(-whatIf.newCash, 0)} more than available.`
               : whatIf.newWeight > 40
                 ? `${wiSymbol} would exceed 40% of the portfolio — concentration risk rises sharply.`
                 : whatIf.delta === 0
                   ? 'No quantity held to sell at this size.'
-                  : `Trade costs ${fmtUsd(Math.abs(whatIf.cost), 0)} and shifts ${wiSymbol} to ${whatIf.newWeight.toFixed(1)}% of NAV.`}
+                  : `Trade costs ${fmtD(Math.abs(whatIf.cost), 0)} and shifts ${wiSymbol} to ${whatIf.newWeight.toFixed(1)}% of NAV.`}
           </p>
         </div>
 
@@ -2144,8 +3365,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <div className="grid grid-cols-2 gap-2.5">
             {[
               { l: 'Units', v: sizing.units > 999 ? sizing.units.toFixed(0) : sizing.units.toFixed(4), c: 'text-emerald-400' },
-              { l: 'Position size', v: fmtK(sizing.posValue), c: '' },
-              { l: 'Risk amount', v: fmtUsd(sizing.riskDollar, 0), c: 'text-rose-400' },
+              { l: 'Position size', v: fmtDK(sizing.posValue), c: '' },
+              { l: 'Risk amount', v: fmtD(sizing.riskDollar, 0), c: 'text-rose-400' },
               { l: 'Stop distance', v: sizing.entry > 0 ? `${(((sizing.entry - sizing.stop) / sizing.entry) * 100).toFixed(1)}%` : '—', c: '' },
               { l: 'Reward : Risk', v: `${sizing.rr.toFixed(2)} : 1`, c: sizing.rr >= 2 ? 'text-emerald-400' : sizing.rr >= 1 ? 'text-amber-400' : 'text-rose-400' },
               { l: '% of NAV', v: `${((sizing.posValue / (stats.totalValue || 1)) * 100).toFixed(1)}%`, c: sizing.posValue / (stats.totalValue || 1) > 0.25 ? 'text-rose-400' : '' },
@@ -2170,7 +3391,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <select
             value={alertType}
             onChange={e => setAlertType(e.target.value as Alert['type'])}
-            className="w-full bg-muted/20 border border-border/40 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-primary/50 mb-2 cursor-pointer [&>option]:bg-[#111]"
+            className="w-full bg-muted/20 border border-border/40 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-primary/50 mb-2 cursor-pointer [&>option]:bg-[#1a1a1a] [&>option]:text-foreground"
           >
             {ALERT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label} {t.value === 'DAILY_MOVE' ? '(%)' : '(USD)'}</option>)}
           </select>
@@ -2249,10 +3470,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <EChart option={mcOption} height={240} />
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             {[
-              { l: 'Pessimistic (5%)', v: fmtK(monteCarlo.end.lo), c: 'text-rose-400', n: 'Worse than 95% of paths' },
-              { l: 'Median (50%)', v: fmtK(monteCarlo.end.mid), c: 'text-emerald-400', n: `+${(((monteCarlo.end.mid / (stats.totalValue + monteCarlo.totalContrib)) - 1) * 100).toFixed(0)}% over contributions` },
-              { l: 'Optimistic (95%)', v: fmtK(monteCarlo.end.hi), c: 'text-emerald-400', n: 'Top 5% of paths' },
-              { l: 'Total invested', v: fmtK(stats.totalValue + monteCarlo.totalContrib), c: '', n: `${fmtUsd(monteCarlo.totalContrib, 0)} added` },
+              { l: 'Pessimistic (5%)', v: fmtDK(monteCarlo.end.lo), c: 'text-rose-400', n: 'Worse than 95% of paths' },
+              { l: 'Median (50%)', v: fmtDK(monteCarlo.end.mid), c: 'text-emerald-400', n: `+${(((monteCarlo.end.mid / (stats.totalValue + monteCarlo.totalContrib)) - 1) * 100).toFixed(0)}% over contributions` },
+              { l: 'Optimistic (95%)', v: fmtDK(monteCarlo.end.hi), c: 'text-emerald-400', n: 'Top 5% of paths' },
+              { l: 'Total invested', v: fmtDK(stats.totalValue + monteCarlo.totalContrib), c: '', n: `${fmtD(monteCarlo.totalContrib, 0)} added` },
             ].map(o => (
               <div key={o.l} className={`${TILE} p-3`}>
                 <div className="text-[10px] text-muted-foreground mb-0.5">{o.l}</div>
@@ -2277,7 +3498,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               <div className="mt-3 pt-3 border-t border-border/20 flex justify-between text-xs">
                 <span className="text-muted-foreground">Total unrealized</span>
                 <span className={`font-mono font-bold ${stats.unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {stats.unrealizedPnL >= 0 ? '+' : '-'}{fmtUsd(Math.abs(stats.unrealizedPnL))} ({fmtPct(stats.roiPercent)})
+                  {stats.unrealizedPnL >= 0 ? '+' : '-'}{fmtD(Math.abs(stats.unrealizedPnL))} ({fmtPct(stats.roiPercent)})
                 </span>
               </div>
             </>
@@ -2291,7 +3512,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       <div className={`${PANEL} p-5 mb-6`}>
         <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-md font-serif font-semibold">Cost Basis &amp; DCA</h3>
-          <span className="text-[11px] text-muted-foreground">Average entry vs. live market — {taxMethod} accounting</span>
+          <span className="text-[11px] text-muted-foreground">Average entry vs. live market — FIFO accounting</span>
         </div>
         <EChart option={costBasisOption} height={260} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
@@ -2314,23 +3535,24 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           {stats.holdings.length === 0 && <p className="text-xs text-muted-foreground col-span-full text-center py-4">No cost basis to compare.</p>}
         </div>
       </div>
+      </>)}
 
-      {/* ─── ADD TRANSACTION MODAL ──────────────────────────────────────────── */}
-      {isAddOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-card border border-border/80 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+      {/* ─── ADD TRANSACTION MODAL (portal — escapes transform/filter ancestors) */}
+      {isAddOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-300" style={{ zIndex: 9998 }} onMouseDown={() => setIsAddOpen(false)}>
+          <div className="relative bg-card border border-border/80 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200" onMouseDown={e => e.stopPropagation()}>
             <div className="p-5 border-b border-border/40 flex items-center justify-between bg-muted/10">
               <h2 className="text-md font-serif font-semibold flex items-center gap-2.5">
                 <PlusCircle className="w-5 h-5 text-primary" />
                 Record Transaction
               </h2>
-              <button onClick={() => setIsAddOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+              <button type="button" onMouseDown={(e) => { e.stopPropagation(); setIsAddOpen(false); }} className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline"
                   className={`border-border/40 font-mono transition-all rounded-xl cursor-pointer ${txType === 'BUY' ? 'bg-primary/10 text-primary border-primary/50 font-bold' : 'bg-transparent text-muted-foreground'}`}
                   onClick={() => setTxType('BUY')}>
@@ -2340,6 +3562,11 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   className={`border-border/40 font-mono transition-all rounded-xl cursor-pointer ${txType === 'SELL' ? 'bg-rose-500/10 text-rose-400 border-rose-500/40 font-bold' : 'bg-transparent text-muted-foreground'}`}
                   onClick={() => setTxType('SELL')}>
                   Sell / Short
+                </Button>
+                <Button variant="outline"
+                  className={`border-border/40 font-mono transition-all rounded-xl cursor-pointer ${txType === 'DIVIDEND' ? 'bg-amber-400/10 text-amber-300 border-amber-400/40 font-bold' : 'bg-transparent text-muted-foreground'}`}
+                  onClick={() => setTxType('DIVIDEND')}>
+                  Dividend
                 </Button>
               </div>
 
@@ -2408,7 +3635,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Price per Token ($)</label>
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">{txType === 'DIVIDEND' ? 'Dividend per Share ($)' : 'Price per Token ($)'}</label>
                 <input type="number" step="any" value={txPrice} onChange={e => handlePriceChange(e.target.value)}
                   className="w-full bg-background border border-border/50 rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
                   placeholder="0.00" />
@@ -2422,7 +3649,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     placeholder="0.00" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-mono text-primary uppercase tracking-wider block">Total Spent ($)</label>
+                  <label className="text-xs font-mono text-primary uppercase tracking-wider block">{txType === 'DIVIDEND' ? 'Total Dividend ($, auto)' : 'Total Spent ($)'}</label>
                   <input type="number" step="any" value={txTotalSpent} onChange={e => handleSpentChange(e.target.value)}
                     className="w-full bg-background border border-primary/40 rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono shadow-sm shadow-primary/5"
                     placeholder="e.g. 30.00" />
@@ -2450,18 +3677,153 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             </div>
 
             <div className="p-5 border-t border-border/40 bg-muted/10 flex justify-end gap-3">
-              <Button variant="ghost" onClick={() => setIsAddOpen(false)}
+              <Button variant="ghost" onMouseDown={(e) => { e.stopPropagation(); setIsAddOpen(false); }}
                 className="text-muted-foreground hover:text-foreground cursor-pointer rounded-xl font-mono text-xs">
                 Cancel
               </Button>
               <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-4 font-mono text-xs shadow-md cursor-pointer"
+                onMouseDown={e => e.stopPropagation()}
                 onClick={handleAddTransaction}
-                disabled={isUpdating || !txSymbol || !txQty || !txPrice}>
+                disabled={isUpdating || !txSymbol || !txPrice || (txType !== 'DIVIDEND' && !txQty)}>
                 {isUpdating ? 'Saving...' : 'Save Transaction'}
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ─── NEW / EDIT FUND MODAL (portal — escapes transform/filter ancestors) */}
+      {isFundDialogOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-300" style={{ zIndex: 9998 }} onMouseDown={() => setIsFundDialogOpen(false)}>
+          <div className="relative bg-card border border-border/80 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200" onMouseDown={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border/40 flex items-center justify-between bg-muted/10">
+              <h2 className="text-md font-serif font-semibold flex items-center gap-2.5">
+                <PiggyBank className="w-5 h-5 text-primary" />
+                {fundEditorId ? 'Edit Fund' : 'Create New Fund'}
+              </h2>
+              <button type="button" onMouseDown={(e) => { e.stopPropagation(); setIsFundDialogOpen(false); }} className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Fund Name</label>
+                <input
+                  value={fundName}
+                  onChange={e => setFundName(e.target.value)}
+                  placeholder="e.g. House Fund, College Fund…"
+                  className="w-full bg-background border border-border/50 rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  autoFocus
+                />
+              </div>
+
+              {/* Quick-start presets (create mode only) */}
+              {!fundEditorId && (
+                <div className="space-y-2">
+                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Quick Start</label>
+                  <div className="flex flex-wrap gap-2">
+                    {STARTER_GOAL_FUNDS
+                      .filter(p => !funds.some(f => f.name === p.name))
+                      .map(p => {
+                        const PI = FUND_ICONS[p.icon] ?? PiggyBank;
+                        return (
+                          <button
+                            key={p.name}
+                            onClick={() => {
+                              setFundName(p.name);
+                              setFundIcon(p.icon);
+                              setFundColor(p.color);
+                              setFundGoal(p.goalUsd ? String(p.goalUsd) : '');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer"
+                          >
+                            <PI className="w-3.5 h-3.5" style={{ color: p.color }} />
+                            {p.name}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Icon</label>
+                <div className="flex flex-wrap gap-2">
+                  {FUND_ICON_OPTIONS.map(key => {
+                    const I = FUND_ICONS[key];
+                    const active = fundIcon === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setFundIcon(key)}
+                        title={key}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                          active ? 'border-primary/60 bg-primary/10' : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-primary/30'
+                        }`}
+                      >
+                        <I className="w-4 h-4" style={active ? { color: fundColor } : undefined} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Accent Color</label>
+                <div className="flex flex-wrap gap-2">
+                  {FUND_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setFundColor(c)}
+                      className={`w-8 h-8 rounded-lg border-2 transition-all cursor-pointer ${
+                        fundColor === c ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
+                      }`}
+                      style={{ background: c }}
+                      aria-label={`color ${c}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block">Goal Amount (USD, optional)</label>
+                <input
+                  type="number"
+                  value={fundGoal}
+                  onChange={e => setFundGoal(e.target.value)}
+                  placeholder="e.g. 50000"
+                  className="w-full bg-background border border-border/50 rounded-xl px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-border/40 bg-muted/10 flex justify-between gap-3">
+              {fundEditorId && funds.length > 1 ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => { handleDeleteFund(fundEditorId); setIsFundDialogOpen(false); }}
+                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer rounded-xl font-mono text-xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Portfolio
+                </Button>
+              ) : <span />}
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={() => setIsFundDialogOpen(false)}
+                  className="text-muted-foreground hover:text-foreground cursor-pointer rounded-xl font-mono text-xs">
+                  Cancel
+                </Button>
+                <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-4 font-mono text-xs shadow-md cursor-pointer"
+                  onClick={handleSaveFund}
+                  disabled={!fundName.trim()}>
+                  {fundEditorId ? 'Save Changes' : 'Create Fund'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Ambient brand glow */}

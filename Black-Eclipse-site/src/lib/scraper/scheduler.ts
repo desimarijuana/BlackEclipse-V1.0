@@ -1,5 +1,6 @@
 // Scheduler — runs price_scraper on a user-configurable interval.
 // Reads the interval + mode from JDDS. In-process (runs while app runs).
+import { evaluatePortfolioAlerts } from "@/lib/alerts-evaluator";
 //
 // Modes:
 //   auto   — scraper enabled; background cycle refreshes `pageSize` stocks
@@ -314,6 +315,9 @@ export async function startScheduler() {
         await run();
         console.log("[Scheduler] tick: cycle complete");
       }
+      // Portfolio alerts evaluate every minute against live JDDS prices so
+      // triggers fire even when the user's tab is closed.
+      void evaluatePortfolioAlerts();
     } catch (err) {
       console.error("[Scheduler] cycle error:", err);
     }

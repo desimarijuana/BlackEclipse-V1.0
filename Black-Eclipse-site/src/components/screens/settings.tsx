@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
+import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -204,6 +205,17 @@ export function Settings() {
 
   // Preferences
   const [prefs, setPrefs] = useState<AppPreferences>({ theme: "dark", defaultMarket: "US", refreshMs: 15000 });
+
+  // Display currency (stored locally, presentation-layer only)
+  const [currency, setCurrency] = useState<string>("USD");
+  useEffect(() => {
+    setCurrency(getDisplayCurrency());
+  }, []);
+  const applyCurrency = (code: string | null) => {
+    if (!code) return;
+    setCurrency(code);
+    setDisplayCurrency(code);
+  };
 
   // Market data (loaded from JDDS)
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
@@ -429,6 +441,20 @@ export function Settings() {
                       </Select>
                     </Field>
                   </div>
+                  <Field label="Display Currency" hint="All portfolio totals, charts and analytics show in this currency. Individual asset prices keep their native market currency.">
+                    <Select value={currency} onValueChange={applyCurrency}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DISPLAY_CURRENCIES.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>
+                            {c.code} — {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                 </Panel>
               </div>
             )}

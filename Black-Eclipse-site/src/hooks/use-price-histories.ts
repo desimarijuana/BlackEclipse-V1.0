@@ -33,6 +33,8 @@ export interface HistoryState {
   loading: boolean;
   /** True once at least one real series landed. */
   ok: boolean;
+  /** True when the current paint came from the session cache. */
+  cached?: boolean;
 }
 
 const DEFAULT_STATE: HistoryState = {
@@ -45,6 +47,39 @@ const DEFAULT_STATE: HistoryState = {
 
 // Number of dates (trading days) to request for portfolio-level charts.
 const HISTORY_RANGE = '3mo';
+
+// ── sessionStorage cache ──────────────────────────────────────────────────────
+// Yahoo history fetches are slow (2–45s observed). Cache each symbol's series
+// per browser session with a TTL so tab switches and re-mounts render the
+// chart instantly and only refresh in the background after expiry.
+const CACHE_KEY = 'eclipse_price_history_cache';
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface CacheEntry { closes: number[]; dates: string[]; t: number }
+
+function readCache(): Record<string, CacheEntry> {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
+    // Purge expired entries lazily.
+    const now = Date.now();
+    for (const sym of Object.keys(parsed)) {
+      if (!parsed[sym] || now - parsed[sym].t > CACHE_TTL_MS) delete parsed[sym];
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function writeCache(sym: string, entry: { closes: number[]; dates: string[] }) {
+  try {
+    const cache = readCache();
+    cache[sym] = { ...entry, t: Date.now() };
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch { /* quota — cache is best-effort */ }
+}
 
 export function usePriceHistories(symbols: string[], marketsHint: Record<string, string> = {}): HistoryState {
   const key = symbols.join(',');
@@ -73,18 +108,43 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
     const runId = ++runIdRef.current;
     let cancelled = false;
 
+    const cache = readCache();
+    const uniq = [...new Set(key.split(','))];
+    const fresh = new Set(uniq.filter(sym => cache[sym] && cache[sym].closes.length >= 2));
+
+    // Instant paint from cache: a full set renders immediately and only
+    // background-refreshes; a partial set paints cached symbols now while the
+    // missing ones load (avoids the "fetching…" blank on revisits).
+    if (fresh.size > 0) {
+      const closes: Record<string, number[]> = {};
+      const dates: Record<string, string[]> = {};
+      for (const sym of fresh) {
+        closes[sym] = cache[sym].closes;
+        dates[sym] = cache[sym].dates;
+      }
+      const allCached = fresh.size === uniq.length;
+      setState(prev => ({
+        closes: { ...closes, ...(allCached ? {} : {}) },
+        dates: { ...dates },
+        pkrToUsd: prev.pkrToUsd,
+        loading: !allCached,
+        ok: true,
+        cached: true,
+      }));
+    }
+
     (async () => {
       // 1) FX rate first (parallel with history fetches would double-fetch forex
       //    cache; a single quick call here keeps maths consistent per run).
       const pkrToUsd = await fetchFx();
       if (cancelled || runId !== runIdRef.current) return;
 
-      // 2) Fire per-symbol fetches in parallel with per-symbol aborts.
-      const uniq = [...new Set(key.split(','))];
+      // 2) Fetch per-symbol in parallel — only symbols NOT freshly cached.
+      const toFetch = uniq.filter(sym => !fresh.has(sym));
       const results = await Promise.all(
-        uniq.map(async sym => {
+        toFetch.map(async sym => {
           try {
-            const market = marketsHint[sym] ?? (sym === 'BTC' || sym === 'ETH' || sym === 'SOL' ? 'CRYPTO' : 'US');
+            const market = marketsHint[sym] ?? 'US';
             const res = await fetch(
               `/api/price-history?symbol=${encodeURIComponent(sym)}&market=${encodeURIComponent(market)}&range=${HISTORY_RANGE}`
             );
@@ -94,8 +154,12 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
               .map((b: { close: number }) => Number(b.close))
               .filter((c: number) => Number.isFinite(c) && c > 0);
             const dates = series.map((b: { date: string }) => b.date);
-            return [sym, { closes, dates }] as const;
+            const cleaned = { closes, dates };
+            if (closes.length >= 2) writeCache(sym, cleaned);
+            return [sym, cleaned] as const;
           } catch {
+            // Network failure → fall back to a stale cache entry if present.
+            if (cache[sym]) return [sym, { closes: cache[sym].closes, dates: cache[sym].dates }] as const;
             return [sym, { closes: [] as number[], dates: [] as string[] }] as const;
           }
         })
@@ -105,6 +169,12 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
       const closes: Record<string, number[]> = {};
       const dates: Record<string, string[]> = {};
       let ok = false;
+      // Seed with cached symbols first, then overwrite/extend with fetched.
+      for (const sym of fresh) {
+        closes[sym] = cache[sym].closes;
+        dates[sym] = cache[sym].dates;
+        ok = true;
+      }
       for (const [sym, r] of results) {
         if (r.closes.length >= 2) {
           closes[sym] = r.closes;
@@ -112,7 +182,7 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
           ok = true;
         }
       }
-      setState({ closes, dates, pkrToUsd, loading: false, ok });
+      setState({ closes, dates, pkrToUsd, loading: false, ok, cached: false });
     })();
 
     return () => { cancelled = true; };

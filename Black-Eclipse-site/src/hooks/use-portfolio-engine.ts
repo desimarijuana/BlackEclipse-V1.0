@@ -9,6 +9,8 @@ export interface PortfolioStats {
   unrealizedPnL: number;
   /** Realized P/L realized in each asset's native currency and converted at the live FX rate (approximation). */
   realizedPnL: number;
+  /** Cumulative dividend income in USD (from DIVIDEND transactions). */
+  dividendsUsd: number;
   roiPercent: number;
   dailyChangeValue: number;
   dailyChangePercent: number;
@@ -32,6 +34,9 @@ export interface PortfolioStats {
     allocation: number;
     realizedPnL: number;
     realizedPnLUsd: number;
+    /** Cumulative dividend income for this position (native currency). */
+    dividendIncome: number;
+    dividendIncomeUsd: number;
     dayPct: number;
   }>;
 }
@@ -69,6 +74,7 @@ export function computePortfolioStats(
   let totalValueUsd = 0;
   let totalCostBasisUsd = 0;
   let totalRealizedUsd = 0;
+  let totalDividendUsd = 0;
   let dailyChangeValueUsd = 0;
   const realizedBySymbol: Record<string, number> = {};
 
@@ -78,12 +84,20 @@ export function computePortfolioStats(
     const currency: 'USD' | 'PKR' = (live?.currency === 'PKR' ? 'PKR' : 'USD');
     const fxToUsd = live?.fxToUsd ?? (currency === 'PKR' ? 1 / 278 : 1);
 
+    // Dividends are pure income — additive to realized P/L, never affect lots.
+    const dividendIncome = txs
+      .filter(t => t.type === 'DIVIDEND')
+      .reduce((a, t) => a + (t.quantity * t.price) - t.fee, 0);
+    if (dividendIncome !== 0) totalDividendUsd += dividendIncome * fxToUsd;
+
+    const tradeTxs = sorted.filter(t => t.type !== 'DIVIDEND');
+
     const buyLots: Array<{ qty: number; price: number }> = [];
     let realized = 0;
     let qty = 0;
     let costBasis = 0;
 
-    for (const tx of sorted) {
+    for (const tx of tradeTxs) {
       if (tx.type === 'BUY') {
         buyLots.push({ qty: tx.quantity, price: tx.price });
         qty += tx.quantity;
@@ -110,10 +124,10 @@ export function computePortfolioStats(
         costBasis -= costOfSold;
       }
     }
-    realizedBySymbol[symbol] = realized;
+    // Realized P/L counted once per symbol (open or closed positions alike).
+    if (realized !== 0) totalRealizedUsd += realized * fxToUsd;
 
     if (qty <= precisionThreshold) {
-      if (realized !== 0) totalRealizedUsd += realized * fxToUsd;
       continue;
     }
 
@@ -126,7 +140,6 @@ export function computePortfolioStats(
 
     totalValueUsd += valueUsd;
     totalCostBasisUsd += costBasis * fxToUsd;
-    totalRealizedUsd += realized * fxToUsd;
 
     const prevPrice = currentPrice / (1 + dayPct / 100);
     dailyChangeValueUsd += (value - qty * prevPrice) * fxToUsd;
@@ -146,7 +159,9 @@ export function computePortfolioStats(
       allocation: 0,
       realizedPnL: realized,
       realizedPnLUsd: realized * fxToUsd,
-      dayPct,
+    dividendIncome: dividendIncome,
+    dividendIncomeUsd: dividendIncome * fxToUsd,
+    dayPct,
     });
   }
 
@@ -164,7 +179,8 @@ export function computePortfolioStats(
     totalValue: totalValueUsd,
     costBasis: totalCostBasisUsd,
     unrealizedPnL: unrealizedPnLUsd,
-    realizedPnL: totalRealizedUsd,
+    realizedPnL: totalRealizedUsd + totalDividendUsd,
+    dividendsUsd: totalDividendUsd,
     roiPercent,
     dailyChangeValue: dailyChangeValueUsd,
     dailyChangePercent,

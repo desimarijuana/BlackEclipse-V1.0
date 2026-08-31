@@ -5,6 +5,70 @@ import { yahooSymbol } from "@/lib/scraper/fetchers/yfinance";
 
 export const dynamic = "force-dynamic";
 
+// ── SWR cache (in-memory + Prisma-persisted last-good) ────────────────────────
+// Yahoo chart fetches take 2–45s; every fresh user request re-hit upstream.
+// Serve cached instantly and refresh in the background, mirroring /api/forex.
+const HISTORY_TTL_MS = 10 * 60 * 1000; // daily data → 10min is plenty fresh
+const historyCache = new Map<string, { t: number; payload: unknown }>();
+const historyInFlight = new Map<string, Promise<unknown>>();
+const PERSIST_PREFIX = "api_cache:price-history:";
+
+function cacheKey(symbol: string, market: string, range: string) {
+  return `${symbol}|${market}|${range}`;
+}
+
+async function persistHistory(key: string, data: unknown) {
+  try {
+    await prisma.systemConfig.upsert({
+      where: { key: PERSIST_PREFIX + key },
+      update: { value: JSON.stringify(data) },
+      create: { key: PERSIST_PREFIX + key, value: JSON.stringify(data) },
+    });
+  } catch { /* best-effort */ }
+}
+
+async function loadPersistedHistory(key: string): Promise<unknown | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key: PERSIST_PREFIX + key } });
+    if (!row?.value) return null;
+    const parsed = JSON.parse(row.value);
+    if (parsed && Array.isArray(parsed.series) && parsed.series.length >= 2) return parsed;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function startBackgroundRefresh(key: string, symbol: string, market: string, range: string) {
+  if (historyInFlight.has(key)) return;
+  const p = (async () => {
+    try {
+      for (const ticker of tickerCandidates(symbol, market)) {
+        const chart = await fetchYahooChart(ticker, range);
+        if (chart) {
+          const points = chart.bars.map((b) => b.close);
+          const payload = {
+            symbol, ticker,
+            currency: MARKET_CURRENCY[market] || "$",
+            points,
+            series: chart.bars,
+            perf: {
+              week: perfOver(chart.bars, 5),
+              month: perfOver(chart.bars, 21),
+              quarter: perfOver(chart.bars, 63),
+            },
+            source: "yfinance",
+          };
+          historyCache.set(key, { t: Date.now(), payload });
+          void persistHistory(key, payload);
+          return;
+        }
+      }
+    } finally {
+      historyInFlight.delete(key);
+    }
+  })();
+  historyInFlight.set(key, p);
+}
+
 // GET /api/price-history?symbol=OGDC&market=PK
 //
 // Returns a REAL daily OHLCV series (default 3 months) for the stock detail
@@ -114,13 +178,24 @@ export async function GET(request: Request) {
   }
 
   const currency = MARKET_CURRENCY[market] || "$";
+  const key = cacheKey(symbol, market, range);
+
+  // 0) SWR: fresh cache serves instantly; stale cache serves + background refresh.
+  const cached = historyCache.get(key);
+  if (cached && Date.now() - cached.t < HISTORY_TTL_MS) {
+    return NextResponse.json(cached.payload);
+  }
+  if (cached) {
+    startBackgroundRefresh(key, symbol, market, range);
+    return NextResponse.json(cached.payload);
+  }
 
   // 1) Real series from the Yahoo chart API — try each ticker candidate.
   for (const ticker of tickerCandidates(symbol, market)) {
     const chart = await fetchYahooChart(ticker, range);
     if (chart) {
       const points = chart.bars.map((b) => b.close);
-      return NextResponse.json({
+      const payload = {
         symbol,
         ticker,
         currency,
@@ -132,8 +207,19 @@ export async function GET(request: Request) {
           quarter: perfOver(chart.bars, 63),
         },
         source: "yfinance",
-      });
+      };
+      historyCache.set(key, { t: Date.now(), payload });
+      void persistHistory(key, payload);
+      return NextResponse.json(payload);
     }
+  }
+
+  // 1b) No live series — try the persisted last-good snapshot before giving up.
+  const persisted = await loadPersistedHistory(key);
+  if (persisted) {
+    historyCache.set(key, { t: Date.now() - HISTORY_TTL_MS / 2, payload: persisted });
+    startBackgroundRefresh(key, symbol, market, range);
+    return NextResponse.json(persisted);
   }
 
   // 2) Bridge unavailable / no history — fall back to the DB snapshot.
