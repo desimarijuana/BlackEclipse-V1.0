@@ -194,6 +194,63 @@ model AgentRun {
   report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 }
 
+// ─── Price & Condition Alerts ────────────────────────────────────────────
+// A "watch" = a boolean condition tree over market data, evaluated on a
+// server-side poll loop. When it fires, we dispatch via configured channels
+// and log a PriceAlertEvent. Deleting a watch must NOT delete its events
+// (no cascade on purpose — history survives).
+
+// One alert rule (the watch).
+model PriceAlert {
+  id          String   @id @default(cuid())
+  name        String
+  symbols     String // JSON string[]
+  market      String   @default("US")
+  universe    String   @default("CUSTOM") // CUSTOM | MARKET
+  conditions  String // JSON condition tree (leaf | group)
+  logic       String   @default("AND") // AND | OR (top-level group)
+  timeframe   String   @default("1d") // 1m 5m 15m 1h 1d
+  dataSource  String   @default("Auto") // TradingView | yfinance | Auto
+  mode        String   @default("poll") // poll (websocket = FUTURE)
+  intervalSec Int      @default(60) // poll floor 30s
+  cooldownMin Int      @default(15)
+  actions     String   @default("{}") // JSON { toast?, channels?: string[] }
+  active      Boolean  @default(true)
+  status      String   @default("idle") // idle|warming|watching|triggered|error
+  statusMsg   String?
+  lastEvalAt  DateTime?
+  lastFiredAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// History — one row per fired alert. NOT cascade-deleted with the watch.
+model PriceAlertEvent {
+  id      String   @id @default(cuid())
+  alertId String
+  symbol  String
+  detail  String
+  firedAt DateTime @default(now())
+
+  @@index([alertId])
+  @@index([firedAt])
+}
+
+// Candle cache for indicator conditions (SMA/EMA/RSI crossovers).
+// Only cached per-watch for the symbols/timeframes that need it.
+model Candles {
+  symbol    String
+  timeframe String
+  ts        DateTime
+  o         Float
+  h         Float
+  l         Float
+  c         Float
+  v         Float?
+
+  @@id([symbol, timeframe, ts])
+}
+
 // A discrete fact / data point an agent gathered (for citation + memory).
 model ResearchFinding {
   id        String   @id @default(cuid())

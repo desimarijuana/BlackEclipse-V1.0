@@ -36,5 +36,14 @@ export async function register() {
     } catch (err) {
       console.error("[startup] warm-up failed:", err);
     }
+
+    // Price & condition alert monitor — starts exactly once, after the
+    // scraper scheduler. Skipped in headless self-test runs.
+    try {
+      const { startAlertMonitor } = await import("@/lib/alerts/alertMonitor");
+      await startAlertMonitor();
+    } catch (err) {
+      console.error("[startup] alert monitor start failed:", err);
+    }
   }
 }

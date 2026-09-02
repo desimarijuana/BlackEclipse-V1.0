@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
 import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
+import { AlertNotificationsPanel } from "./alert-notifications-settings";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ const ALL_MARKETS = [
 ];
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-type SectionId = "appearance" | "agent" | "market" | "news" | "integrations" | "data";
+type SectionId = "appearance" | "agent" | "market" | "news" | "integrations" | "data" | "alerts";
 
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env) / Mock",
@@ -320,6 +321,7 @@ export function Settings() {
     { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
     { id: "news", label: "News Feeds", desc: "RSS sources", icon: Newspaper },
     { id: "integrations", label: "Integrations", desc: "Service status", icon: ShieldCheck },
+    { id: "alerts", label: "Alerts", desc: "Notification channels", icon: Activity },
     { id: "data", label: "Data", desc: "Local storage", icon: Database },
   ];
 
@@ -682,6 +684,8 @@ export function Settings() {
                 </Panel>
               </div>
             )}
+
+            {section === "alerts" && <AlertNotificationsPanel />}
 
             {section === "data" && (
               <div className="animate-fade-in-up">

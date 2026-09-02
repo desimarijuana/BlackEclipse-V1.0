@@ -35,6 +35,10 @@ const EmbeddedChart = dynamic(() => import('./embedded-chart').then((m) => m.Emb
   loading: () => <ScreenSkeleton />,
 });
 const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false });
+const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m) => m.AlertsClient), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -429,6 +433,12 @@ function StockChatContent() {
 
           {activeTab === 'heatmap' && (
             <MarketBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
+          )}
+
+          {activeTab === 'alerts' && (
+            <div className="flex-1 overflow-y-auto scrollbar-hide">
+              <AlertsScreen />
+            </div>
           )}
 
           {activeTab === 'chart' && (

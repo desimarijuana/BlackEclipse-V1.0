@@ -4,11 +4,11 @@ import React, { useState } from 'react';
 import {
   Sparkles,
   Newspaper, Plus, Bot, Trash2, X,
-  ChevronLeft, ChevronRight, Menu, Settings, ChartPie, Orbit, ChartCandlestick
+  ChevronLeft, ChevronRight, Menu, Settings, ChartPie, Orbit, ChartCandlestick, Bell
 } from 'lucide-react';
 import { Message } from '@/types/chat';
 
-export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'settings';
+export type AppTab = 'chat' | 'market' | 'watch' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'settings' | 'alerts';
 
 export interface Conversation {
   id: string;
@@ -169,6 +169,7 @@ export function Sidebar({
             { id: 'market', label: 'My Portfolio', icon: ChartPie },
             { id: 'news', label: 'Market News', icon: Newspaper },
             { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
+            { id: 'alerts', label: 'Price Alerts', icon: Bell },
           ].map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
