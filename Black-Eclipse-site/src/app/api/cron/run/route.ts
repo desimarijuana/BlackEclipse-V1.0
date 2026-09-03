@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { triggerScrape, runUniverseSync } from "@/lib/scraper";
+import { triggerNewsIngest } from "@/lib/scraper/scheduler";
 import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,13 @@ export async function POST(request: Request) {
       sync = await runUniverseSync();
     }
 
-    return NextResponse.json({ success: true, scrape, sync });
+    let news: boolean = false;
+    if (body.news === true) {
+      await triggerNewsIngest();
+      news = true;
+    }
+
+    return NextResponse.json({ success: true, scrape, sync, news });
   } catch (err) {
     console.error("[api/cron/run] Error:", err);
     return NextResponse.json({ error: "Cron cycle failed" }, { status: 500 });

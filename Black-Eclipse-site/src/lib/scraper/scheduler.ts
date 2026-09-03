@@ -12,6 +12,7 @@ import { evaluatePortfolioAlerts } from "@/lib/alerts-evaluator";
 import cron, { ScheduledTask } from "node-cron";
 import { prisma } from "@/lib/db";
 import { runPriceScraper, refreshMarketBatch } from "./price-scraper";
+import { runNewsIngest, NEWS_REFRESH_TYPE, DEFAULT_NEWS_INTERVAL_MIN } from "@/lib/news/ingest";
 
 export type ScraperMode = "auto" | "off" | "manual";
 
@@ -446,6 +447,69 @@ export function restartUniverseSync() {
     syncTask = null;
   }
   void startUniverseSync();
+}
+
+// ─── News ingestion (background RSS → JDDS) ─────────────────────────────
+// Runs on its own cron tick so /api/news serves fresh items from the DB
+// instead of re-fetching ~55 feeds live on every request.
+
+let newsTask: ScheduledTask | null = null;
+let newsRunning = false;
+
+/** Run one news ingestion cycle (idempotent, concurrency-guarded). */
+export async function triggerNewsIngest(): Promise<void> {
+  if (newsRunning) return;
+  newsRunning = true;
+  try {
+    await runNewsIngest();
+  } finally {
+    newsRunning = false;
+  }
+}
+
+/** Start the news-refresh cron. Called once at app startup. */
+export async function startNewsRefresh() {
+  if (newsTask) return;
+  try {
+    await prisma.cronJob.upsert({
+      where: { type: NEWS_REFRESH_TYPE },
+      update: {},
+      create: {
+        type: NEWS_REFRESH_TYPE,
+        intervalMinutes: DEFAULT_NEWS_INTERVAL_MIN,
+        enabled: true,
+        nextRunAt: new Date(Date.now() + DEFAULT_NEWS_INTERVAL_MIN * 60000),
+      },
+    });
+  } catch (err) {
+    console.error("[NewsRefresh] init failed:", err);
+  }
+  const bootTime = Date.now();
+  const BOOT_GRACE_MS = 30 * 1000;
+  newsTask = cron.schedule("* * * * *", async () => {
+    try {
+      if (Date.now() - bootTime < BOOT_GRACE_MS) return;
+      const job = await prisma.cronJob.findUnique({ where: { type: NEWS_REFRESH_TYPE } });
+      const enabled = job?.enabled ?? true;
+      if (!enabled) return;
+      const lastRun = job?.lastRunAt?.getTime() || 0;
+      const intervalMs = (job?.intervalMinutes ?? DEFAULT_NEWS_INTERVAL_MIN) * 60000;
+      if (Date.now() - lastRun >= intervalMs) {
+        console.log("[NewsRefresh] due — ingesting feeds");
+        await triggerNewsIngest();
+      }
+    } catch (err) {
+      console.error("[NewsRefresh] cycle error:", err);
+    }
+  });
+}
+
+export function restartNewsRefresh() {
+  if (newsTask) {
+    newsTask.stop();
+    newsTask = null;
+  }
+  void startNewsRefresh();
 }
 
 /**

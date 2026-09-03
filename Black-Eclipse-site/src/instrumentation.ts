@@ -29,6 +29,19 @@ export async function register() {
       console.error("[startup] universe-sync start failed:", err);
     }
 
+    // News-refresh cron: ingests RSS feeds into JDDS on an interval so the
+    // news page reads from the DB instead of fetching feeds per request.
+    try {
+      const { startNewsRefresh } = await import("@/lib/scraper/scheduler");
+      await startNewsRefresh();
+      // Kick one ingestion shortly after boot so the DB isn't empty on first load.
+      setTimeout(() => {
+        void import("@/lib/scraper/scheduler").then((m) => m.triggerNewsIngest());
+      }, 15_000);
+    } catch (err) {
+      console.error("[startup] news-refresh start failed:", err);
+    }
+
     // Background bulk warm-up: price all markets' full universes so page loads
     // are instant. Non-blocking — the server is fully up while this runs.
     try {

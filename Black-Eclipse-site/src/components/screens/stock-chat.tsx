@@ -305,7 +305,7 @@ function StockChatContent() {
       const replyMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Analyzing the Bloomberg/Reuters bulletin on ${news.ticker || 'assets'}. The sentiment is classified as "${news.sentiment.toUpperCase()}" with an estimated impact of ${news.impactPercent}%. This shifts our technical weights toward short-term momentum flags in related industry groups.`
+        content: `Analyzing the bulletin from ${news.source} on ${news.ticker || 'assets'}. The sentiment is classified as "${news.sentiment.toUpperCase()}". This shifts our technical weights toward short-term momentum flags in related industry groups.`
       };
       appendAssistantReply(chatId, replyMsg);
     }, 1000);

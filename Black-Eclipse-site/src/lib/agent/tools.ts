@@ -4,9 +4,6 @@
 
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
-import { guessSentiment } from "@/lib/sentiment";
-import { getNewsFeeds } from "@/lib/settings";
-import Parser from "rss-parser";
 
 export interface ToolDefinition {
   name: string;
@@ -19,16 +16,8 @@ export interface ToolDefinition {
   execute: (args: Record<string, unknown>) => Promise<string>;
 }
 
-// Shared source of truth with the market news page — uses the full
-// ~55-feed catalog from settings (tier 1-4) so the agent sees the same news.
-const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-const parser = new Parser({
-  requestOptions: {
-    headers: { "User-Agent": BROWSER_UA, Accept: "application/rss+xml, application/xml, text/xml, */*" },
-  },
-});
+// News is served from JDDS (background-ingested NewsItem rows) — no live
+// RSS fetching here, keeping agent runs fast and deterministic.
 
 async function getPrice(symbol: string, market = "US"): Promise<string> {
   const result = await fetchQuoteWithFallback(symbol, market);
@@ -47,34 +36,27 @@ async function getPrice(symbol: string, market = "US"): Promise<string> {
 }
 
 async function getNews(query: string): Promise<string> {
-  const q = query.toLowerCase();
-  const feeds = await getNewsFeeds();
-  const results = await Promise.allSettled(
-    feeds.filter((f) => f.enabled).map(async (feed) => {
-      const parsed = await parser.parseURL(feed.url);
-      return (parsed.items || []).slice(0, 15).map((item) => ({
-        source: feed.source,
-        title: item.title || "",
-        summary: (item.contentSnippet || item.content || "").slice(0, 200),
-        url: item.link,
-      }));
-    })
-  );
+  const q = query.toLowerCase().trim();
+  // Serve from JDDS (background-ingested) instead of fetching ~55 feeds live.
+  const items = await prisma.newsItem.findMany({
+    where: q
+      ? {
+          OR: [
+            { headline: { contains: q } },
+            { summary: { contains: q } },
+          ],
+        }
+      : {},
+    orderBy: { timestamp: "desc" },
+    take: 8,
+  });
 
-  const items: { source: string; title: string; summary: string; url?: string }[] = [];
-  for (const r of results) if (r.status === "fulfilled") items.push(...r.value);
-
-  const filtered = q
-    ? items.filter((i) => `${i.title} ${i.summary}`.toLowerCase().includes(q))
-    : items;
-
-  if (filtered.length === 0) {
+  if (items.length === 0) {
     return `No news found matching "${query}".`;
   }
 
-  return filtered.slice(0, 8).map((i) => {
-    const sentiment = guessSentiment(`${i.title} ${i.summary}`);
-    return `[${i.source}] (${sentiment}) ${i.title}\n  ${i.summary}\n  ${i.url || ""}`;
+  return items.map((i) => {
+    return `[${i.source}] (${i.sentiment}) ${i.headline}\n  ${(i.summary || "").slice(0, 200)}\n  ${i.url || ""}`;
   }).join("\n\n");
 }
 

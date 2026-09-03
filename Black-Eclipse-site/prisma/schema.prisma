@@ -124,8 +124,18 @@ model NewsItem {
   sentiment String   @default("neutral")
   timestamp DateTime
   url       String?
+  // Feed metadata so filters (category/region/tier) work without refetching.
+  category  String?
+  region    String?
+  tier      Int?
+  // Dedup key: hash of url (or headline) — upserts are idempotent across runs.
+  dedupKey  String   @unique
 
   @@index([timestamp])
+  @@index([category])
+  @@index([region])
+  @@index([sentiment])
+  @@index([ticker])
 }
 
 // Learned source reliability — powers self-healing source rotation.

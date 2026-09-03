@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Newspaper, Sparkles, Eye, Search, X, SlidersHorizontal } from 'lucide-react';
+import { Newspaper, Sparkles, Eye, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -18,72 +18,28 @@ export interface NewsItem {
   headline: string;
   summary: string;
   sentiment: 'bullish' | 'bearish' | 'neutral';
-  impactPercent: number;
   url?: string;
 }
 
-const NEWS_MOCK: NewsItem[] = [
-  {
-    id: 'n1',
-    source: 'Bloomberg',
-    ticker: 'NVDA',
-    timestamp: '12m ago',
-    headline: 'NVIDIA CEO Unveils Next-Gen Blackwell Ultra Chips at Tech Summit',
-    summary: 'NVIDIA CEO Jensen Huang showcased the new Blackwell Ultra architecture, delivering extreme efficiency and high compute power. Market analysts predict massive upgrades in hyperscaler datacenters starting Q3, driving continued dominance.',
-    sentiment: 'bullish',
-    impactPercent: 4.8,
-  },
-  {
-    id: 'n2',
-    source: 'Reuters',
-    ticker: 'TSLA',
-    timestamp: '35m ago',
-    headline: 'Tesla Seeks Shareholder Approval for Model Y Autonomy Integration in EU',
-    summary: 'Tesla has formally submitted regulatory requests to deploy its next-generation Full Self-Driving (FSD) beta across European countries. While approval remains subject to stringent safety checks, a positive nod could unlock a massive secondary revenue pipeline.',
-    sentiment: 'bullish',
-    impactPercent: 2.5,
-  },
-  {
-    id: 'n3',
-    source: 'BlackEclipse AI',
-    ticker: 'AAPL',
-    timestamp: '1h ago',
-    headline: 'AI Stock Brief: Apple Services Revenue Surges Beyond Hardware Projections',
-    summary: 'An autonomous financial sweep indicates App Store and Apple Pay transactions have reached record highs this quarter, compensating for slight declines in global smartphone shipments. Services gross margins remain high at 74%.',
-    sentiment: 'neutral',
-    impactPercent: 0.5,
-  },
-  {
-    id: 'n4',
-    source: 'Financial Times',
-    ticker: 'MSFT',
-    timestamp: '2h ago',
-    headline: 'Antitrust Concerns Mount as EU Probes Microsoft Cloud Bundling Practices',
-    summary: 'Regulatory officials in Brussels have expanded their compliance audits into Microsofts cloud bundling services. Industry rivals argue licensing terms restrict fair competition, posing a minor litigation risk.',
-    sentiment: 'bearish',
-    impactPercent: -1.2,
-  },
-  {
-    id: 'n5',
-    source: 'CoinDesk',
-    ticker: 'BTC',
-    timestamp: '2h ago',
-    headline: 'Bitcoin Crosses $67,000 as Institutional Inflows into Spot ETFs Accelerate',
-    summary: 'Spot Bitcoin ETFs recorded a net inflow of $350 million yesterday, marking the tenth consecutive day of positive inflows. Analysts suggest this institutional demand is establishing a strong price floor above key support levels.',
-    sentiment: 'bullish',
-    impactPercent: 3.2,
-  },
-  {
-    id: 'n6',
-    source: 'CoinTelegraph',
-    ticker: 'ETH',
-    timestamp: '3h ago',
-    headline: 'Ethereum Developers Confirm Date for Next Core Network Upgrade',
-    summary: 'The next major Ethereum network upgrade, designed to reduce transaction fees on Layer 2 scaling networks further, has been scheduled for testnet deployment. This is expected to drive increased user activity across decentralized finance protocols.',
-    sentiment: 'bullish',
-    impactPercent: 2.8,
-  },
-];
+export interface NewsPulse {
+  bullish?: number;
+  bearish?: number;
+  neutral?: number;
+}
+
+// Relative time formatter for DB timestamps ("12m ago", "3h ago", "2d ago").
+function relativeTime(iso: string): string {
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return 'recent';
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 interface MarketNewsProps {
   onDiscussNews?: (news: NewsItem) => void;
@@ -125,6 +81,10 @@ export interface CardSettings {
   showButtons: boolean;          // footer action row
   showTimestamp: boolean;
   glow: boolean;                 // ambient sentiment glow
+  perPage: 10 | 20 | 30 | 50;    // cards per page
+  sort: 'newest' | 'oldest';     // list order
+  autoRefresh: boolean;          // poll for new articles in the background
+  refreshSec: 30 | 60 | 120;     // poll interval
 }
 
 const DEFAULT_CARD_SETTINGS: CardSettings = {
@@ -137,6 +97,10 @@ const DEFAULT_CARD_SETTINGS: CardSettings = {
   showButtons: true,
   showTimestamp: true,
   glow: true,
+  perPage: 10,
+  sort: 'newest',
+  autoRefresh: true,
+  refreshSec: 60,
 };
 
 const CARD_SETTINGS_KEY = 'be_news_card_settings';
@@ -212,6 +176,11 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   const [pendingQ, setPendingQ] = useState('');
   const [cards, setCards] = useState<CardSettings>(DEFAULT_CARD_SETTINGS);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [pulse, setPulse] = useState<NewsPulse>({});
+  const [lastIngestAt, setLastIngestAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const [stagedNews, setStagedNews] = useState<NewsItem[]>([]);
 
   useEffect(() => {
     setCards(loadCardSettings());
@@ -235,59 +204,55 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     [filters]
   );
 
-  const fetchNews = async (pageNum = 1, f: FilterState = filters) => {
+  const fetchNews = async (pageNum = 1, f: FilterState = filters, c: CardSettings = cards) => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ page: String(pageNum), limit: '10' });
+      const params = new URLSearchParams({ page: String(pageNum), limit: String(c.perPage), sort: c.sort });
       if (f.category) params.set('category', f.category);
       if (f.region) params.set('region', f.region);
       if (f.tier) params.set('tier', f.tier);
       if (f.sentiment) params.set('sentiment', f.sentiment);
       if (f.q) params.set('q', f.q);
       const res = await fetch(`/api/news?${params.toString()}`);
+      if (!res.ok) throw new Error(`API ${res.status}`);
       const data = await res.json();
       const news = data.news || [];
-      if (news.length > 0) {
-        setNewsList(news);
-        setPage(pageNum);
-        setTotalPages(data.pagination?.totalPages || 1);
-        setTotalItems(data.pagination?.total || news.length);
-        const bullishCount = news.filter((n: { sentiment: string }) => n.sentiment === 'bullish').length;
-        const bearishCount = news.filter((n: { sentiment: string }) => n.sentiment === 'bearish').length;
-        onNewsStatusChange?.(bullishCount >= bearishCount);
-      } else {
-        // Fallback to built-in demo data if the feed is empty/unreachable.
-        // (Only for unfiltered first page — a filtered empty result is real.)
-        if (pageNum === 1 && activeFilterCount === 0) {
-          setNewsList(NEWS_MOCK);
-          setTotalItems(NEWS_MOCK.length);
-          const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
-          const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
-          onNewsStatusChange?.(bullishCount >= bearishCount);
-        } else {
-          setNewsList([]);
-          setTotalItems(0);
-        }
-        setPage(pageNum);
-        setTotalPages(1);
-      }
+      setNewsList(news);
+      setPage(pageNum);
+      setTotalPages(data.pagination?.totalPages || 1);
+      setTotalItems(data.pagination?.total || news.length);
+      if (data.pulse) setPulse(data.pulse);
+      if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
+      // Overall news status from the 24h pulse (falls back to page items).
+      const bullish = data.pulse?.bullish ?? news.filter((n: NewsItem) => n.sentiment === 'bullish').length;
+      const bearish = data.pulse?.bearish ?? news.filter((n: NewsItem) => n.sentiment === 'bearish').length;
+      onNewsStatusChange?.(bullish >= bearish);
     } catch (e) {
       console.error("[MarketNews] Error fetching news:", e);
-      if (pageNum === 1 && activeFilterCount === 0) {
-        setNewsList(NEWS_MOCK);
-        setTotalItems(NEWS_MOCK.length);
-      } else {
-        setNewsList([]);
-        setTotalItems(0);
-      }
+      setError('Could not load the news database. It may still be ingesting — try again in a minute.');
+      setNewsList([]);
+      setTotalItems(0);
       setPage(pageNum);
       setTotalPages(1);
-      const bullishCount = NEWS_MOCK.filter(n => n.sentiment === 'bullish').length;
-      const bearishCount = NEWS_MOCK.filter(n => n.sentiment === 'bearish').length;
-      onNewsStatusChange?.(bullishCount >= bearishCount);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Manual refresh: trigger a background ingestion cycle, then re-fetch.
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetch('/api/cron/refresh-news', { method: 'POST' });
+      setStagedNews([]);
+      setNewCount(0);
+      await fetchNews(1);
+    } catch {
+      // refresh trigger failure is non-fatal; list refresh alone is fine
+      await fetchNews(1);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -296,6 +261,69 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     // fetchNews is stable per-render; only run on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ─── Auto-refresh: silent background polling ─────────────────────────
+  // Fetches page 1 quietly (no loading skeleton), compares against the
+  // displayed list, and stages new items behind a "N new articles" pill
+  // instead of yanking the list out from under the user. Only polls while
+  // the tab is visible; refetches immediately when the tab regains focus.
+  const pollForNew = async () => {
+    try {
+      const params = new URLSearchParams({ page: '1', limit: String(cards.perPage), sort: cards.sort });
+      if (filters.category) params.set('category', filters.category);
+      if (filters.region) params.set('region', filters.region);
+      if (filters.tier) params.set('tier', filters.tier);
+      if (filters.sentiment) params.set('sentiment', filters.sentiment);
+      if (filters.q) params.set('q', filters.q);
+      const res = await fetch(`/api/news?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const incoming: NewsItem[] = data.news || [];
+      if (incoming.length === 0) return;
+      // New = items with an id not currently displayed or staged.
+      const known = new Set([...newsList, ...stagedNews].map((n) => n.id));
+      const fresh = incoming.filter((n) => !known.has(n.id));
+      if (fresh.length > 0 && page === 1) {
+        setStagedNews((prev) => {
+          const seen = new Set(prev.map((n) => n.id));
+          return [...prev, ...fresh.filter((n) => !seen.has(n.id))];
+        });
+        setNewCount((prev) => prev + fresh.filter((n) => !known.has(n.id)).length);
+        if (data.pulse) setPulse(data.pulse);
+        if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
+      }
+    } catch {
+      // silent — polling failures must never surface as UI errors
+    }
+  };
+
+  useEffect(() => {
+    if (!cards.autoRefresh) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') void pollForNew();
+    }, cards.refreshSec * 1000);
+    return () => clearInterval(id);
+    // pollForNew closes over current state; re-arm when deps change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards.autoRefresh, cards.refreshSec, cards.perPage, cards.sort, filters, newsList, stagedNews, page]);
+
+  // Instant refresh when the user returns to the tab after being away.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void pollForNew();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  });
+
+  const showStaged = () => {
+    setNewsList((prev) => {
+      const seen = new Set(prev.map((n) => n.id));
+      return [...stagedNews.filter((n) => !seen.has(n.id)), ...prev].slice(0, cards.perPage);
+    });
+    setStagedNews([]);
+    setNewCount(0);
+  };
 
   const handleDiscuss = (item?: NewsItem) => {
     const target = item || selectedNews;
@@ -478,6 +506,60 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
           </div>
         </div>
 
+        {/* ─── Market Pulse — 24h sentiment split across all ingested news ─── */}
+        {(() => {
+          const b = pulse.bullish ?? 0;
+          const r = pulse.bearish ?? 0;
+          const n = pulse.neutral ?? 0;
+          const totalPulse = b + r + n;
+          if (totalPulse === 0) return null;
+          const pct = (v: number) => (totalPulse > 0 ? Math.round((v / totalPulse) * 100) : 0);
+          const skew = b >= r ? 'bullish' : 'bearish';
+          return (
+            <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col md:flex-row md:items-center gap-4">
+              <div className="flex items-center gap-2 shrink-0">
+                {skew === 'bullish'
+                  ? <TrendingUp size={16} className="text-emerald-400" />
+                  : <TrendingDown size={16} className="text-rose-400" />}
+                <div>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Market Pulse · 24h</p>
+                  <p className="text-xs font-bold text-foreground">
+                    {skew === 'bullish' ? 'Bullish tilt' : 'Bearish tilt'}
+                    <span className="text-muted-foreground font-mono font-normal"> · {totalPulse} articles</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="h-3 w-full rounded-full overflow-hidden flex bg-accent/30 border border-border/20">
+                  <div className="h-full bg-emerald-500/70" style={{ width: `${pct(b)}%` }} title={`${b} bullish`} />
+                  <div className="h-full bg-neutral-500/60" style={{ width: `${pct(n)}%` }} title={`${n} neutral`} />
+                  <div className="h-full bg-rose-500/70" style={{ width: `${pct(r)}%` }} title={`${r} bearish`} />
+                </div>
+                <div className="flex items-center justify-between mt-1.5 font-mono text-[10px] text-muted-foreground">
+                  <span className="text-emerald-400">{pct(b)}% bullish</span>
+                  <span>{pct(n)}% neutral</span>
+                  <span className="text-rose-400">{pct(r)}% bearish</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {lastIngestAt && (
+                  <span className="text-[10px] font-mono text-muted-foreground hidden lg:inline" title="Last feed ingestion">
+                    Updated {relativeTime(lastIngestAt)}
+                  </span>
+                )}
+                <button
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="h-8 px-3 rounded-lg bg-accent/40 hover:bg-accent/70 border border-border/40 text-muted-foreground hover:text-primary text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-wait"
+                  title="Re-ingest all feeds now"
+                >
+                  <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ─── Result count + Customize ─── */}
         <div className="flex items-center justify-between gap-3 font-mono text-[11px] text-muted-foreground px-1 flex-wrap">
           <span className="flex items-center gap-2 min-w-0">
@@ -511,6 +593,66 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
               >
                 Reset to defaults
               </button>
+            </div>
+
+            {/* Feed / page size */}
+            <div>
+              <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Feed</p>
+              <div className="flex flex-wrap gap-1.5">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider self-center">Cards per page:</span>
+                {([10, 20, 30, 50] as const).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => {
+                      updateCards({ perPage: n });
+                      fetchNews(1, filters, { ...cards, perPage: n });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border whitespace-nowrap ${
+                      cards.perPage === n ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider self-center">Sort:</span>
+                {(['newest', 'oldest'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      updateCards({ sort: s });
+                      fetchNews(1, filters, { ...cards, sort: s });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border capitalize whitespace-nowrap ${
+                      cards.sort === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+                <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider self-center">Auto-refresh:</span>
+                <button
+                  onClick={() => updateCards({ autoRefresh: !cards.autoRefresh })}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border whitespace-nowrap ${
+                    cards.autoRefresh ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-transparent border-border/40 text-muted-foreground opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${cards.autoRefresh ? 'bg-primary' : 'bg-border'}`} />
+                  {cards.autoRefresh ? 'On' : 'Off'}
+                </button>
+                {([30, 60, 120] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => updateCards({ refreshSec: s })}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer border whitespace-nowrap ${
+                      cards.refreshSec === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
+                    }`}
+                  >
+                    {s}s
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Layout */}
@@ -589,6 +731,16 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
           </div>
         )}
 
+        {/* ─── New-articles pill (staged by auto-refresh polling) ─── */}
+        {newCount > 0 && (
+          <button
+            onClick={showStaged}
+            className="w-full py-2.5 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary text-[12px] font-bold font-mono inline-flex items-center justify-center gap-2 cursor-pointer transition-colors animate-fade-in-up"
+          >
+            <RefreshCw size={13} /> {newCount} new article{newCount > 1 ? 's' : ''} — click to show
+          </button>
+        )}
+
         <div className={`${CARD_COLUMNS_CLASS[cards.columns]} grid gap-4.5 w-full`}>
           {newsList.length === 0 && (
             <div className="w-full text-center py-12 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl bg-card/10">
@@ -653,7 +805,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                         </span>
                       )}
                       {cards.showTimestamp && (
-                        <span className="text-[10px] text-muted-foreground font-mono">{item.timestamp}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">{relativeTime(item.timestamp)}</span>
                       )}
                     </div>
                   )}
@@ -681,9 +833,9 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                       >
                         {item.sentiment}
                       </span>
-                      <span className="text-[10px] text-muted-foreground/80 font-mono">
-                        Swing Est: {item.impactPercent > 0 ? '+' : ''}{item.impactPercent}%
-                      </span>
+                      {item.region && item.region !== 'GLOBAL' && (
+                        <span className="text-[10px] text-muted-foreground/80 font-mono">{item.region}</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -828,7 +980,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                     </span>
                   )}
                 </div>
-                <span className="text-[9px] text-muted-foreground font-mono">{item.timestamp}</span>
+                <span className="text-[9px] text-muted-foreground font-mono">{relativeTime(item.timestamp)}</span>
               </div>
 
               <h3 className="text-xs font-semibold leading-snug text-foreground group-hover:text-primary transition-colors">
@@ -849,8 +1001,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                   {item.sentiment}
                 </span>
                 <span className="text-[9px] text-muted-foreground/80 font-mono">
-                  Impact: {item.impactPercent > 0 ? '+' : ''}
-                  {item.impactPercent}%
+                  {relativeTime(item.timestamp)}
                 </span>
               </div>
             </div>
@@ -888,14 +1039,14 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                     {selectedNews.ticker}
                   </span>
                 )}
-                <span className="text-[10px] text-muted-foreground font-mono ml-auto">{selectedNews.timestamp}</span>
+                <span className="text-[10px] text-muted-foreground font-mono ml-auto">{relativeTime(selectedNews.timestamp)}</span>
               </div>
               <DialogTitle className="text-lg font-serif font-semibold leading-snug">
                 {selectedNews.url ? (
-                  <a 
-                    href={selectedNews.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
+                  <a
+                    href={selectedNews.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="hover:text-primary hover:underline decoration-primary transition-all cursor-pointer"
                   >
                     {selectedNews.headline}
@@ -918,26 +1069,24 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                   >
                     {selectedNews.sentiment}
                   </span>
+                  {selectedNews.tier && (
+                    <span className="text-[10px] text-muted-foreground font-mono">Tier {selectedNews.tier}</span>
+                  )}
                 </div>
-                <div className="text-xs text-muted-foreground ml-auto">
-                  Est. Price Swing: <span className="font-bold font-mono text-foreground">{selectedNews.impactPercent}%</span>
-                </div>
+                {selectedNews.url && (
+                  <div className="text-xs text-muted-foreground ml-auto">
+                    <a href={selectedNews.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                      Open source article ↗
+                    </a>
+                  </div>
+                )}
               </div>
             </DialogHeader>
 
             <div className="relative z-10 py-4 space-y-3.5 text-left text-xs leading-relaxed text-muted-foreground">
               <div>
                 <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Briefing Overview</span>
-                <p>{selectedNews.summary}</p>
-              </div>
-
-              <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-primary tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Sparkles size={12} /> AI Analyst Assessment
-                </span>
-                <p className="text-[11px] leading-relaxed text-foreground">
-                  The news aligns with strong underlying trend momentum. We recommend initiating a deep asset sweep to identify optimal option strategies or evaluate watchlists for volume surges.
-                </p>
+                <p>{selectedNews.summary || 'Open the source article for the full story.'}</p>
               </div>
             </div>
 
