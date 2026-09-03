@@ -114,14 +114,75 @@ export interface NewsFeed {
   id: string;
   url: string;
   source: string;
+  category?: string;
+  region?: string;
+  tier?: number;
   enabled: boolean;
 }
 
 export const DEFAULT_NEWS_FEEDS: NewsFeed[] = [
-  { id: "yahoo", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,^DJI&region=US&lang=en-US", source: "Yahoo Finance", enabled: true },
-  { id: "coindesk", url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk", enabled: true },
-  { id: "cointelegraph", url: "https://cointelegraph.com/rss", source: "CoinTelegraph", enabled: true },
-  { id: "cnbc", url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", source: "CNBC", enabled: true },
+  // ─── Tier 1 — Wire & Regulators ───────────────────────────────────────
+  { id: "sec-press", url: "https://www.sec.gov/news/pressreleases.rss", source: "SEC", category: "REGULATORY", region: "US", tier: 1, enabled: true },
+  { id: "fed-press", url: "https://www.federalreserve.gov/feeds/press_all.xml", source: "Federal Reserve", category: "REGULATORY", region: "US", tier: 1, enabled: true },
+  { id: "ecb-press", url: "https://www.ecb.europa.eu/rss/press.html", source: "ECB", category: "REGULATORY", region: "EU", tier: 1, enabled: true },
+  { id: "boe-news", url: "https://www.bankofengland.co.uk/rss/news", source: "Bank of England", category: "REGULATORY", region: "UK", tier: 1, enabled: true },
+  { id: "ap-top", url: "https://rsshub.app/apnews/topics/ap-top-news", source: "AP", category: "GEOPOLITICS", region: "GLOBAL", tier: 1, enabled: true },
+  { id: "un-news", url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", source: "UN News", category: "GEOPOLITICS", region: "GLOBAL", tier: 1, enabled: true },
+  // ─── Tier 2 — Major Financial Media ──────────────────────────────────
+  { id: "bloomberg-mkts", url: "https://feeds.bloomberg.com/markets/news.rss", source: "Bloomberg", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "wsj-markets", url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", source: "WSJ", category: "MARKETS", region: "US", tier: 2, enabled: true },
+  { id: "wsj-world", url: "https://feeds.a.dj.com/rss/RSSWorldNews.xml", source: "WSJ", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "marketwatch", url: "https://feeds.marketwatch.com/marketwatch/topstories/", source: "MarketWatch", category: "MARKETS", region: "US", tier: 2, enabled: true },
+  { id: "cnbc-finance", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114", source: "CNBC", category: "MARKETS", region: "US", tier: 2, enabled: true },
+  { id: "cnbc-world", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362", source: "CNBC", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "cnbc-tech", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", source: "CNBC", category: "TECH", region: "US", tier: 2, enabled: true },
+  { id: "seekingalpha", url: "https://seekingalpha.com/market_currents.xml", source: "Seeking Alpha", category: "MARKETS", region: "US", tier: 2, enabled: true },
+  { id: "investing-news", url: "https://www.investing.com/rss/news.rss", source: "Investing.com", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "economist", url: "https://www.economist.com/finance-and-economics/rss.xml", source: "The Economist", category: "ECONOMIC", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "benzinga", url: "https://www.benzinga.com/feed", source: "Benzinga", category: "MARKETS", region: "US", tier: 2, enabled: true },
+  { id: "fxstreet", url: "https://www.fxstreet.com/rss/news", source: "FXStreet", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  // ─── Tier 2 — Global News ────────────────────────────────────────────
+  { id: "bbc-world", url: "http://feeds.bbci.co.uk/news/world/rss.xml", source: "BBC", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "bbc-business", url: "http://feeds.bbci.co.uk/news/business/rss.xml", source: "BBC", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "aljazeera", url: "https://www.aljazeera.com/xml/rss/all.xml", source: "Al Jazeera", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "nyt-world", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", source: "NYT", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "guardian-world", url: "https://www.theguardian.com/world/rss", source: "The Guardian", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "france24", url: "https://www.france24.com/en/rss", source: "France 24", category: "GEOPOLITICS", region: "EU", tier: 2, enabled: true },
+  { id: "dw-world", url: "https://rss.dw.com/rdf/rss-en-all", source: "Deutsche Welle", category: "GEOPOLITICS", region: "EU", tier: 2, enabled: true },
+  { id: "foreignpolicy", url: "https://foreignpolicy.com/feed/", source: "Foreign Policy", category: "GEOPOLITICS", region: "GLOBAL", tier: 2, enabled: true },
+  // ─── Tier 2 — Energy, Commodities, Tech ──────────────────────────────
+  { id: "oilprice", url: "https://oilprice.com/rss/main", source: "OilPrice.com", category: "ENERGY", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "mining-com", url: "https://www.mining.com/feed/", source: "Mining.com", category: "MARKETS", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "techcrunch", url: "https://techcrunch.com/feed/", source: "TechCrunch", category: "TECH", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "wired", url: "https://www.wired.com/feed/rss", source: "Wired", category: "TECH", region: "US", tier: 2, enabled: true },
+  { id: "finextra", url: "https://www.finextra.com/rss/headlines.aspx", source: "Finextra", category: "TECH", region: "GLOBAL", tier: 2, enabled: true },
+  // ─── Tier 2 — Asia, India, MENA ──────────────────────────────────────
+  { id: "scmp", url: "https://www.scmp.com/rss/91/feed", source: "SCMP", category: "GEOPOLITICS", region: "ASIA", tier: 2, enabled: true },
+  { id: "nikkei-asia", url: "https://asia.nikkei.com/rss/feed/nar", source: "Nikkei Asia", category: "MARKETS", region: "ASIA", tier: 2, enabled: true },
+  { id: "hindu-biz", url: "https://www.thehindu.com/business/feeder/default.rss", source: "The Hindu", category: "MARKETS", region: "INDIA", tier: 2, enabled: true },
+  { id: "livemint", url: "https://www.livemint.com/rss/markets", source: "LiveMint", category: "MARKETS", region: "INDIA", tier: 2, enabled: true },
+  { id: "et-markets", url: "https://economictimes.indiatimes.com/rssfeedstopstories.cms", source: "Economic Times", category: "MARKETS", region: "INDIA", tier: 2, enabled: true },
+  { id: "moneycontrol", url: "https://www.moneycontrol.com/rss/latestnews.xml", source: "MoneyControl", category: "MARKETS", region: "INDIA", tier: 2, enabled: true },
+  { id: "channel-news-asia", url: "https://www.channelnewsasia.com/rssfeeds/8395986", source: "CNA", category: "MARKETS", region: "ASIA", tier: 2, enabled: true },
+  { id: "middle-east-eye", url: "https://www.middleeasteye.net/rss", source: "Middle East Eye", category: "GEOPOLITICS", region: "MENA", tier: 2, enabled: true },
+  // ─── Tier 2 — Crypto ─────────────────────────────────────────────────
+  { id: "coindesk", url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk", category: "CRYPTO", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "cointelegraph", url: "https://cointelegraph.com/rss", source: "CoinTelegraph", category: "CRYPTO", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "theblock", url: "https://www.theblock.co/rss.xml", source: "The Block", category: "CRYPTO", region: "GLOBAL", tier: 2, enabled: true },
+  { id: "decrypt", url: "https://decrypt.co/feed", source: "Decrypt", category: "CRYPTO", region: "GLOBAL", tier: 2, enabled: true },
+  // ─── Tier 3 — Economic / Macro / Defense / Tech / ESG ────────────────
+  { id: "zero-hedge", url: "https://feeds.feedburner.com/zerohedge/feed", source: "ZeroHedge", category: "ECONOMIC", region: "GLOBAL", tier: 3, enabled: true },
+  { id: "calculated-risk", url: "https://feeds.feedburner.com/CalculatedRisk", source: "Calculated Risk", category: "ECONOMIC", region: "US", tier: 3, enabled: true },
+  { id: "wolfstreet", url: "https://wolfstreet.com/feed/", source: "Wolf Street", category: "ECONOMIC", region: "US", tier: 3, enabled: true },
+  { id: "bellingcat", url: "https://www.bellingcat.com/feed/", source: "Bellingcat", category: "GEOPOLITICS", region: "GLOBAL", tier: 3, enabled: true },
+  { id: "arstechnica", url: "https://feeds.arstechnica.com/arstechnica/index", source: "Ars Technica", category: "TECH", region: "GLOBAL", tier: 3, enabled: true },
+  { id: "theverge", url: "https://www.theverge.com/rss/index.xml", source: "The Verge", category: "TECH", region: "GLOBAL", tier: 3, enabled: true },
+  { id: "mit-tech", url: "https://www.technologyreview.com/feed/", source: "MIT Tech Review", category: "TECH", region: "GLOBAL", tier: 3, enabled: true },
+  { id: "carbon-brief", url: "https://www.carbonbrief.org/feed/", source: "Carbon Brief", category: "ENERGY", region: "GLOBAL", tier: 3, enabled: true },
+  // ─── Tier 4 — Blogs & Aggregators ────────────────────────────────────
+  { id: "hackernews", url: "https://hnrss.org/frontpage", source: "Hacker News", category: "TECH", region: "GLOBAL", tier: 4, enabled: true },
+  { id: "abnormal-returns", url: "https://abnormalreturns.com/feed/", source: "Abnormal Returns", category: "MARKETS", region: "US", tier: 4, enabled: true },
+  { id: "marginal-rev", url: "https://marginalrevolution.com/feed", source: "Marginal Revolution", category: "ECONOMIC", region: "GLOBAL", tier: 4, enabled: true },
 ];
 
 const NEWS_FEEDS_KEY = "news_feeds";

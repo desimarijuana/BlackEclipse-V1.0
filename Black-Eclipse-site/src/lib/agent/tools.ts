@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
 import { guessSentiment } from "@/lib/sentiment";
+import { getNewsFeeds } from "@/lib/settings";
 import Parser from "rss-parser";
 
 export interface ToolDefinition {
@@ -18,14 +19,16 @@ export interface ToolDefinition {
   execute: (args: Record<string, unknown>) => Promise<string>;
 }
 
-const parser = new Parser();
+// Shared source of truth with the market news page — uses the full
+// ~55-feed catalog from settings (tier 1-4) so the agent sees the same news.
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-const NEWS_FEEDS = [
-  { url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,^DJI&region=US&lang=en-US", source: "Yahoo Finance" },
-  { url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk" },
-  { url: "https://cointelegraph.com/rss", source: "CoinTelegraph" },
-  { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", source: "CNBC" },
-];
+const parser = new Parser({
+  requestOptions: {
+    headers: { "User-Agent": BROWSER_UA, Accept: "application/rss+xml, application/xml, text/xml, */*" },
+  },
+});
 
 async function getPrice(symbol: string, market = "US"): Promise<string> {
   const result = await fetchQuoteWithFallback(symbol, market);
@@ -45,8 +48,9 @@ async function getPrice(symbol: string, market = "US"): Promise<string> {
 
 async function getNews(query: string): Promise<string> {
   const q = query.toLowerCase();
+  const feeds = await getNewsFeeds();
   const results = await Promise.allSettled(
-    NEWS_FEEDS.map(async (feed) => {
+    feeds.filter((f) => f.enabled).map(async (feed) => {
       const parsed = await parser.parseURL(feed.url);
       return (parsed.items || []).slice(0, 15).map((item) => ({
         source: feed.source,

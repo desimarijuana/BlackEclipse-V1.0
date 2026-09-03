@@ -396,7 +396,7 @@ function StockChatContent() {
           )}
 
           {activeTab === 'news' && (
-            <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full scrollbar-hide pb-20">
+            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full scrollbar-hide pb-20">
               <div className="animate-fade-in-up w-full h-full flex flex-col">
                 <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
                   <Newspaper className="text-primary w-7 h-7" />
