@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Newspaper, Sparkles, Eye, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Newspaper, Sparkles, Eye, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, BellRing, Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -19,6 +19,8 @@ export interface NewsItem {
   summary: string;
   sentiment: 'bullish' | 'bearish' | 'neutral';
   url?: string;
+  sourceCount?: number;      // story cluster: how many sources covered it
+  clusterSources?: string[]; // story cluster: source names
 }
 
 export interface NewsPulse {
@@ -164,6 +166,61 @@ function FilterSelect({ value, onChange, placeholder, options }: {
   );
 }
 
+// ─── Price Reaction mini chart ─────────────────────────────────────────
+// Inline SVG sparkline of the ticker's recent daily closes, fetched lazily
+// when the detail modal opens. "Did the market care?" at a glance.
+
+function PriceReactionMini({ ticker }: { ticker: string }) {
+  const [points, setPoints] = useState<number[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setPoints(null);
+    setFailed(false);
+    fetch(`/api/price-history?symbol=${encodeURIComponent(ticker)}&market=US&range=1mo`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        const pts: number[] = (d.points || []).filter((p: number) => Number.isFinite(p));
+        if (pts.length >= 2) setPoints(pts);
+        else setFailed(true);
+      })
+      .catch(() => alive && setFailed(true));
+    return () => { alive = false; };
+  }, [ticker]);
+
+  if (failed) {
+    return <p className="text-[11px] text-muted-foreground/70 italic">No recent price data for {ticker}.</p>;
+  }
+  if (!points) {
+    return <Skeleton className="h-12 w-full rounded-lg" />;
+  }
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const W = 100;
+  const H = 40;
+  const path = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * W;
+    const y = H - ((p - min) / span) * (H - 4) - 2;
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const up = points[points.length - 1] >= points[0];
+  const changePct = (((points[points.length - 1] - points[0]) / points[0]) * 100).toFixed(1);
+
+  return (
+    <div className="flex items-center gap-3 p-2.5 bg-accent/20 border border-border/30 rounded-xl">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-12 flex-1 min-w-0" preserveAspectRatio="none">
+        <path d={path} fill="none" stroke={up ? '#34d399' : '#fb7185'} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span className={`text-[11px] font-bold font-mono shrink-0 ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {up ? '+' : ''}{changePct}% / 1mo
+      </span>
+    </div>
+  );
+}
+
 export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, onNewsStatusChange }: MarketNewsProps) {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
@@ -181,9 +238,31 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   const [refreshing, setRefreshing] = useState(false);
   const [newCount, setNewCount] = useState(0);
   const [stagedNews, setStagedNews] = useState<NewsItem[]>([]);
+  const [myStocksOnly, setMyStocksOnly] = useState(false);
+  const [watchTickers, setWatchTickers] = useState<string[]>([]);
+  const [savedView, setSavedView] = useState(false);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [alertToast, setAlertToast] = useState<string | null>(null);
+
+  const SAVED_IDS_KEY = 'be_news_saved_ids';
+  const READ_IDS_KEY = 'be_news_read_ids';
 
   useEffect(() => {
     setCards(loadCardSettings());
+    // Watchlist tickers (shared with the watchlist screen's storage).
+    try {
+      const raw = window.localStorage.getItem('watchlist_guest');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const syms = (Array.isArray(parsed) ? parsed : []).map((w: { symbol?: string }) => String(w.symbol || '').toUpperCase()).filter(Boolean);
+        setWatchTickers(syms.slice(0, 100));
+      }
+    } catch { /* ignore */ }
+    try {
+      setSavedIds(new Set(JSON.parse(window.localStorage.getItem(SAVED_IDS_KEY) || '[]')));
+      setReadIds(new Set(JSON.parse(window.localStorage.getItem(READ_IDS_KEY) || '[]')));
+    } catch { /* ignore */ }
   }, []);
 
   const updateCards = (patch: Partial<CardSettings>) => {
@@ -204,24 +283,27 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     [filters]
   );
 
-  const fetchNews = async (pageNum = 1, f: FilterState = filters, c: CardSettings = cards) => {
+  const fetchNews = async (pageNum = 1, f: FilterState = filters, c: CardSettings = cards, opts?: { myStocks?: boolean; saved?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
+      const useMyStocks = opts?.myStocks ?? myStocksOnly;
       const params = new URLSearchParams({ page: String(pageNum), limit: String(c.perPage), sort: c.sort });
       if (f.category) params.set('category', f.category);
       if (f.region) params.set('region', f.region);
       if (f.tier) params.set('tier', f.tier);
       if (f.sentiment) params.set('sentiment', f.sentiment);
       if (f.q) params.set('q', f.q);
+      if (useMyStocks && watchTickers.length > 0) params.set('tickers', watchTickers.join(','));
       const res = await fetch(`/api/news?${params.toString()}`);
       if (!res.ok) throw new Error(`API ${res.status}`);
       const data = await res.json();
-      const news = data.news || [];
+      let news: NewsItem[] = data.news || [];
+      if (opts?.saved) news = news.filter((n: NewsItem) => savedIds.has(n.id));
       setNewsList(news);
       setPage(pageNum);
       setTotalPages(data.pagination?.totalPages || 1);
-      setTotalItems(data.pagination?.total || news.length);
+      setTotalItems(opts?.saved ? news.length : (data.pagination?.total || news.length));
       if (data.pulse) setPulse(data.pulse);
       if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
       // Overall news status from the 24h pulse (falls back to page items).
@@ -325,6 +407,46 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     setNewCount(0);
   };
 
+  const toggleSaved = (id: string) => {
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { window.localStorage.setItem(SAVED_IDS_KEY, JSON.stringify([...next])); } catch { /* private mode */ }
+      return next;
+    });
+  };
+
+  const markRead = (id: string) => {
+    setReadIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev).add(id);
+      try { window.localStorage.setItem(READ_IDS_KEY, JSON.stringify([...next].slice(-2000))); } catch { /* private mode */ }
+      return next;
+    });
+  };
+
+  const openNews = (item: NewsItem) => {
+    setSelectedNews(item);
+    markRead(item.id);
+  };
+
+  const createAlert = async (item: NewsItem, direction: 'up' | 'down') => {
+    if (!item.ticker) return;
+    try {
+      const res = await fetch('/api/news/alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: item.ticker, direction }),
+      });
+      const data = await res.json();
+      setAlertToast(data.success ? `Alert armed: ${data.alert.name}` : (data.error || 'Failed to create alert'));
+      setTimeout(() => setAlertToast(null), 4000);
+    } catch {
+      setAlertToast('Failed to reach the alert engine');
+      setTimeout(() => setAlertToast(null), 4000);
+    }
+  };
+
   const handleDiscuss = (item?: NewsItem) => {
     const target = item || selectedNews;
     if (target) {
@@ -364,6 +486,8 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
 
   const clearFilters = () => {
     setPendingQ('');
+    setMyStocksOnly(false);
+    setSavedView(false);
     applyFilters(EMPTY_FILTERS);
   };
 
@@ -438,6 +562,12 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   if (fullPage) {
     return (
       <div className="w-full flex flex-col gap-6 select-none">
+        {/* ─── Alert toast ─── */}
+        {alertToast && (
+          <div className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[12px] font-bold font-mono inline-flex items-center gap-2 animate-fade-in-up">
+            <BellRing size={13} /> {alertToast}
+          </div>
+        )}
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
@@ -449,7 +579,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
               <input
                 value={pendingQ}
                 onChange={(e) => setPendingQ(e.target.value)}
-                placeholder="Search headlines, keywords, tickers..."
+                placeholder="Search… try ticker:NVDA  sentiment:bearish  category:CRYPTO"
                 className="h-9 w-full rounded-lg bg-accent/30 border border-border/30 pl-9 pr-8 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/60 transition-colors"
               />
               {pendingQ && (
@@ -471,6 +601,39 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
           </form>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                const next = !myStocksOnly;
+                setMyStocksOnly(next);
+                setSavedView(false);
+                fetchNews(1, filters, cards, { myStocks: next, saved: false });
+              }}
+              disabled={watchTickers.length === 0}
+              title={watchTickers.length === 0 ? 'Add tickers to your watchlist first' : `Articles matching your ${watchTickers.length} watchlist tickers`}
+              className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border disabled:opacity-40 disabled:cursor-not-allowed ${
+                myStocksOnly
+                  ? 'bg-primary/15 text-primary border-primary/40'
+                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground'
+              }`}
+            >
+              <Star size={12} fill={myStocksOnly ? 'currentColor' : 'none'} /> My Stocks
+            </button>
+            <button
+              onClick={() => {
+                const next = !savedView;
+                setSavedView(next);
+                setMyStocksOnly(false);
+                fetchNews(1, filters, cards, { myStocks: false, saved: next });
+              }}
+              title={savedIds.size === 0 ? 'Bookmark articles with the ribbon icon' : `${savedIds.size} bookmarked articles`}
+              className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border ${
+                savedView
+                  ? 'bg-amber-400/15 text-amber-400 border-amber-400/40'
+                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground'
+              }`}
+            >
+              <Bookmark size={12} fill={savedView ? 'currentColor' : 'none'} /> Saved{savedIds.size > 0 ? ` (${savedIds.size})` : ''}
+            </button>
             <FilterSelect
               value={filters.category}
               placeholder="Category"
@@ -744,10 +907,28 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
         <div className={`${CARD_COLUMNS_CLASS[cards.columns]} grid gap-4.5 w-full`}>
           {newsList.length === 0 && (
             <div className="w-full text-center py-12 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl bg-card/10">
-              <p className="mb-3">No articles match the current filters.</p>
-              <button onClick={clearFilters} className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors">
-                Clear Filters
-              </button>
+              {savedView ? (
+                <>
+                  <p className="mb-3">No bookmarked articles yet — tap the ribbon icon on any card.</p>
+                  <button onClick={clearFilters} className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors">
+                    Back to all news
+                  </button>
+                </>
+              ) : myStocksOnly ? (
+                <>
+                  <p className="mb-3">No news for your watchlist tickers right now. Add tickers on the Watchlist page or check back later.</p>
+                  <button onClick={clearFilters} className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors">
+                    Show all news
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="mb-3">No articles match the current filters.</p>
+                  <button onClick={clearFilters} className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors">
+                    Clear Filters
+                  </button>
+                </>
+              )}
             </div>
           )}
           {newsList.map(item => {
@@ -776,9 +957,15 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
             return (
               <div
                 key={item.id}
-                onClick={() => setSelectedNews(item)}
-                className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] ${dens.card} ${borderStyle} ${bgGradient}`}
+                onClick={() => openNews(item)}
+                className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] ${dens.card} ${borderStyle} ${bgGradient} ${
+                  readIds.has(item.id) && !savedIds.has(item.id) ? 'opacity-60' : ''
+                }`}
               >
+                {/* Unread dot */}
+                {!readIds.has(item.id) && (
+                  <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary shadow-[0_0_6px_rgba(139,92,246,0.6)] z-20" />
+                )}
                 {/* Ambient glow badge based on sentiment */}
                 {cards.glow && (
                   <div
@@ -802,6 +989,14 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                       {item.ticker && (
                         <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-2 py-0.5 rounded">
                           {item.ticker}
+                        </span>
+                      )}
+                      {(item.sourceCount ?? 1) > 1 && (
+                        <span
+                          className="text-[10px] font-bold text-amber-400 font-mono bg-amber-400/5 border border-amber-400/25 px-2 py-0.5 rounded"
+                          title={`Covered by: ${(item.clusterSources || []).join(', ')}`}
+                        >
+                          ×{item.sourceCount} sources
                         </span>
                       )}
                       {cards.showTimestamp && (
@@ -853,16 +1048,28 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                         Chart {item.ticker}
                       </Button>
                     )}
-                    {item.url && (
+                    {item.ticker && (
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={(e) => { e.stopPropagation(); window.open(item.url, '_blank'); }}
-                        className="text-[11px] h-8 rounded-lg px-4 font-mono border border-border hover:bg-accent cursor-pointer text-primary"
+                        onClick={(e) => { e.stopPropagation(); void createAlert(item, 'down'); }}
+                        className="text-[11px] h-8 rounded-lg px-3 font-mono border border-border hover:bg-accent cursor-pointer text-rose-400"
+                        title={`Alert me if ${item.ticker} drops 2%`}
                       >
-                        Read Article
+                        <BellRing size={11} className="mr-1" /> Alert −2%
                       </Button>
                     )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                      className={`h-8 w-8 rounded-lg border inline-flex items-center justify-center cursor-pointer transition-colors ${
+                        savedIds.has(item.id)
+                          ? 'bg-amber-400/10 border-amber-400/40 text-amber-400'
+                          : 'border-border hover:bg-accent text-muted-foreground'
+                      }`}
+                      title={savedIds.has(item.id) ? 'Remove bookmark' : 'Bookmark article'}
+                    >
+                      <Bookmark size={13} fill={savedIds.has(item.id) ? 'currentColor' : 'none'} />
+                    </button>
                     <span className="flex-1" />
                     <Button
                       size="sm"
@@ -1088,6 +1295,18 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                 <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Briefing Overview</span>
                 <p>{selectedNews.summary || 'Open the source article for the full story.'}</p>
               </div>
+              {(selectedNews.sourceCount ?? 1) > 1 && (
+                <div className="p-2.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block mb-1">Story Coverage</span>
+                  <p className="text-[11px] text-foreground">{(selectedNews.clusterSources || []).join(' · ')}</p>
+                </div>
+              )}
+              {selectedNews.ticker && (
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Price Reaction — {selectedNews.ticker}</span>
+                  <PriceReactionMini ticker={selectedNews.ticker} />
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 mt-4 relative z-10 border-t border-border/20 pt-4 flex-wrap">
@@ -1098,12 +1317,24 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
               >
                 Close
               </Button>
-              {selectedNews.url && (
+              <Button
+                onClick={() => { toggleSaved(selectedNews.id); setSelectedNews({ ...selectedNews }); }}
+                className={`flex-1 min-w-[60px] rounded-xl border text-xs py-2.5 h-auto cursor-pointer ${
+                  savedIds.has(selectedNews.id)
+                    ? 'bg-amber-400/10 text-amber-400 border-amber-400/40'
+                    : 'bg-accent hover:bg-accent/80 text-accent-foreground border-border/40'
+                }`}
+              >
+                <Bookmark size={13} className="mr-1.5" fill={savedIds.has(selectedNews.id) ? 'currentColor' : 'none'} />
+                {savedIds.has(selectedNews.id) ? 'Saved' : 'Save'}
+              </Button>
+              {selectedNews.ticker && (
                 <Button
-                  onClick={() => window.open(selectedNews.url, '_blank')}
-                  className="flex-1 min-w-[100px] rounded-xl bg-accent hover:bg-accent/80 text-accent-foreground border border-border/40 text-xs py-2.5 h-auto cursor-pointer"
+                  onClick={() => void createAlert(selectedNews, 'down')}
+                  className="flex-1 min-w-[80px] rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs py-2.5 h-auto cursor-pointer"
+                  title={`Alert me if ${selectedNews.ticker} drops 2%`}
                 >
-                  Read Source
+                  <BellRing size={13} className="mr-1.5" /> Alert −2%
                 </Button>
               )}
               {selectedNews.ticker && (

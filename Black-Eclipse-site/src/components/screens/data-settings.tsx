@@ -13,6 +13,32 @@ interface SourceHealth {
   _max: { lastStatus: string };
 }
 
+interface NewsFeedHealth {
+  id: string;
+  source: string;
+  category?: string;
+  tier?: number;
+  enabled: boolean;
+  health: {
+    status: 'ok' | 'error';
+    lastError?: string;
+    lastOkAt?: string;
+    lastErrorAt?: string;
+    durationMs?: number;
+    consecutiveFails?: number;
+  } | null;
+}
+
+interface NewsStatus {
+  enabled: boolean;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  totalItems: number;
+  newestItemAt: string | null;
+  feeds: NewsFeedHealth[];
+  failing: number;
+}
+
 interface ScraperStatus {
   markets: string[];
   intervalMinutes: number;
@@ -38,6 +64,8 @@ export function DataSettings() {
   const [saving, setSaving] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [status, setStatus] = useState<ScraperStatus | null>(null);
+  const [newsStatus, setNewsStatus] = useState<NewsStatus | null>(null);
+  const [showFailing, setShowFailing] = useState(false);
   const [markets, setMarkets] = useState<string[]>(['US']);
   const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,6 +84,11 @@ export function DataSettings() {
     } finally {
       setLoading(false);
     }
+    try {
+      const nres = await fetch('/api/news/status');
+      const ndata = await nres.json();
+      if (!ndata.error) setNewsStatus(ndata);
+    } catch { /* best-effort */ }
   };
 
   useEffect(() => {
@@ -213,6 +246,72 @@ export function DataSettings() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* News ingestion health */}
+      {newsStatus && (
+        <div className="rounded-2xl border border-border/10 bg-card/40 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="text-primary w-4 h-4" />
+            <h2 className="text-sm font-semibold text-foreground">News Ingestion</h2>
+            <span className={cn(
+              'ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border',
+              newsStatus.failing > 0
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            )}>
+              {newsStatus.failing > 0 ? `${newsStatus.failing} feeds failing` : 'All feeds healthy'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-center">
+            <div className="p-2.5 rounded-xl bg-accent/20 border border-border/20">
+              <p className="text-lg font-bold font-mono text-foreground">{newsStatus.totalItems}</p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">articles stored</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-accent/20 border border-border/20">
+              <p className="text-lg font-bold font-mono text-foreground">
+                {newsStatus.feeds.filter((f) => f.health?.status === 'ok').length}/{newsStatus.feeds.length}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">feeds ok</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-accent/20 border border-border/20">
+              <p className="text-sm font-bold font-mono text-foreground">
+                {newsStatus.lastRunAt ? new Date(newsStatus.lastRunAt).toLocaleTimeString() : '—'}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">last ingest</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-accent/20 border border-border/20">
+              <p className="text-sm font-bold font-mono text-foreground">
+                {newsStatus.newestItemAt ? new Date(newsStatus.newestItemAt).toLocaleTimeString() : '—'}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">newest item</p>
+            </div>
+          </div>
+          {newsStatus.failing > 0 && (
+            <div>
+              <button
+                onClick={() => setShowFailing((v) => !v)}
+                className="text-[11px] font-bold text-rose-400 hover:text-rose-300 cursor-pointer mb-2"
+              >
+                {showFailing ? 'Hide' : 'Show'} failing feeds ({newsStatus.failing})
+              </button>
+              {showFailing && (
+                <div className="space-y-1.5">
+                  {newsStatus.feeds
+                    .filter((f) => f.health?.status === 'error' && (f.health.consecutiveFails ?? 0) >= 3)
+                    .map((f) => (
+                      <div key={f.id} className="flex items-center justify-between gap-3 text-[11px] font-mono p-2 rounded-lg bg-rose-500/5 border border-rose-500/15">
+                        <span className="text-foreground font-bold">{f.source} <span className="text-muted-foreground">T{f.tier ?? '?'}</span></span>
+                        <span className="text-rose-400 truncate max-w-[60%]" title={f.health?.lastError}>
+                          {f.health?.lastError?.slice(0, 80)} ({f.health?.consecutiveFails}× fails)
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -163,6 +163,20 @@ model CronJob {
   enabled         Boolean  @default(true)
 }
 
+// Slow-moving macro-economic series cached from external providers so the
+// Economics page loads instantly from JDDS and refreshes in the background.
+model MacroSeries {
+  id        String   @id @default(cuid())
+  cacheKey  String   @unique // source + params hash
+  source    String
+  seriesKey String // indicator / series id / label
+  payload   String // JSON: normalized { date, value, ...rest } rows
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source])
+}
+
 // Key-value system/user config.
 model SystemConfig {
   key   String @id

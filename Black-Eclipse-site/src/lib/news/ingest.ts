@@ -9,7 +9,7 @@
 import Parser from "rss-parser";
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
-import { getNewsFeeds, type NewsFeed } from "@/lib/settings";
+import { getNewsFeeds, getConfigJSON, setConfigJSON, type NewsFeed } from "@/lib/settings";
 import { checkOutboundUrl } from "@/lib/api-guard";
 import { guessSentiment } from "@/lib/sentiment";
 import { yieldToEventLoop } from "@/lib/db";
@@ -101,61 +101,105 @@ export interface IngestSummary {
 
 /** Ingest one feed: parse, enrich, and upsert items. Returns created count. */
 async function ingestFeed(feed: NewsFeed, universe: Set<string>): Promise<number> {
-  const parsed = await parser.parseURL(feed.url);
-  const items = (parsed.items || []).slice(0, PER_FEED);
-  let created = 0;
-  for (const item of items) {
-    const title = item.title || "";
-    if (!title) continue;
-    const summary =
-      stripHtml(item["content:encoded"] || item.content || item.summary || item.contentSnippet || "").slice(0, 400) ||
-      (item.contentSnippet || "").slice(0, 400);
-    const url = item.link || undefined;
-    // Some feeds (Investing.com) emit local-time timestamps tagged as UTC, so
-    // parsed dates can be hours in the future. Clamp to "now" — a future
-    // timestamp would break age sorting and make every item look brand-new.
-    let timestamp = item.isoDate ? new Date(item.isoDate) : new Date();
-    if (timestamp.getTime() > Date.now() + 60_000) timestamp = new Date();
-    const text = `${title} ${summary}`;
+  const started = Date.now();
+  try {
+    const parsed = await parser.parseURL(feed.url);
+    const items = (parsed.items || []).slice(0, PER_FEED);
+    let created = 0;
+    for (const item of items) {
+      const title = item.title || "";
+      if (!title) continue;
+      const summary =
+        stripHtml(item["content:encoded"] || item.content || item.summary || item.contentSnippet || "").slice(0, 400) ||
+        (item.contentSnippet || "").slice(0, 400);
+      const url = item.link || undefined;
+      // Some feeds (Investing.com) emit local-time timestamps tagged as UTC, so
+      // parsed dates can be hours in the future. Clamp to "now" — a future
+      // timestamp would break age sorting and make every item look brand-new.
+      let timestamp = item.isoDate ? new Date(item.isoDate) : new Date();
+      if (timestamp.getTime() > Date.now() + 60_000) timestamp = new Date();
+      const text = `${title} ${summary}`;
 
-    // Ticker: first candidate that exists in the universe; fall back to the
-    // first candidate only for crypto-feeds (BTC/ETH rarely in stock universe).
-    const candidates = extractTickerCandidates(title);
-    let ticker: string | undefined;
-    for (const c of candidates) {
-      if (universe.has(c)) {
-        ticker = c;
-        break;
+      // Ticker: first candidate that exists in the universe; fall back to the
+      // first candidate only for crypto-feeds (BTC/ETH rarely in stock universe).
+      const candidates = extractTickerCandidates(title);
+      let ticker: string | undefined;
+      for (const c of candidates) {
+        if (universe.has(c)) {
+          ticker = c;
+          break;
+        }
       }
-    }
-    if (!ticker && feed.category === "CRYPTO" && candidates.length > 0) ticker = candidates[0];
+      if (!ticker && feed.category === "CRYPTO" && candidates.length > 0) ticker = candidates[0];
 
-    const key = dedupKeyFor(url, title);
-    const result = await prisma.newsItem.upsert({
-      where: { dedupKey: key },
-      update: {},
-      create: {
-        dedupKey: key,
-        source: feed.source,
-        ticker,
-        headline: title,
-        summary,
-        sentiment: guessSentiment(text),
-        timestamp,
-        url,
-        category: feed.category,
-        region: feed.region,
-        tier: feed.tier,
-      },
-    });
-    if (result) created++;
-    // Yield periodically so bulk SQLite writes never starve HTTP requests.
-    if (created % 10 === 0) await yieldToEventLoop();
+      const key = dedupKeyFor(url, title);
+      const result = await prisma.newsItem.upsert({
+        where: { dedupKey: key },
+        update: {},
+        create: {
+          dedupKey: key,
+          source: feed.source,
+          ticker,
+          headline: title,
+          summary,
+          sentiment: guessSentiment(text),
+          timestamp,
+          url,
+          category: feed.category,
+          region: feed.region,
+          tier: feed.tier,
+        },
+      });
+      if (result) created++;
+      // Yield periodically so bulk SQLite writes never starve HTTP requests.
+      if (created % 10 === 0) await yieldToEventLoop();
+    }
+    await recordFeedHealth(feed, "ok", Date.now() - started);
+    return created;
+  } catch (err) {
+    await recordFeedHealth(feed, "error", Date.now() - started, String((err as Error).message || err));
+    throw err;
   }
-  return created;
 }
 
 let ingesting = false;
+
+// ─── Feed health tracking ───────────────────────────────────────────────
+// Persisted per feed id in SystemConfig ("news_feed_health") so the data
+// settings screen can surface dead/broken feeds for pruning.
+
+export interface FeedHealth {
+  [feedId: string]: {
+    status: "ok" | "error";
+    lastError?: string;
+    lastOkAt?: string;
+    lastErrorAt?: string;
+    durationMs?: number;
+    consecutiveFails?: number;
+  };
+}
+
+const FEED_HEALTH_KEY = "news_feed_health";
+
+async function recordFeedHealth(feed: NewsFeed, status: "ok" | "error", durationMs: number, error?: string): Promise<void> {
+  try {
+    const health = await getConfigJSON<FeedHealth>(FEED_HEALTH_KEY, {});
+    const prev = health[feed.id];
+    health[feed.id] = {
+      status,
+      lastError: status === "error" ? (error || "fetch failed").slice(0, 200) : prev?.lastError,
+      lastOkAt: status === "ok" ? new Date().toISOString() : prev?.lastOkAt,
+      lastErrorAt: status === "error" ? new Date().toISOString() : prev?.lastErrorAt,
+      durationMs,
+      consecutiveFails: status === "error" ? (prev?.consecutiveFails ?? 0) + 1 : 0,
+    };
+    await setConfigJSON(FEED_HEALTH_KEY, health);
+  } catch { /* best-effort — never break ingestion over health bookkeeping */ }
+}
+
+export async function getFeedHealth(): Promise<FeedHealth> {
+  return getConfigJSON<FeedHealth>(FEED_HEALTH_KEY, {});
+}
 
 /** Run a full news ingestion cycle. Guards against concurrent runs. */
 export async function runNewsIngest(): Promise<IngestSummary> {
@@ -179,6 +223,7 @@ export async function runNewsIngest(): Promise<IngestSummary> {
         created += r.value;
       } else {
         failed++;
+        await recordFeedHealth(feeds[i], "error", 0, String(r.reason?.message || r.reason || "fetch failed").slice(0, 200));
       }
       // Yield between feed batches.
       if (i % 5 === 0) await yieldToEventLoop();
