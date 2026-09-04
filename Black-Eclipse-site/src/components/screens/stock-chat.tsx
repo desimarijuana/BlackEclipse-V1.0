@@ -39,6 +39,10 @@ const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m)
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const EconomicsScreen = dynamic(() => import('./economics/economics').then((m) => m.EconomicsScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -440,6 +444,8 @@ function StockChatContent() {
               <AlertsScreen />
             </div>
           )}
+
+          {activeTab === 'economics' && <EconomicsScreen />}
 
           {activeTab === 'chart' && (
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
