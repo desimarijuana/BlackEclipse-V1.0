@@ -48,6 +48,11 @@ interface IntegrationStatus {
   binance: boolean;
   coingecko: boolean;
   yahoo: boolean;
+  fred: boolean;
+  bea: boolean;
+  bls: boolean;
+  tradingEconomics: boolean;
+  akshare: boolean;
   auth: boolean;
   database: boolean;
 }
@@ -670,6 +675,11 @@ export function Settings() {
                     { label: "Binance", ok: integrations?.binance, detail: integrations?.binance ? "API key set" : "Not configured (public API used)" },
                     { label: "CoinGecko", ok: integrations?.coingecko, detail: integrations?.coingecko ? "API key set" : "Not configured" },
                     { label: "Yahoo Finance", ok: integrations?.yahoo, detail: integrations?.yahoo ? "Enabled" : "Disabled" },
+                    { label: "FRED (Economics)", ok: integrations?.fred, detail: integrations?.fred ? "API key set" : "Set FRED_API_KEY to enable" },
+                    { label: "BEA (Economics)", ok: integrations?.bea, detail: integrations?.bea ? "API key set" : "Set BEA_API_KEY to enable" },
+                    { label: "BLS (Economics)", ok: integrations?.bls, detail: integrations?.bls ? "API key set" : "Optional — public limits apply" },
+                    { label: "Trading Economics", ok: integrations?.tradingEconomics, detail: integrations?.tradingEconomics ? "API key set" : "Set TRADING_ECONOMICS_API_KEY to enable" },
+                    { label: "AkShare (China)", ok: integrations?.akshare, detail: integrations?.akshare ? "API key set" : "Set AKSHARE_API_KEY to enable" },
                     { label: "Auth", ok: integrations?.auth, detail: integrations?.auth ? "Configured" : "Guest mode" },
                     { label: "Database (JDDS)", ok: integrations?.database, detail: "Connected" },
                   ].map((row) => (
