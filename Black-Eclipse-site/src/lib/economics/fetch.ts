@@ -69,10 +69,10 @@ function pickValue(row: Record<string, unknown>): number | null {
 // { indicator: [...], country: [...], data: [...] } etc.
 function extractRows(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) {
-    // Array of scalars → not rows; array of objects/arrays → rows.
+    // Array of scalars → not rows; array of plain objects → rows.
     if (raw.length === 0) return [];
     const first = raw[0];
-    if (typeof first === "object" && first !== null) {
+    if (typeof first === "object" && first !== null && !Array.isArray(first)) {
       return raw as Record<string, unknown>[];
     }
   }
@@ -92,6 +92,16 @@ function extractRows(raw: unknown): Record<string, unknown>[] {
       }
     }
   }
+  // Top-level arrays that mix metadata rows with data rows (World Bank v2:
+  // [["meta"], [{...rows}]]): recurse into any object-array member.
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
+        const nested = extractRows(v);
+        if (nested.length > 0) return nested;
+      }
+    }
+  }
   return [];
 }
 
@@ -100,7 +110,12 @@ function extractRows(raw: unknown): Record<string, unknown>[] {
 function rowsFromTuples(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) {
     if (raw.length > 0 && Array.isArray(raw[0])) {
-      return (raw as unknown[][]).map((t) => {
+      return (raw as unknown[][]).filter((t) => {
+        // A data tuple's last cell must be a scalar number (not an object/array,
+        // not a metadata row like ["meta"]).
+        const last = t[t.length - 1];
+        return typeof last !== "object" && Number.isFinite(Number(String(last).replace(/,/g, "")));
+      }).map((t) => {
         // Heuristic: [.., dateStr, value] — last two cells.
         const date = t.length >= 2 ? t[t.length - 2] : t[0];
         const value = t[t.length - 1];
@@ -184,5 +199,6 @@ export function computeStats(points: EconPoint[]): SeriesStats {
   const min = Math.min(...values);
   const max = Math.max(...values);
   const avg = values.reduce((s, v) => s + v, 0) / values.length;
-  return { latest, change, min, max, avg, points: sorted.length, asOf: sorted[sorted.length - 1].date, isTimeSeries };
+  // POINTS counts every observation row, including gap rows.
+  return { latest, change, min, max, avg, points: points.length, asOf: sorted[sorted.length - 1].date, isTimeSeries };
 }

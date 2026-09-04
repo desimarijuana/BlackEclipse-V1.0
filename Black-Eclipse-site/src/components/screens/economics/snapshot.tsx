@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Loader2, Sparkles } from 'lucide-react';
+import { RefreshCw, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import * as echarts from 'echarts';
 
 interface SnapshotMetric {

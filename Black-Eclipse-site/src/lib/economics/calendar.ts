@@ -7,8 +7,6 @@
 // fallback carries forecast/previous context only as labels, never fabricated
 // numbers.
 
-import { sortByDate } from "./fetch";
-
 export interface CalendarEvent {
   id: string;
   date: string;       // ISO
@@ -73,6 +71,10 @@ const FALLBACK_EVENTS: CalendarEvent[] = [
   { id: "fb-ism", date: "", country: "US", title: "ISM Manufacturing PMI", importance: "medium", actual: null, forecast: null, previous: null },
 ];
 
+function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+}
+
 export async function fetchEconomicCalendar(): Promise<{ events: CalendarEvent[]; source: string }> {
   try {
     const res = await fetch("https://fincept.pythonanywhere.com/api/v1/econocalendar/data", {
@@ -92,5 +94,5 @@ export async function fetchEconomicCalendar(): Promise<{ events: CalendarEvent[]
     // Spread fallback placeholders over the next 30 days as scheduled slots.
     date: new Date(now.getTime() + (i + 1) * 3.5 * 24 * 3600 * 1000).toISOString(),
   }));
-  return { events: sortByDate(events), source: "schedule-fallback" };
+  return { events: sortEvents(events), source: "schedule-fallback" };
 }

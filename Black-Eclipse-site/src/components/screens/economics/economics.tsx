@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Globe, Loader2, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Globe } from 'lucide-react';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { EconPanel } from './panel';
 import { SnapshotView } from './snapshot';
