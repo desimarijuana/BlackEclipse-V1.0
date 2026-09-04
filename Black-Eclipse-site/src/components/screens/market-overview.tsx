@@ -393,12 +393,37 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return indexData;
   }, [stripMode, topGainers, topLosers, customSymbols, customQuotes, apiStocks, indexData, userCountry]);
 
-  // Determine if the overall market is bullish (green index sum) or bearish (red index sum)
-  const isMarketBullish = useMemo(() => {
-    if (!indexData || indexData.length === 0) return true;
-    const totalChange = indexData.reduce((acc, idx) => acc + idx.changePercent, 0);
-    return totalChange >= 0;
-  }, [indexData]);
+  // ── Market sentiment (drives the app-wide aurora glow) ────────────────────
+  // Scored from the selected market's dashboard data:
+  //   · EQUITY INDEX AVERAGE — Bitcoin/Gold/oil cards are excluded: they are
+  //     hedges that rise on risk-off days and used to invert the signal
+  //     (gold +1% painted the glow green while every stock index bled red).
+  //   · INDEX BREADTH — fraction of equity indices trading up. A 0.0% avg
+  //     with 5/5 indices red is bearish, not neutral.
+  //   · SECTOR BREADTH — fraction of sectors up, as confirmation.
+  // Hysteresis: |score| within ±0.15 keeps the previous state so neutral
+  // afternoons don't strobe the aurora green/red on rounding noise.
+  const sentimentScore = React.useMemo(() => {
+    const HEDGES = new Set(['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD', 'DOGE-USD', 'GC=F', 'SI=F', 'CL=F', 'BZ=F']);
+    const equity = (indexData ?? []).filter(i => i.price > 0 && !HEDGES.has(i.symbol));
+    const pool = equity.length > 0 ? equity : (indexData ?? []).filter(i => i.price > 0);
+    if (pool.length === 0) return 0;
+    const avg = pool.reduce((a, i) => a + i.changePercent, 0) / pool.length;
+    const breadthUp = pool.filter(i => i.changePercent > 0).length / pool.length;
+    const secUp = sectorPerformance.length > 0
+      ? sectorPerformance.filter(s => s.change > 0).length / sectorPerformance.length
+      : 0.5;
+    // Index avg dominates (% units); breadth/sector are ±0.5-scale nudges.
+    return avg + (breadthUp - 0.5) * 0.6 + (secUp - 0.5) * 0.3;
+  }, [indexData, sectorPerformance]);
+
+  const lastSentimentRef = React.useRef(true);
+  const isMarketBullish = React.useMemo(() => {
+    if (sentimentScore > 0.15) lastSentimentRef.current = true;
+    else if (sentimentScore < -0.15) lastSentimentRef.current = false;
+    // Within the dead-band: keep the previous state (hysteresis).
+    return lastSentimentRef.current;
+  }, [sentimentScore]);
 
   // Sync market status with layout container
   useEffect(() => {

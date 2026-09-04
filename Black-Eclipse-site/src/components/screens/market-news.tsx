@@ -47,7 +47,8 @@ interface MarketNewsProps {
   onDiscussNews?: (news: NewsItem) => void;
   onAnalyzeTicker?: (ticker: string) => void;
   fullPage?: boolean;
-  onNewsStatusChange?: (isBullish: boolean) => void;
+  /** Receives the tier-weighted 24h news sentiment score in [-1, 1]. */
+  onNewsSentiment?: (score: number) => void;
 }
 
 const CATEGORIES = ['MARKETS', 'CRYPTO', 'REGULATORY', 'GEOPOLITICS', 'ECONOMIC', 'TECH', 'ENERGY'] as const;
@@ -168,7 +169,7 @@ function FilterSelect({ value, onChange, placeholder, options }: {
 
 // ─── Price Reaction mini chart removed — no longer shown.
 
-export function MarketNews({ onDiscussNews, fullPage = false, onNewsStatusChange }: MarketNewsProps) {
+export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }: MarketNewsProps) {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -249,10 +250,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsStatusChange
       setTotalItems(opts?.saved ? news.length : (data.pagination?.total || news.length));
       if (data.pulse) setPulse(data.pulse);
       if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
-      // Overall news status from the 24h pulse (falls back to page items).
-      const bullish = data.pulse?.bullish ?? news.filter((n: NewsItem) => n.sentiment === 'bullish').length;
-      const bearish = data.pulse?.bearish ?? news.filter((n: NewsItem) => n.sentiment === 'bearish').length;
-      onNewsStatusChange?.(bullish >= bearish);
+      // Overall news sentiment: tier-weighted score from the API when present,
+      // falling back to raw page-item counts for cached payloads.
+      if (typeof data.newsScore === 'number') {
+        onNewsSentiment?.(data.newsScore);
+      } else {
+        const bullish = news.filter((n: NewsItem) => n.sentiment === 'bullish').length;
+        const bearish = news.filter((n: NewsItem) => n.sentiment === 'bearish').length;
+        const denom = bullish + bearish;
+        onNewsSentiment?.(denom > 0 ? (bullish - bearish) / denom : 0);
+      }
     } catch (e) {
       console.error("[MarketNews] Error fetching news:", e);
       setError('Could not load the news database. It may still be ingesting — try again in a minute.');

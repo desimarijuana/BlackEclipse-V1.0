@@ -150,11 +150,34 @@ export async function GET(request: Request) {
     const totalPages = Math.ceil(total / limit);
     const pulseMap = Object.fromEntries(pulse.map((p) => [p.sentiment, p._count._all]));
 
+    // ─── News sentiment score (drives the app-wide aurora glow) ──────────
+    // Raw bullish-vs-bearish counts over-weighted Tier-4 blogs that churn
+    // dozens of hot-take posts. The 24h pulse is now tier-weighted
+    // (T1 wires ×4 … T4 blogs ×1) so a wire flash outweighs a blog pile-on,
+    // with a dead-band so a quiet news day keeps the previous glow.
+    const pulse24h = await prisma.newsItem.groupBy({
+      by: ["sentiment", "tier"],
+      where: { timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      _count: { _all: true },
+    });
+    const TIER_W: Record<number, number> = { 1: 4, 2: 2.5, 3: 1.5, 4: 1 };
+    let wBull = 0;
+    let wBear = 0;
+    for (const g of pulse24h) {
+      const w = TIER_W[g.tier ?? 3] ?? 1.5;
+      if (g.sentiment === "bullish") wBull += g._count._all * w;
+      else if (g.sentiment === "bearish") wBear += g._count._all * w;
+    }
+    const wTotal = wBull + wBear;
+    // Net score in [-1, 1]; |score| ≤ 0.1 is a neutral news day.
+    const newsScore = wTotal > 0 ? (wBull - wBear) / wTotal : 0;
+
     return NextResponse.json({
       news: rows,
       source: "jdds",
       lastIngestAt: (await prisma.cronJob.findUnique({ where: { type: "news_refresh" } }))?.lastRunAt ?? null,
       pulse: pulseMap,
+      newsScore: +newsScore.toFixed(3),
       pagination: { page, limit, total, totalPages },
     });
   } catch (err) {

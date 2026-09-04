@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
@@ -74,7 +74,8 @@ function StockChatContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMarketBullish, setIsMarketBullish] = useState(true);
-  const [, setIsNewsBullish] = useState(true);
+  // Tier-weighted 24h news sentiment score in [-1, 1] from the news feed.
+  const [newsScore, setNewsScore] = useState(0);
 
   useEffect(() => {
     setMounted(true);
@@ -324,10 +325,24 @@ function StockChatContent() {
     setActiveTab('chart');
   };
 
+  // ── Blended site-wide sentiment (drives the aurora glow) ────────────────
+  // Index sentiment (from the screener: equity averages + breadth) and news
+  // sentiment (tier-weighted 24h pulse) each vote; news acts as a tiebreaker
+  // / confirmer, not a standalone flipper. Hysteresis: |net| ≤ 0.12 keeps
+  // the previous glow so quiet periods don't strobe.
+  const lastAuroraBullishRef = useRef(true);
+  const auroraBullish = (() => {
+    const newsVote = newsScore > 0.15 ? 1 : newsScore < -0.15 ? -1 : 0;
+    const net = (isMarketBullish ? 1 : -1) + newsVote * 0.5;
+    if (net > 0.12) lastAuroraBullishRef.current = true;
+    else if (net < -0.12) lastAuroraBullishRef.current = false;
+    return lastAuroraBullishRef.current;
+  })();
+
   return (
     <TooltipProvider delay={0}>
     <div className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
-      {/* Aurora full-viewport top glow — reacts to market sentiment */}
+      {/* Aurora full-viewport top glow — reacts to blended market + news sentiment */}
       <div
         className="absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden"
         style={{
@@ -337,7 +352,7 @@ function StockChatContent() {
       >
         <Aurora
           colorStops={
-            isMarketBullish
+            auroraBullish
               ? ["#022c22", "#7aff78", "#022c22"]
               : ["#450a0a", "#ff3e3e", "#450a0a"]
           }
@@ -413,7 +428,7 @@ function StockChatContent() {
                   onDiscussNews={handleDiscussNews} 
                   onAnalyzeTicker={handleChartTicker}
                   fullPage={true}
-                  onNewsStatusChange={setIsNewsBullish}
+                  onNewsSentiment={setNewsScore}
                 />
               </div>
             </div>

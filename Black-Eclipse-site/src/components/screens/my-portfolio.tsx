@@ -681,17 +681,32 @@ function OverviewView({
       const usable = syms.filter(s => (fundHistory.closes[s]?.length ?? 0) >= 2 && (valueBySym.get(s) ?? 0) > 0);
       if (usable.length === 0) continue;
       const totalVal = usable.reduce((a, s) => a + (valueBySym.get(s) ?? 0), 0);
-      const minLen = Math.min(...usable.map(s => fundHistory.closes[s].length));
-      if (minLen < 2) continue;
+      // ── Date-aligned aggregation (NOT min-length clipping) ──
+      // A shorter series for one symbol (stale cache, recent listing) used to
+      // clip the whole fund curve to its length, freezing the chart mid-window.
+      // Instead: union of dates, each symbol forward/reverse-filled into it.
+      const dateSet = new Set<string>();
+      for (const s of usable) (fundHistory.dates[s] ?? []).forEach(d => dateSet.add(d));
+      const unionDates = [...dateSet].sort();
+      if (unionDates.length < 2) continue;
       const nav: number[] = [];
-      for (let t = 0; t < minLen; t++) {
+      for (const date of unionDates) {
         let v = 0;
-        for (let i = 0; i < usable.length; i++) {
-          const sym = usable[i];
-          if (fundHistory.dates[sym].length < minLen) continue;
+        for (const sym of usable) {
+          const ds = fundHistory.dates[sym];
           const cs = fundHistory.closes[sym];
+          let idx = ds.indexOf(date);
+          if (idx === -1) {
+            if (date < ds[0]) idx = 0;
+            else if (date > ds[ds.length - 1]) idx = ds.length - 1;
+            else {
+              let lo = 0;
+              while (lo < ds.length - 1 && ds[lo + 1] <= date) lo++;
+              idx = lo;
+            }
+          }
           const w = (valueBySym.get(sym) ?? 0) / totalVal;
-          v += w * (cs[t] / cs[0]);
+          v += w * (cs[idx] / cs[0]);
         }
         nav.push(v);
       }
@@ -702,7 +717,7 @@ function OverviewView({
         color: f.color,
         pct: ((nav[nav.length - 1] / nav[0]) - 1) * 100,
         data: nav.map(v => v / nav[0]),
-        firstDates: fundHistory.dates[usable[0]],
+        firstDates: unionDates,
       });
     }
     return series.sort((a, b) => b.pct - a.pct);
