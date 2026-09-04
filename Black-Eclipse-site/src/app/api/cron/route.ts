@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getIntervalMinutes, setIntervalMinutes, setMarkets, getConfiguredMarkets } from "@/lib/scraper";
 import { guardMutation } from "@/lib/api-guard";
+import { NEWS_REFRESH_TYPE } from "@/lib/news/ingest";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,12 @@ export async function POST(request: Request) {
 
     if (typeof intervalMinutes === "number" && intervalMinutes > 0) {
       await setIntervalMinutes(intervalMinutes);
+      // Keep the news-refresh cron on the same cadence.
+      await prisma.cronJob.upsert({
+        where: { type: NEWS_REFRESH_TYPE },
+        update: { intervalMinutes, enabled: true },
+        create: { type: NEWS_REFRESH_TYPE, intervalMinutes, enabled: true },
+      });
     }
     if (Array.isArray(markets) && markets.length > 0) {
       await setMarkets(markets);

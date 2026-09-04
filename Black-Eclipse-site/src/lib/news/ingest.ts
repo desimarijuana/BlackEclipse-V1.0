@@ -15,7 +15,7 @@ import { guessSentiment } from "@/lib/sentiment";
 import { yieldToEventLoop } from "@/lib/db";
 
 export const NEWS_REFRESH_TYPE = "news_refresh";
-export const DEFAULT_NEWS_INTERVAL_MIN = 15;
+export const DEFAULT_NEWS_INTERVAL_MIN = 5;
 // How many items to pull per feed (feeds typically expose 20-50).
 const PER_FEED = 20;
 // Prune items older than this so the DB stays bounded.
@@ -42,11 +42,67 @@ const TICKER_STOP_WORDS = new Set([
   "EU", "UN", "FED", "SEC", "IRS", "GDP", "CPI", "IPO", "ETF", "YOY", "Q1",
   "Q2", "Q3", "Q4", "H1", "H2", "AI", "API", "APR", "AUG", "NYSE", "NASDAQ",
   "WSJ", "CNBC", "NEW", "BIG", "TOP", "ALL", "NOW", "WHY", "HOW", "GDP",
+  // Observed false positives in real feeds — orgs/agencies/units, not stocks.
+  "AP", "ET", "PT", "GM", "PM", "AM", "EST", "PST", "GMT", "UTC", "GPT",
+  "IMF", "USD", "EUR", "GBP", "WTI", "EV", "ICE", "ASX", "CME", "OCC",
+  "NYC", "UAE", "ING", "BNY", "FT", "FX", "ECB", "BOE", "BBC", "CNN",
+  "NYT", "CNA", "DW", "SCMP", "MIT", "TV", "PC", "GPS", "CEO", "CFO",
 ]);
 
+// Company-name → ticker map. Headlines overwhelmingly name companies
+// ("Apple rises 7%") rather than their symbols, so plain uppercase scanning
+// misses most of the market. Validated against the JDDS universe at ingest
+// time anyway — a stale name here simply matches nothing.
+const COMPANY_NAMES: Record<string, string> = {
+  apple: "AAPL", microsoft: "MSFT", nvidia: "NVDA", tesla: "TSLA",
+  amazon: "AMZN", google: "GOOGL", alphabet: "GOOGL", meta: "META",
+  facebook: "META", netflix: "NFLX", intel: "INTC", amd: "AMD",
+  qualcomm: "QCOM", broadcom: "AVGO", oracle: "ORCL", salesforce: "CRM",
+  ibm: "IBM", dell: "DELL", cisco: "CSCO", adobe: "ADBE",
+  boeing: "BA", lockheed: "LMT", raytheon: "RTX", caterpillar: "CAT",
+  walmart: "WMT", target: "TGT", costco: "COST", "home depot": "HD",
+  mcdonald: "MCD", starbucks: "SBUX", coca: "KO", pepsi: "PEP",
+  disney: "DIS", verizon: "VZ", "at&t": "T", comcast: "CMCSA",
+  "jpmorgan": "JPM", "j.p. morgan": "JPM", "goldman sachs": "GS",
+  "morgan stanley": "MS", "bank of america": "BAC", citigroup: "C",
+  "wells fargo": "WFC", "charles schwab": "SCHW", visa: "V", mastercard: "MA",
+  paypal: "PYPL", block: "SQ", coinbase: "COIN", robinhood: "HOOD",
+  palantir: "PLTR", crowdstrike: "CRWD", paloalto: "PANW", "palo alto": "PANW",
+  shopify: "SHOP", uber: "UBER", lyft: "LYFT", airbnb: "ABNB",
+  "delta air": "DAL", "united airlines": "UAL", "american airlines": "AAL",
+  exxon: "XOM", chevron: "CVX", "bp": "BP", shell: "SHEL",
+  pfizer: "PFE", moderna: "MRNA", "johnson & johnson": "JNJ", "eli lilly": "LLY",
+  merck: "MRK", abbvie: "ABBV", unilever: "UL", nestle: "NSRGY",
+  samsung: "SSNLF", tsmc: "TSM", asml: "ASML",
+  arm: "ARM", alibaba: "BABA", tencent: "TCEHY", byd: "BYDDY",
+  toyota: "TM", volkswagen: "VWAGY", bmw: "BMWYY", ferrari: "RACE",
+  spotify: "SPOT", snap: "SNAP", pinterest: "PINS", zoom: "ZM",
+  rivian: "RIVN", lucid: "LCID",
+  gamestop: "GME", "blackberry": "BB", nokia: "NOK", ericsson: "ERIC",
+  sony: "SONY", canon: "CAJPY", nikon: "NINOY", philips: "PHG",
+};
+
+/**
+ * Extract ticker candidates from a headline.
+ * 1. Uppercase words that could be symbols ("NVDA", "TSLA").
+ * 2. Known company names ("Apple", "Nvidia") mapped to their tickers —
+ *    headlines name companies far more often than they print symbols.
+ * Returns an ordered candidate list; callers validate against the universe.
+ */
 function extractTickerCandidates(headline: string): string[] {
+  const candidates: string[] = [];
   const matches = headline.match(/\b[A-Z]{2,5}\b/g) || [];
-  return matches.filter((t) => !TICKER_STOP_WORDS.has(t) && t.length >= MIN_TICKER_LEN);
+  for (const t of matches) {
+    if (!TICKER_STOP_WORDS.has(t) && t.length >= MIN_TICKER_LEN) candidates.push(t);
+  }
+  // Company-name mapping: case-insensitive whole-name scan.
+  const lower = headline.toLowerCase();
+  for (const [name, sym] of Object.entries(COMPANY_NAMES)) {
+    // Word-boundary match so "meta" (the word) matches but "metal" doesn't.
+    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(lower)) candidates.push(sym);
+  }
+  return candidates;
 }
 
 /**
@@ -233,15 +289,41 @@ export async function runNewsIngest(): Promise<IngestSummary> {
     const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const removed = await prisma.newsItem.deleteMany({ where: { timestamp: { lt: cutoff } } });
 
+    // Backfill: re-enrich recent items that have no ticker. Older ingests ran
+    // with weaker extraction, so this patches history without refetching.
+    const backfill = await backfillTickers(universe);
+
     await prisma.cronJob.upsert({
       where: { type: NEWS_REFRESH_TYPE },
       update: { lastRunAt: new Date() },
       create: { type: NEWS_REFRESH_TYPE, lastRunAt: new Date(), intervalMinutes: DEFAULT_NEWS_INTERVAL_MIN, enabled: true },
     });
 
-    console.log(`[NewsIngest] ${ok}/${total} feeds ok, ${created} new items, ${removed.count} pruned`);
+    console.log(`[NewsIngest] ${ok}/${total} feeds ok, ${created} new items, ${backfill} backfilled, ${removed.count} pruned`);
     return { feeds: total, ok, failed, created, total: created };
   } finally {
     ingesting = false;
   }
+}
+
+/** Re-run ticker extraction on recent items missing one. Returns patched count. */
+async function backfillTickers(universe: Set<string>): Promise<number> {
+  const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  const pending = await prisma.newsItem.findMany({
+    where: { ticker: null, timestamp: { gte: since } },
+    select: { id: true, headline: true },
+    take: 500,
+  });
+  let patched = 0;
+  for (const item of pending) {
+    for (const c of extractTickerCandidates(item.headline)) {
+      if (universe.has(c)) {
+        await prisma.newsItem.update({ where: { id: item.id }, data: { ticker: c } });
+        patched++;
+        break;
+      }
+    }
+    if (patched % 20 === 0) await yieldToEventLoop();
+  }
+  return patched;
 }

@@ -56,11 +56,27 @@ export async function GET(request: Request) {
     if (opTicker) where.ticker = opTicker.toUpperCase();
     if (tickersParam) {
       const list = tickersParam.split(",").map((t) => t.trim().toUpperCase()).filter(Boolean).slice(0, 100);
-      if (list.length > 0) where.ticker = { in: list };
+      if (list.length > 0) {
+        // Match either the enriched ticker OR the symbol/company name
+        // appearing in the headline text, so "Apple rises 7%" shows even
+        // before the ticker enrichment backfills.
+        const nameMap: Record<string, string> = {
+          AAPL: "apple", MSFT: "microsoft", NVDA: "nvidia", TSLA: "tesla",
+          AMZN: "amazon", GOOGL: "google", META: "meta", NFLX: "netflix",
+          INTC: "intel", AMD: "amd", ORCL: "oracle", AVGO: "broadcom",
+          COIN: "coinbase", PLTR: "palantir", HOOD: "robinhood",
+        };
+        const or: Array<Record<string, unknown>> = [{ ticker: { in: list } }];
+        for (const t of list) {
+          if (nameMap[t]) or.push({ headline: { contains: nameMap[t] } });
+        }
+        where.OR = or;
+      }
     }
     if (q) where.OR = [{ headline: { contains: q } }, { summary: { contains: q } }];
 
-    const [total, news, pulse] = await Promise.all([
+    let total: number;
+    const [rawTotal, news, pulse] = await Promise.all([
       prisma.newsItem.count({ where }),
       prisma.newsItem.findMany({
         where,
@@ -76,6 +92,8 @@ export async function GET(request: Request) {
         _count: { _all: true },
       }),
     ]);
+
+    total = rawTotal;
 
     // ─── Story clustering ────────────────────────────────────────────────
     // Group near-duplicate headlines (same story, different outlets) so the
@@ -120,8 +138,13 @@ export async function GET(request: Request) {
       }
       rows = clustered;
       // Paginate AFTER clustering so every page is a full window of stories.
+      // Total must reflect clustered story count, not raw article count,
+      // otherwise totalPages is inflated and later pages come back empty.
       const start = (page - 1) * limit;
+      const totalStories = clustered.length;
       rows = rows.slice(start, start + limit);
+      // Reuse `total` so pagination math below stays consistent.
+      total = totalStories;
     }
 
     const totalPages = Math.ceil(total / limit);

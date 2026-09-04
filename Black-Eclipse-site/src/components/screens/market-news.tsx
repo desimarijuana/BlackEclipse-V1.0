@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Newspaper, Sparkles, Eye, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, BellRing, Star } from 'lucide-react';
+import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -166,62 +166,9 @@ function FilterSelect({ value, onChange, placeholder, options }: {
   );
 }
 
-// ─── Price Reaction mini chart ─────────────────────────────────────────
-// Inline SVG sparkline of the ticker's recent daily closes, fetched lazily
-// when the detail modal opens. "Did the market care?" at a glance.
+// ─── Price Reaction mini chart removed — no longer shown.
 
-function PriceReactionMini({ ticker }: { ticker: string }) {
-  const [points, setPoints] = useState<number[] | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    setPoints(null);
-    setFailed(false);
-    fetch(`/api/price-history?symbol=${encodeURIComponent(ticker)}&market=US&range=1mo`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!alive) return;
-        const pts: number[] = (d.points || []).filter((p: number) => Number.isFinite(p));
-        if (pts.length >= 2) setPoints(pts);
-        else setFailed(true);
-      })
-      .catch(() => alive && setFailed(true));
-    return () => { alive = false; };
-  }, [ticker]);
-
-  if (failed) {
-    return <p className="text-[11px] text-muted-foreground/70 italic">No recent price data for {ticker}.</p>;
-  }
-  if (!points) {
-    return <Skeleton className="h-12 w-full rounded-lg" />;
-  }
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const span = max - min || 1;
-  const W = 100;
-  const H = 40;
-  const path = points.map((p, i) => {
-    const x = (i / (points.length - 1)) * W;
-    const y = H - ((p - min) / span) * (H - 4) - 2;
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-  const up = points[points.length - 1] >= points[0];
-  const changePct = (((points[points.length - 1] - points[0]) / points[0]) * 100).toFixed(1);
-
-  return (
-    <div className="flex items-center gap-3 p-2.5 bg-accent/20 border border-border/30 rounded-xl">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-12 flex-1 min-w-0" preserveAspectRatio="none">
-        <path d={path} fill="none" stroke={up ? '#34d399' : '#fb7185'} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <span className={`text-[11px] font-bold font-mono shrink-0 ${up ? 'text-emerald-400' : 'text-rose-400'}`}>
-        {up ? '+' : ''}{changePct}% / 1mo
-      </span>
-    </div>
-  );
-}
-
-export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, onNewsStatusChange }: MarketNewsProps) {
+export function MarketNews({ onDiscussNews, fullPage = false, onNewsStatusChange }: MarketNewsProps) {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -242,11 +189,8 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   const [watchTickers, setWatchTickers] = useState<string[]>([]);
   const [savedView, setSavedView] = useState(false);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const [alertToast, setAlertToast] = useState<string | null>(null);
 
   const SAVED_IDS_KEY = 'be_news_saved_ids';
-  const READ_IDS_KEY = 'be_news_read_ids';
 
   useEffect(() => {
     setCards(loadCardSettings());
@@ -261,7 +205,6 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     } catch { /* ignore */ }
     try {
       setSavedIds(new Set(JSON.parse(window.localStorage.getItem(SAVED_IDS_KEY) || '[]')));
-      setReadIds(new Set(JSON.parse(window.localStorage.getItem(READ_IDS_KEY) || '[]')));
     } catch { /* ignore */ }
   }, []);
 
@@ -416,49 +359,20 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     });
   };
 
-  const markRead = (id: string) => {
-    setReadIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev).add(id);
-      try { window.localStorage.setItem(READ_IDS_KEY, JSON.stringify([...next].slice(-2000))); } catch { /* private mode */ }
-      return next;
-    });
-  };
-
   const openNews = (item: NewsItem) => {
-    setSelectedNews(item);
-    markRead(item.id);
-  };
-
-  const createAlert = async (item: NewsItem, direction: 'up' | 'down') => {
-    if (!item.ticker) return;
-    try {
-      const res = await fetch('/api/news/alert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: item.ticker, direction }),
-      });
-      const data = await res.json();
-      setAlertToast(data.success ? `Alert armed: ${data.alert.name}` : (data.error || 'Failed to create alert'));
-      setTimeout(() => setAlertToast(null), 4000);
-    } catch {
-      setAlertToast('Failed to reach the alert engine');
-      setTimeout(() => setAlertToast(null), 4000);
+    // No popup — open the source article directly in a new tab.
+    if (item.url) {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      return;
     }
+    // Fallback: no URL on this item — show the in-app briefing modal.
+    setSelectedNews(item);
   };
 
   const handleDiscuss = (item?: NewsItem) => {
     const target = item || selectedNews;
     if (target) {
       onDiscussNews?.(target);
-      setSelectedNews(null);
-    }
-  };
-
-  const handleAnalyze = (item?: NewsItem) => {
-    const target = item || selectedNews;
-    if (target && target.ticker) {
-      onAnalyzeTicker?.(target.ticker);
       setSelectedNews(null);
     }
   };
@@ -490,6 +404,123 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
     setSavedView(false);
     applyFilters(EMPTY_FILTERS);
   };
+
+  // News Details / AI Briefing Modal — shared by widget + full-page views.
+  const newsDialog = selectedNews ? (
+    <Dialog open={!!selectedNews} onOpenChange={open => !open && setSelectedNews(null)}>
+      <DialogContent className="sm:max-w-[480px] bg-background/90 backdrop-blur-xl border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
+        {/* Ambient Background Blur Glow */}
+        <div
+          className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-72 h-72 rounded-full blur-[70px] pointer-events-none ${
+            selectedNews.sentiment === 'bullish'
+              ? 'bg-emerald-500/10'
+              : selectedNews.sentiment === 'bearish'
+              ? 'bg-rose-500/10'
+              : 'bg-primary/10'
+          }`}
+        />
+
+        <DialogHeader className="text-left relative z-10 pt-2">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] font-bold text-muted-foreground font-mono bg-accent px-2 py-1 rounded">
+              {selectedNews.source}
+            </span>
+            {selectedNews.category && (
+              <span className="text-[10px] font-bold text-primary/80 font-mono uppercase bg-primary/5 border border-primary/15 px-2 py-1 rounded">
+                {selectedNews.category}
+              </span>
+            )}
+            {selectedNews.ticker && (
+              <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-2 py-1 rounded">
+                {selectedNews.ticker}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">{relativeTime(selectedNews.timestamp)}</span>
+          </div>
+          <DialogTitle className="text-lg font-serif font-semibold leading-snug">
+            {selectedNews.url ? (
+              <a
+                href={selectedNews.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary hover:underline decoration-primary transition-all cursor-pointer"
+              >
+                {selectedNews.headline}
+              </a>
+            ) : (
+              selectedNews.headline
+            )}
+          </DialogTitle>
+          <div className="flex items-center gap-3 mt-3 border-b border-border/20 pb-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Sentiment:
+              <span
+                className={`font-semibold capitalize px-2.5 py-0.5 rounded-full text-[10px] ${
+                  selectedNews.sentiment === 'bullish'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : selectedNews.sentiment === 'bearish'
+                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    : 'bg-neutral-500/10 text-neutral-400 border border-neutral-500/20'
+                }`}
+              >
+                {selectedNews.sentiment}
+              </span>
+              {selectedNews.tier && (
+                <span className="text-[10px] text-muted-foreground font-mono">Tier {selectedNews.tier}</span>
+              )}
+            </div>
+            {selectedNews.url && (
+              <div className="text-xs text-muted-foreground ml-auto">
+                <a href={selectedNews.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                  Open source article ↗
+                </a>
+              </div>
+            )}
+          </div>
+        </DialogHeader>
+
+        <div className="relative z-10 py-4 space-y-3.5 text-left text-xs leading-relaxed text-muted-foreground">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Briefing Overview</span>
+            <p>{selectedNews.summary || 'Open the source article for the full story.'}</p>
+          </div>
+          {(selectedNews.sourceCount ?? 1) > 1 && (
+            <div className="p-2.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block mb-1">Story Coverage</span>
+              <p className="text-[11px] text-foreground">{(selectedNews.clusterSources || []).join(' · ')}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 mt-4 relative z-10 border-t border-border/20 pt-4 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => setSelectedNews(null)}
+            className="flex-1 min-w-[80px] rounded-xl text-xs py-2.5 h-auto border border-border/40 cursor-pointer"
+          >
+            Close
+          </Button>
+          <Button
+            onClick={() => { toggleSaved(selectedNews.id); setSelectedNews({ ...selectedNews }); }}
+            className={`flex-1 min-w-[60px] rounded-xl border text-xs py-2.5 h-auto cursor-pointer ${
+              savedIds.has(selectedNews.id)
+                ? 'bg-amber-400/10 text-amber-400 border-amber-400/40'
+                : 'bg-accent hover:bg-accent/80 text-accent-foreground border-border/40'
+            }`}
+          >
+            <Bookmark size={13} className="mr-1.5" fill={savedIds.has(selectedNews.id) ? 'currentColor' : 'none'} />
+            {savedIds.has(selectedNews.id) ? 'Saved' : 'Save'}
+          </Button>
+          <Button
+            onClick={() => handleDiscuss()}
+            className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 text-xs py-2.5 h-auto rounded-xl font-semibold cursor-pointer transition-all hover:scale-105"
+          >
+            <Sparkles size={13} /> Discuss
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  ) : null;
 
   if (loading) {
     const loadingBar = <TopLoader />;
@@ -562,12 +593,6 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
   if (fullPage) {
     return (
       <div className="w-full flex flex-col gap-6 select-none">
-        {/* ─── Alert toast ─── */}
-        {alertToast && (
-          <div className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[12px] font-bold font-mono inline-flex items-center gap-2 animate-fade-in-up">
-            <BellRing size={13} /> {alertToast}
-          </div>
-        )}
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
@@ -955,17 +980,12 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                 : '';
 
             return (
-              <div
+              <button
+                type="button"
                 key={item.id}
                 onClick={() => openNews(item)}
-                className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] ${dens.card} ${borderStyle} ${bgGradient} ${
-                  readIds.has(item.id) && !savedIds.has(item.id) ? 'opacity-60' : ''
-                }`}
+                className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${dens.card} ${borderStyle} ${bgGradient}`}
               >
-                {/* Unread dot */}
-                {!readIds.has(item.id) && (
-                  <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary shadow-[0_0_6px_rgba(139,92,246,0.6)] z-20" />
-                )}
                 {/* Ambient glow badge based on sentiment */}
                 {cards.glow && (
                   <div
@@ -1038,27 +1058,6 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                 {/* Footer action row — full width, below the content */}
                 {cards.showButtons && (
                   <div className="flex items-center gap-2 border-t border-border/40 pt-3 relative z-10">
-                    {item.ticker && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => { e.stopPropagation(); handleAnalyze(item); }}
-                        className="text-[11px] h-8 rounded-lg px-4 font-mono border border-border hover:bg-accent cursor-pointer"
-                      >
-                        Chart {item.ticker}
-                      </Button>
-                    )}
-                    {item.ticker && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => { e.stopPropagation(); void createAlert(item, 'down'); }}
-                        className="text-[11px] h-8 rounded-lg px-3 font-mono border border-border hover:bg-accent cursor-pointer text-rose-400"
-                        title={`Alert me if ${item.ticker} drops 2%`}
-                      >
-                        <BellRing size={11} className="mr-1" /> Alert −2%
-                      </Button>
-                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
                       className={`h-8 w-8 rounded-lg border inline-flex items-center justify-center cursor-pointer transition-colors ${
@@ -1080,7 +1079,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                     </Button>
                   </div>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -1142,6 +1141,7 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
             </div>
           );
         })()}
+        {newsDialog}
       </div>
     );
   }
@@ -1166,10 +1166,11 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
             : 'border-border/10 bg-background/10 hover:border-border/30';
 
           return (
-            <div
+            <button
+              type="button"
               key={item.id}
-              onClick={() => setSelectedNews(item)}
-              className={`p-3 rounded-xl border hover:bg-accent/30 hover:shadow-md transition-all duration-300 flex flex-col gap-1.5 cursor-pointer text-left group ${cardBorder}`}
+              onClick={() => openNews(item)}
+              className={`p-3 rounded-xl border hover:bg-accent/30 hover:shadow-md transition-all duration-300 flex flex-col gap-1.5 cursor-pointer text-left group focus:outline-none ${cardBorder}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -1211,150 +1212,13 @@ export function MarketNews({ onDiscussNews, onAnalyzeTicker, fullPage = false, o
                   {relativeTime(item.timestamp)}
                 </span>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
 
-      {/* News Details / AI Briefing Modal */}
-      {selectedNews && (
-        <Dialog open={!!selectedNews} onOpenChange={open => !open && setSelectedNews(null)}>
-          <DialogContent className="sm:max-w-[480px] bg-background/90 backdrop-blur-xl border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
-            {/* Ambient Background Blur Glow */}
-            <div
-              className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-72 h-72 rounded-full blur-[70px] pointer-events-none ${
-                selectedNews.sentiment === 'bullish'
-                  ? 'bg-emerald-500/10'
-                  : selectedNews.sentiment === 'bearish'
-                  ? 'bg-rose-500/10'
-                  : 'bg-primary/10'
-              }`}
-            />
-
-            <DialogHeader className="text-left relative z-10 pt-2">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-[10px] font-bold text-muted-foreground font-mono bg-accent px-2 py-1 rounded">
-                  {selectedNews.source}
-                </span>
-                {selectedNews.category && (
-                  <span className="text-[10px] font-bold text-primary/80 font-mono uppercase bg-primary/5 border border-primary/15 px-2 py-1 rounded">
-                    {selectedNews.category}
-                  </span>
-                )}
-                {selectedNews.ticker && (
-                  <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-2 py-1 rounded">
-                    {selectedNews.ticker}
-                  </span>
-                )}
-                <span className="text-[10px] text-muted-foreground font-mono ml-auto">{relativeTime(selectedNews.timestamp)}</span>
-              </div>
-              <DialogTitle className="text-lg font-serif font-semibold leading-snug">
-                {selectedNews.url ? (
-                  <a
-                    href={selectedNews.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:text-primary hover:underline decoration-primary transition-all cursor-pointer"
-                  >
-                    {selectedNews.headline}
-                  </a>
-                ) : (
-                  selectedNews.headline
-                )}
-              </DialogTitle>
-              <div className="flex items-center gap-3 mt-3 border-b border-border/20 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  Sentiment:
-                  <span
-                    className={`font-semibold capitalize px-2.5 py-0.5 rounded-full text-[10px] ${
-                      selectedNews.sentiment === 'bullish'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : selectedNews.sentiment === 'bearish'
-                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        : 'bg-neutral-500/10 text-neutral-400 border border-neutral-500/20'
-                    }`}
-                  >
-                    {selectedNews.sentiment}
-                  </span>
-                  {selectedNews.tier && (
-                    <span className="text-[10px] text-muted-foreground font-mono">Tier {selectedNews.tier}</span>
-                  )}
-                </div>
-                {selectedNews.url && (
-                  <div className="text-xs text-muted-foreground ml-auto">
-                    <a href={selectedNews.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
-                      Open source article ↗
-                    </a>
-                  </div>
-                )}
-              </div>
-            </DialogHeader>
-
-            <div className="relative z-10 py-4 space-y-3.5 text-left text-xs leading-relaxed text-muted-foreground">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Briefing Overview</span>
-                <p>{selectedNews.summary || 'Open the source article for the full story.'}</p>
-              </div>
-              {(selectedNews.sourceCount ?? 1) > 1 && (
-                <div className="p-2.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block mb-1">Story Coverage</span>
-                  <p className="text-[11px] text-foreground">{(selectedNews.clusterSources || []).join(' · ')}</p>
-                </div>
-              )}
-              {selectedNews.ticker && (
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Price Reaction — {selectedNews.ticker}</span>
-                  <PriceReactionMini ticker={selectedNews.ticker} />
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 mt-4 relative z-10 border-t border-border/20 pt-4 flex-wrap">
-              <Button
-                variant="outline"
-                onClick={() => setSelectedNews(null)}
-                className="flex-1 min-w-[80px] rounded-xl text-xs py-2.5 h-auto border border-border/40 cursor-pointer"
-              >
-                Close
-              </Button>
-              <Button
-                onClick={() => { toggleSaved(selectedNews.id); setSelectedNews({ ...selectedNews }); }}
-                className={`flex-1 min-w-[60px] rounded-xl border text-xs py-2.5 h-auto cursor-pointer ${
-                  savedIds.has(selectedNews.id)
-                    ? 'bg-amber-400/10 text-amber-400 border-amber-400/40'
-                    : 'bg-accent hover:bg-accent/80 text-accent-foreground border-border/40'
-                }`}
-              >
-                <Bookmark size={13} className="mr-1.5" fill={savedIds.has(selectedNews.id) ? 'currentColor' : 'none'} />
-                {savedIds.has(selectedNews.id) ? 'Saved' : 'Save'}
-              </Button>
-              {selectedNews.ticker && (
-                <Button
-                  onClick={() => void createAlert(selectedNews, 'down')}
-                  className="flex-1 min-w-[80px] rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs py-2.5 h-auto cursor-pointer"
-                  title={`Alert me if ${selectedNews.ticker} drops 2%`}
-                >
-                  <BellRing size={13} className="mr-1.5" /> Alert −2%
-                </Button>
-              )}
-              {selectedNews.ticker && (
-                <Button
-                  onClick={() => handleAnalyze()}
-                  className="flex-1 min-w-[100px] rounded-xl bg-accent hover:bg-accent/80 text-accent-foreground border border-border/40 text-xs py-2.5 h-auto cursor-pointer"
-                >
-                  <Eye size={13} className="mr-1.5" /> Chart {selectedNews.ticker}
-                </Button>
-              )}
-              <Button
-                onClick={() => handleDiscuss()}
-                className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 text-xs py-2.5 h-auto rounded-xl font-semibold cursor-pointer transition-all hover:scale-105"
-              >
-                <Sparkles size={13} /> Discuss
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* News Details / AI Briefing Modal — shared by widget + full-page views */}
+      {newsDialog}
     </div>
   );
 }

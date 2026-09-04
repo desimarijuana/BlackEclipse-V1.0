@@ -473,7 +473,7 @@ export async function startNewsRefresh() {
   try {
     await prisma.cronJob.upsert({
       where: { type: NEWS_REFRESH_TYPE },
-      update: {},
+      update: { intervalMinutes: DEFAULT_NEWS_INTERVAL_MIN },
       create: {
         type: NEWS_REFRESH_TYPE,
         intervalMinutes: DEFAULT_NEWS_INTERVAL_MIN,
