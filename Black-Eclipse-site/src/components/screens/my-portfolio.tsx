@@ -3724,8 +3724,8 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/20">
-                {recentTransactions.map(t => (
-                  <tr key={t.id} className="hover:bg-muted/5">
+                {recentTransactions.map((t, i) => (
+                  <tr key={`${t.id}-${i}`} className="hover:bg-muted/5">
                     <td className="py-2.5 pr-3 text-muted-foreground">{t.date}</td>
                     <td className="pr-3 font-bold">{t.symbol}</td>
                     <td className={`pr-3 font-bold ${t.sideColor}`}>{t.type}</td>
