@@ -16,11 +16,12 @@ import {
 } from 'lucide-react';
 // Customization kernel — shared layout engine + visuals.
 import {
-  StructurePicker, SectionShell,
+  StructurePicker, SectionShell, ColumnShell, ElementShell,
+  SECTION_GAP_CLASS, ELEM_PAD_CLASS,
   useCustomize,
   FUND_PAGE, FUND_WIDGET_META,
   CustomizeCoachMark,
-  type PageDefinition, type PresetDefinition, type WidgetMeta, type WidgetState, type FundWidgetId,
+  type PageDefinition, type PresetDefinition, type WidgetMeta, type ElementStyle, type FundWidgetId,
 } from '@/lib/customize';
 // Local, richer template preview (grid-cell style) — supersedes the kernel's
 // simple TemplateMiniGrid for both panels on this page.
@@ -456,48 +457,68 @@ const WIDGET_META: Record<WidgetId, WidgetMeta> = {
 };
 
 // ── Overview design templates: curated section arrangements for the 5 widgets
-// Kernel presets (section model): [columnCount, ...widgetIds] per section.
+// Kernel presets (v3 model): each section = { widths[], elements[] }.
 const OVERVIEW_PRESETS: PresetDefinition[] = [
   {
     id: 'default',
     name: 'Classic',
     desc: 'Stat trio + full-width charts',
     preview: [{ span: 1 }, { span: 4 }, { span: 4 }],
-    sections: [[4, 'total-value', 'unreal-pl', 'top-exposure'], [1, 'fund-compare'], [1, 'fund-cards']],
+    sections: [
+      { widths: [1, 1, 1], elements: ['total-value', 'unreal-pl', 'top-exposure'] },
+      { widths: [1], elements: ['fund-compare'] },
+      { widths: [1], elements: ['fund-cards'] },
+    ],
   },
   {
     id: 'grid',
     name: 'Grid',
     desc: 'Wider stats, side-by-side charts',
     preview: [{ span: 1 }, { span: 2 }, { span: 3 }, { span: 4 }],
-    sections: [[2, 'total-value', 'unreal-pl'], [1, 'top-exposure'], [1, 'fund-compare'], [1, 'fund-cards']],
+    sections: [
+      { widths: [1, 1], elements: ['total-value', 'unreal-pl'] },
+      { widths: [1], elements: ['top-exposure'] },
+      { widths: [1], elements: ['fund-compare'] },
+      { widths: [1], elements: ['fund-cards'] },
+    ],
   },
   {
     id: 'split',
     name: 'Split',
     desc: 'Charts on the left, stats in a right rail',
     preview: [{ span: 3 }, { span: 3 }, { span: 3 }, { span: 4 }],
-    sections: [[1, 'fund-compare'], [3, 'total-value', 'unreal-pl', 'top-exposure'], [1, 'fund-cards']],
+    sections: [
+      { widths: [1], elements: ['fund-compare'] },
+      { widths: [1, 1, 1], elements: ['total-value', 'unreal-pl', 'top-exposure'] },
+      { widths: [1], elements: ['fund-cards'] },
+    ],
   },
   {
     id: 'duo',
     name: 'Duo',
     desc: 'Two big halves — comparison vs funds',
     preview: [{ span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
-    sections: [[2, 'total-value', 'unreal-pl'], [1, 'fund-compare'], [2, 'top-exposure', 'fund-cards']],
+    sections: [
+      { widths: [1, 1], elements: ['total-value', 'unreal-pl'] },
+      { widths: [1], elements: ['fund-compare'] },
+      { widths: [1, 1], elements: ['top-exposure', 'fund-cards'] },
+    ],
   },
   {
     id: 'focus',
     name: 'Focus',
     desc: 'Comparison hero, everything else compact',
     preview: [{ span: 4 }, { span: 1 }, { span: 4 }],
-    sections: [[1, 'fund-compare'], [4, 'total-value', 'unreal-pl', 'top-exposure', 'fund-cards']],
+    sections: [
+      { widths: [1], elements: ['fund-compare'] },
+      { widths: [1, 1, 1, 1], elements: ['total-value', 'unreal-pl', 'top-exposure', 'fund-cards'] },
+    ],
   },
 ];
 
 const OVERVIEW_PAGE: PageDefinition = {
   pageId: 'portfolio-overview',
-  storageKey: 'eclipse_portfolio_layout_v2', // new section-schema key (v1 layouts auto-migrate from the legacy key)
+  storageKey: 'eclipse_portfolio_layout_v3', // v3 section→column→element key (older layouts auto-migrate)
   widgets: WIDGET_META,
   presets: OVERVIEW_PRESETS,
 };
@@ -879,14 +900,16 @@ function OverviewView({
     return { value, cost, day, unreal, roi, dayPct, top: top.map(t => ({ ...t, pct: (t.value / total) * 100 })) };
   }, [funds, liveAssets, usdPkr]);
 
-  // ── Dashboard customization state (kernel-driven, section model) ──────────
+  // ── Dashboard customization state (kernel v3: section → column → element) ─
   const {
-    layout, widgets: overviewWidgets, patch: patchWidget, place: placeOverviewWidget,
-    setColumns: setOverviewColumns, add: addOverviewWidget, nudge: nudgeOverviewWidget,
+    layout, widgets: overviewWidgets, patch: patchWidget, patchSec: patchOverviewSection,
+    place: placeOverviewWidget, setColumns: setOverviewColumns, setColWidth: setOverviewColWidth,
+    add: addOverviewWidget, nudge: nudgeOverviewWidget,
     applyPreset: applyOverviewPreset, reset: resetLayout,
   } = useCustomize(OVERVIEW_PAGE);
   const [customizing, setCustomizing] = useState(false);
   const [dragWidget, setDragWidget] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // ── Fund-vs-fund comparison: indexed NAV curves from real close series ─────
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1030,14 +1053,14 @@ function OverviewView({
   // Drag chip hides while this card is the active drag source (no ghost-on-ghost).
   const widgetHeader = (id: string) => {
     if (!customizing || dragWidget === id) return null;
-    const homeSection = layout.sections.find((s) => s.widgets.some((w) => w.id === id));
+    const home = (() => { for (const s of layout.sections) for (const col of s.columns) if (col.elements.some((e) => e.id === id)) return { s, col }; return null; })();
     return (
       <button
         type="button"
         draggable
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(id); }}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); if (dragWidget && homeSection) placeOverviewWidget(dragWidget, homeSection.id, id); setDragWidget(null); }}
+        onDrop={(e) => { e.preventDefault(); if (dragWidget && home) placeOverviewWidget(dragWidget, { sectionId: home.s.id, columnId: home.col.id, elementIdx: null }); setDragWidget(null); }}
         className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105 shadow-md`}
         title="Drag to move — drop on any card or section"
       >
@@ -1268,58 +1291,43 @@ function OverviewView({
               ))}
             </div>
           </div>
-          {/* Navigator: sections → widget rows (mirrors the page tree) */}
+          {/* Navigator: view-only tree (drag on the canvas, not here) */}
           <div className="space-y-2">
-            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Sections</p>
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">
+              Structure — edit on the page below (drag cards, hover sections for columns)
+            </p>
             {layout.sections.map((s, si) => (
               <div key={s.id} className={`${TILE} p-2.5 space-y-1.5`}>
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns} column{s.columns > 1 ? 's' : ''}
+                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns.length} column{s.columns.length > 1 ? 's' : ''}
                   </span>
-                  <StructurePicker columns={s.columns} onPick={(c) => setOverviewColumns(s.id, c)} align="right" />
+                  <StructurePicker columns={Math.min(4, s.columns.length) as 1 | 2 | 3 | 4} onPick={(c) => setOverviewColumns(s.id, c)} />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {s.widgets.map((w) => {
-                    const meta = WIDGET_META[w.id as WidgetId];
-                    const hiddenSomewhere = !w.visible;
-                    return (
-                      <div
-                        key={w.id}
-                        draggable
-                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
-                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                        onDrop={(e) => { e.preventDefault(); if (dragWidget && dragWidget !== w.id) placeOverviewWidget(dragWidget, s.id, w.id); setDragWidget(null); }}
-                        className={`flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-lg border text-[10px] font-bold cursor-grab active:cursor-grabbing transition-all ${TILE} ${hiddenSomewhere ? 'opacity-45' : ''} ${dragWidget === w.id ? 'opacity-40' : ''}`}
-                      >
-                        <GripVertical className="w-3 h-3 text-zinc-400" />
-                        <span className="max-w-[110px] truncate">{meta?.label ?? w.id}</span>
-                        <div className="flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { height: Math.min(10, (w.height ?? 0) + 1) }); }}
-                            title="Taller (+40px)"
-                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                  {s.columns.map((col) => (
+                    <div key={col.id} className="rounded-lg border border-border/30 p-1.5 space-y-1 min-w-[110px]">
+                      <p className="text-[8px] font-mono font-bold uppercase tracking-wider text-muted-foreground/70">col ×{col.width}</p>
+                      {col.elements.map((el) => {
+                        const meta = WIDGET_META[el.id as WidgetId];
+                        return (
+                          <div
+                            key={el.id}
+                            className={`flex items-center gap-1 px-1.5 py-1 rounded-md border text-[10px] font-bold ${TILE} ${el.visible ? '' : 'opacity-45'}`}
                           >
-                            +
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { height: Math.max(0, (w.height ?? 0) - 1) }); }}
-                            title="Shorter (−40px)"
-                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
-                          >
-                            −
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
-                            title={w.visible ? 'Hide widget' : 'Show widget'}
-                            className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
-                          >
-                            {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                            <span className="max-w-[100px] truncate">{meta?.label ?? el.id}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); patchWidget(el.id, { visible: !el.visible }); }}
+                              title={el.visible ? 'Hide element' : 'Show element'}
+                              className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
+                            >
+                              {el.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -1327,54 +1335,80 @@ function OverviewView({
         </div>
       )}
 
-      {/* Widget canvas — sections & columns from the saved layout */}
+      {/* Widget canvas — sections → columns → elements (v3) */}
       <div className="space-y-5">
         {layout.sections.map((section) => {
-          const visibleWidgets = section.widgets.filter((w) => w.visible);
-          if (visibleWidgets.length === 0) return null;
+          const visibleCount = section.columns.flatMap((c) => c.elements).filter((e) => e.visible).length;
+          if (visibleCount === 0) return null;
           return (
             <SectionShell
               key={section.id}
               editing={customizing}
-              columns={section.columns}
-              onColumns={(c) => setOverviewColumns(section.id, c)}
+              gap={section.gap}
+              padding={section.padding}
+              onSpacing={(p) => patchOverviewSection(section.id, p)}
+              columns={section.columns.length}
+              onColumns={(count) => setOverviewColumns(section.id, count)}
               onDelete={() => {
-                // Hide all widgets in the section (removes it from the canvas)
-                for (const w of section.widgets) patchWidget(w.id, { visible: false });
+                for (const col of section.columns) for (const el of col.elements) patchWidget(el.id, { visible: false });
               }}
             >
-              <div
-                className={`grid grid-cols-1 gap-5 ${sectionGridClass(section.columns)} ${customizing ? 'p-3 rounded-2xl' : ''}`}
-                onDragOver={(e) => { if (dragWidget) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                onDrop={(e) => {
-                  if (!dragWidget) return;
-                  e.preventDefault();
-                  placeOverviewWidget(dragWidget, section.id, null);
-                  setDragWidget(null);
-                }}
-              >
-                {visibleWidgets.map((w) => {
-                  const fundCompareEmpty = w.id === 'fund-compare' && fundCompare.length === 0;
-                  if (fundCompareEmpty) return null;
-                  const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
-                  return (
-                    <div
-                      key={w.id}
-                      className="min-w-0"
-                      style={heightCls}
-                      onDragOver={(e) => { if (dragWidget && dragWidget !== w.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                      onDrop={(e) => {
-                        if (!dragWidget || dragWidget === w.id) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        placeOverviewWidget(dragWidget, section.id, w.id);
+              <div className={`flex flex-col ${customizing ? 'p-3 rounded-2xl' : ''}`}>
+                <div className={`flex flex-col md:flex-row ${SECTION_GAP_CLASS[section.gap]}`}>
+                  {section.columns.map((col) => (
+                    <ColumnShell
+                      key={col.id}
+                      editing={customizing}
+                      width={col.width}
+                      onWidth={(w) => setOverviewColWidth(col.id, w)}
+                      elementCount={col.elements.length}
+                      dragging={!!dragWidget}
+                      onDropInColumn={() => {
+                        if (dragWidget) placeOverviewWidget(dragWidget, { sectionId: section.id, columnId: col.id, elementIdx: null });
                         setDragWidget(null);
                       }}
                     >
-                      {renderWidget(w.id)}
-                    </div>
-                  );
-                })}
+                      <div className={`flex flex-col ${SECTION_GAP_CLASS[section.gap]}`}>
+                        {col.elements.filter((el) => el.visible).map((el) => {
+                          const fundCompareEmpty = el.id === 'fund-compare' && fundCompare.length === 0;
+                          if (fundCompareEmpty) return null;
+                          // Element drop index = position before this element in its column
+                          const elIdx = col.elements.findIndex((x) => x.id === el.id);
+                          return (
+                            <ElementShell
+                              key={el.id}
+                              editing={customizing}
+                              label={WIDGET_META[el.id as WidgetId]?.label ?? el.id}
+                              style={el.style}
+                              onStyle={(p) => patchWidget(el.id, { style: p })}
+                              visible={el.visible}
+                              onToggleVisible={() => patchWidget(el.id, { visible: !el.visible })}
+                              dragging={dragWidget === el.id}
+                              dragOver={!!dragWidget && dragWidget !== el.id && dragOverId === el.id}
+                              onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(el.id); }}
+                              onDragEnd={() => { setDragWidget(null); setDragOverId(null); }}
+                              onDragOverElement={(e) => {
+                                if (dragWidget && dragWidget !== el.id) { e.preventDefault(); e.stopPropagation(); setDragOverId(el.id); }
+                              }}
+                              onDropOnElement={(e) => {
+                                if (!dragWidget || dragWidget === el.id) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                placeOverviewWidget(dragWidget, { sectionId: section.id, columnId: col.id, elementIdx: elIdx });
+                                setDragWidget(null);
+                                setDragOverId(null);
+                              }}
+                            >
+                              <div className={ELEM_PAD_CLASS[el.style.padding]}>
+                                {renderWidget(el.id)}
+                              </div>
+                            </ElementShell>
+                          );
+                        })}
+                      </div>
+                    </ColumnShell>
+                  ))}
+                </div>
               </div>
             </SectionShell>
           );
@@ -1382,16 +1416,6 @@ function OverviewView({
       </div>
     </div>
   );
-}
-
-/** Tailwind grid class for a section's column count (static — scanner-safe). */
-function sectionGridClass(columns: 1 | 2 | 3 | 4): string {
-  switch (columns) {
-    case 1: return 'lg:grid-cols-1';
-    case 2: return 'md:grid-cols-2';
-    case 3: return 'md:grid-cols-2 lg:grid-cols-3';
-    case 4: return 'md:grid-cols-2 lg:grid-cols-4';
-  }
 }
 
 // ── Live asset shape kept for compatibility with existing consumers ─────────
@@ -1464,35 +1488,36 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [stressId, setStressId] = useState('market');
   const [severity, setSeverity] = useState(1);
 
-  // ── Fund-page layout customization (kernel-driven, section model) ─────────
+  // ── Fund-page layout customization (kernel v3: section → column → element) ─
   const {
-    layout: fundLayout, patch: patchFundWidget, place: placeFundWidget,
-    setColumns: setFundColumns, nudge: nudgeFundWidget,
+    layout: fundLayout, patch: patchFundWidget, patchSec: patchFundSection,
+    place: placeFundWidget, setColumns: setFundColumns, setColWidth: setFundColWidth,
+    nudge: nudgeFundWidget, add: addFundWidget,
     applyPreset: applyFundPreset, reset: resetFundLayout,
   } = useCustomize(FUND_PAGE);
   const [fundCustomizing, setFundCustomizing] = useState(false);
   const [fundDrag, setFundDrag] = useState<FundWidgetId | null>(null);
-  // Click-selected widget in edit mode — enables keyboard nudge/resize.
+  const [fundDragOverId, setFundDragOverId] = useState<string | null>(null);
+  // Click-selected widget in edit mode — enables keyboard controls.
   const [selectedWidget, setSelectedWidget] = useState<string | null>(null);
 
-  /** Locate a widget in the section tree (state + section). */
+  /** Locate a widget in the section→column tree. */
   const findFundWidget = useCallback((id: string) => {
     for (const s of fundLayout.sections) {
-      const w = s.widgets.find((x) => x.id === id);
-      if (w) return { w, section: s };
+      for (const col of s.columns) {
+        const el = col.elements.find((x) => x.id === id);
+        if (el) return { el, column: col, section: s };
+      }
     }
     return null;
   }, [fundLayout]);
 
-  // Height-only live resize: pointer-drag on a widget's edge adjusts extra
-  // height in real time (width is now a section-column concern). Pointer
-  // capture keeps events flowing even when the cursor leaves the handle.
+  // Height-only live resize via pointer drag on a card's edge handles.
   // ~60px travel = one height step (40px min-height each).
   const onWidgetResizeStart = useCallback((e: React.PointerEvent, id: FundWidgetId, mode: 'taller' | 'shorter' | 'corner') => {
     e.preventDefault();
     e.stopPropagation();
-    const vertical = mode === 'taller' || mode === 'shorter' || mode === 'corner';
-    const vDir = mode === 'taller' || mode === 'corner' ? 1 : -1;
+    const vDir = mode === 'taller' ? 1 : -1;
     const startY = e.clientY;
     let vSteps = 0;
     const target = e.currentTarget as HTMLElement;
@@ -1502,13 +1527,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     document.body.appendChild(overlay);
 
     const onMove = (ev: PointerEvent) => {
-      if (!vertical) return;
       const steps = Math.floor(Math.max(0, (ev.clientY - startY) * vDir) / 60);
       if (steps !== vSteps) {
         const diff = steps - vSteps;
         vSteps = steps;
-        const cur = fundLayout.sections.flatMap((s) => s.widgets).find((w) => w.id === id);
-        if (cur) patchFundWidget(id, { height: Math.max(0, Math.min(10, cur.height + diff)) });
+        const cur = fundLayout.sections.flatMap((s) => s.columns.flatMap((c) => c.elements)).find((w) => w.id === id);
+        if (cur) patchFundWidget(id, { style: { height: Math.max(0, Math.min(10, cur.style.height + diff)) } });
       }
     };
     const onUp = () => {
@@ -1523,7 +1547,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   }, [fundLayout, patchFundWidget]);
 
   // Keyboard control for the click-selected widget (edit mode only):
-  // ←/→ nudge column order · Shift+←/→ section columns · ↑/↓/+/- height ·
+  // ←/→ nudge slot order · Shift+←/→ section columns · ↑/↓/+/- height ·
   // X hide · Escape deselect.
   useEffect(() => {
     if (!fundCustomizing) { setSelectedWidget(null); return; }
@@ -1533,15 +1557,15 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       if (!selectedWidget) return;
       const found = findFundWidget(selectedWidget);
       if (!found) return;
-      const { w, section } = found;
-      const patch = (p: Partial<WidgetState>) => patchFundWidget(selectedWidget, p);
+      const { el: w, section } = found;
+      const patch = (p: { visible?: boolean; style?: Partial<ElementStyle> }) => patchFundWidget(selectedWidget, p);
       switch (e.key) {
-        case 'ArrowLeft': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.max(1, section.columns - 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, -1); break;
-        case 'ArrowRight': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.min(4, section.columns + 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, 1); break;
-        case 'ArrowUp': e.preventDefault(); patch({ height: Math.min(10, w.height + 1) }); break;
-        case 'ArrowDown': e.preventDefault(); patch({ height: Math.max(0, w.height - 1) }); break;
-        case '+': case '=': e.preventDefault(); patch({ height: Math.min(10, w.height + 1) }); break;
-        case '-': case '_': e.preventDefault(); patch({ height: Math.max(0, w.height - 1) }); break;
+        case 'ArrowLeft': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.max(1, section.columns.length - 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, -1); break;
+        case 'ArrowRight': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.min(4, section.columns.length + 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, 1); break;
+        case 'ArrowUp': e.preventDefault(); patch({ style: { height: Math.min(10, w.style.height + 1) } }); break;
+        case 'ArrowDown': e.preventDefault(); patch({ style: { height: Math.max(0, w.style.height - 1) } }); break;
+        case '+': case '=': e.preventDefault(); patch({ style: { height: Math.min(10, w.style.height + 1) } }); break;
+        case '-': case '_': e.preventDefault(); patch({ style: { height: Math.max(0, w.style.height - 1) } }); break;
         case 'x': case 'X': e.preventDefault(); patchFundWidget(selectedWidget, { visible: false }); setSelectedWidget(null); break;
         case 'Escape': setSelectedWidget(null); break;
       }
@@ -3088,15 +3112,6 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     </div>
   );
 
-  /** Section grid class for the fund flow (static � scanner-safe). */
-  function fundSectionGridClass(columns: 1 | 2 | 3 | 4): string {
-    switch (columns) {
-      case 1: return 'lg:grid-cols-1';
-      case 2: return 'md:grid-cols-2';
-      case 3: return 'md:grid-cols-2 lg:grid-cols-3';
-      case 4: return 'md:grid-cols-2 lg:grid-cols-4';
-    }
-  }
 
   // -- Fund widget content switch (closure over fund-page state) --------------
   const fundWidgetContent = (widgetId: string, shellProps: Record<string, unknown>, heightStyle?: React.CSSProperties) => {
@@ -4241,57 +4256,44 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           <p className="text-[10px] text-muted-foreground">
             Hover a section on the page and click the <span className="font-bold text-foreground">columns icon</span> to change its layout · drag cards (or these rows) to move them · click a card to select it, then use the keyboard: ←/→ move, Shift+←/→ columns, ↑/↓ height, X hides · eye toggles visibility.
           </p>
-          {/* Navigator: sections → widget rows (mirrors the page tree) */}
+          {/* Navigator: view-only structure tree (edits happen on the page) */}
           <div className="space-y-2">
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">
+              Structure — edit on the page below (drag cards, hover sections for columns)
+            </p>
             {fundLayout.sections.map((s, si) => (
               <div key={s.id} className={`${TILE} p-2.5 space-y-1.5`}>
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns} column{s.columns > 1 ? 's' : ''}
+                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns.length} column{s.columns.length > 1 ? 's' : ''}
                   </span>
-                  <StructurePicker columns={s.columns} onPick={(c) => setFundColumns(s.id, c)} align="right" />
+                  <StructurePicker columns={Math.min(4, s.columns.length) as 1 | 2 | 3 | 4} onPick={(c) => setFundColumns(s.id, c)} />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {s.widgets.map((w) => {
-                    const meta = FUND_WIDGET_META[w.id as FundWidgetId];
-                    return (
-                      <div
-                        key={w.id}
-                        draggable
-                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id as FundWidgetId); }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => { e.preventDefault(); if (fundDrag && fundDrag !== w.id) placeFundWidget(fundDrag, s.id, w.id); setFundDrag(null); }}
-                        onClick={() => setSelectedWidget(w.id)}
-                        className={`flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-lg border text-[10px] font-bold cursor-grab active:cursor-grabbing transition-all ${TILE} ${w.visible ? '' : 'opacity-45'} ${fundDrag === w.id ? 'opacity-40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70' : ''}`}
-                      >
-                        <GripVertical className="w-3 h-3 text-zinc-400" />
-                        <span className="max-w-[110px] truncate">{meta?.label ?? w.id}</span>
-                        <div className="flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.min(10, w.height + 1) }); }}
-                            title="Taller (+40px)"
-                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                  {s.columns.map((col) => (
+                    <div key={col.id} className="rounded-lg border border-border/40 p-1.5 space-y-1 min-w-[110px]">
+                      <p className="text-[8px] font-mono font-bold uppercase tracking-wider text-muted-foreground/70">col ×{col.width}</p>
+                      {col.elements.map((el) => {
+                        const meta = FUND_WIDGET_META[el.id as FundWidgetId];
+                        return (
+                          <div
+                            key={el.id}
+                            className={`flex items-center gap-1 px-1.5 py-1 rounded-md border text-[10px] font-bold ${TILE} ${el.visible ? '' : 'opacity-45'} ${selectedWidget === el.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70' : ''}`}
+                            onClick={() => setSelectedWidget(el.id)}
                           >
-                            +
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.max(0, w.height - 1) }); }}
-                            title="Shorter (−40px)"
-                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
-                          >
-                            −
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { visible: !w.visible }); }}
-                            title={w.visible ? 'Hide' : 'Show'}
-                            className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
-                          >
-                            {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                            <span className="max-w-[100px] truncate">{meta?.label ?? el.id}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); patchFundWidget(el.id, { visible: !el.visible }); }}
+                              title={el.visible ? 'Hide' : 'Show'}
+                              className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
+                            >
+                              {el.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -4299,63 +4301,90 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         </div>
       )}
 
-      {/* ─── LAYOUT-DRIVEN WIDGET FLOW (sections × columns) ─────────────────── */}
+      {/* ─── LAYOUT-DRIVEN WIDGET FLOW (sections → columns → elements) ──────── */}
       <div
         className={`space-y-5${fundCustomizing ? ' fund-customizing' : ''}`}
         onClick={(e) => { if (fundCustomizing && e.target === e.currentTarget) setSelectedWidget(null); }}
       >
       {fundLayout.sections.map((section) => {
-        const visibleWidgets = section.widgets.filter((w) => w.visible);
-        if (visibleWidgets.length === 0) return null;
+        const visibleCount = section.columns.flatMap((c) => c.elements).filter((e) => e.visible).length;
+        if (visibleCount === 0) return null;
         return (
           <SectionShell
             key={section.id}
             editing={fundCustomizing}
-            columns={section.columns}
-            onColumns={(c) => setFundColumns(section.id, c)}
-            onDelete={() => { for (const w of section.widgets) patchFundWidget(w.id, { visible: false }); }}
+            gap={section.gap}
+            padding={section.padding}
+            onSpacing={(p) => patchFundSection(section.id, p)}
+            columns={section.columns.length}
+            onColumns={(count) => setFundColumns(section.id, count)}
+            onDelete={() => {
+              for (const col of section.columns) for (const el of col.elements) patchFundWidget(el.id, { visible: false });
+            }}
           >
-            <div
-              className={`grid grid-cols-1 gap-5 ${fundSectionGridClass(section.columns)} ${fundCustomizing ? 'p-3 rounded-2xl' : ''}`}
-              onDragOver={(e) => { if (fundDrag) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-              onDrop={(e) => {
-                if (!fundDrag) return;
-                e.preventDefault();
-                placeFundWidget(fundDrag, section.id, null);
-                setFundDrag(null);
-              }}
-            >
-            {visibleWidgets.map((w) => {
-              const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
-              const shellProps = {
-                customizing: fundCustomizing,
-                dragId: fundDrag,
-                columns: section.columns,
-                selected: selectedWidget === w.id,
-                onDragStart: (id: FundWidgetId) => setFundDrag(id),
-                onResizeStart: onWidgetResizeStart,
-                onSelectWidget: setSelectedWidget,
-              };
-              return (
-                <div
-                  key={w.id}
-                  onDragOver={(e) => { if (fundDrag && fundDrag !== w.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                  onDrop={(e) => {
-                    if (!fundDrag || fundDrag === w.id) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    placeFundWidget(fundDrag, section.id, w.id);
-                    setFundDrag(null);
-                  }}
-                >
-                  <FundWidgetRenderer
-                    widgetId={w.id}
-                    {...shellProps}
-                    heightStyle={heightCls}
-                  />
-                </div>
-              );
-            })}
+            <div className={fundCustomizing ? 'p-3 rounded-2xl' : ''}>
+              <div className={`flex flex-col md:flex-row ${SECTION_GAP_CLASS[section.gap]}`}>
+                {section.columns.map((col) => (
+                  <ColumnShell
+                    key={col.id}
+                    editing={fundCustomizing}
+                    width={col.width}
+                    onWidth={(w) => setFundColWidth(col.id, w)}
+                    elementCount={col.elements.length}
+                    dragging={!!fundDrag}
+                    onDropInColumn={() => {
+                      if (fundDrag) placeFundWidget(fundDrag, { sectionId: section.id, columnId: col.id, elementIdx: null });
+                      setFundDrag(null);
+                    }}
+                  >
+                    <div className={`flex flex-col ${SECTION_GAP_CLASS[section.gap]}`}>
+                      {col.elements.filter((el) => el.visible).map((el) => {
+                        const elIdx = col.elements.findIndex((x) => x.id === el.id);
+                        return (
+                          <ElementShell
+                            key={el.id}
+                            editing={fundCustomizing}
+                            label={FUND_WIDGET_META[el.id as FundWidgetId]?.label ?? el.id}
+                            style={el.style}
+                            onStyle={(p) => patchFundWidget(el.id, { style: p })}
+                            visible={el.visible}
+                            onToggleVisible={() => patchFundWidget(el.id, { visible: !el.visible })}
+                            dragging={fundDrag === el.id}
+                            dragOver={!!fundDrag && fundDrag !== el.id && fundDragOverId === el.id}
+                            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(el.id as FundWidgetId); }}
+                            onDragEnd={() => { setFundDrag(null); setFundDragOverId(null); }}
+                            onDragOverElement={(e) => {
+                              if (fundDrag && fundDrag !== el.id) { e.preventDefault(); e.stopPropagation(); setFundDragOverId(el.id); }
+                            }}
+                            onDropOnElement={(e) => {
+                              if (!fundDrag || fundDrag === el.id) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              placeFundWidget(fundDrag, { sectionId: section.id, columnId: col.id, elementIdx: elIdx });
+                              setFundDrag(null);
+                              setFundDragOverId(null);
+                            }}
+                          >
+                            <div className={ELEM_PAD_CLASS[el.style.padding]}>
+                              <FundWidgetRenderer
+                                widgetId={el.id}
+                                customizing={fundCustomizing}
+                                dragId={fundDrag}
+                                columns={section.columns.length}
+                                selected={selectedWidget === el.id}
+                                onDragStart={(id: FundWidgetId) => setFundDrag(id)}
+                                onResizeStart={onWidgetResizeStart}
+                                onSelectWidget={setSelectedWidget}
+                                heightStyle={el.style.height > 0 ? { minHeight: `${el.style.height * 40}px` } : undefined}
+                              />
+                            </div>
+                          </ElementShell>
+                        );
+                      })}
+                    </div>
+                  </ColumnShell>
+                ))}
+              </div>
             </div>
           </SectionShell>
         );

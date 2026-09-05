@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
-  defaultLayout, layoutFromPreset, migrateV1toV2, normalizeLayout, newSectionId,
-  type PageDefinition, type PageLayoutV1,
+  defaultLayout, layoutFromPreset, migrateV1toV3, migrateV2toV3, normalizeLayout,
+  newSectionId, allElementIds, type PageDefinition, type PageLayoutV1, type PageLayoutV2, type PageLayout, type Section,
 } from './types';
-import { patched, placeWidget, setSectionColumns, addWidget, removeWidget, nudged, loadLayout } from './layout';
+import {
+  patched, placeElement, setColumnCount, setColumnWidth, addElement, removeElement,
+  nudged, loadLayout, patchSection, 
+} from './layout';
 
 const DEF: PageDefinition = {
   pageId: 'test',
@@ -16,121 +19,186 @@ const DEF: PageDefinition = {
     e: { label: 'E', defaultSpan: 1 },
   },
   presets: [
-    { id: 'p1', name: 'P1', desc: '', preview: [], sections: [[2, 'a'], [2, 'b', 'c'], [4, 'd', 'e']] },
+    { id: 'p1', name: 'P1', desc: '', preview: [], sections: [
+      { widths: [1], elements: ['a'] },
+      { widths: [1, 1], elements: ['b', 'c'] },
+      { widths: [1, 1, 1, 1], elements: ['d', 'e'] },
+    ] },
   ],
 };
 
-describe('customize kernel — v2 schema', () => {
-  it('builds a default layout grouping widgets by span', () => {
+/** Re-find a section by id in the CURRENT layout (ops clone the tree). */
+function sec(l: PageLayout, id: string): Section {
+  const s = l.sections.find((x) => x.id === id);
+  if (!s) throw new Error(`section ${id} not found`);
+  return s;
+}
+
+describe('customize kernel — v3 section → column → element', () => {
+  it('builds a default layout: one section per defaultSpan group', () => {
     const l = defaultLayout(DEF);
-    expect(l.version).toBe(2);
-    // a(4) → 1-col; b,c(2) → 2-col; d,e(1) → 4-col
-    expect(l.sections.map((s) => s.columns)).toEqual([1, 2, 4]);
-    expect(l.sections.flatMap((s) => s.widgets.map((w) => w.id))).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(l.version).toBe(3);
+    expect(l.sections).toHaveLength(3);
+    expect(allElementIds(l)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(l.sections[0].columns).toHaveLength(1);
+    expect(l.sections[1].columns).toHaveLength(2);
+    expect(l.sections[2].columns).toHaveLength(2); // d,e share a 4-capacity section
   });
 
-  it('builds a preset into sections with a trailing overflow section', () => {
+  it('preset: one column per width entry; elements distributed', () => {
     const l = layoutFromPreset(DEF, DEF.presets[0]);
-    expect(l.sections.map((s) => s.columns)).toEqual([2, 2, 4]);
-    // All widgets placed, none left over
-    expect(l.sections.flatMap((s) => s.widgets.map((w) => w.id))).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(allElementIds(l)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const s2 = l.sections[1];
+    expect(s2.columns).toHaveLength(2);
+    expect(s2.columns[0].elements.map((e) => e.id)).toEqual(['b']);
+    expect(s2.columns[1].elements.map((e) => e.id)).toEqual(['c']);
   });
 
-  it('migrates v1 flat layouts (run-length grouping by span)', () => {
+  it('elements stack inside a column (many per column)', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    const col0 = l.sections[1].columns[0].id;
+    l = placeElement(l, 'c', { sectionId: sec2Id, columnId: col0, elementIdx: null });
+    const s2 = sec(l, sec2Id);
+    expect(s2.columns[0].elements.map((e) => e.id)).toEqual(['b', 'c']);
+    // Emptied source column auto-pruned
+    expect(s2.columns).toHaveLength(1);
+  });
+
+  it('placeElement inserts at a precise element index', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    const col0 = l.sections[1].columns[0].id;
+    l = placeElement(l, 'c', { sectionId: sec2Id, columnId: col0, elementIdx: 0 });
+    expect(sec(l, sec2Id).columns[0].elements.map((e) => e.id)).toEqual(['c', 'b']);
+  });
+
+  it('placeElement moves across sections and prunes emptied columns', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    const sec3Id = l.sections[2].id;
+    const sec3col0 = l.sections[2].columns[0].id;
+    l = placeElement(l, 'b', { sectionId: sec3Id, columnId: sec3col0, elementIdx: null });
+    const s2 = sec(l, sec2Id);
+    expect(s2.columns).toHaveLength(1);
+    expect(s2.columns[0].elements.map((e) => e.id)).toEqual(['c']);
+    expect(sec(l, sec3Id).columns[0].elements.map((e) => e.id)).toContain('b');
+  });
+
+  it('setColumnCount redistributes elements row-major', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    l = setColumnCount(l, sec2Id, 1);
+    let s2 = sec(l, sec2Id);
+    expect(s2.columns).toHaveLength(1);
+    expect(s2.columns[0].elements.map((e) => e.id)).toEqual(['b', 'c']);
+    l = setColumnCount(l, sec2Id, 2);
+    s2 = sec(l, sec2Id);
+    expect(s2.columns[0].elements.map((e) => e.id)).toEqual(['b']);
+    expect(s2.columns[1].elements.map((e) => e.id)).toEqual(['c']);
+  });
+
+  it('setColumnWidth changes only the target column', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    const col0 = l.sections[1].columns[0].id;
+    l = setColumnWidth(l, col0, 3);
+    const s2 = sec(l, sec2Id);
+    expect(s2.columns[0].width).toBe(3);
+    expect(s2.columns[1].width).toBe(1);
+  });
+
+  it('patched sets element style + visibility independently of layout', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    l = patched(l, 'b', { style: { height: 3, padding: 'md', align: 'center' }, visible: false });
+    const b = l.sections[1].columns[0].elements[0];
+    expect(b.style.height).toBe(3);
+    expect(b.style.padding).toBe('md');
+    expect(b.style.align).toBe('center');
+    expect(b.visible).toBe(false);
+    expect(l.sections[1].columns[1].elements[0].visible).toBe(true);
+  });
+
+  it('patchSection sets gap/padding without touching elements', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec1Id = l.sections[0].id;
+    l = patchSection(l, sec1Id, { gap: 24, padding: 'sm' });
+    expect(sec(l, sec1Id).gap).toBe(24);
+    expect(sec(l, sec1Id).padding).toBe('sm');
+    expect(allElementIds(l)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('nudge reorders within a column, then spills to the neighbour', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    const sec2Id = l.sections[1].id;
+    const col0 = l.sections[1].columns[0].id;
+    l = placeElement(l, 'c', { sectionId: sec2Id, columnId: col0, elementIdx: null });
+    l = nudged(l, 'c', -1);
+    expect(sec(l, sec2Id).columns[0].elements.map((e) => e.id)).toEqual(['c', 'b']);
+  });
+
+  it('addElement puts a library widget into a column or new section', () => {
+    let l = layoutFromPreset(DEF, DEF.presets[0]);
+    l = removeElement(l, 'e');
+    expect(allElementIds(l)).not.toContain('e');
+    const sec1Id = l.sections[0].id;
+    const col0 = l.sections[0].columns[0].id;
+    l = addElement(l, DEF, 'e', col0);
+    expect(sec(l, sec1Id).columns[0].elements.map((e) => e.id)).toEqual(['a', 'e']);
+    const before = allElementIds(l);
+    l = addElement(l, DEF, 'e', null);
+    expect(allElementIds(l)).toEqual(before);
+  });
+
+  it('migrates v1 flat layouts', () => {
     const v1: PageLayoutV1 = {
       version: 1,
       widgets: [
         { id: 'a', visible: true, span: 4 },
         { id: 'b', visible: true, span: 2 },
         { id: 'c', visible: true, span: 2 },
-        { id: 'd', visible: true, span: 1 },
-        { id: 'e', visible: true, span: 1 },
       ],
     };
-    const l = migrateV1toV2(v1);
-    expect(l.version).toBe(2);
-    expect(l.sections.map((s) => s.columns)).toEqual([1, 2, 4]);
-    expect(l.sections.every((s) => s.id.startsWith('sec-'))).toBe(true);
+    const l = migrateV1toV3(v1);
+    expect(l.version).toBe(3);
+    expect(allElementIds(l)).toEqual(['a', 'b', 'c']);
   });
 
-  it('normalizeLayout upgrades stored v1 and appends unknown widgets', () => {
-    const stored = { version: 1, widgets: [{ id: 'a', visible: true, span: 4 }] };
-    const l = normalizeLayout(DEF, stored);
-    expect(l.version).toBe(2);
-    const ids = l.sections.flatMap((s) => s.widgets.map((w) => w.id));
-    expect(ids).toContain('a');
-    // b–e were never in storage → appended
-    for (const id of ['b', 'c', 'd', 'e']) expect(ids).toContain(id);
-  });
-
-  it('normalizeLayout validates v2 sections and drops unknown widget ids', () => {
-    const stored = {
+  it('migrates v2 sections (one widget per slot)', () => {
+    const v2: PageLayoutV2 = {
       version: 2,
       sections: [
-        { id: 's1', columns: 2, widgets: [{ id: 'a', visible: true, height: 0 }, { id: 'zzz', visible: true, height: 0 }] },
+        { columns: 2, widgets: [{ id: 'b', visible: true, height: 0 }, { id: 'c', visible: true, height: 0 }] },
       ],
     };
-    const l = normalizeLayout(DEF, stored);
-    // s1 kept (unknown widget dropped) + one overflow section with b–e
-    expect(l.sections).toHaveLength(2);
-    expect(l.sections[0].widgets.map((w) => w.id)).toEqual(['a']);
-    // Rest appended
-    expect(l.sections[1].widgets.map((w) => w.id).sort()).toEqual(['b', 'c', 'd', 'e']);
+    const l = migrateV2toV3(v2);
+    expect(allElementIds(l)).toEqual(['b', 'c']);
+    expect(l.sections[0].columns).toHaveLength(2);
   });
 
-  it('setSectionColumns reflows overflow into a new section', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]); // [a] [b c] [d e]
-    const sec2 = l.sections[1];
-    l = setSectionColumns(l, sec2.id, 1);
-    expect(l.sections[1].columns).toBe(1);
-    expect(l.sections[1].widgets.map((w) => w.id)).toEqual(['b']);
-    expect(l.sections[2].widgets.map((w) => w.id)).toEqual(['c']);
+  it('normalizeLayout handles v1, v2, v3 and appends unknown widgets', () => {
+    const l1 = normalizeLayout(DEF, { version: 1, widgets: [{ id: 'a', visible: true, span: 4 }] });
+    expect(allElementIds(l1)).toContain('a');
+    for (const id of ['b', 'c', 'd', 'e']) expect(allElementIds(l1)).toContain(id);
+
+    const l2 = normalizeLayout(DEF, { version: 2, sections: [{ columns: 2, widgets: [{ id: 'b', visible: true }] }] });
+    expect(allElementIds(l2)).toContain('b');
+
+    const l3 = normalizeLayout(DEF, {
+      version: 3,
+      sections: [{ id: 's1', gap: 16, padding: 'none', columns: [{ id: 'c1', width: 1, elements: [{ id: 'a', visible: true, style: { height: 2, width: 'auto', padding: 'none', align: 'stretch' } }] }] }],
+    });
+    expect(allElementIds(l3)).toContain('a');
+    expect(l3.sections[0].columns[0].elements[0].style.height).toBe(2);
+
+    const l4 = normalizeLayout(DEF, { version: 3, sections: [{ id: 's1', gap: 16, padding: 'none', columns: [{ id: 'c1', width: 1, elements: [{ id: 'zzz', visible: true, style: { height: 0, width: 'auto', padding: 'none', align: 'stretch' } }] }] }] });
+    expect(allElementIds(l4)).not.toContain('zzz');
+    expect(allElementIds(l4)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
-  it('placeWidget moves across sections', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]); // [a] [b c] [d e]
-    l = placeWidget(l, 'c', l.sections[0].id, null);
-    expect(l.sections[0].widgets.map((w) => w.id)).toEqual(['a', 'c']);
-    // 'b' remains in its own section; 'd','e' untouched
-    expect(l.sections).toHaveLength(3);
-    expect(l.sections[1].widgets.map((w) => w.id)).toEqual(['b']);
-  });
-
-  it('placeWidget prunes a section emptied by the move', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]); // [a] [b c] [d e]
-    // Move b into section 3, then c into section 3 — section 2 empties
-    l = placeWidget(l, 'b', l.sections[2].id, null);
-    l = placeWidget(l, 'c', l.sections[2].id, null);
-    expect(l.sections).toHaveLength(2);
-    expect(l.sections[1].widgets.map((w) => w.id)).toEqual(['d', 'e', 'b', 'c']);
-  });
-
-  it('patch toggles visibility anywhere in the tree', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]);
-    l = patched(l, 'd', { visible: false });
-    expect(l.sections[2].widgets[0].visible).toBe(false);
-  });
-
-  it('addWidget + removeWidget round-trip through hidden library', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]);
-    l = removeWidget(l, 'b');
-    expect(l.sections.flatMap((s) => s.widgets.map((w) => w.id))).not.toContain('b');
-    l = addWidget(l, DEF, 'b', l.sections[0].id);
-    expect(l.sections[0].widgets.map((w) => w.id)).toEqual(['a', 'b']);
-  });
-
-  it('nudge swaps within a section only', () => {
-    let l = layoutFromPreset(DEF, DEF.presets[0]);
-    l = nudged(l, 'c', -1); // c before b
-    expect(l.sections[1].widgets.map((w) => w.id)).toEqual(['c', 'b']);
-    l = nudged(l, 'c', 1);
-    expect(l.sections[1].widgets.map((w) => w.id)).toEqual(['b', 'c']);
-  });
-
-  it('loadLayout falls back to defaults on garbage', () => {
-    // No window in test env → default branch
+  it('loadLayout falls back to defaults without window', () => {
     const l = loadLayout(DEF);
-    expect(l.version).toBe(2);
+    expect(l.version).toBe(3);
     expect(l.sections.length).toBeGreaterThan(0);
   });
 

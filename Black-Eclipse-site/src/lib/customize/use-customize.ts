@@ -1,18 +1,17 @@
 'use client';
 
-// ── useCustomize — the single hook a customizable page consumes (v2) ────────
-// Wraps section-based layout state + persistence + pure ops for one page.
+// ── useCustomize — the single hook a customizable page consumes (v3) ────────
+// Wraps Section → Column → Element layout state + persistence + pure ops.
 
 import { useCallback, useEffect, useState } from 'react';
-import { defaultLayout, layoutFromPreset, type PageDefinition, type PageLayout, type ColumnCount } from './types';
+import { defaultLayout, layoutFromPreset, type ElementStyle, type PageDefinition, type PageLayout, type Section } from './types';
 import {
-  addWidget, allWidgets, clearLayout, loadLayout, placeWidget, patched,
-  removeWidget, saveLayout, setSectionColumns, nudged,
+  addElement, allElements, clearLayout, loadLayout, placeElement, patched,
+  patchSection, removeElement, saveLayout, setColumnCount, setColumnWidth, nudged,
 } from './layout';
 
 export function useCustomize(def: PageDefinition) {
   const [layout, setLayout] = useState<PageLayout>(() => defaultLayout(def));
-  // Hydrate from storage after mount (SSR-safe).
   useEffect(() => { setLayout(loadLayout(def)); }, [def]);
 
   const apply = useCallback((next: PageLayout) => {
@@ -20,7 +19,8 @@ export function useCustomize(def: PageDefinition) {
     saveLayout(def, next);
   }, [def]);
 
-  const patch = useCallback((id: string, p: Parameters<typeof patched>[2]) => {
+  /** Patch an element: visibility and/or per-element style. */
+  const patch = useCallback((id: string, p: { visible?: boolean; style?: Partial<ElementStyle> }) => {
     setLayout((prev) => {
       const next = patched(prev, id, p);
       saveLayout(def, next);
@@ -28,33 +28,51 @@ export function useCustomize(def: PageDefinition) {
     });
   }, [def]);
 
-  const place = useCallback((widgetId: string, sectionId: string, beforeId: string | null) => {
+  /** Patch section-level layout styling (gap/padding). */
+  const patchSec = useCallback((sectionId: string, p: Partial<Pick<Section, 'gap' | 'padding'>>) => {
     setLayout((prev) => {
-      const next = placeWidget(prev, widgetId, sectionId, beforeId);
+      const next = patchSection(prev, sectionId, p);
       saveLayout(def, next);
       return next;
     });
   }, [def]);
 
-  const setColumns = useCallback((sectionId: string, columns: ColumnCount) => {
+  /** Drop an element at section/column/element position (drag & drop core). */
+  const place = useCallback((elementId: string, target: { sectionId: string; columnId: string; elementIdx: number | null }) => {
     setLayout((prev) => {
-      const next = setSectionColumns(prev, sectionId, columns);
+      const next = placeElement(prev, elementId, target);
       saveLayout(def, next);
       return next;
     });
   }, [def]);
 
-  const add = useCallback((widgetId: string, sectionId: string | null) => {
+  const setColumns = useCallback((sectionId: string, count: 1 | 2 | 3 | 4) => {
     setLayout((prev) => {
-      const next = addWidget(prev, def, widgetId, sectionId);
+      const next = setColumnCount(prev, sectionId, count);
       saveLayout(def, next);
       return next;
     });
   }, [def]);
 
-  const remove = useCallback((widgetId: string) => {
+  const setColWidth = useCallback((columnId: string, width: 1 | 2 | 3 | 4) => {
     setLayout((prev) => {
-      const next = removeWidget(prev, widgetId);
+      const next = setColumnWidth(prev, columnId, width);
+      saveLayout(def, next);
+      return next;
+    });
+  }, [def]);
+
+  const add = useCallback((widgetId: string, columnId: string | null) => {
+    setLayout((prev) => {
+      const next = addElement(prev, def, widgetId, columnId);
+      saveLayout(def, next);
+      return next;
+    });
+  }, [def]);
+
+  const remove = useCallback((elementId: string) => {
+    setLayout((prev) => {
+      const next = removeElement(prev, elementId);
       saveLayout(def, next);
       return next;
     });
@@ -78,11 +96,11 @@ export function useCustomize(def: PageDefinition) {
     setLayout(defaultLayout(def));
   }, [def]);
 
-  const widgets = allWidgets(layout);
+  const widgets = allElements(layout);
   const visible = widgets.filter((w) => w.visible);
   return {
     layout, widgets, visible,
-    patch, place, setColumns, add, remove, nudge,
+    patch, patchSec, place, setColumns, setColWidth, add, remove, nudge,
     applyPreset, apply, reset,
   };
 }
