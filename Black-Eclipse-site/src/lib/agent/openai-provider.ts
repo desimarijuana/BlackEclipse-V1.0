@@ -1,9 +1,6 @@
-// OpenAI-compatible provider — works with OpenAI, and with Ollama / local
-// models via their OpenAI-compatible endpoints. Config via env:
-//   OPENAI_API_KEY + OPENAI_BASE_URL (default https://api.openai.com/v1)
-//   OPENAI_MODEL (default gpt-4o-mini)
-//   OLLAMA_BASE_URL (e.g. http://localhost:11434) + OLLAMA_MODEL
-// If OLLAMA_BASE_URL is set, it takes precedence (local, free).
+﻿// SERVER-ONLY module: transitively imports the Prisma/SQLite vault via
+// @/lib/settings. Never import this from client code — the registry wraps it
+// behind a dynamic `import()` instead.
 
 import type { ChatMessage, ToolCall } from "./loop";
 import { getLLMConfig } from "@/lib/settings";

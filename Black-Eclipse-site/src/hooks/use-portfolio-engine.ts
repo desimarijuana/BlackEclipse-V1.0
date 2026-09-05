@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Transaction } from '@/components/screens/my-portfolio';
+import type { Transaction } from '@/lib/portfolio/types';
 
 export interface PortfolioStats {
   /** Total portfolio value expressed in the base (reporting) currency USD. */

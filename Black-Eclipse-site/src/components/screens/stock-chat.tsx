@@ -26,10 +26,6 @@ const MarketNews = dynamic(() => import('./market-news').then((m) => m.MarketNew
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
-const MyPortfolio = dynamic(() => import('./my-portfolio').then((m) => m.MyPortfolio), {
-  ssr: false,
-  loading: () => <ScreenSkeleton />,
-});
 const EmbeddedChart = dynamic(() => import('./embedded-chart').then((m) => m.EmbeddedChart), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
@@ -40,6 +36,10 @@ const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m)
   loading: () => <ScreenSkeleton />,
 });
 const EconomicsScreen = dynamic(() => import('./economics/economics').then((m) => m.EconomicsScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
+const PortfolioScreen = dynamic(() => import('./portfolio').then((m) => m.PortfolioScreen), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
@@ -275,46 +275,73 @@ function StockChatContent() {
     appendAssistantReply(chatId, replyMsg);
   };
 
+  /** Inject a prompt and get a REAL answer from the research engine
+   *  (/api/agent/research) — never a canned fabricated reply. */
+  const runResearchPrompt = async (chatId: string, userText: string) => {
+    const thinkingMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
+    };
+    appendAssistantReply(chatId, thinkingMsg);
+    try {
+      const res = await fetch('/api/agent/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: userText }),
+      });
+      const data = await res.json();
+      const replyMsg: Message = {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: data.success
+          ? data.answer
+          : `Research failed: ${data.error || 'unknown error'}`,
+      };
+      appendAssistantReply(chatId, replyMsg);
+    } catch (err) {
+      const replyMsg: Message = {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
+      };
+      appendAssistantReply(chatId, replyMsg);
+    }
+  };
+
   const handleInjectPrompt = (ticker: string, promptType: 'research' | 'discuss', customContext?: string) => {
     setActiveTab('chat');
-    
+
     const customPrompt = promptType === 'research'
       ? `Generate a comprehensive AI research report on ${ticker} detailing financial health, P/E ratios, and growth vectors.`
       : `What is the market sentiment and outlook on ${ticker} given recent institutional activity?`;
-      
+
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: customPrompt };
     const chatId = addMessageToActiveChat(userMsg);
 
-    setTimeout(() => {
-      const replyMsg: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: customContext 
-          ? `Performing autonomous AI intelligence scan on "${ticker}"...\n\n${customContext}`
-          : `Performing autonomous AI intelligence scan on "${ticker}"... Analyzing P/E ratios, services revenue growth, and news sentiments. Technical indicators suggest immediate support thresholds are holding firmly, showing positive consolidation.`
+    if (customContext) {
+      // Caller-provided context (e.g. screener row data) is shown verbatim as
+      // data context, then real research runs on top of it.
+      const ctxMsg: Message = {
+        id: (Date.now() + 3).toString(),
+        role: 'assistant',
+        content: `Data context for "${ticker}":\n\n${customContext}`,
       };
-      appendAssistantReply(chatId, replyMsg);
-    }, 1000);
-    
+      appendAssistantReply(chatId, ctxMsg);
+    }
+    void runResearchPrompt(chatId, customContext ? `${customPrompt}\n\nContext data: ${customContext}` : customPrompt);
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDiscussNews = (news: NewsItem) => {
     setActiveTab('chat');
     const prompt = `Discuss the market implications of: "${news.headline}" for ${news.ticker || 'the market'}.`;
-    
+
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: prompt };
     const chatId = addMessageToActiveChat(userMsg);
+    void runResearchPrompt(chatId, prompt);
 
-    setTimeout(() => {
-      const replyMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Analyzing the bulletin from ${news.source} on ${news.ticker || 'assets'}. The sentiment is classified as "${news.sentiment.toUpperCase()}". This shifts our technical weights toward short-term momentum flags in related industry groups.`
-      };
-      appendAssistantReply(chatId, replyMsg);
-    }, 1000);
-    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -407,13 +434,6 @@ function StockChatContent() {
             </div>
           )}
 
-          {activeTab === 'market' && (
-            <MyPortfolio 
-              onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} 
-              onMarketStatusChange={setIsMarketBullish}
-            />
-          )}
-
           {activeTab === 'news' && (
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full scrollbar-hide pb-20">
               <div className="animate-fade-in-up w-full h-full flex flex-col">
@@ -461,6 +481,12 @@ function StockChatContent() {
           )}
 
           {activeTab === 'economics' && <EconomicsScreen />}
+
+          {activeTab === 'portfolio' && (
+            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+              <PortfolioScreen />
+            </div>
+          )}
 
           {activeTab === 'chart' && (
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">

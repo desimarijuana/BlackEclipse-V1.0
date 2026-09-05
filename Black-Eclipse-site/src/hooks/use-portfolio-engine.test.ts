@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computePortfolioStats } from "./use-portfolio-engine";
-import type { Transaction } from "@/components/screens/my-portfolio";
+import type { Transaction } from "@/lib/portfolio/types";
 
 // ── JDDS asset flow tests ────────────────────────────────────────────────────
 // A user can add ANY asset from the JDDS database (US, PK, IN, CN, CRYPTO, ...)

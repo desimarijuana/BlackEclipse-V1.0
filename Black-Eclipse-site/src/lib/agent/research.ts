@@ -12,8 +12,11 @@
 
 import { prisma } from "@/lib/db";
 import { runAgent } from "./loop";
-import { OpenAICompatibleProvider } from "./openai-provider";
 import { getTool } from "./tools";
+
+// Single agent entry point: research uses the same OpenAICompatibleProvider
+// the registry serves through /api/agent/chat — one provider implementation.
+import { OpenAICompatibleProvider } from "./openai-provider";
 
 export interface ResearchRequest {
   query: string;

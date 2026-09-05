@@ -4181,6 +4181,14 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         )}
 
         {screenerTab === 'etfs' && sectionVisible('table_etfs') && (
+          <div>
+            {apiEtfs.length === 0 && (
+              <div className="bg-amber-500/5 border border-amber-500/10 backdrop-blur-md rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
+                <Info className="w-4 h-4 shrink-0" />
+                <span className="text-xs font-semibold flex-1">SIMULATED DATA — no ETF universe loaded in JDDS; showing a curated demo list, not live prices.</span>
+                <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
+              </div>
+            )}
           <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
             <table className="w-full text-left border-collapse text-[11px]">
               <thead>
@@ -4258,9 +4266,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               </tbody>
             </table>
           </div>
+          </div>
         )}
 
         {screenerTab === 'funds' && sectionVisible('table_funds') && (
+          <div>
+            {apiFunds.length === 0 && (
+              <div className="bg-amber-500/5 border border-amber-500/10 backdrop-blur-md rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
+                <Info className="w-4 h-4 shrink-0" />
+                <span className="text-xs font-semibold flex-1">SIMULATED DATA — no fund universe loaded in JDDS; showing a curated demo list, not live NAVs.</span>
+                <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
+              </div>
+            )}
           <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
             <table className="w-full text-left border-collapse text-[11px]">
               <thead>
@@ -4355,10 +4372,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               </tbody>
             </table>
           </div>
+          </div>
         )}
 
         {screenerTab === 'dividend_stocks' && sectionVisible('table_dividend') && (
-          <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
+          <div>
+            {/* Dividend stocks are a curated static list — never live prices. */}
+            <div className="bg-amber-500/5 border border-amber-500/10 backdrop-blur-md rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
+              <Info className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-semibold flex-1">SIMULATED DATA — dividend stock rows are a curated demo list, not live market prices.</span>
+              <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
+            </div>
+            <div className="w-full overflow-x-auto custom-scrollbar bg-[#0f0f0f]/40 dark:bg-[#0f0f0f]/40 bg-white/50 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-md">
             <table className="w-full text-left border-collapse text-[11px]">
               <thead>
                 <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
@@ -4438,6 +4463,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 )}
               </tbody>
             </table>
+          </div>
           </div>
         )}
       </div>

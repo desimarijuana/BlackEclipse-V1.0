@@ -5,6 +5,14 @@
 export async function register() {
   console.log("[startup] instrumentation register() running");
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Expose whether a real LLM provider is configured so the client registry
+    // (which cannot read server env from a bundled build) can pick the right
+    // provider without shipping server code to the browser.
+    const llmConfigured =
+      Boolean(process.env.OPENAI_API_KEY) ||
+      Boolean(process.env.OLLAMA_BASE_URL) ||
+      Boolean(process.env.ANTHROPIC_API_KEY);
+    process.env.NEXT_PUBLIC_LLM_CONFIGURED = llmConfigured ? "1" : "0";
     // Dynamic import keeps this out of the client bundle.
     const { startScheduler, warmUpAllMarkets, startUniverseSync } = await import("@/lib/scraper/scheduler");
     const { seedUniverse } = await import("@/lib/scraper/price-scraper");

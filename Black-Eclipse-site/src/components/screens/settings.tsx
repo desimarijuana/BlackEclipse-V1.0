@@ -671,16 +671,12 @@ export function Settings() {
                 <Panel className="divide-y divide-border/10">
                   {[
                     { label: "AI Model", ok: integrations?.llm.configured, detail: integrations ? `${integrations.llm.provider} · ${integrations.llm.model}` : "—" },
-                    { label: "Finnhub", ok: integrations?.finnhub, detail: integrations?.finnhub ? "API key set" : "Not configured" },
-                    { label: "Binance", ok: integrations?.binance, detail: integrations?.binance ? "API key set" : "Not configured (public API used)" },
-                    { label: "CoinGecko", ok: integrations?.coingecko, detail: integrations?.coingecko ? "API key set" : "Not configured" },
                     { label: "Yahoo Finance", ok: integrations?.yahoo, detail: integrations?.yahoo ? "Enabled" : "Disabled" },
                     { label: "FRED (Economics)", ok: integrations?.fred, detail: integrations?.fred ? "API key set" : "Set FRED_API_KEY to enable" },
                     { label: "BEA (Economics)", ok: integrations?.bea, detail: integrations?.bea ? "API key set" : "Set BEA_API_KEY to enable" },
                     { label: "BLS (Economics)", ok: integrations?.bls, detail: integrations?.bls ? "API key set" : "Optional — public limits apply" },
                     { label: "Trading Economics", ok: integrations?.tradingEconomics, detail: integrations?.tradingEconomics ? "API key set" : "Set TRADING_ECONOMICS_API_KEY to enable" },
                     { label: "AkShare (China)", ok: integrations?.akshare, detail: integrations?.akshare ? "API key set" : "Set AKSHARE_API_KEY to enable" },
-                    { label: "Auth", ok: integrations?.auth, detail: integrations?.auth ? "Configured" : "Guest mode" },
                     { label: "Database (JDDS)", ok: integrations?.database, detail: "Connected" },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors">

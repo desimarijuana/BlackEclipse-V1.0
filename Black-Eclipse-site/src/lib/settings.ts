@@ -235,9 +235,10 @@ export async function setPreferences(prefs: Partial<AppPreferences>): Promise<Ap
 
 export interface IntegrationStatus {
   llm: { provider: string; model: string; configured: boolean };
-  finnhub: boolean;
-  binance: boolean;
-  coingecko: boolean;
+  // Only integrations that are actually WIRED at runtime are reported here.
+  // Keys that exist in .env but have zero runtime usage (FINNHUB, SUPABASE,
+  // BINANCE_API_KEY, COINGECKO, BETTER_AUTH) are deliberately omitted —
+  // reporting them "connected" was a lie.
   yahoo: boolean;
   // Economics sources — truthful key status (never report connected without a key).
   fred: boolean;
@@ -245,7 +246,6 @@ export interface IntegrationStatus {
   bls: boolean;
   tradingEconomics: boolean;
   akshare: boolean;
-  auth: boolean;
   database: boolean;
 }
 
@@ -257,16 +257,12 @@ export async function getIntegrationsStatus(): Promise<IntegrationStatus> {
       model: llm.model,
       configured: llm.provider !== "mock",
     },
-    finnhub: Boolean(process.env.FINNHUB_API_KEY),
-    binance: Boolean(process.env.BINANCE_API_KEY),
-    coingecko: Boolean(process.env.COINGECKO_API_KEY),
     yahoo: process.env.YAHOO_FINANCE_ENABLED === "true",
     fred: Boolean(process.env.FRED_API_KEY),
     bea: Boolean(process.env.BEA_API_KEY),
     bls: Boolean(process.env.BLS_API_KEY),
     tradingEconomics: Boolean(process.env.TRADING_ECONOMICS_API_KEY),
     akshare: Boolean(process.env.AKSHARE_API_KEY),
-    auth: Boolean(process.env.BETTER_AUTH_SECRET),
     database: true,
   };
 }
