@@ -19,6 +19,12 @@
 }
 .fund-widget-flow > * {
   min-width: 0;
+  /* Don't stretch cards to fill a row made taller by a height-boosted
+   * neighbour — that's what caused uneven vertical gaps between rows. */
+  align-self: start;
+}
+.fund-widget-flow > * > * {
+  height: 100%;
 }
 @media (min-width: 1024px) {
   .fund-widget-flow:not(.customizing) {
@@ -26,9 +32,16 @@
     grid-auto-flow: dense;
   }
 }
-/* Overview dashboard: only rows that mix spans need dense packing. */
+/* Overview dashboard: dense packing + no stretch so a taller widget doesn't
+ * drag its row-mates down with it. */
 .overview-widget-grid {
   grid-auto-flow: row;
+}
+.overview-widget-grid > * {
+  align-self: start;
+}
+.overview-widget-grid > * > * {
+  height: 100%;
 }
 @media (min-width: 1024px) {
   .overview-widget-grid {
@@ -36,14 +49,16 @@
   }
 }
 
-/* Edit-mode banner: a slim frosted-grey strip shown above the customize
- * panel so users always know they are in layout-editing mode. */
+/* Edit-mode banner: a slim dark frosted strip shown above the customize
+ * panel. Backdrop blur hides the page behind it — content blurs out, not
+ * shows through. */
 .edit-mode-banner {
-  background: linear-gradient(90deg, rgba(120, 120, 130, 0.18), rgba(120, 120, 130, 0.06) 70%, transparent);
-  border: 1px solid rgba(130, 130, 140, 0.28);
+  background: rgba(24, 24, 27, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 0.6rem;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 @custom-variant dark (&:is(.dark *));

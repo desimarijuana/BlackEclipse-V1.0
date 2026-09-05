@@ -34,11 +34,11 @@ import {
 // portfolio-watchlist so every screen looks consistent.
 const PANEL = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm';
 const TILE = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-xl';
-// Frosted-glass grey — solid, clearly visible affordances for edit/customize
-// mode. Handles & grips need real contrast (no faint opacity ghosts), so they
-// use a neutral grey glass with a white hairline and stronger shadow.
-const EDIT_HANDLE = 'bg-zinc-400/70 dark:bg-zinc-500/50 border border-white/40 dark:border-white/20 shadow-md';
-const EDIT_GRIP = 'bg-zinc-500/30 dark:bg-zinc-400/20 border border-white/30 dark:border-white/15';
+// Frosted-glass grey — dark neutral glass with backdrop blur for edit/customize
+// mode. The page behind blurs out instead of showing through, and the handles
+// keep solid contrast (no faint opacity ghosts).
+const EDIT_HANDLE = 'bg-zinc-700/80 dark:bg-zinc-800/85 bg-zinc-500/80 backdrop-blur-md border border-white/25 dark:border-white/15 shadow-lg';
+const EDIT_GRIP = 'bg-zinc-700/70 dark:bg-zinc-800/75 bg-zinc-500/70 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-md';
 const UP = '#34d399';
 const DOWN = '#fb7185';
 
@@ -591,8 +591,6 @@ interface FundWidgetShellProps {
   children: React.ReactNode;
 }
 
-const SELECT_RING = 'outline outline-2 outline-zinc-500/80 dark:outline-zinc-400/70 outline-offset-2';
-
 /** Wraps a fund-page widget. In edit mode the whole card is draggable,
  * click-to-select enables keyboard nudge/resize (arrows move order, Shift+
  * arrows / +/- resize, X hides), and edge/corner handles appear on hover for
@@ -602,29 +600,43 @@ function FundWidgetShell({
   id, customizing, dragId, span, onDragStart, onDrop, onResizeStart, onSelectWidget, heightStyle, children,
 }: FundWidgetShellProps) {
   const spanCls = FUND_SPAN_CLASS[span];
+  const [dropHint, setDropHint] = useState(false);
   if (!customizing) {
     return <div className={spanCls} style={heightStyle}>{children}</div>;
   }
   return (
     <div
-      className={`${spanCls} relative group/shell ${dragId === id ? SELECT_RING : ''}`}
+      className={`${spanCls} relative group/shell transition-all duration-150 ${dragId === id ? 'opacity-50 scale-[0.98]' : ''}`}
       draggable
-      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart(id); }}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); onDrop(id); }}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        // Use the card itself as the drag ghost so the preview matches what
+        // the user grabbed (default ghost is the raw element at full size).
+        try { e.dataTransfer.setDragImage(document.querySelector(`[data-widget-card="${id}"]`) as HTMLElement, 80, 24); } catch { /* default ghost */ }
+        onDragStart(id);
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragEnter={(e) => { e.preventDefault(); if (dragId && dragId !== id) setDropHint(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropHint(false); }}
+      onDrop={(e) => { e.preventDefault(); setDropHint(false); onDrop(id); }}
+      onDragEnd={() => setDropHint(false)}
     >
-      {/* Card itself is the drag surface — edit outline + click to select */}
+      {/* Card itself is the drag surface — edit outline + drop-target ring */}
       <div
-        className={`rounded-2xl ring-1 ring-zinc-400/50 dark:ring-zinc-500/40 outline-dashed outline-1 outline-zinc-400/30 dark:outline-zinc-500/25 outline-offset-2 transition-opacity cursor-grab active:cursor-grabbing ${dragId === id ? 'opacity-40' : ''}`}
+        className={`rounded-2xl ring-1 transition-all duration-150 cursor-grab active:cursor-grabbing outline-dashed outline-1 outline-offset-2 outline-zinc-400/30 dark:outline-zinc-500/25 ${
+          dropHint
+            ? 'ring-2 ring-zinc-300/90 dark:ring-zinc-300/80 ring-offset-2 ring-offset-transparent shadow-[0_0_0_5px_rgba(161,161,170,0.18)] scale-[1.01]'
+            : 'ring-zinc-400/50 dark:ring-zinc-500/40'
+        }`}
         style={heightStyle}
         data-widget-card={id}
         onClick={(e) => { e.stopPropagation(); onSelectWidget(id); }}
       >
         {children}
       </div>
-      {/* Floating drag pill — top edge, solid frosted grey, always visible in edit mode */}
+      {/* Floating drag pill — top edge, dark frosted grey; hidden while this card is being dragged */}
       <span
-        className={`absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-800 dark:text-zinc-200 tracking-wider uppercase select-none`}
+        className={`absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase select-none transition-opacity ${dragId === id ? 'opacity-0' : ''}`}
       >
         <GripVertical className="w-2.5 h-2.5" /> {id}
       </span>
@@ -634,7 +646,7 @@ function FundWidgetShell({
         className={`absolute -bottom-1.5 -right-1.5 w-5 h-5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} group-hover/shell:scale-125 transition-transform z-30 flex items-center justify-center`}
         title="Drag to resize (width + height)"
       >
-        <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 text-zinc-700 dark:text-zinc-300">
+        <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 text-zinc-200">
           <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
         </svg>
       </div>
@@ -644,7 +656,7 @@ function FundWidgetShell({
         className={`absolute -left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag right to widen"
       >
-        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-700 dark:text-zinc-300">
+        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-200">
           <path d="M6 2L2 6l4 4M2 2l4 4-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
           <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
@@ -654,7 +666,7 @@ function FundWidgetShell({
         className={`absolute -right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag left to narrow"
       >
-        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-700 dark:text-zinc-300">
+        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-200">
           <path d="M2 2l4 4-4 4M6 2L2 6l4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
           <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
@@ -665,7 +677,7 @@ function FundWidgetShell({
         className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag down to make taller"
       >
-        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-700 dark:text-zinc-300">
+        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-200">
           <path d="M2 6l4-4 4 4M2 2l4 4 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
           <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
@@ -675,7 +687,7 @@ function FundWidgetShell({
         className={`absolute -top-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag up to make shorter"
       >
-        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-700 dark:text-zinc-300">
+        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-200">
           <path d="M2 2l4 4 4-4M2 6l4-4 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
           <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
@@ -749,7 +761,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'trader',
     name: 'Trader',
     desc: 'Performance & risk up top, tables at the bottom',
-    preview: [{ span: 4 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    preview: [{ span: 4 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'performance', span: 3, height: 0 },
@@ -775,7 +787,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'analyst',
     name: 'Analyst',
     desc: 'Big charts first — performance, exposure, Monte Carlo',
-    preview: [{ span: 4 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
+    preview: [{ span: 4 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'performance', span: 3, height: 0 },
@@ -801,7 +813,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'mosaic',
     name: 'Mosaic',
     desc: 'Dense mixed grid — two columns of small cards beside charts',
-    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }],
+    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 3 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'performance', span: 2, height: 1 },
@@ -827,7 +839,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'split',
     name: 'Split',
     desc: 'Left rail of small cards + wide chart column',
-    preview: [{ span: 4 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    preview: [{ span: 4 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 3 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'risk-radar', span: 1, height: 1 },
@@ -853,7 +865,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'rows',
     name: 'Rows',
     desc: 'Alternating wide/narrow — magazine-style rhythm',
-    preview: [{ span: 4 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    preview: [{ span: 4 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 1 }, { span: 3 }, { span: 2 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'performance', span: 1, height: 1 },
@@ -879,7 +891,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'compact',
     name: 'Compact',
     desc: 'Everything half-width — dense two-column dashboard',
-    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }],
+    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }],
     build: () => ['kpi-board', 'performance', 'allocation', 'health', 'holdings', 'watchlist', 'transactions', 'risk-metrics', 'risk-radar', 'correlation', 'stress', 'exposure-map', 'ai-insights', 'monte-carlo', 'rebalance', 'changes', 'cost-basis', 'tools']
       .map((id) => ({ id: id as FundWidgetId, visible: true, span: 2 as FundWidgetLayout['span'], height: 0 })),
   },
@@ -900,7 +912,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: A
     id: 'focus',
     name: 'Focus',
     desc: 'Hero chart + small risk cluster, tables tucked at bottom',
-    preview: [{ span: 4 }, { span: 4 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    preview: [{ span: 4 }, { span: 4 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 2 }],
     build: () => [
       { id: 'kpi-board', span: 4, height: 0 },
       { id: 'performance', span: 4, height: 0 },
@@ -1165,12 +1177,14 @@ function FundCard({
 
 /** Mini 4-column layout preview — renders each template's widget arrangement
  * as a tiny stacked-bar diagram so the user can see the layout before
- * applying. Hidden widgets render as hollow dashed slots. */
+ * applying. Hidden widgets render as hollow dashed slots. Capped at 7 rows;
+ * rows flex to fill the fixed-height container so nothing overflows. */
 function TemplateMiniGrid({ rows, cols = 4 }: { rows: Array<{ span: number; hidden?: boolean }>; cols?: number }) {
+  const visible = rows.slice(0, 7);
   return (
-    <div className="flex flex-col gap-[3px] h-9 w-full" aria-hidden>
-      {rows.map((r, i) => (
-        <div key={i} className="flex gap-[3px]" style={{ height: 6 }}>
+    <div className="flex flex-col gap-[3px] h-9 w-full overflow-hidden" aria-hidden>
+      {visible.map((r, i) => (
+        <div key={i} className="flex gap-[3px] flex-1 min-h-0">
           {r.span >= cols ? (
             <div className={`flex-1 rounded-[3px] ${r.hidden ? 'border border-dashed border-zinc-500/40 dark:border-zinc-400/30' : 'bg-zinc-400/60 dark:bg-zinc-500/40'}`} />
           ) : (
@@ -1407,7 +1421,7 @@ function OverviewView({
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(id); }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, id); setDragWidget(null); }}
-        className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1 px-2 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-800 dark:text-zinc-200 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105`}
+        className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1 px-2 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105`}
         title="Drag to reorder"
       >
         <GripVertical className="w-3 h-3" /> {id}
@@ -1603,7 +1617,7 @@ function OverviewView({
       {customizing && (
         <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Edit mode — drag, resize, or hide widgets below</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — drag, resize, or hide widgets below</p>
         </div>
       )}
 
@@ -1644,12 +1658,12 @@ function OverviewView({
                   key={w.id}
                   draggable
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                   onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, w.id); setDragWidget(null); }}
-                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing transition-all ${dragWidget === w.id ? 'ring-1 ring-zinc-500/70 opacity-40' : ''}`}
+                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing transition-all duration-150 ${dragWidget === w.id ? 'opacity-40 scale-[0.98]' : dragWidget ? 'ring-1 ring-zinc-400/50 dark:ring-zinc-400/40' : ''}`}
                 >
                   <span className={`flex items-center justify-center w-7 h-7 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
-                    <GripVertical className="w-4 h-4 text-zinc-700 dark:text-zinc-300" />
+                    <GripVertical className="w-4 h-4 text-zinc-200" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold truncate">{meta.label}</p>
@@ -1674,7 +1688,7 @@ function OverviewView({
                   <button
                     onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
                     title={w.visible ? 'Hide widget' : 'Show widget'}
-                    className={`p-1.5 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`p-1.5 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-200 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     {w.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   </button>
@@ -3548,7 +3562,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       {fundCustomizing && (
         <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Edit mode — drag, resize, or hide widgets below · applies to every fund</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — drag, resize, or hide widgets below · applies to every fund</p>
         </div>
       )}
 
@@ -3596,11 +3610,11 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => { e.preventDefault(); if (fundDrag) moveFundWidget(fundDrag, w.id); setFundDrag(null); }}
-                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing transition-all ${fundDrag === w.id ? 'ring-1 ring-zinc-500/70 opacity-40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70 bg-zinc-500/[0.10] dark:bg-zinc-400/[0.08]' : ''}`}
+                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing transition-all duration-150 ${fundDrag === w.id ? 'opacity-40 scale-[0.98]' : fundDrag ? 'ring-1 ring-zinc-400/50 dark:ring-zinc-400/40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70 bg-zinc-500/[0.10] dark:bg-zinc-400/[0.08]' : ''}`}
                   onClick={() => setSelectedWidget(w.id)}
                 >
                   <span className={`flex items-center justify-center w-6 h-6 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
-                    <GripVertical className="w-3.5 h-3.5 text-zinc-700 dark:text-zinc-300" />
+                    <GripVertical className="w-3.5 h-3.5 text-zinc-200" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold truncate">{meta.label}</p>
@@ -3639,7 +3653,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   <button
                     onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { visible: !w.visible }); }}
                     title={w.visible ? 'Hide' : 'Show'}
-                    className={`p-1 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`p-1 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-200 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     {w.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   </button>
