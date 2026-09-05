@@ -230,3 +230,8 @@ Data Sources
 **Decision:** The default market-data source is a free, built-in agentic scraper; user APIs are optional opt-ins; demo data is the fallback.
 **Reason:** Users should configure as little as possible; free data must work out of the box.
 **Impact:** Data source priority is always: agentic scraper → user API → demo.
+
+### ADR-005 — Customization kernel (2026)
+**Decision:** All page customization is driven by the shared kernel in `src/lib/customize/` (`useCustomize` + `PageDefinition`). Layouts use the **section model (v2)**: pages are lists of sections, each with 1–4 columns holding one widget per slot — Elementor-style. v1 flat layouts auto-migrate; presets are section templates. Pages get column structure pickers (`StructurePicker`), section hover toolbars (`SectionShell`), and cross-section drag & drop through the kernel. No page-local layout state or storage code.
+**Reason:** The flat S/M/L/XL span model was abstract and the panel was an indirect control room; users expected direct manipulation (columns they can see, cards they can drag into place).
+**Impact:** Adding a customizable page = one `PageDefinition` + `useCustomize()` + `SectionShell` canvas. Portfolio pages are migrated; other screens follow when touched (see `skills/CUSTOMIZE.md`).

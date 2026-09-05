@@ -29,6 +29,7 @@
 - **[2026] RSS for news** — `/api/news` uses free RSS feeds, with `NEWS_MOCK` offline fallback.
 - **[2026] Test after every change** — run `npm run test` and `npx tsc --noEmit` after each change to catch issues early, not just at the end.
 - **[2026] Simple, fast, light is a standing goal** — every feature/refactor/dependency is evaluated against it. Prefer the simpler, lighter, faster option. See `skills/GOALS.md`.
+- **[2026] Customization kernel** — page/widget customization is registered via `PageDefinition` + `useCustomize()` from `src/lib/customize/`; never hand-roll layout state, localStorage, or width-picker UI in a screen (ADR-005 in `skills/ARCHITECT.md`, patterns in `skills/CUSTOMIZE.md`).
 
 ## Established Conventions
 
@@ -37,8 +38,9 @@
   - `src/components/screens/` — full-page views + their data/logic modules
   - `src/components/layout/` — sidebar, top-bar
   - `src/components/chat/` — chat-specific pieces
-  - `src/lib/agent/` — AI provider abstraction
-  - `src/app/api/` — API routes (server-side only)
+   - `src/lib/agent/` — AI provider abstraction
+   - `src/lib/customize/` — customization kernel (layout state, presets, WidthPicker); see `skills/CUSTOMIZE.md`
+   - `src/app/api/` — API routes (server-side only)
 - **Client components** start with `'use client'`.
 - **Named exports**, not default exports (except Aurora which is default).
 - **`cn()` helper** from `src/lib/utils.ts` for class merging.

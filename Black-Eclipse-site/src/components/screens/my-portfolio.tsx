@@ -12,7 +12,18 @@ import {
   X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3,
   Home, GraduationCap, PiggyBank, Plane, Car, Heart,
   Gift, Rocket, Landmark, Coins, LayoutDashboard, SquarePen,
-  GripVertical, Settings2, Eye, EyeOff, RotateCcw} from 'lucide-react';
+  CornerDownRight, GripVertical, Settings2, Eye, EyeOff, RotateCcw, Columns3,
+} from 'lucide-react';
+// Customization kernel — shared layout engine + visuals.
+import {
+  SPAN_CLASS, StructurePicker, SectionShell,
+  useCustomize,
+  FUND_PAGE, FUND_WIDGET_META,
+  CustomizeCoachMark,
+  type PageDefinition, type PresetDefinition, type WidgetMeta, type WidgetState, type FundWidgetId,
+} from '@/lib/customize';
+// Local, richer template preview (grid-cell style) — supersedes the kernel's
+// simple TemplateMiniGrid for both panels on this page.
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
 import { SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
@@ -430,23 +441,13 @@ interface EChartProps {
 }
 
 // ── Dashboard customization (overview page) ─────────────────────────────────
-// Each widget has a visibility flag, a width span on a 4-col grid, and an
-// order. Persisted per-browser in localStorage; edited via an inline customize
-// panel (drag to reorder, toggle visibility, pick size S/M/L/XL).
+// Widgets, presets, and layout state are defined via the shared customization
+// kernel (src/lib/customize) — this block only declares WHAT is customizable,
+// not HOW layouts load/save/move. WidthPicker/TemplateMiniGrid come from there.
 
 type WidgetId = 'total-value' | 'unreal-pl' | 'top-exposure' | 'fund-compare' | 'fund-cards';
 
-interface WidgetLayout {
-  id: WidgetId;
-  visible: boolean;
-  span: 1 | 2 | 3 | 4; // 4-col grid spans: S=1, M=2, L=3, XL=4
-}
-
-interface DashboardLayout {
-  widgets: WidgetLayout[];
-}
-
-const WIDGET_META: Record<WidgetId, { label: string; desc: string; defaultSpan: WidgetLayout['span'] }> = {
+const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   'total-value': { label: 'Total Value', desc: 'Aggregate value across all funds', defaultSpan: 1 },
   'unreal-pl': { label: 'Unrealized P/L', desc: 'Profit/loss vs cost basis', defaultSpan: 1 },
   'top-exposure': { label: 'Top Exposure', desc: 'Largest holdings across funds', defaultSpan: 1 },
@@ -454,135 +455,59 @@ const WIDGET_META: Record<WidgetId, { label: string; desc: string; defaultSpan: 
   'fund-cards': { label: 'Your Funds', desc: 'Fund cards + create button', defaultSpan: 4 },
 };
 
-const DEFAULT_LAYOUT: DashboardLayout = {
-  widgets: [
-    { id: 'total-value', visible: true, span: 1 },
-    { id: 'unreal-pl', visible: true, span: 1 },
-    { id: 'top-exposure', visible: true, span: 1 },
-    { id: 'fund-compare', visible: true, span: 4 },
-    { id: 'fund-cards', visible: true, span: 4 },
-  ],
-};
-
-const DASHBOARD_LAYOUT_KEY = 'eclipse_portfolio_layout';
-
-// ── Overview design templates: curated arrangements for the 5 widgets ────────
-// preview = one bar per visual row; hidden widgets render as dashed slots.
-const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: Array<{ span: number; hidden?: boolean }>; build: () => DashboardLayout }> = [
+// ── Overview design templates: curated section arrangements for the 5 widgets
+// Kernel presets (section model): [columnCount, ...widgetIds] per section.
+const OVERVIEW_PRESETS: PresetDefinition[] = [
   {
     id: 'default',
     name: 'Classic',
     desc: 'Stat trio + full-width charts',
     preview: [{ span: 1 }, { span: 4 }, { span: 4 }],
-    build: () => DEFAULT_LAYOUT,
+    sections: [[4, 'total-value', 'unreal-pl', 'top-exposure'], [1, 'fund-compare'], [1, 'fund-cards']],
   },
   {
     id: 'grid',
     name: 'Grid',
-    desc: 'Stat trio widened, side-by-side charts',
+    desc: 'Wider stats, side-by-side charts',
     preview: [{ span: 1 }, { span: 2 }, { span: 3 }, { span: 4 }],
-    build: () => ({
-      widgets: [
-        { id: 'total-value', visible: true, span: 1 },
-        { id: 'unreal-pl', visible: true, span: 1 },
-        { id: 'top-exposure', visible: true, span: 2 },
-        { id: 'fund-compare', visible: true, span: 3 },
-        { id: 'fund-cards', visible: true, span: 4 },
-      ],
-    }),
+    sections: [[2, 'total-value', 'unreal-pl'], [1, 'top-exposure'], [1, 'fund-compare'], [1, 'fund-cards']],
   },
   {
     id: 'split',
     name: 'Split',
     desc: 'Charts on the left, stats in a right rail',
     preview: [{ span: 3 }, { span: 3 }, { span: 3 }, { span: 4 }],
-    build: () => ({
-      widgets: [
-        { id: 'fund-compare', visible: true, span: 3 },
-        { id: 'total-value', visible: true, span: 1 },
-        { id: 'unreal-pl', visible: true, span: 1 },
-        { id: 'top-exposure', visible: true, span: 2 },
-        { id: 'fund-cards', visible: true, span: 4 },
-      ],
-    }),
+    sections: [[1, 'fund-compare'], [3, 'total-value', 'unreal-pl', 'top-exposure'], [1, 'fund-cards']],
   },
   {
     id: 'duo',
     name: 'Duo',
     desc: 'Two big halves — comparison vs funds',
     preview: [{ span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
-    build: () => ({
-      widgets: [
-        { id: 'total-value', visible: true, span: 2 },
-        { id: 'unreal-pl', visible: true, span: 2 },
-        { id: 'fund-compare', visible: true, span: 2 },
-        { id: 'top-exposure', visible: true, span: 2 },
-        { id: 'fund-cards', visible: true, span: 4 },
-      ],
-    }),
+    sections: [[2, 'total-value', 'unreal-pl'], [1, 'fund-compare'], [2, 'top-exposure', 'fund-cards']],
   },
   {
     id: 'focus',
     name: 'Focus',
     desc: 'Comparison hero, everything else compact',
     preview: [{ span: 4 }, { span: 1 }, { span: 4 }],
-    build: () => ({
-      widgets: [
-        { id: 'fund-compare', visible: true, span: 4 },
-        { id: 'total-value', visible: true, span: 1 },
-        { id: 'unreal-pl', visible: true, span: 1 },
-        { id: 'top-exposure', visible: true, span: 2 },
-        { id: 'fund-cards', visible: true, span: 4 },
-      ],
-    }),
+    sections: [[1, 'fund-compare'], [4, 'total-value', 'unreal-pl', 'top-exposure', 'fund-cards']],
   },
 ];
 
-function loadDashboardLayout(): DashboardLayout {
-  if (typeof window === 'undefined') return DEFAULT_LAYOUT;
-  try {
-    const raw = window.localStorage.getItem(DASHBOARD_LAYOUT_KEY);
-    if (!raw) return DEFAULT_LAYOUT;
-    const parsed = JSON.parse(raw) as DashboardLayout;
-    if (!Array.isArray(parsed.widgets)) return DEFAULT_LAYOUT;
-    // Merge in any new widgets added later; drop unknown ids.
-    const known = new Set(Object.keys(WIDGET_META) as WidgetId[]);
-    const widgets = DEFAULT_LAYOUT.widgets
-      .map((d) => parsed.widgets.find((w) => w.id === d.id) ?? d)
-      .filter((w) => known.has(w.id));
-    // Append widgets the user never had (e.g. after an app update).
-    for (const d of DEFAULT_LAYOUT.widgets) {
-      if (!widgets.some((w) => w.id === d.id)) widgets.push(d);
-    }
-    return { widgets };
-  } catch {
-    return DEFAULT_LAYOUT;
-  }
-}
-
-const SPAN_CLASS: Record<WidgetLayout['span'], string> = {
-  1: 'lg:col-span-1',
-  2: 'lg:col-span-2',
-  3: 'lg:col-span-3',
-  4: 'lg:col-span-4',
-};
-
-const SPAN_LABEL: Record<WidgetLayout['span'], string> = { 1: 'S', 2: 'M', 3: 'L', 4: 'XL' };
-
-/** Static class map for fund-widget shells — safe for Tailwind's scanner
- * (dynamic `lg:col-span-${n}` strings would be pruned at build time). */
-const FUND_SPAN_CLASS: Record<FundWidgetLayout['span'], string> = {
-  1: 'lg:col-span-1',
-  2: 'lg:col-span-2',
-  3: 'lg:col-span-3',
-  4: 'lg:col-span-4',
+const OVERVIEW_PAGE: PageDefinition = {
+  pageId: 'portfolio-overview',
+  storageKey: 'eclipse_portfolio_layout_v2', // new section-schema key (v1 layouts auto-migrate from the legacy key)
+  widgets: WIDGET_META,
+  presets: OVERVIEW_PRESETS,
 };
 
 interface FundWidgetShellProps {
   id: FundWidgetId;
   customizing: boolean;
   dragId: FundWidgetId | null;
-  span: FundWidgetLayout['span'];
+  span: 1 | 2 | 3 | 4;
+  selected: boolean;
   onDragStart: (id: FundWidgetId) => void;
   onDrop: (target: FundWidgetId) => void;
   onResizeStart: (e: React.PointerEvent, id: FundWidgetId, mode: 'wider' | 'narrower' | 'taller' | 'shorter' | 'corner') => void;
@@ -597,9 +522,9 @@ interface FundWidgetShellProps {
  * live width & height resizing. The grid span lives on this outer wrapper so
  * inner height styles never affect grid sizing. */
 function FundWidgetShell({
-  id, customizing, dragId, span, onDragStart, onDrop, onResizeStart, onSelectWidget, heightStyle, children,
+  id, customizing, dragId, span, selected, onDragStart, onDrop, onResizeStart, onSelectWidget, heightStyle, children,
 }: FundWidgetShellProps) {
-  const spanCls = FUND_SPAN_CLASS[span];
+  const spanCls = SPAN_CLASS[span];
   const [dropHint, setDropHint] = useState(false);
   if (!customizing) {
     return <div className={spanCls} style={heightStyle}>{children}</div>;
@@ -632,292 +557,57 @@ function FundWidgetShell({
         data-widget-card={id}
         onClick={(e) => { e.stopPropagation(); onSelectWidget(id); }}
       >
+        {/* Edit-mode name chip: tells the user which card this is while customizing */}
+        <span
+          className={`absolute top-2.5 left-2.5 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase pointer-events-none ${selected ? 'ring-1 ring-zinc-300/70' : ''}`}
+        >
+          <GripVertical className="w-3 h-3 text-zinc-100/70" />
+          {(FUND_WIDGET_META[id as FundWidgetId]?.label ?? id).toUpperCase()}
+          {selected && <span className="text-primary">· selected</span>}
+        </span>
         {children}
       </div>
-      {/* Resize handles — sides only, slim bars, appear on hover */}
-      <div
-        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
-        className={`absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-20`}
-        title="Drag to resize width"
-      />
-      <div
-        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
-        className={`absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-20`}
-        title="Drag to resize width"
-      />
-      <div
-        onPointerDown={(e) => onResizeStart(e, id, 'corner')}
-        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-30`}
-        title="Drag to resize width + height"
-      />
+      {/* Resize handles — slim grip pills with dot texture, fade + scale in on
+          hover. Hidden entirely while any card is being dragged. */}
+      {!dragId && (
+        <>
+          <div
+            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
+            className="absolute -left-1.5 top-1/2 -translate-y-1/2 h-10 w-3 flex items-center justify-center cursor-ew-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
+            title="Drag to resize width"
+          >
+            <span className={`w-2 h-8 rounded-full flex flex-col items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+            </span>
+          </div>
+          <div
+            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
+            className="absolute -right-1.5 top-1/2 -translate-y-1/2 h-10 w-3 flex items-center justify-center cursor-ew-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
+            title="Drag to resize width"
+          >
+            <span className={`w-2 h-8 rounded-full flex flex-col items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+              <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
+            </span>
+          </div>
+          <div
+            onPointerDown={(e) => onResizeStart(e, id, 'corner')}
+            className="absolute -bottom-1 -right-1 w-4 h-4 cursor-nwse-resize z-30 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150 flex items-center justify-center"
+            title="Drag to resize width + height"
+          >
+            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${EDIT_HANDLE}`}>
+              <CornerDownRight className="w-2 h-2 text-white/70 -rotate-45" aria-hidden />
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-// ── Fund-page widget customization ──────────────────────────────────────────
-// Same mechanism as the overview: each analytics section is a widget the user
-// can show/hide, resize, and reorder with the mouse (drag & drop), persisted
-// in localStorage per fund-agnostic layout (shared across funds).
-
-type FundWidgetId =
-  | 'kpi-board' | 'performance' | 'allocation' | 'ai-insights'
-  | 'risk-metrics' | 'health' | 'risk-radar' | 'exposure-map'
-  | 'changes' | 'rebalance' | 'holdings' | 'watchlist' | 'transactions'
-  | 'stress' | 'correlation' | 'tools' | 'monte-carlo' | 'cost-basis';
-
-interface FundWidgetLayout {
-  id: FundWidgetId;
-  visible: boolean;
-  span: 1 | 2 | 3 | 4;
-  /** Extra height in 40px steps (0 = natural). Applied via min-height. */
-  height: number;
-}
-
-const FUND_WIDGET_META: Record<FundWidgetId, { label: string; desc: string; defaultSpan: FundWidgetLayout['span'] }> = {
-  'kpi-board': { label: 'KPI Board', desc: 'NAV, P/L, cash tiles', defaultSpan: 4 },
-  'performance': { label: 'Performance', desc: 'NAV curve vs benchmark', defaultSpan: 3 },
-  'allocation': { label: 'Allocation', desc: 'Holdings donut + list', defaultSpan: 2 },
-  'ai-insights': { label: 'AI Insights', desc: 'Position signals + discuss', defaultSpan: 2 },
-  'risk-metrics': { label: 'Risk Metrics', desc: 'Beta, vol, Sharpe, drawdown', defaultSpan: 3 },
-  'health': { label: 'Portfolio Health', desc: 'Score gauge + breakdown', defaultSpan: 2 },
-  'risk-radar': { label: 'Risk Radar', desc: 'Five-dimension posture chart', defaultSpan: 2 },
-  'exposure-map': { label: 'Exposure Map', desc: 'Category treemap + brief', defaultSpan: 3 },
-  'changes': { label: 'What Changed', desc: 'Recent portfolio shifts', defaultSpan: 4 },
-  'rebalance': { label: 'Rebalancing', desc: 'Drift vs model targets', defaultSpan: 4 },
-  'holdings': { label: 'Active Holdings', desc: 'Full holdings table', defaultSpan: 4 },
-  'watchlist': { label: 'Watchlist', desc: 'Starred positions', defaultSpan: 2 },
-  'transactions': { label: 'Transactions', desc: 'Recent trade ledger', defaultSpan: 3 },
-  'stress': { label: 'Stress Test', desc: 'Scenario shock model', defaultSpan: 3 },
-  'correlation': { label: 'Correlation', desc: 'Pearson matrix heatmap', defaultSpan: 2 },
-  'tools': { label: 'Trading Tools', desc: 'What-if, sizing, alerts', defaultSpan: 4 },
-  'monte-carlo': { label: 'Monte Carlo', desc: 'Projection + attribution', defaultSpan: 4 },
-  'cost-basis': { label: 'Cost Basis & DCA', desc: 'Entry vs live spread', defaultSpan: 4 },
-};
-
-const DEFAULT_FUND_LAYOUT: { widgets: FundWidgetLayout[] } = {
-  widgets: Object.keys(FUND_WIDGET_META).map((id) => ({
-    id: id as FundWidgetId,
-    visible: true,
-    span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan,
-    height: 0,
-  })),
-};
-
-// ── Design templates: curated full-page layouts, one click to apply ──────────
-// preview = one bar per visual row (span 1–4); hidden widgets render dashed.
-// Every build() arranges rows so each visual row sums to exactly 4 columns —
-// dense grid packing then composes them cleanly with no orphan gaps.
-const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: Array<{ span: number; hidden?: boolean }>; build: () => FundWidgetLayout[] }> = [
-  {
-    id: 'default',
-    name: 'Classic',
-    desc: 'KPIs on top, charts below, tables last',
-    preview: [{ span: 4 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
-    build: () => DEFAULT_FUND_LAYOUT.widgets.map((w) => ({ ...w })),
-  },
-  {
-    id: 'trader',
-    name: 'Trader',
-    desc: 'Performance & risk up top, tables at the bottom',
-    preview: [{ span: 4 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'performance', span: 3, height: 0 },
-      { id: 'risk-radar', span: 1, height: 1 },
-      { id: 'stress', span: 2, height: 0 },
-      { id: 'correlation', span: 2, height: 0 },
-      { id: 'risk-metrics', span: 4, height: 0 },
-      { id: 'holdings', span: 2, height: 0 },
-      { id: 'watchlist', span: 2, height: 0 },
-      { id: 'tools', span: 4, height: 0 },
-      { id: 'allocation', span: 2, height: 0 },
-      { id: 'health', span: 2, height: 0 },
-      { id: 'exposure-map', span: 4, height: 0 },
-      { id: 'changes', span: 2, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'rebalance', span: 4, height: 0 },
-      { id: 'cost-basis', span: 4, height: 0 },
-      { id: 'monte-carlo', span: 4, height: 0 },
-      { id: 'ai-insights', span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-  {
-    id: 'analyst',
-    name: 'Analyst',
-    desc: 'Big charts first — performance, exposure, Monte Carlo',
-    preview: [{ span: 4 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'performance', span: 3, height: 0 },
-      { id: 'risk-radar', span: 1, height: 0 },
-      { id: 'exposure-map', span: 3, height: 0 },
-      { id: 'watchlist', span: 1, height: 0 },
-      { id: 'monte-carlo', span: 2, height: 1 },
-      { id: 'stress', span: 2, height: 1 },
-      { id: 'allocation', span: 2, height: 0 },
-      { id: 'health', span: 2, height: 0 },
-      { id: 'correlation', span: 2, height: 0 },
-      { id: 'cost-basis', span: 2, height: 0 },
-      { id: 'risk-metrics', span: 4, height: 0 },
-      { id: 'holdings', span: 4, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'rebalance', span: 2, height: 0 },
-      { id: 'changes', span: 4, height: 0 },
-      { id: 'tools', span: 4, height: 0 },
-      { id: 'ai-insights', span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-  {
-    id: 'mosaic',
-    name: 'Mosaic',
-    desc: 'Dense mixed grid — two columns of small cards beside charts',
-    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 3 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'performance', span: 2, height: 1 },
-      { id: 'allocation', span: 2, height: 1 },
-      { id: 'risk-radar', span: 1, height: 0 },
-      { id: 'correlation', span: 1, height: 0 },
-      { id: 'health', span: 2, height: 0 },
-      { id: 'exposure-map', span: 3, height: 0 },
-      { id: 'watchlist', span: 1, height: 0 },
-      { id: 'monte-carlo', span: 2, height: 2 },
-      { id: 'stress', span: 1, height: 2 },
-      { id: 'cost-basis', span: 1, height: 2 },
-      { id: 'risk-metrics', span: 3, height: 0 },
-      { id: 'ai-insights', span: 1, height: 0 },
-      { id: 'changes', span: 2, height: 0 },
-      { id: 'rebalance', span: 2, height: 0 },
-      { id: 'holdings', span: 4, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'tools', span: 2, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-  {
-    id: 'split',
-    name: 'Split',
-    desc: 'Left rail of small cards + wide chart column',
-    preview: [{ span: 4 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 3 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'risk-radar', span: 1, height: 1 },
-      { id: 'health', span: 1, height: 1 },
-      { id: 'correlation', span: 1, height: 1 },
-      { id: 'watchlist', span: 1, height: 1 },
-      { id: 'performance', span: 3, height: 1 },
-      { id: 'exposure-map', span: 3, height: 0 },
-      { id: 'allocation', span: 2, height: 0 },
-      { id: 'ai-insights', span: 2, height: 0 },
-      { id: 'monte-carlo', span: 4, height: 0 },
-      { id: 'stress', span: 2, height: 0 },
-      { id: 'risk-metrics', span: 2, height: 0 },
-      { id: 'holdings', span: 4, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'rebalance', span: 2, height: 0 },
-      { id: 'changes', span: 4, height: 0 },
-      { id: 'cost-basis', span: 4, height: 0 },
-      { id: 'tools', span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-  {
-    id: 'rows',
-    name: 'Rows',
-    desc: 'Alternating wide/narrow — magazine-style rhythm',
-    preview: [{ span: 4 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 1 }, { span: 3 }, { span: 2 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'performance', span: 1, height: 1 },
-      { id: 'exposure-map', span: 3, height: 1 },
-      { id: 'allocation', span: 3, height: 0 },
-      { id: 'risk-radar', span: 1, height: 0 },
-      { id: 'monte-carlo', span: 1, height: 1 },
-      { id: 'ai-insights', span: 3, height: 1 },
-      { id: 'risk-metrics', span: 2, height: 0 },
-      { id: 'health', span: 2, height: 0 },
-      { id: 'stress', span: 2, height: 0 },
-      { id: 'correlation', span: 2, height: 0 },
-      { id: 'holdings', span: 4, height: 0 },
-      { id: 'watchlist', span: 2, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'rebalance', span: 4, height: 0 },
-      { id: 'changes', span: 2, height: 0 },
-      { id: 'cost-basis', span: 2, height: 0 },
-      { id: 'tools', span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-  {
-    id: 'compact',
-    name: 'Compact',
-    desc: 'Everything half-width — dense two-column dashboard',
-    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }],
-    build: () => ['kpi-board', 'performance', 'allocation', 'health', 'holdings', 'watchlist', 'transactions', 'risk-metrics', 'risk-radar', 'correlation', 'stress', 'exposure-map', 'ai-insights', 'monte-carlo', 'rebalance', 'changes', 'cost-basis', 'tools']
-      .map((id) => ({ id: id as FundWidgetId, visible: true, span: 2 as FundWidgetLayout['span'], height: 0 })),
-  },
-  {
-    id: 'minimal',
-    name: 'Minimal',
-    desc: 'Just value, performance & holdings',
-    preview: [{ span: 4 }, { span: 4 }, { span: 4 }, { span: 1, hidden: true }],
-    build: () => [
-      { id: 'kpi-board' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
-      { id: 'performance' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
-      { id: 'holdings' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
-      ...(['allocation', 'ai-insights', 'risk-metrics', 'health', 'risk-radar', 'exposure-map', 'changes', 'rebalance', 'watchlist', 'transactions', 'stress', 'correlation', 'tools', 'monte-carlo', 'cost-basis'] as FundWidgetId[])
-        .map((id) => ({ id, visible: false, span: FUND_WIDGET_META[id].defaultSpan, height: 0 })),
-    ],
-  },
-  {
-    id: 'focus',
-    name: 'Focus',
-    desc: 'Hero chart + small risk cluster, tables tucked at bottom',
-    preview: [{ span: 4 }, { span: 4 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 2 }],
-    build: () => [
-      { id: 'kpi-board', span: 4, height: 0 },
-      { id: 'performance', span: 4, height: 0 },
-      { id: 'exposure-map', span: 2, height: 0 },
-      { id: 'allocation', span: 2, height: 0 },
-      { id: 'risk-radar', span: 1, height: 0 },
-      { id: 'correlation', span: 1, height: 0 },
-      { id: 'watchlist', span: 1, height: 0 },
-      { id: 'health', span: 1, height: 0 },
-      { id: 'monte-carlo', span: 2, height: 1 },
-      { id: 'stress', span: 2, height: 1 },
-      { id: 'risk-metrics', span: 2, height: 0 },
-      { id: 'ai-insights', span: 2, height: 0 },
-      { id: 'holdings', span: 4, height: 0 },
-      { id: 'transactions', span: 2, height: 0 },
-      { id: 'rebalance', span: 2, height: 0 },
-      { id: 'changes', span: 4, height: 0 },
-      { id: 'cost-basis', span: 4, height: 0 },
-      { id: 'tools', span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
-  },
-];
-
-const FUND_LAYOUT_KEY = 'eclipse_fund_layout';
-
-function loadFundLayout(): { widgets: FundWidgetLayout[] } {
-  if (typeof window === 'undefined') return DEFAULT_FUND_LAYOUT;
-  try {
-    const raw = window.localStorage.getItem(FUND_LAYOUT_KEY);
-    if (!raw) return DEFAULT_FUND_LAYOUT;
-    const parsed = JSON.parse(raw) as { widgets: FundWidgetLayout[] };
-    if (!Array.isArray(parsed.widgets)) return DEFAULT_FUND_LAYOUT;
-    const known = new Set(Object.keys(FUND_WIDGET_META) as FundWidgetId[]);
-    const widgets = DEFAULT_FUND_LAYOUT.widgets
-      .map((d) => {
-        const saved = parsed.widgets.find((w) => w.id === d.id);
-        return saved ? { ...d, ...saved, height: saved.height ?? 0 } : d;
-      })
-      .filter((w) => known.has(w.id));
-    for (const d of DEFAULT_FUND_LAYOUT.widgets) {
-      if (!widgets.some((w) => w.id === d.id)) widgets.push(d);
-    }
-    return { widgets };
-  } catch {
-    return DEFAULT_FUND_LAYOUT;
-  }
-}
 
 function EChart({ option, height = 300, className, notMerge = true }: EChartProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1189,47 +879,14 @@ function OverviewView({
     return { value, cost, day, unreal, roi, dayPct, top: top.map(t => ({ ...t, pct: (t.value / total) * 100 })) };
   }, [funds, liveAssets, usdPkr]);
 
-  // ── Dashboard customization state ────────────────────────────────────────
-  const [layout, setLayout] = useState<DashboardLayout>(DEFAULT_LAYOUT);
+  // ── Dashboard customization state (kernel-driven, section model) ──────────
+  const {
+    layout, widgets: overviewWidgets, patch: patchWidget, place: placeOverviewWidget,
+    setColumns: setOverviewColumns, add: addOverviewWidget, nudge: nudgeOverviewWidget,
+    applyPreset: applyOverviewPreset, reset: resetLayout,
+  } = useCustomize(OVERVIEW_PAGE);
   const [customizing, setCustomizing] = useState(false);
-  const [dragWidget, setDragWidget] = useState<WidgetId | null>(null);
-  useEffect(() => {
-    setLayout(loadDashboardLayout());
-  }, []);
-
-  const updateLayout = useCallback((next: DashboardLayout) => {
-    setLayout(next);
-    try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
-  }, []);
-
-  const patchWidget = useCallback((id: WidgetId, patch: Partial<WidgetLayout>) => {
-    setLayout((prev) => {
-      const widgets = prev.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w));
-      const next = { widgets };
-      try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
-      return next;
-    });
-  }, []);
-
-  const moveWidget = useCallback((from: WidgetId, to: WidgetId) => {
-    if (from === to) return;
-    setLayout((prev) => {
-      const widgets = [...prev.widgets];
-      const fromIdx = widgets.findIndex((w) => w.id === from);
-      const toIdx = widgets.findIndex((w) => w.id === to);
-      if (fromIdx === -1 || toIdx === -1) return prev;
-      const [moved] = widgets.splice(fromIdx, 1);
-      widgets.splice(toIdx, 0, moved);
-      const next = { widgets };
-      try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
-      return next;
-    });
-  }, []);
-
-  const resetLayout = useCallback(() => {
-    try { window.localStorage.removeItem(DASHBOARD_LAYOUT_KEY); } catch { /* ignore */ }
-    setLayout(DEFAULT_LAYOUT);
-  }, []);
+  const [dragWidget, setDragWidget] = useState<string | null>(null);
 
   // ── Fund-vs-fund comparison: indexed NAV curves from real close series ─────
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1370,24 +1027,27 @@ function OverviewView({
   }), [fundCompare, funds, fundHistory]);
 
   // Widget content renderer — the customize panel reorders/toggles these.
-  const widgetHeader = (id: WidgetId) => {
-    if (!customizing) return null;
+  // Drag chip hides while this card is the active drag source (no ghost-on-ghost).
+  const widgetHeader = (id: string) => {
+    if (!customizing || dragWidget === id) return null;
+    const homeSection = layout.sections.find((s) => s.widgets.some((w) => w.id === id));
     return (
       <button
         type="button"
         draggable
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(id); }}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, id); setDragWidget(null); }}
-        className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1 px-2 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105`}
-        title="Drag to reorder"
+        onDrop={(e) => { e.preventDefault(); if (dragWidget && homeSection) placeOverviewWidget(dragWidget, homeSection.id, id); setDragWidget(null); }}
+        className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105 shadow-md`}
+        title="Drag to move — drop on any card or section"
       >
-        <GripVertical className="w-3 h-3" /> {id}
+        <GripVertical className="w-3 h-3 text-zinc-100/80" />
+        <span className="max-w-[120px] truncate">{WIDGET_META[id as WidgetId]?.label ?? id}</span>
       </button>
     );
   };
 
-  const renderWidget = (id: WidgetId) => {
+  const renderWidget = (id: string) => {
     switch (id) {
       case 'total-value':
         return (
@@ -1554,7 +1214,7 @@ function OverviewView({
   return (
     <div className="space-y-6">
       {/* Customize toolbar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="relative flex items-center justify-between gap-3 flex-wrap">
         <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground flex items-center gap-1.5">
           <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
         </span>
@@ -1569,13 +1229,14 @@ function OverviewView({
         >
           <Settings2 className="w-3.5 h-3.5" /> {customizing ? 'Done' : 'Customize'}
         </button>
+        {!customizing && <CustomizeCoachMark pageId="portfolio-overview" body="Every card on your dashboard can be rearranged, resized, shown or hidden — press Customize to arrange your workspace." />}
       </div>
 
-      {/* Inline customize panel */}
+      {/* Inline customize panel — Navigator (section tree) + templates */}
       {customizing && (
         <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — drag, resize, or hide widgets below</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — hover a section for column layout · drag cards to move · eye toggles visibility</p>
         </div>
       )}
 
@@ -1590,14 +1251,13 @@ function OverviewView({
               <RotateCcw className="w-3 h-3" /> Reset to defaults
             </button>
           </div>
-          <p className="text-[10px] text-muted-foreground">Drag <GripVertical className="w-3 h-3 inline -mt-0.5" /> to reorder · toggle visibility · pick a width (S → XL spans a 4-column grid)</p>
           <div>
             <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Layout templates</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {DASHBOARD_TEMPLATES.map((t) => (
+              {OVERVIEW_PAGE.presets.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => updateLayout(t.build())}
+                  onClick={() => applyOverviewPreset(t.id)}
                   title={t.desc}
                   className={`${TILE} p-2.5 text-left hover:border-zinc-400/60 dark:hover:border-zinc-500/50 hover:bg-zinc-500/[0.06] dark:hover:bg-zinc-400/[0.04] transition-all cursor-pointer`}
                 >
@@ -1608,77 +1268,112 @@ function OverviewView({
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {layout.widgets.map((w) => {
-              const meta = WIDGET_META[w.id];
-              return (
-                <div
-                  key={w.id}
-                  draggable
-                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                  onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, w.id); setDragWidget(null); }}
-                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing transition-all duration-150 ${dragWidget === w.id ? 'opacity-40 scale-[0.98]' : dragWidget ? 'ring-1 ring-zinc-400/50 dark:ring-zinc-400/40' : ''}`}
-                >
-                  <span className={`flex items-center justify-center w-7 h-7 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
-                    <GripVertical className="w-4 h-4 text-zinc-200" />
+          {/* Navigator: sections → widget rows (mirrors the page tree) */}
+          <div className="space-y-2">
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Sections</p>
+            {layout.sections.map((s, si) => (
+              <div key={s.id} className={`${TILE} p-2.5 space-y-1.5`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns} column{s.columns > 1 ? 's' : ''}
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold truncate">{meta.label}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{meta.desc}</p>
-                  </div>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {([1, 2, 3, 4] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { span: s }); }}
-                        title={`${SPAN_LABEL[s]} width`}
-                        className={`w-6 h-6 rounded-md text-[10px] font-bold cursor-pointer transition-colors border ${
-                          w.span === s
-                            ? 'bg-zinc-600/80 dark:bg-zinc-300/25 text-white dark:text-zinc-100 border-zinc-600 dark:border-zinc-400/60'
-                            : 'text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10'
-                        }`}
-                      >
-                        {SPAN_LABEL[s]}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
-                    title={w.visible ? 'Hide widget' : 'Show widget'}
-                    className={`p-1.5 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-200 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {w.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  </button>
+                  <StructurePicker columns={s.columns} onPick={(c) => setOverviewColumns(s.id, c)} align="right" />
                 </div>
-              );
-            })}
+                <div className="flex flex-wrap gap-1.5">
+                  {s.widgets.map((w) => {
+                    const meta = WIDGET_META[w.id as WidgetId];
+                    const hiddenSomewhere = !w.visible;
+                    return (
+                      <div
+                        key={w.id}
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                        onDrop={(e) => { e.preventDefault(); if (dragWidget && dragWidget !== w.id) placeOverviewWidget(dragWidget, s.id, w.id); setDragWidget(null); }}
+                        className={`flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-lg border text-[10px] font-bold cursor-grab active:cursor-grabbing transition-all ${TILE} ${hiddenSomewhere ? 'opacity-45' : ''} ${dragWidget === w.id ? 'opacity-40' : ''}`}
+                      >
+                        <GripVertical className="w-3 h-3 text-zinc-400" />
+                        <span className="max-w-[110px] truncate">{meta?.label ?? w.id}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
+                          title={w.visible ? 'Hide widget' : 'Show widget'}
+                          className="p-1 rounded cursor-pointer transition-colors text-zinc-300 hover:bg-zinc-500/20"
+                        >
+                          {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Widget grid — order/size/visibility from the saved layout */}
-      <div className="overview-widget-grid grid grid-cols-1 lg:grid-cols-4 gap-5">
-        {layout.widgets.filter((w) => w.visible).map((w) => {
-          if (w.id === 'fund-cards') {
-            // Fund cards keep their own internal grid; span always full here.
-            return (
-              <div key={w.id} className="col-span-1 lg:col-span-4">
-                {renderWidget(w.id)}
-              </div>
-            );
-          }
-          const fundCompareEmpty = w.id === 'fund-compare' && fundCompare.length === 0;
-          if (fundCompareEmpty) return null;
+      {/* Widget canvas — sections & columns from the saved layout */}
+      <div className="space-y-5">
+        {layout.sections.map((section) => {
+          const visibleWidgets = section.widgets.filter((w) => w.visible);
+          if (visibleWidgets.length === 0) return null;
           return (
-            <div key={w.id} className={`col-span-1 ${SPAN_CLASS[w.span]}`}>
-              {renderWidget(w.id)}
-            </div>
+            <SectionShell
+              key={section.id}
+              editing={customizing}
+              columns={section.columns}
+              onColumns={(c) => setOverviewColumns(section.id, c)}
+              onDelete={() => {
+                // Hide all widgets in the section (removes it from the canvas)
+                for (const w of section.widgets) patchWidget(w.id, { visible: false });
+              }}
+            >
+              <div
+                className={`grid grid-cols-1 gap-5 ${sectionGridClass(section.columns)} ${customizing ? 'p-3 rounded-2xl' : ''}`}
+                onDragOver={(e) => { if (dragWidget) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                onDrop={(e) => {
+                  if (!dragWidget) return;
+                  e.preventDefault();
+                  placeOverviewWidget(dragWidget, section.id, null);
+                  setDragWidget(null);
+                }}
+              >
+                {visibleWidgets.map((w) => {
+                  const fundCompareEmpty = w.id === 'fund-compare' && fundCompare.length === 0;
+                  if (fundCompareEmpty) return null;
+                  return (
+                    <div
+                      key={w.id}
+                      className="min-w-0"
+                      onDragOver={(e) => { if (dragWidget && dragWidget !== w.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                      onDrop={(e) => {
+                        if (!dragWidget || dragWidget === w.id) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        placeOverviewWidget(dragWidget, section.id, w.id);
+                        setDragWidget(null);
+                      }}
+                    >
+                      {renderWidget(w.id)}
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionShell>
           );
         })}
       </div>
     </div>
   );
+}
+
+/** Tailwind grid class for a section's column count (static — scanner-safe). */
+function sectionGridClass(columns: 1 | 2 | 3 | 4): string {
+  switch (columns) {
+    case 1: return 'lg:grid-cols-1';
+    case 2: return 'md:grid-cols-2';
+    case 3: return 'md:grid-cols-2 lg:grid-cols-3';
+    case 4: return 'md:grid-cols-2 lg:grid-cols-4';
+  }
 }
 
 // ── Live asset shape kept for compatibility with existing consumers ─────────
@@ -1751,89 +1446,51 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   const [stressId, setStressId] = useState('market');
   const [severity, setSeverity] = useState(1);
 
-  // ── Fund-page layout customization (mouse-driven) ────────────────────────
-  const [fundLayout, setFundLayout] = useState<{ widgets: FundWidgetLayout[] }>(DEFAULT_FUND_LAYOUT);
+  // ── Fund-page layout customization (kernel-driven, section model) ─────────
+  const {
+    layout: fundLayout, patch: patchFundWidget, place: placeFundWidget,
+    setColumns: setFundColumns, nudge: nudgeFundWidget,
+    applyPreset: applyFundPreset, reset: resetFundLayout,
+  } = useCustomize(FUND_PAGE);
   const [fundCustomizing, setFundCustomizing] = useState(false);
   const [fundDrag, setFundDrag] = useState<FundWidgetId | null>(null);
   // Click-selected widget in edit mode — enables keyboard nudge/resize.
-  const [selectedWidget, setSelectedWidget] = useState<FundWidgetId | null>(null);
-  useEffect(() => { setFundLayout(loadFundLayout()); }, []);
-  const persistFundLayout = useCallback((widgets: FundWidgetLayout[]) => {
-    setFundLayout({ widgets });
-    try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
-  }, []);
-  const patchFundWidget = useCallback((id: FundWidgetId, patch: Partial<FundWidgetLayout>) => {
-    setFundLayout((prev) => {
-      const widgets = prev.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w));
-      try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
-      return { widgets };
-    });
-  }, []);
-  const moveFundWidget = useCallback((from: FundWidgetId, to: FundWidgetId) => {
-    if (from === to) return;
-    setFundLayout((prev) => {
-      const widgets = [...prev.widgets];
-      const fi = widgets.findIndex((w) => w.id === from);
-      const ti = widgets.findIndex((w) => w.id === to);
-      if (fi === -1 || ti === -1) return prev;
-      const [moved] = widgets.splice(fi, 1);
-      widgets.splice(ti, 0, moved);
-      try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
-      return { widgets };
-    });
-  }, []);
-  const resetFundLayout = useCallback(() => {
-    try { window.localStorage.removeItem(FUND_LAYOUT_KEY); } catch { /* ignore */ }
-    setFundLayout(DEFAULT_FUND_LAYOUT);
-  }, []);
+  const [selectedWidget, setSelectedWidget] = useState<string | null>(null);
 
-  // Live mouse resize: pointer-drag on a widget's edge adjusts width (span)
-  // or extra height in real time; the bottom-right corner adjusts both axes
-  // at once. Pointer capture keeps events flowing even when the cursor leaves
-  // the handle. ~120px travel = one width step, ~60px = one height step
-  // (40px min-height each).
-  const onWidgetResizeStart = useCallback((e: React.PointerEvent, id: FundWidgetId, mode: 'wider' | 'narrower' | 'taller' | 'shorter' | 'corner') => {
+  /** Locate a widget in the section tree (state + section). */
+  const findFundWidget = useCallback((id: string) => {
+    for (const s of fundLayout.sections) {
+      const w = s.widgets.find((x) => x.id === id);
+      if (w) return { w, section: s };
+    }
+    return null;
+  }, [fundLayout]);
+
+  // Height-only live resize: pointer-drag on a widget's edge adjusts extra
+  // height in real time (width is now a section-column concern). Pointer
+  // capture keeps events flowing even when the cursor leaves the handle.
+  // ~60px travel = one height step (40px min-height each).
+  const onWidgetResizeStart = useCallback((e: React.PointerEvent, id: FundWidgetId, mode: 'taller' | 'shorter' | 'corner') => {
     e.preventDefault();
     e.stopPropagation();
-    const horizontal = mode === 'wider' || mode === 'narrower' || mode === 'corner';
     const vertical = mode === 'taller' || mode === 'shorter' || mode === 'corner';
-    const hDir = (mode === 'wider' || mode === 'corner') ? 1 : -1;
-    const vDir = (mode === 'taller' || mode === 'corner') ? 1 : -1;
-    const startX = e.clientX;
+    const vDir = mode === 'taller' || mode === 'corner' ? 1 : -1;
     const startY = e.clientY;
-    let hSteps = 0;
     let vSteps = 0;
     const target = e.currentTarget as HTMLElement;
-    // Pointer capture keeps the drag alive when the cursor outruns the handle.
     try { target.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
-    // Fallback capture layer for browsers without pointer capture.
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;cursor:nwse-resize;';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;cursor:ns-resize;';
     document.body.appendChild(overlay);
 
     const onMove = (ev: PointerEvent) => {
-      const apply = (patch: (w: FundWidgetLayout) => FundWidgetLayout) => {
-        setFundLayout((prev) => {
-          const widgets = prev.widgets.map((w) => (w.id === id ? patch(w) : w));
-          try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
-          return { widgets };
-        });
-      };
-      if (horizontal) {
-        const steps = Math.floor(Math.max(0, (ev.clientX - startX) * hDir) / 120);
-        if (steps !== hSteps) {
-          const diff = steps - hSteps;
-          hSteps = steps;
-          apply((w) => ({ ...w, span: Math.max(1, Math.min(4, w.span + diff)) as FundWidgetLayout['span'] }));
-        }
-      }
-      if (vertical) {
-        const steps = Math.floor(Math.max(0, (ev.clientY - startY) * vDir) / 60);
-        if (steps !== vSteps) {
-          const diff = steps - vSteps;
-          vSteps = steps;
-          apply((w) => ({ ...w, height: Math.max(0, Math.min(10, w.height + diff)) }));
-        }
+      if (!vertical) return;
+      const steps = Math.floor(Math.max(0, (ev.clientY - startY) * vDir) / 60);
+      if (steps !== vSteps) {
+        const diff = steps - vSteps;
+        vSteps = steps;
+        const cur = fundLayout.sections.flatMap((s) => s.widgets).find((w) => w.id === id);
+        if (cur) patchFundWidget(id, { height: Math.max(0, Math.min(10, cur.height + diff)) });
       }
     };
     const onUp = () => {
@@ -1845,10 +1502,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, []);
+  }, [fundLayout, patchFundWidget]);
 
   // Keyboard control for the click-selected widget (edit mode only):
-  // ←/→/↑/↓ nudge order · Shift+←/→ width · Shift+↑/↓ height · +/- height ·
+  // ←/→ nudge column order · Shift+←/→ section columns · ↑/↓/+/- height ·
   // X hide · Escape deselect.
   useEffect(() => {
     if (!fundCustomizing) { setSelectedWidget(null); return; }
@@ -1856,33 +1513,24 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable)) return;
       if (!selectedWidget) return;
-      const patch = (p: Partial<FundWidgetLayout>) => patchFundWidget(selectedWidget, p);
-      const nudge = (dir: -1 | 1) => {
-        setFundLayout((prev) => {
-          const widgets = [...prev.widgets];
-          const i = widgets.findIndex((w) => w.id === selectedWidget);
-          const j = i + dir;
-          if (i === -1 || j < 0 || j >= widgets.length) return prev;
-          const [m] = widgets.splice(i, 1);
-          widgets.splice(j, 0, m);
-          try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
-          return { widgets };
-        });
-      };
+      const found = findFundWidget(selectedWidget);
+      if (!found) return;
+      const { w, section } = found;
+      const patch = (p: Partial<WidgetState>) => patchFundWidget(selectedWidget, p);
       switch (e.key) {
-        case 'ArrowLeft': e.preventDefault(); e.shiftKey ? patch({ span: Math.max(1, (fundLayout.widgets.find(w => w.id === selectedWidget)?.span ?? 2) - 1) as FundWidgetLayout['span'] }) : nudge(-1); break;
-        case 'ArrowRight': e.preventDefault(); e.shiftKey ? patch({ span: Math.min(4, (fundLayout.widgets.find(w => w.id === selectedWidget)?.span ?? 2) + 1) as FundWidgetLayout['span'] }) : nudge(1); break;
-        case 'ArrowUp': e.preventDefault(); e.shiftKey ? nudge(-1) : patch({ height: Math.min(10, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) + 1) }); break;
-        case 'ArrowDown': e.preventDefault(); e.shiftKey ? nudge(1) : patch({ height: Math.max(0, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) - 1) }); break;
-        case '+': case '=': e.preventDefault(); patch({ height: Math.min(10, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) + 1) }); break;
-        case '-': case '_': e.preventDefault(); patch({ height: Math.max(0, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) - 1) }); break;
-        case 'x': case 'X': e.preventDefault(); patch({ visible: false }); setSelectedWidget(null); break;
+        case 'ArrowLeft': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.max(1, section.columns - 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, -1); break;
+        case 'ArrowRight': e.preventDefault(); e.shiftKey ? setFundColumns(section.id, Math.min(4, section.columns + 1) as 1 | 2 | 3 | 4) : nudgeFundWidget(selectedWidget, 1); break;
+        case 'ArrowUp': e.preventDefault(); patch({ height: Math.min(10, w.height + 1) }); break;
+        case 'ArrowDown': e.preventDefault(); patch({ height: Math.max(0, w.height - 1) }); break;
+        case '+': case '=': e.preventDefault(); patch({ height: Math.min(10, w.height + 1) }); break;
+        case '-': case '_': e.preventDefault(); patch({ height: Math.max(0, w.height - 1) }); break;
+        case 'x': case 'X': e.preventDefault(); patchFundWidget(selectedWidget, { visible: false }); setSelectedWidget(null); break;
         case 'Escape': setSelectedWidget(null); break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [fundCustomizing, selectedWidget, fundLayout, patchFundWidget]);
+  }, [fundCustomizing, selectedWidget, findFundWidget, patchFundWidget, nudgeFundWidget, setFundColumns]);
   const [wiSymbol, setWiSymbol] = useState('BTC');
   const [wiSide, setWiSide] = useState<'Buy' | 'Sell'>('Buy');
   const [wiQty, setWiQty] = useState('0.05');
@@ -3422,226 +3070,23 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
     </div>
   );
 
-  return (
-    <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-screen text-foreground animate-in fade-in duration-500 relative overflow-x-hidden">
+  /** Section grid class for the fund flow (static � scanner-safe). */
+  function fundSectionGridClass(columns: 1 | 2 | 3 | 4): string {
+    switch (columns) {
+      case 1: return 'lg:grid-cols-1';
+      case 2: return 'md:grid-cols-2';
+      case 3: return 'md:grid-cols-2 lg:grid-cols-3';
+      case 4: return 'md:grid-cols-2 lg:grid-cols-4';
+    }
+  }
 
-      {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-serif font-semibold tracking-tight flex items-center gap-3 flex-wrap">
-            {viewMode === 'overview'
-              ? <PieChart className="h-9 w-9 text-primary" />
-              : (() => { const I = FUND_ICONS[activeFund?.icon ?? 'briefcase'] ?? Briefcase; return <I className="h-9 w-9" style={{ color: activeFund?.color }} />; })()}
-            {viewMode === 'overview' ? 'Portfolio Overview' : (activeFund?.name ?? 'Portfolio')}
-          </h1>
-          <p className="text-muted-foreground text-sm mt-2">
-            {viewMode === 'overview'
-              ? `Aggregated performance across ${funds.length} fund${funds.length === 1 ? '' : 's'} — click any card to open a fund.`
-              : 'Holdings, performance, and AI-driven insights in real time.'}
-          </p>
-        </div>
-
-        {viewMode !== 'overview' && (
-          <div className="flex flex-wrap items-center gap-4">
-            <select
-              value={displayFx}
-              onChange={e => setDisplayCurrency(e.target.value)}
-              title="Display currency — all totals and charts convert instantly"
-              className="bg-muted/20 border border-border/40 rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 cursor-pointer text-foreground [&>option]:bg-[#1a1a1a] [&>option]:text-foreground"
-            >
-              {DISPLAY_CURRENCIES.map(c => (
-                <option key={c.code} value={c.code}>{c.code}</option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
-              className="border-border/50 text-muted-foreground hover:text-foreground rounded-xl px-4 py-5 text-sm cursor-pointer flex items-center gap-2"
-              onClick={() => openEditFundDialog(activeFund!)}
-            >
-              <SquarePen className="w-4 h-4" /> Edit Fund
-            </Button>
-            <Button
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-5 py-5 text-sm transition-all shadow-lg shadow-primary/15 flex items-center gap-2 cursor-pointer"
-              onClick={() => { setTxType('BUY'); setIsAddOpen(true); }}
-            >
-              <Plus className="w-4 h-4" />
-              Add Transaction
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* ─── FUND TABS ───────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Funds</span>
-        {fundTabs}
-      </div>
-
-      {viewMode === 'overview' && (
-        <OverviewView
-          funds={funds}
-          usdPkr={usdPkr}
-          liveAssets={liveAssets}
-          onOpenFund={(id) => setViewMode(id)}
-          onEditFund={openEditFundDialog}
-          onDeleteFund={handleDeleteFund}
-          onCreateFund={openCreateFundDialog}
-          onAnalyzeTicker={onAnalyzeTicker}
-          displayFx={displayFx}
-          fxRates={fxRates}
-          hasFx={hasFx}
-          fundHistory={{ closes: fundHistRaw.closes, dates: fundHistRaw.dates }}
-          fmtD={fmtD}
-          fmtDK={fmtDK}
-          dispLabel={DISP_LABEL}
-        />
-      )}
-      {viewMode !== 'overview' && (<>
-
-      {/* ─── CUSTOMIZE TOOLBAR ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground flex items-center gap-1.5">
-          <LayoutDashboard className="w-3.5 h-3.5" /> {activeFund?.name ?? 'Portfolio'}
-        </span>
-        <button
-          onClick={() => setFundCustomizing((v) => !v)}
-          className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
-            fundCustomizing
-              ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-500/30 dark:bg-zinc-400/20 border-zinc-500/60 dark:border-zinc-400/50 shadow-inner backdrop-blur-md'
-              : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
-          }`}
-          title="Rearrange, show/hide, and resize widgets with the mouse"
-        >
-          <Settings2 className="w-3.5 h-3.5" /> {fundCustomizing ? 'Done' : 'Customize'}
-        </button>
-      </div>
-
-      {/* Inline customize panel — templates, drag rows to reorder, resize */}
-      {fundCustomizing && (
-        <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — drag, resize, or hide widgets below · applies to every fund</p>
-        </div>
-      )}
-
-      {fundCustomizing && (
-        <div className={`${PANEL} p-4 animate-fade-in-up space-y-4 ring-1 ring-zinc-400/30 dark:ring-zinc-500/25`}>
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-wider">Page Layout — applies to every fund</p>
-            <button
-              onClick={resetFundLayout}
-              className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1"
-            >
-              <RotateCcw className="w-3 h-3" /> Reset
-            </button>
-          </div>
-
-          {/* Design templates */}
-          <div>
-            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Templates</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {FUND_TEMPLATES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => persistFundLayout(t.build())}
-                  title={t.desc}
-                  className={`${TILE} p-2.5 text-left hover:border-zinc-400/60 dark:hover:border-zinc-500/50 hover:bg-zinc-500/[0.06] dark:hover:bg-zinc-400/[0.04] transition-all cursor-pointer`}
-                >
-                  <TemplateMiniGrid rows={t.preview} />
-                  <p className="text-[11px] font-bold mt-2">{t.name}</p>
-                  <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <p className="text-[10px] text-muted-foreground">
-            Drag rows (or the cards themselves) to reorder · click a card to select it, then use the keyboard: arrows move, Shift+arrows resize width/height, +/− height, X hides · eye toggles visibility · S–XL sets width. You can also drag a widget&apos;s edge or corner handles directly on the page.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {fundLayout.widgets.map((w) => {
-              const meta = FUND_WIDGET_META[w.id];
-              return (
-                <div
-                  key={w.id}
-                  draggable
-                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id); }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); if (fundDrag) moveFundWidget(fundDrag, w.id); setFundDrag(null); }}
-                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing transition-all duration-150 ${fundDrag === w.id ? 'opacity-40 scale-[0.98]' : fundDrag ? 'ring-1 ring-zinc-400/50 dark:ring-zinc-400/40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70 bg-zinc-500/[0.10] dark:bg-zinc-400/[0.08]' : ''}`}
-                  onClick={() => setSelectedWidget(w.id)}
-                >
-                  <span className={`flex items-center justify-center w-6 h-6 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
-                    <GripVertical className="w-3.5 h-3.5 text-zinc-200" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold truncate">{meta.label}</p>
-                  </div>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {([1, 2, 3, 4] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { span: s }); }}
-                        title={`${SPAN_LABEL[s]} width`}
-                        className={`w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border ${
-                          w.span === s
-                            ? 'bg-zinc-600/80 dark:bg-zinc-300/25 text-white dark:text-zinc-100 border-zinc-600 dark:border-zinc-400/60'
-                            : 'text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10'
-                        }`}
-                      >
-                        {SPAN_LABEL[s]}
-                      </button>
-                    ))}
-                    {/* Height stepper */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.min(10, w.height + 1) }); }}
-                      title="Taller (+40px)"
-                      className="w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.max(0, w.height - 1) }); }}
-                      title="Shorter (−40px)"
-                      className="w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10"
-                    >
-                      −
-                    </button>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { visible: !w.visible }); }}
-                    title={w.visible ? 'Hide' : 'Show'}
-                    className={`p-1 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-200 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {w.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ─── LAYOUT-DRIVEN WIDGET FLOW ──────────────────────────────────────── */}
-      <div
-        className={`fund-widget-flow${fundCustomizing ? ' customizing' : ''}`}
-        onClick={(e) => { if (fundCustomizing && e.target === e.currentTarget) setSelectedWidget(null); }}
-      >
-      {fundLayout.widgets.filter((w) => w.visible).map((w) => {
-        const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
-        const shellProps = {
-          customizing: fundCustomizing,
-          dragId: fundDrag,
-          span: w.span as FundWidgetLayout['span'],
-          onDragStart: (id: FundWidgetId) => setFundDrag(id),
-          onDrop: (target: FundWidgetId) => { if (fundDrag) moveFundWidget(fundDrag, target); },
-          onResizeStart: onWidgetResizeStart,
-          onSelectWidget: setSelectedWidget,
-        };
-        switch (w.id) {
-          case 'kpi-board':
-            return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps} heightStyle={heightCls}>
+  // -- Fund widget content switch (closure over fund-page state) --------------
+  const fundWidgetContent = (widgetId: string, shellProps: Record<string, unknown>, heightStyle?: React.CSSProperties) => {
+    const w = { id: widgetId };
+    switch (widgetId) {
+      case 'kpi-board':
+        return (
+          <FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} id={'kpi-board' as FundWidgetId} heightStyle={heightStyle}>
                 <div className="h-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         <div className={`${PANEL} p-6 relative overflow-hidden group hover:border-primary/45 transition-all`}>
           <div className="flex items-center justify-between mb-4">
@@ -3711,7 +3156,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'performance':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} flex flex-col h-full`}>
           <div className="p-5 border-b border-border/30 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
@@ -3776,7 +3221,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'allocation':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -3807,7 +3252,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'ai-insights':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className="rounded-2xl p-5 h-full bg-primary/[0.06] border border-primary/20">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -3836,7 +3281,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'risk-metrics':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 text-primary" /> Risk &amp; Return Metrics
@@ -3867,7 +3312,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'health':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 flex flex-col h-full`}>
           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -3906,7 +3351,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'risk-radar':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-1 flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" /> Risk Radar
@@ -3936,7 +3381,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'exposure-map':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 flex flex-col h-full`}>
           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -3957,7 +3402,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           case 'changes':
             if (changes.length === 0) return null;
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5`}>
           <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
             <Flame className="w-4 h-4 text-primary" /> What Changed
@@ -3987,7 +3432,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'rebalance':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5`}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -4016,7 +3461,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'holdings':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} overflow-hidden`}>
         <div className="p-5 border-b border-border/30 flex items-center justify-between flex-wrap gap-3">
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -4170,7 +3615,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'watchlist':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
             <Star className="w-4 h-4 fill-primary text-primary" /> Watchlist
@@ -4200,7 +3645,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'transactions':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
@@ -4283,7 +3728,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'stress':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-baseline justify-between flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Stress Test</h3>
@@ -4340,7 +3785,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'correlation':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Correlation Matrix</h3>
@@ -4365,7 +3810,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'tools':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* What-If Trade */}
           <div className={`${PANEL} p-5`}>
@@ -4538,7 +3983,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'monte-carlo':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
                   <div className={`${PANEL} lg:col-span-3 p-5`}>
           <div className="flex items-baseline justify-between flex-wrap gap-3 mb-3">
@@ -4602,7 +4047,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           case 'cost-basis':
             return (
-              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+<FundWidgetShell {...(shellProps as unknown as FundWidgetShellProps)} key={w.id} id={w.id as FundWidgetId}>
                 <div className={`${PANEL} p-5 mb-6`}>
         <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-md font-serif font-semibold">Cost Basis &amp; DCA</h3>
@@ -4633,7 +4078,270 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             );
           default:
             return null;
-        }
+    }
+  };
+
+  // Render one fund widget (shell + content).
+  const FundWidgetRenderer = ({ widgetId, heightStyle, ...rest }: { widgetId: string; heightStyle?: React.CSSProperties } & Record<string, unknown>) => (
+    <>{fundWidgetContent(widgetId, rest, heightStyle)}</>
+  );
+
+  return (
+    <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-screen text-foreground animate-in fade-in duration-500 relative overflow-x-hidden">
+
+      {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-serif font-semibold tracking-tight flex items-center gap-3 flex-wrap">
+            {viewMode === 'overview'
+              ? <PieChart className="h-9 w-9 text-primary" />
+              : (() => { const I = FUND_ICONS[activeFund?.icon ?? 'briefcase'] ?? Briefcase; return <I className="h-9 w-9" style={{ color: activeFund?.color }} />; })()}
+            {viewMode === 'overview' ? 'Portfolio Overview' : (activeFund?.name ?? 'Portfolio')}
+          </h1>
+          <p className="text-muted-foreground text-sm mt-2">
+            {viewMode === 'overview'
+              ? `Aggregated performance across ${funds.length} fund${funds.length === 1 ? '' : 's'} — click any card to open a fund.`
+              : 'Holdings, performance, and AI-driven insights in real time.'}
+          </p>
+        </div>
+
+        {viewMode !== 'overview' && (
+          <div className="flex flex-wrap items-center gap-4">
+            <select
+              value={displayFx}
+              onChange={e => setDisplayCurrency(e.target.value)}
+              title="Display currency — all totals and charts convert instantly"
+              className="bg-muted/20 border border-border/40 rounded-xl px-3 py-2.5 text-xs font-mono outline-none focus:border-primary/50 cursor-pointer text-foreground [&>option]:bg-[#1a1a1a] [&>option]:text-foreground"
+            >
+              {DISPLAY_CURRENCIES.map(c => (
+                <option key={c.code} value={c.code}>{c.code}</option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              className="border-border/50 text-muted-foreground hover:text-foreground rounded-xl px-4 py-5 text-sm cursor-pointer flex items-center gap-2"
+              onClick={() => openEditFundDialog(activeFund!)}
+            >
+              <SquarePen className="w-4 h-4" /> Edit Fund
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl px-5 py-5 text-sm transition-all shadow-lg shadow-primary/15 flex items-center gap-2 cursor-pointer"
+              onClick={() => { setTxType('BUY'); setIsAddOpen(true); }}
+            >
+              <Plus className="w-4 h-4" />
+              Add Transaction
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ─── FUND TABS ───────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Funds</span>
+        {fundTabs}
+      </div>
+
+      {viewMode === 'overview' && (
+        <OverviewView
+          funds={funds}
+          usdPkr={usdPkr}
+          liveAssets={liveAssets}
+          onOpenFund={(id) => setViewMode(id)}
+          onEditFund={openEditFundDialog}
+          onDeleteFund={handleDeleteFund}
+          onCreateFund={openCreateFundDialog}
+          onAnalyzeTicker={onAnalyzeTicker}
+          displayFx={displayFx}
+          fxRates={fxRates}
+          hasFx={hasFx}
+          fundHistory={{ closes: fundHistRaw.closes, dates: fundHistRaw.dates }}
+          fmtD={fmtD}
+          fmtDK={fmtDK}
+          dispLabel={DISP_LABEL}
+        />
+      )}
+      {viewMode !== 'overview' && (<>
+
+      {/* ─── CUSTOMIZE TOOLBAR ──────────────────────────────────────────────── */}
+      <div className="relative flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground flex items-center gap-1.5">
+          <LayoutDashboard className="w-3.5 h-3.5" /> {activeFund?.name ?? 'Portfolio'}
+        </span>
+        <button
+          onClick={() => setFundCustomizing((v) => !v)}
+          className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
+            fundCustomizing
+              ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-500/30 dark:bg-zinc-400/20 border-zinc-500/60 dark:border-zinc-400/50 shadow-inner backdrop-blur-md'
+              : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
+          }`}
+          title="Rearrange, show/hide, and resize widgets with the mouse"
+        >
+          <Settings2 className="w-3.5 h-3.5" /> {fundCustomizing ? 'Done' : 'Customize'}
+        </button>
+        {!fundCustomizing && <CustomizeCoachMark pageId="portfolio-fund" body="Every card on this fund page can be rearranged, resized, shown or hidden — press Customize to arrange your workspace." />}
+      </div>
+
+      {/* Inline customize panel — templates, drag rows to reorder, resize */}
+      {fundCustomizing && (
+        <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Edit mode — drag, resize, or hide widgets below · applies to every fund</p>
+        </div>
+      )}
+
+      {fundCustomizing && (
+        <div className={`${PANEL} p-4 animate-fade-in-up space-y-4 ring-1 ring-zinc-400/30 dark:ring-zinc-500/25`}>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wider">Page Layout — applies to every fund</p>
+            <button
+              onClick={resetFundLayout}
+              className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          </div>
+
+          {/* Design templates */}
+          <div>
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Templates</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {FUND_PAGE.presets.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => applyFundPreset(t.id)}
+                  title={t.desc}
+                  className={`${TILE} p-2.5 text-left hover:border-zinc-400/60 dark:hover:border-zinc-500/50 hover:bg-zinc-500/[0.06] dark:hover:bg-zinc-400/[0.04] transition-all cursor-pointer`}
+                >
+                  <TemplateMiniGrid rows={t.preview} />
+                  <p className="text-[11px] font-bold mt-2">{t.name}</p>
+                  <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground">
+            Hover a section on the page and click the <span className="font-bold text-foreground">columns icon</span> to change its layout · drag cards (or these rows) to move them · click a card to select it, then use the keyboard: ←/→ move, Shift+←/→ columns, ↑/↓ height, X hides · eye toggles visibility.
+          </p>
+          {/* Navigator: sections → widget rows (mirrors the page tree) */}
+          <div className="space-y-2">
+            {fundLayout.sections.map((s, si) => (
+              <div key={s.id} className={`${TILE} p-2.5 space-y-1.5`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Columns3 className="w-3 h-3" /> Section {si + 1} · {s.columns} column{s.columns > 1 ? 's' : ''}
+                  </span>
+                  <StructurePicker columns={s.columns} onPick={(c) => setFundColumns(s.id, c)} align="right" />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.widgets.map((w) => {
+                    const meta = FUND_WIDGET_META[w.id as FundWidgetId];
+                    return (
+                      <div
+                        key={w.id}
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id as FundWidgetId); }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => { e.preventDefault(); if (fundDrag && fundDrag !== w.id) placeFundWidget(fundDrag, s.id, w.id); setFundDrag(null); }}
+                        onClick={() => setSelectedWidget(w.id)}
+                        className={`flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-lg border text-[10px] font-bold cursor-grab active:cursor-grabbing transition-all ${TILE} ${w.visible ? '' : 'opacity-45'} ${fundDrag === w.id ? 'opacity-40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70' : ''}`}
+                      >
+                        <GripVertical className="w-3 h-3 text-zinc-400" />
+                        <span className="max-w-[110px] truncate">{meta?.label ?? w.id}</span>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.min(10, w.height + 1) }); }}
+                            title="Taller (+40px)"
+                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.max(0, w.height - 1) }); }}
+                            title="Shorter (−40px)"
+                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                          >
+                            −
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { visible: !w.visible }); }}
+                            title={w.visible ? 'Hide' : 'Show'}
+                            className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
+                          >
+                            {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── LAYOUT-DRIVEN WIDGET FLOW (sections × columns) ─────────────────── */}
+      <div
+        className={`space-y-5${fundCustomizing ? ' fund-customizing' : ''}`}
+        onClick={(e) => { if (fundCustomizing && e.target === e.currentTarget) setSelectedWidget(null); }}
+      >
+      {fundLayout.sections.map((section) => {
+        const visibleWidgets = section.widgets.filter((w) => w.visible);
+        if (visibleWidgets.length === 0) return null;
+        return (
+          <SectionShell
+            key={section.id}
+            editing={fundCustomizing}
+            columns={section.columns}
+            onColumns={(c) => setFundColumns(section.id, c)}
+            onDelete={() => { for (const w of section.widgets) patchFundWidget(w.id, { visible: false }); }}
+          >
+            <div
+              className={`grid grid-cols-1 gap-5 ${fundSectionGridClass(section.columns)} ${fundCustomizing ? 'p-3 rounded-2xl' : ''}`}
+              onDragOver={(e) => { if (fundDrag) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+              onDrop={(e) => {
+                if (!fundDrag) return;
+                e.preventDefault();
+                placeFundWidget(fundDrag, section.id, null);
+                setFundDrag(null);
+              }}
+            >
+            {visibleWidgets.map((w) => {
+              const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
+              const shellProps = {
+                customizing: fundCustomizing,
+                dragId: fundDrag,
+                columns: section.columns,
+                selected: selectedWidget === w.id,
+                onDragStart: (id: FundWidgetId) => setFundDrag(id),
+                onDrop: (targetSection: string, beforeId: string | null) => { if (fundDrag) placeFundWidget(fundDrag, targetSection, beforeId); },
+                onResizeStart: onWidgetResizeStart,
+                onSelectWidget: setSelectedWidget,
+              };
+              return (
+                <div
+                  key={w.id}
+                  onDragOver={(e) => { if (fundDrag && fundDrag !== w.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                  onDrop={(e) => {
+                    if (!fundDrag || fundDrag === w.id) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    placeFundWidget(fundDrag, section.id, w.id);
+                    setFundDrag(null);
+                  }}
+                >
+                  <FundWidgetRenderer
+                    widgetId={w.id}
+                    {...shellProps}
+                    heightStyle={heightCls}
+                  />
+                </div>
+              );
+            })}
+            </div>
+          </SectionShell>
+        );
       })}
       </div>
       </>)}

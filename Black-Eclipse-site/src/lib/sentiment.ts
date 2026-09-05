@@ -15,7 +15,7 @@ export type Sentiment = "bullish" | "bearish" | "neutral";
 
 // Intensity-weighted sentiment lexicon.
 const BULL_WORDS: Record<string, number> = {
-  surge: 3, surges: 3, surged: 3, soar: 3, soars: 3, soared: 3, rocket: 3,
+  surge: 3, surges: 3, surged: 3, soar: 3, soars: 3, soared: 3,
   rally: 2, rallies: 2, rallied: 2, jump: 2, jumps: 2, jumped: 2,
   record: 2, "all-time": 2, beat: 2, beats: 2, beatened: 0,
   gain: 1, gains: 1, gained: 1, up: 1, rise: 1, rises: 1, rose: 1,
@@ -24,7 +24,7 @@ const BULL_WORDS: Record<string, number> = {
   adds: 1, add: 1, rebound: 2, rebounds: 2, recover: 2, recovers: 2, recovery: 2,
   expansion: 1, expand: 1, expands: 1, boost: 2, boosts: 2, boosted: 2,
   upbeat: 2, optimism: 2, optimistic: 2, top: 1, tops: 1, topped: 1,
-  beatdown: 0, wins: 1, win: 1, breakthrough: 2, exceeds: 2, exceed: 2,
+  beatdown: 0, breakthrough: 2, exceeds: 2, exceed: 2,
 };
 
 const BEAR_WORDS: Record<string, number> = {
