@@ -12,11 +12,11 @@ import {
   X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3,
   Home, GraduationCap, PiggyBank, Plane, Car, Heart,
   Gift, Rocket, Landmark, Coins, LayoutDashboard, SquarePen,
-  CornerDownRight, GripVertical, Settings2, Eye, EyeOff, RotateCcw, Columns3,
+  GripVertical, Settings2, Eye, EyeOff, RotateCcw, Columns3,
 } from 'lucide-react';
 // Customization kernel — shared layout engine + visuals.
 import {
-  SPAN_CLASS, StructurePicker, SectionShell,
+  StructurePicker, SectionShell,
   useCustomize,
   FUND_PAGE, FUND_WIDGET_META,
   CustomizeCoachMark,
@@ -506,32 +506,31 @@ interface FundWidgetShellProps {
   id: FundWidgetId;
   customizing: boolean;
   dragId: FundWidgetId | null;
-  span: 1 | 2 | 3 | 4;
+  /** Column count of the section this widget lives in (widgets fill 1 slot). */
+  columns: 1 | 2 | 3 | 4;
   selected: boolean;
   onDragStart: (id: FundWidgetId) => void;
-  onDrop: (target: FundWidgetId) => void;
-  onResizeStart: (e: React.PointerEvent, id: FundWidgetId, mode: 'wider' | 'narrower' | 'taller' | 'shorter' | 'corner') => void;
+  onResizeStart: (e: React.PointerEvent, id: FundWidgetId, mode: 'taller' | 'shorter' | 'corner') => void;
   onSelectWidget: (id: FundWidgetId) => void;
   heightStyle?: React.CSSProperties;
   children: React.ReactNode;
 }
 
-/** Wraps a fund-page widget. In edit mode the whole card is draggable,
- * click-to-select enables keyboard nudge/resize (arrows move order, Shift+
- * arrows / +/- resize, X hides), and edge/corner handles appear on hover for
- * live width & height resizing. The grid span lives on this outer wrapper so
- * inner height styles never affect grid sizing. */
+/** Wraps a fund-page widget. In edit mode the card is draggable (whole card is
+ * the drag surface; drop targets are sibling cards/sections handled by the
+ * parent grid), click-to-select enables keyboard controls, and edge/corner
+ * handles appear on hover for live height resizing. Width is a section-column
+ * concern — the widget fills its column slot. */
 function FundWidgetShell({
-  id, customizing, dragId, span, selected, onDragStart, onDrop, onResizeStart, onSelectWidget, heightStyle, children,
+  id, customizing, dragId, columns, selected, onDragStart, onResizeStart, onSelectWidget, heightStyle, children,
 }: FundWidgetShellProps) {
-  const spanCls = SPAN_CLASS[span];
   const [dropHint, setDropHint] = useState(false);
   if (!customizing) {
-    return <div className={spanCls} style={heightStyle}>{children}</div>;
+    return <div className="min-w-0" style={heightStyle}>{children}</div>;
   }
   return (
     <div
-      className={`${spanCls} relative group/shell transition-all duration-150 ${dragId === id ? 'opacity-50 scale-[0.98]' : ''}`}
+      className={`relative group/shell transition-all duration-150 ${dragId === id ? 'opacity-50 scale-[0.98]' : ''}`}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
@@ -540,10 +539,20 @@ function FundWidgetShell({
         try { e.dataTransfer.setDragImage(document.querySelector(`[data-widget-card="${id}"]`) as HTMLElement, 80, 24); } catch { /* default ghost */ }
         onDragStart(id);
       }}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-      onDragEnter={(e) => { e.preventDefault(); if (dragId && dragId !== id) setDropHint(true); }}
+      onDragOver={(e) => { if (dragId && dragId !== id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+      onDragEnter={(e) => { if (dragId && dragId !== id) setDropHint(true); }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropHint(false); }}
-      onDrop={(e) => { e.preventDefault(); setDropHint(false); onDrop(id); }}
+      onDrop={(e) => {
+        if (!dragId || dragId === id) return;
+        e.preventDefault();
+        setDropHint(false);
+        // Reuse the card's own drop wiring: dispatch onto the parent wrapper.
+        const host = e.currentTarget.parentElement as HTMLElement | null;
+        if (host) {
+          const evt = new DragEvent('drop', { bubbles: true, cancelable: true });
+          host.dispatchEvent(evt);
+        }
+      }}
       onDragEnd={() => setDropHint(false)}
     >
       {/* Card itself is the drag surface — subtle edit outline + drop-target ring */}
@@ -567,39 +576,30 @@ function FundWidgetShell({
         </span>
         {children}
       </div>
-      {/* Resize handles — slim grip pills with dot texture, fade + scale in on
-          hover. Hidden entirely while any card is being dragged. */}
+      {/* Resize handles — height-only slim grip pills + corner, fade + scale in
+          on hover. Hidden entirely while any card is being dragged. */}
       {!dragId && (
         <>
           <div
-            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
-            className="absolute -left-1.5 top-1/2 -translate-y-1/2 h-10 w-3 flex items-center justify-center cursor-ew-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
-            title="Drag to resize width"
+            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'taller'); }}
+            className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-3 w-10 flex items-center justify-center cursor-ns-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
+            title="Drag to resize height"
           >
-            <span className={`w-2 h-8 rounded-full flex flex-col items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
+            <span className={`h-2 w-8 rounded-full flex items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
             </span>
           </div>
           <div
-            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
-            className="absolute -right-1.5 top-1/2 -translate-y-1/2 h-10 w-3 flex items-center justify-center cursor-ew-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
-            title="Drag to resize width"
+            onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'shorter'); }}
+            className="absolute -top-1 left-1/2 -translate-x-1/2 h-3 w-10 flex items-center justify-center cursor-ns-resize z-20 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150"
+            title="Drag to resize height"
           >
-            <span className={`w-2 h-8 rounded-full flex flex-col items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
+            <span className={`h-2 w-8 rounded-full flex items-center justify-center gap-[2px] ${EDIT_HANDLE}`}>
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
               <span className="w-[3px] h-[3px] rounded-full bg-white/50" />
-            </span>
-          </div>
-          <div
-            onPointerDown={(e) => onResizeStart(e, id, 'corner')}
-            className="absolute -bottom-1 -right-1 w-4 h-4 cursor-nwse-resize z-30 opacity-0 scale-75 group-hover/shell:opacity-100 group-hover/shell:scale-100 transition-all duration-150 flex items-center justify-center"
-            title="Drag to resize width + height"
-          >
-            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${EDIT_HANDLE}`}>
-              <CornerDownRight className="w-2 h-2 text-white/70 -rotate-45" aria-hidden />
             </span>
           </div>
         </>
@@ -1294,13 +1294,29 @@ function OverviewView({
                       >
                         <GripVertical className="w-3 h-3 text-zinc-400" />
                         <span className="max-w-[110px] truncate">{meta?.label ?? w.id}</span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
-                          title={w.visible ? 'Hide widget' : 'Show widget'}
-                          className="p-1 rounded cursor-pointer transition-colors text-zinc-300 hover:bg-zinc-500/20"
-                        >
-                          {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                        </button>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { height: Math.min(10, (w.height ?? 0) + 1) }); }}
+                            title="Taller (+40px)"
+                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { height: Math.max(0, (w.height ?? 0) - 1) }); }}
+                            title="Shorter (−40px)"
+                            className="w-4 h-4 rounded text-[9px] font-bold cursor-pointer text-zinc-400 hover:text-foreground hover:bg-zinc-500/20"
+                          >
+                            −
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
+                            title={w.visible ? 'Hide widget' : 'Show widget'}
+                            className="p-0.5 rounded cursor-pointer text-zinc-300 hover:bg-zinc-500/20"
+                          >
+                            {w.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1340,10 +1356,12 @@ function OverviewView({
                 {visibleWidgets.map((w) => {
                   const fundCompareEmpty = w.id === 'fund-compare' && fundCompare.length === 0;
                   if (fundCompareEmpty) return null;
+                  const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
                   return (
                     <div
                       key={w.id}
                       className="min-w-0"
+                      style={heightCls}
                       onDragOver={(e) => { if (dragWidget && dragWidget !== w.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
                       onDrop={(e) => {
                         if (!dragWidget || dragWidget === w.id) return;
@@ -4315,7 +4333,6 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                 columns: section.columns,
                 selected: selectedWidget === w.id,
                 onDragStart: (id: FundWidgetId) => setFundDrag(id),
-                onDrop: (targetSection: string, beforeId: string | null) => { if (fundDrag) placeFundWidget(fundDrag, targetSection, beforeId); },
                 onResizeStart: onWidgetResizeStart,
                 onSelectWidget: setSelectedWidget,
               };
