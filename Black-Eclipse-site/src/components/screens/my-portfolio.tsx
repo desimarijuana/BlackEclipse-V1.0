@@ -634,43 +634,21 @@ function FundWidgetShell({
       >
         {children}
       </div>
-      {/* Floating drag pill — top edge, compact; hidden while this card is dragged */}
-      <span
-        className={`absolute -top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 px-1.5 py-[1px] rounded-full ${EDIT_HANDLE} text-[7.5px] font-mono font-bold text-zinc-300 tracking-wider uppercase select-none transition-opacity ${dragId === id ? 'opacity-0' : 'opacity-70 group-hover/shell:opacity-100'}`}
-      >
-        <GripVertical className="w-2 h-2" /> {id}
-      </span>
-      {/* Corner resize handle (bottom-right) — diagonal drag adjusts both axes */}
-      <div
-        onPointerDown={(e) => onResizeStart(e, id, 'corner')}
-        className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} opacity-60 group-hover/shell:opacity-100 transition-all z-30 flex items-center justify-center`}
-        title="Drag to resize (width + height)"
-      >
-        <svg viewBox="0 0 10 10" className="w-2 h-2 text-zinc-400">
-          <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-        </svg>
-      </div>
-      {/* Right/left edges — slim frosted grey bars, dim until hovered */}
+      {/* Resize handles — sides only, slim bars, appear on hover */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
-        className={`absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-10 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
-        title="Drag right to widen"
+        className={`absolute -left-1 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-20`}
+        title="Drag to resize width"
       />
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
-        className={`absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-10 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
-        title="Drag left to narrow"
-      />
-      {/* Height handles — top/bottom edges */}
-      <div
-        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'taller'); }}
-        className={`absolute -bottom-1 left-1/2 -translate-x-1/2 h-2 w-10 rounded-full cursor-ns-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
-        title="Drag down to make taller"
+        className={`absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-20`}
+        title="Drag to resize width"
       />
       <div
-        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'shorter'); }}
-        className={`absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-10 rounded-full cursor-ns-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
-        title="Drag up to make shorter"
+        onPointerDown={(e) => onResizeStart(e, id, 'corner')}
+        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} opacity-0 group-hover/shell:opacity-90 transition-opacity z-30`}
+        title="Drag to resize width + height"
       />
     </div>
   );
