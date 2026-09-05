@@ -34,11 +34,11 @@ import {
 // portfolio-watchlist so every screen looks consistent.
 const PANEL = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm';
 const TILE = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-xl';
-// Frosted-glass grey — dark neutral glass with backdrop blur for edit/customize
-// mode. The page behind blurs out instead of showing through, and the handles
-// keep solid contrast (no faint opacity ghosts).
-const EDIT_HANDLE = 'bg-zinc-700/80 dark:bg-zinc-800/85 bg-zinc-500/80 backdrop-blur-md border border-white/25 dark:border-white/15 shadow-lg';
-const EDIT_GRIP = 'bg-zinc-700/70 dark:bg-zinc-800/75 bg-zinc-500/70 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-md';
+// Frosted-glass grey — dark neutral glass matching the site's panel recipe for
+// edit/customize mode. Handles stay compact and fade to near-invisible unless
+// the widget is hovered, so edit mode stays quiet.
+const EDIT_HANDLE = 'bg-zinc-800/85 dark:bg-zinc-800/90 bg-zinc-600/80 backdrop-blur-md border border-white/20 dark:border-white/12 shadow-lg';
+const EDIT_GRIP = 'bg-zinc-800/80 dark:bg-zinc-800/85 bg-zinc-600/70 backdrop-blur-md border border-white/18 dark:border-white/10 shadow-md';
 const UP = '#34d399';
 const DOWN = '#fb7185';
 
@@ -621,12 +621,12 @@ function FundWidgetShell({
       onDrop={(e) => { e.preventDefault(); setDropHint(false); onDrop(id); }}
       onDragEnd={() => setDropHint(false)}
     >
-      {/* Card itself is the drag surface — edit outline + drop-target ring */}
+      {/* Card itself is the drag surface — subtle edit outline + drop-target ring */}
       <div
-        className={`rounded-2xl ring-1 transition-all duration-150 cursor-grab active:cursor-grabbing outline-dashed outline-1 outline-offset-2 outline-zinc-400/30 dark:outline-zinc-500/25 ${
+        className={`rounded-2xl ring-1 transition-all duration-150 cursor-grab active:cursor-grabbing ${
           dropHint
             ? 'ring-2 ring-zinc-300/90 dark:ring-zinc-300/80 ring-offset-2 ring-offset-transparent shadow-[0_0_0_5px_rgba(161,161,170,0.18)] scale-[1.01]'
-            : 'ring-zinc-400/50 dark:ring-zinc-500/40'
+            : 'ring-zinc-500/25 dark:ring-zinc-600/30'
         }`}
         style={heightStyle}
         data-widget-card={id}
@@ -634,64 +634,44 @@ function FundWidgetShell({
       >
         {children}
       </div>
-      {/* Floating drag pill — top edge, dark frosted grey; hidden while this card is being dragged */}
+      {/* Floating drag pill — top edge, compact; hidden while this card is dragged */}
       <span
-        className={`absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-100 tracking-wider uppercase select-none transition-opacity ${dragId === id ? 'opacity-0' : ''}`}
+        className={`absolute -top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 px-1.5 py-[1px] rounded-full ${EDIT_HANDLE} text-[7.5px] font-mono font-bold text-zinc-300 tracking-wider uppercase select-none transition-opacity ${dragId === id ? 'opacity-0' : 'opacity-70 group-hover/shell:opacity-100'}`}
       >
-        <GripVertical className="w-2.5 h-2.5" /> {id}
+        <GripVertical className="w-2 h-2" /> {id}
       </span>
       {/* Corner resize handle (bottom-right) — diagonal drag adjusts both axes */}
       <div
         onPointerDown={(e) => onResizeStart(e, id, 'corner')}
-        className={`absolute -bottom-1.5 -right-1.5 w-5 h-5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} group-hover/shell:scale-125 transition-transform z-30 flex items-center justify-center`}
+        className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} opacity-60 group-hover/shell:opacity-100 transition-all z-30 flex items-center justify-center`}
         title="Drag to resize (width + height)"
       >
-        <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 text-zinc-200">
+        <svg viewBox="0 0 10 10" className="w-2 h-2 text-zinc-400">
           <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
         </svg>
       </div>
-      {/* Right/left edges — frosted grey pills, always visible in edit mode */}
+      {/* Right/left edges — slim frosted grey bars, dim until hovered */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
-        className={`absolute -left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
+        className={`absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-10 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
         title="Drag right to widen"
-      >
-        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-200">
-          <path d="M6 2L2 6l4 4M2 2l4 4-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
-          <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </div>
+      />
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
-        className={`absolute -right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
+        className={`absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-10 rounded-full cursor-ew-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
         title="Drag left to narrow"
-      >
-        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-200">
-          <path d="M2 2l4 4-4 4M6 2L2 6l4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
-          <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </div>
+      />
       {/* Height handles — top/bottom edges */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'taller'); }}
-        className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
+        className={`absolute -bottom-1 left-1/2 -translate-x-1/2 h-2 w-10 rounded-full cursor-ns-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
         title="Drag down to make taller"
-      >
-        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-200">
-          <path d="M2 6l4-4 4 4M2 2l4 4 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
-          <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </div>
+      />
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'shorter'); }}
-        className={`absolute -top-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
+        className={`absolute -top-1 left-1/2 -translate-x-1/2 h-2 w-10 rounded-full cursor-ns-resize ${EDIT_HANDLE} opacity-40 group-hover/shell:opacity-100 transition-all z-20`}
         title="Drag up to make shorter"
-      >
-        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-200">
-          <path d="M2 2l4 4 4-4M2 6l4-4 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
-          <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </div>
+      />
     </div>
   );
 }
