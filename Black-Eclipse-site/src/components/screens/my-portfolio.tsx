@@ -11,7 +11,8 @@ import {
   AlertCircle, BarChart2, DollarSign, Calendar,
   X, Search, Star, ChevronDown, ChevronUp, Flame, Gauge, Grid3x3,
   Home, GraduationCap, PiggyBank, Plane, Car, Heart,
-  Gift, Rocket, Landmark, Coins, LayoutDashboard, SquarePen} from 'lucide-react';
+  Gift, Rocket, Landmark, Coins, LayoutDashboard, SquarePen,
+  GripVertical, Settings2, Eye, EyeOff, RotateCcw} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TopLoader } from '@/components/ui/top-loader';
 import { SkeletonCardGrid, SkeletonHeader, SkeletonPanel, SkeletonTable } from '@/components/ui/skeleton';
@@ -396,9 +397,9 @@ function oklchToHex(lch: string): string {
   const l = l_ ** 3;
   const mm = m_ ** 3;
   const s = s_ ** 3;
-  let r = 4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s;
-  let g = -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s;
-  let bl = -0.0041960863 * l - 0.7034186147 * mm + 1.7076147010 * s;
+  const r = 4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s;
+  const bl = -0.0041960863 * l - 0.7034186147 * mm + 1.7076147010 * s;
   const gam = (c: number) => {
     c = Math.min(1, Math.max(0, c));
     return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
@@ -421,6 +422,429 @@ interface EChartProps {
   height?: number | string;
   className?: string;
   notMerge?: boolean;
+}
+
+// ── Dashboard customization (overview page) ─────────────────────────────────
+// Each widget has a visibility flag, a width span on a 4-col grid, and an
+// order. Persisted per-browser in localStorage; edited via an inline customize
+// panel (drag to reorder, toggle visibility, pick size S/M/L/XL).
+
+type WidgetId = 'total-value' | 'unreal-pl' | 'top-exposure' | 'fund-compare' | 'fund-cards';
+
+interface WidgetLayout {
+  id: WidgetId;
+  visible: boolean;
+  span: 1 | 2 | 3 | 4; // 4-col grid spans: S=1, M=2, L=3, XL=4
+}
+
+interface DashboardLayout {
+  widgets: WidgetLayout[];
+}
+
+const WIDGET_META: Record<WidgetId, { label: string; desc: string; defaultSpan: WidgetLayout['span'] }> = {
+  'total-value': { label: 'Total Value', desc: 'Aggregate value across all funds', defaultSpan: 1 },
+  'unreal-pl': { label: 'Unrealized P/L', desc: 'Profit/loss vs cost basis', defaultSpan: 1 },
+  'top-exposure': { label: 'Top Exposure', desc: 'Largest holdings across funds', defaultSpan: 1 },
+  'fund-compare': { label: 'Fund Comparison', desc: 'Indexed NAV curves, zoomable', defaultSpan: 4 },
+  'fund-cards': { label: 'Your Funds', desc: 'Fund cards + create button', defaultSpan: 4 },
+};
+
+const DEFAULT_LAYOUT: DashboardLayout = {
+  widgets: [
+    { id: 'total-value', visible: true, span: 1 },
+    { id: 'unreal-pl', visible: true, span: 1 },
+    { id: 'top-exposure', visible: true, span: 1 },
+    { id: 'fund-compare', visible: true, span: 4 },
+    { id: 'fund-cards', visible: true, span: 4 },
+  ],
+};
+
+const DASHBOARD_LAYOUT_KEY = 'eclipse_portfolio_layout';
+
+// ── Overview design templates: curated arrangements for the 5 widgets ────────
+const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () => DashboardLayout }> = [
+  {
+    id: 'default',
+    name: 'Classic',
+    desc: 'Stat trio + full-width charts',
+    build: () => DEFAULT_LAYOUT,
+  },
+  {
+    id: 'grid',
+    name: 'Grid',
+    desc: 'Stat trio widened, side-by-side charts',
+    build: () => ({
+      widgets: [
+        { id: 'total-value', visible: true, span: 1 },
+        { id: 'unreal-pl', visible: true, span: 1 },
+        { id: 'top-exposure', visible: true, span: 2 },
+        { id: 'fund-compare', visible: true, span: 3 },
+        { id: 'fund-cards', visible: true, span: 1 },
+      ],
+    }),
+  },
+  {
+    id: 'split',
+    name: 'Split',
+    desc: 'Charts on the left, stats in a right rail',
+    build: () => ({
+      widgets: [
+        { id: 'fund-compare', visible: true, span: 3 },
+        { id: 'total-value', visible: true, span: 1 },
+        { id: 'unreal-pl', visible: true, span: 1 },
+        { id: 'top-exposure', visible: true, span: 2 },
+        { id: 'fund-cards', visible: true, span: 2 },
+      ],
+    }),
+  },
+  {
+    id: 'duo',
+    name: 'Duo',
+    desc: 'Two big halves — comparison vs funds',
+    build: () => ({
+      widgets: [
+        { id: 'total-value', visible: true, span: 2 },
+        { id: 'unreal-pl', visible: true, span: 2 },
+        { id: 'fund-compare', visible: true, span: 2 },
+        { id: 'fund-cards', visible: true, span: 2 },
+        { id: 'top-exposure', visible: true, span: 4 },
+      ],
+    }),
+  },
+  {
+    id: 'focus',
+    name: 'Focus',
+    desc: 'Comparison hero, everything else compact',
+    build: () => ({
+      widgets: [
+        { id: 'fund-compare', visible: true, span: 4 },
+        { id: 'total-value', visible: true, span: 1 },
+        { id: 'unreal-pl', visible: true, span: 1 },
+        { id: 'top-exposure', visible: true, span: 1 },
+        { id: 'fund-cards', visible: true, span: 4 },
+      ],
+    }),
+  },
+];
+
+function loadDashboardLayout(): DashboardLayout {
+  if (typeof window === 'undefined') return DEFAULT_LAYOUT;
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_LAYOUT_KEY);
+    if (!raw) return DEFAULT_LAYOUT;
+    const parsed = JSON.parse(raw) as DashboardLayout;
+    if (!Array.isArray(parsed.widgets)) return DEFAULT_LAYOUT;
+    // Merge in any new widgets added later; drop unknown ids.
+    const known = new Set(Object.keys(WIDGET_META) as WidgetId[]);
+    const widgets = DEFAULT_LAYOUT.widgets
+      .map((d) => parsed.widgets.find((w) => w.id === d.id) ?? d)
+      .filter((w) => known.has(w.id));
+    // Append widgets the user never had (e.g. after an app update).
+    for (const d of DEFAULT_LAYOUT.widgets) {
+      if (!widgets.some((w) => w.id === d.id)) widgets.push(d);
+    }
+    return { widgets };
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
+
+const SPAN_CLASS: Record<WidgetLayout['span'], string> = {
+  1: 'lg:col-span-1',
+  2: 'lg:col-span-2',
+  3: 'lg:col-span-3',
+  4: 'lg:col-span-4',
+};
+
+const SPAN_LABEL: Record<WidgetLayout['span'], string> = { 1: 'S', 2: 'M', 3: 'L', 4: 'XL' };
+
+/** Static class map for fund-widget shells — safe for Tailwind's scanner
+ * (dynamic `lg:col-span-${n}` strings would be pruned at build time). */
+const FUND_SPAN_CLASS: Record<FundWidgetLayout['span'], string> = {
+  1: 'lg:col-span-1',
+  2: 'lg:col-span-2',
+  3: 'lg:col-span-3',
+  4: 'lg:col-span-4',
+};
+
+interface FundWidgetShellProps {
+  id: FundWidgetId;
+  customizing: boolean;
+  dragId: FundWidgetId | null;
+  span: FundWidgetLayout['span'];
+  onDragStart: (id: FundWidgetId) => void;
+  onDrop: (target: FundWidgetId) => void;
+  onResizeStart: (e: React.PointerEvent, id: FundWidgetId, mode: 'wider' | 'narrower' | 'taller' | 'shorter' | 'corner') => void;
+  onSelectWidget: (id: FundWidgetId) => void;
+  heightStyle?: React.CSSProperties;
+  children: React.ReactNode;
+}
+
+const SELECT_RING = 'outline outline-2 outline-primary/70 outline-offset-2';
+
+/** Wraps a fund-page widget. In edit mode the whole card is draggable,
+ * click-to-select enables keyboard nudge/resize (arrows move order, Shift+
+ * arrows / +/- resize, X hides), and edge/corner handles appear on hover for
+ * live width & height resizing. The grid span lives on this outer wrapper so
+ * inner height styles never affect grid sizing. */
+function FundWidgetShell({
+  id, customizing, dragId, span, onDragStart, onDrop, onResizeStart, onSelectWidget, heightStyle, children,
+}: FundWidgetShellProps) {
+  const spanCls = FUND_SPAN_CLASS[span];
+  if (!customizing) {
+    return <div className={spanCls} style={heightStyle}>{children}</div>;
+  }
+  return (
+    <div
+      className={`${spanCls} relative group/shell ${dragId === id ? SELECT_RING : ''}`}
+      draggable
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart(id); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); onDrop(id); }}
+    >
+      {/* Card itself is the drag surface — outline shows edit mode; click to
+          select for keyboard control */}
+      <div
+        className={`rounded-2xl ring-1 ring-primary/40 transition-opacity cursor-grab ${dragId === id ? 'opacity-50' : ''}`}
+        style={heightStyle}
+        data-widget-card={id}
+        onClick={(e) => { e.stopPropagation(); onSelectWidget(id); }}
+      >
+        {children}
+      </div>
+      {/* Selection badge — appears on the currently selected widget */}
+      <span className="absolute -top-2 left-3 z-20 px-1.5 py-0.5 rounded bg-primary text-[9px] font-bold text-[#0b0b0b] opacity-0 group-hover/shell:opacity-100 transition-opacity pointer-events-none">
+        {id}
+      </span>
+      {/* Corner resize handle (bottom-right) — diagonal drag adjusts both axes */}
+      <div
+        onPointerDown={(e) => onResizeStart(e, id, 'corner')}
+        className="absolute -bottom-1.5 -right-1.5 w-4 h-4 cursor-nwse-resize bg-primary/60 rounded-full opacity-0 group-hover/shell:opacity-100 transition-opacity z-20"
+        title="Drag to resize (width + height)"
+      />
+      {/* Right/left edges — hover only, never cover content */}
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
+        className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-20 rounded-full cursor-ew-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        title="Drag right to widen"
+      />
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
+        className="absolute -right-1 top-1/2 -translate-y-1/2 w-2.5 h-20 rounded-full cursor-ew-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        title="Drag left to narrow"
+      />
+      {/* Height handles — top/bottom edges */}
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'taller'); }}
+        className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-2.5 w-20 rounded-full cursor-ns-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        title="Drag down to make taller"
+      />
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'shorter'); }}
+        className="absolute -top-1 left-1/2 -translate-x-1/2 h-2.5 w-20 rounded-full cursor-ns-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        title="Drag up to make shorter"
+      />
+    </div>
+  );
+}
+
+// ── Fund-page widget customization ──────────────────────────────────────────
+// Same mechanism as the overview: each analytics section is a widget the user
+// can show/hide, resize, and reorder with the mouse (drag & drop), persisted
+// in localStorage per fund-agnostic layout (shared across funds).
+
+type FundWidgetId =
+  | 'kpi-board' | 'performance' | 'allocation' | 'ai-insights'
+  | 'risk-metrics' | 'health' | 'risk-radar' | 'exposure-map'
+  | 'changes' | 'rebalance' | 'holdings' | 'watchlist' | 'transactions'
+  | 'stress' | 'correlation' | 'tools' | 'monte-carlo' | 'cost-basis';
+
+interface FundWidgetLayout {
+  id: FundWidgetId;
+  visible: boolean;
+  span: 1 | 2 | 3 | 4;
+  /** Extra height in 40px steps (0 = natural). Applied via min-height. */
+  height: number;
+}
+
+const FUND_WIDGET_META: Record<FundWidgetId, { label: string; desc: string; defaultSpan: FundWidgetLayout['span'] }> = {
+  'kpi-board': { label: 'KPI Board', desc: 'NAV, P/L, cash tiles', defaultSpan: 4 },
+  'performance': { label: 'Performance', desc: 'NAV curve vs benchmark', defaultSpan: 3 },
+  'allocation': { label: 'Allocation', desc: 'Holdings donut + list', defaultSpan: 2 },
+  'ai-insights': { label: 'AI Insights', desc: 'Position signals + discuss', defaultSpan: 2 },
+  'risk-metrics': { label: 'Risk Metrics', desc: 'Beta, vol, Sharpe, drawdown', defaultSpan: 3 },
+  'health': { label: 'Portfolio Health', desc: 'Score gauge + breakdown', defaultSpan: 2 },
+  'risk-radar': { label: 'Risk Radar', desc: 'Five-dimension posture chart', defaultSpan: 2 },
+  'exposure-map': { label: 'Exposure Map', desc: 'Category treemap + brief', defaultSpan: 3 },
+  'changes': { label: 'What Changed', desc: 'Recent portfolio shifts', defaultSpan: 4 },
+  'rebalance': { label: 'Rebalancing', desc: 'Drift vs model targets', defaultSpan: 4 },
+  'holdings': { label: 'Active Holdings', desc: 'Full holdings table', defaultSpan: 4 },
+  'watchlist': { label: 'Watchlist', desc: 'Starred positions', defaultSpan: 2 },
+  'transactions': { label: 'Transactions', desc: 'Recent trade ledger', defaultSpan: 3 },
+  'stress': { label: 'Stress Test', desc: 'Scenario shock model', defaultSpan: 3 },
+  'correlation': { label: 'Correlation', desc: 'Pearson matrix heatmap', defaultSpan: 2 },
+  'tools': { label: 'Trading Tools', desc: 'What-if, sizing, alerts', defaultSpan: 4 },
+  'monte-carlo': { label: 'Monte Carlo', desc: 'Projection + attribution', defaultSpan: 4 },
+  'cost-basis': { label: 'Cost Basis & DCA', desc: 'Entry vs live spread', defaultSpan: 4 },
+};
+
+const DEFAULT_FUND_LAYOUT: { widgets: FundWidgetLayout[] } = {
+  widgets: Object.keys(FUND_WIDGET_META).map((id) => ({
+    id: id as FundWidgetId,
+    visible: true,
+    span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan,
+    height: 0,
+  })),
+};
+
+// ── Design templates: curated full-page layouts, one click to apply ──────────
+const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () => FundWidgetLayout[] }> = [
+  {
+    id: 'default',
+    name: 'Classic',
+    desc: 'Default order — KPIs top, analytics below',
+    build: () => DEFAULT_FUND_LAYOUT.widgets.map((w) => ({ ...w })),
+  },
+  {
+    id: 'trader',
+    name: 'Trader',
+    desc: 'Performance & risk up top, tables last',
+    build: () => ['performance', 'kpi-board', 'stress', 'correlation', 'risk-metrics', 'health', 'risk-radar', 'holdings', 'tools', 'monte-carlo', 'allocation', 'exposure-map', 'rebalance', 'cost-basis', 'changes', 'watchlist', 'transactions', 'ai-insights']
+      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+  },
+  {
+    id: 'analyst',
+    name: 'Analyst',
+    desc: 'Big charts first — performance, exposure, Monte Carlo',
+    build: () => ['kpi-board', 'performance', 'exposure-map', 'monte-carlo', 'allocation', 'cost-basis', 'correlation', 'risk-radar', 'risk-metrics', 'health', 'holdings', 'transactions', 'rebalance', 'stress', 'changes', 'watchlist', 'tools', 'ai-insights']
+      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+  },
+  {
+    id: 'mosaic',
+    name: 'Mosaic',
+    desc: 'Dense mixed-span grid — nothing stacked alike',
+    build: () => [
+      { id: 'kpi-board', visible: true, span: 4, height: 0 },
+      { id: 'performance', visible: true, span: 2, height: 1 },
+      { id: 'allocation', visible: true, span: 2, height: 1 },
+      { id: 'risk-radar', visible: true, span: 1, height: 0 },
+      { id: 'correlation', visible: true, span: 1, height: 0 },
+      { id: 'health', visible: true, span: 2, height: 0 },
+      { id: 'exposure-map', visible: true, span: 3, height: 0 },
+      { id: 'watchlist', visible: true, span: 1, height: 0 },
+      { id: 'monte-carlo', visible: true, span: 2, height: 2 },
+      { id: 'stress', visible: true, span: 1, height: 2 },
+      { id: 'cost-basis', visible: true, span: 1, height: 2 },
+      { id: 'risk-metrics', visible: true, span: 3, height: 0 },
+      { id: 'ai-insights', visible: true, span: 2, height: 0 },
+      { id: 'changes', visible: true, span: 2, height: 0 },
+      { id: 'holdings', visible: true, span: 4, height: 0 },
+      { id: 'transactions', visible: true, span: 2, height: 0 },
+      { id: 'rebalance', visible: true, span: 2, height: 0 },
+      { id: 'tools', visible: true, span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+  },
+  {
+    id: 'split',
+    name: 'Split',
+    desc: 'Left rail of small cards + right column of charts',
+    build: () => [
+      { id: 'kpi-board', visible: true, span: 4, height: 0 },
+      { id: 'risk-radar', visible: true, span: 1, height: 1 },
+      { id: 'health', visible: true, span: 1, height: 1 },
+      { id: 'correlation', visible: true, span: 1, height: 1 },
+      { id: 'watchlist', visible: true, span: 1, height: 1 },
+      { id: 'performance', visible: true, span: 3, height: 1 },
+      { id: 'exposure-map', visible: true, span: 2, height: 0 },
+      { id: 'allocation', visible: true, span: 2, height: 0 },
+      { id: 'monte-carlo', visible: true, span: 3, height: 0 },
+      { id: 'stress', visible: true, span: 1, height: 0 },
+      { id: 'risk-metrics', visible: true, span: 2, height: 0 },
+      { id: 'ai-insights', visible: true, span: 2, height: 0 },
+      { id: 'holdings', visible: true, span: 4, height: 0 },
+      { id: 'transactions', visible: true, span: 2, height: 0 },
+      { id: 'rebalance', visible: true, span: 2, height: 0 },
+      { id: 'changes', visible: true, span: 4, height: 0 },
+      { id: 'cost-basis', visible: true, span: 4, height: 0 },
+      { id: 'tools', visible: true, span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+  },
+  {
+    id: 'rows',
+    name: 'Rows',
+    desc: 'Alternating wide/narrow — magazine-style rhythm',
+    build: () => [
+      { id: 'kpi-board', visible: true, span: 4, height: 0 },
+      { id: 'performance', visible: true, span: 1, height: 0 },
+      { id: 'exposure-map', visible: true, span: 3, height: 0 },
+      { id: 'allocation', visible: true, span: 3, height: 0 },
+      { id: 'risk-radar', visible: true, span: 1, height: 0 },
+      { id: 'monte-carlo', visible: true, span: 1, height: 1 },
+      { id: 'ai-insights', visible: true, span: 3, height: 1 },
+      { id: 'risk-metrics', visible: true, span: 2, height: 0 },
+      { id: 'health', visible: true, span: 2, height: 0 },
+      { id: 'stress', visible: true, span: 2, height: 0 },
+      { id: 'correlation', visible: true, span: 2, height: 0 },
+      { id: 'holdings', visible: true, span: 4, height: 0 },
+      { id: 'watchlist', visible: true, span: 2, height: 0 },
+      { id: 'transactions', visible: true, span: 2, height: 0 },
+      { id: 'rebalance', visible: true, span: 4, height: 0 },
+      { id: 'changes', visible: true, span: 2, height: 0 },
+      { id: 'cost-basis', visible: true, span: 2, height: 0 },
+      { id: 'tools', visible: true, span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+  },
+  {
+    id: 'compact',
+    name: 'Compact',
+    desc: 'Everything narrow — dense 2-col dashboard',
+    build: () => ['kpi-board', 'performance', 'allocation', 'health', 'holdings', 'watchlist', 'transactions', 'risk-metrics', 'risk-radar', 'correlation', 'stress', 'exposure-map', 'ai-insights', 'monte-carlo', 'rebalance', 'changes', 'cost-basis', 'tools']
+      .map((id) => ({ id: id as FundWidgetId, visible: true, span: 2 as FundWidgetLayout['span'], height: 0 })),
+  },
+  {
+    id: 'minimal',
+    name: 'Minimal',
+    desc: 'Just value, performance & holdings',
+    build: () => [
+      { id: 'kpi-board' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
+      { id: 'performance' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
+      { id: 'holdings' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
+      ...(['allocation', 'ai-insights', 'risk-metrics', 'health', 'risk-radar', 'exposure-map', 'changes', 'rebalance', 'watchlist', 'transactions', 'stress', 'correlation', 'tools', 'monte-carlo', 'cost-basis'] as FundWidgetId[])
+        .map((id) => ({ id, visible: false, span: FUND_WIDGET_META[id].defaultSpan, height: 0 })),
+    ],
+  },
+  {
+    id: 'focus',
+    name: 'Focus',
+    desc: 'Charts large, tables tucked at bottom',
+    build: () => ['kpi-board', 'performance', 'exposure-map', 'monte-carlo', 'stress', 'risk-radar', 'correlation', 'allocation', 'cost-basis', 'risk-metrics', 'health', 'changes', 'rebalance', 'holdings', 'transactions', 'watchlist', 'ai-insights', 'tools']
+      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+  },
+];
+
+const FUND_LAYOUT_KEY = 'eclipse_fund_layout';
+
+function loadFundLayout(): { widgets: FundWidgetLayout[] } {
+  if (typeof window === 'undefined') return DEFAULT_FUND_LAYOUT;
+  try {
+    const raw = window.localStorage.getItem(FUND_LAYOUT_KEY);
+    if (!raw) return DEFAULT_FUND_LAYOUT;
+    const parsed = JSON.parse(raw) as { widgets: FundWidgetLayout[] };
+    if (!Array.isArray(parsed.widgets)) return DEFAULT_FUND_LAYOUT;
+    const known = new Set(Object.keys(FUND_WIDGET_META) as FundWidgetId[]);
+    const widgets = DEFAULT_FUND_LAYOUT.widgets
+      .map((d) => {
+        const saved = parsed.widgets.find((w) => w.id === d.id);
+        return saved ? { ...d, ...saved, height: saved.height ?? 0 } : d;
+      })
+      .filter((w) => known.has(w.id));
+    for (const d of DEFAULT_FUND_LAYOUT.widgets) {
+      if (!widgets.some((w) => w.id === d.id)) widgets.push(d);
+    }
+    return { widgets };
+  } catch {
+    return DEFAULT_FUND_LAYOUT;
+  }
 }
 
 function EChart({ option, height = 300, className, notMerge = true }: EChartProps) {
@@ -665,6 +1089,48 @@ function OverviewView({
     return { value, cost, day, unreal, roi, dayPct, top: top.map(t => ({ ...t, pct: (t.value / total) * 100 })) };
   }, [funds, liveAssets, usdPkr]);
 
+  // ── Dashboard customization state ────────────────────────────────────────
+  const [layout, setLayout] = useState<DashboardLayout>(DEFAULT_LAYOUT);
+  const [customizing, setCustomizing] = useState(false);
+  const [dragWidget, setDragWidget] = useState<WidgetId | null>(null);
+  useEffect(() => {
+    setLayout(loadDashboardLayout());
+  }, []);
+
+  const updateLayout = useCallback((next: DashboardLayout) => {
+    setLayout(next);
+    try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  }, []);
+
+  const patchWidget = useCallback((id: WidgetId, patch: Partial<WidgetLayout>) => {
+    setLayout((prev) => {
+      const widgets = prev.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w));
+      const next = { widgets };
+      try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
+  const moveWidget = useCallback((from: WidgetId, to: WidgetId) => {
+    if (from === to) return;
+    setLayout((prev) => {
+      const widgets = [...prev.widgets];
+      const fromIdx = widgets.findIndex((w) => w.id === from);
+      const toIdx = widgets.findIndex((w) => w.id === to);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [moved] = widgets.splice(fromIdx, 1);
+      widgets.splice(toIdx, 0, moved);
+      const next = { widgets };
+      try { window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    try { window.localStorage.removeItem(DASHBOARD_LAYOUT_KEY); } catch { /* ignore */ }
+    setLayout(DEFAULT_LAYOUT);
+  }, []);
+
   // ── Fund-vs-fund comparison: indexed NAV curves from real close series ─────
   const [showOnboarding, setShowOnboarding] = useState(false);
   useEffect(() => {
@@ -725,7 +1191,7 @@ function OverviewView({
 
   const fundCompareOption: EChartsOption = useMemo(() => ({
     animationDuration: 600,
-    grid: { left: 8, right: 8, top: 28, bottom: 4, containLabel: true },
+    grid: { left: 8, right: 8, top: 40, bottom: 34, containLabel: true },
     tooltip: {
       trigger: 'axis',
       backgroundColor: '#141414',
@@ -736,7 +1202,45 @@ function OverviewView({
     legend: {
       top: 0, right: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10,
       textStyle: { color: '#9ca3af', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+      // Leave room for the toolbox on the left; wrap instead of overlap.
+      type: 'scroll',
+      padding: [0, 40, 0, 90],
     },
+    // Interactivity: scroll-wheel zoom inside the plot, drag to pan, slider
+    // under the chart for touch/precise control, toolbox for export & reset.
+    // Toolbox sits top-LEFT (legend owns top-right) so they never overlap.
+    toolbox: {
+      left: 4, top: 0, itemSize: 12, itemGap: 6,
+      iconStyle: { borderColor: '#9ca3af' },
+      emphasis: { iconStyle: { borderColor: '#7aff78' } },
+      feature: {
+        // Box-select a region to zoom into it.
+        dataZoom: { yAxisIndex: 'none', title: { zoom: 'Box zoom', back: 'Reset zoom' }, iconStyle: { borderColor: '#9ca3af' } },
+        saveAsImage: { title: 'Save as image', name: 'fund-comparison', backgroundColor: '#0a0a0a' },
+        restore: { title: 'Reset' },
+      },
+    },
+    dataZoom: [
+      // Inside: wheel zoom + pinch + drag-pan directly on the plot.
+      { type: 'inside', xAxisIndex: 0, start: 0, end: 100, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+      // Slider: visible range control below the chart.
+      {
+        type: 'slider', xAxisIndex: 0, start: 0, end: 100, height: 18, bottom: 2,
+        borderColor: 'rgba(255,255,255,0.10)',
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        fillerColor: 'rgba(122,255,120,0.12)',
+        handleStyle: { color: '#7aff78', borderColor: '#7aff78' },
+        moveHandleStyle: { color: 'rgba(122,255,120,0.35)' },
+        dataBackground: { lineStyle: { color: 'rgba(122,255,120,0.3)' }, areaStyle: { color: 'rgba(122,255,120,0.08)' } },
+        selectedDataBackground: { lineStyle: { color: '#7aff78' }, areaStyle: { color: 'rgba(122,255,120,0.15)' } },
+        textStyle: { color: '#9ca3af', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' },
+        labelFormatter: (v: number) => {
+          // values here are category indices; resolve to the date label
+          const labels = (fundCompare[0]?.firstDates ?? []).map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+          return labels[v] ?? '';
+        },
+      },
+    ],
     xAxis: {
       type: 'category',
       boundaryGap: false,
@@ -765,152 +1269,302 @@ function OverviewView({
     })),
   }), [fundCompare, funds, fundHistory]);
 
+  // Widget content renderer — the customize panel reorders/toggles these.
+  const widgetHeader = (id: WidgetId) => {
+    if (!customizing) return null;
+    return (
+      <button
+        type="button"
+        draggable
+        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(id); }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, id); setDragWidget(null); }}
+        className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-accent/60 border border-border/40 text-muted-foreground hover:text-primary cursor-grab active:cursor-grabbing transition-colors"
+        title="Drag to reorder"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </button>
+    );
+  };
+
+  const renderWidget = (id: WidgetId) => {
+    switch (id) {
+      case 'total-value':
+        return (
+          <div className={`${PANEL} p-6 relative h-full`}>
+            {widgetHeader(id)}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-primary" /> Total Value
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground">{funds.length} funds · {dispLabel}</span>
+            </div>
+            <span className="text-3xl font-mono font-bold tracking-tight block">{fmtD(agg.value)}</span>
+            <span className={`text-xs font-semibold mt-1 block ${agg.day >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {fmtD(agg.day)} ({fmtPct(agg.dayPct)}) today
+            </span>
+          </div>
+        );
+      case 'unreal-pl':
+        return (
+          <div className={`${PANEL} p-6 relative h-full`}>
+            {widgetHeader(id)}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-primary" /> Unrealized P/L
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground">All time</span>
+            </div>
+            <span className={`text-3xl font-mono font-bold tracking-tight block ${agg.unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {agg.unreal >= 0 ? '+' : '-'}{fmtD(Math.abs(agg.unreal))}
+            </span>
+            <span className="text-xs text-muted-foreground mt-1 block">Blended ROI {fmtPct(agg.roi)}</span>
+          </div>
+        );
+      case 'top-exposure':
+        return (
+          <div className={`${PANEL} p-6 relative h-full`}>
+            {widgetHeader(id)}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
+                <PieChart className="w-4 h-4 text-primary" /> Top Exposure
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground">Across funds</span>
+            </div>
+            {agg.top.length > 0 ? (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-mono font-bold">{agg.top[0].symbol}</span>
+                  <span className="text-xs text-muted-foreground">{agg.top[0].pct.toFixed(0)}% of book</span>
+                </div>
+                <div className="flex gap-1 mt-2 h-1.5">
+                  {agg.top.slice(0, 5).map(t => (
+                    <div key={t.symbol} className="h-full rounded-full bg-primary/50" style={{ width: `${t.pct}%` }} title={`${t.symbol} ${t.pct.toFixed(1)}%`} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">No holdings yet.</p>
+            )}
+          </div>
+        );
+      case 'fund-compare':
+        if (fundCompare.length === 0) return null;
+        return (
+          <div className={`${PANEL} p-5 relative`}>
+            {widgetHeader(id)}
+            <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2 pr-8">
+              <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-primary" /> Fund Comparison
+              </h3>
+              <span className="text-[11px] text-muted-foreground">
+                Indexed NAV, best-to-worst · leader <span className="text-emerald-400 font-mono font-bold">{fundCompare[0].name} {fmtPct(fundCompare[0].pct)}</span>
+              </span>
+            </div>
+            <EChart option={fundCompareOption} height={320} />
+          </div>
+        );
+      case 'fund-cards':
+        return (
+          <div className="relative">
+            {widgetHeader(id)}
+            <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-md font-serif font-semibold flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-primary" /> Your Funds
+              </h3>
+              <span className="text-[11px] text-muted-foreground">Click a card to open that fund&apos;s full portfolio</span>
+            </div>
+
+            {/* First-run onboarding: 3-step checklist, dismissible */}
+            {showOnboarding && (
+              <div className={`${PANEL} p-5 mb-5 border-primary/25 relative`}>
+                <button
+                  onClick={() => { setShowOnboarding(false); try { localStorage.setItem('eclipse_onboarded', '1'); } catch { /* ignore */ } }}
+                  className="absolute top-3 right-3 text-muted-foreground hover:text-foreground cursor-pointer p-1"
+                  title="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <h4 className="text-sm font-serif font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" /> Welcome to Eclipse Portfolios
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { done: agg.value > 0, title: '1 · Record a trade', desc: 'Add your first BUY — crypto, PSX, or any JDDS market.', action: 'Add transaction' },
+                    { done: displayFx !== 'USD' || getDisplayCurrency() !== 'USD', title: '2 · Pick your currency', desc: 'Totals show in USD by default — switch anytime.', action: 'Open Settings' },
+                    { done: false, title: '3 · Explore analytics', desc: 'Stress tests, risk radar, Monte Carlo & AI briefs.', action: 'Scroll down' },
+                  ].map(step => (
+                    <div key={step.title} className={`${TILE} p-3.5 flex flex-col gap-1.5`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${step.done ? 'bg-primary border-primary' : 'border-border/50'}`}>
+                          {step.done && <span className="text-[9px] font-bold text-[#0b0b0b]">✓</span>}
+                        </span>
+                        <span className="text-xs font-bold">{step.title}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">{step.desc}</p>
+                      {!step.done && (
+                        <button
+                          onClick={() => {
+                            if (step.action.startsWith('Add')) onOpenFund(funds[0]?.id ?? '');
+                          }}
+                          className="text-[10.5px] font-mono text-primary hover:underline text-left cursor-pointer mt-auto"
+                        >
+                          {step.action} →
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {funds.map(f => (
+                <FundCard
+                  key={f.id}
+                  fund={f}
+                  usdPkr={usdPkr}
+                  liveAssets={liveAssets}
+                  onOpen={() => onOpenFund(f.id)}
+                  onEdit={() => onEditFund(f)}
+                  onDelete={() => onDeleteFund(f.id)}
+                  onAnalyzeTicker={onAnalyzeTicker}
+                  canDelete={!isFundProtected(f.id)}
+                  fmtD={fmtD}
+                  fmtDK={fmtDK}
+                />
+              ))}
+              <button
+                onClick={onCreateFund}
+                className="min-h-[220px] rounded-2xl border-2 border-dashed border-border/40 hover:border-primary/50 hover:bg-primary/[0.03] transition-all flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary cursor-pointer group"
+              >
+                <span className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Plus className="w-5 h-5" />
+                </span>
+                <span className="text-sm font-semibold">Create New Fund</span>
+                <span className="text-[11px]">House fund, college fund, trip — any goal.</span>
+              </button>
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Aggregate KPI strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <div className={`${PANEL} p-6`}>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-primary" /> Total Value
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">{funds.length} funds · {dispLabel}</span>
-          </div>
-          <span className="text-3xl font-mono font-bold tracking-tight block">{fmtD(agg.value)}</span>
-          <span className={`text-xs font-semibold mt-1 block ${agg.day >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {fmtD(agg.day)} ({fmtPct(agg.dayPct)}) today
-          </span>
-        </div>
-        <div className={`${PANEL} p-6`}>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Unrealized P/L
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">All time</span>
-          </div>
-          <span className={`text-3xl font-mono font-bold tracking-tight block ${agg.unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {agg.unreal >= 0 ? '+' : '-'}{fmtD(Math.abs(agg.unreal))}
-          </span>
-          <span className="text-xs text-muted-foreground mt-1 block">Blended ROI {fmtPct(agg.roi)}</span>
-        </div>
-        <div className={`${PANEL} p-6`}>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-primary" /> Top Exposure
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">Across funds</span>
-          </div>
-          {agg.top.length > 0 ? (
-            <>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-mono font-bold">{agg.top[0].symbol}</span>
-                <span className="text-xs text-muted-foreground">{agg.top[0].pct.toFixed(0)}% of book</span>
-              </div>
-              <div className="flex gap-1 mt-2 h-1.5">
-                {agg.top.slice(0, 5).map(t => (
-                  <div key={t.symbol} className="h-full rounded-full bg-primary/50" style={{ width: `${t.pct}%` }} title={`${t.symbol} ${t.pct.toFixed(1)}%`} />
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-muted-foreground">No holdings yet.</p>
-          )}
-        </div>
+      {/* Customize toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground flex items-center gap-1.5">
+          <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
+        </span>
+        <button
+          onClick={() => setCustomizing((v) => !v)}
+          className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
+            customizing
+              ? 'text-primary bg-primary/10 border-primary/40'
+              : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
+          }`}
+          title="Rearrange, show/hide, and resize dashboard widgets"
+        >
+          <Settings2 className="w-3.5 h-3.5" /> {customizing ? 'Done' : 'Customize'}
+        </button>
       </div>
 
-      {/* Fund-vs-fund performance comparison (real indexed NAV curves) */}
-      {fundCompare.length > 0 && (
-        <div className={`${PANEL} p-5`}>
-          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-            <h3 className="text-md font-serif font-semibold flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Fund Comparison
-            </h3>
-            <span className="text-[11px] text-muted-foreground">
-              Indexed NAV, best-to-worst · leader <span className="text-emerald-400 font-mono font-bold">{fundCompare[0].name} {fmtPct(fundCompare[0].pct)}</span>
-            </span>
-          </div>
-          <EChart option={fundCompareOption} height={260} />
-        </div>
-      )}
-
-      {/* Fund cards */}
-      <div>
-        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-          <h3 className="text-md font-serif font-semibold flex items-center gap-2">
-            <Briefcase className="w-4 h-4 text-primary" /> Your Funds
-          </h3>
-          <span className="text-[11px] text-muted-foreground">Click a card to open that fund&apos;s full portfolio</span>
-        </div>
-
-        {/* First-run onboarding: 3-step checklist, dismissible */}
-        {showOnboarding && (
-          <div className={`${PANEL} p-5 mb-5 border-primary/25 relative`}>
+      {/* Inline customize panel */}
+      {customizing && (
+        <div className={`${PANEL} p-4 animate-fade-in-up space-y-3`}>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wider">Dashboard Layout</p>
             <button
-              onClick={() => { setShowOnboarding(false); try { localStorage.setItem('eclipse_onboarded', '1'); } catch { /* ignore */ } }}
-              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground cursor-pointer p-1"
-              title="Dismiss"
+              onClick={resetLayout}
+              className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1"
             >
-              <X className="w-4 h-4" />
+              <RotateCcw className="w-3 h-3" /> Reset to defaults
             </button>
-            <h4 className="text-sm font-serif font-semibold mb-3 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" /> Welcome to Eclipse Portfolios
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { done: agg.value > 0, title: '1 · Record a trade', desc: 'Add your first BUY — crypto, PSX, or any JDDS market.', action: 'Add transaction' },
-                { done: displayFx !== 'USD' || getDisplayCurrency() !== 'USD', title: '2 · Pick your currency', desc: 'Totals show in USD by default — switch anytime.', action: 'Open Settings' },
-                { done: false, title: '3 · Explore analytics', desc: 'Stress tests, risk radar, Monte Carlo & AI briefs.', action: 'Scroll down' },
-              ].map(step => (
-                <div key={step.title} className={`${TILE} p-3.5 flex flex-col gap-1.5`}>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${step.done ? 'bg-primary border-primary' : 'border-border/50'}`}>
-                      {step.done && <span className="text-[9px] font-bold text-[#0b0b0b]">✓</span>}
-                    </span>
-                    <span className="text-xs font-bold">{step.title}</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{step.desc}</p>
-                  {!step.done && (
-                    <button
-                      onClick={() => {
-                        if (step.action.startsWith('Add')) onOpenFund(funds[0]?.id ?? '');
-                      }}
-                      className="text-[10.5px] font-mono text-primary hover:underline text-left cursor-pointer mt-auto"
-                    >
-                      {step.action} →
-                    </button>
-                  )}
-                </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground">Drag <GripVertical className="w-3 h-3 inline -mt-0.5" /> to reorder · toggle visibility · pick a width (S → XL spans a 4-column grid)</p>
+          <div>
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Layout templates</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {DASHBOARD_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => updateLayout(t.build())}
+                  title={t.desc}
+                  className={`${TILE} p-2.5 text-left hover:border-primary/50 hover:bg-primary/[0.04] transition-all cursor-pointer`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-primary mb-1" />
+                  <p className="text-[11px] font-bold">{t.name}</p>
+                  <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
+                </button>
               ))}
             </div>
           </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {funds.map(f => (
-            <FundCard
-              key={f.id}
-              fund={f}
-              usdPkr={usdPkr}
-              liveAssets={liveAssets}
-              onOpen={() => onOpenFund(f.id)}
-              onEdit={() => onEditFund(f)}
-              onDelete={() => onDeleteFund(f.id)}
-              onAnalyzeTicker={onAnalyzeTicker}
-              canDelete={!isFundProtected(f.id)}
-              fmtD={fmtD}
-              fmtDK={fmtDK}
-            />
-          ))}
-          <button
-            onClick={onCreateFund}
-            className="min-h-[220px] rounded-2xl border-2 border-dashed border-border/40 hover:border-primary/50 hover:bg-primary/[0.03] transition-all flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary cursor-pointer group"
-          >
-            <span className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Plus className="w-5 h-5" />
-            </span>
-            <span className="text-sm font-semibold">Create New Fund</span>
-            <span className="text-[11px]">House fund, college fund, trip — any goal.</span>
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {layout.widgets.map((w) => {
+              const meta = WIDGET_META[w.id];
+              return (
+                <div
+                  key={w.id}
+                  draggable
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, w.id); setDragWidget(null); }}
+                  className={`${TILE} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing ${dragWidget === w.id ? 'opacity-50 border-primary/50' : ''}`}
+                >
+                  <GripVertical className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold truncate">{meta.label}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{meta.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {([1, 2, 3, 4] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => patchWidget(w.id, { span: s })}
+                        title={`${SPAN_LABEL[s]} width`}
+                        className={`w-6 h-6 rounded text-[10px] font-bold cursor-pointer transition-colors border ${
+                          w.span === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent'
+                        }`}
+                      >
+                        {SPAN_LABEL[s]}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => patchWidget(w.id, { visible: !w.visible })}
+                    title={w.visible ? 'Hide widget' : 'Show widget'}
+                    className={`p-1.5 rounded cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {w.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Widget grid — order/size/visibility from the saved layout */}
+      <div className="overview-widget-grid grid grid-cols-1 lg:grid-cols-4 gap-5">
+        {layout.widgets.filter((w) => w.visible).map((w) => {
+          if (w.id === 'fund-cards') {
+            // Fund cards keep their own internal grid; span always full here.
+            return (
+              <div key={w.id} className="col-span-1 lg:col-span-4">
+                {renderWidget(w.id)}
+              </div>
+            );
+          }
+          const fundCompareEmpty = w.id === 'fund-compare' && fundCompare.length === 0;
+          if (fundCompareEmpty) return null;
+          return (
+            <div key={w.id} className={`col-span-1 ${SPAN_CLASS[w.span]}`}>
+              {renderWidget(w.id)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -985,6 +1639,139 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
   // Tools state
   const [stressId, setStressId] = useState('market');
   const [severity, setSeverity] = useState(1);
+
+  // ── Fund-page layout customization (mouse-driven) ────────────────────────
+  const [fundLayout, setFundLayout] = useState<{ widgets: FundWidgetLayout[] }>(DEFAULT_FUND_LAYOUT);
+  const [fundCustomizing, setFundCustomizing] = useState(false);
+  const [fundDrag, setFundDrag] = useState<FundWidgetId | null>(null);
+  // Click-selected widget in edit mode — enables keyboard nudge/resize.
+  const [selectedWidget, setSelectedWidget] = useState<FundWidgetId | null>(null);
+  useEffect(() => { setFundLayout(loadFundLayout()); }, []);
+  const persistFundLayout = useCallback((widgets: FundWidgetLayout[]) => {
+    setFundLayout({ widgets });
+    try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
+  }, []);
+  const patchFundWidget = useCallback((id: FundWidgetId, patch: Partial<FundWidgetLayout>) => {
+    setFundLayout((prev) => {
+      const widgets = prev.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w));
+      try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
+      return { widgets };
+    });
+  }, []);
+  const moveFundWidget = useCallback((from: FundWidgetId, to: FundWidgetId) => {
+    if (from === to) return;
+    setFundLayout((prev) => {
+      const widgets = [...prev.widgets];
+      const fi = widgets.findIndex((w) => w.id === from);
+      const ti = widgets.findIndex((w) => w.id === to);
+      if (fi === -1 || ti === -1) return prev;
+      const [moved] = widgets.splice(fi, 1);
+      widgets.splice(ti, 0, moved);
+      try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
+      return { widgets };
+    });
+  }, []);
+  const resetFundLayout = useCallback(() => {
+    try { window.localStorage.removeItem(FUND_LAYOUT_KEY); } catch { /* ignore */ }
+    setFundLayout(DEFAULT_FUND_LAYOUT);
+  }, []);
+
+  // Live mouse resize: pointer-drag on a widget's edge adjusts width (span)
+  // or extra height in real time; the bottom-right corner adjusts both axes
+  // at once. Pointer capture keeps events flowing even when the cursor leaves
+  // the handle. ~120px travel = one width step, ~60px = one height step
+  // (40px min-height each).
+  const onWidgetResizeStart = useCallback((e: React.PointerEvent, id: FundWidgetId, mode: 'wider' | 'narrower' | 'taller' | 'shorter' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    const horizontal = mode === 'wider' || mode === 'narrower' || mode === 'corner';
+    const vertical = mode === 'taller' || mode === 'shorter' || mode === 'corner';
+    const hDir = (mode === 'wider' || mode === 'corner') ? 1 : -1;
+    const vDir = (mode === 'taller' || mode === 'corner') ? 1 : -1;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hSteps = 0;
+    let vSteps = 0;
+    const target = e.currentTarget as HTMLElement;
+    // Pointer capture keeps the drag alive when the cursor outruns the handle.
+    try { target.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
+    // Fallback capture layer for browsers without pointer capture.
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;cursor:nwse-resize;';
+    document.body.appendChild(overlay);
+
+    const onMove = (ev: PointerEvent) => {
+      const apply = (patch: (w: FundWidgetLayout) => FundWidgetLayout) => {
+        setFundLayout((prev) => {
+          const widgets = prev.widgets.map((w) => (w.id === id ? patch(w) : w));
+          try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
+          return { widgets };
+        });
+      };
+      if (horizontal) {
+        const steps = Math.floor(Math.max(0, ev.clientX - startX) * hDir / 120);
+        if (steps !== hSteps) {
+          const diff = steps - hSteps;
+          hSteps = steps;
+          apply((w) => ({ ...w, span: Math.max(1, Math.min(4, w.span + diff)) as FundWidgetLayout['span'] }));
+        }
+      }
+      if (vertical) {
+        const steps = Math.floor(Math.max(0, ev.clientY - startY) * vDir / 60);
+        if (steps !== vSteps) {
+          const diff = steps - vSteps;
+          vSteps = steps;
+          apply((w) => ({ ...w, height: Math.max(0, Math.min(10, w.height + diff)) }));
+        }
+      }
+    };
+    const onUp = () => {
+      overlay.remove();
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, []);
+
+  // Keyboard control for the click-selected widget (edit mode only):
+  // ←/→/↑/↓ nudge order · Shift+←/→ width · Shift+↑/↓ height · +/- height ·
+  // X hide · Escape deselect.
+  useEffect(() => {
+    if (!fundCustomizing) { setSelectedWidget(null); return; }
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable)) return;
+      if (!selectedWidget) return;
+      const patch = (p: Partial<FundWidgetLayout>) => patchFundWidget(selectedWidget, p);
+      const nudge = (dir: -1 | 1) => {
+        setFundLayout((prev) => {
+          const widgets = [...prev.widgets];
+          const i = widgets.findIndex((w) => w.id === selectedWidget);
+          const j = i + dir;
+          if (i === -1 || j < 0 || j >= widgets.length) return prev;
+          const [m] = widgets.splice(i, 1);
+          widgets.splice(j, 0, m);
+          try { window.localStorage.setItem(FUND_LAYOUT_KEY, JSON.stringify({ widgets })); } catch { /* private mode */ }
+          return { widgets };
+        });
+      };
+      switch (e.key) {
+        case 'ArrowLeft': e.preventDefault(); e.shiftKey ? patch({ span: Math.max(1, (fundLayout.widgets.find(w => w.id === selectedWidget)?.span ?? 2) - 1) as FundWidgetLayout['span'] }) : nudge(-1); break;
+        case 'ArrowRight': e.preventDefault(); e.shiftKey ? patch({ span: Math.min(4, (fundLayout.widgets.find(w => w.id === selectedWidget)?.span ?? 2) + 1) as FundWidgetLayout['span'] }) : nudge(1); break;
+        case 'ArrowUp': e.preventDefault(); e.shiftKey ? nudge(-1) : patch({ height: Math.min(10, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) + 1) }); break;
+        case 'ArrowDown': e.preventDefault(); e.shiftKey ? nudge(1) : patch({ height: Math.max(0, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) - 1) }); break;
+        case '+': case '=': e.preventDefault(); patch({ height: Math.min(10, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) + 1) }); break;
+        case '-': case '_': e.preventDefault(); patch({ height: Math.max(0, (fundLayout.widgets.find(w => w.id === selectedWidget)?.height ?? 0) - 1) }); break;
+        case 'x': case 'X': e.preventDefault(); patch({ visible: false }); setSelectedWidget(null); break;
+        case 'Escape': setSelectedWidget(null); break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fundCustomizing, selectedWidget, fundLayout, patchFundWidget]);
   const [wiSymbol, setWiSymbol] = useState('BTC');
   const [wiSide, setWiSide] = useState<'Buy' | 'Sell'>('Buy');
   const [wiQty, setWiQty] = useState('0.05');
@@ -2600,8 +3387,140 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
       )}
       {viewMode !== 'overview' && (<>
 
-      {/* ─── KPI BOARD ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* ─── CUSTOMIZE TOOLBAR ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground flex items-center gap-1.5">
+          <LayoutDashboard className="w-3.5 h-3.5" /> {activeFund?.name ?? 'Portfolio'}
+        </span>
+        <button
+          onClick={() => setFundCustomizing((v) => !v)}
+          className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
+            fundCustomizing
+              ? 'text-primary bg-primary/10 border-primary/40'
+              : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
+          }`}
+          title="Rearrange, show/hide, and resize widgets with the mouse"
+        >
+          <Settings2 className="w-3.5 h-3.5" /> {fundCustomizing ? 'Done' : 'Customize'}
+        </button>
+      </div>
+
+      {/* Inline customize panel — templates, drag rows to reorder, resize */}
+      {fundCustomizing && (
+        <div className={`${PANEL} p-4 animate-fade-in-up space-y-4`}>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wider">Page Layout — applies to every fund</p>
+            <button
+              onClick={resetFundLayout}
+              className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          </div>
+
+          {/* Design templates */}
+          <div>
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Templates</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {FUND_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => persistFundLayout(t.build())}
+                  title={t.desc}
+                  className={`${TILE} p-2.5 text-left hover:border-primary/50 hover:bg-primary/[0.04] transition-all cursor-pointer group`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-primary mb-1" />
+                  <p className="text-[11px] font-bold">{t.name}</p>
+                  <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground">
+            Drag rows (or the cards themselves) to reorder · click a card to select it, then use the keyboard: arrows move, Shift+arrows resize width/height, +/− height, X hides · eye toggles visibility · S–XL sets width. You can also drag a widget&apos;s edge or corner handles directly on the page.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {fundLayout.widgets.map((w) => {
+              const meta = FUND_WIDGET_META[w.id];
+              return (
+                <div
+                  key={w.id}
+                  draggable
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id); }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (fundDrag) moveFundWidget(fundDrag, w.id); setFundDrag(null); }}
+                  className={`${TILE} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing ${fundDrag === w.id ? 'opacity-50 border-primary/50' : ''} ${selectedWidget === w.id ? 'border-primary/70 bg-primary/[0.06]' : ''}`}
+                  onClick={() => setSelectedWidget(w.id)}
+                >
+                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold truncate">{meta.label}</p>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {([1, 2, 3, 4] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => patchFundWidget(w.id, { span: s })}
+                        title={`${SPAN_LABEL[s]} width`}
+                        className={`w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border ${
+                          w.span === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent'
+                        }`}
+                      >
+                        {SPAN_LABEL[s]}
+                      </button>
+                    ))}
+                    {/* Height stepper */}
+                    <button
+                      onClick={() => patchFundWidget(w.id, { height: Math.min(10, w.height + 1) })}
+                      title="Taller (+40px)"
+                      className="w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border text-muted-foreground border-border/40 hover:bg-accent"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() => patchFundWidget(w.id, { height: Math.max(0, w.height - 1) })}
+                      title="Shorter (−40px)"
+                      className="w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border text-muted-foreground border-border/40 hover:bg-accent"
+                    >
+                      −
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => patchFundWidget(w.id, { visible: !w.visible })}
+                    title={w.visible ? 'Hide' : 'Show'}
+                    className={`p-1 rounded cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {w.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── LAYOUT-DRIVEN WIDGET FLOW ──────────────────────────────────────── */}
+      <div
+        className={`fund-widget-flow${fundCustomizing ? ' customizing' : ''}`}
+        onClick={(e) => { if (fundCustomizing && e.target === e.currentTarget) setSelectedWidget(null); }}
+      >
+      {fundLayout.widgets.filter((w) => w.visible).map((w) => {
+        const heightCls = w.height > 0 ? { minHeight: `${w.height * 40}px` } : undefined;
+        const shellProps = {
+          customizing: fundCustomizing,
+          dragId: fundDrag,
+          span: w.span as FundWidgetLayout['span'],
+          onDragStart: (id: FundWidgetId) => setFundDrag(id),
+          onDrop: (target: FundWidgetId) => { if (fundDrag) moveFundWidget(fundDrag, target); },
+          onResizeStart: onWidgetResizeStart,
+          onSelectWidget: setSelectedWidget,
+        };
+        switch (w.id) {
+          case 'kpi-board':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps} heightStyle={heightCls}>
+                <div className="h-full grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         <div className={`${PANEL} p-6 relative overflow-hidden group hover:border-primary/45 transition-all`}>
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs font-mono tracking-wider uppercase text-muted-foreground flex items-center gap-2">
@@ -2666,10 +3585,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           </span>
         </div>
       </div>
-
-      {/* ─── PERFORMANCE + ALLOCATION + AI INSIGHTS ─────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-stretch">
-        <div className={`${PANEL} lg:col-span-3 flex flex-col`}>
+              </FundWidgetShell>
+            );
+          case 'performance':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} flex flex-col h-full`}>
           <div className="p-5 border-b border-border/30 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-md font-serif font-semibold">Performance</h3>
@@ -2728,10 +3649,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                 </div>
               )}
             </div>
-        </div>
-
-        <div className="lg:col-span-2 flex flex-col gap-5">
-          <div className={`${PANEL} p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'allocation':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-md font-serif font-semibold flex items-center gap-2">
                 <PieChart className="w-4 h-4 text-primary" /> Allocation
@@ -2756,9 +3680,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             ) : (
               <p className="text-xs text-muted-foreground font-mono text-center py-10">No active balances to chart.</p>
             )}
-          </div>
-
-          <div className="rounded-2xl p-5 flex-1 bg-primary/[0.06] border border-primary/20">
+                </div>
+              </FundWidgetShell>
+            );
+          case 'ai-insights':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className="rounded-2xl p-5 h-full bg-primary/[0.06] border border-primary/20">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-4 h-4 text-primary" />
               <h3 className="text-md font-serif font-semibold text-primary">AI Insights</h3>
@@ -2781,13 +3709,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               <Sparkles className="w-3.5 h-3.5 mr-1" />
               Discuss Portfolio With AI
             </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── RISK METRICS + CATEGORY EXPOSURE ───────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className={`${PANEL} lg:col-span-3 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'risk-metrics':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 text-primary" /> Risk &amp; Return Metrics
           </h3>
@@ -2812,9 +3740,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground mt-4">{riskLabel}</p>
-        </div>
-
-        <div className={`${PANEL} lg:col-span-2 p-5 flex flex-col`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'health':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 flex flex-col h-full`}>
           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
               <Gauge className="w-4 h-4 text-primary" /> Portfolio Health
@@ -2847,12 +3779,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           ) : (
             <p className="text-xs text-muted-foreground font-mono text-center py-10">Health score unlocks with holdings.</p>
           )}
-        </div>
-      </div>
-
-      {/* ─── RISK RADAR + EXPOSURE TREEMAP + ECLIPSE BRIEF ──────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className={`${PANEL} lg:col-span-2 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'risk-radar':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-1 flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" /> Risk Radar
           </h3>
@@ -2876,9 +3809,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           ) : (
             <p className="text-xs text-muted-foreground font-mono text-center py-16">Add holdings to map your risk profile.</p>
           )}
-        </div>
-
-        <div className={`${PANEL} lg:col-span-3 p-5 flex flex-col`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'exposure-map':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 flex flex-col h-full`}>
           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
               <Grid3x3 className="w-4 h-4 text-primary" /> Exposure Map
@@ -2892,12 +3829,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               <p key={i} className="text-[12px] text-foreground/80 leading-relaxed">• {line}</p>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* ─── WHAT CHANGED ───────────────────────────────────────────────────── */}
-      {changes.length > 0 && (
-        <div className={`${PANEL} p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'changes':
+            if (changes.length === 0) return null;
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5`}>
           <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
             <Flame className="w-4 h-4 text-primary" /> What Changed
           </h3>
@@ -2921,11 +3860,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* ─── REBALANCING SUGGESTIONS ────────────────────────────────────────── */}
-      <div className={`${PANEL} p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'rebalance':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5`}>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
             <Flame className="w-4 h-4 text-primary" /> Rebalancing Suggestions
@@ -2948,10 +3889,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           ))}
           {rebalanceRows.length === 0 && <p className="text-xs text-muted-foreground col-span-full text-center py-4">No holdings to rebalance.</p>}
         </div>
-      </div>
-
-      {/* ─── HOLDINGS TABLE ─────────────────────────────────────────────────── */}
-      <div className={`${PANEL} overflow-hidden`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'holdings':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} overflow-hidden`}>
         <div className="p-5 border-b border-border/30 flex items-center justify-between flex-wrap gap-3">
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
             <History className="w-5 h-5 text-primary" /> Active Holdings
@@ -3099,11 +4043,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* ─── WATCHLIST + TRANSACTIONS ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className={`${PANEL} lg:col-span-2 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'watchlist':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <h3 className="text-md font-serif font-semibold mb-3 flex items-center gap-2">
             <Star className="w-4 h-4 fill-primary text-primary" /> Watchlist
           </h3>
@@ -3127,9 +4073,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               </p>
             )}
           </div>
-        </div>
-
-        <div className={`${PANEL} lg:col-span-3 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'transactions':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold flex items-center gap-2">
               <Calendar className="w-4 h-4 text-primary" /> Recent Transactions
@@ -3206,18 +4156,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
-
-      {/* ─── ANALYTICS TOOLS DIVIDER ────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 pt-2">
-        <h2 className="text-xl font-serif font-bold tracking-tight whitespace-nowrap">Analytics Tools</h2>
-        <div className="h-px flex-1" style={{ background: 'linear-gradient(90deg, rgba(122,255,120,0.4), rgba(255,255,255,0.05))' }}></div>
-      </div>
-
-      {/* ─── STRESS TEST + CORRELATION MATRIX ───────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className={`${PANEL} lg:col-span-3 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'stress':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-baseline justify-between flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Stress Test</h3>
             <span className="text-[11px] text-muted-foreground">Beta-adjusted shock model</span>
@@ -3268,9 +4213,13 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           </div>
 
           <EChart option={stressOption} height={Math.max(140, stress.rows.length * 38 + 20)} />
-        </div>
-
-        <div className={`${PANEL} lg:col-span-2 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'correlation':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 h-full`}>
           <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Correlation Matrix</h3>
             <span className="text-[11px] text-muted-foreground">Pearson ρ on real daily returns</span>
@@ -3289,13 +4238,15 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           ) : (
             <p className="text-xs text-muted-foreground font-mono text-center py-10">Add at least two assets to compute correlations.</p>
           )}
-        </div>
-      </div>
-
-      {/* ─── WHAT-IF + POSITION SIZING + ALERTS ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* What-If Trade */}
-        <div className={`${PANEL} p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'tools':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* What-If Trade */}
+          <div className={`${PANEL} p-5`}>
           <h3 className="text-md font-serif font-semibold mb-4">What-If Trade</h3>
 
           <select
@@ -3460,11 +4411,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
             })}
           </div>
         </div>
-      </div>
-
-      {/* ─── MONTE CARLO + RETURN ATTRIBUTION ───────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className={`${PANEL} lg:col-span-3 p-5`}>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'monte-carlo':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+                  <div className={`${PANEL} lg:col-span-3 p-5`}>
           <div className="flex items-baseline justify-between flex-wrap gap-3 mb-3">
             <h3 className="text-md font-serif font-semibold">Monte Carlo Projection</h3>
             <div className="flex items-center gap-4 flex-wrap">
@@ -3502,7 +4456,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           </p>
         </div>
 
-        <div className={`${PANEL} lg:col-span-2 p-5`}>
+                <div className={`${PANEL} lg:col-span-2 p-5`}>
           <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-md font-serif font-semibold">Return Attribution</h3>
             <span className="text-[11px] text-muted-foreground">Contribution to total gain</span>
@@ -3520,11 +4474,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           ) : (
             <p className="text-xs text-muted-foreground font-mono text-center py-10">Attribution unlocks once you hold assets.</p>
           )}
-        </div>
-      </div>
-
-      {/* ─── COST BASIS & DCA ───────────────────────────────────────────────── */}
-      <div className={`${PANEL} p-5 mb-6`}>
+                </div>
+                </div>
+              </FundWidgetShell>
+            );
+          case 'cost-basis':
+            return (
+              <FundWidgetShell key={w.id} id={w.id} {...shellProps}>
+                <div className={`${PANEL} p-5 mb-6`}>
         <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-md font-serif font-semibold">Cost Basis &amp; DCA</h3>
           <span className="text-[11px] text-muted-foreground">Average entry vs. live market — FIFO accounting</span>
@@ -3549,9 +4506,15 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           })}
           {stats.holdings.length === 0 && <p className="text-xs text-muted-foreground col-span-full text-center py-4">No cost basis to compare.</p>}
         </div>
+                </div>
+              </FundWidgetShell>
+            );
+          default:
+            return null;
+        }
+      })}
       </div>
       </>)}
-
       {/* ─── ADD TRANSACTION MODAL (portal — escapes transform/filter ancestors) */}
       {isAddOpen && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-300" style={{ zIndex: 9998 }} onMouseDown={() => setIsAddOpen(false)}>

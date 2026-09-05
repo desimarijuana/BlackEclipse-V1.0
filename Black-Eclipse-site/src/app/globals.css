@@ -2,6 +2,37 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* ── Portfolio builder layout flow ─────────────────────────────────────────
+ * Fund-page widgets can have extra min-height (height customizer). CSS Grid
+ * with dense flow packs them side-by-side into a 4-col layout, so a widget
+ * that grows taller than its row-neighbour leaves no vertical gaps — the
+ * next widgets flow up to fill the space. Falls back to 1-col on mobile.
+ * When customizing, single-column stacking keeps drag targets predictable. */
+.fund-widget-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+}
+@media (min-width: 1024px) {
+  .fund-widget-flow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-flow: dense;
+  }
+  .fund-widget-flow.customizing {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: row;
+  }
+}
+/* Overview dashboard: only rows that mix spans need dense packing. */
+.overview-widget-grid {
+  grid-auto-flow: row;
+}
+@media (min-width: 1024px) {
+  .overview-widget-grid {
+    grid-auto-flow: dense;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
