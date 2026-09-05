@@ -34,6 +34,11 @@ import {
 // portfolio-watchlist so every screen looks consistent.
 const PANEL = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm';
 const TILE = 'bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-xl';
+// Frosted-glass grey — solid, clearly visible affordances for edit/customize
+// mode. Handles & grips need real contrast (no faint opacity ghosts), so they
+// use a neutral grey glass with a white hairline and stronger shadow.
+const EDIT_HANDLE = 'bg-zinc-400/70 dark:bg-zinc-500/50 border border-white/40 dark:border-white/20 shadow-md';
+const EDIT_GRIP = 'bg-zinc-500/30 dark:bg-zinc-400/20 border border-white/30 dark:border-white/15';
 const UP = '#34d399';
 const DOWN = '#fb7185';
 
@@ -462,24 +467,27 @@ const DEFAULT_LAYOUT: DashboardLayout = {
 const DASHBOARD_LAYOUT_KEY = 'eclipse_portfolio_layout';
 
 // ── Overview design templates: curated arrangements for the 5 widgets ────────
-const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () => DashboardLayout }> = [
+// preview = one bar per visual row; hidden widgets render as dashed slots.
+const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: Array<{ span: number; hidden?: boolean }>; build: () => DashboardLayout }> = [
   {
     id: 'default',
     name: 'Classic',
     desc: 'Stat trio + full-width charts',
+    preview: [{ span: 1 }, { span: 4 }, { span: 4 }],
     build: () => DEFAULT_LAYOUT,
   },
   {
     id: 'grid',
     name: 'Grid',
     desc: 'Stat trio widened, side-by-side charts',
+    preview: [{ span: 1 }, { span: 2 }, { span: 3 }, { span: 4 }],
     build: () => ({
       widgets: [
         { id: 'total-value', visible: true, span: 1 },
         { id: 'unreal-pl', visible: true, span: 1 },
         { id: 'top-exposure', visible: true, span: 2 },
         { id: 'fund-compare', visible: true, span: 3 },
-        { id: 'fund-cards', visible: true, span: 1 },
+        { id: 'fund-cards', visible: true, span: 4 },
       ],
     }),
   },
@@ -487,13 +495,14 @@ const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; build
     id: 'split',
     name: 'Split',
     desc: 'Charts on the left, stats in a right rail',
+    preview: [{ span: 3 }, { span: 3 }, { span: 3 }, { span: 4 }],
     build: () => ({
       widgets: [
         { id: 'fund-compare', visible: true, span: 3 },
         { id: 'total-value', visible: true, span: 1 },
         { id: 'unreal-pl', visible: true, span: 1 },
         { id: 'top-exposure', visible: true, span: 2 },
-        { id: 'fund-cards', visible: true, span: 2 },
+        { id: 'fund-cards', visible: true, span: 4 },
       ],
     }),
   },
@@ -501,13 +510,14 @@ const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; build
     id: 'duo',
     name: 'Duo',
     desc: 'Two big halves — comparison vs funds',
+    preview: [{ span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
     build: () => ({
       widgets: [
         { id: 'total-value', visible: true, span: 2 },
         { id: 'unreal-pl', visible: true, span: 2 },
         { id: 'fund-compare', visible: true, span: 2 },
-        { id: 'fund-cards', visible: true, span: 2 },
-        { id: 'top-exposure', visible: true, span: 4 },
+        { id: 'top-exposure', visible: true, span: 2 },
+        { id: 'fund-cards', visible: true, span: 4 },
       ],
     }),
   },
@@ -515,12 +525,13 @@ const DASHBOARD_TEMPLATES: Array<{ id: string; name: string; desc: string; build
     id: 'focus',
     name: 'Focus',
     desc: 'Comparison hero, everything else compact',
+    preview: [{ span: 4 }, { span: 1 }, { span: 4 }],
     build: () => ({
       widgets: [
         { id: 'fund-compare', visible: true, span: 4 },
         { id: 'total-value', visible: true, span: 1 },
         { id: 'unreal-pl', visible: true, span: 1 },
-        { id: 'top-exposure', visible: true, span: 1 },
+        { id: 'top-exposure', visible: true, span: 2 },
         { id: 'fund-cards', visible: true, span: 4 },
       ],
     }),
@@ -580,7 +591,7 @@ interface FundWidgetShellProps {
   children: React.ReactNode;
 }
 
-const SELECT_RING = 'outline outline-2 outline-primary/70 outline-offset-2';
+const SELECT_RING = 'outline outline-2 outline-zinc-500/80 dark:outline-zinc-400/70 outline-offset-2';
 
 /** Wraps a fund-page widget. In edit mode the whole card is draggable,
  * click-to-select enables keyboard nudge/resize (arrows move order, Shift+
@@ -602,48 +613,73 @@ function FundWidgetShell({
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); onDrop(id); }}
     >
-      {/* Card itself is the drag surface — outline shows edit mode; click to
-          select for keyboard control */}
+      {/* Card itself is the drag surface — edit outline + click to select */}
       <div
-        className={`rounded-2xl ring-1 ring-primary/40 transition-opacity cursor-grab ${dragId === id ? 'opacity-50' : ''}`}
+        className={`rounded-2xl ring-1 ring-zinc-400/50 dark:ring-zinc-500/40 outline-dashed outline-1 outline-zinc-400/30 dark:outline-zinc-500/25 outline-offset-2 transition-opacity cursor-grab active:cursor-grabbing ${dragId === id ? 'opacity-40' : ''}`}
         style={heightStyle}
         data-widget-card={id}
         onClick={(e) => { e.stopPropagation(); onSelectWidget(id); }}
       >
         {children}
       </div>
-      {/* Selection badge — appears on the currently selected widget */}
-      <span className="absolute -top-2 left-3 z-20 px-1.5 py-0.5 rounded bg-primary text-[9px] font-bold text-[#0b0b0b] opacity-0 group-hover/shell:opacity-100 transition-opacity pointer-events-none">
-        {id}
+      {/* Floating drag pill — top edge, solid frosted grey, always visible in edit mode */}
+      <span
+        className={`absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-800 dark:text-zinc-200 tracking-wider uppercase select-none`}
+      >
+        <GripVertical className="w-2.5 h-2.5" /> {id}
       </span>
       {/* Corner resize handle (bottom-right) — diagonal drag adjusts both axes */}
       <div
         onPointerDown={(e) => onResizeStart(e, id, 'corner')}
-        className="absolute -bottom-1.5 -right-1.5 w-4 h-4 cursor-nwse-resize bg-primary/60 rounded-full opacity-0 group-hover/shell:opacity-100 transition-opacity z-20"
+        className={`absolute -bottom-1.5 -right-1.5 w-5 h-5 cursor-nwse-resize rounded-full ${EDIT_HANDLE} group-hover/shell:scale-125 transition-transform z-30 flex items-center justify-center`}
         title="Drag to resize (width + height)"
-      />
-      {/* Right/left edges — hover only, never cover content */}
+      >
+        <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 text-zinc-700 dark:text-zinc-300">
+          <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+        </svg>
+      </div>
+      {/* Right/left edges — frosted grey pills, always visible in edit mode */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'wider'); }}
-        className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-20 rounded-full cursor-ew-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        className={`absolute -left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag right to widen"
-      />
+      >
+        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-700 dark:text-zinc-300">
+          <path d="M6 2L2 6l4 4M2 2l4 4-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
+          <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </div>
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'narrower'); }}
-        className="absolute -right-1 top-1/2 -translate-y-1/2 w-2.5 h-20 rounded-full cursor-ew-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        className={`absolute -right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-16 rounded-full cursor-ew-resize ${EDIT_HANDLE} group-hover/shell:scale-y-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag left to narrow"
-      />
+      >
+        <svg viewBox="0 0 8 12" className="w-2 h-3 text-zinc-700 dark:text-zinc-300">
+          <path d="M2 2l4 4-4 4M6 2L2 6l4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
+          <path d="M4 2v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </div>
       {/* Height handles — top/bottom edges */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'taller'); }}
-        className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-2.5 w-20 rounded-full cursor-ns-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag down to make taller"
-      />
+      >
+        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-700 dark:text-zinc-300">
+          <path d="M2 6l4-4 4 4M2 2l4 4 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
+          <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </div>
       <div
         onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, id, 'shorter'); }}
-        className="absolute -top-1 left-1/2 -translate-x-1/2 h-2.5 w-20 rounded-full cursor-ns-resize bg-primary/40 opacity-0 group-hover/shell:opacity-100 transition-opacity"
+        className={`absolute -top-1.5 left-1/2 -translate-x-1/2 h-3.5 w-16 rounded-full cursor-ns-resize ${EDIT_HANDLE} group-hover/shell:scale-x-110 transition-transform z-20 flex items-center justify-center`}
         title="Drag up to make shorter"
-      />
+      >
+        <svg viewBox="0 0 12 8" className="w-3 h-2 text-zinc-700 dark:text-zinc-300">
+          <path d="M2 2l4 4 4-4M2 6l4-4 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5" />
+          <path d="M2 4h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </div>
     </div>
   );
 }
@@ -698,106 +734,152 @@ const DEFAULT_FUND_LAYOUT: { widgets: FundWidgetLayout[] } = {
 };
 
 // ── Design templates: curated full-page layouts, one click to apply ──────────
-const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () => FundWidgetLayout[] }> = [
+// preview = one bar per visual row (span 1–4); hidden widgets render dashed.
+// Every build() arranges rows so each visual row sums to exactly 4 columns —
+// dense grid packing then composes them cleanly with no orphan gaps.
+const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; preview: Array<{ span: number; hidden?: boolean }>; build: () => FundWidgetLayout[] }> = [
   {
     id: 'default',
     name: 'Classic',
-    desc: 'Default order — KPIs top, analytics below',
+    desc: 'KPIs on top, charts below, tables last',
+    preview: [{ span: 4 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
     build: () => DEFAULT_FUND_LAYOUT.widgets.map((w) => ({ ...w })),
   },
   {
     id: 'trader',
     name: 'Trader',
-    desc: 'Performance & risk up top, tables last',
-    build: () => ['performance', 'kpi-board', 'stress', 'correlation', 'risk-metrics', 'health', 'risk-radar', 'holdings', 'tools', 'monte-carlo', 'allocation', 'exposure-map', 'rebalance', 'cost-basis', 'changes', 'watchlist', 'transactions', 'ai-insights']
-      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+    desc: 'Performance & risk up top, tables at the bottom',
+    preview: [{ span: 4 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    build: () => [
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'performance', span: 3, height: 0 },
+      { id: 'risk-radar', span: 1, height: 1 },
+      { id: 'stress', span: 2, height: 0 },
+      { id: 'correlation', span: 2, height: 0 },
+      { id: 'risk-metrics', span: 4, height: 0 },
+      { id: 'holdings', span: 2, height: 0 },
+      { id: 'watchlist', span: 2, height: 0 },
+      { id: 'tools', span: 4, height: 0 },
+      { id: 'allocation', span: 2, height: 0 },
+      { id: 'health', span: 2, height: 0 },
+      { id: 'exposure-map', span: 4, height: 0 },
+      { id: 'changes', span: 2, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'rebalance', span: 4, height: 0 },
+      { id: 'cost-basis', span: 4, height: 0 },
+      { id: 'monte-carlo', span: 4, height: 0 },
+      { id: 'ai-insights', span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
   {
     id: 'analyst',
     name: 'Analyst',
     desc: 'Big charts first — performance, exposure, Monte Carlo',
-    build: () => ['kpi-board', 'performance', 'exposure-map', 'monte-carlo', 'allocation', 'cost-basis', 'correlation', 'risk-radar', 'risk-metrics', 'health', 'holdings', 'transactions', 'rebalance', 'stress', 'changes', 'watchlist', 'tools', 'ai-insights']
-      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+    preview: [{ span: 4 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 4 }],
+    build: () => [
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'performance', span: 3, height: 0 },
+      { id: 'risk-radar', span: 1, height: 0 },
+      { id: 'exposure-map', span: 3, height: 0 },
+      { id: 'watchlist', span: 1, height: 0 },
+      { id: 'monte-carlo', span: 2, height: 1 },
+      { id: 'stress', span: 2, height: 1 },
+      { id: 'allocation', span: 2, height: 0 },
+      { id: 'health', span: 2, height: 0 },
+      { id: 'correlation', span: 2, height: 0 },
+      { id: 'cost-basis', span: 2, height: 0 },
+      { id: 'risk-metrics', span: 4, height: 0 },
+      { id: 'holdings', span: 4, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'rebalance', span: 2, height: 0 },
+      { id: 'changes', span: 4, height: 0 },
+      { id: 'tools', span: 4, height: 0 },
+      { id: 'ai-insights', span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
   {
     id: 'mosaic',
     name: 'Mosaic',
-    desc: 'Dense mixed-span grid — nothing stacked alike',
+    desc: 'Dense mixed grid — two columns of small cards beside charts',
+    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }],
     build: () => [
-      { id: 'kpi-board', visible: true, span: 4, height: 0 },
-      { id: 'performance', visible: true, span: 2, height: 1 },
-      { id: 'allocation', visible: true, span: 2, height: 1 },
-      { id: 'risk-radar', visible: true, span: 1, height: 0 },
-      { id: 'correlation', visible: true, span: 1, height: 0 },
-      { id: 'health', visible: true, span: 2, height: 0 },
-      { id: 'exposure-map', visible: true, span: 3, height: 0 },
-      { id: 'watchlist', visible: true, span: 1, height: 0 },
-      { id: 'monte-carlo', visible: true, span: 2, height: 2 },
-      { id: 'stress', visible: true, span: 1, height: 2 },
-      { id: 'cost-basis', visible: true, span: 1, height: 2 },
-      { id: 'risk-metrics', visible: true, span: 3, height: 0 },
-      { id: 'ai-insights', visible: true, span: 2, height: 0 },
-      { id: 'changes', visible: true, span: 2, height: 0 },
-      { id: 'holdings', visible: true, span: 4, height: 0 },
-      { id: 'transactions', visible: true, span: 2, height: 0 },
-      { id: 'rebalance', visible: true, span: 2, height: 0 },
-      { id: 'tools', visible: true, span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'performance', span: 2, height: 1 },
+      { id: 'allocation', span: 2, height: 1 },
+      { id: 'risk-radar', span: 1, height: 0 },
+      { id: 'correlation', span: 1, height: 0 },
+      { id: 'health', span: 2, height: 0 },
+      { id: 'exposure-map', span: 3, height: 0 },
+      { id: 'watchlist', span: 1, height: 0 },
+      { id: 'monte-carlo', span: 2, height: 2 },
+      { id: 'stress', span: 1, height: 2 },
+      { id: 'cost-basis', span: 1, height: 2 },
+      { id: 'risk-metrics', span: 3, height: 0 },
+      { id: 'ai-insights', span: 1, height: 0 },
+      { id: 'changes', span: 2, height: 0 },
+      { id: 'rebalance', span: 2, height: 0 },
+      { id: 'holdings', span: 4, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'tools', span: 2, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
   {
     id: 'split',
     name: 'Split',
-    desc: 'Left rail of small cards + right column of charts',
+    desc: 'Left rail of small cards + wide chart column',
+    preview: [{ span: 4 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
     build: () => [
-      { id: 'kpi-board', visible: true, span: 4, height: 0 },
-      { id: 'risk-radar', visible: true, span: 1, height: 1 },
-      { id: 'health', visible: true, span: 1, height: 1 },
-      { id: 'correlation', visible: true, span: 1, height: 1 },
-      { id: 'watchlist', visible: true, span: 1, height: 1 },
-      { id: 'performance', visible: true, span: 3, height: 1 },
-      { id: 'exposure-map', visible: true, span: 2, height: 0 },
-      { id: 'allocation', visible: true, span: 2, height: 0 },
-      { id: 'monte-carlo', visible: true, span: 3, height: 0 },
-      { id: 'stress', visible: true, span: 1, height: 0 },
-      { id: 'risk-metrics', visible: true, span: 2, height: 0 },
-      { id: 'ai-insights', visible: true, span: 2, height: 0 },
-      { id: 'holdings', visible: true, span: 4, height: 0 },
-      { id: 'transactions', visible: true, span: 2, height: 0 },
-      { id: 'rebalance', visible: true, span: 2, height: 0 },
-      { id: 'changes', visible: true, span: 4, height: 0 },
-      { id: 'cost-basis', visible: true, span: 4, height: 0 },
-      { id: 'tools', visible: true, span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'risk-radar', span: 1, height: 1 },
+      { id: 'health', span: 1, height: 1 },
+      { id: 'correlation', span: 1, height: 1 },
+      { id: 'watchlist', span: 1, height: 1 },
+      { id: 'performance', span: 3, height: 1 },
+      { id: 'exposure-map', span: 3, height: 0 },
+      { id: 'allocation', span: 2, height: 0 },
+      { id: 'ai-insights', span: 2, height: 0 },
+      { id: 'monte-carlo', span: 4, height: 0 },
+      { id: 'stress', span: 2, height: 0 },
+      { id: 'risk-metrics', span: 2, height: 0 },
+      { id: 'holdings', span: 4, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'rebalance', span: 2, height: 0 },
+      { id: 'changes', span: 4, height: 0 },
+      { id: 'cost-basis', span: 4, height: 0 },
+      { id: 'tools', span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
   {
     id: 'rows',
     name: 'Rows',
     desc: 'Alternating wide/narrow — magazine-style rhythm',
+    preview: [{ span: 4 }, { span: 1 }, { span: 3 }, { span: 3 }, { span: 1 }, { span: 1 }, { span: 3 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
     build: () => [
-      { id: 'kpi-board', visible: true, span: 4, height: 0 },
-      { id: 'performance', visible: true, span: 1, height: 0 },
-      { id: 'exposure-map', visible: true, span: 3, height: 0 },
-      { id: 'allocation', visible: true, span: 3, height: 0 },
-      { id: 'risk-radar', visible: true, span: 1, height: 0 },
-      { id: 'monte-carlo', visible: true, span: 1, height: 1 },
-      { id: 'ai-insights', visible: true, span: 3, height: 1 },
-      { id: 'risk-metrics', visible: true, span: 2, height: 0 },
-      { id: 'health', visible: true, span: 2, height: 0 },
-      { id: 'stress', visible: true, span: 2, height: 0 },
-      { id: 'correlation', visible: true, span: 2, height: 0 },
-      { id: 'holdings', visible: true, span: 4, height: 0 },
-      { id: 'watchlist', visible: true, span: 2, height: 0 },
-      { id: 'transactions', visible: true, span: 2, height: 0 },
-      { id: 'rebalance', visible: true, span: 4, height: 0 },
-      { id: 'changes', visible: true, span: 2, height: 0 },
-      { id: 'cost-basis', visible: true, span: 2, height: 0 },
-      { id: 'tools', visible: true, span: 4, height: 0 },
-    ].map((w) => ({ id: w.id as FundWidgetId, visible: w.visible, span: w.span as FundWidgetLayout['span'], height: w.height })),
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'performance', span: 1, height: 1 },
+      { id: 'exposure-map', span: 3, height: 1 },
+      { id: 'allocation', span: 3, height: 0 },
+      { id: 'risk-radar', span: 1, height: 0 },
+      { id: 'monte-carlo', span: 1, height: 1 },
+      { id: 'ai-insights', span: 3, height: 1 },
+      { id: 'risk-metrics', span: 2, height: 0 },
+      { id: 'health', span: 2, height: 0 },
+      { id: 'stress', span: 2, height: 0 },
+      { id: 'correlation', span: 2, height: 0 },
+      { id: 'holdings', span: 4, height: 0 },
+      { id: 'watchlist', span: 2, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'rebalance', span: 4, height: 0 },
+      { id: 'changes', span: 2, height: 0 },
+      { id: 'cost-basis', span: 2, height: 0 },
+      { id: 'tools', span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
   {
     id: 'compact',
     name: 'Compact',
-    desc: 'Everything narrow — dense 2-col dashboard',
+    desc: 'Everything half-width — dense two-column dashboard',
+    preview: [{ span: 4 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }, { span: 2 }],
     build: () => ['kpi-board', 'performance', 'allocation', 'health', 'holdings', 'watchlist', 'transactions', 'risk-metrics', 'risk-radar', 'correlation', 'stress', 'exposure-map', 'ai-insights', 'monte-carlo', 'rebalance', 'changes', 'cost-basis', 'tools']
       .map((id) => ({ id: id as FundWidgetId, visible: true, span: 2 as FundWidgetLayout['span'], height: 0 })),
   },
@@ -805,6 +887,7 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () 
     id: 'minimal',
     name: 'Minimal',
     desc: 'Just value, performance & holdings',
+    preview: [{ span: 4 }, { span: 4 }, { span: 4 }, { span: 1, hidden: true }],
     build: () => [
       { id: 'kpi-board' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
       { id: 'performance' as FundWidgetId, visible: true, span: 4 as FundWidgetLayout['span'], height: 0 },
@@ -816,9 +899,28 @@ const FUND_TEMPLATES: Array<{ id: string; name: string; desc: string; build: () 
   {
     id: 'focus',
     name: 'Focus',
-    desc: 'Charts large, tables tucked at bottom',
-    build: () => ['kpi-board', 'performance', 'exposure-map', 'monte-carlo', 'stress', 'risk-radar', 'correlation', 'allocation', 'cost-basis', 'risk-metrics', 'health', 'changes', 'rebalance', 'holdings', 'transactions', 'watchlist', 'ai-insights', 'tools']
-      .map((id) => ({ id: id as FundWidgetId, visible: true, span: FUND_WIDGET_META[id as FundWidgetId].defaultSpan, height: 0 })),
+    desc: 'Hero chart + small risk cluster, tables tucked at bottom',
+    preview: [{ span: 4 }, { span: 4 }, { span: 2 }, { span: 1 }, { span: 1 }, { span: 2 }, { span: 2 }, { span: 4 }, { span: 2 }, { span: 2 }],
+    build: () => [
+      { id: 'kpi-board', span: 4, height: 0 },
+      { id: 'performance', span: 4, height: 0 },
+      { id: 'exposure-map', span: 2, height: 0 },
+      { id: 'allocation', span: 2, height: 0 },
+      { id: 'risk-radar', span: 1, height: 0 },
+      { id: 'correlation', span: 1, height: 0 },
+      { id: 'watchlist', span: 1, height: 0 },
+      { id: 'health', span: 1, height: 0 },
+      { id: 'monte-carlo', span: 2, height: 1 },
+      { id: 'stress', span: 2, height: 1 },
+      { id: 'risk-metrics', span: 2, height: 0 },
+      { id: 'ai-insights', span: 2, height: 0 },
+      { id: 'holdings', span: 4, height: 0 },
+      { id: 'transactions', span: 2, height: 0 },
+      { id: 'rebalance', span: 2, height: 0 },
+      { id: 'changes', span: 4, height: 0 },
+      { id: 'cost-basis', span: 4, height: 0 },
+      { id: 'tools', span: 4, height: 0 },
+    ].map((w) => ({ id: w.id as FundWidgetId, visible: true, span: w.span as FundWidgetLayout['span'], height: w.height })),
   },
 ];
 
@@ -1061,6 +1163,32 @@ function FundCard({
   );
 }
 
+/** Mini 4-column layout preview — renders each template's widget arrangement
+ * as a tiny stacked-bar diagram so the user can see the layout before
+ * applying. Hidden widgets render as hollow dashed slots. */
+function TemplateMiniGrid({ rows, cols = 4 }: { rows: Array<{ span: number; hidden?: boolean }>; cols?: number }) {
+  return (
+    <div className="flex flex-col gap-[3px] h-9 w-full" aria-hidden>
+      {rows.map((r, i) => (
+        <div key={i} className="flex gap-[3px]" style={{ height: 6 }}>
+          {r.span >= cols ? (
+            <div className={`flex-1 rounded-[3px] ${r.hidden ? 'border border-dashed border-zinc-500/40 dark:border-zinc-400/30' : 'bg-zinc-400/60 dark:bg-zinc-500/40'}`} />
+          ) : (
+            <>
+              {Array.from({ length: r.span }).map((_, j) => (
+                <div key={j} className={`flex-1 rounded-[3px] ${r.hidden ? 'border border-dashed border-zinc-500/40 dark:border-zinc-400/30' : 'bg-zinc-400/60 dark:bg-zinc-500/40'}`} />
+              ))}
+              {Array.from({ length: cols - r.span }).map((_, j) => (
+                <div key={`e${j}`} className="flex-1 rounded-[3px] bg-zinc-500/10 dark:bg-zinc-400/10" />
+              ))}
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function OverviewView({
   funds, usdPkr, liveAssets, onOpenFund, onEditFund, onDeleteFund, onCreateFund, onAnalyzeTicker,
   displayFx, fxRates, hasFx, fmtD, fmtDK, dispLabel, fundHistory,
@@ -1279,10 +1407,10 @@ function OverviewView({
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(id); }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, id); setDragWidget(null); }}
-        className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-accent/60 border border-border/40 text-muted-foreground hover:text-primary cursor-grab active:cursor-grabbing transition-colors"
+        className={`absolute top-2.5 right-2.5 z-10 flex items-center gap-1 px-2 py-1 rounded-full ${EDIT_HANDLE} text-[8.5px] font-mono font-bold text-zinc-800 dark:text-zinc-200 tracking-wider uppercase cursor-grab active:cursor-grabbing transition-transform hover:scale-105`}
         title="Drag to reorder"
       >
-        <GripVertical className="w-3.5 h-3.5" />
+        <GripVertical className="w-3 h-3" /> {id}
       </button>
     );
   };
@@ -1462,7 +1590,7 @@ function OverviewView({
           onClick={() => setCustomizing((v) => !v)}
           className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
             customizing
-              ? 'text-primary bg-primary/10 border-primary/40'
+              ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-500/30 dark:bg-zinc-400/20 border-zinc-500/60 dark:border-zinc-400/50 shadow-inner backdrop-blur-md'
               : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
           }`}
           title="Rearrange, show/hide, and resize dashboard widgets"
@@ -1473,7 +1601,14 @@ function OverviewView({
 
       {/* Inline customize panel */}
       {customizing && (
-        <div className={`${PANEL} p-4 animate-fade-in-up space-y-3`}>
+        <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Edit mode — drag, resize, or hide widgets below</p>
+        </div>
+      )}
+
+      {customizing && (
+        <div className={`${PANEL} p-4 animate-fade-in-up space-y-3 ring-1 ring-zinc-400/30 dark:ring-zinc-500/25`}>
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-wider">Dashboard Layout</p>
             <button
@@ -1492,10 +1627,10 @@ function OverviewView({
                   key={t.id}
                   onClick={() => updateLayout(t.build())}
                   title={t.desc}
-                  className={`${TILE} p-2.5 text-left hover:border-primary/50 hover:bg-primary/[0.04] transition-all cursor-pointer`}
+                  className={`${TILE} p-2.5 text-left hover:border-zinc-400/60 dark:hover:border-zinc-500/50 hover:bg-zinc-500/[0.06] dark:hover:bg-zinc-400/[0.04] transition-all cursor-pointer`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-primary mb-1" />
-                  <p className="text-[11px] font-bold">{t.name}</p>
+                  <TemplateMiniGrid rows={t.preview} />
+                  <p className="text-[11px] font-bold mt-2">{t.name}</p>
                   <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
                 </button>
               ))}
@@ -1511,9 +1646,11 @@ function OverviewView({
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragWidget(w.id); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => { e.preventDefault(); if (dragWidget) moveWidget(dragWidget, w.id); setDragWidget(null); }}
-                  className={`${TILE} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing ${dragWidget === w.id ? 'opacity-50 border-primary/50' : ''}`}
+                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing transition-all ${dragWidget === w.id ? 'ring-1 ring-zinc-500/70 opacity-40' : ''}`}
                 >
-                  <GripVertical className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+                  <span className={`flex items-center justify-center w-7 h-7 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
+                    <GripVertical className="w-4 h-4 text-zinc-700 dark:text-zinc-300" />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold truncate">{meta.label}</p>
                     <p className="text-[10px] text-muted-foreground truncate">{meta.desc}</p>
@@ -1522,10 +1659,12 @@ function OverviewView({
                     {([1, 2, 3, 4] as const).map((s) => (
                       <button
                         key={s}
-                        onClick={() => patchWidget(w.id, { span: s })}
+                        onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { span: s }); }}
                         title={`${SPAN_LABEL[s]} width`}
-                        className={`w-6 h-6 rounded text-[10px] font-bold cursor-pointer transition-colors border ${
-                          w.span === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent'
+                        className={`w-6 h-6 rounded-md text-[10px] font-bold cursor-pointer transition-colors border ${
+                          w.span === s
+                            ? 'bg-zinc-600/80 dark:bg-zinc-300/25 text-white dark:text-zinc-100 border-zinc-600 dark:border-zinc-400/60'
+                            : 'text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10'
                         }`}
                       >
                         {SPAN_LABEL[s]}
@@ -1533,9 +1672,9 @@ function OverviewView({
                     ))}
                   </div>
                   <button
-                    onClick={() => patchWidget(w.id, { visible: !w.visible })}
+                    onClick={(e) => { e.stopPropagation(); patchWidget(w.id, { visible: !w.visible }); }}
                     title={w.visible ? 'Hide widget' : 'Show widget'}
-                    className={`p-1.5 rounded cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`p-1.5 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     {w.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   </button>
@@ -1709,7 +1848,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         });
       };
       if (horizontal) {
-        const steps = Math.floor(Math.max(0, ev.clientX - startX) * hDir / 120);
+        const steps = Math.floor(Math.max(0, (ev.clientX - startX) * hDir) / 120);
         if (steps !== hSteps) {
           const diff = steps - hSteps;
           hSteps = steps;
@@ -1717,7 +1856,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
         }
       }
       if (vertical) {
-        const steps = Math.floor(Math.max(0, ev.clientY - startY) * vDir / 60);
+        const steps = Math.floor(Math.max(0, (ev.clientY - startY) * vDir) / 60);
         if (steps !== vSteps) {
           const diff = steps - vSteps;
           vSteps = steps;
@@ -3396,7 +3535,7 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
           onClick={() => setFundCustomizing((v) => !v)}
           className={`flex items-center gap-1.5 text-[11px] font-bold tracking-wider border rounded-lg px-3 py-1.5 transition-all cursor-pointer ${
             fundCustomizing
-              ? 'text-primary bg-primary/10 border-primary/40'
+              ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-500/30 dark:bg-zinc-400/20 border-zinc-500/60 dark:border-zinc-400/50 shadow-inner backdrop-blur-md'
               : 'text-muted-foreground hover:text-primary bg-accent/40 hover:bg-accent/70 border-border/40'
           }`}
           title="Rearrange, show/hide, and resize widgets with the mouse"
@@ -3407,7 +3546,14 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
 
       {/* Inline customize panel — templates, drag rows to reorder, resize */}
       {fundCustomizing && (
-        <div className={`${PANEL} p-4 animate-fade-in-up space-y-4`}>
+        <div className="edit-mode-banner px-3 py-2 animate-fade-in-up flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-pulse shrink-0" />
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Edit mode — drag, resize, or hide widgets below · applies to every fund</p>
+        </div>
+      )}
+
+      {fundCustomizing && (
+        <div className={`${PANEL} p-4 animate-fade-in-up space-y-4 ring-1 ring-zinc-400/30 dark:ring-zinc-500/25`}>
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-wider">Page Layout — applies to every fund</p>
             <button
@@ -3427,10 +3573,10 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   key={t.id}
                   onClick={() => persistFundLayout(t.build())}
                   title={t.desc}
-                  className={`${TILE} p-2.5 text-left hover:border-primary/50 hover:bg-primary/[0.04] transition-all cursor-pointer group`}
+                  className={`${TILE} p-2.5 text-left hover:border-zinc-400/60 dark:hover:border-zinc-500/50 hover:bg-zinc-500/[0.06] dark:hover:bg-zinc-400/[0.04] transition-all cursor-pointer`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-primary mb-1" />
-                  <p className="text-[11px] font-bold">{t.name}</p>
+                  <TemplateMiniGrid rows={t.preview} />
+                  <p className="text-[11px] font-bold mt-2">{t.name}</p>
                   <p className="text-[9px] text-muted-foreground leading-snug">{t.desc}</p>
                 </button>
               ))}
@@ -3450,10 +3596,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setFundDrag(w.id); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => { e.preventDefault(); if (fundDrag) moveFundWidget(fundDrag, w.id); setFundDrag(null); }}
-                  className={`${TILE} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing ${fundDrag === w.id ? 'opacity-50 border-primary/50' : ''} ${selectedWidget === w.id ? 'border-primary/70 bg-primary/[0.06]' : ''}`}
+                  className={`${TILE} ${w.visible ? '' : 'opacity-45'} p-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing transition-all ${fundDrag === w.id ? 'ring-1 ring-zinc-500/70 opacity-40' : ''} ${selectedWidget === w.id ? 'ring-1 ring-zinc-500/80 dark:ring-zinc-400/70 bg-zinc-500/[0.10] dark:bg-zinc-400/[0.08]' : ''}`}
                   onClick={() => setSelectedWidget(w.id)}
                 >
-                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                  <span className={`flex items-center justify-center w-6 h-6 rounded-lg ${EDIT_GRIP} shrink-0 cursor-grab active:cursor-grabbing`} title="Drag to reorder">
+                    <GripVertical className="w-3.5 h-3.5 text-zinc-700 dark:text-zinc-300" />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold truncate">{meta.label}</p>
                   </div>
@@ -3461,10 +3609,12 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     {([1, 2, 3, 4] as const).map((s) => (
                       <button
                         key={s}
-                        onClick={() => patchFundWidget(w.id, { span: s })}
+                        onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { span: s }); }}
                         title={`${SPAN_LABEL[s]} width`}
-                        className={`w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border ${
-                          w.span === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent'
+                        className={`w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border ${
+                          w.span === s
+                            ? 'bg-zinc-600/80 dark:bg-zinc-300/25 text-white dark:text-zinc-100 border-zinc-600 dark:border-zinc-400/60'
+                            : 'text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10'
                         }`}
                       >
                         {SPAN_LABEL[s]}
@@ -3472,24 +3622,24 @@ export function MyPortfolio({ onAnalyzeTicker, onMarketStatusChange }: MyPortfol
                     ))}
                     {/* Height stepper */}
                     <button
-                      onClick={() => patchFundWidget(w.id, { height: Math.min(10, w.height + 1) })}
+                      onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.min(10, w.height + 1) }); }}
                       title="Taller (+40px)"
-                      className="w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border text-muted-foreground border-border/40 hover:bg-accent"
+                      className="w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10"
                     >
                       +
                     </button>
                     <button
-                      onClick={() => patchFundWidget(w.id, { height: Math.max(0, w.height - 1) })}
+                      onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { height: Math.max(0, w.height - 1) }); }}
                       title="Shorter (−40px)"
-                      className="w-5 h-5 rounded text-[9px] font-bold cursor-pointer transition-colors border text-muted-foreground border-border/40 hover:bg-accent"
+                      className="w-5 h-5 rounded-md text-[9px] font-bold cursor-pointer transition-colors border text-zinc-600 dark:text-zinc-400 border-zinc-400/30 dark:border-zinc-500/25 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10"
                     >
                       −
                     </button>
                   </div>
                   <button
-                    onClick={() => patchFundWidget(w.id, { visible: !w.visible })}
+                    onClick={(e) => { e.stopPropagation(); patchFundWidget(w.id, { visible: !w.visible }); }}
                     title={w.visible ? 'Hide' : 'Show'}
-                    className={`p-1 rounded cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`p-1 rounded-md cursor-pointer transition-colors shrink-0 ${w.visible ? 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-500/15 dark:hover:bg-zinc-400/10' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     {w.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   </button>

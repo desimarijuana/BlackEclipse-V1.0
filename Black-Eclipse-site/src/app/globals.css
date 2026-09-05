@@ -13,14 +13,17 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
 }
+.fund-widget-flow.customizing {
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: row;
+}
+.fund-widget-flow > * {
+  min-width: 0;
+}
 @media (min-width: 1024px) {
-  .fund-widget-flow {
+  .fund-widget-flow:not(.customizing) {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-auto-flow: dense;
-  }
-  .fund-widget-flow.customizing {
-    grid-template-columns: minmax(0, 1fr);
-    grid-auto-flow: row;
   }
 }
 /* Overview dashboard: only rows that mix spans need dense packing. */
@@ -31,6 +34,16 @@
   .overview-widget-grid {
     grid-auto-flow: dense;
   }
+}
+
+/* Edit-mode banner: a slim frosted-grey strip shown above the customize
+ * panel so users always know they are in layout-editing mode. */
+.edit-mode-banner {
+  background: linear-gradient(90deg, rgba(120, 120, 130, 0.18), rgba(120, 120, 130, 0.06) 70%, transparent);
+  border: 1px solid rgba(130, 130, 140, 0.28);
+  border-radius: 0.6rem;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 @custom-variant dark (&:is(.dark *));
