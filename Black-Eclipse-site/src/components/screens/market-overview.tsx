@@ -1468,7 +1468,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 animate-fade-in-up border-b border-border/20 pb-6 mb-4">
           <div>
             <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
-              <ChartCandlestick className="text-primary w-8 h-8" />
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+                <ChartCandlestick className="text-primary" size={30} />
+              </span>
               Market Screener
             </h1>
             <p className="text-muted-foreground text-sm mt-2">

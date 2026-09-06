@@ -23,8 +23,10 @@ export function EconomicsScreen() {
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 h-full overflow-y-auto scrollbar-hide pb-20 select-none">
       <div className="animate-fade-in-up flex flex-col gap-6">
         {/* Header */}
-        <div className="flex items-center gap-2 border-b border-border/10 pb-3">
-          <Globe className="text-primary w-7 h-7" />
+        <div className="flex items-center gap-3 border-b border-border/10 pb-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+            <Globe className="text-primary" size={30} />
+          </div>
           <div>
             <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Economics</h1>
             <p className="text-muted-foreground text-xs mt-0.5">Global macro intelligence — 30+ statistical agencies, central-bank rates, releases calendar and AI research.</p>

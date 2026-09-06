@@ -1,7 +1,8 @@
-// ── Pure layout operations ──────────────────────────────────────────────────
-// Every function takes a layout and returns a NEW layout (structural clone);
-// nothing mutates and nothing touches the DOM or storage, so it is all
-// unit-testable and safe under React strict mode.
+// ── Pure layout operations (Immer drafts) ────────────────────────────────────
+// Every function MUTATES the layout it is given and is meant to be invoked
+// inside an Immer `produce` — copy-on-write makes that safe and keeps the
+// result immutable for React. Nothing here touches the DOM or storage, so it
+// is all unit-testable (tests wrap calls in `produce` and return the draft).
 
 import {
   MAX_COLUMN_WEIGHT,
@@ -14,6 +15,7 @@ import {
   type WorkspaceSection,
   type WidgetPlacement,
 } from './types';
+import type { Draft } from 'immer';
 
 export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
   return {
@@ -63,22 +65,45 @@ export function locate(l: WorkspaceLayout, widgetId: string):
  * Empty columns are PRESERVED — they are legitimate drop targets for the
  * drag-and-drop editor, and setColumnCount owns column counts.
  */
-export function pruneLayout(l: WorkspaceLayout): WorkspaceLayout {
-  const next = cloneLayout(l);
-  const nonEmpty = next.sections.filter(s => s.columns.some(c => c.widgets.length > 0));
+export function pruneLayout(d: Draft<WorkspaceLayout>): void {
+  const nonEmpty = d.sections.filter(s => s.columns.some(c => c.widgets.length > 0));
   if (nonEmpty.length === 0) {
     // Keep the first section alive with a single column so the canvas is
     // still a drop target; drop truly empty extra sections.
-    if (next.sections.length > 0) {
-      next.sections = [{ id: next.sections[0].id, columns: next.sections[0].columns.length > 0 ? next.sections[0].columns : [{ id: newId('col'), weight: 3, widgets: [] }] }];
+    if (d.sections.length > 0) {
+      d.sections = [{
+        id: d.sections[0].id,
+        columns: d.sections[0].columns.length > 0 ? d.sections[0].columns : [{ id: newId('col'), weight: 3, widgets: [] }],
+      }];
     }
-    return next;
+    return;
   }
-  next.sections = nonEmpty.map(s => ({
+  d.sections = nonEmpty.map(s => ({
     id: s.id,
     columns: s.columns.length > 0 ? s.columns : [{ id: newId('col'), weight: 3, widgets: [] }],
   }));
-  return next;
+}
+
+/** Take a widget out of the tree, returning it (mutates the draft). */
+function takeWidget(d: Draft<WorkspaceLayout>, widgetId: string): WidgetPlacement | null {
+  for (const s of d.sections) {
+    for (const c of s.columns) {
+      const i = c.widgets.findIndex(w => w.id === widgetId);
+      if (i !== -1) return c.widgets.splice(i, 1)[0];
+    }
+  }
+  return null;
+}
+
+function draftColumn(d: Draft<WorkspaceLayout>, sectionId: string, columnId: string | null): Draft<WorkspaceColumn> | null {
+  const section = d.sections.find(s => s.id === sectionId);
+  if (!section) return null;
+  if (columnId === null) {
+    const column: WorkspaceColumn = { id: newId('col'), weight: 3, widgets: [] };
+    section.columns.push(column);
+    return section.columns[section.columns.length - 1];
+  }
+  return section.columns.find(c => c.id === columnId) ?? null;
 }
 
 /**
@@ -86,69 +111,37 @@ export function pruneLayout(l: WorkspaceLayout): WorkspaceLayout {
  * at the end of the section. The index refers to positions AFTER removal of
  * the card from its origin (insertion index among the remaining siblings).
  */
-export function moveWidget(l: WorkspaceLayout, widgetId: string, target: DropTarget): WorkspaceLayout {
-  const found = locate(l, widgetId);
-  if (!found) return l;
-
-  const next = cloneLayout(l);
-  let moved: WidgetPlacement | null = null;
-  for (const s of next.sections) {
-    for (const c of s.columns) {
-      const i = c.widgets.findIndex(w => w.id === widgetId);
-      if (i !== -1) { moved = c.widgets.splice(i, 1)[0]; break; }
-    }
-    if (moved) break;
-  }
-  if (!moved) return l;
-
-  const section = next.sections.find(s => s.id === target.sectionId);
-  if (!section) return pruneLayout(next);
-
-  let column: WorkspaceColumn | undefined;
-  if (target.columnId === null) {
-    column = { id: newId('col'), weight: 3, widgets: [] };
-    section.columns.push(column);
-  } else {
-    column = section.columns.find(c => c.id === target.columnId);
-  }
-  if (!column) return pruneLayout(next);
-
+export function moveWidget(d: Draft<WorkspaceLayout>, widgetId: string, target: DropTarget): void {
+  const moved = takeWidget(d, widgetId);
+  if (!moved) return;
+  const column = draftColumn(d, target.sectionId, target.columnId);
+  if (!column) { pruneLayout(d); return; }
   const index = Math.max(0, Math.min(target.index, column.widgets.length));
   column.widgets.splice(index, 0, moved);
-  return pruneLayout(next);
+  pruneLayout(d);
 }
 
 /** Move a card into a brand-new section (single column) appended at the end. */
-export function moveWidgetToNewSection(l: WorkspaceLayout, widgetId: string): WorkspaceLayout {
-  const found = locate(l, widgetId);
-  if (!found) return l;
-  const next = cloneLayout(l);
-  let moved: WidgetPlacement | null = null;
-  for (const s of next.sections) {
-    for (const c of s.columns) {
-      const i = c.widgets.findIndex(w => w.id === widgetId);
-      if (i !== -1) { moved = c.widgets.splice(i, 1)[0]; break; }
-    }
-    if (moved) break;
-  }
-  if (!moved) return l;
-  next.sections.push({ id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
-  return pruneLayout(next);
+export function moveWidgetToNewSection(d: Draft<WorkspaceLayout>, widgetId: string): void {
+  const moved = takeWidget(d, widgetId);
+  if (!moved) return;
+  d.sections.push({ id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
+  pruneLayout(d);
 }
 
-export function addWidget(l: WorkspaceLayout, widgetId: string, target?: DropTarget): WorkspaceLayout {
+export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget): void {
   const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
-  const next = cloneLayout(l);
-  if (next.sections.length === 0) next.sections.push({ id: newId('sec'), columns: [] });
+  if (d.sections.length === 0) d.sections.push({ id: newId('sec'), columns: [] });
 
-  let section = target ? next.sections.find(s => s.id === target.sectionId) : undefined;
-  if (!section) section = next.sections[next.sections.length - 1];
+  let section = target ? d.sections.find(s => s.id === target.sectionId) : undefined;
+  if (!section) section = d.sections[d.sections.length - 1];
 
-  let column: WorkspaceColumn | undefined;
+  let column: Draft<WorkspaceColumn> | undefined;
   if (target && target.columnId === null) {
     // Explicit "new column" target.
     column = { id: newId('col'), weight: 3, widgets: [] };
     section.columns.push(column);
+    column = section.columns[section.columns.length - 1];
   } else if (target) {
     column = section.columns.find(c => c.id === target.columnId);
   }
@@ -156,31 +149,31 @@ export function addWidget(l: WorkspaceLayout, widgetId: string, target?: DropTar
   if (!column) {
     column = { id: newId('col'), weight: 3, widgets: [] };
     section.columns.push(column);
+    column = section.columns[section.columns.length - 1];
   }
   const index = target && column.id === target.columnId
     ? Math.max(0, Math.min(target.index, column.widgets.length))
     : column.widgets.length;
   column.widgets.splice(index, 0, widget);
-  return next;
 }
 
-export function removeWidget(l: WorkspaceLayout, widgetId: string): WorkspaceLayout {
-  const next = cloneLayout(l);
-  for (const s of next.sections) {
+export function removeWidget(d: Draft<WorkspaceLayout>, widgetId: string): void {
+  for (const s of d.sections) {
     for (const c of s.columns) {
-      const i = c.widgets.findIndex(w => w.id === widgetId);
-      if (i !== -1) { c.widgets.splice(i, 1); return pruneLayout(next); }
+      if (c.widgets.some(w => w.id === widgetId)) {
+        c.widgets = c.widgets.filter(w => w.id !== widgetId);
+        pruneLayout(d);
+        return;
+      }
     }
   }
-  return next;
 }
 
 /** Set a section's column count (1..4), relocating displaced cards into the last column. */
-export function setColumnCount(l: WorkspaceLayout, sectionId: string, count: number): WorkspaceLayout {
+export function setColumnCount(d: Draft<WorkspaceLayout>, sectionId: string, count: number): void {
   const clamped = Math.max(1, Math.min(4, Math.round(count)));
-  const next = cloneLayout(l);
-  const section = next.sections.find(s => s.id === sectionId);
-  if (!section) return next;
+  const section = d.sections.find(s => s.id === sectionId);
+  if (!section) return;
 
   if (section.columns.length > clamped) {
     const overflow = section.columns.splice(clamped);
@@ -190,32 +183,28 @@ export function setColumnCount(l: WorkspaceLayout, sectionId: string, count: num
   while (section.columns.length < clamped) {
     section.columns.push({ id: newId('col'), weight: 3, widgets: [] });
   }
-  return pruneLayout(next);
+  pruneLayout(d);
 }
 
-export function setColumnWeight(l: WorkspaceLayout, columnId: string, weight: number): WorkspaceLayout {
+export function setColumnWeight(d: Draft<WorkspaceLayout>, columnId: string, weight: number): void {
   const clamped = Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(weight)));
-  const next = cloneLayout(l);
-  for (const s of next.sections) {
+  for (const s of d.sections) {
     const c = s.columns.find(col => col.id === columnId);
-    if (c) { c.weight = clamped; return next; }
+    if (c) { c.weight = clamped; return; }
   }
-  return next;
 }
 
 /** Drag-resize a card's height (px). Heights below the minimum clamp to the minimum. */
-export function setWidgetHeight(l: WorkspaceLayout, widgetId: string, height: number | null): WorkspaceLayout {
-  const next = cloneLayout(l);
-  for (const s of next.sections) {
+export function setWidgetHeight(d: Draft<WorkspaceLayout>, widgetId: string, height: number | null): void {
+  for (const s of d.sections) {
     for (const c of s.columns) {
       const w = c.widgets.find(x => x.id === widgetId);
       if (w) {
         w.height = height === null ? null : Math.max(MIN_WIDGET_HEIGHT, Math.round(height));
-        return next;
+        return;
       }
     }
   }
-  return next;
 }
 
 // ── Validation / migration / corrupt-read guard ──────────────────────────────

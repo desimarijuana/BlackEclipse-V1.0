@@ -185,7 +185,9 @@ export function AlertsClient() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-serif font-semibold tracking-tight flex items-center gap-3 flex-wrap">
-            <Bell className="h-9 w-9 text-primary" />
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+              <Bell className="text-primary" size={30} />
+            </span>
             Price &amp; Condition Alerts
           </h1>
           <p className="text-muted-foreground text-sm mt-2">

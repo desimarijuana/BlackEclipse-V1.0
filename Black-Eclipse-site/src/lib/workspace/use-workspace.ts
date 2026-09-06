@@ -1,24 +1,28 @@
 'use client';
 
 // ── useWorkspace — the customization kernel hook ─────────────────────────────
-// One hook per workspace instance (overview grid, each per-fund workspace…).
-// Owns: layout state (loaded once from storage with corrupt guard), edit
-// mode, and every mutation op — each op updates the tree AND persists
-// immediately so rearrangements survive reload.
+// Zustand store per workspace instance (overview grid, each per-fund
+// workspace…). Owns: layout state (loaded once from storage with corrupt
+// guard), edit mode, selection state, and every mutation op — each op runs an
+// Immer producer on the layout tree AND persists immediately so
+// rearrangements survive reload.
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { create } from 'zustand';
+import { produce } from 'immer';
 import {
-  addWidget as opAdd,
-  moveWidget as opMove,
-  removeWidget as opRemove,
-  setColumnCount as opSetCount,
-  setColumnWeight as opSetWeight,
-  setWidgetHeight as opSetHeight,
-  moveWidgetToNewSection as opMoveNewSection,
+  addWidget as addWidgetDraft,
+  moveWidget as moveWidgetDraft,
+  removeWidget as removeWidgetDraft,
+  setColumnCount as setColumnCountDraft,
+  setColumnWeight as setColumnWeightDraft,
+  setWidgetHeight as setWidgetHeightDraft,
+  moveWidgetToNewSection as moveWidgetToNewSectionDraft,
+  locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
 import { WORKSPACE_TEMPLATES, type WorkspaceTemplate } from './templates';
-import type { DropTarget, WorkspaceLayout } from './types';
+import type { DropTarget, WidgetPlacement, WorkspaceLayout } from './types';
 
 export interface UseWorkspaceOptions {
   /** localStorage key — unique per page/fund instance. */
@@ -28,80 +32,127 @@ export interface UseWorkspaceOptions {
   knownWidgetIds?: string[];
 }
 
-export function useWorkspace({ storageKey, defaultLayout, knownWidgetIds }: UseWorkspaceOptions) {
-  const known = useMemo(
-    () => (knownWidgetIds ? new Set(knownWidgetIds) : undefined),
-    [knownWidgetIds],
+interface WorkspaceState {
+  layout: WorkspaceLayout;
+  corrupt: boolean;
+  editMode: boolean;
+  /** Currently selected (last-tapped) widget card, for editor UIs. */
+  selectedWidgetId: string | null;
+  /** True while any card is being dragged (drives drop-zone affordances). */
+  dragging: boolean;
+}
+
+interface WorkspaceActions {
+  commit: (recipe: (draft: WorkspaceLayout) => void) => void;
+  addWidget: (widgetId: string, target?: DropTarget) => void;
+  removeWidget: (widgetId: string) => void;
+  moveWidget: (widgetId: string, target: DropTarget) => void;
+  moveWidgetToNewSection: (widgetId: string) => void;
+  setColumnCount: (sectionId: string, count: number) => void;
+  setColumnWeight: (columnId: string, weight: number) => void;
+  setWidgetHeight: (widgetId: string, height: number | null) => void;
+  applyTemplate: (template: WorkspaceTemplate) => void;
+  resetToDefault: () => void;
+  setEditMode: (on: boolean) => void;
+  selectWidget: (widgetId: string | null) => void;
+  setDragging: (on: boolean) => void;
+}
+
+export type WorkspaceStore = WorkspaceState & WorkspaceActions;
+
+function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWorkspaceOptions) {
+  const known = knownWidgetIds ? new Set(knownWidgetIds) : undefined;
+  const initial = loadWorkspace(storageKey, defaultLayout, { knownWidgetIds: known });
+
+  return create<WorkspaceStore>()((set, get) => {
+    const commit = (recipe: (draft: WorkspaceLayout) => void) => {
+      set(state => ({ layout: produce(state.layout, recipe) }));
+      saveWorkspace(storageKey, get().layout);
+    };
+
+    return {
+      layout: initial.layout,
+      corrupt: initial.corrupt,
+      editMode: false,
+      selectedWidgetId: null,
+      dragging: false,
+
+      commit,
+      addWidget: (widgetId, target) => commit(d => { addWidgetDraft(d, widgetId, target); }),
+      removeWidget: (widgetId) => commit(d => { removeWidgetDraft(d, widgetId); }),
+      moveWidget: (widgetId, target) => commit(d => { moveWidgetDraft(d, widgetId, target); }),
+      moveWidgetToNewSection: (widgetId) => commit(d => { moveWidgetToNewSectionDraft(d, widgetId); }),
+      setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
+      setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
+      setWidgetHeight: (widgetId, height) => commit(d => { setWidgetHeightDraft(d, widgetId, height); }),
+      applyTemplate: (template) => {
+        clearWorkspace(storageKey);
+        set({ layout: template.build(knownWidgetIds ?? []) });
+        saveWorkspace(storageKey, get().layout);
+      },
+      resetToDefault: () => {
+        clearWorkspace(storageKey);
+        set({ layout: defaultLayout, corrupt: false });
+        saveWorkspace(storageKey, get().layout);
+      },
+      setEditMode: (on) => set({ editMode: on, selectedWidgetId: on ? get().selectedWidgetId : null }),
+      selectWidget: (widgetId) => set({ selectedWidgetId: widgetId }),
+      setDragging: (on) => set({ dragging: on }),
+    };
+  });
+}
+
+const storeCache = new Map<string, ReturnType<typeof makeWorkspaceStore>>();
+
+/** One shared store per storageKey so layout persists across mounts. */
+export function useWorkspace(options: UseWorkspaceOptions) {
+  const useStore = useMemo(() => {
+    let s = storeCache.get(options.storageKey);
+    if (!s) {
+      s = makeWorkspaceStore(options);
+      storeCache.set(options.storageKey, s);
+    }
+    return s;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store is keyed by storageKey; defaults only seed creation
+  }, [options.storageKey]);
+  const layout = useStore(s => s.layout);
+  const editMode = useStore(s => s.editMode);
+  const corrupt = useStore(s => s.corrupt);
+  const selectedWidgetId = useStore(s => s.selectedWidgetId);
+  const dragging = useStore(s => s.dragging);
+  const selected = useMemo(
+    () => (selectedWidgetId ? locate(layout, selectedWidgetId)?.widget ?? null : null),
+    [layout, selectedWidgetId],
   );
-  const [initial] = useState(() => loadWorkspace(storageKey, defaultLayout, { knownWidgetIds: known }));
-  const [corrupt, setCorrupt] = useState(initial.corrupt);
-  const [layout, setLayout] = useState<WorkspaceLayout>(initial.layout);
-
-  /** Commit a pure op: update the tree and persist immediately. */
-  const commit = useCallback((next: WorkspaceLayout) => {
-    setLayout(next);
-    saveWorkspace(storageKey, next);
-  }, [storageKey]);
-
-  const addWidget = useCallback((widgetId: string, target?: DropTarget) => {
-    commit(opAdd(layout, widgetId, target));
-  }, [commit, layout]);
-
-  const removeWidget = useCallback((widgetId: string) => {
-    commit(opRemove(layout, widgetId));
-  }, [commit, layout]);
-
-  const moveWidget = useCallback((widgetId: string, target: DropTarget) => {
-    commit(opMove(layout, widgetId, target));
-  }, [commit, layout]);
-
-  const moveWidgetToNewSection = useCallback((widgetId: string) => {
-    commit(opMoveNewSection(layout, widgetId));
-  }, [commit, layout]);
-
-  const setColumnCount = useCallback((sectionId: string, count: number) => {
-    commit(opSetCount(layout, sectionId, count));
-  }, [commit, layout]);
-
-  const setColumnWeight = useCallback((columnId: string, weight: number) => {
-    commit(opSetWeight(layout, columnId, weight));
-  }, [commit, layout]);
-
-  const setWidgetHeight = useCallback((widgetId: string, height: number | null) => {
-    commit(opSetHeight(layout, widgetId, height));
-  }, [commit, layout]);
-
-  const applyTemplate = useCallback((template: WorkspaceTemplate) => {
-    commit(template.build(knownWidgetIds ?? []));
-  }, [commit, knownWidgetIds]);
-
-  const resetToDefault = useCallback(() => {
-    clearWorkspace(storageKey);
-    setCorrupt(false);
-    commit(defaultLayout);
-  }, [commit, defaultLayout, storageKey]);
-
-  const [editMode, setEditMode] = useState(false);
 
   return {
     layout,
     editMode,
-    setEditMode,
-    /** True when the stored layout was corrupt and defaults were shown instead. */
+    setEditMode: useStore.getState().setEditMode,
     corrupt,
+    dragging,
+    selectedWidgetId,
+    selected,
     templates: WORKSPACE_TEMPLATES,
     ops: {
-      addWidget,
-      removeWidget,
-      moveWidget,
-      moveWidgetToNewSection,
-      setColumnCount,
-      setColumnWeight,
-      setWidgetHeight,
-      applyTemplate,
-      resetToDefault,
+      addWidget: useStore.getState().addWidget,
+      removeWidget: useStore.getState().removeWidget,
+      moveWidget: useStore.getState().moveWidget,
+      moveWidgetToNewSection: useStore.getState().moveWidgetToNewSection,
+      setColumnCount: useStore.getState().setColumnCount,
+      setColumnWeight: useStore.getState().setColumnWeight,
+      setWidgetHeight: useStore.getState().setWidgetHeight,
+      applyTemplate: useStore.getState().applyTemplate,
+      resetToDefault: useStore.getState().resetToDefault,
+      selectWidget: useStore.getState().selectWidget,
+      setDragging: useStore.getState().setDragging,
     },
   };
+}
+
+/** Widget placement lookup used by the canvas for dnd ids. */
+export function findPlacement(layout: WorkspaceLayout, id: string): WidgetPlacement | null {
+  return locate(layout, id)?.widget ?? null;
 }
 
 export type WorkspaceController = ReturnType<typeof useWorkspace>;

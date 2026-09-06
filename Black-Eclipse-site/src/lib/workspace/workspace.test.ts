@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { produce } from 'immer';
 import {
   addWidget,
   allWidgetIds,
@@ -48,6 +49,12 @@ function memStorage(initial: Record<string, string> = {}): StorageLike & { data:
 }
 
 const KNOWN = new Set(['kpi', 'perf', 'alloc', 'holdings', 'ledger', 'risk', 'health', 'mc', 'ai']);
+
+/** Ops are Immer draft mutators; wrap each call in produce and return the result. */
+type DraftOp<T extends unknown[]> = (d: WorkspaceLayout, ...args: T) => void;
+function runOp<T extends unknown[]>(op: DraftOp<T>, l: WorkspaceLayout, ...args: T): WorkspaceLayout {
+  return produce(l, draft => { op(draft, ...args); });
+}
 
 /** allWidgetIds for a layout; also accepts a section or column for convenience. */
 const idsOf = (x: WorkspaceLayout | { columns: { widgets: { widgetId: string }[] }[] } | { widgets: { widgetId: string }[] }): string[] =>
@@ -119,14 +126,14 @@ describe('moveWidget', () => {
     const l = makeLayout([[['kpi', 'perf', 'alloc']]]);
     const [col] = l.sections[0].columns;
     const moved = col.widgets[0].id;
-    const n = moveWidget(l, moved, { sectionId: l.sections[0].id, columnId: col.id, index: 2 });
+    const n = runOp(moveWidget, l, moved, { sectionId: l.sections[0].id, columnId: col.id, index: 2 });
     expect(allWidgetIds(n)).toEqual(['perf', 'alloc', 'kpi']);
   });
 
   it('moves between columns in the same section', () => {
     const l = makeLayout([[['kpi', 'perf'], ['alloc']]]);
     const [c1, c2] = l.sections[0].columns;
-    const n = moveWidget(l, c1.widgets[0].id, { sectionId: l.sections[0].id, columnId: c2.id, index: 0 });
+    const n = runOp(moveWidget, l, c1.widgets[0].id, { sectionId: l.sections[0].id, columnId: c2.id, index: 0 });
     const [d1, d2] = n.sections[0].columns;
     expect(idsOf(d1)).toEqual(['perf']);
     expect(idsOf(d2)).toEqual(['kpi', 'alloc']);
@@ -134,7 +141,7 @@ describe('moveWidget', () => {
 
   it('moves across sections', () => {
     const l = makeLayout([[['kpi']], [['perf', 'alloc']]]);
-    const n = moveWidget(l, l.sections[0].columns[0].widgets[0].id, {
+    const n = runOp(moveWidget, l, l.sections[0].columns[0].widgets[0].id, {
       sectionId: l.sections[1].id,
       columnId: l.sections[1].columns[0].id,
       index: 1,
@@ -145,7 +152,7 @@ describe('moveWidget', () => {
 
   it('creates a new column when columnId is null', () => {
     const l = makeLayout([[['kpi', 'perf'], ['alloc']]]);
-    const n = moveWidget(l, l.sections[0].columns[0].widgets[0].id, {
+    const n = runOp(moveWidget, l, l.sections[0].columns[0].widgets[0].id, {
       sectionId: l.sections[0].id,
       columnId: null,
       index: 0,
@@ -156,7 +163,7 @@ describe('moveWidget', () => {
 
   it('clamps out-of-range indices', () => {
     const l = makeLayout([[['kpi'], ['perf']]]);
-    const n = moveWidget(l, l.sections[0].columns[0].widgets[0].id, {
+    const n = runOp(moveWidget, l, l.sections[0].columns[0].widgets[0].id, {
       sectionId: l.sections[0].id,
       columnId: l.sections[0].columns[1].id,
       index: 42,
@@ -167,8 +174,8 @@ describe('moveWidget', () => {
   it('stacks multiple widgets vertically in one column', () => {
     const l = makeLayout([[['kpi'], ['perf'], ['alloc']]]);
     const [c1, c2, c3] = l.sections[0].columns;
-    let n = moveWidget(l, c2.widgets[0].id, { sectionId: l.sections[0].id, columnId: c1.id, index: 1 });
-    n = moveWidget(n, c3.widgets[0].id, { sectionId: n.sections[0].id, columnId: c1.id, index: 2 });
+    let n = runOp(moveWidget, l, c2.widgets[0].id, { sectionId: l.sections[0].id, columnId: c1.id, index: 1 });
+    n = runOp(moveWidget, n, c3.widgets[0].id, { sectionId: n.sections[0].id, columnId: c1.id, index: 2 });
     expect(idsOf(n)).toEqual(['kpi', 'perf', 'alloc']);
     expect(n.sections[0].columns.filter(c => c.widgets.length > 0)).toHaveLength(1);
   });
@@ -177,7 +184,7 @@ describe('moveWidget', () => {
 describe('moveWidgetToNewSection', () => {
   it('spawns a new trailing section with the card', () => {
     const l = makeLayout([[['kpi', 'perf']]]);
-    const n = moveWidgetToNewSection(l, l.sections[0].columns[0].widgets[0].id);
+    const n = runOp(moveWidgetToNewSection, l, l.sections[0].columns[0].widgets[0].id);
     expect(n.sections).toHaveLength(2);
     expect(idsOf(n.sections[1])).toEqual(['kpi']);
     expect(idsOf(n.sections[0])).toEqual(['perf']);
@@ -189,32 +196,32 @@ describe('moveWidgetToNewSection', () => {
 describe('add/remove', () => {
   it('adds to the end of the last column by default', () => {
     const l = makeLayout([[['kpi'], ['perf']]]);
-    const n = addWidget(l, 'alloc');
+    const n = runOp(addWidget, l, 'alloc');
     expect(allWidgetIds(n)).toEqual(['kpi', 'perf', 'alloc']);
   });
 
   it('adds into a brand-new column when columnId is null', () => {
     const l = makeLayout([[['kpi']]]);
-    const n = addWidget(l, 'perf', { sectionId: l.sections[0].id, columnId: null, index: 0 });
+    const n = runOp(addWidget, l, 'perf', { sectionId: l.sections[0].id, columnId: null, index: 0 });
     expect(n.sections[0].columns).toHaveLength(2);
   });
 
   it('creates a section when the layout is empty', () => {
     const l: WorkspaceLayout = { version: 1, sections: [] };
-    const n = addWidget(l, 'kpi');
+    const n = runOp(addWidget, l, 'kpi');
     expect(widgetCount(n)).toBe(1);
   });
 
   it('removes a widget and prunes empty sections', () => {
     const l = makeLayout([[['kpi']], [['perf']]]);
-    const n = removeWidget(l, l.sections[1].columns[0].widgets[0].id);
+    const n = runOp(removeWidget, l, l.sections[1].columns[0].widgets[0].id);
     expect(n.sections).toHaveLength(1);
     expect(allWidgetIds(n)).toEqual(['kpi']);
   });
 
   it('never removes the last column of a section', () => {
     const l = makeLayout([[['kpi']]]);
-    const n = removeWidget(l, l.sections[0].columns[0].widgets[0].id);
+    const n = runOp(removeWidget, l, l.sections[0].columns[0].widgets[0].id);
     expect(n.sections).toHaveLength(1);
     expect(n.sections[0].columns).toHaveLength(1);
     expect(widgetCount(n)).toBe(0);
@@ -224,39 +231,39 @@ describe('add/remove', () => {
 describe('columns & resize', () => {
   it('grows and shrinks column count without losing widgets', () => {
     const l = makeLayout([[['kpi'], ['perf'], ['alloc']]]);
-    const shrunk = setColumnCount(l, l.sections[0].id, 1);
+    const shrunk = runOp(setColumnCount, l, l.sections[0].id, 1);
     expect(allWidgetIds(shrunk)).toEqual(['kpi', 'perf', 'alloc']);
-    const regrown = setColumnCount(shrunk, shrunk.sections[0].id, 3);
+    const regrown = runOp(setColumnCount, shrunk, shrunk.sections[0].id, 3);
     expect(regrown.sections[0].columns).toHaveLength(3);
     expect(allWidgetIds(regrown)).toEqual(['kpi', 'perf', 'alloc']);
   });
 
   it('clamps column count to 1..4', () => {
     const l = makeLayout([[['kpi']]]);
-    expect(setColumnCount(l, l.sections[0].id, 9).sections[0].columns).toHaveLength(4);
-    expect(setColumnCount(l, l.sections[0].id, 0).sections[0].columns).toHaveLength(1);
+    expect(runOp(setColumnCount, l, l.sections[0].id, 9).sections[0].columns).toHaveLength(4);
+    expect(runOp(setColumnCount, l, l.sections[0].id, 0).sections[0].columns).toHaveLength(1);
   });
 
   it('clamps weights 1..6', () => {
     const l = makeLayout([[['kpi']]]);
     const colId = l.sections[0].columns[0].id;
-    expect(setColumnWeight(l, colId, 100).sections[0].columns[0].weight).toBe(6);
-    expect(setColumnWeight(l, colId, -3).sections[0].columns[0].weight).toBe(1);
+    expect(runOp(setColumnWeight, l, colId, 100).sections[0].columns[0].weight).toBe(6);
+    expect(runOp(setColumnWeight, l, colId, -3).sections[0].columns[0].weight).toBe(1);
   });
 
   it('sets widget height with a minimum', () => {
     const l = makeLayout([[['kpi']]]);
     const wid0 = l.sections[0].columns[0].widgets[0].id;
-    expect(setWidgetHeight(l, wid0, 40).sections[0].columns[0].widgets[0].height).toBe(140);
-    expect(setWidgetHeight(l, wid0, 320).sections[0].columns[0].widgets[0].height).toBe(320);
-    expect(setWidgetHeight(l, wid0, null).sections[0].columns[0].widgets[0].height).toBeNull();
+    expect(runOp(setWidgetHeight, l, wid0, 40).sections[0].columns[0].widgets[0].height).toBe(140);
+    expect(runOp(setWidgetHeight, l, wid0, 320).sections[0].columns[0].widgets[0].height).toBe(320);
+    expect(runOp(setWidgetHeight, l, wid0, null).sections[0].columns[0].widgets[0].height).toBeNull();
   });
 });
 
 describe('pruneLayout', () => {
   it('drops empty sections (keeps one), preserves empty columns as drop targets', () => {
     const l = makeLayout([[['kpi'], []], [[]]]);
-    const n = pruneLayout(l);
+    const n = runOp(pruneLayout, l);
     expect(n.sections).toHaveLength(1);
     expect(n.sections[0].columns).toHaveLength(2); // empty column kept for drops
     expect(allWidgetIds(n)).toEqual(['kpi']);

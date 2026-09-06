@@ -438,7 +438,9 @@ function StockChatContent() {
             <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full scrollbar-hide pb-20">
               <div className="animate-fade-in-up w-full h-full flex flex-col">
                 <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
-                  <Newspaper className="text-primary w-7 h-7" />
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+                    <Newspaper className="text-primary" size={30} />
+                  </div>
                   <div>
                     <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Market News & Bulletins</h1>
                     <p className="text-muted-foreground text-xs mt-0.5">Live updates, professional ratings indicators, and direct discuss-to-chat triggers.</p>

@@ -771,8 +771,10 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         {/* Title Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/20 pb-4 shrink-0">
           <div>
-            <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-2.5">
-              <Orbit className="text-primary w-8 h-8 animate-spin-slow" />
+            <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+                <Orbit className="text-primary animate-spin-slow" size={30} />
+              </span>
               Market Bubbles
             </h1>
             <p className="text-muted-foreground text-xs mt-1">
