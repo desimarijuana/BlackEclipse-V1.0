@@ -232,6 +232,16 @@ Data Sources
 **Impact:** Data source priority is always: agentic scraper → user API → demo.
 
 ### ADR-005 — Customization kernel (2026)
-**Decision:** All page customization is driven by the shared kernel in `src/lib/customize/` (`useCustomize` + `PageDefinition`). Layouts use the **section → column → element model (v3)**: sections hold columns with individual width shares (×1–×4); elements (independent components) stack inside columns with their own style (width/height/padding/align) separate from layout styling. v1/v2 layouts auto-migrate; presets are section templates. Pages get column-structure pickers, per-element style toolbars, section spacing controls, and cross-section drag & drop through the kernel. No page-local layout state or storage code.
-**Reason:** The flat span model and one-widget-per-slot sections could not express Elementor-style placement (multiple elements per column, individual column widths, per-element styling).
-**Impact:** Adding a customizable page = one `PageDefinition` + `useCustomize()` + SectionShell/ColumnShell/ElementShell canvas. Portfolio pages are migrated; other screens follow when touched (see `skills/CUSTOMIZE.md`).
+**Decision:** All page customization is driven by the shared kernel in `src/lib/workspace/` (`useWorkspace` + `WorkspaceCanvas` + widget registry). Layouts use the **section → column → widget model (v2)**: sections hold rows of 1–4 columns with relative weight shares (1–6); widget cards stack inside columns with optional fixed pixel heights. Stored layouts are validated/normalized on load (corrupt data falls back without overwrite); presets are curated section templates. Pages get edit-mode chrome (drag/drop, add/remove widgets, height + column-width resize, column counts, templates) through the kernel. No page-local layout state or storage code.
+**Reason:** The flat span model could not express free-form placement (multiple widgets per column, individual column widths). A prior v3 "element model" (`src/lib/customize/`) was sketched in docs but never shipped — the workspace kernel is the real implementation.
+**Impact:** Adding a customizable page = one widget registry + `useWorkspace()` + `<WorkspaceCanvas renderWidget={...}>`. The fund workspace and portfolio pages are migrated; other screens follow when touched (see `skills/CUSTOMIZE.md`).
+
+### ADR-006 — Workspace kernel stack: dnd-kit + Zustand + Immer (2026)
+**Decision:** The customization kernel is built on three libraries: **dnd-kit** (`@dnd-kit/core`) owns drag & drop (`DndContext` + `PointerSensor` + `useDraggable`/`useDroppable` + `DragOverlay`), **Zustand** owns editor/layout/selection state (one cached store per workspace storageKey, selector subscriptions, `selectedWidgetId`/`dragging`), **Immer** owns layout mutations (all ops in `ops.ts` are draft mutators invoked via `produce` in the store's `commit()`).
+**Reason:** Replaced hand-rolled pointer-drag DOM surgery, useState plumbing, and manual structural clones. dnd-kit gives accessible, collision-driven DnD; Zustand gives cross-mount state without prop drilling; Immer removes clone boilerplate and makes ops trivially testable (tests wrap calls in `produce`).
+**Impact:** `npm i @dnd-kit/core zustand immer` are required deps. New layout ops must follow the draft-mutator signature in `ops.ts` (mutate the draft, return void) and get a unit test. Persisting happens automatically inside `commit()`; never call `saveWorkspace` elsewhere.
+
+### ADR-007 — Page-header icon tiles (2026)
+**Decision:** Every page header uses the portfolio-style icon tile: a 56px (`h-14 w-14`) rounded-2xl container with `border-primary/25 bg-primary/15 shadow-lg shadow-primary/10` wrapping a 30px primary-colored lucide icon.
+**Reason:** Bare inline icons looked inconsistent next to the redesigned portfolio header.
+**Impact:** New screens copy the tile pattern (see market-overview.tsx or economics.tsx headers); do not revert to bare `w-7 h-7` icons.

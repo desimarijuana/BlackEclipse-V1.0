@@ -1,103 +1,97 @@
 # CUSTOMIZE.md — Customization System Patterns
 
 > Read this before adding a customizable page, widget, or preset.
-> The customization kernel lives in `src/lib/customize/` — screens must **register, not hand-roll**.
+> The customization kernel lives in `src/lib/workspace/` — screens must **register, not hand-roll**.
 
 ---
 
 ## Core rule
 
-Every customizable page uses the shared kernel with the **section → column → element model**
-(Elementor-style). Never write page-local layout state, localStorage code, drag plumbing,
-or structure-picker UI.
+Every customizable page uses the shared workspace kernel with the **section → column → widget model**.
+Never write page-local layout state, localStorage code, or drag plumbing.
 
 ```
-src/lib/customize/
-  types.ts       — ElementState { id, visible, style: ElementStyle }, Column { id, width, elements[] },
-                   Section { id, gap, padding, columns[] }, PageLayout v3, PageDefinition,
-                   PresetDefinition (section templates), defaultLayout(), layoutFromPreset(),
-                   migrateV1toV3(), migrateV2toV3(), normalizeLayout()
-  layout.ts      — load/save/clear + pure ops: patched (element style/visibility),
-                   patchSection (gap/padding), setColumnCount (redistributes row-major),
-                   setColumnWidth, placeElement (section/column/index — cross-section),
-                   nudged, addElement, removeElement, pruneSections, locate
-  use-customize.ts — useCustomize(def): { layout, widgets, visible, patch, patchSec, place,
-                   setColumns, setColWidth, add, remove, nudge, applyPreset, apply, reset }
-  components.tsx — StructurePicker, SectionSpacingPicker, ColumnWidthPicker,
-                   ElementStylePicker, SectionShell, ColumnShell, ElementShell
-  coach-mark.tsx — one-time "press Customize" hint per page
-  fund-page-def.ts — fund page PageDefinition (reference example)
-  customize.test.ts — 16 unit tests for schema/migration/ops (keep green)
+src/lib/workspace/
+  types.ts        — WidgetPlacement { id, widgetId, height }, Column { id, weight: 1–6, widgets[] },
+                    Section { id, columns[] (1–4) }, WorkspaceLayout { version: 1, sections },
+                    DropTarget { sectionId, columnId|null, index }
+  ops.ts          — Immer draft mutators (mutate the draft, return void): moveWidget,
+                    moveWidgetToNewSection, addWidget, removeWidget, setColumnCount,
+                    setColumnWeight (1–6), setWidgetHeight (min 140px), pruneLayout,
+                    locate, normalizeLayout (corrupt-read guard)
+  use-workspace.ts — Zustand store per storageKey (cached, survives mounts):
+                    { layout, editMode, corrupt, dragging, selectedWidgetId, selected,
+                      templates, ops: { addWidget, removeWidget, moveWidget,
+                      moveWidgetToNewSection, setColumnCount, setColumnWeight,
+                      setWidgetHeight, applyTemplate, resetToDefault, selectWidget, setDragging } }
+  workspace-canvas.tsx — dnd-kit edit chrome: DndContext + PointerSensor (4px activation),
+                    droppable columns / new-column zones / new-section strip, DragOverlay ghost,
+                    card hover toolbars (drag grip, fit-height, remove), bottom height-resize
+                    handles, column-width drag handles between columns
+  workspace-drawer.tsx — add-widget palette + template picker + reset (confirm-guarded)
+  templates.ts    — curated section templates (classic / trader / analyst / minimal)
+  persistence.ts  — localStorage load/save/clear; corrupt payload never overwritten
+  workspace.test.ts — 35 unit tests (ops wrapped in produce) — keep green
 ```
 
-## Layout schema v3 (Section → Column → Element)
+## Stack (ADR-006)
 
-```ts
-interface Section   { id; gap: 0|8|16|24; padding: 'none'|'sm'|'md'; columns: Column[] }
-interface Column    { id; width: 1|2|3|4; elements: ElementState[] }   // elements STACK inside a column
-interface ElementState { id; visible; style: ElementStyle }            // style is per-element
-interface ElementStyle { height; width: 'auto'|1|2|3|4; padding: 'none'|'sm'|'md'; align }
-interface PageLayout{ version: 3; sections: Section[]; presetId? }
-```
+- **dnd-kit** (`@dnd-kit/core`) — drag & drop between columns/sections/containers
+- **Zustand** — editor + layout + selection state, one store per workspace
+- **Immer** — safe immutable layout updates (ops are draft mutators via `produce`)
 
-- **v1 (flat) and v2 (one-widget-per-slot) layouts auto-upgrade**; unknown/stale ids are dropped,
-  missing widgets appended. Storage keys: `eclipse_<page>_layout_v3`; `loadLayout` falls back to
-  legacy keys automatically.
-- **Columns** have individual width shares (×1–×4, flex-grown) — not all sections must be equal.
-- **Elements** are independent components stacked in a column; many per column. Their styling
-  (width/height/padding/align) is separate from section/column layout styling.
-- **Element toolbars** (⚙ icon on hover) customize width %, min-height, inner padding, alignment.
-- **Section toolbars** customize column count + gap + padding. **Column toolbars** set width share.
-- Drag & drop: grab any element card → drop on a column (append) or another element (insert
-  before); cross-section moves prune emptied columns/sections.
-- Navigator panel is a **view-only tree** — all manipulation happens on the canvas.
+Rules for new ops:
+1. Signature: `(draft: Draft<WorkspaceLayout>, ...args) => void` in `ops.ts` — mutate, don't clone.
+2. Wrap call sites in the store's `commit(recipe)` (persisting is automatic).
+3. Add a unit test using the `runOp(op, layout, ...args)` helper in `workspace.test.ts`.
 
 ## Adding a customizable page (checklist)
 
-1. Widget meta map: `Record<WidgetId, WidgetMeta>` (`label`, `desc?`, `defaultSpan`).
-2. Presets as **section templates**: `sections: [{ widths: [1,1], elements: ['a','b'] }, ...]`.
-   Elements beyond the listed columns stack into the last column; unlisted widgets append in a
-   trailing overflow section.
-3. `PageDefinition`: `{ pageId, storageKey: 'eclipse_<page>_layout_v3', widgets, presets }`.
-4. In the screen: `const c = useCustomize(MY_PAGE);`
-5. Render the canvas:
-   - `layout.sections.map` → `<SectionShell editing gap padding onSpacing onColumns onDelete>`
-     (columns = `section.columns.length`).
-   - Inside: `<div className="flex flex-col md:flex-row ${SECTION_GAP_CLASS[section.gap]}">`
-     mapping `section.columns` → `<ColumnShell editing width onWidth elementCount dragging
-     onDropInColumn>` (ColumnShell applies the flex-grow).
-   - Inside: `<div className="flex flex-col ${SECTION_GAP_CLASS[section.gap]}">` mapping
-     `col.elements` → `<ElementShell editing label style onStyle visible onToggleVisible
-     dragging dragOver onDragStart onDragEnd onDragOverElement onDropOnElement>` — drop index =
-     element's position in `col.elements`.
-   - Element style on the wrapper: `ELEM_PAD_CLASS[style.padding]` +
-     `ELEM_ALIGN_CLASS[style.align]` + width/minHeight inline styles (ElementShell non-edit
-     branch shows the pattern).
-   - **Panel (Navigator)**: view-only tree — sections → columns → element chips with eye
-     toggles + StructurePicker per section. No dragging here.
-6. Keep grid classes as static strings only where still needed; the v3 model uses flex,
-   so no `lg:grid-cols-*` maps are required.
+1. Widget registry: `WorkspaceWidgetMeta[]` — `{ widgetId, label, desc }` per widget.
+2. `defaultLayout()` for the page (see `widgets.ts` → `defaultFundLayout`).
+3. `renderWidget(widgetId, placement)` returning the widget's React content.
+4. In the screen: `const workspace = useWorkspace({ storageKey, defaultLayout, knownWidgetIds });`
+   (`knownWidgetIds` = registry ids; unknown stored widgets are dropped on load).
+5. Render `<WorkspaceCanvas workspace={workspace} widgets={REGISTRY} renderWidget={renderWidget} />`.
+6. Edit-mode toggle button: `workspace.setEditMode(!workspace.editMode)`.
+
+## Layout model
+
+```
+WorkspaceLayout { version: 1, sections: Section[] }
+Section  { id, columns: Column[] }            // column count 1–4 via setColumnCount
+Column   { id, weight: 1–6, widgets: WidgetPlacement[] }  // flex-grow width share
+WidgetPlacement { id, widgetId, height: number|null }     // null = natural height
+```
+
+- Widgets stack vertically inside a column; drag reorders within/between columns,
+  across sections, into new columns (dashed + zone), or into a new section (bottom strip).
+- `pruneLayout` drops empty sections (keeps one, keeps empty columns as drop targets).
+- Storage key convention: `be_ws_<page>_<id>_v2`.
 
 ## Interactions (must match everywhere)
 
-- **Columns**: hover a section → StructurePicker → 1/2/3/4 columns; elements redistribute
-  row-major (`setColumnCount`).
-- **Column width**: hover a column → `ColumnWidthPicker` (×1–×4 flex share).
-- **Element style**: hover an element → ⚙ → width (Fill/25/50/75/100%), min-height ±40px,
-  inner padding, alignment.
-- **Section spacing**: hover a section → maximize icon → gap (0/8/16/24px) + padding.
-- **Move**: drag any element card → column (append) or another element (insert-before).
-- **Visibility**: eye toggle on the element toolbar; hidden elements show a dashed overlay
-  while editing and disappear otherwise.
-- **Presets** apply a full section template in one click.
+- **Edit bar**: sticky "Customizing" row with Widgets/Templates drawer + Done button.
+- **Move**: drag any card (edit mode) — ghost overlay follows, target columns highlight.
+- **Height**: bottom-edge handle per card (commit on release); Scan icon resets to auto.
+- **Column width**: drag handle between adjacent columns (edit mode); commits weight 1–6.
+- **Column count**: −/+ stepper in the section edit row; displaced widgets relocate to last column.
+- **Remove**: X on the card toolbar (edit mode only).
+- **Add**: drawer palette; already-placed widgets are marked.
+- **Templates / Reset**: confirm-guarded; replace the whole layout.
 
 ## Conventions & anti-patterns
 
-- Widget ids are stable strings — renaming requires a storage migration in `layout.ts`.
+- Widget ids are stable strings — renaming requires a persistence migration.
 - Keep widget render logic in the screen; the kernel owns only layout state.
-- Toolbars use **opacity-based hover reveal** (`opacity-0 group-hover/*:opacity-100
-  pointer-events-none group-hover/*:pointer-events-auto`), NOT `hidden ... :flex` — so
-  automation and keyboard users can reach them.
-- Never hand-roll a second picker or panel style; reuse the kernel components so every page
-  feels identical.
-- Never store layouts in an untyped shape — always `PageLayout` via the kernel.
+- Cards use the shared `CARD_CLASS` glass style; don't restyle per page.
+- Never call `saveWorkspace`/`loadWorkspace` directly — go through the store ops.
+- Never hand-roll a second drag system; extend `workspace-canvas.tsx`.
+
+## Roadmap (incremental improvements planned)
+
+- Undo/redo on the Zustand store (temporal middleware) for template/reset actions.
+- Keyboard DnD (dnd-kit KeyboardSensor) and a11y announcements.
+- Save/load custom layouts as user templates (export/import JSON).
+- Per-widget visibility toggles in the drawer palette.
+- Mobile-friendly column handles (currently desktop-only, `md:` gated).
