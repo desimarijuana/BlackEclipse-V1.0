@@ -328,15 +328,21 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         // If the market returned no priced stocks yet, fall back to demo data so bubbles still render.
         if (mapped.length > 0) {
           setRawList(mapped);
-        } else {
+        } else if (!silent || rawList.length === 0) {
           setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
         }
-      } else {
+      } else if (!silent || rawList.length === 0) {
         setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
       }
     } catch (e) {
-      console.error('Failed to load market bubble data', e);
-      setRawList(isCrypto ? DEMO_CRYPTOS : DEMO_PSX);
+      // Transient failures (dev recompile, brief network drop) must not wipe
+      // live bubbles with demo data — only initial loads take the fallback.
+      if (silent) {
+        console.warn('[bubbles] poll fetch failed, keeping current data', e);
+      } else {
+        console.error('Failed to load market bubble data', e);
+        setRawList(isCrypto ? DEMO_CRYPTOS : DEMO_PSX);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
