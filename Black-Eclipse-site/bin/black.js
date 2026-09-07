@@ -190,6 +190,12 @@ async function main() {
       forceBuild();
       break;
     case "doctor":
+      if (argValue("--fix") !== undefined || rest.includes("--fix")) {
+        // Reuse the self-healing script, then report.
+        try {
+          execSync(`node "${path.join(__dirname, "..", "scripts", "doctor.js")}"`, { stdio: "inherit" });
+        } catch {}
+      }
       await doctor();
       break;
     case "help":
@@ -203,7 +209,7 @@ Commands:
   stop         stop the running site
   status       check if the site is up
   build        force a production rebuild
-  doctor       check the environment
+  doctor       check the environment (--fix to auto-repair)
 
 Options:
   -p <port>    use a custom port (default 3000)`);

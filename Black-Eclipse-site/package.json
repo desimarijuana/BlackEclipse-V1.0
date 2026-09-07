@@ -7,9 +7,10 @@
   },
   "scripts": {
     "postinstall": "prisma generate && node scripts/setup-python.js",
-    "predev": "node scripts/kill-port.js",
+    "predev": "node scripts/doctor.js && node scripts/kill-port.js",
     "dev": "next dev",
-    "up": "node scripts/up.js",
+    "prestart": "node scripts/doctor.js",
+    "up": "node scripts/doctor.js && node scripts/up.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
