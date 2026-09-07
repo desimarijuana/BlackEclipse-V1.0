@@ -20,7 +20,7 @@ export function EconomicsScreen() {
   const [activeSource, setActiveSource] = useState(ECON_SOURCES[0].id);
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 h-full overflow-y-auto scrollbar-hide pb-20 select-none">
+    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 h-full overflow-y-auto pb-20 select-none">
       <div className="animate-fade-in-up flex flex-col gap-6">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-border/10 pb-3">

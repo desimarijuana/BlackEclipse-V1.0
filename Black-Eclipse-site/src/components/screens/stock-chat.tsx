@@ -49,15 +49,13 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { DotGrid } from '@/components/ui/ascii-loader';
+import { TopLoader } from '@/components/ui/top-loader';
+import { cn } from '@/lib/utils';
 
 function ScreenSkeleton() {
-  return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-muted-foreground gap-3">
-      <DotGrid size={32} />
-      <span className="text-sm">Loading…</span>
-    </div>
-  );
+  // Chunk-load placeholder for next/dynamic screens. Kept minimal and
+  // non-competitive with TopLoader (the single real data loader).
+  return <TopLoader />;
 }
 
 function StockChatContent() {
@@ -80,6 +78,15 @@ function StockChatContent() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Keep-alive tabs: a tab mounts on first visit and stays mounted (hidden
+  // with display:none) after that. Boot mounts ONLY the initial tab, so we
+  // keep the old boot behavior (one screen fetching, no mount-all race),
+  // while revisits are instant — no chunk reload, no refetch, no loader.
+  const [visited, setVisited] = useState<Set<AppTab>>(() => new Set(['chat']));
+  useEffect(() => {
+    setVisited(prev => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
 
   // Deep-link boot: /?symbol=AAPL opens that symbol's chart tab directly.
   // Powers ctrl+click "open in new tab" from the screener tables.
@@ -408,97 +415,119 @@ function StockChatContent() {
         />
 
         <div className="flex-1 overflow-y-auto relative w-full h-full z-10">
-          {activeTab === 'chat' && (
-            <div className="w-full h-full flex flex-col items-center justify-between p-4 md:p-6 relative min-w-0">
-              {messages.length === 0 ? (
-                <EmptyState 
-                  query={query} 
-                  setQuery={setQuery} 
-                  onSend={handleSend} 
-                  onViewMarketOverview={() => setActiveTab('discovery')}
-                />
-              ) : (
-                <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
-                  <ChatHistory messages={messages} />
-                  <div className="w-full max-w-4xl relative group mt-auto shrink-0 pb-2 md:pb-4">
-                    <ChatInput 
-                      query={query} 
-                      setQuery={setQuery} 
-                      onSend={handleSend} 
-                      placeholder="Ask a follow-up..." 
-                      showModelSelect={false} 
-                    />
+          {/* Keep-alive tabs: a tab mounts on first visit (visited set) and
+              then stays mounted hidden — revisits are instant with no chunk
+              reload, no refetch, no loader flash. Unvisited tabs render
+              nothing, preserving the old single-screen boot behavior. */}
+          {visited.has('chat') && (
+            <div className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
+              <div className="w-full h-full flex flex-col items-center justify-between p-4 md:p-6 relative min-w-0">
+                {messages.length === 0 ? (
+                  <EmptyState
+                    query={query}
+                    setQuery={setQuery}
+                    onSend={handleSend}
+                    onViewMarketOverview={() => setActiveTab('discovery')}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
+                    <ChatHistory messages={messages} />
+                    <div className="w-full max-w-4xl relative group mt-auto shrink-0 pb-2 md:pb-4">
+                      <ChatInput
+                        query={query}
+                        setQuery={setQuery}
+                        onSend={handleSend}
+                        placeholder="Ask a follow-up..."
+                        showModelSelect={false}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'news' && (
-            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full scrollbar-hide pb-20">
-              <div className="animate-fade-in-up w-full h-full flex flex-col">
-                <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-                    <Newspaper className="text-primary" size={30} />
-                  </div>
-                  <div>
-                    <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Market News & Bulletins</h1>
-                    <p className="text-muted-foreground text-xs mt-0.5">Live updates, professional ratings indicators, and direct discuss-to-chat triggers.</p>
-                  </div>
-                </div>
-                <MarketNews 
-                  onDiscussNews={handleDiscussNews} 
-                  onAnalyzeTicker={handleChartTicker}
-                  fullPage={true}
-                  onNewsSentiment={setNewsScore}
-                />
+                )}
               </div>
             </div>
           )}
 
-          {activeTab === 'discovery' && (
-            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
-              <div className="animate-fade-in-up w-full h-full">
-                <MarketOverviewScreen 
-                  onAnalyzeTicker={(t: string, customCtx?: string) => handleInjectPrompt(t, 'research', customCtx)} 
-                  onSelectChartSymbol={(sym) => {
-                    setSelectedChartSymbol(sym);
-                    setActiveTab('chart');
-                  }}
-                  embedded={false} 
-                  onMarketStatusChange={setIsMarketBullish}
-                />
+          {visited.has('news') && (
+            <div className={cn('w-full h-full', activeTab === 'news' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full pb-20">
+                <div className="animate-fade-in-up w-full h-full flex flex-col">
+                  <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+                      <Newspaper className="text-primary" size={30} />
+                    </div>
+                    <div>
+                      <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Market News & Bulletins</h1>
+                      <p className="text-muted-foreground text-xs mt-0.5">Live updates, professional ratings indicators, and direct discuss-to-chat triggers.</p>
+                    </div>
+                  </div>
+                  <MarketNews
+                    onDiscussNews={handleDiscussNews}
+                    onAnalyzeTicker={handleChartTicker}
+                    fullPage={true}
+                    onNewsSentiment={setNewsScore}
+                  />
+                </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'heatmap' && (
-            <MarketBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
-          )}
-
-          {activeTab === 'alerts' && (
-            <div className="flex-1 overflow-y-auto scrollbar-hide">
-              <AlertsScreen />
+          {visited.has('discovery') && (
+            <div className={cn('w-full h-full', activeTab === 'discovery' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+                <div className="animate-fade-in-up w-full h-full">
+                  <MarketOverviewScreen
+                    onAnalyzeTicker={(t: string, customCtx?: string) => handleInjectPrompt(t, 'research', customCtx)}
+                    onSelectChartSymbol={(sym) => {
+                      setSelectedChartSymbol(sym);
+                      setActiveTab('chart');
+                    }}
+                    embedded={false}
+                    onMarketStatusChange={setIsMarketBullish}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
-          {activeTab === 'economics' && <EconomicsScreen />}
-
-          {activeTab === 'portfolio' && (
-            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
-              <PortfolioScreen />
+          {visited.has('heatmap') && (
+            <div className={cn('w-full h-full', activeTab === 'heatmap' ? '' : 'hidden')}>
+              <MarketBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
             </div>
           )}
 
-          {activeTab === 'chart' && (
-            <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
-              <button
-                onClick={() => setActiveTab('discovery')}
-                className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
-              >
-                <ArrowLeft size={13} /> Back to Market Screener
-              </button>
-              <EmbeddedChart symbol={selectedChartSymbol} />
+          {visited.has('alerts') && (
+            <div className={cn('w-full h-full', activeTab === 'alerts' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <AlertsScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('economics') && (
+            <div className={cn('w-full h-full', activeTab === 'economics' ? '' : 'hidden')}>
+              <EconomicsScreen />
+            </div>
+          )}
+
+          {visited.has('portfolio') && (
+            <div className={cn('w-full h-full', activeTab === 'portfolio' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+                <PortfolioScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('chart') && (
+            <div className={cn('w-full h-full', activeTab === 'chart' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
+                <button
+                  onClick={() => setActiveTab('discovery')}
+                  className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
+                >
+                  <ArrowLeft size={13} /> Back to Market Screener
+                </button>
+                <EmbeddedChart symbol={selectedChartSymbol} />
+              </div>
             </div>
           )}
         </div>

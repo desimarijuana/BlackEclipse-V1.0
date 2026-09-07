@@ -297,8 +297,9 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   };
 
   // Load bubble data for the selected market from JDDS via /api/stocks.
-  const loadMarketData = async (market: string) => {
-    setLoading(true);
+  // silent=true skips the TopLoader (background 20s poll over live bubbles).
+  const loadMarketData = async (market: string, silent = false) => {
+    if (!silent) setLoading(true);
     const isCrypto = market.toUpperCase() === 'CRYPTO';
     try {
       // For equities markets, only show stocks (not ETFs/funds/bonds). Markets
@@ -337,7 +338,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       console.error('Failed to load market bubble data', e);
       setRawList(isCrypto ? DEMO_CRYPTOS : DEMO_PSX);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -484,10 +485,10 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sizeMetric, rawList, filteredAssets, bubbleSizeMultiplier]);
 
-  // Init live poll
+  // Init live poll — initial load shows the loader, refreshes are silent.
   useEffect(() => {
     loadMarketData(selectedMarket);
-    const interval = setInterval(() => loadMarketData(selectedMarket), 20000);
+    const interval = setInterval(() => loadMarketData(selectedMarket, true), 20000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket]);
@@ -766,7 +767,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   return (
     <>
       {loading && <TopLoader />}
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
         
         {/* Title Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/20 pb-4 shrink-0">

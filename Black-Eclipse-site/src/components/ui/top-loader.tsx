@@ -48,7 +48,16 @@ export function TopLoader() {
     return () => clearInterval(id);
   }, [mounted]);
 
-  if (!mounted) return null;
+  // Show-delay: fast fetches (<300ms) never flash the full-screen loader —
+  // kills the loader flicker on quick tab switches / cached loads.
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!mounted) return;
+    const t = setTimeout(() => setVisible(true), 300);
+    return () => clearTimeout(t);
+  }, [mounted]);
+
+  if (!mounted || !visible) return null;
 
   return createPortal(
     <div

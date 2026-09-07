@@ -987,8 +987,11 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
                 : '';
 
             return (
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={item.headline}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.target as HTMLElement).getAttribute('role') === 'button') openNews(item); }}
                 key={item.id}
                 onClick={() => openNews(item)}
                 className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${dens.card} ${borderStyle} ${bgGradient}`}
@@ -1083,12 +1086,12 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
                       className="text-[11px] h-8 rounded-lg px-4 inline-flex items-center justify-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 font-semibold cursor-pointer transition-all"
                     >
                       <Sparkles size={11} /> Discuss with AI
-                    </Button>
-                  </div>
-                )}
-              </button>
-            );
-          })}
+                     </Button>
+                   </div>
+                 )}
+               </div>
+             );
+           })}
         </div>
 
         {/* Pagination Controls */}

@@ -523,6 +523,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterCountry, screenerTab]);
 
   const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const lastDashboardMarketRef = React.useRef<string | null>(null);
 
   const [dataUpdatedTime, setDataUpdatedTime] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>('live');
@@ -539,12 +540,20 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // to the static demo data if the endpoint is unreachable.
   React.useEffect(() => {
     let cancelled = false;
-    // Drop the previous market's cards right away and show loaders so a
-    // slow fetch never leaves another market's instruments on screen.
-    setIndexData([]);
-    setSectorPerformance([]);
-    setLoadingDashboard(true);
+    // Stale-while-revalidate: if we already have data for THIS market, keep it
+    // on screen and refresh silently; only clear + show the loader when the
+    // market actually changed (so market A's cards never show under market B).
     const qc = screenerTab === 'markets' ? 'US' : getQueryCountry();
+    // Stale-while-revalidate: if we already have data for THIS market, keep it
+    // on screen and refresh silently; only clear + show the loader when the
+    // market actually changed (so market A's cards never show under market B).
+    const sameMarket = lastDashboardMarketRef.current === qc;
+    lastDashboardMarketRef.current = qc;
+    if (!sameMarket || indexData.length === 0) {
+      setIndexData([]);
+      setSectorPerformance([]);
+      setLoadingDashboard(true);
+    }
     const load = async (allowRetry: boolean) => {
       try {
         // The Markets/GLOBAL overview still needs index cards + sectors +
@@ -588,11 +597,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     };
     (async () => {
       await load(true);
-      if (!cancelled) setLoadingDashboard(false);
+      // Unconditional: never leave the full-screen loader stuck, even if a
+      // newer effect run superseded this one (cancelled).
+      setLoadingDashboard(false);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screenerTab, userCountry]);
+  }, [screenerTab, userCountry, getQueryCountry]);
 
   const fallbackToDemo = React.useCallback((qc: string) => {
     const demoStocks = getFallbackStocks(qc);
@@ -1420,7 +1431,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         <TopLoader />
         <div className={cn(
           "w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 pb-20",
-          !embedded && "flex-1 overflow-y-auto h-full scrollbar-hide bg-transparent"
+          !embedded && "flex-1 overflow-y-auto h-full bg-transparent"
         )}>
           {!embedded && (
             <div className="flex items-center justify-between gap-4 pb-6">
@@ -1460,7 +1471,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       {(loadingApi || loadingTab || loadingDashboard) && <TopLoader />}
       <div className={cn(
         "w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-8 pb-20 relative bg-transparent",
-        !embedded && "flex-1 overflow-y-auto h-full scrollbar-hide"
+        !embedded && "flex-1 overflow-y-auto h-full"
       )}>
       
       {/* Page Title Header */}

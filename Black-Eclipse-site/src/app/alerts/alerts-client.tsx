@@ -109,12 +109,14 @@ export function AlertsClient() {
       const data = await res.json();
       setEvents(data.events || []);
       setNotices(data.notices || []);
-      setAlerts((prev) =>
-        (data.watches || []).map((w: AlertRow) => {
-          const old = prev.find((p) => p.id === w.id);
-          return old ? { ...old, ...w } : (w as AlertRow);
-        })
-      );
+      // /api/alerts/live returns status-only rows (no symbols/market/etc.).
+      // Patch existing rows in place; never let partial rows create entries,
+      // otherwise WatchTable crashes on a.symbols before loadAll resolves.
+      const live = new Map<string, Partial<AlertRow>>((data.watches || []).map((w: AlertRow) => [w.id, w]));
+      setAlerts((prev) => prev.map((p) => {
+        const patch = live.get(p.id);
+        return patch ? { ...p, ...patch } : p;
+      }));
     } catch {}
   }, []);
 
@@ -320,7 +322,7 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
               </td>
               <td className="px-5 py-3.5">
                 <div className="flex flex-wrap gap-1">
-                  {a.symbols.map((s) => (
+                  {(a.symbols || []).map((s) => (
                     <span key={s} className="text-[10px] font-mono px-2 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground">{s}</span>
                   ))}
                 </div>
