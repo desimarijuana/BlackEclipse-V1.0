@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { FUND_ACCENTS, FUND_ICONS } from './fund-store';
+import { FUND_ACCENTS, FUND_ICONS, FUND_ICON_COMPONENTS } from './fund-store';
 import { newTxId, type Transaction, type TxType } from '@/lib/portfolio/types';
 
 const inputCls = 'w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl px-3 py-2.5 text-xs font-semibold focus:ring-1 focus:ring-primary outline-none';
@@ -52,13 +52,16 @@ export function CreateFundDialog({ onCreate, onClose }: {
       <div>
         <label className={labelCls}>Icon</label>
         <div className="grid grid-cols-4 gap-1.5">
-          {FUND_ICONS.map(i => (
-            <button key={i} onClick={() => setIcon(i)}
-              className={cn('rounded-xl border px-2 py-1.5 text-[10px] font-bold cursor-pointer transition-all truncate',
-                icon === i ? 'border-primary/50 bg-primary/15 text-primary' : 'border-border/40 bg-accent/20 text-muted-foreground hover:text-foreground')}>
-              {i}
-            </button>
-          ))}
+          {FUND_ICONS.map(i => {
+            const Icon = FUND_ICON_COMPONENTS[i] ?? FUND_ICON_COMPONENTS.Briefcase;
+            return (
+              <button key={i} onClick={() => setIcon(i)} title={i}
+                className={cn('flex items-center justify-center rounded-xl border py-1.5 cursor-pointer transition-all',
+                  icon === i ? 'border-primary/50 bg-primary/15 text-primary' : 'border-border/40 bg-accent/20 text-muted-foreground hover:text-foreground')}>
+                <Icon size={15} />
+              </button>
+            );
+          })}
         </div>
       </div>
       <div>

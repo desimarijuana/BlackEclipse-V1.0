@@ -19,7 +19,7 @@ import type { WorkspaceLayout } from '@/lib/workspace/types';
 import type { WorkspaceWidgetMeta } from '@/lib/workspace/workspace-drawer';
 import { baseChartOption, useEChart } from './use-echart';
 import type { FundData } from './use-fund-data';
-import type { Fund, Transaction } from '@/lib/portfolio/types';
+import type { Fund } from '@/lib/portfolio/types';
 
 export interface WidgetProps {
   fund: Fund;
@@ -52,7 +52,7 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
 
 function Tile({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
   return (
-    <div className="rounded-xl bg-accent/20 border border-border/20 p-3 min-w-0">
+    <div className="rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/15 dark:border-white/10 backdrop-blur-md p-3 min-w-0">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       <p className={cn('mt-1 font-mono text-sm font-bold truncate', tone ?? 'text-foreground')}>{value}</p>
       {sub && <p className={cn('font-mono text-[10px] truncate', tone ?? 'text-muted-foreground')}>{sub}</p>}
@@ -162,33 +162,40 @@ export function AllocationWidget({ data }: WidgetProps) {
 
 // ── Holdings table ───────────────────────────────────────────────────────────
 
-export function HoldingsWidget({ data }: WidgetProps) {
+export function HoldingsWidget({ fund, data }: WidgetProps) {
   const holdings = data.stats.holdings;
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Table2} title="Holdings" hint={`${holdings.length}`} />
       {holdings.length === 0 ? <EmptyNote>No open positions.</EmptyNote> : (
-        <div className="flex-1 overflow-auto scrollbar-hide -mx-1 px-1">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[9px] uppercase tracking-widest text-muted-foreground/70 border-b border-border/10">
-                <th className="text-left py-1.5 font-bold">Symbol</th>
-                <th className="text-right py-1.5 font-bold">Qty</th>
-                <th className="text-right py-1.5 font-bold">Avg</th>
-                <th className="text-right py-1.5 font-bold">Price</th>
-                <th className="text-right py-1.5 font-bold">Value</th>
-                <th className="text-right py-1.5 font-bold">P/L</th>
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/15 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+          <table className="w-full text-left border-separate border-spacing-0 text-xs">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
+                {['Symbol', 'Qty', 'Avg', 'Price', 'Value', 'P/L'].map((h, i) => (
+                  <th key={h} className={cn(
+                    'border-b border-white/10 py-2.5 px-3 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono font-semibold whitespace-nowrap',
+                    i === 0 ? 'text-left' : 'text-right',
+                  )}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="font-mono">
               {holdings.map(h => (
-                <tr key={h.symbol} className="border-b border-border/5 hover:bg-accent/20 transition-colors">
-                  <td className="py-1.5 font-bold text-foreground">{h.symbol}<span className="ml-1 text-[9px] text-muted-foreground">{h.currency}</span></td>
-                  <td className="py-1.5 text-right text-muted-foreground">{h.quantity.toLocaleString()}</td>
-                  <td className="py-1.5 text-right text-muted-foreground">{h.avgCost.toFixed(2)}</td>
-                  <td className="py-1.5 text-right text-foreground">{h.currentPrice ? h.currentPrice.toFixed(2) : '—'}</td>
-                  <td className="py-1.5 text-right text-foreground">{fmtK(h.valueUsd)}</td>
-                  <td className={cn('py-1.5 text-right font-bold', toneClass(h.unrealizedPnLUsd))}>
+                <tr key={h.symbol} className="group transition-colors hover:bg-white/[0.05]">
+                  <td className="border-b border-white/5 py-2.5 px-3 font-bold text-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: fund?.accent ?? '#34d399' }} />
+                      {h.symbol}
+                      <span className="rounded border border-border/30 bg-accent/30 px-1 text-[8px] font-semibold text-muted-foreground">{h.currency}</span>
+                    </span>
+                  </td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-muted-foreground tabular-nums whitespace-nowrap">{h.quantity.toLocaleString()}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-muted-foreground tabular-nums whitespace-nowrap">{h.avgCost.toFixed(2)}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-foreground tabular-nums whitespace-nowrap">{h.currentPrice ? h.currentPrice.toFixed(2) : '—'}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-foreground font-bold tabular-nums whitespace-nowrap">{fmtK(h.valueUsd)}</td>
+                  <td className={cn('border-b border-white/5 py-2.5 px-3 text-right font-bold tabular-nums whitespace-nowrap',
+                    toneClass(h.unrealizedPnLUsd))}>
                     {h.unrealizedPnLUsd !== 0 ? fmtPct(h.avgCost > 0 ? (h.unrealizedPnLUsd / (h.avgCost * h.quantity)) * 100 : 0) : '—'}
                   </td>
                 </tr>
@@ -208,34 +215,40 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
     () => [...fund.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40),
     [fund.transactions],
   );
-  const tone = (t: Transaction['type']) =>
-    t === 'BUY' ? 'text-emerald-400' : t === 'SELL' ? 'text-rose-400' : t === 'DIVIDEND' ? 'text-amber-400' : 'text-sky-400';
 
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Layers} title="Transaction Ledger" hint={`${fund.transactions.length} TX`} />
       {txs.length === 0 ? <EmptyNote>No transactions recorded yet.</EmptyNote> : (
-        <div className="flex-1 overflow-auto scrollbar-hide">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[9px] uppercase tracking-widest text-muted-foreground/70 border-b border-border/10">
-                <th className="text-left py-1.5 font-bold">Date</th>
-                <th className="text-left py-1.5 font-bold">Type</th>
-                <th className="text-left py-1.5 font-bold">Symbol</th>
-                <th className="text-right py-1.5 font-bold">Qty</th>
-                <th className="text-right py-1.5 font-bold">Price</th>
-                <th className="text-right py-1.5 font-bold">Fee</th>
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/15 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+          <table className="w-full text-left border-separate border-spacing-0 text-xs">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
+                {['Date', 'Type', 'Symbol', 'Qty', 'Price', 'Fee'].map((h, i) => (
+                  <th key={h} className={cn(
+                    'border-b border-white/10 py-2.5 px-3 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono font-semibold whitespace-nowrap',
+                    i < 3 ? 'text-left' : 'text-right',
+                  )}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="font-mono">
               {txs.map(t => (
-                <tr key={t.id} className="border-b border-border/5 hover:bg-accent/20 transition-colors">
-                  <td className="py-1.5 text-muted-foreground">{t.date}</td>
-                  <td className={cn('py-1.5 font-bold', tone(t.type))}>{t.type}</td>
-                  <td className="py-1.5 font-bold text-foreground">{t.symbol}</td>
-                  <td className="py-1.5 text-right text-muted-foreground">{t.quantity.toLocaleString()}</td>
-                  <td className="py-1.5 text-right text-foreground">{t.price.toLocaleString()}</td>
-                  <td className="py-1.5 text-right text-muted-foreground">{t.fee ? t.fee.toFixed(2) : '—'}</td>
+                <tr key={t.id} className="transition-colors hover:bg-white/[0.05]">
+                  <td className="border-b border-white/5 py-2.5 px-3 text-muted-foreground tabular-nums whitespace-nowrap">{t.date}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 whitespace-nowrap">
+                    <span className={cn('rounded-md border px-1.5 py-0.5 text-[9px] font-bold tracking-wide',
+                      t.type === 'BUY' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
+                        : t.type === 'SELL' ? 'border-rose-500/25 bg-rose-500/10 text-rose-400'
+                          : t.type === 'DIVIDEND' ? 'border-amber-500/25 bg-amber-500/10 text-amber-400'
+                            : 'border-sky-500/25 bg-sky-500/10 text-sky-400')}>
+                      {t.type}
+                    </span>
+                  </td>
+                  <td className="border-b border-white/5 py-2.5 px-3 font-bold text-foreground whitespace-nowrap">{t.symbol}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-muted-foreground tabular-nums whitespace-nowrap">{t.quantity.toLocaleString()}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-foreground tabular-nums whitespace-nowrap">{t.price.toLocaleString()}</td>
+                  <td className="border-b border-white/5 py-2.5 px-3 text-right text-muted-foreground tabular-nums whitespace-nowrap">{t.fee ? t.fee.toFixed(2) : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -539,3 +552,4 @@ export function defaultFundLayout(): WorkspaceLayout {
   const normalized = normalizeLayout(layout, new Set(FUND_WIDGET_IDS));
   return normalized ?? layout;
 }
+

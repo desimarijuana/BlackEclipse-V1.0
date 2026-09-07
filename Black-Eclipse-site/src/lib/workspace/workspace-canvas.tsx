@@ -23,7 +23,7 @@ import type { WidgetPlacement, WorkspaceSection } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
-  'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 transition-all duration-300';
+  'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/15 dark:border-white/15 shadow-md shadow-black/10 transition-all duration-300';
 
 type OverKind = 'col' | 'newcol' | 'newsection';
 

@@ -253,15 +253,11 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
               onClick={() => onOpenFund(fund.id)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0',
-                'text-muted-foreground hover:text-foreground hover:bg-accent/60',
+                'border bg-accent/30 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/60 hover:border-primary/40',
               )}
               title={SENTIMENT_META[sent].label}
             >
               <Icon size={12} />
-              <span className={cn(
-                'h-1.5 w-1.5 rounded-full',
-                sent === 'profitable' ? 'bg-emerald-400' : sent === 'losing' ? 'bg-rose-400' : 'bg-muted-foreground/40',
-              )} />
               {fund.name}
             </button>
           );

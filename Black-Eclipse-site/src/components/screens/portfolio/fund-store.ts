@@ -2,6 +2,11 @@
 // localStorage-backed fund book: each fund owns its transaction ledger.
 // Seeded demo funds are protected from deletion. Export/import as JSON or CSV.
 
+import {
+  Briefcase, Car, Coins, Flame, Gem, GraduationCap, Heart, Home, Landmark,
+  PiggyBank, Plane, Rocket, Shield, Sprout, Target, TrendingUp,
+} from 'lucide-react';
+import type { ComponentType } from 'react';
 import { newTxId, type Fund, type Transaction } from '@/lib/portfolio/types';
 
 const FUNDS_KEY = 'be_portfolio_funds_v1';
@@ -10,6 +15,11 @@ export const FUND_ICONS = [
   'Briefcase', 'Rocket', 'Shield', 'Coins', 'Landmark', 'Sprout', 'Gem', 'Flame',
   'Target', 'Home', 'GraduationCap', 'Plane', 'Car', 'Heart', 'PiggyBank', 'TrendingUp',
 ];
+
+export const FUND_ICON_COMPONENTS: Record<string, ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
+  Briefcase, Rocket, Shield, Coins, Landmark, Sprout, Gem, Flame,
+  Target, Home, GraduationCap, Plane, Car, Heart, PiggyBank, TrendingUp,
+};
 export const FUND_ACCENTS = ['#34d399', '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185', '#2dd4bf', '#f97316', '#4ade80', '#e879f9', '#38bdf8', '#facc15'];
 
 // ── Seeded demo book ─────────────────────────────────────────────────────────
