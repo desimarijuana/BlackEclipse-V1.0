@@ -6,7 +6,7 @@
     "black": "bin/black.js"
   },
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/setup-python.js",
     "predev": "node scripts/kill-port.js",
     "dev": "next dev",
     "up": "node scripts/up.js",
