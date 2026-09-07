@@ -67,7 +67,15 @@ async function stop() {
 async function eclipse() {
   log(`starting Black Eclipse → http://localhost:${PORT}`);
 
-  // 1. Free the port if a stale server holds it.
+  // 1. Self-heal the environment (deps, prisma client, DB, python bridge).
+  try {
+    execSync(`node "${path.join(__dirname, "..", "scripts", "doctor.js")}"`, { stdio: "inherit" });
+  } catch {
+    log("setup failed — see errors above");
+    process.exit(1);
+  }
+
+  // 2. Free the port if a stale server holds it.
   if (killPort(PORT)) log(`freed port ${PORT}`);
 
   // 2. Production build only when needed — unchanged source skips it.
