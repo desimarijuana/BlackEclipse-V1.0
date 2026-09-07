@@ -51,7 +51,7 @@
 
 /* Edit-mode banner: a slim dark frosted strip shown above the customize
  * panel. Backdrop blur hides the page behind it — content blurs out, not
- * shows through. */
+ * shows through. (Kept for backwards compatibility.) */
 .edit-mode-banner {
   background: rgba(24, 24, 27, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -59,6 +59,26 @@
   backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Frosted glass utility (menus, strips, floating panels) ────────────────
+ * The "proper" frosted recipe: translucent dark tint + strong backdrop blur +
+ * subtle saturation boost + hairline light border + soft shadow. Because the
+ * app shell itself is a backdrop-filter layer, nested elements must use
+ * backdrop-filter (NOT just low-opacity bg) or nothing behind them is
+ * actually blurred — which is exactly the "no frost" look.
+ * Light mode flips to a white frost via a .dark override below. */
+.ws-glass {
+  background: rgba(20, 20, 22, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html:not(.dark) .ws-glass {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -797,4 +817,35 @@ input[type="range"]::-moz-range-thumb:hover {
   outline: 1px dashed var(--primary);
   outline-offset: 2px;
   border-radius: 0.75rem;
+}
+
+/* Fund-page tabs strip — true frosted glass menu. The old bg-accent/40 +
+ * backdrop-blur-md combo rendered as a flat bar: it sits inside an ancestor
+ * that is itself a backdrop-filter layer, so low-opacity fills had nothing
+ * meaningful to sample. Give it the real recipe instead. */
+.fund-tabs-glass {
+  background: rgba(18, 18, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+html:not(.dark) .fund-tabs-glass {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* Floating fund-actions popover — matches the frosted menu recipe. */
+.fund-menu-glass {
+  background: rgba(16, 16, 18, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html:not(.dark) .fund-menu-glass {
+  background: rgba(255, 255, 255, 0.80);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }

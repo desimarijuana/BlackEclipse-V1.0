@@ -108,13 +108,25 @@ function draftColumn(d: Draft<WorkspaceLayout>, sectionId: string, columnId: str
 
 /**
  * Move a widget card to a drop target. columnId=null creates a fresh column
- * at the end of the section. The index refers to positions AFTER removal of
- * the card from its origin (insertion index among the remaining siblings).
+ * (at target.columnIndex when given, else at the end of the section). The
+ * index refers to positions AFTER removal of the card from its origin
+ * (insertion index among the remaining siblings).
  */
 export function moveWidget(d: Draft<WorkspaceLayout>, widgetId: string, target: DropTarget): void {
   const moved = takeWidget(d, widgetId);
   if (!moved) return;
-  const column = draftColumn(d, target.sectionId, target.columnId);
+  let column: Draft<WorkspaceColumn> | null = null;
+  if (target.columnId === null) {
+    const section = d.sections.find(s => s.id === target.sectionId);
+    if (section) {
+      const fresh: WorkspaceColumn = { id: newId('col'), weight: 3, widgets: [] };
+      const at = Math.max(0, Math.min(target.columnIndex ?? section.columns.length, section.columns.length));
+      section.columns.splice(at, 0, fresh);
+      column = section.columns[at];
+    }
+  } else {
+    column = draftColumn(d, target.sectionId, target.columnId);
+  }
   if (!column) { pruneLayout(d); return; }
   const index = Math.max(0, Math.min(target.index, column.widgets.length));
   column.widgets.splice(index, 0, moved);
@@ -129,6 +141,47 @@ export function moveWidgetToNewSection(d: Draft<WorkspaceLayout>, widgetId: stri
   pruneLayout(d);
 }
 
+/**
+ * Move a card into a brand-new section inserted relative to an existing
+ * section: before it (above) or after it (below). This is what powers the
+ * inter-section "+" strips in the editor.
+ */
+export function moveWidgetToNewSectionAt(
+  d: Draft<WorkspaceLayout>,
+  widgetId: string,
+  anchorSectionId: string,
+  position: 'above' | 'below',
+): void {
+  // Resolve the anchor position BEFORE taking the widget — taking can empty
+  // (and prune away) the anchor section itself, e.g. dragging the only card
+  // of a section onto that section's own above/below strip.
+  const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const moved = takeWidget(d, widgetId);
+  if (!moved) return;
+  const insertAt = anchorIdx === -1
+    ? d.sections.length
+    : position === 'above' ? anchorIdx : anchorIdx + 1;
+  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
+  pruneLayout(d);
+}
+
+/**
+ * Create an empty section above/below an anchor section (click affordance on
+ * the inter-section strips). Empty sections are preserved — the user just
+ * asked for one; pruneLayout only runs through moves.
+ */
+export function createSectionAt(
+  d: Draft<WorkspaceLayout>,
+  anchorSectionId: string,
+  position: 'above' | 'below',
+): void {
+  const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const insertAt = anchorIdx === -1
+    ? d.sections.length
+    : position === 'above' ? anchorIdx : anchorIdx + 1;
+  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
+}
+
 export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget): void {
   const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
   if (d.sections.length === 0) d.sections.push({ id: newId('sec'), columns: [] });
@@ -138,10 +191,10 @@ export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: 
 
   let column: Draft<WorkspaceColumn> | undefined;
   if (target && target.columnId === null) {
-    // Explicit "new column" target.
+    // Explicit "new column" target, inserted at columnIndex (default: end).
+    const at = Math.max(0, Math.min(target.columnIndex ?? section.columns.length, section.columns.length));
     column = { id: newId('col'), weight: 3, widgets: [] };
-    section.columns.push(column);
-    column = section.columns[section.columns.length - 1];
+    section.columns.splice(at, 0, column);
   } else if (target) {
     column = section.columns.find(c => c.id === target.columnId);
   }

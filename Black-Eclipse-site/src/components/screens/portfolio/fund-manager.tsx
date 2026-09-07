@@ -240,7 +240,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
       )}
 
       {/* Fund tabs: Overview + one tab per fund */}
-      <div className="mb-5 flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0 overflow-x-auto scrollbar-hide">
+      <div className="fund-tabs-glass mb-5 flex items-center gap-2 p-1.5 rounded-3xl shrink-0 overflow-x-auto scrollbar-hide">
         <span className="pl-3 pr-1 text-[9px] uppercase tracking-widest font-bold text-muted-foreground shrink-0">
           {funds.length} fund{funds.length === 1 ? '' : 's'}
         </span>
@@ -445,7 +445,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                 {menuFor === fund.id && (
                   <div
                     onClick={e => e.stopPropagation()}
-                    className="absolute right-3 bottom-12 z-20 w-48 rounded-xl border border-border/40 bg-popover p-1 shadow-xl animate-fade-in"
+                    className="fund-menu-glass absolute right-3 bottom-12 z-20 w-48 rounded-xl p-1 animate-fade-in"
                   >
                     <MenuItem icon={PencilLine} label="Rename / goal" onClick={() => { setMenuFor(null); setDialog({ kind: 'rename', fund }); }} />
                     <MenuItem icon={Plus} label="Add transaction" onClick={() => { setMenuFor(null); setDialog({ kind: 'addtx', fund }); }} />

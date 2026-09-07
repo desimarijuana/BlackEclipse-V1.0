@@ -50,9 +50,11 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Tile({ label, value, tone, sub, loading }: { label: string; value: string; tone?: string; sub?: string; loading?: boolean }) {
+const Tile = React.forwardRef<HTMLDivElement, {
+  label: string; value: string; tone?: string; sub?: string; loading?: boolean;
+}>(function Tile({ label, value, tone, sub, loading }, ref) {
   return (
-    <div className="rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/15 dark:border-white/10 backdrop-blur-md p-3 min-w-0">
+    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/15 dark:border-white/10 backdrop-blur-md p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-1.5 block h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -64,7 +66,7 @@ export function Tile({ label, value, tone, sub, loading }: { label: string; valu
       )}
     </div>
   );
-}
+});
 
 // ── KPI board ────────────────────────────────────────────────────────────────
 
@@ -75,7 +77,7 @@ export function KpiBoardWidget({ data }: WidgetProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Wallet} title="Key Metrics" hint={s.base} />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 content-start">
+      <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2.5 lg:grid-cols-4">
         <Tile label="Total Value" value={fmtUsd(s.totalValue)} sub={`Cash ${fmtUsd(data.cash)}`} loading={ld} />
         <Tile label="Unrealized P/L" value={fmtUsd(s.unrealizedPnL)} tone={toneClass(s.unrealizedPnL)} sub={fmtPct(s.roiPercent)} loading={ld} />
         <Tile label="Day Change" value={fmtUsd(s.dailyChangeValue)} tone={toneClass(s.dailyChangeValue)} sub={fmtPct(s.dailyChangePercent)} loading={ld} />
@@ -150,8 +152,8 @@ export function AllocationWidget({ data }: WidgetProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={PieChart} title="Allocation" hint={`${holdings.length} POS`} />
-      <div ref={ref} className="h-36 shrink-0" />
-      <div className="mt-2 flex flex-col gap-1 overflow-y-auto">
+      <div ref={ref} className="min-h-[120px] flex-1" />
+      <div className="mt-2 flex min-h-0 shrink-0 flex-col gap-1">
         {holdings.map((h, i) => (
           <div key={h.symbol} className="flex items-center gap-2 text-xs">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
@@ -281,7 +283,7 @@ export function RiskWidget({ data }: WidgetProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Activity} title="Risk Metrics" hint="3MO DAILY" />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 content-start">
+      <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2.5 lg:grid-cols-4">
         {metrics.map(m => <Tile key={m.label} label={m.label} value={m.value} tone={m.tone} loading={ld} />)}
       </div>
       {r.vol == null && <EmptyNote>Not enough price history to compute risk yet.</EmptyNote>}
@@ -332,8 +334,8 @@ export function HealthWidget({ data }: WidgetProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={HeartPulse} title="Portfolio Health" />
-      <div ref={ref} className="h-32 shrink-0" />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-1">
+      <div ref={ref} className="min-h-[120px] flex-1" />
+      <div className="grid shrink-0 grid-cols-2 content-start gap-x-4 gap-y-1.5 mt-1">
         {rows.map(([label, v]) => (
           <div key={label} className="flex items-center gap-2 text-[10px]">
             <span className="w-20 shrink-0 text-muted-foreground font-semibold">{label}</span>
@@ -406,7 +408,7 @@ export function MonteCarloWidget({ data }: WidgetProps) {
           </label>
         </div>
         <div ref={ref} className="min-h-[140px] flex-1" />
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-2 shrink-0 font-mono text-[10px] text-muted-foreground">
           {years}y range: <span className={DOWN}>{fmtK(result.end.lo)}</span> → <span className="text-foreground">{fmtK(result.end.mid)}</span> → <span className={UP}>{fmtK(result.end.hi)}</span>
         </p>
       </> : <EmptyNote>Add holdings to project outcomes.</EmptyNote>}
@@ -471,12 +473,12 @@ export function RebalanceWidget({ data }: WidgetProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Layers} title="Rebalancing Suggestions" hint="DRIFT vs EQUAL WEIGHT" />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 flex-1 content-start">
+      <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
         {rows.map(r => {
           const dollar = (Math.abs(r.drift) / 100) * data.stats.totalValue;
           const quiet = Math.abs(r.drift) < 1.5;
           return (
-            <div key={r.symbol} className="rounded-xl border border-border/20 bg-accent/20 px-3 py-2.5 min-w-0">
+            <div key={r.symbol} className="flex min-h-0 flex-col justify-center rounded-xl border border-border/20 bg-accent/20 px-3 py-2.5 min-w-0">
               <div className="flex items-baseline justify-between gap-2 mb-1.5">
                 <span className="font-mono text-xs font-bold text-foreground">{r.symbol}</span>
                 <span className={cn('text-[10px] font-bold', quiet ? 'text-muted-foreground' : r.drift > 0 ? 'text-rose-400' : 'text-emerald-400')}>

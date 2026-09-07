@@ -18,6 +18,8 @@ import {
   setColumnWeight as setColumnWeightDraft,
   setWidgetHeight as setWidgetHeightDraft,
   moveWidgetToNewSection as moveWidgetToNewSectionDraft,
+  moveWidgetToNewSectionAt as moveWidgetToNewSectionAtDraft,
+  createSectionAt as createSectionAtDraft,
   locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
@@ -48,6 +50,8 @@ interface WorkspaceActions {
   removeWidget: (widgetId: string) => void;
   moveWidget: (widgetId: string, target: DropTarget) => void;
   moveWidgetToNewSection: (widgetId: string) => void;
+  moveWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
+  createSectionAt: (anchorSectionId: string, position: 'above' | 'below') => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
   setWidgetHeight: (widgetId: string, height: number | null) => void;
@@ -82,6 +86,8 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       removeWidget: (widgetId) => commit(d => { removeWidgetDraft(d, widgetId); }),
       moveWidget: (widgetId, target) => commit(d => { moveWidgetDraft(d, widgetId, target); }),
       moveWidgetToNewSection: (widgetId) => commit(d => { moveWidgetToNewSectionDraft(d, widgetId); }),
+      moveWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { moveWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
+      createSectionAt: (anchorSectionId, position) => commit(d => { createSectionAtDraft(d, anchorSectionId, position); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
       setWidgetHeight: (widgetId, height) => commit(d => { setWidgetHeightDraft(d, widgetId, height); }),
@@ -139,6 +145,8 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       removeWidget: useStore.getState().removeWidget,
       moveWidget: useStore.getState().moveWidget,
       moveWidgetToNewSection: useStore.getState().moveWidgetToNewSection,
+      moveWidgetToNewSectionAt: useStore.getState().moveWidgetToNewSectionAt,
+      createSectionAt: useStore.getState().createSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,
       setWidgetHeight: useStore.getState().setWidgetHeight,

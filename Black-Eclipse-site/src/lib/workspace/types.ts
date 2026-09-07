@@ -34,6 +34,8 @@ export interface DropTarget {
   sectionId: string;
   columnId: string | null;
   index: number;
+  /** When columnId is null: position to insert the fresh column (default: end). */
+  columnIndex?: number;
 }
 
 export const MIN_COLUMN_WEIGHT = 1;

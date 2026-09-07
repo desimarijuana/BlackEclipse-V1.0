@@ -7,6 +7,7 @@ import {
   locate,
   moveWidget,
   moveWidgetToNewSection,
+  moveWidgetToNewSectionAt,
   normalizeLayout,
   pruneLayout,
   removeWidget,
@@ -161,6 +162,33 @@ describe('moveWidget', () => {
     expect(idsOf(n.sections[0].columns[2])).toEqual(['kpi']);
   });
 
+  it('inserts a new column before/after an anchor via columnIndex', () => {
+    const l = makeLayout([[['kpi'], ['perf'], ['alloc']]]);
+    const [, c2] = l.sections[0].columns;
+    // "before c2" → columnIndex 1: [kpi, NEW(alloc), perf]
+    const before = runOp(moveWidget, l, l.sections[0].columns[2].widgets[0].id, {
+      sectionId: l.sections[0].id, columnId: null, index: 0, columnIndex: 1,
+    });
+    expect(before.sections[0].columns).toHaveLength(4);
+    expect(idsOf(before.sections[0].columns[1])).toEqual(['alloc']);
+    expect(idsOf(before.sections[0].columns[2])).toEqual(['perf']);
+    // "after c2" → columnIndex 2: [kpi, perf, NEW, (empty c3)]
+    const after = runOp(moveWidget, l, c2.widgets[0].id, {
+      sectionId: l.sections[0].id, columnId: null, index: 0, columnIndex: 2,
+    });
+    expect(after.sections[0].columns).toHaveLength(4);
+    expect(idsOf(after.sections[0].columns[2])).toEqual(['perf']);
+  });
+
+  it('clamps out-of-range columnIndex to the column bounds', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = runOp(moveWidget, l, l.sections[0].columns[0].widgets[0].id, {
+      sectionId: l.sections[0].id, columnId: null, index: 0, columnIndex: 99,
+    });
+    expect(n.sections[0].columns).toHaveLength(2);
+    expect(idsOf(n.sections[0].columns[1])).toEqual(['kpi']);
+  });
+
   it('clamps out-of-range indices', () => {
     const l = makeLayout([[['kpi'], ['perf']]]);
     const n = runOp(moveWidget, l, l.sections[0].columns[0].widgets[0].id, {
@@ -191,6 +219,56 @@ describe('moveWidgetToNewSection', () => {
   });
 });
 
+describe('moveWidgetToNewSectionAt', () => {
+  it('inserts a new section ABOVE the anchor (at the anchor\u2019s slot)', () => {
+    const l = makeLayout([[['kpi']], [['perf']]]);
+    const dragged = l.sections[1].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToNewSectionAt, l, dragged, l.sections[1].id, 'above');
+    // New section lands at the anchor's index; the emptied source section prunes.
+    expect(n.sections).toHaveLength(2);
+    expect(idsOf(n.sections[0])).toEqual(['kpi']);
+    expect(idsOf(n.sections[1])).toEqual(['perf']);
+  });
+
+  it('inserts a new section ABOVE a populated anchor, between its neighbours', () => {
+    const l = makeLayout([[['kpi', 'perf']], [['alloc']]]);
+    const dragged = l.sections[0].columns[0].widgets[1].id;
+    const n = runOp(moveWidgetToNewSectionAt, l, dragged, l.sections[1].id, 'above');
+    expect(n.sections).toHaveLength(3);
+    expect(idsOf(n.sections[0])).toEqual(['kpi']);   // source keeps remaining card
+    expect(idsOf(n.sections[1])).toEqual(['perf']);  // new section directly above anchor
+    expect(idsOf(n.sections[2])).toEqual(['alloc']); // anchor
+  });
+
+  it('inserts a new section BELOW the anchor', () => {
+    const l = makeLayout([[['kpi']], [['perf']], [['alloc']]]);
+    const dragged = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToNewSectionAt, l, dragged, l.sections[1].id, 'below');
+    expect(n.sections).toHaveLength(3);
+    expect(idsOf(n.sections[0])).toEqual(['perf']);  // anchor
+    expect(idsOf(n.sections[1])).toEqual(['kpi']);   // new section right below anchor
+    expect(idsOf(n.sections[2])).toEqual(['alloc']);
+  });
+
+  it('falls back to appending when the anchor is missing', () => {
+    const l = makeLayout([[['kpi']]]);
+    const dragged = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToNewSectionAt, l, dragged, 'nope', 'above');
+    expect(n.sections).toHaveLength(1);
+    expect(idsOf(n.sections[0])).toEqual(['kpi']);
+  });
+
+  it('handles dragging a section\u2019s only card onto its own strip (stays put, in place)', () => {
+    const l = makeLayout([[['kpi']], [['perf']]]);
+    const dragged = l.sections[1].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToNewSectionAt, l, dragged, l.sections[1].id, 'below');
+    // Anchor index resolved pre-take → re-inserted at the same slot.
+    expect(n.sections).toHaveLength(2);
+    expect(idsOf(n.sections[0])).toEqual(['kpi']);
+    expect(idsOf(n.sections[1])).toEqual(['perf']);
+  });
+});
+
 // ── add / remove / resize / columns ──────────────────────────────────────────
 
 describe('add/remove', () => {
@@ -204,6 +282,13 @@ describe('add/remove', () => {
     const l = makeLayout([[['kpi']]]);
     const n = runOp(addWidget, l, 'perf', { sectionId: l.sections[0].id, columnId: null, index: 0 });
     expect(n.sections[0].columns).toHaveLength(2);
+  });
+
+  it('respects columnIndex when adding into a new column', () => {
+    const l = makeLayout([[['kpi'], ['perf']]]);
+    const n = runOp(addWidget, l, 'alloc', { sectionId: l.sections[0].id, columnId: null, index: 0, columnIndex: 0 });
+    expect(n.sections[0].columns).toHaveLength(3);
+    expect(idsOf(n.sections[0].columns[0])).toEqual(['alloc']);
   });
 
   it('creates a section when the layout is empty', () => {
