@@ -20,9 +20,35 @@ type MarketsPayload = {
 // underlying SQLite writes are synchronous — a cold count query during a
 // background universe sync used to block the event loop for 100s+ and freeze
 // every other request. Serve cached instantly; rebuild in the background.
+//
+// The cold build (55k-row JOIN groupBy) is synchronous better-sqlite3 work:
+// fast when the OS page cache is warm (~50ms), but SECONDS on a cold cache,
+// during which every other API request queues behind it. So the payload is
+// also persisted in SystemConfig and served on process start; the in-memory
+// cache rebuilds from that instead of the expensive query.
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const PERSIST_KEY = "api_cache:markets:";
 let marketsCache: { t: number; data: MarketsPayload } | null = null;
 let rebuildInFlight = false;
+
+async function loadPersisted(): Promise<{ t: number; data: MarketsPayload } | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key: PERSIST_KEY } });
+    if (!row) return null;
+    const parsed = JSON.parse(row.value) as { t: number; data: MarketsPayload };
+    if (!parsed?.data?.markets?.length) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persist(data: MarketsPayload) {
+  const value = JSON.stringify({ t: Date.now(), data });
+  prisma.systemConfig
+    .upsert({ where: { key: PERSIST_KEY }, update: { value }, create: { key: PERSIST_KEY, value } })
+    .catch(() => { /* best effort */ });
+}
 
 async function buildMarketsPayload(): Promise<MarketsPayload> {
   const markets = await prisma.market.findMany({
@@ -59,6 +85,7 @@ function startBackgroundRebuild() {
   buildMarketsPayload()
     .then((data) => {
       marketsCache = { t: Date.now(), data };
+      persist(data);
     })
     .catch((err) => console.error("[api/markets] background rebuild error:", err))
     .finally(() => {
@@ -78,8 +105,19 @@ export async function GET() {
       return NextResponse.json(marketsCache.data);
     }
 
+    // Cold process: try the persisted snapshot first (instant), then rebuild
+    // fresh in the background. Only pay the expensive cold query when there
+    // is truly nothing stored yet (first-ever run).
+    const stored = await loadPersisted();
+    if (stored) {
+      marketsCache = stored;
+      startBackgroundRebuild();
+      return NextResponse.json(stored.data);
+    }
+
     const data = await buildMarketsPayload();
     marketsCache = { t: Date.now(), data };
+    persist(data);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[api/markets] GET error:", err);
