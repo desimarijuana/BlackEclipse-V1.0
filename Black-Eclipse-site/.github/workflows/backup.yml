@@ -12,22 +12,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL Client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
       - name: Generate Backup Name
         id: vars
-        run: echo "filename=blackeclipse-db-backup-$(date +'%Y-%m-%d-%H%M%S').sql" >> $GITHUB_OUTPUT
+        run: echo "filename=blackeclipse-db-backup-$(date +'%Y-%m-%d-%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Export Database Backup
         run: |
-          pg_dump "${{ secrets.DATABASE_URL }}" > ${{ steps.vars.outputs.filename }}
-
-      - name: Zip and Compress Backup
-        run: |
-          zip -r ${{ steps.vars.outputs.filename }}.zip ${{ steps.vars.outputs.filename }}
+          sqlite3 jdds.db ".backup jdds-backup.db"
+          zip -r ${{ steps.vars.outputs.filename }}.zip jdds-backup.db
 
       - name: Upload Backup Artifact to GitHub
         uses: actions/upload-artifact@v4
