@@ -54,19 +54,13 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
             {s.holdings.length} holdings · cost {fmtUsd(s.costBasis)}
           </p>
         </div>
-        {loading && (
-          <span className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70" role="status" aria-label="Loading fund data">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
-            <span className="font-bold">loading prices</span>
-          </span>
-        )}
 
         {/* Key stats ribbon */}
         <div className="ml-auto flex items-center gap-2">
           <div className="hidden sm:flex items-center gap-2">
-            <StatChip label="Value" value={fmtUsd(s.totalValue)} />
-            <StatChip label="Unreal. P/L" value={fmtUsd(s.unrealizedPnL)} tone={s.unrealizedPnL} sub={fmtPct(s.roiPercent)} />
-            <StatChip label="Day" value={fmtUsd(s.dailyChangeValue)} tone={s.dailyChangeValue} />
+            <StatChip label="Value" value={fmtUsd(s.totalValue)} loading={loading} />
+            <StatChip label="Unreal. P/L" value={fmtUsd(s.unrealizedPnL)} tone={s.unrealizedPnL} sub={fmtPct(s.roiPercent)} loading={loading} />
+            <StatChip label="Day" value={fmtUsd(s.dailyChangeValue)} tone={s.dailyChangeValue} loading={loading} />
             {/* Display/accounting switch — FIFO vs LIFO cost basis */}
             <button
               onClick={() => setTaxMethod(m => (m === 'FIFO' ? 'LIFO' : 'FIFO'))}
@@ -122,14 +116,18 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
   );
 }
 
-function StatChip({ label, value, tone, sub }: { label: string; value: string; tone?: number; sub?: string }) {
+function StatChip({ label, value, tone, sub, loading }: { label: string; value: string; tone?: number; sub?: string; loading?: boolean }) {
   return (
     <div className="rounded-xl border border-border/20 bg-accent/20 backdrop-blur-md px-2.5 py-1 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
-      <p className={cn('font-mono text-xs font-bold truncate',
-        tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-muted-foreground')}>
-        {value}{sub ? ` · ${sub}` : ''}
-      </p>
+      {loading ? (
+        <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+      ) : (
+        <p className={cn('font-mono text-xs font-bold truncate',
+          tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-muted-foreground')}>
+          {value}{sub ? ` · ${sub}` : ''}
+        </p>
+      )}
     </div>
   );
 }

@@ -50,12 +50,18 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Tile({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
+export function Tile({ label, value, tone, sub, loading }: { label: string; value: string; tone?: string; sub?: string; loading?: boolean }) {
   return (
     <div className="rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/15 dark:border-white/10 backdrop-blur-md p-3 min-w-0">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
-      <p className={cn('mt-1 font-mono text-sm font-bold truncate', tone ?? 'text-foreground')}>{value}</p>
-      {sub && <p className={cn('font-mono text-[10px] truncate', tone ?? 'text-muted-foreground')}>{sub}</p>}
+      {loading ? (
+        <span className="mt-1.5 block h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+      ) : (
+        <>
+          <p className={cn('mt-1 font-mono text-sm font-bold truncate', tone ?? 'text-foreground')}>{value}</p>
+          {sub && <p className={cn('font-mono text-[10px] truncate', tone ?? 'text-muted-foreground')}>{sub}</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -65,13 +71,14 @@ function Tile({ label, value, tone, sub }: { label: string; value: string; tone?
 export function KpiBoardWidget({ data }: WidgetProps) {
   const s = data.stats;
   const holdingsCount = s.holdings.length;
+  const ld = data.loading && !data.ready;
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Wallet} title="Key Metrics" hint={s.base} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 content-start">
-        <Tile label="Total Value" value={fmtUsd(s.totalValue)} sub={`Cash ${fmtUsd(data.cash)}`} />
-        <Tile label="Unrealized P/L" value={fmtUsd(s.unrealizedPnL)} tone={toneClass(s.unrealizedPnL)} sub={fmtPct(s.roiPercent)} />
-        <Tile label="Day Change" value={fmtUsd(s.dailyChangeValue)} tone={toneClass(s.dailyChangeValue)} sub={fmtPct(s.dailyChangePercent)} />
+        <Tile label="Total Value" value={fmtUsd(s.totalValue)} sub={`Cash ${fmtUsd(data.cash)}`} loading={ld} />
+        <Tile label="Unrealized P/L" value={fmtUsd(s.unrealizedPnL)} tone={toneClass(s.unrealizedPnL)} sub={fmtPct(s.roiPercent)} loading={ld} />
+        <Tile label="Day Change" value={fmtUsd(s.dailyChangeValue)} tone={toneClass(s.dailyChangeValue)} sub={fmtPct(s.dailyChangePercent)} loading={ld} />
         <Tile label="Holdings" value={String(holdingsCount)} sub={`Realized ${fmtUsd(s.realizedPnL)}`} />
       </div>
       {holdingsCount === 0 && <EmptyNote>No open positions — add transactions in the ledger.</EmptyNote>}
@@ -264,6 +271,7 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
 
 export function RiskWidget({ data }: WidgetProps) {
   const r = data.risk;
+  const ld = data.loading && !data.ready;
   const metrics: Array<{ label: string; value: string; tone?: string }> = [
     { label: 'Beta vs SPY', value: r.beta != null ? r.beta.toFixed(2) : '—' },
     { label: 'Ann. Volatility', value: r.vol != null ? `${r.vol.toFixed(1)}%` : '—' },
@@ -274,7 +282,7 @@ export function RiskWidget({ data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Activity} title="Risk Metrics" hint="3MO DAILY" />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 content-start">
-        {metrics.map(m => <Tile key={m.label} label={m.label} value={m.value} tone={m.tone} />)}
+        {metrics.map(m => <Tile key={m.label} label={m.label} value={m.value} tone={m.tone} loading={ld} />)}
       </div>
       {r.vol == null && <EmptyNote>Not enough price history to compute risk yet.</EmptyNote>}
     </div>

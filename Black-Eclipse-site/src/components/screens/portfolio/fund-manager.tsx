@@ -225,12 +225,6 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>
           <p className="text-muted-foreground text-xs mt-0.5">Funds, ledgers and custom workspaces — everything is stored locally on this device.</p>
         </div>
-        {loading && (
-          <span className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70" role="status" aria-label="Loading portfolio data">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
-            <span className="font-bold">loading prices</span>
-          </span>
-        )}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <input
             ref={fileRef} type="file" accept=".json,.csv" className="hidden"
@@ -272,8 +266,8 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
 
       {/* Stats ribbon */}
       <div className="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-        <RibbonCard label="Total Value" value={hasPositionsNeedingPrices ? '…' : fmtUsd(totals.value)} />
-        <RibbonCard label="Unrealized P/L" value={hasPositionsNeedingPrices ? '…' : fmtUsd(totals.pnl)} tone={hasPositionsNeedingPrices ? undefined : totals.pnl} />
+        <RibbonCard label="Total Value" value={fmtUsd(totals.value)} loading={hasPositionsNeedingPrices} />
+        <RibbonCard label="Unrealized P/L" value={fmtUsd(totals.pnl)} tone={hasPositionsNeedingPrices ? undefined : totals.pnl} loading={hasPositionsNeedingPrices} />
         <RibbonCard label="Funds" value={String(totals.count)} />
         <RibbonCard label="Holdings" value={String(totals.holdings)} />
       </div>
@@ -302,10 +296,15 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
         {series.length > 0
           ? <div ref={chartRef} className="h-64" />
           : (
-            <div className="h-32 flex items-center justify-center">
-              <p className="text-xs text-muted-foreground/70 italic">
-                {hasPositionsNeedingPrices ? 'Waiting for live prices…' : loading ? 'Loading price history…' : 'Add holdings across your funds to see combined performance.'}
-              </p>
+            <div className="h-32 flex items-center justify-center gap-2">
+              {(hasPositionsNeedingPrices || loading) ? (
+                <span className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+                  <span className="font-bold">{hasPositionsNeedingPrices ? 'waiting for live prices' : 'loading price history'}</span>
+                </span>
+              ) : (
+                <p className="text-xs text-muted-foreground/70 italic">Add holdings across your funds to see combined performance.</p>
+              )}
             </div>
           )}
       </div>
@@ -382,12 +381,16 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                       </h3>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-mono text-base font-bold text-foreground">
-                        {cardPlaceholder ? '…' : s && s.totalValue ? fmtUsd(s.totalValue) : '—'}
-                      </p>
+                      {cardPlaceholder ? (
+                        <span className="block h-5 w-5 ml-auto animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+                      ) : (
+                        <p className="font-mono text-base font-bold text-foreground">
+                          {s && s.totalValue ? fmtUsd(s.totalValue) : '—'}
+                        </p>
+                      )}
                       <p className={cn('font-mono text-[11px] font-bold',
                         !cardPlaceholder && (s?.roiPercent ?? 0) > 0 ? 'text-emerald-400' : !cardPlaceholder && (s?.roiPercent ?? 0) < 0 ? 'text-rose-400' : 'text-muted-foreground')}>
-                        {cardPlaceholder ? 'loading…' : s && s.costBasis ? `${fmtPct(s.roiPercent)} ROI` : 'no cost basis'}
+                        {cardPlaceholder ? '' : s && s.costBasis ? `${fmtPct(s.roiPercent)} ROI` : 'no cost basis'}
                       </p>
                     </div>
                   </div>
@@ -395,7 +398,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                   {/* Detail grid */}
                   <div className="grid grid-cols-3 gap-2 pt-0.5">
                     <CardStat label="Holdings" value={String(s?.holdings.length ?? 0)} />
-                    <CardStat label="Day P/L" value={cardPlaceholder ? '…' : s && (s.totalValue || dayPnl) ? fmtUsd(dayPnl) : '—'} tone={cardPlaceholder ? undefined : dayPnl} />
+                    <CardStat label="Day P/L" value={s && (s.totalValue || dayPnl) ? fmtUsd(dayPnl) : '—'} tone={dayPnl} loading={cardPlaceholder} />
                     <CardStat label="Dividends" value={dividends ? fmtK(dividends) : '—'} tone={dividends > 0 ? 1 : undefined} />
                   </div>
 
@@ -511,14 +514,18 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
   );
 }
 
-function CardStat({ label, value, tone }: { label: string; value: string; tone?: number }) {
+function CardStat({ label, value, tone, loading }: { label: string; value: string; tone?: number; loading?: boolean }) {
   return (
     <div className="rounded-xl bg-accent/20 border border-border/20 px-2.5 py-1.5 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
-      <p className={cn('font-mono text-[11px] font-bold truncate',
-        tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-foreground')}>
-        {value}
-      </p>
+      {loading ? (
+        <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+      ) : (
+        <p className={cn('font-mono text-[11px] font-bold truncate',
+          tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-foreground')}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }
@@ -541,14 +548,18 @@ function ToolbarButton({ icon: Icon, label, onClick, primary }: {
   );
 }
 
-function RibbonCard({ label, value, tone }: { label: string; value: string; tone?: number }) {
+function RibbonCard({ label, value, tone, loading }: { label: string; value: string; tone?: number; loading?: boolean }) {
   return (
     <div className="rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 p-3.5">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
-      <p className={cn('mt-1 font-mono text-lg font-bold truncate',
-        tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-foreground')}>
-        {value}
-      </p>
+      {loading ? (
+        <span className="mt-2 block h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+      ) : (
+        <p className={cn('mt-1 font-mono text-lg font-bold truncate',
+          tone == null ? 'text-foreground' : tone > 0 ? 'text-emerald-400' : tone < 0 ? 'text-rose-400' : 'text-foreground')}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }
