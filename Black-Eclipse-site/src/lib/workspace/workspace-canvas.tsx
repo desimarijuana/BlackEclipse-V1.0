@@ -4,14 +4,14 @@
 // Renders sections/columns/cards and owns ALL drag/resize/hide chrome.
 // Widgets stay pure: the page only supplies renderWidget(widgetId).
 //
-// Drag implementation is dnd-kit: PointerSensor on each card, droppable
-// columns / new-column zones / new-section strip, and a DragOverlay ghost.
-// Drop targets are resolved from dnd-kit collision detection; the tree is
-// committed once on drag end via the workspace ops (Immer + Zustand store).
+// Drag (KISS): whole card is draggable in edit mode; each column is the ONLY
+// drop target (pointerWithin) and the card is appended to that column. The
+// far-right "+" strip creates a new column; the bottom strip a new section.
+// A lightweight labelled ghost follows the cursor.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, pointerWithin,
   useDroppable, useDraggable, type DragStartEvent, type DragEndEvent, type DragOverEvent,
 } from '@dnd-kit/core';
 import {
@@ -25,19 +25,11 @@ import type { WorkspaceController as WC } from './use-workspace';
 const CARD_CLASS =
   'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/15 dark:border-white/15 shadow-md shadow-black/10 transition-all duration-300';
 
-type OverKind = 'col' | 'newcol' | 'newsection';
-
-/** Stable dnd ids: widget cards use their placement id; zones are prefixed. */
+/** Stable dnd ids: columns / zones only — cards are not drop targets. */
 const idOf = {
   col: (columnId: string) => `col:${columnId}`,
   newcol: (sectionId: string) => `newcol:${sectionId}`,
   newsection: () => 'newsection',
-};
-const parseId = (id: string): { kind: OverKind; value: string } | null => {
-  if (id === 'newsection') return { kind: 'newsection', value: '' };
-  const [kind, value] = id.split(':');
-  if (kind === 'col' || kind === 'newcol') return { kind, value: value ?? '' };
-  return null;
 };
 
 interface WorkspaceCanvasProps {
@@ -50,21 +42,14 @@ interface WorkspaceCanvasProps {
 export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }: WorkspaceCanvasProps) {
   const { layout, editMode, dragging, ops, corrupt } = workspace;
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState('');
+  const [activeWidth, setActiveWidth] = useState(360);
+  const [overColId, setOverColId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 4 },
-    }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-
-  // Index placement→location so drag-end can build a DropTarget without a DOM walk.
-  const index = useMemo(() => {
-    const m = new Map<string, { sectionId: string; columnId: string; index: number }>();
-    layout.sections.forEach(s => s.columns.forEach(c => c.widgets.forEach((w, i) => m.set(w.id, { sectionId: s.id, columnId: c.id, index: i }))));
-    return m;
-  }, [layout]);
 
   const activePlacement = useMemo(() => {
     if (!activeId) return null;
@@ -77,59 +62,86 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 
   useEffect(() => { ops.setDragging(activeId !== null); }, [activeId, ops]);
 
-  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
-  const onDragOver = (e: DragOverEvent) => setOverId(e.over ? String(e.over.id) : null);
+  const onDragStart = (e: DragStartEvent) => {
+    setActiveId(String(e.active.id));
+    for (const s of layout.sections) for (const c of s.columns) {
+      const w = c.widgets.find(x => x.id === String(e.active.id));
+      if (w) {
+        setActiveLabel(widgets.find(m => m.widgetId === w.widgetId)?.label ?? w.widgetId);
+        break;
+      }
+    }
+    const rect = e.active.rect.current.initial as { width?: number } | undefined;
+    setActiveWidth(Math.min(520, Math.max(280, rect?.width ?? 360)));
+  };
+
+  const onDragOver = (e: DragOverEvent) => {
+    const id = e.over ? String(e.over.id) : null;
+    setOverColId(id?.startsWith('col:') ? id.slice(4) : null);
+  };
+
+  /** Pointer y for the current drag, from the activator event + accumulated delta. */
+  const pointerY = (e: DragEndEvent): number => {
+    const act = e.activatorEvent as PointerEvent | undefined;
+    return (act?.clientY ?? 0) + e.delta.y;
+  };
+
+  /** Insertion index within a column for a pointer y — gaps between sibling cards. */
+  const insertIndexFor = (colId: string, dragId: string, y: number): number => {
+    const colEl = document.querySelector(`[data-wcol="${colId}"]`);
+    if (!colEl) return Number.MAX_SAFE_INTEGER;
+    const cards = Array.from(colEl.querySelectorAll<HTMLElement>('[data-wcard]'))
+      .filter(el => el.getAttribute('data-wcard') !== dragId);
+    for (let i = 0; i < cards.length; i++) {
+      const r = cards[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return i;
+    }
+    return cards.length;
+  };
 
   const onDragEnd = (e: DragEndEvent) => {
     const dragId = String(e.active.id);
+    const overId = e.over ? String(e.over.id) : null;
     setActiveId(null);
-    setOverId(null);
-    if (!e.over) return;
-    const parsed = parseId(String(e.over.id));
-    if (!parsed) return;
-    if (parsed.kind === 'newsection') {
+    setOverColId(null);
+    if (!overId) return;
+    if (overId === idOf.newsection()) {
       ops.moveWidgetToNewSection(dragId);
       return;
     }
-    if (parsed.kind === 'newcol') {
-      ops.moveWidget(dragId, { sectionId: parsed.value, columnId: null, index: 0 });
+    if (overId.startsWith('newcol:')) {
+      ops.moveWidget(dragId, { sectionId: overId.slice(7), columnId: null, index: 0 });
       return;
     }
-    // Column target: insertion index of the dragged card among remaining siblings.
-    const colId = parsed.value;
-    const section = layout.sections.find(s => s.columns.some(c => c.id === colId));
-    const column = section?.columns.find(c => c.id === colId);
-    if (!section || !column) return;
-    const origin = index.get(dragId);
-    const siblings = column.widgets.filter(w => w.id !== dragId);
-    let insert = siblings.length;
-    if (origin && origin.columnId === colId && origin.index < siblings.length) {
-      // Same column: dropping before position i keeps the card at i (after removal).
-      insert = origin.index;
-    } else {
-      // Different column: dnd-kit doesn't give per-card hover indices here, so
-      // use the hovered card's index within the target column.
-      const overCard = e.over.data.current?.overIndex as number | undefined;
-      insert = overCard != null ? Math.min(overCard, siblings.length) : siblings.length;
+    if (overId.startsWith('col:')) {
+      const colId = overId.slice(4);
+      const section = layout.sections.find(s => s.columns.some(c => c.id === colId));
+      const column = section?.columns.find(c => c.id === colId);
+      if (!section || !column) return;
+      ops.moveWidget(dragId, { sectionId: section.id, columnId: colId, index: insertIndexFor(colId, dragId, pointerY(e)) });
     }
-    ops.moveWidget(dragId, { sectionId: section.id, columnId: colId, index: insert });
   };
 
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
 
   return (
     <div className={cn('relative', className)} data-workspace>
-      {/* Compact edit bar — never pushes content far: single slim row */}
+      {/* Compact edit bar — single slim row */}
       {editMode && (
-        <div className="sticky top-0 z-30 mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-primary/30 bg-[#0f0f0f]/70 bg-white/70 backdrop-blur-xl px-3 py-2 animate-fade-in">
+        <div className="sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 dark:border-white/10 bg-[#0f0f0f]/70 dark:bg-[#0f0f0f]/70 bg-white/80 backdrop-blur-xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Columns3 size={14} /> Customizing
           </span>
-          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag any card · drop on the dashed zones to create columns/sections</span>
+          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag any card · drop on a column · use the + zones for new columns/sections</span>
           <div className="ml-auto flex items-center gap-1.5">
             <button
-              onClick={() => setDrawerOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 hover:bg-accent/60 hover:border-primary/40 hover:text-primary text-muted-foreground px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+              onClick={() => setDrawerOpen(v => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+                drawerOpen
+                  ? 'border-primary/40 bg-primary/15 text-primary'
+                  : 'border-border/40 bg-accent/30 hover:bg-accent/60 hover:border-primary/40 hover:text-primary text-muted-foreground',
+              )}
             >
               <Plus size={13} /> Widgets / Templates
             </button>
@@ -141,6 +153,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
             </button>
           </div>
         </div>
+      )}
+      {editMode && drawerOpen && (
+        <WorkspaceDrawer onClose={() => setDrawerOpen(false)} workspace={workspace} widgets={widgets} />
       )}
       {corrupt && (
         <div className="mb-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 backdrop-blur-md p-3.5 text-xs text-amber-400 font-semibold">
@@ -158,10 +173,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 
       <DndContext
         sensors={sensors}
+        collisionDetection={pointerWithin}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
-        onDragCancel={() => { setActiveId(null); setOverId(null); }}
+        onDragCancel={() => { setActiveId(null); setOverColId(null); }}
       >
         <div className="flex flex-col gap-3">
           {layout.sections.map((section) => (
@@ -171,7 +187,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
               editMode={editMode}
               dragging={dragging}
               activeId={activeId}
-              overId={overId}
+              overColId={overColId}
               ops={ops}
               renderWidget={renderWidget}
               onResizeHeight={ops.setWidgetHeight}
@@ -182,22 +198,17 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
         {/* New-section drop strip */}
         {(editMode || dragging) && !isEmpty && <NewSectionZone />}
         {activePlacement && (
-          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-            <div className={cn(CARD_CLASS, 'shadow-2xl shadow-black/40 rotate-[1.5deg] scale-[1.02] pointer-events-none opacity-95')} style={{ width: 360 }}>
-              <div className="max-h-56 overflow-hidden pointer-events-none">
-                {renderWidget(activePlacement.widgetId, activePlacement)}
-              </div>
+          <DragOverlay dropAnimation={null}>
+            <div
+              className={cn(CARD_CLASS, 'shadow-2xl shadow-black/50 rotate-[1.5deg] pointer-events-none opacity-95 px-4 py-3 flex items-center gap-2')}
+              style={{ width: activeWidth }}
+            >
+              <GripVertical size={14} className="text-primary shrink-0" />
+              <span className="font-serif text-sm font-semibold text-foreground truncate">{activeLabel}</span>
             </div>
           </DragOverlay>
         )}
       </DndContext>
-
-      <WorkspaceDrawer
-        open={editMode && drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        workspace={workspace}
-        widgets={widgets}
-      />
     </div>
   );
 }
@@ -205,13 +216,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 // ── Section row: columns + edit controls + resize handles ────────────────────
 
 function SectionRow({
-  section, editMode, dragging, activeId, overId, ops, renderWidget, onResizeHeight,
+  section, editMode, dragging, activeId, overColId, ops, renderWidget, onResizeHeight,
 }: {
   section: WorkspaceSection;
   editMode: boolean;
   dragging: boolean;
   activeId: string | null;
-  overId: string | null;
+  overColId: string | null;
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
@@ -249,7 +260,7 @@ function SectionRow({
               editMode={editMode}
               dragging={dragging}
               activeId={activeId}
-              overId={overId}
+              isHot={overColId === column.id}
               ops={ops}
               renderWidget={renderWidget}
               onResizeHeight={onResizeHeight}
@@ -261,38 +272,38 @@ function SectionRow({
         ))}
 
         {/* New-column drop zone (drag) */}
-        {(editMode || dragging) && <NewColumnZone sectionId={section.id} overId={overId} />}
+        {(editMode || dragging) && <NewColumnZone sectionId={section.id} />}
       </div>
     </div>
   );
 }
 
-// ── Droppable column with sortable-style cards ───────────────────────────────
+// ── Droppable column ─────────────────────────────────────────────────────────
 
 function ColumnDroppable({
-  column, section, editMode, dragging, activeId, overId, ops, renderWidget, onResizeHeight,
+  column, section, editMode, dragging, activeId, isHot, ops, renderWidget, onResizeHeight,
 }: {
   column: WorkspaceSection['columns'][number];
   section: WorkspaceSection;
   editMode: boolean;
   dragging: boolean;
   activeId: string | null;
-  overId: string | null;
+  isHot: boolean;
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
 }) {
-  const colDndId = idOf.col(column.id);
-  const { setNodeRef, isOver } = useDroppable({ id: colDndId, data: { kind: 'col', columnId: column.id, sectionId: section.id } });
-  const hot = (isOver && activeId !== null) || (overId === colDndId && dragging);
+  const { setNodeRef } = useDroppable({ id: idOf.col(column.id), data: { kind: 'col', columnId: column.id, sectionId: section.id } });
 
   return (
     <div
       ref={setNodeRef}
+      data-wcol={column.id}
       className={cn(
-        'relative flex flex-col gap-2.5 min-h-[40px] min-w-0 flex-1',
+        'relative flex flex-col gap-2.5 min-h-[40px] min-w-0 flex-1 transition-all',
         editMode && 'rounded-2xl outline-1 outline-dashed outline-border/20 p-1.5 -m-1.5',
-        hot && 'outline-1 outline-dashed outline-primary/50 bg-primary/5',
+        isHot && activeId !== null && 'rounded-2xl outline-2 outline-dashed outline-primary/70 bg-primary/10',
+        dragging && !isHot && 'outline-1 outline-dashed outline-border/30',
       )}
       style={{ flexGrow: column.weight, flexBasis: 0 }}
     >
@@ -300,7 +311,6 @@ function ColumnDroppable({
         <WidgetCard
           key={placement.id}
           placement={placement}
-          columnId={column.id}
           editMode={editMode}
           hidden={activeId === placement.id}
           ops={ops}
@@ -325,17 +335,16 @@ function ColumnDroppable({
 // ── Draggable widget card ────────────────────────────────────────────────────
 
 function WidgetCard({
-  placement, columnId, editMode, hidden, ops, renderWidget, onResizeHeight,
+  placement, editMode, hidden, ops, renderWidget, onResizeHeight,
 }: {
   placement: WidgetPlacement;
-  columnId: string;
   editMode: boolean;
   hidden: boolean;
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: placement.id, data: { columnId } });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: placement.id });
 
   // ── Height resize (bottom edge, edit mode) ─────────────────────────────────
   const onResizePointerDown = (e: React.PointerEvent) => {
@@ -365,6 +374,7 @@ function WidgetCard({
       ref={setNodeRef}
       data-wcard={placement.id}
       style={placement.height != null ? { height: placement.height } : undefined}
+      {...(editMode ? { ...attributes, ...listeners } : {})}
       className={cn(
         CARD_CLASS,
         'group/card relative overflow-hidden',
@@ -373,12 +383,11 @@ function WidgetCard({
       )}
     >
       {editMode && (
-        <div className="absolute right-2 top-2 z-20 flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity" data-nodrag>
-          <span
-            {...attributes} {...listeners}
-            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground cursor-grab active:cursor-grabbing"
-            title="Drag"
-          >
+        <div
+          className="absolute right-2 top-2 z-20 flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <span className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground cursor-grab" title="Drag">
             <GripVertical size={12} />
           </span>
           <button
@@ -398,7 +407,6 @@ function WidgetCard({
       </div>
       {editMode && (
         <div
-          data-nodrag
           onPointerDown={onResizePointerDown}
           className="absolute inset-x-0 bottom-0 h-3 cursor-ns-resize z-20 flex items-end justify-center opacity-0 group-hover/card:opacity-100 transition-opacity"
           title="Drag to resize height"
@@ -412,16 +420,15 @@ function WidgetCard({
 
 // ── Zones ────────────────────────────────────────────────────────────────────
 
-function NewColumnZone({ sectionId, overId }: { sectionId: string; overId: string | null }) {
+function NewColumnZone({ sectionId }: { sectionId: string }) {
   const dndId = idOf.newcol(sectionId);
   const { setNodeRef, isOver } = useDroppable({ id: dndId, data: { kind: 'newcol', sectionId } });
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'hidden md:flex w-5 shrink-0 items-center justify-center rounded-xl border border-dashed text-muted-foreground/40 transition-all hover:border-primary/40 hover:text-primary',
-        isOver && 'border-primary/60 text-primary bg-primary/5',
-        overId === dndId && 'border-primary/60 text-primary',
+        'hidden md:flex w-6 shrink-0 items-center justify-center rounded-xl border border-dashed transition-all',
+        isOver ? 'border-primary/60 text-primary bg-primary/10' : 'border-border/30 text-muted-foreground/40',
       )}
       title="Drop here to create a new column"
     >
@@ -447,7 +454,7 @@ function NewSectionZone() {
   );
 }
 
-// ── Column weight resize handle ──────────────────────────────────────────────
+// ── Column weight resize handle (float weights — re-resizable) ───────────────
 
 function ColumnWeightHandle({ columnId, section, ops }: {
   columnId: string;
@@ -468,16 +475,18 @@ function ColumnWeightHandle({ columnId, section, ops }: {
     document.body.style.userSelect = 'none';
 
     const onMove = (ev: PointerEvent) => {
-      // Live weight preview: scale current weight to the dragged pixel width.
       const w = Math.max(120, startW + ev.clientX - startX);
-      target.style.flexGrow = String(Math.max(1, (w / total) * totalWeight));
+      target.style.flexGrow = String(Math.max(0.4, (w / total) * totalWeight));
     };
-    const onUp = () => {
+    const onUp = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       document.body.style.userSelect = '';
       target.style.flexGrow = '';
-      ops.setColumnWeight(columnId, Math.max(1, Math.min(6, Math.round((target.getBoundingClientRect().width / total) * totalWeight))));
+      // Float weight rounded to 0.1 — integer weights quantized so a second
+      // resize often produced the same value (the "can't resize twice" bug).
+      const w = Math.max(0.4, (target.getBoundingClientRect().width / total) * totalWeight);
+      ops.setColumnWeight(columnId, Math.round(w * 10) / 10);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);

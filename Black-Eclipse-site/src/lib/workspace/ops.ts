@@ -187,7 +187,9 @@ export function setColumnCount(d: Draft<WorkspaceLayout>, sectionId: string, cou
 }
 
 export function setColumnWeight(d: Draft<WorkspaceLayout>, columnId: string, weight: number): void {
-  const clamped = Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(weight)));
+  // Float weights (0.1 steps): integer weights quantized so repeated resizes
+  // often produced the same value and the handle appeared stuck.
+  const clamped = Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(weight * 10) / 10));
   for (const s of d.sections) {
     const c = s.columns.find(col => col.id === columnId);
     if (c) { c.weight = clamped; return; }
@@ -258,7 +260,7 @@ export function normalizeLayout(raw: unknown, knownWidgetIds?: ReadonlySet<strin
         widgets.push(w);
       }
       const weight = typeof c.weight === 'number' && Number.isFinite(c.weight)
-        ? Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(c.weight)))
+        ? Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(c.weight * 10) / 10))
         : 3;
       columns.push({ id: colId, weight, widgets });
     }

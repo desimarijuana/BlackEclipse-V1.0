@@ -54,6 +54,12 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
             {s.holdings.length} holdings · cost {fmtUsd(s.costBasis)}
           </p>
         </div>
+        {loading && (
+          <span className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70" role="status" aria-label="Loading fund data">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+            <span className="font-bold">loading prices</span>
+          </span>
+        )}
 
         {/* Key stats ribbon */}
         <div className="ml-auto flex items-center gap-2">

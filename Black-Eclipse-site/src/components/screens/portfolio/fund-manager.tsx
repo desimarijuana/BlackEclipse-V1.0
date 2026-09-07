@@ -225,6 +225,12 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>
           <p className="text-muted-foreground text-xs mt-0.5">Funds, ledgers and custom workspaces — everything is stored locally on this device.</p>
         </div>
+        {loading && (
+          <span className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70" role="status" aria-label="Loading portfolio data">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
+            <span className="font-bold">loading prices</span>
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <input
             ref={fileRef} type="file" accept=".json,.csv" className="hidden"
