@@ -256,6 +256,27 @@ function main() {
     process.exit(0);
   }
 
+  if (mode === "repair") {
+    // Runtime self-heal: invoked by API routes when they hit a corrupt DB.
+    // Repairs in place (from rolling backup → git snapshot → prisma db push)
+    // so the app recovers WITHOUT a restart. Returns 0 on success.
+    if (!fs.existsSync(dbPath)) {
+      log("no database to repair");
+      process.exit(1);
+    }
+    if (isHealthy()) {
+      log("database already healthy — nothing to repair");
+      process.exit(0);
+    }
+    log("corruption detected at runtime — repairing...");
+    if (repair()) {
+      log("database repaired ✓");
+      process.exit(0);
+    }
+    log("repair failed");
+    process.exit(1);
+  }
+
   if (mode === "status") {
     if (!fs.existsSync(dbPath)) {
       console.log("db-guard: no database yet");
