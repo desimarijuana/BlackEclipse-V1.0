@@ -177,11 +177,22 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     };
   }, [activeId, computeTarget, setTargetBoth]);
 
+  /** Click-to-grab fallback for touchpads/touchscreens where drag pan-gestures fight the pointer sensor. */
+  const [grabbedId, setGrabbedId] = useState<string | null>(null);
+  /** Two-click confirm: a projected target the user previewed and armed with click 1. */
+  const [armedTarget, setArmedTarget] = useState<DropTargetInfo | null>(null);
+  const armedTargetRef = useRef<DropTargetInfo | null>(null);
+  const setArmedBoth = useCallback((t: DropTargetInfo | null) => {
+    armedTargetRef.current = t;
+    setArmedTarget(t);
+  }, []);
+
   // Auto-scroll the nearest scrollable ancestor(s) toward the pointer while
-  // dragging so off-screen rows are reachable (dnd-kit skips auto-scroll once
-  // a DragOverlay is rendered, so we provide it ourselves).
+  // dragging OR click-grabbing so off-screen rows (e.g. an empty section at
+  // the bottom) are reachable. dnd-kit skips auto-scroll once a DragOverlay
+  // is rendered, so we provide it ourselves.
   useEffect(() => {
-    if (!activeId) return;
+    if (!activeId && !grabbedId) return;
     let raf = 0;
     const lastPointer = { y: -1 };
     const track = (ev: PointerEvent) => { lastPointer.y = ev.clientY; };
@@ -216,7 +227,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
       window.removeEventListener('pointermove', track);
       cancelAnimationFrame(raf);
     };
-  }, [activeId]);
+  }, [activeId, grabbedId]);
 
   const onDragEnd = () => {
     const dragId = activeId;
@@ -233,16 +244,6 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     setGrabbedId(dragId);
     setArmedBoth(t);
   };
-
-  /** Click-to-grab fallback for touchpads/touchscreens where drag pan-gestures fight the pointer sensor. */
-  const [grabbedId, setGrabbedId] = useState<string | null>(null);
-  /** Two-click confirm: a projected target the user previewed and armed with click 1. */
-  const [armedTarget, setArmedTarget] = useState<DropTargetInfo | null>(null);
-  const armedTargetRef = useRef<DropTargetInfo | null>(null);
-  const setArmedBoth = useCallback((t: DropTargetInfo | null) => {
-    armedTargetRef.current = t;
-    setArmedTarget(t);
-  }, []);
 
   // While grabbed (no active dnd drag), the pointermove projection still runs
   // so the user can hover targets; release places the card.
@@ -357,6 +358,27 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     if (id && t) commitTarget(id, t);
   }, [cancelGrab, commitTarget]);
 
+  /** Click on an empty column while grabbing → arm/place into it (index 0). */
+  const onEmptyColumnClick = useCallback((coords: { x: number; y: number }) => {
+    const id = grabStateRef.current.id;
+    if (!id) return;
+    const t = computeTarget(coords.x, coords.y, id);
+    if (!t) return;
+    const armed = armedTargetRef.current;
+    const same = (a: DropTargetInfo | null, b: DropTargetInfo | null) =>
+      a !== null && b !== null && a.sectionId === b.sectionId && a.columnId === b.columnId && a.index === b.index;
+    if (same(armed, t)) {
+      // Second click on the same empty column → confirm.
+      setGrabbedId(null);
+      setTargetBoth(null);
+      setArmedBoth(null);
+      commitTarget(id, t);
+      return;
+    }
+    // First click → arm + preview.
+    setArmedBoth(t);
+  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
+
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
 
   return (
@@ -436,14 +458,17 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
                 ops={ops}
                 renderWidget={renderWidget}
                 onResizeHeight={ops.setWidgetHeight}
-                onCardTap={(id, coords) => {
+                onCardTap={(id, coords, detail) => {
                   // Tap-to-grab / two-click confirm fallback for touch devices.
-                  if (!grabbedId) setGrabbedId(id);
+                  // A double-click (detail>=2) always GRABS — the 2nd click of a
+                  // double-click must not cancel the grab it just started.
+                  if (!grabbedId || (detail ?? 0) >= 2) setGrabbedId(id);
                   else if (grabbedId === id) cancelGrab();
                   else confirmOrArm(coords);
                 }}
                 lastDragEndRef={lastDragEndRef}
                 onGhostConfirm={onGhostConfirm}
+                onEmptyColumnClick={onEmptyColumnClick}
               />
               {(editMode || activeId !== null || grabbedId !== null) && (
                 <NewSectionStrip
@@ -503,7 +528,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 // ── Section row: columns + edit controls + resize handles ────────────────────
 
 function SectionRow({
-  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm,
+  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
 }: {
   section: WorkspaceSection;
   editMode: boolean;
@@ -515,9 +540,10 @@ function SectionRow({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
   lastDragEndRef: React.MutableRefObject<number>;
   onGhostConfirm: () => void;
+  onEmptyColumnClick: (coords: { x: number; y: number }) => void;
 }) {
   return (
     <div className="rounded-2xl p-1 transition-all">
@@ -561,6 +587,7 @@ function SectionRow({
               onCardTap={onCardTap}
               lastDragEndRef={lastDragEndRef}
               onGhostConfirm={onGhostConfirm}
+              onEmptyColumnClick={onEmptyColumnClick}
             />
             {editMode && colIdx < section.columns.length - 1 && (
               <ColumnWeightHandle columnId={column.id} section={section} ops={ops} />
@@ -575,7 +602,7 @@ function SectionRow({
 // ── Column with live insertion indicator + edge drop halves ──────────────────
 
 function ColumnDroppable({
-  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm,
+  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
 }: {
   column: WorkspaceSection['columns'][number];
   section: WorkspaceSection;
@@ -588,10 +615,12 @@ function ColumnDroppable({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
   lastDragEndRef: React.MutableRefObject<number>;
   /** Confirm the armed placement (ghost slot click). */
   onGhostConfirm: () => void;
+  /** Click on an empty column while grabbing → arm/place into it. */
+  onEmptyColumnClick: (coords: { x: number; y: number }) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: idOf.col(column.id), data: { kind: 'col', columnId: column.id, sectionId: section.id } });
 
@@ -629,11 +658,17 @@ function ColumnDroppable({
     <div
       ref={setNodeRef}
       data-wcol={column.id}
+      onClick={grabbedId && column.widgets.length === 0 ? (e) => {
+        // Clicking an empty column while grabbing → arm/place into it.
+        e.stopPropagation();
+        onEmptyColumnClick({ x: e.clientX, y: e.clientY });
+      } : undefined}
       className={cn(
         'relative flex flex-col gap-2.5 min-h-[40px] min-w-0 flex-1 transition-all',
         editMode && 'rounded-2xl outline-1 outline-dashed outline-border/20 p-1.5 -m-1.5',
         dragging && 'rounded-2xl outline-1 outline-dashed outline-border/30',
         colIsTarget && 'rounded-2xl outline-1 outline-dashed outline-primary/50',
+        grabbedId && column.widgets.length === 0 && 'cursor-pointer',
       )}
       style={{ flexGrow: column.weight, flexBasis: 0 }}
     >
@@ -645,14 +680,22 @@ function ColumnDroppable({
       {dragging && <ColumnEdge side="L" column={column} section={section} hot={edgeTarget === 'before'} />}
       {dragging && <ColumnEdge side="R" column={column} section={section} hot={edgeTarget === 'after'} />}
 
-      {/* Empty-column drop target */}
-      {column.widgets.length === 0 && !colIsTarget && (
-        <div className={cn(
-          'flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-dashed border-border/30 text-[10px] font-semibold text-muted-foreground/50',
-          dragging && 'border-primary/40 text-primary/70',
-        )}>
-          {dragging ? 'Drop a widget here' : 'Empty column'}
-        </div>
+      {/* Empty-column drop target — clickable in grab mode to arm/place. */}
+      {column.widgets.length === 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (grabbedId) onEmptyColumnClick({ x: e.clientX, y: e.clientY });
+          }}
+          className={cn(
+            'flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-dashed border-border/30 text-[10px] font-semibold text-muted-foreground/50 cursor-pointer',
+            dragging && 'border-primary/40 text-primary/70',
+            grabbedId && 'hover:border-primary/60 hover:text-primary/80',
+          )}
+        >
+          {dragging ? 'Drop a widget here' : grabbedId ? 'Click to place here' : 'Empty column'}
+        </button>
       )}
     </div>
   );
@@ -691,7 +734,7 @@ function WidgetCard({
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
   isLast?: boolean;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
   lastDragEndRef: React.MutableRefObject<number>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: placement.id });
@@ -732,7 +775,7 @@ function WidgetCard({
         // A click arriving right after one does — ignore it; everything else
         // is a tap (grab / place / cancel).
         if (performance.now() - lastDragEndRef.current < 200) return;
-        onCardTap(placement.id, { x: e.clientX, y: e.clientY });
+        onCardTap(placement.id, { x: e.clientX, y: e.clientY }, e.detail);
       } : undefined}
       className={cn(
         CARD_CLASS,

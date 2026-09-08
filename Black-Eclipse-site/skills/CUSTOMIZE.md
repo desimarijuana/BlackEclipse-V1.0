@@ -12,31 +12,34 @@ Never write page-local layout state, localStorage code, or drag plumbing.
 
 ```
 src/lib/workspace/
-  types.ts        — WidgetPlacement { id, widgetId, height }, Column { id, weight: 1–6, widgets[] },
-                    Section { id, columns[] (1–4) }, WorkspaceLayout { version: 1, sections },
-                    DropTarget { sectionId, columnId|null, index }
-  ops.ts          — Immer draft mutators (mutate the draft, return void): moveWidget,
-                    moveWidgetToNewSection, addWidget, removeWidget, setColumnCount,
-                    setColumnWeight (1–6), setWidgetHeight (min 140px), pruneLayout,
-                    locate, normalizeLayout (corrupt-read guard)
-  use-workspace.ts — Zustand store per storageKey (cached, survives mounts):
-                    { layout, editMode, corrupt, dragging, selectedWidgetId, selected,
-                      templates, ops: { addWidget, removeWidget, moveWidget,
-                      moveWidgetToNewSection, setColumnCount, setColumnWeight,
-                      setWidgetHeight, applyTemplate, resetToDefault, selectWidget, setDragging } }
-  workspace-canvas.tsx — dnd-kit edit chrome: DndContext + PointerSensor (4px activation),
-                    droppable columns / new-column zones / new-section strip, DragOverlay ghost,
-                    card hover toolbars (drag grip, fit-height, remove), bottom height-resize
-                    handles, column-width drag handles between columns
+  types.ts            — WidgetPlacement { id, widgetId, height }, Column { id, weight: 1–6, widgets[] },
+                        Section { id, columns[] (1–4) }, WorkspaceLayout { version: 1, sections },
+                        DropTarget { sectionId, columnId|null, index, columnIndex? }
+  ops.ts              — Immer draft mutators (mutate the draft, return void): moveWidget,
+                        moveWidgetToNewSection, moveWidgetToNewSectionAt, createSectionAt,
+                        addWidget, removeWidget, setColumnCount, setColumnWeight (1–6),
+                        setWidgetHeight (min 140px), pruneLayout, locate, normalizeLayout
+  use-workspace.ts    — Zustand store per storageKey (cached, survives mounts):
+                        { layout, editMode, corrupt, dragging, selectedWidgetId, selected,
+                          templates, ops: { addWidget, removeWidget, moveWidget,
+                          moveWidgetToNewSection, moveWidgetToNewSectionAt, createSectionAt,
+                          setColumnCount, setColumnWeight, setWidgetHeight, applyTemplate,
+                          resetToDefault, selectWidget, setDragging } }
+  workspace-canvas.tsx — dnd-kit edit chrome: DndContext + PointerSensor (5px activation),
+                        real-pointer drop projection (native pointermove + elementFromPoint),
+                        two-click confirm (grab → preview ghost → confirm), Escape/right-click
+                        cancel, clickable empty columns/sections, auto-scroll during drag/grab,
+                        DragOverlay ghost, card hover toolbars (grip, fit-height, remove),
+                        bottom height-resize handles, column-width drag handles (edit mode only)
   workspace-drawer.tsx — add-widget palette + template picker + reset (confirm-guarded)
-  templates.ts    — curated section templates (classic / trader / analyst / minimal)
-  persistence.ts  — localStorage load/save/clear; corrupt payload never overwritten
-  workspace.test.ts — 35 unit tests (ops wrapped in produce) — keep green
+  templates.ts        — curated section templates (classic / trader / analyst / minimal)
+  persistence.ts      — localStorage load/save/clear; corrupt payload never overwritten
+  workspace.test.ts   — 43 unit tests (ops wrapped in produce) — keep green
 ```
 
 ## Stack (ADR-006)
 
-- **dnd-kit** (`@dnd-kit/core`) — drag & drop between columns/sections/containers
+- **dnd-kit** (`@dnd-kit/core`) — drag & drop (`DndContext` + `PointerSensor` + `useDraggable`/`useDroppable` + `DragOverlay`)
 - **Zustand** — editor + layout + selection state, one store per workspace
 - **Immer** — safe immutable layout updates (ops are draft mutators via `produce`)
 
@@ -65,16 +68,28 @@ WidgetPlacement { id, widgetId, height: number|null }     // null = natural heig
 ```
 
 - Widgets stack vertically inside a column; drag reorders within/between columns,
-  across sections, into new columns (dashed + zone), or into a new section (bottom strip).
+  across sections, into new columns (left/right edge zones), or into a new section
+  (inter-section strips above/below every section).
 - `pruneLayout` drops empty sections (keeps one, keeps empty columns as drop targets).
 - Storage key convention: `be_ws_<page>_<id>_v2`.
 
 ## Interactions (must match everywhere)
 
 - **Edit bar**: sticky "Customizing" row with Widgets/Templates drawer + Done button.
-- **Move**: drag any card (edit mode) — ghost overlay follows, target columns highlight.
+- **Move — two-click confirm (the shipped model):**
+  1. **Grab**: click (or drag+release) a card in edit mode → it's held (green ring).
+  2. **Preview**: hover anywhere — the drop-line tracks live; **click once** → a labeled
+     ghost slot **"Click again to confirm"** appears at that spot (nothing has moved yet).
+     Re-aim by clicking a different spot; the ghost follows each preview.
+  3. **Confirm**: click the ghost slot (or the same spot again, or the **Confirm** button
+     in the sticky bottom bar) → the widget moves there.
+  4. **Cancel anytime**: **Escape** or **right-click** → card returns, layout untouched.
+- **Empty columns / sections**: clickable while grabbing — click an empty column to
+  arm/place into it; click an inter-section strip to create a new (empty) section there.
+- **Auto-scroll**: runs during both drag and click-grab so off-screen rows (e.g. an empty
+  section at the bottom) are reachable.
 - **Height**: bottom-edge handle per card (commit on release); Scan icon resets to auto.
-- **Column width**: drag handle between adjacent columns (edit mode); commits weight 1–6.
+- **Column width**: drag handle between adjacent columns (edit mode only); commits weight 1–6.
 - **Column count**: −/+ stepper in the section edit row; displaced widgets relocate to last column.
 - **Remove**: X on the card toolbar (edit mode only).
 - **Add**: drawer palette; already-placed widgets are marked.
@@ -87,6 +102,8 @@ WidgetPlacement { id, widgetId, height: number|null }     // null = natural heig
 - Cards use the shared `CARD_CLASS` glass style; don't restyle per page.
 - Never call `saveWorkspace`/`loadWorkspace` directly — go through the store ops.
 - Never hand-roll a second drag system; extend `workspace-canvas.tsx`.
+- The drop target is projected from the **real pointer** (native `pointermove` +
+  `elementFromPoint`), NOT dnd-kit's scroll-adjusted delta — do not regress this.
 
 ## Roadmap (incremental improvements planned)
 
