@@ -353,7 +353,7 @@ html:not(.dark) .ws-glass {
   scrollbar-color: rgba(122, 255, 120, 0.2) transparent;
 }
 .news-tabs-scroll::-webkit-scrollbar {
-  height: 3px;
+  height: 2px;
 }
 .news-tabs-scroll::-webkit-scrollbar-track {
   background: transparent;
