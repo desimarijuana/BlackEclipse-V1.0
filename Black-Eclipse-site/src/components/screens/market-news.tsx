@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -199,6 +199,12 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
 
   const SAVED_IDS_KEY = 'be_news_saved_ids';
 
+  // Guards against out-of-order responses when the user clicks categories /
+  // filters quickly. Each fetchNews() call bumps this counter; only the
+  // response matching the latest counter is applied, so a slow older request
+  // can never overwrite a newer one (or leave the UI stuck on the loader).
+  const fetchSeqRef = useRef(0);
+
   useEffect(() => {
     setCards(loadCardSettings());
     // Watchlist tickers (shared with the watchlist screen's storage).
@@ -234,6 +240,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
   );
 
   const fetchNews = async (pageNum = 1, f: FilterState = filters, c: CardSettings = cards, opts?: { myStocks?: boolean; saved?: boolean }) => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -257,6 +264,8 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
         throw new Error(apiError);
       }
       const data = await res.json();
+      // Drop stale responses: a newer fetch has already started.
+      if (seq !== fetchSeqRef.current) return;
       let news: NewsItem[] = data.news || [];
       if (opts?.saved) news = news.filter((n: NewsItem) => savedIds.has(n.id));
       setNewsList(news);
@@ -276,6 +285,8 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
         onNewsSentiment?.(denom > 0 ? (bullish - bearish) / denom : 0);
       }
     } catch (e) {
+      // Only surface errors from the latest request.
+      if (seq !== fetchSeqRef.current) return;
       console.error("[MarketNews] Error fetching news:", e);
       setError('Could not load the news database. It may still be ingesting — try again in a minute.');
       setNewsList([]);
@@ -283,7 +294,8 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
       setPage(pageNum);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      // Only the latest request may clear the loading state.
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   };
 
@@ -411,13 +423,18 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
   };
 
   const setFilter = (patch: Partial<FilterState>) => {
-    const next = { ...filters, ...patch };
-    // Toggling filters off entirely resets to the default view.
-    if (!next.category && !next.region && !next.tier && !next.sentiment && !next.q) {
-      applyFilters(EMPTY_FILTERS);
-    } else {
-      applyFilters(next);
-    }
+    // Use the latest filters (functional update) so rapid category clicks
+    // never read a stale closure and fire the wrong query.
+    setFilters((prev) => {
+      const next = { ...prev, ...patch };
+      // Toggling filters off entirely resets to the default view.
+      if (!next.category && !next.region && !next.tier && !next.sentiment && !next.q) {
+        fetchNews(1, EMPTY_FILTERS);
+        return EMPTY_FILTERS;
+      }
+      fetchNews(1, next);
+      return next;
+    });
   };
 
   const clearFilters = () => {
