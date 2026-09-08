@@ -151,12 +151,18 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
   }, []);
 
   // Track the live pointer while dragging; drive the drop target from it.
+  // lastPointerRef is shared: onDragEnd re-projects from it so the committed
+  // position matches exactly what the user saw at release.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  /** Set when a real dnd drag ends — clicks within the window are its echo. */
+  const lastDragEndRef = useRef(0);
   useEffect(() => {
     if (!activeId) return;
     let raf = 0;
     let lastX = -1, lastY = -1;
     const onMove = (ev: PointerEvent) => {
       lastX = ev.clientX; lastY = ev.clientY;
+      lastPointerRef.current = { x: lastX, y: lastY };
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
@@ -164,10 +170,8 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
       });
     };
     window.addEventListener('pointermove', onMove, { passive: true });
-    window.addEventListener('pointerdown', onMove, { passive: true });
     return () => {
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerdown', onMove);
       if (raf) cancelAnimationFrame(raf);
       setTargetBoth(null);
     };
@@ -216,33 +220,29 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 
   const onDragEnd = () => {
     const dragId = activeId;
+    lastDragEndRef.current = performance.now();
     setActiveId(null);
-    const t = targetRef.current;
+    // Re-project from the exact release position — the last rAF frame can be
+    // a frame behind the pointer, which made cards land "one notch" off.
+    const p = lastPointerRef.current;
+    const t = dragId && p ? computeTarget(p.x, p.y, dragId) : targetRef.current;
     setTargetBoth(null);
     if (!dragId || !t) return;
-    if (t.columnId.startsWith('__newsec:')) {
-      const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
-      ops.moveWidgetToNewSectionAt(dragId, anchorId, pos);
-      return;
-    }
-    if (t.columnId.startsWith('__newcol:')) {
-      const [, when, anchorColId] = t.columnId.split(':') as [string, string, 'before' | 'after'];
-      const section = layoutRef.current.sections.find(s => s.columns.some(c => c.id === anchorColId));
-      const colIdx = section?.columns.findIndex(c => c.id === anchorColId) ?? -1;
-      if (!section || colIdx === -1) return;
-      ops.moveWidget(dragId, {
-        sectionId: section.id,
-        columnId: null,
-        index: 0,
-        columnIndex: when === 'before' ? colIdx : colIdx + 1,
-      });
-      return;
-    }
-    ops.moveWidget(dragId, { sectionId: t.sectionId, columnId: t.columnId, index: t.index });
+    // Two-click model: the drop ARMS the position (preview ghost shows); a
+    // click confirms it. The user keeps full control over the final placement.
+    setGrabbedId(dragId);
+    setArmedBoth(t);
   };
 
   /** Click-to-grab fallback for touchpads/touchscreens where drag pan-gestures fight the pointer sensor. */
   const [grabbedId, setGrabbedId] = useState<string | null>(null);
+  /** Two-click confirm: a projected target the user previewed and armed with click 1. */
+  const [armedTarget, setArmedTarget] = useState<DropTargetInfo | null>(null);
+  const armedTargetRef = useRef<DropTargetInfo | null>(null);
+  const setArmedBoth = useCallback((t: DropTargetInfo | null) => {
+    armedTargetRef.current = t;
+    setArmedTarget(t);
+  }, []);
 
   // While grabbed (no active dnd drag), the pointermove projection still runs
   // so the user can hover targets; release places the card.
@@ -277,15 +277,8 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     };
   }, [grabbedId, computeTarget, setTargetBoth]);
 
-  /** Commit the grabbed card to the current projected target (or clear). */
-  const releaseGrab = useCallback(() => {
-    const id = grabStateRef.current.id;
-    const t = targetRef.current;
-    setGrabbedId(null);
-    setTargetBoth(null);
-    if (!id) return;
-    // Click on the card itself (no target) = cancel.
-    if (!t) return;
+  /** Commit a target for the grabbed card (shared by confirm + strip paths). */
+  const commitTarget = useCallback((id: string, t: DropTargetInfo) => {
     if (t.columnId.startsWith('__newsec:')) {
       const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
       ops.moveWidgetToNewSectionAt(id, anchorId, pos);
@@ -300,9 +293,69 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
       return;
     }
     ops.moveWidget(id, { sectionId: t.sectionId, columnId: t.columnId, index: t.index });
-  }, [ops, setTargetBoth]);
+  }, [ops]);
 
-  const onDragCancel = () => { setActiveId(null); setTargetBoth(null); };
+  /**
+   * Two-click model. Click 1 arms the projected target (preview ghost shows);
+   * click 2 (on the same spot) commits. `coords` is the tap position — on
+   * touch there are no pointermove events before the tap, so the projection
+   * runs at the tap point itself.
+   */
+  const confirmOrArm = useCallback((coords?: { x: number; y: number }) => {
+    const id = grabStateRef.current.id;
+    if (!id) return;
+    const t = coords ? computeTarget(coords.x, coords.y, id) : targetRef.current;
+    if (!t) {
+      // Click outside any drop area = cancel.
+      setGrabbedId(null);
+      setTargetBoth(null);
+      setArmedBoth(null);
+      return;
+    }
+    const armed = armedTargetRef.current;
+    const same = (a: DropTargetInfo | null, b: DropTargetInfo | null) =>
+      a !== null && b !== null && a.sectionId === b.sectionId && a.columnId === b.columnId && a.index === b.index;
+    if (same(armed, t)) {
+      // Second click on the same spot → confirm.
+      setGrabbedId(null);
+      setTargetBoth(null);
+      setArmedBoth(null);
+      commitTarget(id, t);
+      return;
+    }
+    // First click on a new spot → arm + preview.
+    setArmedBoth(t);
+  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
+
+  /** Cancel grab entirely (Escape / right-click / strip with no arm). */
+  const cancelGrab = useCallback(() => {
+    setGrabbedId(null);
+    setTargetBoth(null);
+    setArmedBoth(null);
+  }, [setArmedBoth, setTargetBoth]);
+
+  // Escape OR contextmenu (right-click) cancels the click-grab.
+  useEffect(() => {
+    if (!grabbedId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') cancelGrab(); };
+    const onCtx = (e: MouseEvent) => { e.preventDefault(); cancelGrab(); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('contextmenu', onCtx);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('contextmenu', onCtx);
+    };
+  }, [grabbedId, cancelGrab]);
+
+  const onDragCancel = () => { lastDragEndRef.current = performance.now(); setActiveId(null); setTargetBoth(null); };
+
+  /** Ghost-slot click: commit the armed target for the held card. */
+  const onGhostConfirm = useCallback(() => {
+    const id = grabStateRef.current.id;
+    const t = armedTargetRef.current;
+    cancelGrab();
+    if (id && t) commitTarget(id, t);
+  }, [cancelGrab, commitTarget]);
 
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
 
@@ -314,7 +367,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Columns3 size={14} /> Customizing
           </span>
-          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag a card — release between cards, at a column edge, or on a row strip</span>
+          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag or click a card · preview shows the spot · click again to confirm · Esc/right-click cancels</span>
           <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={() => setDrawerOpen(v => !v)}
@@ -367,7 +420,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
                   anchorId={section.id} pos="above"
                   dragging={activeId !== null || grabbedId !== null}
                   isGrabbing={grabbedId !== null}
-                  onStripClick={() => grabbedId ? releaseGrab() : ops.createSectionAt(section.id, 'above')}
+                  onStripClick={() => grabbedId
+                    ? ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above')
+                    : ops.createSectionAt(section.id, 'above')}
                 />
               )}
               <SectionRow
@@ -376,23 +431,28 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
                 dragging={activeId !== null || grabbedId !== null}
                 activeId={activeId}
                 grabbedId={grabbedId}
+                armedTarget={armedTarget}
                 target={target}
                 ops={ops}
                 renderWidget={renderWidget}
                 onResizeHeight={ops.setWidgetHeight}
-                onCardTap={(id) => {
-                  // Tap-to-grab / tap-to-place fallback for touch devices.
+                onCardTap={(id, coords) => {
+                  // Tap-to-grab / two-click confirm fallback for touch devices.
                   if (!grabbedId) setGrabbedId(id);
-                  else if (grabbedId === id) setGrabbedId(null); // tap again = cancel
-                  else releaseGrab();
+                  else if (grabbedId === id) cancelGrab();
+                  else confirmOrArm(coords);
                 }}
+                lastDragEndRef={lastDragEndRef}
+                onGhostConfirm={onGhostConfirm}
               />
               {(editMode || activeId !== null || grabbedId !== null) && (
                 <NewSectionStrip
                   anchorId={section.id} pos="below"
                   dragging={activeId !== null || grabbedId !== null}
                   isGrabbing={grabbedId !== null}
-                  onStripClick={() => grabbedId ? releaseGrab() : ops.createSectionAt(section.id, 'below')}
+                  onStripClick={() => grabbedId
+                    ? ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below')
+                    : ops.createSectionAt(section.id, 'below')}
                 />
               )}
             </React.Fragment>
@@ -413,6 +473,29 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
           </DragOverlay>
         )}
       </DndContext>
+
+      {/* Two-click confirm hint + buttons */}
+      {grabbedId && (
+        <div className="sticky bottom-4 z-40 mt-3 flex items-center justify-center gap-2 animate-fade-in">
+          <div className="ws-glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
+              {armedTarget ? 'Click again to confirm · Esc / right-click to cancel' : 'Click a spot to preview · Esc / right-click to cancel'}
+            </span>
+            <button
+              onClick={() => { const id = grabStateRef.current.id; const t = armedTargetRef.current; cancelGrab(); if (id && t) commitTarget(id, t); }}
+              disabled={!armedTarget}
+              className={cn(
+                'rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+                armedTarget ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25' : 'border-border/40 bg-accent/30 text-muted-foreground opacity-40 cursor-not-allowed',
+              )}
+            >Confirm</button>
+            <button
+              onClick={cancelGrab}
+              className="rounded-xl border border-border/40 bg-accent/30 hover:bg-accent/60 text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            >Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -420,18 +503,21 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
 // ── Section row: columns + edit controls + resize handles ────────────────────
 
 function SectionRow({
-  section, editMode, dragging, activeId, grabbedId, target, ops, renderWidget, onResizeHeight, onCardTap,
+  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm,
 }: {
   section: WorkspaceSection;
   editMode: boolean;
   dragging: boolean;
   activeId: string | null;
   grabbedId: string | null;
+  armedTarget: DropTargetInfo | null;
   target: DropTargetInfo | null;
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  lastDragEndRef: React.MutableRefObject<number>;
+  onGhostConfirm: () => void;
 }) {
   return (
     <div className="rounded-2xl p-1 transition-all">
@@ -467,13 +553,16 @@ function SectionRow({
               dragging={dragging}
               activeId={activeId}
               grabbedId={grabbedId}
+              armedTarget={armedTarget}
               target={target}
               ops={ops}
               renderWidget={renderWidget}
               onResizeHeight={onResizeHeight}
               onCardTap={onCardTap}
+              lastDragEndRef={lastDragEndRef}
+              onGhostConfirm={onGhostConfirm}
             />
-            {colIdx < section.columns.length - 1 && (
+            {editMode && colIdx < section.columns.length - 1 && (
               <ColumnWeightHandle columnId={column.id} section={section} ops={ops} />
             )}
           </React.Fragment>
@@ -486,7 +575,7 @@ function SectionRow({
 // ── Column with live insertion indicator + edge drop halves ──────────────────
 
 function ColumnDroppable({
-  column, section, editMode, dragging, activeId, grabbedId, target, ops, renderWidget, onResizeHeight, onCardTap,
+  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm,
 }: {
   column: WorkspaceSection['columns'][number];
   section: WorkspaceSection;
@@ -494,11 +583,15 @@ function ColumnDroppable({
   dragging: boolean;
   activeId: string | null;
   grabbedId: string | null;
+  armedTarget: DropTargetInfo | null;
   target: DropTargetInfo | null;
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  lastDragEndRef: React.MutableRefObject<number>;
+  /** Confirm the armed placement (ghost slot click). */
+  onGhostConfirm: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: idOf.col(column.id), data: { kind: 'col', columnId: column.id, sectionId: section.id } });
 
@@ -506,15 +599,19 @@ function ColumnDroppable({
   const edgeTarget = target?.columnId.startsWith('__newcol:')
     ? (target.columnId.split(':')[2] === column.id ? (target.columnId.split(':')[1] as 'before' | 'after') : null)
     : null;
+  // Two-click confirm: this column holds the ARMED (previewed) position.
+  const colIsArmed = armedTarget?.columnId === column.id;
 
   const widgets = column.widgets.map((placement, idx) => (
     <React.Fragment key={placement.id}>
       {colIsTarget && target.index === idx && <DropLine />}
+      {colIsArmed && armedTarget.index === idx && <ConfirmGhost onConfirm={onGhostConfirm} />}
       <WidgetCard
         placement={placement}
         editMode={editMode}
         hidden={activeId === placement.id}
         tapActive={grabbedId === placement.id}
+        lastDragEndRef={lastDragEndRef}
         ops={ops}
         renderWidget={renderWidget}
         onResizeHeight={onResizeHeight}
@@ -524,6 +621,9 @@ function ColumnDroppable({
     </React.Fragment>
   ));
   if (colIsTarget && target.index >= column.widgets.length) widgets.push(<DropLine key="drop-line-end" />);
+  if (colIsArmed && armedTarget.index >= column.widgets.length) {
+    widgets.push(<ConfirmGhost key="confirm-ghost-end" onConfirm={onGhostConfirm} />);
+  }
 
   return (
     <div
@@ -562,10 +662,25 @@ function DropLine() {
   return <div className="ws-drop-indicator" aria-hidden />;
 }
 
+/** Armed-position preview (two-click confirm): a labeled ghost slot. Clicking
+ *  it confirms the placement (same as clicking the spot again). */
+function ConfirmGhost({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+      className="w-full rounded-2xl border-2 border-dashed border-primary/70 bg-primary/10 px-4 py-3 flex items-center gap-2 animate-fade-in cursor-pointer text-left"
+    >
+      <GripVertical size={14} className="text-primary shrink-0" />
+      <span className="font-serif text-sm font-semibold text-primary truncate">Click again to confirm</span>
+    </button>
+  );
+}
+
 // ── Draggable widget card ────────────────────────────────────────────────────
 
 function WidgetCard({
-  placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, isLast, onCardTap,
+  placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, isLast, onCardTap, lastDragEndRef,
 }: {
   placement: WidgetPlacement;
   editMode: boolean;
@@ -576,7 +691,8 @@ function WidgetCard({
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
   isLast?: boolean;
-  onCardTap: (widgetInstanceId: string) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
+  lastDragEndRef: React.MutableRefObject<number>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: placement.id });
 
@@ -612,10 +728,11 @@ function WidgetCard({
       style={placement.height != null ? { height: placement.height } : undefined}
       {...(editMode ? { ...attributes, ...listeners } : {})}
       onClick={editMode ? (e) => {
-        // Only treat as a "tap" when the click wasn't a real drag (dnd-kit
-        // keeps pointer capture; a genuine drag won't produce a click here).
-        const moved = (e as unknown as { detail?: number }).detail === 0;
-        if (!moved) onCardTap(placement.id);
+        // A genuine dnd-kit drag never produces a click (pointer capture).
+        // A click arriving right after one does — ignore it; everything else
+        // is a tap (grab / place / cancel).
+        if (performance.now() - lastDragEndRef.current < 200) return;
+        onCardTap(placement.id, { x: e.clientX, y: e.clientY });
       } : undefined}
       className={cn(
         CARD_CLASS,
@@ -687,7 +804,7 @@ function ColumnEdge({ side, column, section, hot }: {
       data-col={column.id}
       data-sec={section.id}
       className={cn(
-        'absolute inset-y-0 z-10 w-[16%] min-w-[10px]',
+        'absolute inset-y-0 z-10 w-2',
         side === 'L' ? 'left-0 rounded-l-2xl' : 'right-0 rounded-r-2xl',
         hot ? 'bg-primary/10 outline-1 outline-dashed outline-primary/60' : 'bg-transparent',
       )}
@@ -750,8 +867,14 @@ function ColumnWeightHandle({ columnId, section, ops }: {
     const totalWeight = section.columns.reduce((a, c) => a + c.weight, 0);
     document.body.style.userSelect = 'none';
 
+    // Track the live pointer — the commit uses the tracked position, NOT a
+    // post-drag DOM measurement (clearing the inline style re-renders React
+    // asynchronously, so measuring after the drag read the stale width and
+    // the column could never be re-stretched back).
+    let lastX = startX;
     const onMove = (ev: PointerEvent) => {
-      const w = Math.max(120, startW + ev.clientX - startX);
+      lastX = ev.clientX;
+      const w = Math.max(120, startW + lastX - startX);
       target.style.flexGrow = String(Math.max(0.4, (w / total) * totalWeight));
     };
     const onUp = () => {
@@ -761,8 +884,8 @@ function ColumnWeightHandle({ columnId, section, ops }: {
       target.style.flexGrow = '';
       // Float weight rounded to 0.1 — integer weights quantized so a second
       // resize often produced the same value (the "can't resize twice" bug).
-      const w = Math.max(0.4, (target.getBoundingClientRect().width / total) * totalWeight);
-      ops.setColumnWeight(columnId, Math.round(w * 10) / 10);
+      const w = Math.max(120, startW + lastX - startX);
+      ops.setColumnWeight(columnId, Math.round(Math.max(0.4, (w / total) * totalWeight) * 10) / 10);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);

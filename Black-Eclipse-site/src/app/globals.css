@@ -808,7 +808,7 @@ input[type="range"]::-moz-range-thumb:hover {
   border-radius: 999px;
   background: var(--primary);
   box-shadow: 0 0 14px var(--primary);
-  margin: 6px 0;
+  margin: 2px 0;
   flex-shrink: 0;
   pointer-events: none;
 }
