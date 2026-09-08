@@ -52,3 +52,6 @@ next-env.d.ts
 # database (seed snapshot jdds.db IS committed; ignore runtime WAL/side files)
 jdds.db-*
 
+# rolling DB backups created by scripts/db-guard.js
+/backups/
+

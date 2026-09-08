@@ -17,6 +17,28 @@ export async function register() {
     const { startScheduler, warmUpAllMarkets, startUniverseSync } = await import("@/lib/scraper/scheduler");
     const { seedUniverse } = await import("@/lib/scraper/price-scraper");
 
+    // DB durability guard: ensure WAL + synchronous=NORMAL are set on the
+    // live connection and schedule a rolling local backup, so a crash or kill
+    // mid-write can never silently corrupt the b-trees. Best-effort — never
+    // blocks or fails the boot.
+    try {
+      const { execFile } = await import("child_process");
+      const { promisify } = await import("util");
+      const execFileP = promisify(execFile);
+      const path = await import("path");
+      const guardScript = path.join(process.cwd(), "scripts", "db-guard.js");
+      // Set durability PRAGMAs on the live DB (idempotent, quick).
+      void execFileP(process.execPath, [guardScript, "check"]).catch((err) =>
+        console.error("[db-guard] durability check failed:", err?.message)
+      );
+      // Rolling local backup once per day.
+      void execFileP(process.execPath, [guardScript, "backup"]).catch((err) =>
+        console.error("[db-guard] daily backup failed:", err?.message)
+      );
+    } catch (err) {
+      console.error("[db-guard] failed to schedule:", err);
+    }
+
     try {
       await seedUniverse(["US"]);
     } catch (err) {

@@ -181,7 +181,22 @@ export async function GET(request: Request) {
       pagination: { page, limit, total, totalPages },
     });
   } catch (err) {
+    // Distinguish a corrupt/unavailable DB from a transient query error so the
+    // UI can surface actionable guidance instead of a generic "try again".
+    const msg = String((err as Error)?.message || err);
+    const dbCorrupt = /malformed|disk image|no such table|no such column/i.test(msg);
     console.error("[api/news] Error:", err);
-    return NextResponse.json({ news: [], source: "error", pulse: {}, pagination: { page, limit, total: 0, totalPages: 0 } }, { status: 502 });
+    return NextResponse.json(
+      {
+        news: [],
+        source: "error",
+        pulse: {},
+        error: dbCorrupt
+          ? "The news database is corrupt — restart the site (db-guard will repair it automatically)."
+          : "Could not read the news database.",
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      },
+      { status: 502 }
+    );
   }
 }

@@ -240,7 +240,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
       if (f.q) params.set('q', f.q);
       if (useMyStocks && watchTickers.length > 0) params.set('tickers', watchTickers.join(','));
       const res = await fetch(`/api/news?${params.toString()}`);
-      if (!res.ok) throw new Error(`API ${res.status}`);
+      if (!res.ok) {
+        // Surface the server-provided actionable message (e.g. corruption hint)
+        // instead of a generic status code.
+        let apiError = `API ${res.status}`;
+        try {
+          const errBody = await res.json();
+          if (errBody?.error) apiError = errBody.error;
+        } catch { /* non-JSON body — keep default */ }
+        throw new Error(apiError);
+      }
       const data = await res.json();
       let news: NewsItem[] = data.news || [];
       if (opts?.saved) news = news.filter((n: NewsItem) => savedIds.has(n.id));

@@ -45,6 +45,22 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
   fix("Database", "npx prisma db push");
 }
 
+// 4b. Database integrity guard — hardens WAL/synchronous, detects corruption,
+//     and auto-repairs from a healthy rolling backup or the committed seed
+//     snapshot BEFORE the server starts (so no /api route can hit a corrupt DB).
+{
+  const dbGuard = path.join(__dirname, "db-guard.js");
+  if (fs.existsSync(dbGuard)) {
+    const r = spawnSync(process.execPath, [dbGuard, "check"], { stdio: "inherit" });
+    if (r.status !== 0) {
+      console.error("[setup] Database integrity check FAILED — see db-guard output above.");
+      process.exit(1);
+    }
+  } else {
+    console.warn("[setup] db-guard.js not found — skipping DB integrity check.");
+  }
+}
+
 // 5. Python yfinance bridge (optional — live prices)
 const pyCmds = process.platform === "win32" ? ["python", "python3", "py"] : ["python3", "python"];
 const py = pyCmds.find((c) => run(`${c} --version`).status === 0);

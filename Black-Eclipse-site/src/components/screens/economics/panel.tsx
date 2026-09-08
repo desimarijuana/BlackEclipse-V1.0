@@ -249,48 +249,76 @@ export function EconPanel({ source }: PanelProps) {
   };
 
   // ─── Render states ─────────────────────────────────────────────────────
+  const chartTitle = params.indicator
+    ? Object.values(params).filter(Boolean).join(' · ')
+    : source.label;
+
   return (
-    <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col gap-4 animate-fade-in-up">
-      {/* Toolbar — declarative controls + FETCH/CSV */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {source.controls.map((control) => (
-          <label key={control.name} className="flex flex-col gap-1 min-w-[160px]">
-            <span className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground/70">{control.label}</span>
-            {control.type === 'select' ? (
-              <select
-                value={params[control.name] ?? ''}
-                onChange={(e) => setParam(control.name, e.target.value)}
-                className="h-9 appearance-none rounded-lg bg-accent/30 border border-border/30 pl-3 pr-8 text-[12px] font-mono text-foreground cursor-pointer focus:outline-none focus:border-primary/60 transition-colors"
-              >
-                {(control.options ?? []).map((o) => (
-                  <option key={o.value} value={o.value} className="bg-background text-foreground">{o.label}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type={control.type === 'date' ? 'date' : control.type === 'range' ? 'number' : 'text'}
-                value={params[control.name] ?? ''}
-                onChange={(e) => setParams((prev) => ({ ...prev, [control.name]: e.target.value }))}
-                className="h-9 rounded-lg bg-accent/30 border border-border/30 px-3 text-[12px] font-mono text-foreground focus:outline-none focus:border-primary/60 transition-colors"
-              />
+    <div className="flex flex-col gap-5 animate-fade-in-up">
+      {/* Source header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+            style={{ background: source.color, boxShadow: `0 0 8px ${source.color}` }}
+          />
+          <div>
+            <h3 className="text-[15px] font-semibold text-foreground">{source.label}</h3>
+            {source.description && (
+              <p className="text-[11px] text-muted-foreground mt-0.5">{source.description}</p>
             )}
-          </label>
-        ))}
-        <span className="flex-1" />
-        <button
-          onClick={() => void fetchSeries()}
-          disabled={loading}
-          className="h-9 px-4 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
-        >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} Fetch
-        </button>
-        <button
-          onClick={exportCSV}
-          disabled={!rows || rows.length === 0}
-          className="h-9 px-3 rounded-lg bg-accent/40 hover:bg-accent/70 border border-border/40 text-muted-foreground hover:text-foreground text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Download size={12} /> CSV
-        </button>
+          </div>
+        </div>
+        {source.keyRequired && (
+          <span className="font-mono text-[10px] uppercase tracking-wider text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">
+            API key required
+          </span>
+        )}
+      </div>
+
+      {/* Toolbar — declarative controls + FETCH/CSV */}
+      <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {source.controls.map((control) => (
+            <label key={control.name} className="flex flex-col gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{control.label}</span>
+              {control.type === 'select' ? (
+                <select
+                  value={params[control.name] ?? ''}
+                  onChange={(e) => setParam(control.name, e.target.value)}
+                  className="h-9 appearance-none rounded-md bg-background border border-border/30 pl-3 pr-8 text-[13px] font-mono text-foreground cursor-pointer focus:outline-none focus:border-primary/60 transition-colors"
+                >
+                  {(control.options ?? []).map((o) => (
+                    <option key={o.value} value={o.value} className="bg-background text-foreground">{o.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={control.type === 'date' ? 'date' : control.type === 'range' ? 'number' : 'text'}
+                  value={params[control.name] ?? ''}
+                  onChange={(e) => setParams((prev) => ({ ...prev, [control.name]: e.target.value }))}
+                  className="h-9 rounded-md bg-background border border-border/30 px-3 text-[13px] font-mono text-foreground focus:outline-none focus:border-primary/60 transition-colors"
+                />
+              )}
+            </label>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <button
+            onClick={() => void fetchSeries()}
+            disabled={loading}
+            className="h-9 px-4 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} Fetch
+          </button>
+          <button
+            onClick={exportCSV}
+            disabled={!rows || rows.length === 0}
+            className="h-9 px-3 rounded-lg bg-accent/40 hover:bg-accent/70 border border-border/40 text-muted-foreground hover:text-foreground text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download size={12} /> CSV
+          </button>
+        </div>
       </div>
 
       {/* Key-gated setup prompt */}
@@ -344,17 +372,23 @@ export function EconPanel({ source }: PanelProps) {
         </div>
       )}
 
-      {/* Vintage line */}
-      {asOf && (
-        <p className="text-[10px] font-mono text-muted-foreground/70 px-1">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 align-middle" />
-          {source.label} · as of {asOf} · {rows?.length ?? 0} observations
-        </p>
-      )}
-
-      {/* Chart */}
+      {/* Chart panel */}
       {chartDeps && chartDeps.dates.length > 1 && (
-        <div ref={chartRef} className="w-full h-72 rounded-xl bg-accent/10 border border-border/20" />
+        <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 overflow-hidden">
+          <div className="flex items-center justify-between gap-4 flex-wrap px-4 py-3 border-b border-border/10">
+            <div>
+              <div className="text-[14px] font-semibold text-foreground">{chartTitle}</div>
+              <div className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                {source.label} · {asOf ? `as of ${asOf}` : ''} · {rows?.length ?? 0} observations
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-primary bg-primary/10 border border-primary/30 rounded-full px-2.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+              {source.label}
+            </span>
+          </div>
+          <div ref={chartRef} className="w-full h-72" />
+        </div>
       )}
 
       {/* Cross-section note */}

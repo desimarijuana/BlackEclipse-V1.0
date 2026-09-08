@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
-import * as echarts from 'echarts';
 
 interface SnapshotMetric {
   id: string;
@@ -26,12 +25,35 @@ interface ResearchResult {
   confidence?: number;
 }
 
-const REGION_ORDER = ['North America', 'Europe', 'Asia-Pacific'];
+// FRED series id shown as provenance on each card.
+const FRED_ID: Record<string, string> = {
+  'fed-funds': 'DFEDTARU',
+  'boe-rate': 'BOERUKM',
+  'ecb-rate': 'ECBDFR',
+  'boj-rate': 'IRSTCI01JPM156N',
+  'rba-rate': 'IRSTCI01AUM156N',
+  'rbnz-rate': 'IRSTCI01NZM156N',
+  'boc-rate': 'IRSTCI01CAM156N',
+  'snb-rate': 'IRSTCI01CHM156N',
+  'us-cpi': 'CPIAUCSL',
+  'us-gdp': 'GDPC1',
+  'us-unemp': 'UNRATE',
+  'us-10y': 'DGS10',
+};
 
-const KIND_STYLE: Record<SnapshotMetric['kind'], { border: string; text: string; badge: string; badgeLabel: string }> = {
-  rate: { border: 'border-indigo-400/25', text: 'text-indigo-300', badge: 'bg-indigo-400/10 text-indigo-300 border-indigo-400/30', badgeLabel: 'POLICY RATE' },
-  print: { border: 'border-emerald-400/25', text: 'text-emerald-300', badge: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/30', badgeLabel: 'MACRO PRINT' },
-  yield: { border: 'border-amber-400/25', text: 'text-amber-300', badge: 'bg-amber-400/10 text-amber-300 border-amber-400/30', badgeLabel: 'YIELD' },
+const FLAG: Record<string, string> = {
+  'fed-funds': 'FED · US',
+  'boe-rate': 'BOE · UK',
+  'ecb-rate': 'ECB · EU',
+  'boj-rate': 'BOJ · JP',
+  'rba-rate': 'RBA · AU',
+  'rbnz-rate': 'RBNZ · NZ',
+  'boc-rate': 'BOC · CA',
+  'snb-rate': 'SNB · CH',
+  'us-cpi': 'US · CPI',
+  'us-gdp': 'US · GDP',
+  'us-unemp': 'US · LABOUR',
+  'us-10y': 'US · RATES',
 };
 
 export function SnapshotView() {
@@ -41,8 +63,6 @@ export function SnapshotView() {
   const [refreshing, setRefreshing] = useState(false);
   const [research, setResearch] = useState<ResearchResult | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
 
   const load = async () => {
     setError(null);
@@ -89,28 +109,6 @@ export function SnapshotView() {
     }
   };
 
-  // Rate spread mini-chart: Fed / ECB / BoE / BoJ policy rates side by side.
-  useEffect(() => {
-    if (!data || !chartRef.current) return;
-    if (!chartInstance.current) chartInstance.current = echarts.init(chartRef.current);
-    const rateMetrics = data.metrics.filter((m) => m.kind === 'rate' && m.value !== null);
-    chartInstance.current.setOption({
-      backgroundColor: 'transparent',
-      grid: { left: 8, right: 8, top: 8, bottom: 8, containLabel: true },
-      tooltip: { trigger: 'axis', backgroundColor: 'rgba(15,15,15,0.92)', textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' } },
-      xAxis: { type: 'category', data: rateMetrics.map((m) => m.country), axisLabel: { color: '#737373', fontSize: 10, fontFamily: 'monospace' } },
-      yAxis: { type: 'value', axisLabel: { color: '#737373', fontSize: 10, fontFamily: 'monospace' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
-      series: [{
-        type: 'bar', barWidth: 20,
-        data: rateMetrics.map((m) => m.value),
-        itemStyle: { color: (p: { dataIndex: number }) => (rateMetrics[p.dataIndex].value ?? 0) >= 0 ? '#a78bfa' : '#fb7185', borderRadius: 4 },
-        label: { show: true, position: 'top', color: '#a3a3a3', fontSize: 10, fontFamily: 'monospace', formatter: (p: { value: number }) => `${Number(p.value.toFixed(2))}%` },
-      }],
-    }, true);
-  }, [data]);
-
-  useEffect(() => () => { chartInstance.current?.dispose(); chartInstance.current = null; }, []);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground text-xs font-mono">
@@ -125,15 +123,16 @@ export function SnapshotView() {
     );
   }
 
-  const regions = REGION_ORDER.filter((r) => data?.metrics.some((m) => m.region === r));
+  const rates = data?.metrics.filter((m) => m.kind === 'rate') ?? [];
+  const prints = data?.metrics.filter((m) => m.kind !== 'rate') ?? [];
   const builtAt = data?.builtAt ? new Date(data.builtAt) : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {/* Vintage + controls */}
-      <div className="flex items-center justify-between px-1 flex-wrap gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[10px] font-mono text-muted-foreground/70">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 align-middle" />
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 align-middle" />
           {builtAt ? `Global Macro Snapshot · built ${builtAt.toUTCString()}` : 'Global Macro Snapshot'}
         </p>
         <div className="flex gap-2">
@@ -154,9 +153,6 @@ export function SnapshotView() {
         </div>
       </div>
 
-      {/* Policy-rate spread chart */}
-      <div ref={chartRef} className="w-full h-56 rounded-xl bg-accent/10 border border-border/20" />
-
       {/* AI analysis panel */}
       {research && (
         <div className="p-4 rounded-xl bg-primary/[0.04] border border-primary/20 animate-fade-in-up">
@@ -174,38 +170,62 @@ export function SnapshotView() {
         </div>
       )}
 
-      {/* Cards grouped by region */}
-      {regions.map((region) => (
-        <div key={region}>
-          <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/70 mb-2 px-1">{region}</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {data!.metrics.filter((m) => m.region === region).map((m) => {
-              const style = KIND_STYLE[m.kind];
-              return (
-                <div key={m.id} className={`p-3.5 rounded-xl bg-accent/20 border ${style.border} flex flex-col gap-1.5`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${style.badge}`}>{style.badgeLabel}</span>
-                    <span className="text-[9px] font-mono font-bold text-muted-foreground">{m.country}</span>
-                  </div>
-                  <p className="text-[12px] font-semibold text-foreground">{m.label}</p>
-                  {m.value !== null ? (
-                    <>
-                      <p className={`text-xl font-bold font-mono ${style.text}`}>
-                        {Number(m.value.toFixed(3))}<span className="text-[11px] text-muted-foreground ml-1">{m.unit}</span>
-                      </p>
-                      <p className="text-[9px] font-mono text-muted-foreground/60">as of {m.asOf}</p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/60 font-mono flex items-center gap-1">
-                      <AlertTriangle size={10} /> unavailable
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      {/* Central-bank policy rates */}
+      <div>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2.5">
+          Central-bank policy rates · FRED
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {rates.map((m) => <SnapCard key={m.id} m={m} />)}
         </div>
-      ))}
+      </div>
+
+      {/* US macro prints */}
+      <div>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2.5">
+          US macro prints · FRED
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {prints.map((m) => <SnapCard key={m.id} m={m} />)}
+        </div>
+      </div>
+
+      {/* Data provenance */}
+      <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-5">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2">
+          Data provenance
+        </p>
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
+          Every metric above is pulled from the FRED public CSV feed and shows its value plus the{' '}
+          <span className="font-mono text-foreground">“as of”</span> vintage. No number on this screen is invented — if a
+          series is unavailable, the card is omitted rather than filled with a placeholder.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SnapCard({ m }: { m: SnapshotMetric }) {
+  return (
+    <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-3.5 flex flex-col">
+      <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+        {FLAG[m.id] ?? m.country}
+      </div>
+      <div className="text-[12px] text-muted-foreground mt-0.5">{m.label}</div>
+      {m.value !== null ? (
+        <>
+          <div className="font-mono text-[22px] font-semibold mt-1.5 text-foreground">
+            {Number(m.value.toFixed(3))}
+            {m.unit && <span className="text-[12px] text-muted-foreground ml-0.5">{m.unit}</span>}
+          </div>
+          <div className="font-mono text-[10px] text-muted-foreground mt-1">as of {m.asOf}</div>
+          <div className="font-mono text-[10px] text-primary mt-0.5">FRED · {FRED_ID[m.id] ?? m.id}</div>
+        </>
+      ) : (
+        <div className="text-[11px] text-muted-foreground/60 font-mono flex items-center gap-1 mt-1.5">
+          <AlertTriangle size={10} /> unavailable
+        </div>
+      )}
     </div>
   );
 }
