@@ -346,24 +346,26 @@ html:not(.dark) .ws-glass {
   background: rgba(122, 255, 120, 0.8);
 }
 
-/* News category tabs: original brand-green scrollbar, slightly slimmer,
-   sitting below the pills so it never collides with tab content. */
+/* News category tabs: slim grey scrollbar, sitting below the pills so it
+   never collides with tab content. !important overrides the global green
+   scrollbar blocks so the tabs always show the intended grey thumb. */
 .news-tabs-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(122, 255, 120, 0.2) transparent;
+  scrollbar-color: #3f3f46 transparent;
 }
 .news-tabs-scroll::-webkit-scrollbar {
-  height: 2px;
+  height: 2px !important;
 }
 .news-tabs-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: transparent !important;
 }
 .news-tabs-scroll::-webkit-scrollbar-thumb {
-  background: rgba(122, 255, 120, 0.2);
-  border-radius: 9999px;
+  background: #3f3f46 !important;
+  border-radius: 9999px !important;
+  border: none !important;
 }
 .news-tabs-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(122, 255, 120, 0.8);
+  background: #52525b !important;
 }
 
 /* Consistent, highly-visible shimmer skeleton styles */
