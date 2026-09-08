@@ -34,6 +34,8 @@ export function EconPanel({ source }: PanelProps) {
   const [page, setPage] = useState(1);
   const [research, setResearch] = useState<ResearchResult | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
+  const [range, setRange] = useState<'all' | '1Y' | '5Y' | '10Y'>('all');
+  const [viewMode, setViewMode] = useState<'level' | 'yoy' | 'change'>('level');
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
@@ -98,17 +100,49 @@ export function EconPanel({ source }: PanelProps) {
     } else {
       grouped.set(source.label, finite);
     }
-    const dates = [...new Set([...grouped.values()].flatMap((g) => g.map((r) => r.date)))].sort();
-    const palette = ['#a78bfa', '#34d399', '#fbbf24', '#fb7185', '#38bdf8', '#f472b6'];
-    const seriesNames = [...grouped.keys()].slice(0, 6);
+
+    // Apply view transform (level / YoY / period change) per series.
+    const transformed = new Map<string, EconPoint[]>();
+    for (const [label, pts] of grouped) {
+      const sorted = sortByDate(pts);
+      if (viewMode === 'yoy') {
+        transformed.set(label, yoySeries(sorted));
+      } else if (viewMode === 'change') {
+        transformed.set(label, pctChangeSeries(sorted));
+      } else {
+        transformed.set(label, sorted);
+      }
+    }
+
+    // Apply date-range window.
+    const windowed = new Map<string, EconPoint[]>();
+    let cutoff = -Infinity;
+    if (range !== 'all') {
+      const years = range === '1Y' ? 1 : range === '5Y' ? 5 : 10;
+      const now = Date.now();
+      for (const label of transformed.keys()) {
+        for (const r of transformed.get(label) ?? []) {
+          const ts = Date.parse(r.date);
+          if (!Number.isNaN(ts)) { cutoff = now - years * 365 * 24 * 3600 * 1000; break; }
+        }
+        if (cutoff !== -Infinity) break;
+      }
+    }
+    for (const [label, pts] of transformed) {
+      windowed.set(label, cutoff === -Infinity ? pts : pts.filter((r) => !Number.isNaN(Date.parse(r.date)) && Date.parse(r.date) >= cutoff));
+    }
+
+    const dates = [...new Set([...windowed.values()].flatMap((g) => g.map((r) => r.date)))].sort();
+    const palette = ['#7aff78', '#4ade80', '#22c55e', '#16a34a', '#34d399', '#a3e635'];
+    const seriesNames = [...windowed.keys()].slice(0, 6);
     return {
       seriesNames,
       dates,
-      grouped,
+      grouped: windowed,
       palette,
       labelKey,
     };
-  }, [rows, source.label]);
+  }, [rows, source.label, range, viewMode]);
 
   useEffect(() => {
     if (!chartRef.current || !chartDeps) return;
@@ -122,7 +156,7 @@ export function EconPanel({ source }: PanelProps) {
       tooltip: {
         trigger: 'axis',
         backgroundColor: 'rgba(15,15,15,0.92)',
-        borderColor: 'rgba(167,139,250,0.25)',
+        borderColor: 'rgba(122,255,120,0.25)',
         textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' },
       },
       legend: seriesNames.length > 1
@@ -209,6 +243,16 @@ export function EconPanel({ source }: PanelProps) {
     URL.revokeObjectURL(url);
   };
 
+  // ─── PNG export ─────────────────────────────────────────────────────────
+  const exportPNG = () => {
+    if (!chartInstance.current) return;
+    const url = chartInstance.current.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f0f0f' });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${source.id}_chart.png`;
+    a.click();
+  };
+
   // ─── Real agent research ───────────────────────────────────────────────
   const runAnalysis = async () => {
     const label = params.indicator
@@ -257,17 +301,11 @@ export function EconPanel({ source }: PanelProps) {
     <div className="flex flex-col gap-5 animate-fade-in-up">
       {/* Source header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-            style={{ background: source.color, boxShadow: `0 0 8px ${source.color}` }}
-          />
-          <div>
-            <h3 className="text-[15px] font-semibold text-foreground">{source.label}</h3>
-            {source.description && (
-              <p className="text-[11px] text-muted-foreground mt-0.5">{source.description}</p>
-            )}
-          </div>
+        <div>
+          <h3 className="text-[15px] font-semibold text-foreground">{source.label}</h3>
+          {source.description && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">{source.description}</p>
+          )}
         </div>
         {source.keyRequired && (
           <span className="font-mono text-[10px] uppercase tracking-wider text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">
@@ -387,6 +425,46 @@ export function EconPanel({ source }: PanelProps) {
               {source.label}
             </span>
           </div>
+
+          {/* Chart controls: range, view mode, export */}
+          <div className="flex items-center gap-2 flex-wrap px-4 py-2 border-b border-border/10">
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-accent/30 border border-border/20">
+              {(['all', '10Y', '5Y', '1Y'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  aria-pressed={range === r}
+                  className={`h-6 px-2.5 rounded-md font-mono text-[10px] transition-colors cursor-pointer ${
+                    range === r ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {r === 'all' ? 'All' : r}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-accent/30 border border-border/20">
+              {([['level', 'Level'], ['yoy', 'YoY %'], ['change', 'MoM %']] as const).map(([m, label]) => (
+                <button
+                  key={m}
+                  onClick={() => setViewMode(m)}
+                  aria-pressed={viewMode === m}
+                  className={`h-6 px-2.5 rounded-md font-mono text-[10px] transition-colors cursor-pointer ${
+                    viewMode === m ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="flex-1" />
+            <button
+              onClick={exportPNG}
+              className="h-6 px-2.5 rounded-md font-mono text-[10px] text-muted-foreground border border-border/30 hover:text-foreground hover:border-foreground transition-colors cursor-pointer"
+            >
+              PNG
+            </button>
+          </div>
+
           <div ref={chartRef} className="w-full h-72" />
         </div>
       )}
@@ -513,4 +591,30 @@ function fmt(v: number): string {
 
 function fmtPct(v: number): string {
   return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+}
+
+// Year-over-year percent change: (v - v_12_periods_ago) / v_12_periods_ago * 100.
+function yoySeries(points: EconPoint[]): EconPoint[] {
+  const out: EconPoint[] = [];
+  for (let i = 12; i < points.length; i++) {
+    const prev = points[i - 12].value;
+    const cur = points[i].value;
+    if (prev === null || prev === undefined || prev === 0 || cur === null || cur === undefined) continue;
+    const v = ((cur - prev) / prev) * 100;
+    if (Number.isFinite(v)) out.push({ date: points[i].date, value: v });
+  }
+  return out;
+}
+
+// Period-over-period percent change: (v - prev) / prev * 100.
+function pctChangeSeries(points: EconPoint[]): EconPoint[] {
+  const out: EconPoint[] = [];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1].value;
+    const cur = points[i].value;
+    if (prev === null || prev === undefined || prev === 0 || cur === null || cur === undefined) continue;
+    const v = ((cur - prev) / prev) * 100;
+    if (Number.isFinite(v)) out.push({ date: points[i].date, value: v });
+  }
+  return out;
 }

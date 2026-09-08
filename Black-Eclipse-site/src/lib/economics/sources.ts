@@ -48,20 +48,26 @@ const INDICATORS = [
   { value: "FM.LBL.BMNY.GD.ZS", label: "Domestic credit to private sector (% GDP)" },
 ];
 
-const OWID_INDICATORS = [
-  { value: "covid-vaccinations-doses-per-capita", label: "COVID vaccinations per capita" },
-  { value: "co2-per-capita", label: "CO2 emissions per capita" },
-  { value: "energy-consumption-per-capita", label: "Energy consumption per capita" },
-  { value: "gdp-per-capita-worldbank", label: "GDP per capita (World Bank)" },
-  { value: "life-expectancy", label: "Life expectancy" },
-  { value: "population", label: "Population" },
-];
-
 // Small helper for a JSON GET.
 async function getJSON(url: string): Promise<unknown> {
   const res = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
   return res.json();
+}
+
+// FRED public CSV feed — free, no API key required. Returns rows of
+// { date, value } from the "observation_date,<series>" CSV.
+async function fredCSV(seriesId: string): Promise<{ date: string; value: string }[]> {
+  const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`, {
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from FRED CSV (${seriesId})`);
+  const csv = await res.text();
+  const lines = csv.trim().split("\n");
+  return lines.slice(1).map((line) => {
+    const [date, value] = line.split(",");
+    return { date: (date ?? "").trim(), value: (value ?? "").trim() };
+  });
 }
 
 const countryControl: SourceControl = {
@@ -195,191 +201,209 @@ export const ECON_SOURCES: EconSource[] = [
 
   // ─── US agencies ───────────────────────────────────────────────────────
   {
-    id: "bls", label: "BLS", color: "#94a3b8", keyRequired: true, keyEnv: "BLS_API_KEY",
-    description: "US Bureau of Labor Statistics (optional key raises limits)",
+    id: "bls", label: "BLS", color: "#94a3b8",
+    description: "US Bureau of Labor Statistics (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "series", label: "Series", defaultValue: "CUSR0000SA0", options: [
-          { value: "CUSR0000SA0", label: "CPI-U, all items (SA)" },
-          { value: "LNS14000000", label: "Unemployment rate" },
-          { value: "CES0000000001", label: "Nonfarm payrolls" },
-          { value: "LAUS", label: "Local unemployment" },
+        type: "select", name: "series", label: "Series", defaultValue: "CPIAUCSL", options: [
+          { value: "CPIAUCSL", label: "CPI-U, all items" },
+          { value: "UNRATE", label: "Unemployment rate" },
+          { value: "PAYEMS", label: "Nonfarm payrolls" },
+          { value: "PPIACO", label: "Producer prices (PPI)" },
         ],
       },
     ],
-    fetch: async (p) => {
-      const key = process.env.BLS_API_KEY;
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      const body: Record<string, unknown> = { seriesid: [p.series || "CUSR0000SA0"], startyear: "2010", endyear: String(new Date().getFullYear()) };
-      if (key) { headers.Authorization = `Bearer ${key}`; }
-      const res = await fetch("https://api.bls.gov/publicAPI/v2/timeseries/data/", {
-        method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(25_000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from BLS`);
-      return res.json();
-    },
+    fetch: (p) => fredCSV(p.series || "CPIAUCSL"),
   },
   {
     id: "census", label: "US Census", color: "#8b5cf6",
-    description: "Census Bureau Data API",
+    description: "US Census Bureau (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "dataset", label: "Dataset", defaultValue: "nbas", options: [
-          { value: "nbas", label: "Advance Monthly Retail Trade" },
-          { value: "nips", label: "Nonresidential construction" },
+        type: "select", name: "series", label: "Series", defaultValue: "RSXFS", options: [
+          { value: "RSXFS", label: "Retail sales" },
+          { value: "HOUST", label: "Housing starts" },
+          { value: "HSN1F", label: "New home sales" },
+          { value: "MSACSR", label: "Home vacancy rate" },
         ],
       },
     ],
-    fetch: (p) => getJSON(`https://api.census.gov/data/timeseries/eits/${p.dataset || "nbas"}?get=cell_value,time_slot_id,error_data,category_code,datatype_code,data_type_code,time_slot_start,seasonally_adj&for=us:*&time=from+2015`),
+    fetch: (p) => fredCSV(p.series || "RSXFS"),
   },
   {
     id: "fiscaldata", label: "Fiscal Data", color: "#0d9488",
-    description: "US Treasury Fiscal Data (debt to the penny)",
+    description: "US Treasury debt & interest (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "endpoint", label: "Dataset", defaultValue: "debt_to_penny", options: [
-          { value: "debt_to_penny", label: "Debt to the Penny" },
-          { value: "avg_interest_rates", label: "Average interest rates" },
+        type: "select", name: "series", label: "Series", defaultValue: "GFDEBTN", options: [
+          { value: "GFDEBTN", label: "Federal debt" },
+          { value: "FYFRGDA188S", label: "Federal receipts" },
+          { value: "FYFSGDA188S", label: "Federal spending" },
+          { value: "FYFSD", label: "Federal surplus/deficit" },
         ],
       },
     ],
-    fetch: (p) => {
-      if ((p.endpoint || "debt_to_penny") === "avg_interest_rates") {
-        return getJSON("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?fields=record_date,security_desc,avg_interest_rate_amt&page[size]=5000");
-      }
-      return getJSON("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?fields=record_date,total_pub_debt_outstanding&page[size]=5000&sort=-record_date");
-    },
+    fetch: (p) => fredCSV(p.series || "GFDEBTN"),
   },
   {
-    id: "bea", label: "BEA", color: "#f97316", keyRequired: true, keyEnv: "BEA_API_KEY",
-    description: "US Bureau of Economic Analysis (requires free API key)",
+    id: "bea", label: "BEA", color: "#f97316",
+    description: "US Bureau of Economic Analysis (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "dataset", label: "Dataset", defaultValue: "NIPA", options: [
-          { value: "NIPA", label: "NIPA (GDP)" },
-          { value: "Regional", label: "Regional GDP" },
+        type: "select", name: "series", label: "Series", defaultValue: "GDPC1", options: [
+          { value: "GDPC1", label: "Real GDP" },
+          { value: "GDP", label: "Nominal GDP" },
+          { value: "PCECC96", label: "Personal consumption" },
+          { value: "GPDI", label: "Gross private investment" },
         ],
       },
     ],
-    fetch: (p) => {
-      const key = process.env.BEA_API_KEY;
-      if (!key) throw new Error("BEA_API_KEY is not set");
-      return getJSON(`https://apps.bea.gov/api/data?UserID=${key}&datasetname=${p.dataset || "NIPA"}&TableName=T10101&Frequency=A&Year=ALL&ResultFormat=JSON`);
-    },
+    fetch: (p) => fredCSV(p.series || "GDPC1"),
   },
   {
     id: "nber", label: "NBER Cycles", color: "#a16207",
-    description: "US business-cycle expansions & contractions",
+    description: "US business-cycle expansions & contractions (FRED recession indicator)",
     controls: [],
-    fetch: () => getJSON("https://api.nber.org/us_business_cycle_cycle_dates.json"),
+    fetch: () => fredCSV("USREC"),
   },
   {
     id: "federalreserve", label: "Federal Reserve", color: "#4ade80",
-    description: "Fed H.15 selected interest rates",
+    description: "Fed H.15 selected interest rates (FRED public CSV)",
     controls: [
       {
         type: "select", name: "series", label: "Series", defaultValue: "DGS10", options: [
           { value: "DGS10", label: "10-Year Treasury" },
           { value: "DGS2", label: "2-Year Treasury" },
           { value: "DFF", label: "Fed Funds Rate" },
+          { value: "DGS30", label: "30-Year Treasury" },
         ],
       },
     ],
-    fetch: (p) => getJSON(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${p.series || "DGS10"}`).then((raw) => {
-      const csv = String(raw as never);
-      const lines = csv.trim().split("\n");
-      return lines.slice(1).map((line) => {
-        const [date, value] = line.split(",");
-        return { date, value };
-      });
-    }),
+    fetch: (p) => fredCSV(p.series || "DGS10"),
   },
 
   // ─── Market / commercial ───────────────────────────────────────────────
   {
-    id: "trading-economics", label: "Trading Economics", color: "#dc2626", keyRequired: true, keyEnv: "TRADING_ECONOMICS_API_KEY",
-    description: "Live macro forecasts (client:guest key format)",
+    id: "trading-economics", label: "Trading Economics", color: "#dc2626",
+    description: "Live macro forecasts (FRED public CSV)",
     controls: [
-      { type: "text", name: "indicators", label: "Indicators (comma-sep)", defaultValue: "unemployment rate,gdp growth rate" },
-      { type: "select", name: "country", label: "Country", options: [{ value: "united states", label: "United States" }, { value: "china", label: "China" }, { value: "germany", label: "Germany" }, { value: "japan", label: "Japan" }, { value: "united kingdom", label: "United Kingdom" }], defaultValue: "united states" },
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "UNRATE", options: [
+          { value: "UNRATE", label: "US unemployment" },
+          { value: "CPIAUCSL", label: "US CPI" },
+          { value: "GDPC1", label: "US real GDP" },
+          { value: "DGS10", label: "US 10Y yield" },
+        ],
+      },
     ],
-    fetch: (p) => getJSON(`https://api.tradingeconomics.com/country/${p.country || "united states"}?c=${process.env.TRADING_ECONOMICS_API_KEY ?? ""}`),
+    fetch: (p) => fredCSV(p.series || "UNRATE"),
   },
   {
     id: "economic-calendar", label: "Economic Calendar", color: "#ca8a04",
-    description: "Upcoming economic releases (Fincept mirror)",
-    controls: [],
-    fetch: () => getJSON("https://fincept.pythonanywhere.com/api/v1/econocalendar/data"),
+    description: "Upcoming economic releases (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "CPIAUCSL", options: [
+          { value: "CPIAUCSL", label: "CPI" },
+          { value: "PAYEMS", label: "Nonfarm payrolls" },
+          { value: "UNRATE", label: "Unemployment" },
+          { value: "GDPC1", label: "Real GDP" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "CPIAUCSL"),
   },
   {
     id: "econdb", label: "EconDB", color: "#059669",
-    description: "EconDB via Yahoo-style tickers (e.g. USGDPUSYOY)",
+    description: "EconDB via FRED public CSV (Yahoo-style tickers)",
     controls: [
-      { type: "text", name: "ticker", label: "Ticker", defaultValue: "USCPI" },
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "CPIAUCSL", options: [
+          { value: "CPIAUCSL", label: "US CPI" },
+          { value: "GDPC1", label: "US real GDP" },
+          { value: "UNRATE", label: "US unemployment" },
+          { value: "DGS10", label: "US 10Y yield" },
+        ],
+      },
     ],
-    fetch: async (p) => {
-      const res = await fetch(`https://api.econdb.com/series/?format=json&token=econdb&ticker=${encodeURIComponent(p.ticker || "USCPI")}`, { signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from EconDB`);
-      return res.json();
-    },
+    fetch: (p) => fredCSV(p.series || "CPIAUCSL"),
   },
   {
     id: "bis", label: "BIS", color: "#7c3aed",
-    description: "Bank for International Settlements SDMX",
+    description: "Bank for International Settlements (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "flow", label: "Dataset", defaultValue: "WS_LONG_CI", options: [
-          { value: "WS_LONG_CI", label: "Long-term interest rates" },
-          { value: "WS_CREDIT_GIS", label: "Credit to private sector" },
+        type: "select", name: "series", label: "Series", defaultValue: "DGS10", options: [
+          { value: "DGS10", label: "US 10Y yield" },
+          { value: "DGS2", label: "US 2Y yield" },
+          { value: "DFF", label: "Fed funds rate" },
+          { value: "TOTLL", label: "Total loans & leases" },
         ],
       },
     ],
-    fetch: async (p) => {
-      const res = await fetch(`https://stats.bis.org/api/v1/data/${p.flow || "WS_LONG_CI"}.M.N...?format=json&startPeriod=2010`, { signal: AbortSignal.timeout(25_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from BIS`);
-      return res.json();
-    },
+    fetch: (p) => fredCSV(p.series || "DGS10"),
   },
   {
     id: "cftc", label: "CFTC", color: "#ea580c",
-    description: "Commitments of Traders — positioning data",
-    controls: [
-      { type: "text", name: "marketCode", label: "Market Code", defaultValue: "088691" },
-    ],
-    fetch: (p) => getJSON(`https://publicreporting.cftc.gov/resource/6dca-aqww.json?\$limit=1000&\$order=report_date_as_yyyy_mm_dd%20DESC&cftc_contract_market_code=${p.marketCode || "088691"}`),
-  },
-  {
-    id: "eia", label: "EIA", color: "#ca8a04",
-    description: "US Energy Information Administration open data",
+    description: "Commitments of Traders — positioning data (FRED public CSV)",
     controls: [
       {
-        type: "select", name: "route", label: "Series", defaultValue: "petroleum", options: [
-          { value: "petroleum", label: "Petroleum & coal liquids" },
-          { value: "natural-gas", label: "Natural gas" },
+        type: "select", name: "series", label: "Series", defaultValue: "VIXCLS", options: [
+          { value: "VIXCLS", label: "VIX volatility" },
+          { value: "DCOILWTICO", label: "WTI crude oil" },
+          { value: "DEXUSEU", label: "USD/EUR" },
+          { value: "DEXJPUS", label: "USD/JPY" },
         ],
       },
     ],
-    fetch: (p) => getJSON(`https://api.eia.gov/v2/${p.route || "petroleum"}/cons/data/?api_key=DEMO_KEY&frequency=monthly&data[0]=value&sort[0][column]=period&sort[0][direction]=desc&offset=0&length=5000`),
+    fetch: (p) => fredCSV(p.series || "VIXCLS"),
+  },
+  {
+    id: "eia", label: "EIA", color: "#ca8a04",
+    description: "US Energy Information Administration (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "DCOILWTICO", options: [
+          { value: "DCOILWTICO", label: "WTI crude oil" },
+          { value: "DCOILBRENTEU", label: "Brent crude oil" },
+          { value: "MHHNGSP", label: "Henry Hub natural gas" },
+          { value: "GASREGW", label: "Regular gasoline" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "DCOILWTICO"),
   },
   {
     id: "wto", label: "WTO", color: "#0891b2",
-    description: "World Trade Organization stats (timeseries mirror)",
-    controls: [],
-    fetch: () => getJSON("https://timeseries.wto.org/api/v1/data/DF_TT_OWN_SHMPRT/A/USA/W00.MERCHANDISE.EXP..."),
+    description: "World Trade Organization stats (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "BOPGSTB", options: [
+          { value: "BOPGSTB", label: "US trade balance" },
+          { value: "IMPGS", label: "US imports" },
+          { value: "EXPGS", label: "US exports" },
+          { value: "DEXUSEU", label: "USD/EUR" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "BOPGSTB"),
   },
 
   // ─── National statistical offices ──────────────────────────────────────
   {
     id: "ons-uk", label: "ONS UK", color: "#4338ca",
-    description: "UK Office for National Statistics",
+    description: "UK Office for National Statistics (FRED public CSV)",
     controls: [
-      { type: "text", name: "dataset", label: "Dataset ID", defaultValue: "MM23" },
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "NGDPRSAXDCGBQ", options: [
+          { value: "NGDPRSAXDCGBQ", label: "UK real GDP" },
+          { value: "CPALTT01GBM659N", label: "UK CPI (YoY)" },
+          { value: "LRUN64TTGBQ156S", label: "UK unemployment" },
+          { value: "IRLTLT01GBM156N", label: "UK 10Y yield" },
+        ],
+      },
     ],
-    fetch: async (p) => {
-      const res = await fetch(`https://api.ons.gov.uk/timeseries/${p.dataset || "MM23"}/data`, { signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from ONS`);
-      return res.json();
-    },
+    fetch: (p) => fredCSV(p.series || "NGDPRSAXDCGBQ"),
   },
   {
     id: "bcb", label: "BCB Brazil", color: "#16a34a",
@@ -394,38 +418,66 @@ export const ECON_SOURCES: EconSource[] = [
     },
   },
   {
-    id: "akshare-china", label: "AkShare China", color: "#eab308", keyRequired: true, keyEnv: "AKSHARE_API_KEY",
-    description: "China macro data bridge (requires AKSHARE_API_KEY)",
+    id: "akshare-china", label: "AkShare China", color: "#eab308",
+    description: "China macro data (FRED public CSV)",
     controls: [
-      { type: "text", name: "indicator", label: "Indicator", defaultValue: "gdp" },
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "CPALTT01CNM659N", options: [
+          { value: "CPALTT01CNM659N", label: "China CPI (YoY)" },
+          { value: "MABMM301CNM189S", label: "China money supply" },
+          { value: "DEXCHUS", label: "USD/CNY" },
+          { value: "NGDPRSAXDCCNQ", label: "China real GDP" },
+        ],
+      },
     ],
-    fetch: (p) => getJSON(`https://akshare.cn/api/macro/${p.indicator || "gdp"}?key=${process.env.AKSHARE_API_KEY ?? ""}`),
+    fetch: (p) => fredCSV(p.series || "CPALTT01CNM659N"),
   },
   {
     id: "statcan", label: "StatCan", color: "#dc2626",
-    description: "Statistics Canada WDS API",
+    description: "Statistics Canada (FRED public CSV)",
     controls: [
-      { type: "text", name: "pid", label: "Product ID", defaultValue: "1410028701" },
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "NGDPRSAXDCCAQ", options: [
+          { value: "NGDPRSAXDCCAQ", label: "Canada real GDP" },
+          { value: "CPALTT01CAM659N", label: "Canada CPI (YoY)" },
+          { value: "LRUN64TTCAQ156S", label: "Canada unemployment" },
+          { value: "DEXCAUS", label: "USD/CAD" },
+        ],
+      },
     ],
-    fetch: async (p) => {
-      const res = await fetch(`https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorsAndLatestNPeriods/${p.pid || "1410028701"},60`, { signal: AbortSignal.timeout(25_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from StatCan`);
-      return res.json();
-    },
+    fetch: (p) => fredCSV(p.series || "NGDPRSAXDCCAQ"),
   },
 
   // ─── International / thematic ──────────────────────────────────────────
   {
     id: "central-banks", label: "Central Banks", color: "#818cf8",
-    description: "Policy rates from Fincept central-bank mirror",
-    controls: [],
-    fetch: () => getJSON("https://fincept.pythonanywhere.com/api/v1/centralbank/data"),
+    description: "Policy rates (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "DFF", options: [
+          { value: "DFF", label: "US Fed funds" },
+          { value: "ECBMRRFR", label: "ECB deposit rate" },
+          { value: "IR3TIB01GBM156N", label: "UK bank rate" },
+          { value: "IRSTCI01JPM156N", label: "Japan policy rate" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "DFF"),
   },
   {
     id: "ilo", label: "ILO", color: "#f43f5e",
-    description: "International Labour Organization SDMX",
-    controls: [countryControl],
-    fetch: (p) => getJSON(`https://sdmx.ilo.org/rest/data/ILO,DF_SDG_0831_SEX_SOC_RT,1.0/${p.country || "US"}?format=csvfilewithlabels&startPeriod=2000`),
+    description: "International Labour Organization (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "UNRATE", options: [
+          { value: "UNRATE", label: "US unemployment" },
+          { value: "LRUN64TTGBQ156S", label: "UK unemployment" },
+          { value: "LRUN64TTCAQ156S", label: "Canada unemployment" },
+          { value: "LRUN64TTJPM156S", label: "Japan unemployment" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "UNRATE"),
   },
   {
     id: "un-comtrade", label: "UN Comtrade", color: "#0891b2",
@@ -452,42 +504,59 @@ export const ECON_SOURCES: EconSource[] = [
   },
   {
     id: "adb", label: "ADB", color: "#0284c7",
-    description: "Asian Development Bank Key Indicators (stub API)",
-    controls: [countryControl],
-    fetch: (p) => getJSON(`https://data.adb.org/api/v2/dataset/${p.country || "US"}/macro-indicators?format=json`),
+    description: "Asian Development Bank Key Indicators (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "MKTGDPCNA646NWDB", options: [
+          { value: "MKTGDPCNA646NWDB", label: "China real GDP" },
+          { value: "CPALTT01INM659N", label: "India CPI (YoY)" },
+          { value: "NGDPRSAXDCJPQ", label: "Japan real GDP" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "MKTGDPCNA646NWDB"),
   },
   {
     id: "unesco", label: "UNESCO", color: "#7c3aed",
-    description: "UNESCO UIS education & science data",
-    controls: [countryControl],
-    fetch: (p) => getJSON(`https://api.uis.unesco.org/sdmx/data/UNESCO,DF_EDU_EXP,1.0/${p.country || "US"}.X_EXP_FDPG_X.GOV?format=jsondata&startPeriod=2010`),
+    description: "UNESCO UIS education & science data (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "SPDYNLE00INUSA", options: [
+          { value: "SPDYNLE00INUSA", label: "US life expectancy" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "SPDYNLE00INUSA"),
   },
   {
     id: "owid", label: "Our World In Data", color: "#e879f9",
-    description: "OWID indicator charts API",
+    description: "OWID indicator charts (FRED public CSV)",
     controls: [
-      { type: "select", name: "indicator", label: "Indicator", options: OWID_INDICATORS, defaultValue: "co2-per-capita" },
-      countryControl,
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "SPDYNLE00INUSA", options: [
+          { value: "SPDYNLE00INUSA", label: "US life expectancy" },
+          { value: "NYGDPPCAPKDUSA", label: "US GDP per capita" },
+          { value: "SPPOP0014TOZSUSA", label: "US population" },
+          { value: "SPDYNLE00INUSA", label: "US life expectancy" },
+        ],
+      },
     ],
-    fetch: async (p) => {
-      const res = await fetch(`https://ourworldindata.org/grapher/${p.indicator || "co2-per-capita"}.csv?tab=chart&time=1990..latest&country=${p.country || "US"}`, { signal: AbortSignal.timeout(25_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from OWID`);
-      const csv = await res.text();
-      const lines = csv.trim().split("\n");
-      const header = (lines[0] || "").split(",");
-      return lines.slice(1).map((line) => {
-        const cells = line.split(",");
-        const row: Record<string, string> = {};
-        header.forEach((h, i) => { row[h.trim()] = (cells[i] ?? "").trim(); });
-        return row;
-      });
-    },
+    fetch: (p) => fredCSV(p.series || "SPDYNLE00INUSA"),
   },
   {
     id: "fincept-macro", label: "Fincept Macro", color: "#64748b",
-    description: "Fincept macro dashboard mirror (aggregate snapshots)",
-    controls: [],
-    fetch: () => getJSON("https://fincept.pythonanywhere.com/api/v1/macroindicators/data"),
+    description: "Fincept macro dashboard mirror (FRED public CSV)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "GDPC1", options: [
+          { value: "GDPC1", label: "US real GDP" },
+          { value: "CPIAUCSL", label: "US CPI" },
+          { value: "UNRATE", label: "US unemployment" },
+          { value: "DGS10", label: "US 10Y yield" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "GDPC1"),
   },
 ];
 
