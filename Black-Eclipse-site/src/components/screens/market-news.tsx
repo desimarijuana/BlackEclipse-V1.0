@@ -51,7 +51,13 @@ interface MarketNewsProps {
   onNewsSentiment?: (score: number) => void;
 }
 
-const CATEGORIES = ['MARKETS', 'CRYPTO', 'REGULATORY', 'GEOPOLITICS', 'ECONOMIC', 'TECH', 'ENERGY'] as const;
+const CATEGORIES = [
+  'MARKETS', 'STOCKS', 'BONDS', 'FOREX', 'CRYPTO', 'COMMODITIES',
+  'ECONOMIC', 'INFLATION', 'CENTRAL BANKS', 'JOBS', 'TRADE',
+  'GEOPOLITICS', 'WAR', 'POLITICS', 'DEFENSE',
+  'REGULATORY', 'TECH', 'AI', 'ENERGY', 'HEALTHCARE', 'AUTO',
+  'CLIMATE',
+] as const;
 const REGIONS = ['US', 'GLOBAL', 'EU', 'UK', 'ASIA', 'INDIA', 'MENA'] as const;
 const TIERS = [
   { value: '1', label: 'T1 Wires' },
@@ -609,6 +615,38 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
   if (fullPage) {
     return (
       <div className="w-full flex flex-col gap-6 select-none">
+        {/* ─── Category Tabs — one-tap browse, front and center ─── */}
+        <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl px-3 py-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => setFilter({ category: '' })}
+              className={`shrink-0 h-8 px-3.5 rounded-full text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all border whitespace-nowrap ${
+                !filters.category
+                  ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_12px_rgba(59,130,246,0.25)]'
+                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground hover:border-primary/40'
+              }`}
+            >
+              All
+            </button>
+            {CATEGORIES.map((cat) => {
+              const active = filters.category === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilter({ category: active ? '' : cat })}
+                  className={`shrink-0 h-8 px-3.5 rounded-full text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all border whitespace-nowrap ${
+                    active
+                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_12px_rgba(59,130,246,0.25)]'
+                      : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground hover:border-primary/40'
+                  }`}
+                >
+                  {cat === 'CENTRAL BANKS' ? 'Central Banks' : cat === 'GEOPOLITICS' ? 'Geopolitics' : cat === 'REGULATORY' ? 'Regulatory' : cat === 'ECONOMIC' ? 'Economic' : cat.charAt(0) + cat.slice(1).toLowerCase()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
@@ -620,7 +658,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
               <input
                 value={pendingQ}
                 onChange={(e) => setPendingQ(e.target.value)}
-                placeholder="Search… try ticker:NVDA  sentiment:bearish  category:CRYPTO"
+                placeholder="Search… try ticker:NVDA  sentiment:bearish  category:WAR"
                 className="h-9 w-full rounded-lg bg-accent/30 border border-border/30 pl-9 pr-8 text-[12px] font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/60 transition-colors"
               />
               {pendingQ && (
