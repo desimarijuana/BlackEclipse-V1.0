@@ -19,22 +19,25 @@ export const DATE_KEYS = [
   "date", "Date", "DATE", "TIME_PERIOD", "time_period", "timePeriod", "period",
   "Period", "year", "Year", "YEAR", "record_date", "ref_date", "obs_date",
   "obsDate", "referenceAreaDate", "REF_DATE", "Ref_Date", "start_of_week",
-  "release_date", "asOfDate", "time", "timestamp",
+  "release_date", "asOfDate", "time", "timestamp", "data",
 ] as const;
 
 // ~7 value-key spellings.
 export const VALUE_KEYS = [
   "value", "Value", "VALUE", "OBS_VALUE", "obs_value", "obsValue",
-  "amount", "rate", "Rate", "y", "Y", "close", "level",
+  "amount", "rate", "Rate", "y", "Y", "close", "level", "valor",
 ] as const;
 
 // Zero-pad a bare year so lexicographic sorting is correct: "999" -> "0999".
 export function padYear(date: string): string {
   const trimmed = date.trim();
   if (/^\d{1,3}$/.test(trimmed)) return trimmed.padStart(4, "0");
-  // ISO-ish "999-01" partial → pad the year part.
-  const m = trimmed.match(/^(\d{1,3})([-/].+)$/);
-  if (m) return m[1].padStart(4, "0") + m[2];
+  // Partial year like "999-01" (year 999, month 01) → pad the year part. Only
+  // when the string has no 4-digit year already (i.e. it's not a full date).
+  if (!/\d{4}/.test(trimmed)) {
+    const m = trimmed.match(/^(\d{1,3})([-/].+)$/);
+    if (m) return m[1].padStart(4, "0") + m[2];
+  }
   return trimmed;
 }
 
@@ -69,8 +72,17 @@ function pickValue(row: Record<string, unknown>): number | null {
 // { indicator: [...], country: [...], data: [...] } etc.
 function extractRows(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) {
-    // Array of scalars → not rows; array of plain objects → rows.
     if (raw.length === 0) return [];
+    // Prefer a nested array-of-objects member (World Bank v2 returns
+    // [meta, [rows]]; IMF/others wrap data in arrays too). Recurse into the
+    // first element that is itself an array of plain objects.
+    for (const v of raw) {
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object" && !Array.isArray(v[0])) {
+        const nested = extractRows(v);
+        if (nested.length > 0) return nested;
+      }
+    }
+    // Otherwise, an array of plain objects is the rows themselves.
     const first = raw[0];
     if (typeof first === "object" && first !== null && !Array.isArray(first)) {
       return raw as Record<string, unknown>[];
@@ -86,16 +98,6 @@ function extractRows(raw: unknown): Record<string, unknown>[] {
       }
     }
     for (const v of Object.values(obj)) {
-      if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
-        const nested = extractRows(v);
-        if (nested.length > 0) return nested;
-      }
-    }
-  }
-  // Top-level arrays that mix metadata rows with data rows (World Bank v2:
-  // [["meta"], [{...rows}]]): recurse into any object-array member.
-  if (Array.isArray(raw)) {
-    for (const v of raw) {
       if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object") {
         const nested = extractRows(v);
         if (nested.length > 0) return nested;
@@ -133,6 +135,11 @@ function rowsFromTuples(raw: unknown): Record<string, unknown>[] {
 }
 
 export function normalizeEconomicSeries(raw: unknown, _sourceId: string): EconPoint[] {
+  // SDMX-JSON: { value: { "0": 100.5, ... }, dimension: { time: {...}, geo: {...} } }
+  // Values are keyed by flattened index; dimensions map each index to labels.
+  const sdmx = rowsFromSdmx(raw);
+  if (sdmx.length > 0) return sdmx;
+
   const tuples = rowsFromTuples(raw);
   const rows = tuples.length > 0 ? tuples : extractRows(raw);
   const out: EconPoint[] = [];
@@ -148,6 +155,42 @@ export function normalizeEconomicSeries(raw: unknown, _sourceId: string): EconPo
       rest[k] = v;
     }
     out.push({ date, value, ...rest });
+  }
+  return out;
+}
+
+// SDMX-JSON (Eurostat, OECD, BIS, ILO, UNESCO, ECB): the payload has a `value`
+// object keyed by flattened index and a `dimension` object whose members map
+// each index to a label (e.g. time → { "0": "2015", ... }, geo → { "0": "EU27_2020" }).
+// We reconstruct one row per index, using the `time` dimension as the date.
+function rowsFromSdmx(raw: unknown): EconPoint[] {
+  if (!raw || typeof raw !== "object") return [];
+  const obj = raw as Record<string, unknown>;
+  const value = obj.value;
+  const dimension = obj.dimension;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  if (!dimension || typeof dimension !== "object" || Array.isArray(dimension)) return [];
+
+  const dims = dimension as Record<string, unknown>;
+  // Find the time dimension (any of the common spellings).
+  const timeKey = Object.keys(dims).find((k) => ["time", "TIME", "Time", "period", "TIME_PERIOD"].includes(k));
+  const timeDim = timeKey ? (dims[timeKey] as Record<string, unknown>) : null;
+  const timeIndex = timeDim && typeof timeDim === "object" ? (timeDim.index as Record<string, unknown> | undefined) : undefined;
+
+  const out: EconPoint[] = [];
+  for (const [idx, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null || v === undefined) continue;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, ""));
+    if (!Number.isFinite(n)) continue;
+    let date: string | null = null;
+    if (timeIndex && timeIndex[idx] !== undefined) {
+      date = padYear(String(timeIndex[idx]));
+    } else if (timeDim && timeDim.categories) {
+      const cat = (timeDim.categories as Record<string, unknown>).index as Record<string, unknown> | undefined;
+      if (cat && cat[idx] !== undefined) date = padYear(String(cat[idx]));
+    }
+    if (!date) continue;
+    out.push({ date, value: n });
   }
   return out;
 }
