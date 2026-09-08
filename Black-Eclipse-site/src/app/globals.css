@@ -346,24 +346,24 @@ html:not(.dark) .ws-glass {
   background: rgba(122, 255, 120, 0.8);
 }
 
-/* News category tabs: slim, low-contrast scrollbar that sits below the pills
-   instead of colliding with them, keeping the strip clean and aesthetic. */
+/* News category tabs: original brand-green scrollbar, slightly slimmer,
+   sitting below the pills so it never collides with tab content. */
 .news-tabs-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(122, 255, 120, 0.28) transparent;
+  scrollbar-color: rgba(122, 255, 120, 0.2) transparent;
 }
 .news-tabs-scroll::-webkit-scrollbar {
-  height: 4px;
+  height: 3px;
 }
 .news-tabs-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 .news-tabs-scroll::-webkit-scrollbar-thumb {
-  background: rgba(122, 255, 120, 0.28);
+  background: rgba(122, 255, 120, 0.2);
   border-radius: 9999px;
 }
 .news-tabs-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(122, 255, 120, 0.6);
+  background: rgba(122, 255, 120, 0.8);
 }
 
 /* Consistent, highly-visible shimmer skeleton styles */
