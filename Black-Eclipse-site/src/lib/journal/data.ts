@@ -402,3 +402,26 @@ export async function deleteTradeScreenshot(profileId: string, screenshotId: str
   await prisma.tradeScreenshot.delete({ where: { id: screenshotId } });
   return true;
 }
+
+/** Persist an AI-generated review. */
+export async function saveAiReview(profileId: string, input: {
+  kind: string;
+  title: string;
+  body: string;
+  tradeId?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+}) {
+  return prisma.review.create({
+    data: {
+      profileId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      tradeId: input.tradeId ?? null,
+      periodStart: input.periodStart ? new Date(input.periodStart + "T00:00:00Z") : null,
+      periodEnd: input.periodEnd ? new Date(input.periodEnd + "T00:00:00Z") : null,
+      source: "ai",
+    },
+  });
+}

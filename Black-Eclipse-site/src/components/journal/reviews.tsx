@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { MessageSquareText, TrendingUp, TrendingDown, CalendarRange, Award, Flame, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fmtR, fmtMoney } from './charts';
+import { AiReview } from './ai-review';
 
 interface ReviewItem { label: string; value: string; tone?: 'pos' | 'neg' | 'neutral' }
 interface WeekReview {
@@ -150,6 +151,15 @@ function WeeklyView({ weeks }: { weeks: WeekReview[] }) {
                 Discipline <span className="font-mono font-bold text-foreground">{w.discipline}/100</span>
                 {w.bestDay && <> · Best hour <span className="font-mono font-bold text-foreground">{w.bestDay}</span></>}
               </span>
+            </div>
+
+            <div className="mt-3">
+              <AiReview
+                query={`Give an AI interpretation of this week's trading performance. Focus on what worked, what hurt, and what to improve next week.`}
+                start={w.periodStart}
+                end={w.periodEnd}
+                buttonLabel="AI Weekly Review"
+              />
             </div>
           </div>
         );

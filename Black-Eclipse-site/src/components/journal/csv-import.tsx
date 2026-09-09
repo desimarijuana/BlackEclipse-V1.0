@@ -1,12 +1,13 @@
 'use client';
 
 // ── CSV Import — parse a trade CSV and bulk-import into the journal ──────────
-// Expected columns (case-insensitive): symbol, direction, entry, exit, stopLoss,
-// takeProfit, quantity, entryTime, exitTime, session, timeframe, emotion,
-// confidence, notes. entryTime/exitTime accept ISO or "YYYY-MM-DD HH:MM".
+// Supports multiple broker/exchange formats (MT4, MT5, Binance, Coinbase,
+// generic) with auto-detection, format selection, and template downloads.
 
 import React, { useRef, useState } from 'react';
-import { Upload, Loader2, X, Check } from 'lucide-react';
+import { Upload, Loader2, X, Check, Download } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { IMPORT_FORMATS, type ImportFormat } from '@/lib/journal/import';
 
 interface CsvImportProps {
   onImported: () => void;
@@ -16,7 +17,8 @@ export function CsvImport({ onImported }: CsvImportProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null);
+  const [format, setFormat] = useState<ImportFormat>('generic');
+  const [result, setResult] = useState<{ imported: number; errors: string[]; format?: ImportFormat; skipped?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleFile = async (file: File) => {
@@ -25,20 +27,14 @@ export function CsvImport({ onImported }: CsvImportProps) {
     setResult(null);
     try {
       const text = await file.text();
-      const parsed = parseCsv(text);
-      const rows = parsed.map(mapRow).filter((r): r is NonNullable<ReturnType<typeof mapRow>> => r !== null);
-      if (rows.length === 0) {
-        setError('No valid rows found in the CSV.');
-        return;
-      }
       const res = await fetch('/api/journal/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ text, format }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Import failed');
-      setResult({ imported: data.imported ?? 0, errors: data.errors ?? [] });
+      setResult({ imported: data.imported ?? 0, errors: data.errors ?? [], format: data.format, skipped: data.skipped });
       onImported();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to import');
@@ -47,13 +43,20 @@ export function CsvImport({ onImported }: CsvImportProps) {
     }
   };
 
+  const downloadTemplate = () => {
+    const a = document.createElement('a');
+    a.href = `/api/journal/import?format=${format}`;
+    a.download = `blackeclipse-${format}-template.csv`;
+    a.click();
+  };
+
   return (
     <div>
       <button
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-accent/30 px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary hover:border-primary/40 transition-all cursor-pointer"
       >
-        {open ? <X size={13} /> : <Upload size={13} />} {open ? 'Close' : 'Import CSV'}
+        {open ? <X size={13} /> : <Upload size={13} />} {open ? 'Close' : 'Import'}
       </button>
 
       {open && (
@@ -65,6 +68,29 @@ export function CsvImport({ onImported }: CsvImportProps) {
             className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ''; }}
           />
+
+          {/* Format selector */}
+          <div className="mb-3">
+            <p className="mb-1.5 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Source Format</p>
+            <div className="flex flex-wrap gap-1.5">
+              {IMPORT_FORMATS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFormat(f.id)}
+                  title={f.description}
+                  className={cn(
+                    'rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition-all cursor-pointer',
+                    format === f.id ? 'border-primary/40 bg-primary/15 text-primary' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[10px] text-muted-foreground/70">{IMPORT_FORMATS.find((f) => f.id === format)?.description}</p>
+          </div>
+
           <div className="flex items-center gap-3">
             <button
               onClick={() => fileRef.current?.click()}
@@ -72,16 +98,23 @@ export function CsvImport({ onImported }: CsvImportProps) {
               className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer disabled:opacity-50"
             >
               {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-              {importing ? 'Importing…' : 'Choose CSV file'}
+              {importing ? 'Importing…' : 'Choose file'}
             </button>
-            <span className="text-[10px] text-muted-foreground font-mono">symbol, direction, entry, exit, stopLoss, takeProfit, quantity, entryTime, exitTime, session, timeframe, emotion, confidence, notes</span>
+            <button
+              onClick={downloadTemplate}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-accent/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            >
+              <Download size={12} /> Template
+            </button>
           </div>
 
           {error && <p className="mt-3 text-xs text-rose-400 font-semibold">{error}</p>}
           {result && (
             <div className="mt-3 rounded-lg bg-white/[0.03] p-3">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-                <Check size={13} /> Imported {result.imported} trade{result.imported === 1 ? '' : 's'}.
+                <Check size={13} /> Imported {result.imported} trade{result.imported === 1 ? '' : 's'}
+                {result.format ? ` (${result.format})` : ''}
+                {result.skipped ? ` · ${result.skipped} skipped` : ''}.
               </p>
               {result.errors.length > 0 && (
                 <div className="mt-2 max-h-32 overflow-y-auto">
@@ -96,82 +129,4 @@ export function CsvImport({ onImported }: CsvImportProps) {
       )}
     </div>
   );
-}
-
-/** Parse a CSV string into CreateTradeInput rows. */
-function parseCsv(text: string): Record<string, string>[] {
-  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
-  const header = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/^"|"$/g, ''));
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = parseCsvLine(lines[i]);
-    const rec: Record<string, string> = {};
-    header.forEach((h, idx) => { rec[h] = (cells[idx] ?? '').trim(); });
-    rows.push(rec);
-  }
-  return rows;
-}
-
-/** Parse a single CSV line handling quoted fields. */
-function parseCsvLine(line: string): string[] {
-  const cells: string[] = [];
-  let cur = '';
-  let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (ch === ',' && !inQ) {
-      cells.push(cur);
-      cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  cells.push(cur);
-  return cells;
-}
-
-/** Map a CSV row to the CreateTradeInput shape, or null if invalid. */
-function mapRow(r: Record<string, string>) {
-  const num = (v: string | undefined) => (v && v !== '' ? Number(v) : undefined);
-  const str = (v: string | undefined) => (v && v !== '' ? v : undefined);
-  const direction = (r.direction || r.dir || '').toUpperCase();
-  if (direction !== 'LONG' && direction !== 'SHORT') return null;
-  const entry = num(r.entry);
-  const exit = num(r.exit);
-  if (entry == null || exit == null) return null;
-  const entryTime = normalizeTime(r.entrytime || r.entry_time || r.entryTime);
-  const exitTime = normalizeTime(r.exittime || r.exit_time || r.exitTime);
-  if (!entryTime || !exitTime) return null;
-  return {
-    symbol: (r.symbol || '').toUpperCase(),
-    direction,
-    entry,
-    exit,
-    stopLoss: num(r.stoploss || r.stop_loss) ?? null,
-    takeProfit: num(r.takeprofit || r.take_profit) ?? null,
-    quantity: num(r.quantity || r.qty) ?? 1,
-    entryTime,
-    exitTime,
-    session: str(r.session),
-    timeframe: str(r.timeframe || r.tf),
-    emotion: str(r.emotion),
-    confidence: num(r.confidence) ?? null,
-    notes: str(r.notes),
-  };
-}
-
-/** Normalize a time string to ISO. Accepts ISO or "YYYY-MM-DD HH:MM". */
-function normalizeTime(v: string | undefined): string | null {
-  if (!v) return null;
-  const t = v.trim();
-  if (!t) return null;
-  // "YYYY-MM-DD HH:MM" -> "YYYY-MM-DDTHH:MM"
-  const m = t.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
-  if (m) return new Date(`${m[1]}T${m[2]}:00`).toISOString();
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

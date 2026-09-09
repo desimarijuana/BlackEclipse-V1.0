@@ -10,6 +10,7 @@ import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, Lightbulb } from 'lu
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics } from '@/lib/journal/types';
 import { fmtR } from './charts/echarts-container';
+import { AiReview } from './ai-review';
 
 interface InsightsProps {
   analytics: JournalAnalytics | null;
@@ -117,6 +118,14 @@ export function JournalInsights({ analytics }: InsightsProps) {
           );
         })}
       </div>
+
+      {/* Natural-language trading history */}
+      <AiReview
+        query="Give me a summary of my trading performance and the most important insights."
+        buttonLabel="Ask"
+        allowCustomQuery
+        placeholder="Ask about your trading… e.g. 'Show my best XAUUSD setups' or 'Why did I lose money this week?'"
+      />
     </div>
   );
 }

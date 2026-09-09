@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
 import { TradeReplayChart, type ReplayBar, type ReplayTrade } from './trade-replay';
 import { fmtR } from './charts/echarts-container';
+import { AiReview } from './ai-review';
 
 interface TradeDetailProps {
   trade: TradeRecord;
@@ -260,6 +261,15 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
             </div>
           </div>
         )}
+
+        {/* AI trade review */}
+        <div className="mb-4">
+          <AiReview
+            query={`Review this trade: ${trade.symbol} ${trade.direction} entry ${trade.entry} exit ${trade.exit} R ${trade.rMultiple.toFixed(2)}. Give a verdict, what went well, concerns, and how it compares to similar trades.`}
+            tradeId={trade.id}
+            buttonLabel="AI Trade Review"
+          />
+        </div>
 
         {/* Screenshots */}
         <div className="rounded-2xl bg-white/[0.02] p-4">
