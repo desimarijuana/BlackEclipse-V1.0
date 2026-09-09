@@ -68,6 +68,17 @@ class PhysicsBubble {
     this.data = data;
   }
 
+  formatVolume(vol: string): string {
+    const raw = String(vol ?? '').toUpperCase();
+    if (/[TBMK]$/.test(raw)) return raw;
+    const n = parseFloat(raw);
+    if (isNaN(n)) return raw || '—';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return raw;
+  }
+
   update(width: number, height: number, gravityType: 'single' | 'performers' | 'rank', speedMult: number) {
     if (this.radius < this.targetRadius) {
       this.radius += (this.targetRadius - this.radius) * 0.08;
@@ -151,9 +162,6 @@ class PhysicsBubble {
     ctx.fillStyle = fillColor;
     ctx.strokeStyle = strokeColor;
 
-    // Frosted-glass effect: blur the bubble body so the backdrop bleeds through
-    ctx.filter = this.isHovered ? 'blur(1.5px)' : 'blur(2.5px)';
-
     // Hover design highlights
     if (this.isHovered) {
       ctx.shadowColor = this.data.changePercent >= 0 ? '#7aff77' : '#ff4a4a';
@@ -169,27 +177,68 @@ class PhysicsBubble {
       ctx.globalAlpha = 0.12;
     }
 
+    // Frosted-glass look via a soft radial gradient (cheap — no ctx.filter blur).
+    const glow = ctx.createRadialGradient(
+      this.x - this.radius * 0.3,
+      this.y - this.radius * 0.3,
+      this.radius * 0.1,
+      this.x,
+      this.y,
+      this.radius
+    );
+    glow.addColorStop(0, 'rgba(255,255,255,0.16)');
+    glow.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fill();
+
+    ctx.fillStyle = fillColor;
     ctx.fill();
     ctx.stroke();
 
     // Render Text Labels (Proportional monospace ratios)
-    ctx.filter = 'none';
     ctx.shadowBlur = 0;
     ctx.globalAlpha = matchesSearch ? 1.0 : 0.12;
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    if (this.radius > 26) {
+    if (this.radius > 34) {
       ctx.font = `bold ${Math.max(9, Math.min(15, this.radius * 0.32))}px monospace`;
-      ctx.fillText(this.data.symbol, this.x, this.y - 5);
-      
+      ctx.fillText(this.data.symbol, this.x, this.y - 12);
+
       ctx.font = `600 ${Math.max(8, Math.min(11, this.radius * 0.22))}px monospace`;
       const pct = (this.data.changePercent >= 0 ? '+' : '') + this.data.changePercent.toFixed(2) + '%';
       ctx.fillStyle = labelColor;
-      ctx.fillText(pct, this.x, this.y + 10);
+      ctx.fillText(pct, this.x, this.y + 2);
+
+      // 24h volume on the bottom line of the bubble
+      ctx.font = `600 ${Math.max(7, Math.min(10, this.radius * 0.2))}px monospace`;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 14);
+    } else if (this.radius > 26) {
+      ctx.font = `bold ${Math.max(9, Math.min(15, this.radius * 0.32))}px monospace`;
+      ctx.fillText(this.data.symbol, this.x, this.y - 9);
+
+      ctx.font = `600 ${Math.max(8, Math.min(11, this.radius * 0.22))}px monospace`;
+      const pct = (this.data.changePercent >= 0 ? '+' : '') + this.data.changePercent.toFixed(2) + '%';
+      ctx.fillStyle = labelColor;
+      ctx.fillText(pct, this.x, this.y + 3);
+
+      // 24h volume on the bottom line of the bubble
+      ctx.font = `600 ${Math.max(7, Math.min(10, this.radius * 0.2))}px monospace`;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 13);
     } else if (this.radius > 13) {
       ctx.font = `bold ${Math.max(8, Math.min(11, this.radius * 0.45))}px monospace`;
+      ctx.fillText(this.data.symbol, this.x, this.y - 4);
+
+      ctx.font = `600 ${Math.max(6, Math.min(9, this.radius * 0.26))}px monospace`;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 6);
+    } else {
+      // Tiny bubbles — just the symbol
+      ctx.font = `bold ${Math.max(6, Math.min(9, this.radius * 0.5))}px monospace`;
       ctx.fillText(this.data.symbol, this.x, this.y);
     }
 
@@ -246,6 +295,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
+  // Top-N by volume — how many highest-volume assets to load per market.
+  const [topN, setTopN] = useState<number>(30);
   // Goal of this screen: compare which stock moves the most volume — default to volume sizing.
   const [sizeMetric, setSizeMetric] = useState<'marketCap' | 'volume' | 'change'>('volume');
   const [gravityType, setGravityType] = useState<'single' | 'performers' | 'rank'>('single');
@@ -309,9 +360,9 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       // For equities markets, only show stocks (not ETFs/funds/bonds). Markets
       // without securityType metadata skip this filter server-side anyway.
       const typeParam = isCrypto ? '' : '&type=Stock';
-      // Order by volume so the most-traded asset leads — that's the point of
-      // this screen. /api/stocks maps the market id straight to JDDS.
-      const res = await fetch(`/api/stocks?country=${encodeURIComponent(market)}${typeParam}&sort=volume&limit=100`);
+      // Order by volume so the most-traded assets lead — that's the point of
+      // this screen. topN controls how many highest-volume assets are shown.
+      const res = await fetch(`/api/stocks?country=${encodeURIComponent(market)}${typeParam}&sort=volume&limit=${topN}`);
       const data = await res.json();
       const fallback = markets.find(m => m.id === market)?.isCrypto ? DEMO_CRYPTOS : DEMO_PSX;
       if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
@@ -501,12 +552,18 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     const interval = setInterval(() => loadMarketData(selectedMarket, true), 20000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMarket]);
+  }, [selectedMarket, topN]);
 
   // Reset page position to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, selectedSector, selectedPerformance, selectedRankTier, selectedVolumeTier]);
+
+  // Keep the table showing the whole top-N set by default when Top N changes.
+  useEffect(() => {
+    setItemsPerPage(topN);
+    setCurrentPage(1);
+  }, [topN]);
 
   // Main Canvas loop and Physics simulation
   useEffect(() => {
@@ -545,45 +602,77 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
 
       const bubbles = bubblesRef.current;
 
+      // Spatial-hash grid collision detection (O(n) instead of O(n^2)).
+      // Cell size = max radius * 2 so only neighbor cells can overlap.
+      let cellSize = 8;
+      for (let i = 0; i < bubbles.length; i++) {
+        const r = bubbles[i].radius;
+        if (r > cellSize) cellSize = r;
+      }
+      cellSize *= 2;
+      const grid = new Map<number, number[]>();
+      for (let i = 0; i < bubbles.length; i++) {
+        const b = bubbles[i];
+        const cx = (b.x / cellSize) | 0;
+        const cy = (b.y / cellSize) | 0;
+        const key = cx * 73856093 ^ cy * 19349663;
+        const bucket = grid.get(key);
+        if (bucket) bucket.push(i);
+        else grid.set(key, [i]);
+      }
+
       // Handle circle-to-circle collisions
       for (let i = 0; i < bubbles.length; i++) {
-        for (let j = i + 1; j < bubbles.length; j++) {
-          const b1 = bubbles[i];
-          const b2 = bubbles[j];
+        const b1 = bubbles[i];
+        const gx = (b1.x / cellSize) | 0;
+        const gy = (b1.y / cellSize) | 0;
 
-          const dx = b2.x - b1.x;
-          const dy = b2.y - b1.y;
-          const dist = Math.hypot(dx, dy);
-          const minDist = b1.radius + b2.radius;
+        // Only check bubbles in the 3x3 neighborhood of this cell.
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const key = (gx + ox) * 73856093 ^ (gy + oy) * 19349663;
+            const bucket = grid.get(key);
+            if (!bucket) continue;
+            for (let k = 0; k < bucket.length; k++) {
+              const j = bucket[k];
+              if (j <= i) continue; // each pair once
+              const b2 = bubbles[j];
 
-          if (dist < minDist) {
-            // Push out overlap
-            const overlap = minDist - dist;
-            const nx = dx / (dist || 1);
-            const ny = dy / (dist || 1);
+              const dx = b2.x - b1.x;
+              const dy = b2.y - b1.y;
+              const dist = Math.hypot(dx, dy);
+              const minDist = b1.radius + b2.radius;
 
-            // Resolve overlapping coordinate positions
-            if (!b1.isDragged) {
-              b1.x -= nx * overlap * 0.42;
-              b1.y -= ny * overlap * 0.42;
-            }
-            if (!b2.isDragged) {
-              b2.x += nx * overlap * 0.42;
-              b2.y += ny * overlap * 0.42;
-            }
+              if (dist < minDist) {
+                // Push out overlap
+                const overlap = minDist - dist;
+                const nx = dx / (dist || 1);
+                const ny = dy / (dist || 1);
 
-            // Smoother elastic bounce velocities transfer
-            const kx = b1.vx - b2.vx;
-            const ky = b1.vy - b2.vy;
-            const p = 2 * (nx * kx + ny * ky) / 2;
+                // Resolve overlapping coordinate positions
+                if (!b1.isDragged) {
+                  b1.x -= nx * overlap * 0.42;
+                  b1.y -= ny * overlap * 0.42;
+                }
+                if (!b2.isDragged) {
+                  b2.x += nx * overlap * 0.42;
+                  b2.y += ny * overlap * 0.42;
+                }
 
-            if (!b1.isDragged) {
-              b1.vx -= nx * p * 0.45;
-              b1.vy -= ny * p * 0.45;
-            }
-            if (!b2.isDragged) {
-              b2.vx += nx * p * 0.45;
-              b2.vy += ny * p * 0.45;
+                // Smoother elastic bounce velocities transfer
+                const kx = b1.vx - b2.vx;
+                const ky = b1.vy - b2.vy;
+                const p = 2 * (nx * kx + ny * ky) / 2;
+
+                if (!b1.isDragged) {
+                  b1.vx -= nx * p * 0.45;
+                  b1.vy -= ny * p * 0.45;
+                }
+                if (!b2.isDragged) {
+                  b2.vx += nx * p * 0.45;
+                  b2.vy += ny * p * 0.45;
+                }
+              }
             }
           }
         }
@@ -814,6 +903,23 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                     <option value="PK">Pakistan (PSX)</option>
                   </>
                 )}
+              </select>
+            </div>
+
+            {/* Top N by volume selector — how many highest-volume assets to load */}
+            <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Top:</span>
+              <select
+                value={topN}
+                onChange={e => setTopN(Number(e.target.value))}
+                className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
+                title="Show the top N highest-volume assets for this market"
+              >
+                {[10, 15, 20, 30, 50, 75, 100].map(n => (
+                  <option key={n} value={n} className="bg-[#121212] text-foreground">
+                    Top {n} (Vol)
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1153,6 +1259,11 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                           {size}
                         </option>
                       ))}
+                      {![10, 25, 50, 100].includes(topN) && (
+                        <option value={topN} className="bg-[#121212] text-foreground">
+                          {topN}
+                        </option>
+                      )}
                     </select>
                     <span className="ml-2 text-[11px]">
                       Showing {Math.min(filteredAndSortedList.length, (currentPage - 1) * itemsPerPage + 1)}-
