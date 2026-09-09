@@ -14,6 +14,7 @@ import { TabBar } from '@/components/ui/tab-bar';
 import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
+import { useCommandStore } from '@/lib/search/store';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
@@ -96,9 +97,11 @@ interface MarketOverviewScreenProps {
   onSelectChartSymbol?: (symbol: string) => void;
   embedded?: boolean;
   onMarketStatusChange?: (isBullish: boolean) => void;
+  /** Optional initial market/country code to load (e.g. 'PK', 'US', 'IN'). */
+  market?: string;
 }
 
-export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange }: MarketOverviewScreenProps) {
+export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange, market }: MarketOverviewScreenProps) {
 
   // Ctrl/Cmd+click on any symbol row opens that symbol in a NEW browser tab
   // (deep link: /?symbol=XYZ boots the app straight into its chart), instead
@@ -201,7 +204,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterMetricType, setFilterMetricType] = useState('All');
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
   // Selectable region for stocks: 'USA' (US), 'PK' (Pakistan), or 'CRYPTO'.
-  const [userCountry, setUserCountry] = useState<string>('GLOBAL');
+  const [userCountry, setUserCountry] = useState<string>(market || 'GLOBAL');
+
+  // Consume a market/country dispatched by the global search (⌘K → country
+  // result). Applies it once so the right market's screener loads.
+  const initialMarketRef = React.useRef(market || null);
+  React.useEffect(() => {
+    const pending = useCommandStore.getState().consumeMarket();
+    if (pending) setUserCountry(pending);
+    else if (initialMarketRef.current) {
+      setUserCountry(initialMarketRef.current);
+      initialMarketRef.current = null;
+    }
+  }, []);
   const [apiStocks, setApiStocks] = useState<StockItem[]>([]);
   const [loadingApi, setLoadingApi] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
@@ -1081,7 +1096,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
-  type OverviewGroup = { id: string; country: string; exchange: string; isCrypto: boolean; currency: string; stocks: Array<{ symbol: string; name: string; price: number; changePct: number; marketCap?: number | null }> };
+  type OverviewGroup = { id: string; country: string; name?: string; exchange: string; isCrypto: boolean; currency: string; stocks: Array<{ symbol: string; name: string; price: number; changePct: number; marketCap?: number | null }> };
   const [globalOverview, setGlobalOverview] = useState<OverviewGroup[]>([]);
   const [loadingGlobalMarkets, setLoadingGlobalMarkets] = useState(false);
   // Visually marks the clicked row so selection stays obvious across cards.
@@ -3383,7 +3398,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           title={`Drag to reorder ${g.country}`}
                         >
                           <GripVertical size={14} className="text-muted-foreground/60 shrink-0" aria-hidden />
-                          <span className="font-serif font-semibold text-sm text-foreground truncate">{g.country}</span>
+                          <span className="font-serif font-semibold text-sm text-foreground truncate">{g.name || g.country}</span>
                           <span className="text-[9px] text-muted-foreground font-mono truncate">{g.exchange}</span>
                         </span>
                         <button
@@ -3555,7 +3570,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/10">
                               <span className="flex items-center gap-2 min-w-0">
                                 <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
-                                <span className="font-serif font-semibold text-sm text-foreground truncate">{src.country}</span>
+                                <span className="font-serif font-semibold text-sm text-foreground truncate">{src.name || src.country}</span>
                                 <span className="text-[9px] text-muted-foreground font-mono truncate">{src.exchange}</span>
                               </span>
                               <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving�</span>

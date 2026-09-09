@@ -68,6 +68,7 @@ function StockChatContent() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
+  const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
   
   // Conversations states
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -126,6 +127,10 @@ function StockChatContent() {
       if (dest.params?.prompt) {
         handleNewChat();
         setQuery(dest.params.prompt);
+      }
+      if (dest.params?.market) {
+        useCommandStore.setState({ pendingMarket: dest.params.market });
+        setDiscoveryMarket(dest.params.market);
       }
       if (dest.tab === 'chart') {
         // Chart needs a symbol; default to the last selected one.
@@ -522,6 +527,8 @@ function StockChatContent() {
               <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
                 <div className="animate-fade-in-up w-full h-full">
                   <MarketOverviewScreen
+                    key={discoveryMarket ?? 'default'}
+                    market={discoveryMarket}
                     onAnalyzeTicker={(t: string, customCtx?: string) => handleInjectPrompt(t, 'research', customCtx)}
                     onSelectChartSymbol={(sym) => {
                       setSelectedChartSymbol(sym);

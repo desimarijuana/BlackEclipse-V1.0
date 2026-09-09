@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
+import { marketDisplayName } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ const TOP_PER_MARKET = 10;
 type OverviewGroup = {
   id: string;
   country: string;
+  /** Human-readable market name (e.g. "Pakistan", "United States"). */
+  name?: string;
   exchange: string;
   isCrypto: boolean;
   currency: string;
@@ -52,6 +55,7 @@ async function buildOverview(): Promise<{ groups: OverviewGroup[] }> {
       return {
         id: m.id,
         country: m.country,
+        name: marketDisplayName(m.id),
         exchange: m.exchange,
         isCrypto: m.isCrypto,
         currency: MARKET_CURRENCY[m.id] || "$",

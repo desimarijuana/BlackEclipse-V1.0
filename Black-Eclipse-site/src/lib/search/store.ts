@@ -48,6 +48,8 @@ interface CommandStore {
   pendingDestination: Destination | null;
   /** Fund id to open in the Portfolio tab (consumed by PortfolioScreen). */
   pendingFundId: string | null;
+  /** Market/country code to load into the screener (consumed by MarketOverview). */
+  pendingMarket: string | null;
 
   // Universe index status (Phase 2).
   universeReady: boolean;
@@ -77,6 +79,7 @@ interface CommandStore {
   dispatch: (destination: Destination) => void;
   consumeDestination: () => Destination | null;
   consumeFundId: () => string | null;
+  consumeMarket: () => string | null;
 
   recordRecent: (text: string) => void;
   removeRecent: (text: string) => void;
@@ -91,6 +94,7 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   recents: typeof window !== 'undefined' ? loadRecents() : [],
   pendingDestination: null,
   pendingFundId: null,
+  pendingMarket: null,
 
   universeReady: false,
   universeLoading: false,
@@ -173,6 +177,13 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     const s = get();
     const id = s.pendingFundId;
     if (id) set({ pendingFundId: null });
+    return id;
+  },
+
+  consumeMarket: () => {
+    const s = get();
+    const id = s.pendingMarket;
+    if (id) set({ pendingMarket: null });
     return id;
   },
 

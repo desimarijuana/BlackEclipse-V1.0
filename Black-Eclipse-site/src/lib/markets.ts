@@ -62,3 +62,45 @@ export const MARKET_CURRENCY: Record<string, string> = {
 export function currencyFor(marketId: string): string {
   return MARKET_CURRENCY[marketId] || "$";
 }
+
+// Full, human-readable country/market names keyed by market id. Used across the
+// screener cards and global search so users see "Pakistan" / "United States"
+// instead of bare codes. SINGLE SOURCE OF TRUTH — import from here only.
+export const MARKET_FULL_NAME: Record<string, string> = {
+  US: "United States",
+  CRYPTO: "Global Crypto",
+  PK: "Pakistan",
+  IN: "India",
+  CN: "China",
+  TW: "Taiwan",
+  HK: "Hong Kong",
+  JP: "Japan",
+  KR: "South Korea",
+  SG: "Singapore",
+  MY: "Malaysia",
+  AU: "Australia",
+  UK: "United Kingdom",
+  DE: "Germany",
+  FR: "France",
+  NL: "Netherlands",
+  CA: "Canada",
+  BR: "Brazil",
+  MX: "Mexico",
+  SA: "Saudi Arabia",
+  AE: "United Arab Emirates",
+  ZA: "South Africa",
+  EG: "Egypt",
+  NG: "Nigeria",
+  RU: "Russia",
+  TR: "Turkey",
+  ID: "Indonesia",
+  TH: "Thailand",
+  VN: "Vietnam",
+  FOREX: "Forex",
+  COMMODITIES: "Commodities",
+};
+
+/** Human-readable country/market name for a market id (falls back to the code). */
+export function marketDisplayName(marketId: string): string {
+  return MARKET_FULL_NAME[marketId] || marketId;
+}

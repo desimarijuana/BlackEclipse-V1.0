@@ -12,6 +12,7 @@ import { fuzzyScore, scoreEntity } from './rank';
 import { getUserEntities } from './user';
 import { getGlobalEntities } from './global';
 import { settingsEntities } from './settings';
+import { marketEntities } from './markets';
 import { resolveEvent } from './events';
 import {
   getUniverseBySymbol,
@@ -101,6 +102,7 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
     ...getUserEntities(),
     ...getGlobalEntities(),
     ...settingsEntities(),
+    ...marketEntities(),
   ];
   for (const e of staticEntities) {
     if (regExact && e.id === regExact.id) continue;
