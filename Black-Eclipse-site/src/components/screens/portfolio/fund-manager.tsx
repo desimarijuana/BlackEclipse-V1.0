@@ -62,13 +62,13 @@ const SENTIMENT_META: Record<Sentiment, { label: string; border: string; bg: str
   flat: {
     label: 'Flat',
     border: 'border-white/10 dark:border-white/5 hover:border-primary/50',
-    bg: 'bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75',
+    bg: 'glass-card',
     glow: 'bg-primary', text: 'text-muted-foreground',
   },
   empty: {
     label: 'No Positions',
     border: 'border-white/10 dark:border-white/5 hover:border-primary/50',
-    bg: 'bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75',
+    bg: 'glass-card',
     glow: 'bg-primary', text: 'text-muted-foreground',
   },
 };
@@ -273,7 +273,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
       </div>
 
       {/* Overall performance chart: every fund vs standard benchmarks */}
-      <div className="mb-6 rounded-3xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl p-4 md:p-5 animate-fade-in-up">
+      <div className="mb-6 rounded-3xl glass-card p-4 md:p-5 animate-fade-in-up">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/10 pb-2.5 mb-3">
           <div className="flex items-center gap-2">
             <TrendingUp size={14} className="text-primary" />
@@ -311,7 +311,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
 
       {/* Fund cards (market-news style) */}
       {funds.length === 0 ? (
-        <div className="rounded-3xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl p-12 text-center animate-fade-in-up">
+        <div className="rounded-3xl glass-card p-12 text-center animate-fade-in-up">
           <Briefcase className="mx-auto text-primary" size={28} />
           <h3 className="mt-3 font-serif text-lg text-foreground">No funds yet</h3>
           <p className="mt-1 text-xs text-muted-foreground">Create your first fund to start tracking a transaction ledger.</p>
@@ -337,7 +337,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                 key={fund.id}
                 onClick={() => onOpenFund(fund.id)}
                 className={cn(
-                  'group relative cursor-pointer rounded-2xl backdrop-blur-xl hover:shadow-lg transition-all duration-300',
+                  'group relative cursor-pointer rounded-2xl glass-card hover:shadow-lg transition-all duration-300',
                   'flex flex-col justify-between p-5 overflow-hidden shadow-sm hover:scale-[1.005] animate-fade-in-up',
                   meta.bg,
                 )}
@@ -516,7 +516,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
 
 function CardStat({ label, value, tone, loading }: { label: string; value: string; tone?: number; loading?: boolean }) {
   return (
-    <div className="rounded-xl bg-accent/20 border border-white/10 dark:border-white/10 px-2.5 py-1.5 min-w-0">
+    <div className="rounded-xl glass-card-subtle border border-white/10 dark:border-white/10 px-2.5 py-1.5 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -550,7 +550,7 @@ function ToolbarButton({ icon: Icon, label, onClick, primary }: {
 
 function RibbonCard({ label, value, tone, loading }: { label: string; value: string; tone?: number; loading?: boolean }) {
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl p-3.5">
+    <div className="rounded-2xl glass-card p-3.5">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
       {loading ? (
         <span className="mt-2 block h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />

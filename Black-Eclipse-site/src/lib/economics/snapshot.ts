@@ -29,13 +29,41 @@ const RATE_SOURCES: { id: string; label: string; region: string; country: string
   { id: "rbnz-rate", label: "RBNZ OCR", region: "Asia-Pacific", country: "NZ", fred: { fredId: "IRSTCI01NZM156N" } },
   { id: "boc-rate", label: "BoC Overnight Rate", region: "North America", country: "CA", fred: { fredId: "IRSTCI01CAM156N" } },
   { id: "snb-rate", label: "SNB Policy Rate", region: "Europe", country: "CH", fred: { fredId: "IRSTCI01CHM156N" } },
+  { id: "rbi-rate", label: "RBI Repo Rate", region: "Asia-Pacific", country: "IN", fred: { fredId: "IRSTCI01INM156N" } },
+  { id: "sbp-rate", label: "SBP Policy Rate", region: "Asia-Pacific", country: "PK", fred: { fredId: "IRSTCI01PKM156N" } },
+  { id: "pboc-rate", label: "PBOC Loan Prime Rate", region: "Asia-Pacific", country: "CN", fred: { fredId: "IRSTCI01CNM156N" } },
 ];
 
 const PRINT_SOURCES: { id: string; label: string; region: string; country: string; kind: "print" | "yield"; unit: string; fred: FREDMeta }[] = [
+  // US
   { id: "us-cpi", label: "US CPI (YoY)", region: "North America", country: "US", kind: "print", unit: "%", fred: { fredId: "CPIAUCSL", transform: "yoy" } as FREDMeta },
   { id: "us-gdp", label: "US Real GDP (YoY)", region: "North America", country: "US", kind: "print", unit: "%", fred: { fredId: "GDPC1", transform: "yoy" } as FREDMeta },
+  { id: "us-nfp", label: "US Nonfarm Payrolls", region: "North America", country: "US", kind: "print", unit: "k", fred: { fredId: "PAYEMS" } },
   { id: "us-unemp", label: "US Unemployment", region: "North America", country: "US", kind: "print", unit: "%", fred: { fredId: "UNRATE" } },
   { id: "us-10y", label: "US 10Y Treasury", region: "North America", country: "US", kind: "yield", unit: "%", fred: { fredId: "DGS10" } },
+  // India
+  { id: "in-cpi", label: "India CPI (YoY)", region: "Asia-Pacific", country: "IN", kind: "print", unit: "%", fred: { fredId: "CPALTT01INM659N" } },
+  { id: "in-gdp", label: "India Real GDP (YoY)", region: "Asia-Pacific", country: "IN", kind: "print", unit: "%", fred: { fredId: "NGDPRSAXDCCINQ", transform: "yoy" } as FREDMeta },
+  { id: "in-unemp", label: "India Unemployment", region: "Asia-Pacific", country: "IN", kind: "print", unit: "%", fred: { fredId: "LRUN64TTINQ156S" } },
+  // Pakistan
+  { id: "pk-cpi", label: "Pakistan CPI (YoY)", region: "Asia-Pacific", country: "PK", kind: "print", unit: "%", fred: { fredId: "CPALTT01PKM659N" } },
+  { id: "pk-gdp", label: "Pakistan Real GDP (YoY)", region: "Asia-Pacific", country: "PK", kind: "print", unit: "%", fred: { fredId: "NGDPRSAXDCPKQ", transform: "yoy" } as FREDMeta },
+  { id: "pk-unemp", label: "Pakistan Unemployment", region: "Asia-Pacific", country: "PK", kind: "print", unit: "%", fred: { fredId: "LRUN64TTPKQ156S" } },
+  // China
+  { id: "cn-cpi", label: "China CPI (YoY)", region: "Asia-Pacific", country: "CN", kind: "print", unit: "%", fred: { fredId: "CPALTT01CNM659N" } },
+  { id: "cn-gdp", label: "China Real GDP (YoY)", region: "Asia-Pacific", country: "CN", kind: "print", unit: "%", fred: { fredId: "NGDPRSAXDCCNQ", transform: "yoy" } as FREDMeta },
+  // UK
+  { id: "gb-cpi", label: "UK CPI (YoY)", region: "Europe", country: "GB", kind: "print", unit: "%", fred: { fredId: "CPALTT01GBM659N" } },
+  { id: "gb-unemp", label: "UK Unemployment", region: "Europe", country: "GB", kind: "print", unit: "%", fred: { fredId: "LRUN64TTGBQ156S" } },
+  // Euro area
+  { id: "eu-cpi", label: "Euro Area HICP (YoY)", region: "Europe", country: "EU", kind: "print", unit: "%", fred: { fredId: "CP0000EZ19M086NEST", transform: "yoy" } as FREDMeta },
+  { id: "eu-unemp", label: "Euro Area Unemployment", region: "Europe", country: "EU", kind: "print", unit: "%", fred: { fredId: "LRHUTTTTEZM156S" } },
+  // Japan
+  { id: "jp-cpi", label: "Japan CPI (YoY)", region: "Asia-Pacific", country: "JP", kind: "print", unit: "%", fred: { fredId: "CPALTT01JPM659N" } },
+  { id: "jp-unemp", label: "Japan Unemployment", region: "Asia-Pacific", country: "JP", kind: "print", unit: "%", fred: { fredId: "LRUN64TTJPM156S" } },
+  // Canada
+  { id: "ca-cpi", label: "Canada CPI (YoY)", region: "North America", country: "CA", kind: "print", unit: "%", fred: { fredId: "CPALTT01CAM659N" } },
+  { id: "ca-unemp", label: "Canada Unemployment", region: "North America", country: "CA", kind: "print", unit: "%", fred: { fredId: "LRUN64TTCAQ156S" } },
 ];
 
 async function fredCSV(id: string): Promise<{ date: string; value: number }[]> {

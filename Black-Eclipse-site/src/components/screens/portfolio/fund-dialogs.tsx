@@ -16,7 +16,7 @@ function DialogShell({ title, onClose, children, footer }: {
 }) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md rounded-2xl border border-white/10 bg-white/85 dark:bg-[#0f0f0f]/85 backdrop-blur-2xl">
+      <DialogContent className="max-w-md rounded-2xl border border-white/10 glass-card-strong">
         <DialogTitle className="font-serif text-base text-foreground">{title}</DialogTitle>
         <div className="flex flex-col gap-3">{children}</div>
         <div className="mt-2 flex justify-end gap-2">{footer}</div>

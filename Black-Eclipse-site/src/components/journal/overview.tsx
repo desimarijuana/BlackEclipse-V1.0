@@ -25,7 +25,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
 
   if (!analytics || !p) {
     return (
-      <div className="rounded-3xl bg-[#0f0f0f]/60 p-12 text-center">
+      <div className="rounded-3xl glass-card p-12 text-center">
         <p className="text-sm text-muted-foreground">No trades yet. Add your first trade to start building your journal.</p>
         <button onClick={onOpenTrades} className="mt-4 rounded-xl border border-primary/40 bg-primary/15 text-primary px-4 py-2 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer">
           + Add Trade
@@ -52,7 +52,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
         {kpis.map((k) => (
-          <div key={k.label} className="rounded-2xl bg-[#0f0f0f]/60 p-3">
+          <div key={k.label} className="rounded-2xl glass-card p-3">
             <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{k.label}</p>
             <p className={cn('mt-1 font-mono text-sm font-bold truncate', k.tone ?? 'text-foreground')}>{k.value}</p>
             {k.sub && <p className="font-mono text-[9px] text-muted-foreground/70 truncate">{k.sub}</p>}
@@ -62,10 +62,10 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
 
       {/* Equity curve + win/loss */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4 lg:col-span-2">
+        <div className="rounded-2xl glass-card p-4 lg:col-span-2">
           <EquityCurveChart equity={analytics.equity} height={260} />
         </div>
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <WinLossChart wins={p.wins} losses={p.losses} breakevens={p.breakevens} height={200} />
           <div className="mt-2 grid grid-cols-3 gap-2 text-center">
             <MiniStat label="Wins" value={String(p.wins)} tone="text-emerald-400" />
@@ -77,39 +77,39 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
 
       {/* Mini calendar + drawdown */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <MiniCalendar days={analytics.days} onSelectDay={(d) => onOpenCalendar?.(d)} />
         </div>
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4 lg:col-span-2">
+        <div className="rounded-2xl glass-card p-4 lg:col-span-2">
           <DrawdownChart equity={analytics.equity} height={200} />
         </div>
       </div>
 
       {/* Daily performance + R distribution */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DailyPerformanceChart days={analytics.days.map((d) => ({ date: d.date, netR: d.netR }))} height={220} />
         </div>
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <RDistributionChart rValues={rValues} height={220} />
         </div>
       </div>
 
       {/* Best / worst dimensions */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DimensionBarChart rows={analytics.bySymbol.slice(0, 6)} title="Best / Worst Symbols" hint="NET R" height={200} />
         </div>
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DimensionBarChart rows={analytics.bySetup.slice(0, 6)} title="Best / Worst Setups" hint="NET R" height={200} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DimensionBarChart rows={analytics.bySession.slice(0, 6)} title="Best / Worst Sessions" hint="NET R" height={200} />
         </div>
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DisciplinePanel analytics={analytics} />
         </div>
       </div>
@@ -118,7 +118,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
       <AiAnalysis analytics={analytics} />
 
       {/* Recent trades */}
-      <div className="rounded-2xl bg-[#0f0f0f]/60 overflow-hidden">
+      <div className="rounded-2xl glass-card overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <h3 className="font-serif text-sm font-semibold text-foreground">Recent Trades</h3>
           <button onClick={onOpenTrades} className="text-[11px] font-semibold text-primary hover:text-primary/80 cursor-pointer">View all →</button>

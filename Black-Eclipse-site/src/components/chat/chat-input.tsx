@@ -30,7 +30,7 @@ export function ChatInput({
   const [selectedModel, setSelectedModel] = useState('Flash-Lite');
 
   return (
-    <form onSubmit={onSend} className="relative flex items-center w-full bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:bg-[#0f0f0f]/70 transition-colors overflow-hidden">
+    <form onSubmit={onSend} className="relative flex items-center w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
       <Button 
         type="button" 
         variant="ghost" 

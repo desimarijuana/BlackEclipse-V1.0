@@ -35,10 +35,30 @@ const FRED_ID: Record<string, string> = {
   'rbnz-rate': 'IRSTCI01NZM156N',
   'boc-rate': 'IRSTCI01CAM156N',
   'snb-rate': 'IRSTCI01CHM156N',
+  'rbi-rate': 'IRSTCI01INM156N',
+  'sbp-rate': 'IRSTCI01PKM156N',
+  'pboc-rate': 'IRSTCI01CNM156N',
   'us-cpi': 'CPIAUCSL',
   'us-gdp': 'GDPC1',
+  'us-nfp': 'PAYEMS',
   'us-unemp': 'UNRATE',
   'us-10y': 'DGS10',
+  'in-cpi': 'CPALTT01INM659N',
+  'in-gdp': 'NGDPRSAXDCCINQ',
+  'in-unemp': 'LRUN64TTINQ156S',
+  'pk-cpi': 'CPALTT01PKM659N',
+  'pk-gdp': 'NGDPRSAXDCPKQ',
+  'pk-unemp': 'LRUN64TTPKQ156S',
+  'cn-cpi': 'CPALTT01CNM659N',
+  'cn-gdp': 'NGDPRSAXDCCNQ',
+  'gb-cpi': 'CPALTT01GBM659N',
+  'gb-unemp': 'LRUN64TTGBQ156S',
+  'eu-cpi': 'CP0000EZ19M086NEST',
+  'eu-unemp': 'LRHUTTTTEZM156S',
+  'jp-cpi': 'CPALTT01JPM659N',
+  'jp-unemp': 'LRUN64TTJPM156S',
+  'ca-cpi': 'CPALTT01CAM659N',
+  'ca-unemp': 'LRUN64TTCAQ156S',
 };
 
 const FLAG: Record<string, string> = {
@@ -50,11 +70,34 @@ const FLAG: Record<string, string> = {
   'rbnz-rate': 'RBNZ · NZ',
   'boc-rate': 'BOC · CA',
   'snb-rate': 'SNB · CH',
+  'rbi-rate': 'RBI · IN',
+  'sbp-rate': 'SBP · PK',
+  'pboc-rate': 'PBOC · CN',
   'us-cpi': 'US · CPI',
   'us-gdp': 'US · GDP',
+  'us-nfp': 'US · JOBS',
   'us-unemp': 'US · LABOUR',
   'us-10y': 'US · RATES',
+  'in-cpi': 'IN · CPI',
+  'in-gdp': 'IN · GDP',
+  'in-unemp': 'IN · LABOUR',
+  'pk-cpi': 'PK · CPI',
+  'pk-gdp': 'PK · GDP',
+  'pk-unemp': 'PK · LABOUR',
+  'cn-cpi': 'CN · CPI',
+  'cn-gdp': 'CN · GDP',
+  'gb-cpi': 'UK · CPI',
+  'gb-unemp': 'UK · LABOUR',
+  'eu-cpi': 'EU · HICP',
+  'eu-unemp': 'EU · LABOUR',
+  'jp-cpi': 'JP · CPI',
+  'jp-unemp': 'JP · LABOUR',
+  'ca-cpi': 'CA · CPI',
+  'ca-unemp': 'CA · LABOUR',
 };
+
+// Order in which macro-print regions render on the Snapshot.
+const REGION_ORDER = ['North America', 'Asia-Pacific', 'Europe'];
 
 export function SnapshotView() {
   const [data, setData] = useState<SnapshotData | null>(null);
@@ -180,18 +223,24 @@ export function SnapshotView() {
         </div>
       </div>
 
-      {/* US macro prints */}
-      <div>
-        <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2.5">
-          US macro prints · FRED
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {prints.map((m) => <SnapCard key={m.id} m={m} />)}
-        </div>
-      </div>
+      {/* Global macro prints, grouped by region */}
+      {REGION_ORDER.map((region) => {
+        const regionPrints = prints.filter((m) => m.region === region);
+        if (regionPrints.length === 0) return null;
+        return (
+          <div key={region}>
+            <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2.5">
+              {region} · FRED
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+              {regionPrints.map((m) => <SnapCard key={m.id} m={m} />)}
+            </div>
+          </div>
+        );
+      })}
 
       {/* Data provenance */}
-      <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-5">
+      <div className="rounded-xl glass-card border border-border/10 p-5">
         <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted-foreground mb-2">
           Data provenance
         </p>
@@ -206,8 +255,11 @@ export function SnapshotView() {
 }
 
 function SnapCard({ m }: { m: SnapshotMetric }) {
+  const isNfp = m.id === 'us-nfp';
+  const displayValue = isNfp && m.value !== null ? (m.value / 1000).toFixed(1) : m.value !== null ? Number(m.value.toFixed(3)) : null;
+  const displayUnit = isNfp ? 'M' : m.unit;
   return (
-    <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-3.5 flex flex-col">
+    <div className="rounded-xl glass-card border border-border/10 p-3.5 flex flex-col">
       <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
         {FLAG[m.id] ?? m.country}
       </div>
@@ -215,8 +267,8 @@ function SnapCard({ m }: { m: SnapshotMetric }) {
       {m.value !== null ? (
         <>
           <div className="font-mono text-[22px] font-semibold mt-1.5 text-foreground">
-            {Number(m.value.toFixed(3))}
-            {m.unit && <span className="text-[12px] text-muted-foreground ml-0.5">{m.unit}</span>}
+            {displayValue}
+            {displayUnit && <span className="text-[12px] text-muted-foreground ml-0.5">{displayUnit}</span>}
           </div>
           <div className="font-mono text-[10px] text-muted-foreground mt-1">as of {m.asOf}</div>
           <div className="font-mono text-[10px] text-primary mt-0.5">FRED · {FRED_ID[m.id] ?? m.id}</div>

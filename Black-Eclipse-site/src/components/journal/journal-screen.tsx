@@ -97,7 +97,7 @@ export function JournalScreen() {
       )}
 
       {loading && !analytics ? (
-        <div className="rounded-3xl bg-[#0f0f0f]/60 p-12 flex flex-col items-center gap-3">
+        <div className="rounded-3xl glass-card p-12 flex flex-col items-center gap-3">
           <span className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
           <span className="text-xs text-muted-foreground font-mono">loading journal…</span>
         </div>

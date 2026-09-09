@@ -108,7 +108,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
           <p className="text-xs text-muted-foreground mt-0.5">Click a day to open its journal and see the trades taken.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-xl bg-[#0f0f0f]/60 p-1">
+          <div className="flex items-center gap-1 rounded-xl glass-card p-1">
             <button onClick={goPrev} className="rounded-lg p-1.5 text-muted-foreground hover:text-primary hover:bg-accent/40 transition-all cursor-pointer" title="Previous month">
               <ChevronLeft size={15} />
             </button>
@@ -153,7 +153,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
       </div>
 
       {/* Calendar */}
-      <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+      <div className="rounded-2xl glass-card p-4">
         <MonthCalendar trades={trades} year={year} month={month} onSelectDay={onSelectDay} />
       </div>
     </div>
@@ -162,7 +162,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
 
 function MonthStat({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-3">
+    <div className="rounded-2xl glass-card p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
       <p className={cn('mt-1 font-mono text-sm font-bold', tone ?? 'text-foreground')}>{value}</p>
       {sub && <p className="font-mono text-[9px] text-muted-foreground/70">{sub}</p>}

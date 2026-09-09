@@ -16,8 +16,8 @@ import { TabBar } from "@/components/ui/tab-bar";
 
 // ─── Site design system (matches my-portfolio / market-overview) ──────────
 // Frost glass — the default glass panel style used across every screen.
-const PANEL = "bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl shadow-sm";
-const TILE = "bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-xl";
+const PANEL = "glass-card border border-white/10 dark:border-white/5 rounded-2xl shadow-sm";
+const TILE = "glass-card border border-white/10 dark:border-white/5 rounded-xl";
 
 // ─── Types (mirror the server contract) ─────────────────────────────────
 
@@ -250,7 +250,7 @@ export function AlertsClient() {
 
       {/* ─── TOAST ──────────────────────────────────────────────────────── */}
       {toast && (
-        <div className="rounded-2xl border border-emerald-500/10 bg-emerald-500/5 backdrop-blur-md px-4 py-3 text-sm text-emerald-400 flex items-start gap-2 animate-fade-in">
+        <div className="rounded-2xl border border-emerald-500/10 glass-card-subtle px-4 py-3 text-sm text-emerald-400 flex items-start gap-2 animate-fade-in">
           <Check className="w-4 h-4 mt-0.5 shrink-0" /> {toast}
           <button onClick={() => setToast(null)} className="ml-auto cursor-pointer opacity-60 hover:opacity-100"><X size={14} /></button>
         </div>

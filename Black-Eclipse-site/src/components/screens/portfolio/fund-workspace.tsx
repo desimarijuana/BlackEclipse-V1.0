@@ -91,7 +91,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
       </div>
 
       {loading ? (
-        <div className="rounded-3xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl p-12 flex flex-col items-center gap-3 animate-fade-in">
+        <div className="rounded-3xl glass-card p-12 flex flex-col items-center gap-3 animate-fade-in">
           <DotGrid size={28} />
           <span className="text-xs text-muted-foreground font-mono">loading live prices…</span>
         </div>
@@ -118,7 +118,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
 
 function StatChip({ label, value, tone, sub, loading }: { label: string; value: string; tone?: number; sub?: string; loading?: boolean }) {
   return (
-    <div className="rounded-xl border border-white/15 dark:border-white/10 bg-accent/20 backdrop-blur-md px-2.5 py-1 min-w-0">
+    <div className="rounded-xl border border-white/15 dark:border-white/10 glass-card-subtle px-2.5 py-1 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
       {loading ? (
         <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />

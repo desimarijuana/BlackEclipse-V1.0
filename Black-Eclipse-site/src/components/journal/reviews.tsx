@@ -79,7 +79,7 @@ export function JournalReviews() {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-12 text-center text-xs text-muted-foreground">Loading reviews…</div>
+        <div className="rounded-2xl glass-card p-12 text-center text-xs text-muted-foreground">Loading reviews…</div>
       ) : view === 'weekly' ? (
         <WeeklyView weeks={weeks} />
       ) : (
@@ -96,7 +96,7 @@ function WeeklyView({ weeks }: { weeks: WeekReview[] }) {
       {weeks.map((w) => {
         const netR = w.performance.netR;
         return (
-          <div key={w.periodStart} className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+          <div key={w.periodStart} className="rounded-2xl glass-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h3 className="font-serif text-sm font-semibold text-foreground">
@@ -177,7 +177,7 @@ function WrappedView({ wrapped }: { wrapped: Wrapped | null }) {
   ];
 
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-6 overflow-hidden relative">
+    <div className="rounded-2xl glass-card p-6 overflow-hidden relative">
       <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full bg-primary/10 blur-[70px] pointer-events-none" />
       <div className="relative z-10">
         <div className="flex items-center gap-2 mb-6">
@@ -237,7 +237,7 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-12 text-center">
+    <div className="rounded-2xl glass-card p-12 text-center">
       <MessageSquareText className="mx-auto text-primary" size={28} />
       <h3 className="mt-3 font-serif text-base text-foreground">Nothing to review yet</h3>
       <p className="mt-1 text-xs text-muted-foreground max-w-md mx-auto">{text}</p>

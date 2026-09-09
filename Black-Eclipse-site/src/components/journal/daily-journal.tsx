@@ -154,7 +154,7 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-8 text-center text-xs text-muted-foreground">Loading…</div>
+        <div className="rounded-2xl glass-card p-8 text-center text-xs text-muted-foreground">Loading…</div>
       ) : (
         <>
           {/* Performance summary */}
@@ -268,7 +268,7 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-3">
+    <div className="rounded-2xl glass-card p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
       <p className={cn('mt-1 font-mono text-sm font-bold', tone ?? 'text-foreground')}>{value}</p>
     </div>
@@ -277,7 +277,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+    <div className="rounded-2xl glass-card p-4">
       <h3 className="mb-3 font-serif text-sm font-semibold text-foreground uppercase tracking-wider text-[11px]">{title}</h3>
       <div className="flex flex-col gap-3">{children}</div>
     </div>

@@ -60,7 +60,7 @@ export function CsvImport({ onImported }: CsvImportProps) {
       </button>
 
       {open && (
-        <div className="mt-3 rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="mt-3 rounded-2xl glass-card p-4">
           <input
             ref={fileRef}
             type="file"

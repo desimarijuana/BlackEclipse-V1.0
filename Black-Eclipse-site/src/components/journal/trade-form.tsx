@@ -89,7 +89,7 @@ export function TradeForm({ form, onChange, onSubmit, onCancel, saving, error, s
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); void onSubmit(); }}
-      className="rounded-2xl bg-[#0f0f0f]/60 border border-primary/20 p-4"
+      className="rounded-2xl glass-card border border-primary/20 p-4"
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <Field label="Symbol" required>

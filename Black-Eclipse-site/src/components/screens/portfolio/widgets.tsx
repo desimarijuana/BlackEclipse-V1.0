@@ -54,7 +54,7 @@ const Tile = React.forwardRef<HTMLDivElement, {
   label: string; value: string; tone?: string; sub?: string; loading?: boolean;
 }>(function Tile({ label, value, tone, sub, loading }, ref) {
   return (
-    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md p-3">
+    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl glass-card-subtle p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-1.5 block h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -177,10 +177,10 @@ export function HoldingsWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Table2} title="Holdings" hint={`${holdings.length}`} />
       {holdings.length === 0 ? <EmptyNote>No open positions.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
+              <tr className="glass-card-subtle">
                 {['Symbol', 'Qty', 'Avg', 'Price', 'Value', 'P/L'].map((h, i) => (
                   <th key={h} className={cn(
                     'border-b border-white/10 py-2.5 px-3 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono font-semibold whitespace-nowrap',
@@ -229,10 +229,10 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Layers} title="Transaction Ledger" hint={`${fund.transactions.length} TX`} />
       {txs.length === 0 ? <EmptyNote>No transactions recorded yet.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
+              <tr className="glass-card-subtle">
                 {['Date', 'Type', 'Symbol', 'Qty', 'Price', 'Fee'].map((h, i) => (
                   <th key={h} className={cn(
                     'border-b border-white/10 py-2.5 px-3 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono font-semibold whitespace-nowrap',

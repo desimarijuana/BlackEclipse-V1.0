@@ -52,6 +52,8 @@ import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { useCommandStore } from '@/lib/search/store';
+import type { Destination } from '@/lib/search/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
@@ -106,6 +108,46 @@ function StockChatContent() {
         window.history.replaceState(null, '', '/');
       }
     } catch { /* ignore malformed URLs */ }
+  }, [mounted]);
+
+  // Global command center → tab navigation. Consumes destinations dispatched
+  // by the ⌘K search bar and applies them to the SPA's activeTab state machine.
+  useEffect(() => {
+    const apply = (dest: Destination) => {
+      if (dest.params?.action === 'new-chat') {
+        handleNewChat();
+      }
+      if (dest.params?.symbol) {
+        setSelectedChartSymbol(dest.params.symbol.toUpperCase());
+      }
+      if (dest.params?.fund) {
+        useCommandStore.setState({ pendingFundId: dest.params.fund });
+      }
+      if (dest.params?.prompt) {
+        handleNewChat();
+        setQuery(dest.params.prompt);
+      }
+      if (dest.tab === 'chart') {
+        // Chart needs a symbol; default to the last selected one.
+        setActiveTab('chart');
+      } else {
+        setActiveTab(dest.tab);
+      }
+      if (dest.deepLink) {
+        try { window.history.pushState(null, '', dest.deepLink); } catch { /* ignore */ }
+      }
+    };
+
+    const check = () => {
+      const dest = useCommandStore.getState().consumeDestination();
+      if (dest) apply(dest);
+    };
+
+    check();
+    const unsub = useCommandStore.subscribe((state, prev) => {
+      if (state.pendingDestination !== prev.pendingDestination && state.pendingDestination) check();
+    });
+    return unsub;
   }, [mounted]);
 
   // Load conversations from local storage
@@ -413,7 +455,7 @@ function StockChatContent() {
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 overflow-hidden backdrop-blur-3xl bg-white/30 dark:bg-[#0f0f0f]/30 min-w-0 h-full before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent">
+      <div className="flex-1 flex flex-col relative z-10 overflow-hidden glass-card min-w-0 h-full before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent">
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
         />
@@ -546,7 +588,7 @@ function StockChatContent() {
       </div>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 bg-white/70 dark:bg-[#0f0f0f]/70 backdrop-blur-2xl shadow-2xl text-foreground">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong shadow-2xl text-foreground">
           <DialogTitle className="sr-only">Settings</DialogTitle>
           <Settings />
         </DialogContent>

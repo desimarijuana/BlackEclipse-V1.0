@@ -137,7 +137,7 @@ export function CalendarView() {
       )}
 
       {visible.length > 0 && (
-        <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 overflow-hidden">
+        <div className="rounded-xl glass-card border border-border/10 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>

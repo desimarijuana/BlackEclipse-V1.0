@@ -88,7 +88,7 @@ export function JournalPlaybook() {
       </div>
 
       {adding && (
-        <form onSubmit={submit} className="rounded-2xl bg-[#0f0f0f]/60 border border-primary/20 p-4">
+        <form onSubmit={submit} className="rounded-2xl glass-card border border-primary/20 p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Name" required>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="BOS + FVG" className={inputCls} required />
@@ -135,13 +135,13 @@ export function JournalPlaybook() {
       )}
 
       {loading ? (
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-8 text-center text-xs text-muted-foreground">Loading…</div>
+        <div className="rounded-2xl glass-card p-8 text-center text-xs text-muted-foreground">Loading…</div>
       ) : strategies.length === 0 ? (
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-8 text-center text-xs text-muted-foreground italic">No strategies yet. Create your first playbook.</div>
+        <div className="rounded-2xl glass-card p-8 text-center text-xs text-muted-foreground italic">No strategies yet. Create your first playbook.</div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {strategies.map((s) => (
-            <div key={s.id} className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+            <div key={s.id} className="rounded-2xl glass-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-serif text-sm font-semibold text-foreground">{s.name}</h3>
                 <span className="font-mono text-[9px] text-muted-foreground">{s.rules.length} rules</span>
@@ -206,7 +206,7 @@ function TagsManager() {
   const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
 
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+    <div className="rounded-2xl glass-card p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-serif text-sm font-semibold text-foreground">Tags</h3>
         <span className="font-mono text-[9px] text-muted-foreground">{tags.length} tags</span>

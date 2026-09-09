@@ -364,7 +364,7 @@ export function TradingViewChart({
   return createPortal(
     <div className="tv-overlay fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col h-[100dvh] w-full text-foreground animate-fade-in font-sans">
       {/* Header Panel */}
-      <div className="flex items-center justify-between gap-4 border-b border-border/30 px-4 md:px-6 py-3 bg-card/45 backdrop-blur-md shadow-sm shrink-0">
+      <div className="flex items-center justify-between gap-4 border-b border-border/30 px-4 md:px-6 py-3 glass-card-subtle shadow-sm shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
             <BarChart2 className="w-5 h-5" />
@@ -417,7 +417,7 @@ export function TradingViewChart({
         {/* Left Column: Interactive chart + growth sparkline */}
         <div className="flex-1 h-full relative border-r border-border/20 bg-black/20 flex flex-col min-w-0">
           {/* Internal Tab Menu */}
-          <div className="flex items-center gap-1.5 p-3 bg-card/25 border-b border-border/10 shrink-0">
+          <div className="flex items-center gap-1.5 p-3 glass-card-subtle border-b border-border/10 shrink-0">
             <TabBar
               className="mb-0"
               items={[
@@ -431,7 +431,7 @@ export function TradingViewChart({
           </div>
 
           {/* Performance strip — real values from the price-history API */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-border/10 bg-card/15 shrink-0 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-4 px-4 py-2 border-b border-border/10 glass-card-subtle shrink-0 overflow-x-auto scrollbar-none">
             <span className="flex items-center gap-1.5 text-[10px] font-bold text-foreground shrink-0">
               <Activity size={12} className="text-primary" /> Performance
             </span>
@@ -455,7 +455,7 @@ export function TradingViewChart({
           <div className="flex-1 w-full h-full relative min-h-0 overflow-y-auto tv-metrics-rail">
             {activeTab === 'chart' && (
               <div className="w-full h-full flex flex-col">
-                <div id="tradingview_widget_container" ref={containerRef} className="flex-1 w-full bg-background/40 dark:bg-transparent min-h-0" />
+                <div id="tradingview_widget_container" ref={containerRef} className="flex-1 w-full glass-card-subtle dark:bg-transparent min-h-0" />
                 {/* Breathing room below the TradingView widget so it never looks cramped */}
                 <div className="h-16 shrink-0 bg-gradient-to-b from-transparent to-background/60 pointer-events-none" />
               </div>
@@ -464,7 +464,7 @@ export function TradingViewChart({
             {activeTab === 'fundamentals' && (
               <div className="p-4 md:p-6 space-y-5 text-xs">
                 {/* ── Real price history chart (ECharts) ─────────────────── */}
-                <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+                <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <Activity size={14} className="text-primary" /> Price History
@@ -498,7 +498,7 @@ export function TradingViewChart({
                 </div>
 
                 {/* ── Performance bars (real % from the series) ──────────── */}
-                <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+                <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                   <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                     <TrendingUp size={14} className="text-primary" /> Performance
                   </h2>
@@ -511,7 +511,7 @@ export function TradingViewChart({
 
                 {/* ── Volume profile (real daily volume bars) ────────────── */}
                 {history && history.bars.some((b) => (b.volume ?? 0) > 0) && (
-                  <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+                  <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <BarChart2 size={14} className="text-primary" /> Daily Volume
                     </h2>
@@ -520,7 +520,7 @@ export function TradingViewChart({
                 )}
 
                 {/* Core metrics */}
-                <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+                <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                   <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                     <TrendingUp size={14} className="text-primary" /> Core Metrics
                   </h2>
@@ -549,7 +549,7 @@ export function TradingViewChart({
 
                 {/* 52-week range with REAL data */}
                 {!isCryptoAsset && (
-                  <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2">
+                  <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-2">
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground font-bold tracking-wider uppercase">
                       <span>52-Week Range</span>
                       {rangePct != null && <span className="text-foreground font-mono">{Math.round(rangePct)}% of range</span>}
@@ -573,7 +573,7 @@ export function TradingViewChart({
 
                 {/* Today's session — OHLC vs previous close */}
                 {(effDayOpen != null || effDayHigh != null || effPrevClose != null) && (
-                  <div className="rounded-2xl border border-border/40 bg-card/25 backdrop-blur-xl p-4 space-y-2.5">
+                  <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-2.5">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <Gauge size={14} className="text-primary" /> Today&apos;s Session
                     </h2>
@@ -588,7 +588,7 @@ export function TradingViewChart({
 
                 {/* Risk & income stats */}
                 {!isCryptoAsset && (effBeta !== 'N/A' || effDividendRate !== 'N/A' || effPe !== 'N/A') && (
-                  <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2.5">
+                  <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-2.5">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <ShieldAlert size={14} className="text-primary" /> Risk &amp; Income
                     </h2>
@@ -619,7 +619,7 @@ export function TradingViewChart({
 
                 {/* Crypto tokenomics */}
                 {isCryptoAsset && (
-                  <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-3">
+                  <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                       <Landmark size={14} className="text-primary" /> Tokenomics
                     </h2>
@@ -635,7 +635,7 @@ export function TradingViewChart({
                       const emptyBars = 10 - filledBars;
                       const barStr = '██████████'.slice(0, filledBars) + '░░░░░░░░░░'.slice(0, emptyBars);
                       return (
-                        <div className="rounded-xl border border-border/30 bg-background/40 px-3 py-2 space-y-1">
+                        <div className="rounded-xl border border-border/30 glass-card-subtle px-3 py-2 space-y-1">
                           <div className="flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-widest">
                             <span>Circulating Ratio</span><span className="text-foreground font-mono">{ratioPercent}%</span>
                           </div>
@@ -655,7 +655,7 @@ export function TradingViewChart({
                 )}
 
                 {/* Profile */}
-                <div className="rounded-2xl border border-border/40 bg-white/50 dark:bg-[#0f0f0f]/50 backdrop-blur-xl p-4 space-y-2">
+                <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-2">
                   <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
                     <Layers size={14} className="text-primary" /> Company Profile
                   </h2>
@@ -676,7 +676,7 @@ export function TradingViewChart({
         </div>
 
         {/* Right Column: In-depth Summary Sidebar */}
-        <div className="w-full lg:w-80 p-5 overflow-y-auto space-y-5 bg-card/10 shrink-0 scrollbar-hide tv-metrics-rail">
+        <div className="w-full lg:w-80 p-5 overflow-y-auto space-y-5 glass-card-subtle shrink-0 scrollbar-hide tv-metrics-rail">
           <div className="space-y-5">
             <div>
               <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">
@@ -686,29 +686,29 @@ export function TradingViewChart({
 
             {/* Quick metrics grid / swipeable on mobile */}
             <div className="flex overflow-x-auto lg:grid lg:grid-cols-2 gap-3 pb-2 lg:pb-0 scrollbar-none snap-x snap-mandatory">
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Price</span>
                 <div className="text-sm font-bold text-foreground mt-0.5">{formatPriceWithCurrency(effCountry, effPrice)}</div>
               </div>
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Change %</span>
                 <div className={`text-sm font-bold mt-0.5 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isPositive ? '+' : ''}{effChange.toFixed(2)}%
                 </div>
               </div>
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Market Cap</span>
                 <div className="text-xs font-bold text-foreground mt-0.5 truncate">{effMarketCap}</div>
               </div>
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">{isCryptoAsset ? 'Rank' : 'P/E Ratio'}</span>
                 <div className="text-xs font-bold text-foreground mt-0.5 truncate">{isCryptoAsset ? (effRank < 9999 ? `#${effRank}` : 'N/A') : effPe}</div>
               </div>
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">Volume</span>
                 <div className="text-xs font-bold text-foreground mt-0.5 truncate">{effVolume}</div>
               </div>
-              <div className="p-3 rounded-xl border border-border/50 bg-card/65 font-mono min-w-[120px] lg:min-w-0 snap-start">
+              <div className="p-3 rounded-xl border border-border/50 glass-card-subtle font-mono min-w-[120px] lg:min-w-0 snap-start">
                 <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider block">{isCryptoAsset ? 'Category' : 'Industry'}</span>
                 <div className="text-xs font-bold text-foreground mt-0.5 truncate" title={isCryptoAsset ? effSector : effIndustry}>{isCryptoAsset ? effSector : effIndustry}</div>
               </div>
@@ -752,7 +752,7 @@ export function TradingViewChart({
               }
 
               return (
-                <div className="p-4 rounded-xl border border-border/60 bg-card/45 space-y-2">
+                <div className="p-4 rounded-xl border border-border/60 glass-card space-y-2">
                   <div className="text-[10px] text-muted-foreground font-bold tracking-wider uppercase">Asset Health Score</div>
                   <div className="flex items-center justify-between font-mono">
                     <div className="text-xl font-black text-foreground">{finalScore} <span className="text-xs text-muted-foreground font-normal">/ 100</span></div>
@@ -767,7 +767,7 @@ export function TradingViewChart({
 
             {/* 52-Week Visual Slider with REAL data */}
             {!isCryptoAsset && (
-              <div className="p-4 rounded-xl border border-border/60 bg-card/45 space-y-2">
+              <div className="p-4 rounded-xl border border-border/60 glass-card space-y-2">
                 <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold tracking-wider uppercase">
                   <span>52W Range</span>
                   {rangePct != null && <span className="text-foreground font-mono">{Math.round(rangePct)}%</span>}
@@ -819,12 +819,12 @@ export function TradingViewChart({
       {/* Learn-the-terms glossary toggle */}
       <button
         onClick={() => setShowGlossary(v => !v)}
-        className="fixed bottom-4 left-4 z-[60] inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-primary bg-card/80 hover:bg-accent border border-border/40 hover:border-primary/40 rounded-xl px-3 py-2 backdrop-blur-xl transition-all cursor-pointer"
+        className="fixed bottom-4 left-4 z-[60] inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-primary glass-card-strong hover:bg-accent border border-border/40 hover:border-primary/40 rounded-xl px-3 py-2 transition-all cursor-pointer"
       >
         <BookOpen size={13} /> {showGlossary ? 'Hide' : 'Learn the terms'}
       </button>
       {showGlossary && (
-        <div className="fixed bottom-16 left-4 z-[60] w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-border/40 bg-card/90 backdrop-blur-xl p-4 shadow-2xl space-y-2 animate-fade-in max-h-[50dvh] overflow-y-auto">
+        <div className="fixed bottom-16 left-4 z-[60] w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-border/40 glass-card-strong p-4 shadow-2xl space-y-2 animate-fade-in max-h-[50dvh] overflow-y-auto">
           <h3 className="text-xs font-bold text-primary flex items-center gap-1.5">
             <HelpCircle size={13} /> What these numbers mean
           </h3>
@@ -856,7 +856,7 @@ function MetricCard({ label, value, sub, tone, hint }: {
   label: string; value: string; sub?: string; tone?: 'emerald' | 'rose'; hint?: string;
 }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-background/40 px-3 py-2 min-w-0" title={hint || undefined}>
+    <div className="rounded-xl border border-border/40 glass-card-subtle px-3 py-2 min-w-0" title={hint || undefined}>
       <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider truncate">{label}</div>
       <div className={cn(
         'text-sm font-bold font-mono text-foreground truncate',

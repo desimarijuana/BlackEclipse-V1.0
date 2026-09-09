@@ -123,7 +123,7 @@ export function AlertNotificationsPanel() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-white/10 dark:border-white/5 bg-white/50 dark:bg-[#0f0f0f]/40 backdrop-blur-xl p-5 md:p-6 space-y-4">
+      <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 md:p-6 space-y-4">
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={inApp} onChange={(e) => setInApp(e.target.checked)} className="accent-[hsl(var(--primary))]" />
           In-app notices (always recorded to history regardless)

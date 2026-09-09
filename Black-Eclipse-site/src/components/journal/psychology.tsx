@@ -35,7 +35,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
 
   if (!analytics || analytics.performance.totalTrades === 0) {
     return (
-      <div className="rounded-2xl bg-[#0f0f0f]/60 p-12 text-center">
+      <div className="rounded-2xl glass-card p-12 text-center">
         <Brain className="mx-auto text-primary" size={28} />
         <h3 className="mt-3 font-serif text-base text-foreground">No psychology data yet</h3>
         <p className="mt-1 text-xs text-muted-foreground">Record emotions and confidence on your trades to see behavioral patterns.</p>
@@ -50,18 +50,18 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Emotion performance */}
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DimensionBarChart rows={analytics.byEmotion} title="Performance by Emotion" hint="NET R" height={Math.max(160, analytics.byEmotion.length * 30)} />
         </div>
 
         {/* Confidence correlation */}
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <DimensionBarChart rows={analytics.byConfidence} title="Performance by Confidence" hint="NET R" height={Math.max(160, analytics.byConfidence.length * 30)} />
         </div>
       </div>
 
       {/* Correlation readout */}
-      <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+      <div className="rounded-2xl glass-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <Target size={14} className="text-primary" />
           <h3 className="font-serif text-sm font-semibold text-foreground">Confidence vs Outcome</h3>
@@ -89,7 +89,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
 
       {/* Biggest leaks */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle size={14} className="text-rose-400" />
             <h3 className="font-serif text-sm font-semibold text-foreground">Most Costly Emotional State</h3>
@@ -104,7 +104,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
           )}
         </div>
 
-        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+        <div className="rounded-2xl glass-card p-4">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle size={14} className="text-rose-400" />
             <h3 className="font-serif text-sm font-semibold text-foreground">Most Costly Mistake</h3>

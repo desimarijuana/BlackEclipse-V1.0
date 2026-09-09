@@ -28,7 +28,7 @@ import type { WidgetPlacement, WorkspaceSection } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
-  'rounded-2xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl shadow-md shadow-black/10 transition-all duration-300';
+  'rounded-2xl glass-card shadow-md shadow-black/10 transition-all duration-300';
 
 /** Where the dragged card should land (kept in a ref for the commit + state for the UI). */
 interface DropTargetInfo {
@@ -415,13 +415,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
         <WorkspaceDrawer onClose={() => setDrawerOpen(false)} workspace={workspace} widgets={widgets} />
       )}
       {corrupt && (
-        <div className="mb-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 backdrop-blur-md p-3.5 text-xs text-amber-400 font-semibold">
+        <div className="mb-4 rounded-2xl border border-amber-500/20 glass-card-subtle p-3.5 text-xs text-amber-400 font-semibold">
           Saved layout was unreadable — showing defaults. Your stored data was left untouched.
         </div>
       )}
 
       {isEmpty && (
-        <div className="rounded-3xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl p-12 text-center animate-fade-in-up">
+        <div className="rounded-3xl glass-card p-12 text-center animate-fade-in-up">
           <Sparkles className="mx-auto text-primary" size={28} />
           <h3 className="mt-3 font-serif text-lg text-foreground">This workspace is empty</h3>
           <p className="mt-1 text-xs text-muted-foreground">Open <span className="font-bold text-primary">Customize</span> to add widgets and shape the layout.</p>
@@ -551,7 +551,7 @@ function SectionRow({
       {editMode && (
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
           <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground/60">Section</span>
-          <div className="flex items-center rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 overflow-hidden">
+          <div className="flex items-center rounded-xl border border-white/15 dark:border-white/10 glass-card-subtle overflow-hidden">
             <button
               onClick={() => ops.setColumnCount(section.id, section.columns.length - 1)}
               disabled={section.columns.length <= 1}

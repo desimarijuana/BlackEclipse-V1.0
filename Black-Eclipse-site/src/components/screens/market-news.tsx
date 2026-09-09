@@ -448,7 +448,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
   // News Details / AI Briefing Modal — shared by widget + full-page views.
   const newsDialog = selectedNews ? (
     <Dialog open={!!selectedNews} onOpenChange={open => !open && setSelectedNews(null)}>
-      <DialogContent className="sm:max-w-[480px] bg-background/90 backdrop-blur-xl border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
+      <DialogContent className="sm:max-w-[480px] glass-card-strong border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
         {/* Ambient Background Blur Glow */}
         <div
           className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-72 h-72 rounded-full blur-[70px] pointer-events-none ${
@@ -621,7 +621,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
 
   if (error && newsList.length === 0) {
     return (
-      <div className="w-full text-center py-10 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl p-6 bg-card/10">
+      <div className="w-full text-center py-10 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl p-6 glass-card-subtle">
         <p className="text-rose-400 font-bold mb-2">Error: {error}</p>
         <button onClick={() => fetchNews()} className="px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-xl cursor-pointer hover:bg-primary/90 transition-all">
           Retry News Feed Load
@@ -634,7 +634,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
     return (
       <div className="w-full flex flex-col gap-6 select-none">
         {/* ─── Filter Bar ─── */}
-        <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="w-full rounded-2xl border border-border/10 glass-card p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
             className="flex items-center gap-2 flex-1 min-w-0"
             onSubmit={(e) => { e.preventDefault(); setFilter({ q: pendingQ.trim() }); }}
@@ -744,7 +744,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
           const pct = (v: number) => (totalPulse > 0 ? Math.round((v / totalPulse) * 100) : 0);
           const skew = b >= r ? 'bullish' : 'bearish';
           return (
-            <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl p-4 flex flex-col md:flex-row md:items-center gap-4">
+            <div className="w-full rounded-2xl border border-border/10 glass-card p-4 flex flex-col md:flex-row md:items-center gap-4">
               <div className="flex items-center gap-2 shrink-0">
                 {skew === 'bullish'
                   ? <TrendingUp size={16} className="text-emerald-400" />
@@ -789,7 +789,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
         })()}
 
         {/* ─── Category Tabs — one-tap browse, below Market Pulse ─── */}
-        <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl px-4 py-3">
+        <div className="w-full rounded-2xl border border-border/10 glass-card px-4 py-3">
           <TabBar
             className="mb-0"
             items={[
@@ -828,7 +828,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
 
         {/* Inline config panel — expands in flow, pushes content down */}
         {showCustomize && (
-          <div className="p-3 sm:p-4 rounded-xl bg-[#0f0f0f]/70 dark:bg-[#0f0f0f]/70 bg-white/80 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up space-y-4">
+          <div className="p-3 sm:p-4 rounded-xl glass-card border border-white/10 dark:border-white/5 shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-bold text-foreground uppercase tracking-wider">Card Preferences</p>
               <button
@@ -987,7 +987,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
 
         <div className={`${CARD_COLUMNS_CLASS[cards.columns]} grid gap-4.5 w-full`}>
           {newsList.length === 0 && (
-            <div className="w-full text-center py-12 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl bg-card/10">
+            <div className="w-full text-center py-12 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl glass-card-subtle">
               {savedView ? (
                 <>
                   <p className="mb-3">No bookmarked articles yet — tap the ribbon icon on any card.</p>
@@ -1025,10 +1025,10 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
               : 'border-white/10 dark:border-white/5 hover:border-primary/50';
 
             const bgGradient = isBullish
-              ? 'bg-gradient-to-br from-emerald-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30'
+              ? 'bg-gradient-to-br from-emerald-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30 backdrop-blur-xl'
               : isBearish
-              ? 'bg-gradient-to-br from-rose-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30'
-              : 'bg-[#0f0f0f]/60';
+              ? 'bg-gradient-to-br from-rose-500/[0.03] via-[#0f0f0f]/60 to-[#0f0f0f]/30 backdrop-blur-xl'
+              : 'glass-card';
 
             const summaryClass =
               cards.showSummary && cards.summaryLines > 0
@@ -1043,7 +1043,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.target as HTMLElement).getAttribute('role') === 'button') openNews(item); }}
                 key={item.id}
                 onClick={() => openNews(item)}
-                className={`rounded-2xl backdrop-blur-xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${dens.card} ${borderStyle} ${bgGradient}`}
+                className={`rounded-2xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${dens.card} ${borderStyle} ${bgGradient}`}
               >
                 {/* Ambient glow badge based on sentiment */}
                 {cards.glow && (
@@ -1179,7 +1179,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
             </button>
           );
           return (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-8 p-4 bg-[#0f0f0f]/40 border border-border/10 rounded-2xl font-mono select-none">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-8 p-4 glass-card-subtle border border-border/10 rounded-2xl font-mono select-none">
               <span className="text-[11px] text-muted-foreground order-2 sm:order-1">
                 Showing page <span className="text-foreground font-bold">{page}</span> of{' '}
                 <span className="text-foreground font-bold">{totalPages}</span>
@@ -1206,7 +1206,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
   }
 
   return (
-    <div className="w-full flex flex-col bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-2xl p-4 overflow-hidden relative">
+    <div className="w-full flex flex-col glass-card border border-white/10 dark:border-white/5 rounded-2xl p-4 overflow-hidden relative">
       <div className="flex items-center gap-2 mb-4 shrink-0">
         <Newspaper className="text-primary w-4.5 h-4.5" />
         <span className="font-serif text-sm font-semibold tracking-tight">AI Financial Briefings</span>
@@ -1222,7 +1222,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
             ? 'border-emerald-500/15 hover:border-emerald-500/40 bg-emerald-950/[0.01]'
             : isBearish
             ? 'border-rose-500/15 hover:border-rose-500/40 bg-rose-950/[0.01]'
-            : 'border-border/10 bg-background/10 hover:border-border/30';
+            : 'border-border/10 glass-card-subtle hover:border-border/30';
 
           return (
             <button

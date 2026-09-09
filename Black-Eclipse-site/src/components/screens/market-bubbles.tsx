@@ -884,7 +884,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
 
           <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
             {/* Market Selector — populated from markets loaded in JDDS */}
-            <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
+            <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
               <select
                 value={selectedMarket}
@@ -907,7 +907,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             </div>
 
             {/* Top N by volume selector — how many highest-volume assets to load */}
-            <div className="flex items-center gap-2 bg-accent/40 p-1.5 rounded-3xl border border-border/40 backdrop-blur-md shrink-0">
+            <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Top:</span>
               <select
                 value={topN}
@@ -931,14 +931,14 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                 placeholder="Search / Highlight Asset..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value.toUpperCase())}
-                className="w-full bg-[#0f0f0f]/40 border border-border/40 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60 transition-all font-mono"
+                className="w-full glass-card-subtle border border-border/40 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60 transition-all font-mono"
               />
             </div>
           </div>
         </div>
 
         {/* Filters Banner (Row 1) */}
-        <div className="flex flex-wrap items-center gap-4 bg-[#0f0f0f]/40 border border-white/5 rounded-2xl p-4 shrink-0 text-xs">
+        <div className="flex flex-wrap items-center gap-4 glass-card-subtle border border-white/5 rounded-2xl p-4 shrink-0 text-xs">
           
           {/* Sector Category Filter */}
           <div className="flex items-center gap-2 border-r border-white/5 pr-4">
@@ -1009,7 +1009,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         </div>
 
         {/* Physics Controls Banner (Row 2) */}
-        <div className="flex flex-wrap items-center justify-between gap-4 bg-[#0f0f0f]/40 border border-white/5 rounded-2xl p-4 shrink-0 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-4 glass-card-subtle border border-white/5 rounded-2xl p-4 shrink-0 text-xs">
           <div className="flex flex-wrap items-center gap-6">
             
             {/* Split Mode Grouping */}
@@ -1131,7 +1131,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         </div>
 
         {/* Live Canvas Box */}
-        <div className="h-[500px] w-full bg-[#050505]/40 backdrop-blur-3xl border border-white/5 rounded-3xl relative overflow-hidden shrink-0">
+        <div className="h-[500px] w-full glass-card border border-white/5 rounded-3xl relative overflow-hidden shrink-0">
           {loading && rawList.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#050505]/80">
               <Orbit className="text-white/5 w-16 h-16 animate-spin-slow mb-4" />
@@ -1155,7 +1155,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
         </div>
 
         {/* Detailed Crypto Statistics Table */}
-        <div className="bg-[#050505]/40 border border-white/5 rounded-3xl p-6 backdrop-blur-3xl space-y-4 shrink-0">
+        <div className="glass-card border border-white/5 rounded-3xl p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between border-b border-white/5 pb-3">
             <h2 className="font-serif text-lg font-semibold text-foreground">Market Details Table</h2>
             <span className="text-[10px] text-muted-foreground font-mono bg-white/5 px-2.5 py-1 rounded-full">
@@ -1305,7 +1305,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
               top: `${hoverPos.y}px`,
               zIndex: 9999,
             }}
-            className="w-56 p-4 rounded-xl border border-border/50 bg-background/95 text-foreground backdrop-blur-2xl shadow-2xl pointer-events-none text-left flex flex-col gap-2 transition-all duration-100 animate-fade-in"
+            className="w-56 p-4 rounded-xl border border-border/50 glass-card-strong text-foreground shadow-2xl pointer-events-none text-left flex flex-col gap-2 transition-all duration-100 animate-fade-in"
           >
             <div className="flex items-center justify-between border-b border-border/20 pb-1.5">
               <span className="font-mono text-sm font-bold tracking-wider text-primary">{hoveredData.symbol}</span>

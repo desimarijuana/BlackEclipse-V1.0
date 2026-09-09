@@ -82,7 +82,7 @@ export function JournalInsights({ analytics }: InsightsProps) {
 
   if (!analytics || analytics.performance.totalTrades === 0) {
     return (
-      <div className="rounded-2xl bg-[#0f0f0f]/60 p-12 text-center">
+      <div className="rounded-2xl glass-card p-12 text-center">
         <Sparkles className="mx-auto text-primary" size={28} />
         <h3 className="mt-3 font-serif text-base text-foreground">No insights yet</h3>
         <p className="mt-1 text-xs text-muted-foreground">Add trades and BlackEclipse will surface behavioral patterns.</p>
@@ -106,7 +106,7 @@ export function JournalInsights({ analytics }: InsightsProps) {
                 'rounded-2xl border p-4',
                 ins.kind === 'positive' ? 'border-emerald-500/15 bg-emerald-500/5'
                   : ins.kind === 'negative' ? 'border-rose-500/15 bg-rose-500/5'
-                    : 'border-white/10 bg-[#0f0f0f]/60',
+                    : 'border-white/10 glass-card',
               )}
             >
               <div className="flex items-center gap-2 mb-1.5">

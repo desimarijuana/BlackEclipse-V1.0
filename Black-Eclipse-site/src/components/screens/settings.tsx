@@ -98,7 +98,7 @@ function Panel({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-white/10 dark:border-white/5 bg-white/50 dark:bg-[#0f0f0f]/40 backdrop-blur-xl overflow-hidden",
+        "rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden",
         className
       )}
     >
@@ -333,7 +333,7 @@ export function Settings() {
   return (
     <div className="flex h-full w-full overflow-hidden">
       {/* Left nav rail */}
-      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 bg-white/40 dark:bg-[#0f0f0f]/30 backdrop-blur-xl">
+      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 glass-card-subtle">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20">
             <SlidersHorizontal size={16} />
@@ -580,7 +580,7 @@ export function Settings() {
                             "w-full flex items-center justify-between gap-3 py-3.5 px-4 rounded-xl border transition-all cursor-pointer text-left group",
                             active
                               ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                              : "bg-white/40 dark:bg-[#0f0f0f]/30 border-border/20 hover:border-border/40 hover:bg-accent/30"
+                              : "glass-card-subtle border-border/20 hover:border-border/40 hover:bg-accent/30"
                           )}
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -726,7 +726,7 @@ export function Settings() {
         </div>
 
         {/* Save bar */}
-        <div className="shrink-0 border-t border-border/10 bg-white/50 dark:bg-[#0f0f0f]/40 backdrop-blur-xl px-6 md:px-8 py-3 flex items-center justify-between gap-3">
+        <div className="shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3">
           {message ? (
             <span className="text-xs text-primary flex items-center gap-1.5">
               {saved && <Check className="w-3.5 h-3.5" />}

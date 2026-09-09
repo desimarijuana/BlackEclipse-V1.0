@@ -57,7 +57,7 @@ export function Sidebar({
 
   const sidebarContent = (
     <div 
-      className={`sidebar-root h-full flex flex-col bg-card/85 backdrop-blur-3xl border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
+      className={`sidebar-root h-full flex flex-col glass-card-strong border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
         isCollapsed ? 'w-16 px-0 items-center' : 'w-60 px-4'
       }`}
     >

@@ -176,7 +176,7 @@ export function CalendarHeatmap({ days, year, onSelectDay }: CalendarHeatmapProp
       {/* Hover tooltip */}
       {hovered && hoverPos && (
         <div
-          className="pointer-events-none fixed z-50 w-56 rounded-xl border border-white/10 bg-[#0f0f0f]/95 p-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
+          className="pointer-events-none fixed z-50 w-56 rounded-xl border border-white/10 glass-card-strong p-3 shadow-2xl shadow-black/50"
           style={{ left: Math.min(hoverPos.x + 12, window.innerWidth - 240), top: Math.min(hoverPos.y + 12, window.innerHeight - 200) }}
         >
           <p className="font-mono text-[11px] font-bold text-foreground">{formatDate(hovered.date)}</p>

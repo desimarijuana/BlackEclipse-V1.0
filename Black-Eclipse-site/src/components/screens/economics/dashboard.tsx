@@ -212,7 +212,7 @@ function WidgetCard({ title, icon, desc, loading, children }: {
   title: string; icon: React.ReactNode; desc: string; loading: boolean; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-4 flex flex-col gap-2">
+    <div className="rounded-xl glass-card border border-border/10 p-4 flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <span className="text-primary">{icon}</span>
         <span className="text-[12px] font-semibold text-foreground">{title}</span>

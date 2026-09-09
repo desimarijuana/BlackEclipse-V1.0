@@ -46,7 +46,7 @@ export function AiReview({ query, tradeId, start, end, buttonLabel = 'Analyze', 
   };
 
   return (
-    <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+    <div className="rounded-2xl glass-card p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Sparkles size={14} className="text-primary" />

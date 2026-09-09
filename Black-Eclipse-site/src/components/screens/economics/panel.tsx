@@ -430,7 +430,7 @@ export function EconPanel({ source }: PanelProps) {
       </div>
 
       {/* Toolbar — declarative controls + FETCH/CSV */}
-      <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 p-4">
+      <div className="rounded-xl glass-card border border-border/10 p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {source.controls.map((control) => (
             <label key={control.name} className="flex flex-col gap-1.5">
@@ -514,7 +514,7 @@ export function EconPanel({ source }: PanelProps) {
             ['AVG', stats.avg != null ? fmt(stats.avg) : '—', ''],
             ['POINTS', String(stats.points), 'observations'],
           ] as [string, string, string][]).map(([label, value, sub]) => (
-            <div key={label} className="p-2.5 rounded-xl bg-accent/20 border border-border/20">
+            <div key={label} className="p-2.5 rounded-xl glass-card-subtle border border-border/20">
               <p className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground/70">{label}</p>
               <p className={`text-[15px] font-bold font-mono mt-0.5 ${label === 'CHANGE' ? (stats.change != null && stats.change >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-foreground'}`}>
                 {value}
@@ -527,7 +527,7 @@ export function EconPanel({ source }: PanelProps) {
 
       {/* Chart panel */}
       {chartDeps && chartDeps.dates.length > 1 && (
-        <div className="rounded-xl bg-[#0f0f0f]/60 border border-border/10 overflow-hidden">
+        <div className="rounded-xl glass-card border border-border/10 overflow-hidden">
           <div className="flex items-center justify-between gap-4 flex-wrap px-4 py-3 border-b border-border/10">
             <div>
               <div className="text-[14px] font-semibold text-foreground">{chartTitle}</div>
@@ -686,7 +686,7 @@ export function EconPanel({ source }: PanelProps) {
         )}
       </div>
       {narrative && (
-        <div className="p-4 rounded-xl bg-accent/20 border border-border/20 animate-fade-in-up">
+        <div className="p-4 rounded-xl glass-card-subtle border border-border/20 animate-fade-in-up">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles size={13} className="text-primary" />
             <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Trend Summary</span>

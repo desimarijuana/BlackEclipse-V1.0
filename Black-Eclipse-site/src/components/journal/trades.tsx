@@ -191,7 +191,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
 
       {/* Fast-add form */}
       {adding && (
-        <form onSubmit={submit} className="rounded-2xl bg-[#0f0f0f]/60 border border-primary/20 p-4">
+        <form onSubmit={submit} className="rounded-2xl glass-card border border-primary/20 p-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             <Field label="Symbol" required>
               <input value={form.symbol} onChange={(e) => set({ symbol: e.target.value.toUpperCase() })} placeholder="XAUUSD" className={inputCls} required />
@@ -319,7 +319,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
       )}
 
       {/* Trade table */}
-      <div className="rounded-2xl bg-[#0f0f0f]/60 overflow-hidden">
+      <div className="rounded-2xl glass-card overflow-hidden">
         {filtered.length === 0 ? (
           <p className="p-8 text-center text-xs text-muted-foreground italic">No trades{filter ? ' match your filter' : ' yet'}.</p>
         ) : (

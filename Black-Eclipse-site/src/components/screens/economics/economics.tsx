@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Globe, LayoutDashboard, CalendarDays, LineChart, Activity } from 'lucide-react';
+import { Globe, LineChart, Activity } from 'lucide-react';
 import { TabBar } from '@/components/ui/tab-bar';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { EconPanel } from './panel';
@@ -21,7 +21,7 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
 ];
 
 export function EconomicsScreen() {
-  const [section, setSection] = useState<'snapshot' | 'dashboard' | 'calendar' | 'explorer'>('snapshot');
+  const [section, setSection] = useState<'overview' | 'explorer'>('overview');
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 h-full overflow-y-auto pb-20">
@@ -44,43 +44,39 @@ export function EconomicsScreen() {
         {/* ── Section tabs ─────────────────────────────────────── */}
         <TabBar
           items={[
-            { id: 'snapshot', label: 'Snapshot', icon: Activity },
-            { id: 'dashboard', label: 'Decision Dashboard', icon: LayoutDashboard },
-            { id: 'calendar', label: 'Economic Calendar', icon: CalendarDays },
+            { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
           ]}
           activeId={section}
           onChange={(id) => setSection(id as typeof section)}
         />
 
-        {section === 'snapshot' && (
-          <section>
-            <SectionHead
-              title="Global macro · live vintages"
-              desc="Central-bank rates & key US prints, each with its “as of” vintage — pulled from the FRED public CSV feed. Nothing fabricated."
-            />
-            <SnapshotView />
-          </section>
-        )}
+        {section === 'overview' && (
+          <div className="flex flex-col gap-10">
+            <section>
+              <SectionHead
+                title="Global macro · live vintages"
+                desc="Central-bank rates & key US prints, each with its “as of” vintage — pulled from the FRED public CSV feed. Nothing fabricated."
+              />
+              <SnapshotView />
+            </section>
 
-        {section === 'dashboard' && (
-          <section>
-            <SectionHead
-              title="Decision dashboard"
-              desc="At-a-glance macro signals to guide positioning — real rate, yield curve, regime, policy stance and dollar."
-            />
-            <DecisionDashboard />
-          </section>
-        )}
+            <section className="border-t border-border/10 pt-8">
+              <SectionHead
+                title="Decision dashboard"
+                desc="At-a-glance macro signals to guide positioning — real rate, yield curve, regime, policy stance and dollar."
+              />
+              <DecisionDashboard />
+            </section>
 
-        {section === 'calendar' && (
-          <section>
-            <SectionHead
-              title="Economic calendar"
-              desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
-            />
-            <CalendarView />
-          </section>
+            <section className="border-t border-border/10 pt-8">
+              <SectionHead
+                title="Economic calendar"
+                desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
+              />
+              <CalendarView />
+            </section>
+          </div>
         )}
 
         {section === 'explorer' && (
@@ -107,8 +103,8 @@ function SourceGroup({ group }: { group: { label: string; ids: string[] } }) {
   const active = ECON_SOURCES.find((s) => s.id === activeId) ?? ECON_SOURCES.find((s) => s.id === group.ids[0])!;
 
   return (
-    <div className="rounded-xl border border-border/10 bg-[#0f0f0f]/40 overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-4 bg-accent/20 border-b border-border/10">
+    <div className="rounded-xl border border-border/10 glass-card-subtle overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 glass-card-subtle border-b border-border/10">
         <span className="font-serif text-lg md:text-xl font-semibold tracking-tight text-foreground">{group.label}</span>
         <span className="h-px flex-1 bg-border/20" />
         <span className="font-mono text-[10px] text-muted-foreground">{group.ids.length} sources</span>
