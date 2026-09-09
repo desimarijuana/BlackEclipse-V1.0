@@ -91,7 +91,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
       </div>
 
       {loading ? (
-        <div className="rounded-3xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 p-12 flex flex-col items-center gap-3 animate-fade-in">
+        <div className="rounded-3xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl p-12 flex flex-col items-center gap-3 animate-fade-in">
           <DotGrid size={28} />
           <span className="text-xs text-muted-foreground font-mono">loading live prices…</span>
         </div>

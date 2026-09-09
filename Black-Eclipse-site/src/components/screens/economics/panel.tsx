@@ -215,13 +215,13 @@ export function EconPanel({ source }: PanelProps) {
         type: 'category',
         data: dates,
         axisLabel: { color: '#737373', fontSize: 10, fontFamily: 'monospace' },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
       },
       yAxis: {
         type: logScale ? 'log' : 'value',
         scale: true,
         axisLabel: { color: '#737373', fontSize: 10, fontFamily: 'monospace' },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.03)' } },
       },
       series: [
         ...(recessionBands.length > 0

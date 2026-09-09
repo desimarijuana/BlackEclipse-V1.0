@@ -28,7 +28,7 @@ import type { WidgetPlacement, WorkspaceSection } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
-  'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/10 shadow-md shadow-black/10 transition-all duration-300';
+  'rounded-2xl bg-[#0f0f0f]/45 dark:bg-[#0f0f0f]/45 bg-white/75 backdrop-blur-xl shadow-md shadow-black/10 transition-all duration-300';
 
 /** Where the dragged card should land (kept in a ref for the commit + state for the UI). */
 interface DropTargetInfo {
@@ -421,7 +421,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
       )}
 
       {isEmpty && (
-        <div className="rounded-3xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/5 p-12 text-center animate-fade-in-up">
+        <div className="rounded-3xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl p-12 text-center animate-fade-in-up">
           <Sparkles className="mx-auto text-primary" size={28} />
           <h3 className="mt-3 font-serif text-lg text-foreground">This workspace is empty</h3>
           <p className="mt-1 text-xs text-muted-foreground">Open <span className="font-bold text-primary">Customize</span> to add widgets and shape the layout.</p>

@@ -944,7 +944,7 @@ function PriceHistoryChart({ bars, currency }: { bars: PriceBar[]; currency: str
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
       axisLabel: { color: 'rgba(160,160,160,0.8)', fontSize: 9, fontFamily: 'monospace' },
       axisTick: { show: false },
       boundaryGap: false,
@@ -952,7 +952,7 @@ function PriceHistoryChart({ bars, currency }: { bars: PriceBar[]; currency: str
     yAxis: {
       type: 'value',
       scale: true,
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.03)' } },
       axisLabel: {
         color: 'rgba(160,160,160,0.8)',
         fontSize: 9,
@@ -1047,13 +1047,13 @@ function VolumeChart({ bars }: { bars: PriceBar[] }) {
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
       axisLabel: { color: 'rgba(160,160,160,0.8)', fontSize: 9, fontFamily: 'monospace' },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.03)' } },
       axisLabel: {
         color: 'rgba(160,160,160,0.8)',
         fontSize: 9,

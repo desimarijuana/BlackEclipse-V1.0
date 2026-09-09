@@ -43,6 +43,10 @@ const PortfolioScreen = dynamic(() => import('./portfolio').then((m) => m.Portfo
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const JournalScreen = dynamic(() => import('@/components/journal/journal-screen').then((m) => m.JournalScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -513,6 +517,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'portfolio' ? '' : 'hidden')}>
               <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
                 <PortfolioScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('journal') && (
+            <div className={cn('w-full h-full', activeTab === 'journal' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+                <JournalScreen />
               </div>
             </div>
           )}

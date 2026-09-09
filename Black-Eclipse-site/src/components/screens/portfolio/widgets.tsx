@@ -54,7 +54,7 @@ const Tile = React.forwardRef<HTMLDivElement, {
   label: string; value: string; tone?: string; sub?: string; loading?: boolean;
 }>(function Tile({ label, value, tone, sub, loading }, ref) {
   return (
-    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/10 dark:border-white/10 backdrop-blur-md p-3">
+    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-1.5 block h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -100,8 +100,8 @@ export function PerformanceWidget({ data }: WidgetProps) {
     return {
       ...baseChartOption(),
       grid,
-      xAxis: { type: 'category', data: data.risk.navDates.length ? data.risk.navDates : data.risk.nav.map((_, i) => i), axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
-      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.12)' } }, axisLabel: { color: '#94a3b8', fontSize: 9, formatter: (v: number) => v.toFixed(2) } },
+      xAxis: { type: 'category', data: data.risk.navDates.length ? data.risk.navDates : data.risk.nav.map((_, i) => i), axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9, formatter: (v: number) => v.toFixed(2) } },
       series: [
         { name: 'Fund NAV', type: 'line', data: data.risk.nav, showSymbol: false, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } },
         ...(data.risk.benchmarkNav.length === data.risk.nav.length
@@ -177,7 +177,7 @@ export function HoldingsWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Table2} title="Holdings" hint={`${holdings.length}`} />
       {holdings.length === 0 ? <EmptyNote>No open positions.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/10 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
@@ -229,7 +229,7 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Layers} title="Transaction Ledger" hint={`${fund.transactions.length} TX`} />
       {txs.length === 0 ? <EmptyNote>No transactions recorded yet.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/10 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
@@ -304,7 +304,7 @@ export function HealthWidget({ data }: WidgetProps) {
       series: [{
         type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100,
         progress: { show: true, width: 10, itemStyle: { color: primary } },
-        axisLine: { lineStyle: { width: 10, color: [[1, 'rgba(148,163,184,0.15)']] } },
+        axisLine: { lineStyle: { width: 10, color: [[1, 'rgba(148,163,184,0.08)']] } },
         axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
         pointer: { show: false }, anchor: { show: false },
         detail: { valueAnimation: false, offsetCenter: [0, '5%'], formatter: '{value}', color: '#e5e7eb', fontSize: 22, fontFamily: 'monospace' },
@@ -377,7 +377,7 @@ export function MonteCarloWidget({ data }: WidgetProps) {
       ...baseChartOption(),
       grid: { left: 8, right: 8, top: 10, bottom: 0, containLabel: true },
       xAxis: { type: 'category', data: result.months.map(m => `${m}m`), axisLabel: { color: '#94a3b8', fontSize: 9, interval: Math.floor(result.months.length / 6) } },
-      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.12)' } }, axisLabel: { color: '#94a3b8', fontSize: 9, formatter: (v: number) => fmtK(v) } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9, formatter: (v: number) => fmtK(v) } },
       series: [
         { name: 'P95', type: 'line', data: result.p95, showSymbol: false, lineStyle: { width: 1, color: colors.primary }, areaStyle: { color: colors.primary, opacity: 0.12 }, stack: 'band' },
         { name: 'P50', type: 'line', data: result.p50, showSymbol: false, lineStyle: { width: 2, color: colors.primary } },
@@ -478,7 +478,7 @@ export function RebalanceWidget({ data }: WidgetProps) {
           const dollar = (Math.abs(r.drift) / 100) * data.stats.totalValue;
           const quiet = Math.abs(r.drift) < 1.5;
           return (
-            <div key={r.symbol} className="flex min-h-0 flex-col justify-center rounded-xl border border-white/10 dark:border-white/10 bg-accent/20 px-3 py-2.5 min-w-0">
+            <div key={r.symbol} className="flex min-h-0 flex-col justify-center rounded-xl bg-neutral-500/10 bg-white/[0.05] px-3 py-2.5 min-w-0">
               <div className="flex items-baseline justify-between gap-2 mb-1.5">
                 <span className="font-mono text-xs font-bold text-foreground">{r.symbol}</span>
                 <span className={cn('text-[10px] font-bold', quiet ? 'text-muted-foreground' : r.drift > 0 ? 'text-rose-400' : 'text-emerald-400')}>

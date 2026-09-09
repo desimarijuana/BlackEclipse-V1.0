@@ -847,15 +847,21 @@ input[type="range"]::-moz-range-thumb:hover {
  * meaningful to sample. Give it the real recipe instead. */
 .fund-tabs-glass {
   background: rgba(18, 18, 20, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(18px) saturate(1.35);
   -webkit-backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  /* Explicit right-edge inset line helps when the border is visually weakened
+     by frosted rendering + overflow clipping on the last tab. */
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .fund-tabs-glass {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
 
 /* Floating fund-actions popover — matches the frosted menu recipe. */
