@@ -151,12 +151,15 @@ class PhysicsBubble {
     ctx.fillStyle = fillColor;
     ctx.strokeStyle = strokeColor;
 
+    // Frosted-glass effect: blur the bubble body so the backdrop bleeds through
+    ctx.filter = this.isHovered ? 'blur(1.5px)' : 'blur(2.5px)';
+
     // Hover design highlights
     if (this.isHovered) {
-      ctx.shadowColor = this.data.changePercent >= 0 ? '#7aff78' : '#ff4a4a';
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = this.data.changePercent >= 0 ? '#7aff77' : '#ff4a4a';
+      ctx.shadowBlur = 14;
       ctx.lineWidth = 1.6;
-      ctx.strokeStyle = this.data.changePercent >= 0 ? '#7aff78' : '#ff4a4a';
+      ctx.strokeStyle = this.data.changePercent >= 0 ? '#7aff77' : '#ff4a4a';
     } else {
       ctx.shadowBlur = 0;
       ctx.lineWidth = 0.95; // Thinner border style
@@ -170,6 +173,7 @@ class PhysicsBubble {
     ctx.stroke();
 
     // Render Text Labels (Proportional monospace ratios)
+    ctx.filter = 'none';
     ctx.shadowBlur = 0;
     ctx.globalAlpha = matchesSearch ? 1.0 : 0.12;
     ctx.fillStyle = '#ffffff';

@@ -15,6 +15,7 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Market / commercial', ids: ['trading-economics', 'economic-calendar', 'econdb', 'bis', 'cftc', 'eia', 'wto'] },
   { label: 'National stats', ids: ['ons-uk', 'bcb', 'akshare-china', 'statcan'] },
   { label: 'International / thematic', ids: ['central-banks', 'ilo', 'un-comtrade', 'wb-health', 'adb', 'unesco', 'owid', 'fincept-macro'] },
+  { label: 'Decision indicators', ids: ['real-rate', 'yield-curve', 'breakeven', 'credit-spread', 'money-supply', 'leading-indicators', 'pmi', 'consumer-confidence', 'housing', 'fed-balance-sheet', 'dollar', 'liquidity'] },
 ];
 
 export function EconomicsScreen() {

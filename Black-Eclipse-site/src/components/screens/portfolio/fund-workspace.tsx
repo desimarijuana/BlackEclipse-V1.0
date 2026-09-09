@@ -39,11 +39,11 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
 
   return (
     <div className="animate-fade-in-up w-full">
-      {/* Top bar */}
-      <div className="mb-5 flex flex-wrap items-center gap-3 border-b border-border/10 pb-4">
+      {/* Top bar — frosted glass */}
+      <div className="ws-glass mb-5 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-white/15 dark:border-white/10 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"
         >
           <ArrowLeft size={13} /> All Funds
         </button>
@@ -65,7 +65,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
             <button
               onClick={() => setTaxMethod(m => (m === 'FIFO' ? 'LIFO' : 'FIFO'))}
               title="Toggle cost-basis accounting"
-              className="rounded-xl border border-border/40 bg-accent/30 hover:border-primary/40 hover:text-primary px-2.5 py-1.5 text-[10px] font-bold text-muted-foreground transition-all cursor-pointer"
+              className="rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 hover:border-primary/40 hover:text-primary px-2.5 py-1.5 text-[10px] font-bold text-muted-foreground transition-all cursor-pointer"
             >
               <RefreshCw size={10} className="inline mr-1" />{taxMethod}
             </button>
@@ -76,7 +76,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
               'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
               workspace.editMode
                 ? 'border-primary/40 bg-primary/15 text-primary'
-                : 'border-border/40 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
+                : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
             )}
           >
             <Settings2 size={13} /> Customize
@@ -118,7 +118,7 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
 
 function StatChip({ label, value, tone, sub, loading }: { label: string; value: string; tone?: number; sub?: string; loading?: boolean }) {
   return (
-    <div className="rounded-xl border border-border/20 bg-accent/20 backdrop-blur-md px-2.5 py-1 min-w-0">
+    <div className="rounded-xl border border-white/15 dark:border-white/10 bg-accent/20 backdrop-blur-md px-2.5 py-1 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground">{label}</p>
       {loading ? (
         <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />

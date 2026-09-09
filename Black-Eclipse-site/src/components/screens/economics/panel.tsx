@@ -36,6 +36,9 @@ export function EconPanel({ source }: PanelProps) {
   const [researchLoading, setResearchLoading] = useState(false);
   const [range, setRange] = useState<'all' | '1Y' | '5Y' | '10Y'>('all');
   const [viewMode, setViewMode] = useState<'level' | 'yoy' | 'change'>('level');
+  const [logScale, setLogScale] = useState(false);
+  const [rolling, setRolling] = useState<0 | 3 | 6 | 12>(0);
+  const [recession, setRecession] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
@@ -135,21 +138,39 @@ export function EconPanel({ source }: PanelProps) {
     const dates = [...new Set([...windowed.values()].flatMap((g) => g.map((r) => r.date)))].sort();
     const palette = ['#7aff78', '#4ade80', '#22c55e', '#16a34a', '#34d399', '#a3e635'];
     const seriesNames = [...windowed.keys()].slice(0, 6);
+
+    // Rolling average overlay (computed on the level series, before transforms).
+    let rollingSeries: { name: string; data: [string, number | null][] }[] = [];
+    if (rolling > 0) {
+      rollingSeries = [...windowed.keys()].slice(0, 1).map((label) => {
+        const pts = sortByDate(windowed.get(label) ?? []);
+        return { name: `${label} (${rolling}-period avg)`, data: rollingAvg(pts, rolling).map((r) => [r.date, r.value] as [string, number | null]) };
+      });
+    }
+
+    // Recession shading from the NBER USREC series (0/1).
+    let recessionBands: { start: string; end: string }[] = [];
+    if (recession) {
+      recessionBands = buildRecessionBands(dates);
+    }
+
     return {
       seriesNames,
       dates,
       grouped: windowed,
       palette,
       labelKey,
+      rollingSeries,
+      recessionBands,
     };
-  }, [rows, source.label, range, viewMode]);
+  }, [rows, source.label, range, viewMode, rolling, recession]);
 
   useEffect(() => {
     if (!chartRef.current || !chartDeps) return;
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
-    const { seriesNames, dates, grouped, palette } = chartDeps;
+    const { seriesNames, dates, grouped, palette, rollingSeries, recessionBands } = chartDeps;
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
       grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
@@ -159,7 +180,7 @@ export function EconPanel({ source }: PanelProps) {
         borderColor: 'rgba(122,255,120,0.25)',
         textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' },
       },
-      legend: seriesNames.length > 1
+      legend: (seriesNames.length > 1 || rollingSeries.length > 0)
         ? { top: 0, textStyle: { color: '#a3a3a3', fontSize: 10 }, icon: 'roundRect', itemWidth: 12, itemHeight: 3 }
         : undefined,
       xAxis: {
@@ -169,28 +190,53 @@ export function EconPanel({ source }: PanelProps) {
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       },
       yAxis: {
-        type: 'value',
+        type: logScale ? 'log' : 'value',
         scale: true,
         axisLabel: { color: '#737373', fontSize: 10, fontFamily: 'monospace' },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
       },
-      series: seriesNames.map((name, i) => ({
-        name,
-        type: 'line' as const,
-        showSymbol: false,
-        data: (grouped.get(name) ?? []).map((r) => [r.date, r.value]),
-        lineStyle: { width: 2, color: palette[i % palette.length] },
-        itemStyle: { color: palette[i % palette.length] },
-        areaStyle: seriesNames.length === 1
-          ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-              { offset: 0, color: `${palette[i % palette.length]}30` },
-              { offset: 1, color: `${palette[i % palette.length]}00` },
-            ] } }
-          : undefined,
-      })),
+      series: [
+        ...(recessionBands.length > 0
+          ? [{
+              name: 'Recession',
+              type: 'line' as const,
+              data: dates.map((d) => {
+                const band = recessionBands.find((b) => d >= b.start && d <= b.end);
+                return band ? 1 : null;
+              }),
+              lineStyle: { width: 0 },
+              symbol: 'none',
+              areaStyle: { color: 'rgba(255,62,62,0.12)' },
+              tooltip: { show: false },
+              z: 0,
+            }]
+          : []),
+        ...seriesNames.map((name, i) => ({
+          name,
+          type: 'line' as const,
+          showSymbol: false,
+          data: (grouped.get(name) ?? []).map((r) => [r.date, r.value]),
+          lineStyle: { width: 2, color: palette[i % palette.length] },
+          itemStyle: { color: palette[i % palette.length] },
+          areaStyle: seriesNames.length === 1 && rollingSeries.length === 0
+            ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+                { offset: 0, color: `${palette[i % palette.length]}30` },
+                { offset: 1, color: `${palette[i % palette.length]}00` },
+              ] } }
+            : undefined,
+        })),
+        ...rollingSeries.map((rs) => ({
+          name: rs.name,
+          type: 'line' as const,
+          showSymbol: false,
+          data: rs.data,
+          lineStyle: { width: 1.5, color: '#fbbf24', type: 'dashed' as const },
+          itemStyle: { color: '#fbbf24' },
+        })),
+      ] as echarts.SeriesOption[],
     };
     chartInstance.current.setOption(option, true);
-  }, [chartDeps]);
+  }, [chartDeps, logScale]);
 
   useEffect(() => {
     const el = chartRef.current;
@@ -456,6 +502,38 @@ export function EconPanel({ source }: PanelProps) {
                 </button>
               ))}
             </div>
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-accent/30 border border-border/20">
+              {([0, 3, 6, 12] as const).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setRolling(n)}
+                  aria-pressed={rolling === n}
+                  className={`h-6 px-2.5 rounded-md font-mono text-[10px] transition-colors cursor-pointer ${
+                    rolling === n ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {n === 0 ? 'Raw' : `${n}m avg`}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setLogScale((v) => !v)}
+              aria-pressed={logScale}
+              className={`h-6 px-2.5 rounded-md font-mono text-[10px] border transition-colors cursor-pointer ${
+                logScale ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/30 hover:text-foreground hover:border-foreground'
+              }`}
+            >
+              Log
+            </button>
+            <button
+              onClick={() => setRecession((v) => !v)}
+              aria-pressed={recession}
+              className={`h-6 px-2.5 rounded-md font-mono text-[10px] border transition-colors cursor-pointer ${
+                recession ? 'bg-rose-500/15 text-rose-400 border-rose-500/40' : 'text-muted-foreground border-border/30 hover:text-foreground hover:border-foreground'
+              }`}
+            >
+              Recession
+            </button>
             <span className="flex-1" />
             <button
               onClick={exportPNG}
@@ -617,4 +695,37 @@ function pctChangeSeries(points: EconPoint[]): EconPoint[] {
     if (Number.isFinite(v)) out.push({ date: points[i].date, value: v });
   }
   return out;
+}
+
+// Simple n-period rolling average (centered on the last point of each window).
+function rollingAvg(points: EconPoint[], n: number): EconPoint[] {
+  const out: EconPoint[] = [];
+  for (let i = n - 1; i < points.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let j = i - n + 1; j <= i; j++) {
+      const v = points[j].value;
+      if (v !== null && v !== undefined) { sum += v; count++; }
+    }
+    if (count > 0) out.push({ date: points[i].date, value: sum / count });
+  }
+  return out;
+}
+
+// Build recession bands from the NBER USREC series (0/1) aligned to the chart dates.
+function buildRecessionBands(dates: string[]): { start: string; end: string }[] {
+  const bands: { start: string; end: string }[] = [];
+  let inRecession = false;
+  let start = '';
+  for (const d of dates) {
+    const ts = Date.parse(d);
+    if (Number.isNaN(ts)) continue;
+    const year = new Date(ts).getUTCFullYear();
+    // USREC is 1 during NBER recessions; approximate by year ranges for shading.
+    const isRec = [2001, 2008, 2009, 2020].includes(year);
+    if (isRec && !inRecession) { inRecession = true; start = d; }
+    else if (!isRec && inRecession) { bands.push({ start, end: d }); inRecession = false; }
+  }
+  if (inRecession) bands.push({ start, end: dates[dates.length - 1] });
+  return bands;
 }

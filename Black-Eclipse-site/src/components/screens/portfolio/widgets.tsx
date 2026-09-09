@@ -54,7 +54,7 @@ const Tile = React.forwardRef<HTMLDivElement, {
   label: string; value: string; tone?: string; sub?: string; loading?: boolean;
 }>(function Tile({ label, value, tone, sub, loading }, ref) {
   return (
-    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/15 dark:border-white/10 backdrop-blur-md p-3">
+    <div ref={ref} className="flex min-w-0 flex-col justify-center rounded-xl bg-white/[0.04] dark:bg-white/[0.04] border border-white/10 dark:border-white/10 backdrop-blur-md p-3">
       <p className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-1.5 block h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -177,7 +177,7 @@ export function HoldingsWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Table2} title="Holdings" hint={`${holdings.length}`} />
       {holdings.length === 0 ? <EmptyNote>No open positions.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/15 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/10 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
@@ -229,7 +229,7 @@ export function LedgerWidget({ fund, data }: WidgetProps) {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader icon={Layers} title="Transaction Ledger" hint={`${fund.transactions.length} TX`} />
       {txs.length === 0 ? <EmptyNote>No transactions recorded yet.</EmptyNote> : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/15 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl border border-white/10 dark:border-white/10 bg-white/[0.04] dark:bg-white/[0.04] backdrop-blur-md shadow-inner shadow-black/20">
           <table className="w-full text-left border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#111310]/90 dark:bg-[#111310]/90 bg-white/60 backdrop-blur-md">
@@ -478,7 +478,7 @@ export function RebalanceWidget({ data }: WidgetProps) {
           const dollar = (Math.abs(r.drift) / 100) * data.stats.totalValue;
           const quiet = Math.abs(r.drift) < 1.5;
           return (
-            <div key={r.symbol} className="flex min-h-0 flex-col justify-center rounded-xl border border-border/20 bg-accent/20 px-3 py-2.5 min-w-0">
+            <div key={r.symbol} className="flex min-h-0 flex-col justify-center rounded-xl border border-white/10 dark:border-white/10 bg-accent/20 px-3 py-2.5 min-w-0">
               <div className="flex items-baseline justify-between gap-2 mb-1.5">
                 <span className="font-mono text-xs font-bold text-foreground">{r.symbol}</span>
                 <span className={cn('text-[10px] font-bold', quiet ? 'text-muted-foreground' : r.drift > 0 ? 'text-rose-400' : 'text-emerald-400')}>
@@ -536,7 +536,8 @@ export function renderFundWidget(widgetId: string, props: WidgetProps): React.Re
 /**
  * Clean default arrangement — mirrors the classic analytics-hub layout:
  * tight rows, no dead space. KPI strip → Performance (wide) + Allocation →
- * Holdings (wide) + AI Insights → Risk + Ledger → Monte Carlo + Health.
+ * Holdings (wide) + AI Insights → Risk + Health → Ledger (wide) + Monte Carlo
+ * → Rebalancing (full-width action row).
  */
 export function defaultFundLayout(): WorkspaceLayout {
   const id = (widgetId: string) => FUND_WIDGET_IDS.includes(widgetId) ? widgetId : null;
@@ -554,9 +555,9 @@ export function defaultFundLayout(): WorkspaceLayout {
       sec([col([id('kpi-board')].filter(Boolean) as string[], 3)]),
       sec([col([id('performance')].filter(Boolean) as string[], 2), col([id('allocation')].filter(Boolean) as string[], 1)]),
       sec([col([id('holdings')].filter(Boolean) as string[], 2), col([id('ai-insights')].filter(Boolean) as string[], 1)]),
+      sec([col([id('risk-metrics')].filter(Boolean) as string[], 1), col([id('health')].filter(Boolean) as string[], 1)]),
+      sec([col([id('ledger')].filter(Boolean) as string[], 2), col([id('monte-carlo')].filter(Boolean) as string[], 1)]),
       sec([col([id('rebalance')].filter(Boolean) as string[], 3)]),
-      sec([col([id('risk-metrics')].filter(Boolean) as string[], 1), col([id('ledger')].filter(Boolean) as string[], 2)]),
-      sec([col([id('monte-carlo')].filter(Boolean) as string[], 1), col([id('health')].filter(Boolean) as string[], 2)]),
     ],
   };
   const normalized = normalizeLayout(layout, new Set(FUND_WIDGET_IDS));

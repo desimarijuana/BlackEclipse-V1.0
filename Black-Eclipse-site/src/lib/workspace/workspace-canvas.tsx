@@ -28,7 +28,7 @@ import type { WidgetPlacement, WorkspaceSection } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
-  'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/15 dark:border-white/15 shadow-md shadow-black/10 transition-all duration-300';
+  'rounded-2xl bg-[#0f0f0f]/60 dark:bg-[#0f0f0f]/60 bg-white/70 backdrop-blur-xl border border-white/10 dark:border-white/10 shadow-md shadow-black/10 transition-all duration-300';
 
 /** Where the dragged card should land (kept in a ref for the commit + state for the UI). */
 interface DropTargetInfo {
@@ -397,7 +397,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
                 'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
                 drawerOpen
                   ? 'border-primary/40 bg-primary/15 text-primary'
-                  : 'border-border/40 bg-accent/30 hover:bg-accent/60 hover:border-primary/40 hover:text-primary text-muted-foreground',
+                  : 'border-white/15 dark:border-white/10 bg-accent/30 hover:bg-accent/60 hover:border-primary/40 hover:text-primary text-muted-foreground',
               )}
             >
               <Plus size={13} /> Widgets / Templates
@@ -551,7 +551,7 @@ function SectionRow({
       {editMode && (
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
           <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground/60">Section</span>
-          <div className="flex items-center rounded-xl border border-border/40 bg-accent/30 overflow-hidden">
+          <div className="flex items-center rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 overflow-hidden">
             <button
               onClick={() => ops.setColumnCount(section.id, section.columns.length - 1)}
               disabled={section.columns.length <= 1}
@@ -689,7 +689,7 @@ function ColumnDroppable({
             if (grabbedId) onEmptyColumnClick({ x: e.clientX, y: e.clientY });
           }}
           className={cn(
-            'flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-dashed border-border/30 text-[10px] font-semibold text-muted-foreground/50 cursor-pointer',
+            'flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-dashed border-white/15 dark:border-white/10 text-[10px] font-semibold text-muted-foreground/50 cursor-pointer',
             dragging && 'border-primary/40 text-primary/70',
             grabbedId && 'hover:border-primary/60 hover:text-primary/80',
           )}

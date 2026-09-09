@@ -61,4 +61,34 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     desc: 'Just the essentials, two-up.',
     build: ids => buildFromSpec([[[0], [1]], [[2], [3]]], ids),
   },
+  {
+    id: 'executive',
+    name: 'Executive',
+    desc: 'Command-center: KPI strip, performance + allocation, holdings + AI, risk + health, ledger + projection.',
+    build: ids => buildFromSpec([[[0]], [[1], [2]], [[3], [9]], [[6], [7]], [[5], [8]], [[4]]], ids),
+  },
+  {
+    id: 'deep-dive',
+    name: 'Deep Dive',
+    desc: 'Full-width performance, then allocation + holdings, risk trio, ledger, insights + rebalance.',
+    build: ids => buildFromSpec([[[0]], [[1]], [[2], [3]], [[6], [7], [8]], [[5]], [[9], [4]]], ids),
+  },
+  {
+    id: 'projection',
+    name: 'Projection',
+    desc: 'Future-focused: Monte Carlo front and center, allocation + risk beside it.',
+    build: ids => buildFromSpec([[[0]], [[8], [2]], [[1], [6]], [[3], [9]], [[5], [7]], [[4]]], ids),
+  },
+  {
+    id: 'compact',
+    name: 'Compact',
+    desc: 'Dense two-up grid — everything visible without scrolling much.',
+    build: ids => buildFromSpec([[[0], [1]], [[2], [3]], [[6], [7]], [[5], [9]], [[8], [4]]], ids),
+  },
+  {
+    id: 'overview',
+    name: 'Overview',
+    desc: 'Balanced read: KPIs, performance + allocation, holdings + ledger, risk + health, insights + rebalance.',
+    build: ids => buildFromSpec([[[0]], [[1], [2]], [[3], [5]], [[6], [7]], [[9], [4]], [[8]]], ids),
+  },
 ];

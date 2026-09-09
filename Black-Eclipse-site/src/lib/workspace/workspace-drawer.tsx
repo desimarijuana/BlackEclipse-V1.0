@@ -48,7 +48,7 @@ export function WorkspaceDrawer({ onClose, workspace, widgets }: WorkspaceDrawer
                   <button
                     key={w.widgetId}
                     onClick={() => ops.addWidget(w.widgetId)}
-                    className="group flex items-start gap-2 rounded-xl border border-border/30 bg-accent/20 hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 text-left transition-all cursor-pointer"
+                    className="group flex items-start gap-2 rounded-xl border border-white/10 dark:border-white/10 bg-accent/20 hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 text-left transition-all cursor-pointer"
                   >
                     <Plus size={13} className="mt-0.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
                     <span className="min-w-0">
@@ -73,7 +73,7 @@ export function WorkspaceDrawer({ onClose, workspace, widgets }: WorkspaceDrawer
                   <button
                     key={t.id}
                     onClick={() => setConfirm({ kind: 'template', templateId: t.id })}
-                    className="rounded-xl border border-border/30 bg-accent/20 hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 text-left transition-all cursor-pointer"
+                    className="rounded-xl border border-white/10 dark:border-white/10 bg-accent/20 hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 text-left transition-all cursor-pointer"
                   >
                     <span className="block text-xs font-bold text-foreground">{t.name}</span>
                     <span className="block text-[10px] text-muted-foreground leading-snug">{t.desc}</span>

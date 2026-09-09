@@ -253,7 +253,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
               onClick={() => onOpenFund(fund.id)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0',
-                'border bg-accent/30 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/60 hover:border-primary/40',
+                'border bg-accent/30 border-white/15 dark:border-white/10 text-muted-foreground hover:text-foreground hover:bg-accent/60 hover:border-primary/40',
               )}
               title={SENTIMENT_META[sent].label}
             >
@@ -352,13 +352,13 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                 <div className="relative z-10 space-y-2.5">
                   {/* Badge row */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground font-mono uppercase bg-accent/60 px-2 py-0.5 rounded border border-border/40">
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground font-mono uppercase bg-accent/60 px-2 py-0.5 rounded border border-white/10 dark:border-white/10">
                       <Icon size={10} style={{ color: fund.accent }} /> {isDemoFund(fund) ? 'demo' : 'custom'}
                     </span>
                     <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border', meta.text,
                       sent === 'profitable' ? 'border-emerald-500/25 bg-emerald-500/5'
                         : sent === 'losing' ? 'border-rose-500/25 bg-rose-500/5'
-                          : 'border-border/40 bg-accent/40')}>
+                          : 'border-white/10 dark:border-white/10 bg-accent/40')}>
                       {meta.label}
                     </span>
                     <span className="text-[10px] font-bold text-primary/80 font-mono uppercase bg-primary/5 border border-primary/15 px-2 py-0.5 rounded">
@@ -372,7 +372,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
                   {/* Big icon + title + sentiment readout */}
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/20"
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 dark:border-white/10"
                         style={{ background: `${fund.accent}1f`, color: fund.accent }}>
                         <Icon size={24} />
                       </span>
@@ -516,7 +516,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
 
 function CardStat({ label, value, tone, loading }: { label: string; value: string; tone?: number; loading?: boolean }) {
   return (
-    <div className="rounded-xl bg-accent/20 border border-border/20 px-2.5 py-1.5 min-w-0">
+    <div className="rounded-xl bg-accent/20 border border-white/10 dark:border-white/10 px-2.5 py-1.5 min-w-0">
       <p className="text-[8px] uppercase tracking-widest font-bold text-muted-foreground truncate">{label}</p>
       {loading ? (
         <span className="mt-0.5 block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" aria-hidden />
@@ -540,7 +540,7 @@ function ToolbarButton({ icon: Icon, label, onClick, primary }: {
         'inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer',
         primary
           ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
-          : 'border-border/40 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-accent/60',
+          : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-accent/60',
       )}
     >
       <Icon size={13} /> {label}

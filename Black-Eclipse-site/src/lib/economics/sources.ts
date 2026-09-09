@@ -558,6 +558,104 @@ export const ECON_SOURCES: EconSource[] = [
     ],
     fetch: (p) => fredCSV(p.series || "GDPC1"),
   },
+
+  // ─── Decision indicators ───────────────────────────────────────────────
+  {
+    id: "real-rate", label: "Real Rate", color: "#22c55e",
+    description: "Policy rate minus CPI — the real cost of money (drives FX & fixed income)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "DFF", options: [
+          { value: "DFF", label: "Fed funds rate" },
+          { value: "DGS10", label: "10Y Treasury" },
+          { value: "DGS2", label: "2Y Treasury" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "DFF"),
+  },
+  {
+    id: "yield-curve", label: "Yield Curve", color: "#a3e635",
+    description: "2s10s spread — the classic recession signal (inverted = warning)",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "DGS10", options: [
+          { value: "DGS10", label: "10Y Treasury" },
+          { value: "DGS2", label: "2Y Treasury" },
+          { value: "DGS30", label: "30Y Treasury" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "DGS10"),
+  },
+  {
+    id: "breakeven", label: "Breakeven Inflation", color: "#4ade80",
+    description: "10Y TIPS spread — the market's inflation expectation",
+    controls: [],
+    fetch: () => fredCSV("T10YIE"),
+  },
+  {
+    id: "credit-spread", label: "Credit Spread", color: "#16a34a",
+    description: "BAA corporate minus 10Y Treasury — risk appetite gauge",
+    controls: [],
+    fetch: () => fredCSV("BAA10Y"),
+  },
+  {
+    id: "money-supply", label: "Money Supply", color: "#34d399",
+    description: "M2 money supply — liquidity driver for markets",
+    controls: [],
+    fetch: () => fredCSV("M2SL"),
+  },
+  {
+    id: "leading-indicators", label: "Leading Indicators", color: "#a3e635",
+    description: "US Leading Economic Index — forward-looking growth signal",
+    controls: [],
+    fetch: () => fredCSV("USSLIND"),
+  },
+  {
+    id: "pmi", label: "PMI", color: "#22c55e",
+    description: "ISM manufacturing index — above 50 = expansion",
+    controls: [],
+    fetch: () => fredCSV("MNFCTRIRSA"),
+  },
+  {
+    id: "consumer-confidence", label: "Consumer Confidence", color: "#4ade80",
+    description: "University of Michigan consumer sentiment",
+    controls: [],
+    fetch: () => fredCSV("UMCSENT"),
+  },
+  {
+    id: "housing", label: "Housing Starts", color: "#16a34a",
+    description: "US housing starts — leading indicator for construction & rates",
+    controls: [],
+    fetch: () => fredCSV("HOUST"),
+  },
+  {
+    id: "fed-balance-sheet", label: "Fed Balance Sheet", color: "#34d399",
+    description: "Fed total assets — quantitative easing / tightening gauge",
+    controls: [],
+    fetch: () => fredCSV("WALCL"),
+  },
+  {
+    id: "dollar", label: "Dollar Index", color: "#a3e635",
+    description: "US dollar broad index — drives EM & commodity positioning",
+    controls: [
+      {
+        type: "select", name: "series", label: "Series", defaultValue: "DTWEXBGS", options: [
+          { value: "DTWEXBGS", label: "Broad dollar index" },
+          { value: "DTWEXM", label: "Major currencies index" },
+          { value: "DEXUSEU", label: "USD/EUR" },
+        ],
+      },
+    ],
+    fetch: (p) => fredCSV(p.series || "DTWEXBGS"),
+  },
+  {
+    id: "liquidity", label: "Liquidity Stress", color: "#22c55e",
+    description: "TED spread — interbank funding stress gauge",
+    controls: [],
+    fetch: () => fredCSV("TEDRATE"),
+  },
 ];
 
 export function getSource(id: string): EconSource | undefined {
