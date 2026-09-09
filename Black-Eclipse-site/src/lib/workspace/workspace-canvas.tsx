@@ -644,7 +644,6 @@ function ColumnDroppable({
         ops={ops}
         renderWidget={renderWidget}
         onResizeHeight={onResizeHeight}
-        isLast={idx === column.widgets.length - 1}
         onCardTap={onCardTap}
       />
     </React.Fragment>
@@ -723,7 +722,7 @@ function ConfirmGhost({ onConfirm }: { onConfirm: () => void }) {
 // ── Draggable widget card ────────────────────────────────────────────────────
 
 function WidgetCard({
-  placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, isLast, onCardTap, lastDragEndRef,
+  placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef,
 }: {
   placement: WidgetPlacement;
   editMode: boolean;
@@ -733,7 +732,6 @@ function WidgetCard({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  isLast?: boolean;
   onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
   lastDragEndRef: React.MutableRefObject<number>;
 }) {
@@ -780,9 +778,9 @@ function WidgetCard({
       className={cn(
         CARD_CLASS,
         'group/card relative flex w-full flex-col overflow-hidden',
-        // Fixed-height cards keep their size; auto cards fill leftover column
-        // space (last one absorbs the remainder) so columns never show gaps.
-        placement.height == null && (isLast ? 'flex-1' : 'flex-none'),
+        // Fixed-height cards keep their size; auto cards grow to fill the whole
+        // column height so columns never show gaps — content stretches edge to edge.
+        placement.height == null && 'flex-1',
         editMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
         // Touch: let the pointer sensor own the gesture — no browser pan.
         editMode && 'touch-none select-none',

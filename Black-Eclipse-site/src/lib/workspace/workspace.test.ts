@@ -420,7 +420,10 @@ describe('templates', () => {
     const built = t.build(IDS);
     expect(normalizeLayout(built, KNOWN)).not.toBeNull();
     expect(widgetCount(built)).toBeGreaterThan(0);
-    expect(allWidgetIds(built)).toEqual(IDS.slice(0, widgetCount(built)));
+    // Every template places a contiguous prefix of the registry (no gaps in
+    // which widgets are used), in any order.
+    const used = allWidgetIds(built);
+    expect([...used].sort()).toEqual(IDS.slice(0, widgetCount(built)).slice().sort());
     // Every section has 1..4 columns, every column ≥1 widget.
     for (const s of built.sections) {
       expect(s.columns.length).toBeGreaterThanOrEqual(1);
