@@ -6,7 +6,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, Check, X } from 'lucide-react';
 
 interface StrategyRule { id: string; text: string; category?: string | null; }
-interface Strategy { id: string; name: string; description?: string | null; markets: string[]; confirmation?: string | null; entry?: string | null; rules: StrategyRule[]; }
+interface Strategy { id: string; name: string; description?: string | null; markets: string; confirmation?: string | null; entry?: string | null; rules: StrategyRule[]; }
+
+/** Parse the markets JSON string into an array. */
+function parseMarkets(raw: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function JournalPlaybook() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -137,7 +148,7 @@ export function JournalPlaybook() {
               </div>
               {s.description && <p className="text-xs text-muted-foreground mb-2">{s.description}</p>}
               <div className="flex flex-wrap gap-1.5 mb-3">
-                {s.markets.map((m) => <Chip key={m}>{m}</Chip>)}
+                {parseMarkets(s.markets).map((m) => <Chip key={m}>{m}</Chip>)}
                 {s.confirmation && <Chip>Conf: {s.confirmation}</Chip>}
                 {s.entry && <Chip>Entry: {s.entry}</Chip>}
               </div>

@@ -3,7 +3,7 @@ import { buildWeeklyReview, buildRecentWeeklyReviews, filterByRange } from './we
 import { buildMonthlyWrapped } from './wrapped';
 import { byHour, byTimeframe } from './dimensions';
 import { confidenceCorrelation } from './psychology';
-import type { TradeRecord } from './types';
+import type { TradeRecord } from '../types';
 
 function trade(overrides: Partial<TradeRecord>): TradeRecord {
   return {
