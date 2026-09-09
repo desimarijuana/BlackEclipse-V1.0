@@ -27,7 +27,7 @@ const tooltipStyle = {
 
 // ── Equity curve (cumulative R) with drawdown shading ────────────────────────
 
-export function EquityCurveChart({ equity, height = 240 }: { equity: EquityPoint[]; height?: number }) {
+export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve', hint = 'CUMULATIVE R' }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string }) {
   const primary = useMemo(() => cssVarToHex('--primary', UP), []);
   const option = useMemo<EChartsOption | null>(() => {
     if (equity.length < 2) return null;
@@ -83,7 +83,7 @@ export function EquityCurveChart({ equity, height = 240 }: { equity: EquityPoint
     };
   }, [equity, primary]);
 
-  return <EChartsContainer option={option} deps={[equity, primary]} height={height} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
+  return <EChartsContainer option={option} deps={[equity, primary]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
 }
 
 // ── Horizontal bar: net R by dimension (symbol / setup / session) ────────────
@@ -152,7 +152,7 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
 
 // ── R distribution histogram ─────────────────────────────────────────────────
 
-export function RDistributionChart({ rValues, height = 200 }: { rValues: number[]; height?: number }) {
+export function RDistributionChart({ rValues, height = 200, title = 'R Distribution', hint = 'TRADE OUTCOMES' }: { rValues: number[]; height?: number; title?: string; hint?: string }) {
   const option = useMemo<EChartsOption | null>(() => {
     if (rValues.length === 0) return null;
     const min = Math.floor(Math.min(...rValues));
@@ -201,12 +201,12 @@ export function RDistributionChart({ rValues, height = 200 }: { rValues: number[
     };
   }, [rValues]);
 
-  return <EChartsContainer option={option} deps={[rValues]} height={height} empty={rValues.length === 0} emptyText="No closed trades to distribute." />;
+  return <EChartsContainer option={option} deps={[rValues]} height={height} title={title} hint={hint} empty={rValues.length === 0} emptyText="No closed trades to distribute." />;
 }
 
 // ── Win/loss distribution (donut) ─────────────────────────────────────────────
 
-export function WinLossChart({ wins, losses, breakevens, height = 200 }: { wins: number; losses: number; breakevens: number; height?: number }) {
+export function WinLossChart({ wins, losses, breakevens, height = 200, title = 'Win / Loss', hint = 'OUTCOMES' }: { wins: number; losses: number; breakevens: number; height?: number; title?: string; hint?: string }) {
   const option = useMemo<EChartsOption | null>(() => {
     if (wins + losses + breakevens === 0) return null;
     return {
@@ -230,5 +230,86 @@ export function WinLossChart({ wins, losses, breakevens, height = 200 }: { wins:
     } as EChartsOption;
   }, [wins, losses, breakevens]);
 
-  return <EChartsContainer option={option} deps={[wins, losses, breakevens]} height={height} empty={wins + losses + breakevens === 0} emptyText="No closed trades yet." />;
+  return <EChartsContainer option={option} deps={[wins, losses, breakevens]} height={height} title={title} hint={hint} empty={wins + losses + breakevens === 0} emptyText="No closed trades yet." />;
+}
+
+// ── Drawdown chart (equity drawdown from peak, in R) ──────────────────────────
+
+export function DrawdownChart({ equity, height = 200, title = 'Drawdown', hint = 'FROM PEAK' }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string }) {
+  const option = useMemo<EChartsOption | null>(() => {
+    if (equity.length < 2) return null;
+    const dates = equity.map((p) => p.date.slice(0, 10));
+    return {
+      ...journalBaseOption(),
+      tooltip: {
+        trigger: 'axis',
+        ...tooltipStyle,
+        formatter: (params: unknown) => {
+          const arr = Array.isArray(params) ? params : [params];
+          const idx = (arr[0] as { dataIndex: number }).dataIndex;
+          const p = equity[idx];
+          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Drawdown: <b style="color:${DOWN}">${fmtR(-p.drawdown)}</b>`;
+        },
+      },
+      xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
+      yAxis: { type: 'value', scale: true, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => `${v}R` } },
+      series: [
+        {
+          type: 'line',
+          data: equity.map((p) => -p.drawdown),
+          showSymbol: false,
+          smooth: 0.3,
+          lineStyle: { width: 1.5, color: DOWN },
+          itemStyle: { color: DOWN },
+          areaStyle: {
+            color: {
+              type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: `${DOWN}40` },
+                { offset: 1, color: `${DOWN}00` },
+              ],
+            },
+          },
+        },
+      ],
+    };
+  }, [equity]);
+
+  return <EChartsContainer option={option} deps={[equity]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough data to plot drawdown." />;
+}
+
+// ── Daily performance (net R per day, bar chart) ───────────────────────────────
+
+export function DailyPerformanceChart({ days, height = 200, title = 'Daily Performance', hint = 'NET R PER DAY' }: { days: { date: string; netR: number }[]; height?: number; title?: string; hint?: string }) {
+  const option = useMemo<EChartsOption | null>(() => {
+    if (days.length === 0) return null;
+    const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      ...journalBaseOption(),
+      tooltip: {
+        trigger: 'axis',
+        ...tooltipStyle,
+        formatter: (params: unknown) => {
+          const arr = Array.isArray(params) ? params : [params];
+          const idx = (arr[0] as { dataIndex: number }).dataIndex;
+          const d = sorted[idx];
+          return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>Net R: <b style="color:${d.netR >= 0 ? UP : DOWN}">${fmtR(d.netR)}</b>`;
+        },
+      },
+      xAxis: { type: 'category', data: sorted.map((d) => d.date.slice(5)), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
+      yAxis: { type: 'value', scale: true, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => `${v}R` } },
+      series: [
+        {
+          type: 'bar',
+          data: sorted.map((d) => ({
+            value: d.netR,
+            itemStyle: { color: d.netR >= 0 ? UP : DOWN, borderRadius: [2, 2, 0, 0] },
+          })),
+          barWidth: '60%',
+        },
+      ],
+    };
+  }, [days]);
+
+  return <EChartsContainer option={option} deps={[days]} height={height} title={title} hint={hint} empty={days.length === 0} emptyText="No daily data yet." />;
 }

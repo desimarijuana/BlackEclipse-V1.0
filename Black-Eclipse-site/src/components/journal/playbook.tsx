@@ -164,6 +164,79 @@ export function JournalPlaybook() {
           ))}
         </div>
       )}
+
+      {/* Tags management */}
+      <TagsManager />
+    </div>
+  );
+}
+
+function TagsManager() {
+  const [tags, setTags] = useState<{ id: string; name: string }[]>([]);
+  const [newTag, setNewTag] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await fetch('/api/journal/tags');
+    const data = await res.json();
+    setTags(data.tags ?? []);
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const addTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTag.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/journal/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newTag.trim() }),
+      });
+      if (res.ok) {
+        setNewTag('');
+        await load();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
+
+  return (
+    <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-serif text-sm font-semibold text-foreground">Tags</h3>
+        <span className="font-mono text-[9px] text-muted-foreground">{tags.length} tags</span>
+      </div>
+      <form onSubmit={addTag} className="flex items-center gap-2 mb-3">
+        <input
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          placeholder="New tag name…"
+          className={inputCls}
+        />
+        <button
+          type="submit"
+          disabled={saving || !newTag.trim()}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <Plus size={13} /> Add
+        </button>
+      </form>
+      {tags.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">No tags yet. Create tags to categorize your trades.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((t) => (
+            <span key={t.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-mono text-muted-foreground">
+              {t.name}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

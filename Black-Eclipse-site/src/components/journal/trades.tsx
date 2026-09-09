@@ -9,6 +9,7 @@ import { Plus, Trash2, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';
+import { TradeDetail } from './trade-detail';
 
 interface TradesProps {
   trades: TradeRecord[];
@@ -38,6 +39,9 @@ interface TradeForm {
   confidence: string;
   mistakes: string[];
   notes: string;
+  strategyId: string;
+  setupId: string;
+  tagNames: string[];
 }
 
 const emptyForm = (date?: string): TradeForm => ({
@@ -56,6 +60,9 @@ const emptyForm = (date?: string): TradeForm => ({
   confidence: '3',
   mistakes: [],
   notes: '',
+  strategyId: '',
+  setupId: '',
+  tagNames: [],
 });
 
 export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) {
@@ -64,6 +71,26 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [detailTrade, setDetailTrade] = useState<TradeRecord | null>(null);
+  const [strategies, setStrategies] = useState<{ id: string; name: string }[]>([]);
+  const [setups, setSetups] = useState<{ id: string; name: string }[]>([]);
+  const [tags, setTags] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      const [sRes, suRes, tRes] = await Promise.all([
+        fetch('/api/journal/strategies'),
+        fetch('/api/journal/setups'),
+        fetch('/api/journal/tags'),
+      ]);
+      const sData = await sRes.json();
+      const suData = await suRes.json();
+      const tData = await tRes.json();
+      setStrategies(sData.strategies ?? []);
+      setSetups(suData.setups ?? []);
+      setTags(tData.tags ?? []);
+    })();
+  }, []);
 
   useEffect(() => {
     if (selectedDate) {
@@ -113,6 +140,9 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
           confidence: form.confidence ? Number(form.confidence) : null,
           mistakes: form.mistakes,
           notes: form.notes || null,
+          strategyId: form.strategyId || null,
+          setupId: form.setupId || null,
+          tagNames: form.tagNames,
         }),
       });
       const data = await res.json();
@@ -214,6 +244,42 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
             <Field label="Notes">
               <input value={form.notes} onChange={(e) => set({ notes: e.target.value })} className={inputCls} />
             </Field>
+            <Field label="Strategy / Playbook">
+              <select value={form.strategyId} onChange={(e) => set({ strategyId: e.target.value })} className={inputCls}>
+                <option value="">— None —</option>
+                {strategies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Setup">
+              <select value={form.setupId} onChange={(e) => set({ setupId: e.target.value })} className={inputCls}>
+                <option value="">— None —</option>
+                {setups.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          {/* Tags */}
+          <div className="mt-3">
+            <p className="mb-1.5 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Tags</p>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setForm((f) => ({
+                    ...f,
+                    tagNames: f.tagNames.includes(t.name) ? f.tagNames.filter((x) => x !== t.name) : [...f.tagNames, t.name],
+                  }))}
+                  className={cn(
+                    'rounded-lg border px-2 py-1 text-[10px] font-semibold transition-all cursor-pointer',
+                    form.tagNames.includes(t.name) ? 'border-primary/40 bg-primary/15 text-primary' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {t.name}
+                </button>
+              ))}
+              {tags.length === 0 && <span className="text-[10px] text-muted-foreground/60 italic">No tags yet — create them in the Playbook tab.</span>}
+            </div>
           </div>
 
           {/* Mistakes */}
@@ -268,7 +334,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
               </thead>
               <tbody>
                 {filtered.map((t) => (
-                  <tr key={t.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
+                  <tr key={t.id} onClick={() => setDetailTrade(t)} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] cursor-pointer">
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{t.exitTime.slice(0, 10)}</td>
                     <td className="px-3 py-2 font-bold text-foreground">{t.symbol}</td>
                     <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>
@@ -280,7 +346,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
                     <td className="px-3 py-2 text-muted-foreground">{t.setupName ?? '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.emotion ?? '—'}</td>
                     <td className="px-3 py-2">
-                      <button onClick={() => remove(t.id)} className="text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer" title="Delete">
+                      <button onClick={(e) => { e.stopPropagation(); remove(t.id); }} className="text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer" title="Delete">
                         <Trash2 size={13} />
                       </button>
                     </td>
@@ -291,6 +357,10 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
           </div>
         )}
       </div>
+
+      {detailTrade && (
+        <TradeDetail trade={detailTrade} allTrades={trades} onClose={() => setDetailTrade(null)} onChanged={onChanged} />
+      )}
     </div>
   );
 }

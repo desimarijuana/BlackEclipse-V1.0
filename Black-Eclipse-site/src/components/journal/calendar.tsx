@@ -3,21 +3,28 @@
 // ── Journal Calendar — proper month-grid calendar showing trades per day ─────
 
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
+import { TradeForm, emptyTradeForm, type TradeFormState } from './trade-form';
+import { CsvImport } from './csv-import';
 import type { TradeRecord } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 
 interface CalendarProps {
   trades: TradeRecord[];
   onSelectDay: (date: string) => void;
+  onChanged: () => void;
 }
 
-export function JournalCalendar({ trades, onSelectDay }: CalendarProps) {
+export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getUTCFullYear());
   const [month, setMonth] = useState(now.getUTCMonth());
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState<TradeFormState>(() => emptyTradeForm());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const monthLabel = useMemo(
     () => new Date(Date.UTC(year, month, 1)).toLocaleString('en', { month: 'long', year: 'numeric' }),
@@ -52,6 +59,46 @@ export function JournalCalendar({ trades, onSelectDay }: CalendarProps) {
 
   const isCurrentMonth = year === now.getUTCFullYear() && month === now.getUTCMonth();
 
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/journal/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: form.symbol,
+          direction: form.direction,
+          entry: Number(form.entry),
+          exit: Number(form.exit),
+          stopLoss: form.stopLoss ? Number(form.stopLoss) : null,
+          takeProfit: form.takeProfit ? Number(form.takeProfit) : null,
+          quantity: Number(form.quantity) || 1,
+          entryTime: new Date(form.entryTime).toISOString(),
+          exitTime: new Date(form.exitTime).toISOString(),
+          session: form.session || null,
+          timeframe: form.timeframe || null,
+          emotion: form.emotion || null,
+          confidence: form.confidence ? Number(form.confidence) : null,
+          mistakes: form.mistakes,
+          notes: form.notes || null,
+          strategyId: form.strategyId || null,
+          setupId: form.setupId || null,
+          tagNames: form.tagNames,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save');
+      setForm(emptyTradeForm());
+      setAdding(false);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header + navigation */}
@@ -60,21 +107,42 @@ export function JournalCalendar({ trades, onSelectDay }: CalendarProps) {
           <h2 className="font-serif text-lg font-semibold text-foreground">Trading Calendar</h2>
           <p className="text-xs text-muted-foreground mt-0.5">Click a day to open its journal and see the trades taken.</p>
         </div>
-        <div className="flex items-center gap-1 rounded-xl bg-[#0f0f0f]/60 p-1">
-          <button onClick={goPrev} className="rounded-lg p-1.5 text-muted-foreground hover:text-primary hover:bg-accent/40 transition-all cursor-pointer" title="Previous month">
-            <ChevronLeft size={15} />
-          </button>
-          <span className="min-w-[150px] text-center font-serif text-sm font-semibold text-foreground">{monthLabel}</span>
-          <button onClick={goNext} className="rounded-lg p-1.5 text-muted-foreground hover:text-primary hover:bg-accent/40 transition-all cursor-pointer" title="Next month">
-            <ChevronRight size={15} />
-          </button>
-          {!isCurrentMonth && (
-            <button onClick={goToday} className="ml-1 rounded-lg bg-accent/30 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer">
-              Today
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-[#0f0f0f]/60 p-1">
+            <button onClick={goPrev} className="rounded-lg p-1.5 text-muted-foreground hover:text-primary hover:bg-accent/40 transition-all cursor-pointer" title="Previous month">
+              <ChevronLeft size={15} />
             </button>
-          )}
+            <span className="min-w-[150px] text-center font-serif text-sm font-semibold text-foreground">{monthLabel}</span>
+            <button onClick={goNext} className="rounded-lg p-1.5 text-muted-foreground hover:text-primary hover:bg-accent/40 transition-all cursor-pointer" title="Next month">
+              <ChevronRight size={15} />
+            </button>
+            {!isCurrentMonth && (
+              <button onClick={goToday} className="ml-1 rounded-lg bg-accent/30 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer">
+                Today
+              </button>
+            )}
+          </div>
+          <CsvImport onImported={onChanged} />
+          <button
+            onClick={() => { setAdding((v) => !v); setForm(emptyTradeForm()); }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
+          >
+            {adding ? <X size={13} /> : <Plus size={13} />} {adding ? 'Cancel' : 'Add Trade'}
+          </button>
         </div>
       </div>
+
+      {/* Add trade form */}
+      {adding && (
+        <TradeForm
+          form={form}
+          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          onSubmit={submit}
+          onCancel={() => setAdding(false)}
+          saving={saving}
+          error={error}
+        />
+      )}
 
       {/* Month summary strip */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

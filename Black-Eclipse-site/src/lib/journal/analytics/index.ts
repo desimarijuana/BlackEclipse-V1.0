@@ -27,6 +27,9 @@ export * from "./discipline";
 export * from "./psychology";
 export * from "./weekly";
 export * from "./wrapped";
+export * from "./mfe-mae";
+export * from "./market-context";
+export * from "./similarity";
 
 /** Compute the full analytics bundle for a set of trades. */
 export function computeJournalAnalytics(trades: TradeRecord[]): JournalAnalytics {

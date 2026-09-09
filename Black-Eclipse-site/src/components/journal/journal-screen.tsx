@@ -121,8 +121,8 @@ export function JournalScreen() {
             <DailyJournal date={selectedDate} onBack={() => setDailyOpen(false)} />
           ) : (
             <>
-              {tab === 'overview' && <JournalOverview analytics={analytics} trades={trades} onOpenTrades={() => setTab('trades')} />}
-              {tab === 'calendar' && <JournalCalendar trades={trades} onSelectDay={(d) => { setSelectedDate(d); setDailyOpen(true); }} />}
+              {tab === 'overview' && <JournalOverview analytics={analytics} trades={trades} onOpenTrades={() => setTab('trades')} onOpenCalendar={(d) => { if (d) { setSelectedDate(d); setDailyOpen(true); } else setTab('calendar'); }} />}
+              {tab === 'calendar' && <JournalCalendar trades={trades} onSelectDay={(d) => { setSelectedDate(d); setDailyOpen(true); }} onChanged={refresh} />}
               {tab === 'trades' && <JournalTrades trades={trades} analytics={analytics} onChanged={refresh} selectedDate={selectedDate} />}
               {tab === 'analytics' && <JournalAnalyticsView analytics={analytics} trades={trades} />}
               {tab === 'psychology' && <JournalPsychology analytics={analytics} trades={trades} />}

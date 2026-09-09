@@ -7,17 +7,21 @@ import React, { useMemo } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
-import { EquityCurveChart, DimensionBarChart, WinLossChart, fmtR, fmtMoney } from './charts';
+import { EquityCurveChart, DimensionBarChart, WinLossChart, DrawdownChart, DailyPerformanceChart, RDistributionChart, fmtR, fmtMoney } from './charts';
+import { MiniCalendar } from './mini-calendar';
+import { AiAnalysis } from './ai-analysis';
 
 interface OverviewProps {
   analytics: JournalAnalytics | null;
   trades: TradeRecord[];
   onOpenTrades: () => void;
+  onOpenCalendar?: (date?: string) => void;
 }
 
-export function JournalOverview({ analytics, trades, onOpenTrades }: OverviewProps) {
+export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalendar }: OverviewProps) {
   const p = analytics?.performance;
   const recent = useMemo(() => [...trades].sort((a, b) => Date.parse(b.exitTime) - Date.parse(a.exitTime)).slice(0, 8), [trades]);
+  const rValues = useMemo(() => trades.filter((t) => t.status === 'closed').map((t) => t.rMultiple), [trades]);
 
   if (!analytics || !p) {
     return (
@@ -71,6 +75,26 @@ export function JournalOverview({ analytics, trades, onOpenTrades }: OverviewPro
         </div>
       </div>
 
+      {/* Mini calendar + drawdown */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+          <MiniCalendar days={analytics.days} onSelectDay={(d) => onOpenCalendar?.(d)} />
+        </div>
+        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4 lg:col-span-2">
+          <DrawdownChart equity={analytics.equity} height={200} />
+        </div>
+      </div>
+
+      {/* Daily performance + R distribution */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+          <DailyPerformanceChart days={analytics.days.map((d) => ({ date: d.date, netR: d.netR }))} height={220} />
+        </div>
+        <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
+          <RDistributionChart rValues={rValues} height={220} />
+        </div>
+      </div>
+
       {/* Best / worst dimensions */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl bg-[#0f0f0f]/60 p-4">
@@ -89,6 +113,9 @@ export function JournalOverview({ analytics, trades, onOpenTrades }: OverviewPro
           <DisciplinePanel analytics={analytics} />
         </div>
       </div>
+
+      {/* AI analysis */}
+      <AiAnalysis analytics={analytics} />
 
       {/* Recent trades */}
       <div className="rounded-2xl bg-[#0f0f0f]/60 overflow-hidden">
