@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  ArrowUpRight, ArrowDownRight, ArrowRight, Search,
+  ArrowUpRight, ArrowDownRight, ArrowRight, ArrowUp, ArrowDown, Search,
   Sparkles, Star, ChartCandlestick,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
   Info, Briefcase, Building2, Globe, RefreshCw, GripVertical, ArrowLeft,
@@ -35,7 +35,7 @@ const COMMODITY_USD_SCALE: Record<string, number> = {
   'SB=F': 0.01, 'CT=F': 0.01, 'LE=F': 0.01,
 };
 const formatUsdPrice = (symbol: string, value: number | null | undefined) => {
-  if (value == null || !Number.isFinite(value)) return '�';
+  if (value == null || !Number.isFinite(value)) return '-';
   const scaled = value * (COMMODITY_USD_SCALE[symbol] ?? 1);
   return `$ ${scaled.toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -45,7 +45,7 @@ const formatUsdPrice = (symbol: string, value: number | null | undefined) => {
 
 // Human-readable market cap ("2.97T", "412.5B", "18.3M").
 const fmtCap = (n?: number | null) => {
-  if (!n || n <= 0) return '�';
+  if (!n || n <= 0) return '-';
   if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
@@ -74,7 +74,7 @@ function TableLoading({ pct, label }: { pct: number; label: string }) {
     <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
       <span className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70 animate-spin" aria-hidden />
       <span className="font-bold">{Math.floor(currentPct)}%</span>
-      {label && <span className="truncate">� {label}</span>}
+      {label && <span className="truncate">· {label}</span>}
     </div>
   );
 }
@@ -388,7 +388,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         }
         const idx = indexData.find(x => x.symbol.toUpperCase() === sym);
         if (idx) return idx;
-        return { name: `${sym} � loading�`, symbol: sym, price: 0, change: 0, changePercent: 0, sparkline: [] };
+        return { name: `${sym} - loading...`, symbol: sym, price: 0, change: 0, changePercent: 0, sparkline: [] };
       });
     }
     return indexData;
@@ -682,7 +682,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       setLoadingApi(true);
       setLoadingDashboard(true);
     }
-    startTableLoader(silent ? `syncing ${qc} prices�` : `loading ${qc} market data�`, silent);
+    startTableLoader(silent ? `syncing ${qc} prices...` : `loading ${qc} market data...`, silent);
     try {
       // Serve from cache instantly if this page was already fetched.
       if (pageCache[currentPage]) {
@@ -774,7 +774,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     let cancelled = false;
     (async () => {
       try {
-        startTableLoader(`syncing live ${qc} prices from exchange�`, true);
+        startTableLoader(`syncing live ${qc} prices from exchange...`, true);
         const res = await fetch('/api/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1720,8 +1720,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       </div>
                     )}
                     {pinned?.found && (
-                      <div className="text-[9px] font-mono text-muted-foreground/70 mt-1 truncate" title={`Source: ${pinned.source || 'db'} � ${pinned.updatedAt ? new Date(pinned.updatedAt).toLocaleString() : ''}`}>
-                        {pinned.marketId || pinned.currency} � {pinned.updatedAt ? `updated ${timeAgo(pinned.updatedAt)}` : 'from database'}
+                       <div className="text-[9px] font-mono text-muted-foreground/70 mt-1 truncate" title={`Source: ${pinned.source || 'db'} · ${pinned.updatedAt ? new Date(pinned.updatedAt).toLocaleString() : ''}`}>
+                        {pinned.marketId || pinned.currency} · {pinned.updatedAt ? `updated ${timeAgo(pinned.updatedAt)}` : 'from database'}
                       </div>
                     )}
                   </div>
@@ -1826,7 +1826,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 {/* Gainers List */}
                 <div className="space-y-2">
                   <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1 mb-2">
-                    ? Top Gainers
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Top Gainers
                   </span>
                   {topGainers.map(item => (
                     <div
@@ -1853,7 +1853,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 {/* Losers List */}
                 <div className="space-y-2">
                   <span className="text-[10px] font-bold text-rose-400 uppercase tracking-widest flex items-center gap-1 mb-2">
-                    ? Top Losers
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Top Losers
                   </span>
                   {topLosers.map(item => (
                     <div
@@ -2017,7 +2017,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     }`}
                     title={hidden ? `Show ${SECTION_LABELS[key]}` : `Hide ${SECTION_LABELS[key]}`}
                   >
-                    {hidden ? '? ' : '? '}{SECTION_LABELS[key]}
+                    {hidden ? <ArrowRight className="inline w-3 h-3" /> : <ChevronDown className="inline w-3 h-3" />}{SECTION_LABELS[key]}
                   </button>
                 );
               })}
@@ -2981,7 +2981,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
                   {/* Columns � toggle visibility + reorder (left/right) */}
                   <div>
-                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Columns <span className="normal-case font-medium text-muted-foreground/60">� use ? ? to choose what shows first</span></p>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Columns <span className="normal-case font-medium text-muted-foreground/60">use drag to choose what shows first</span></p>
                     <div className="flex flex-wrap gap-1.5">
                       {(gmConfig.columnOrder ?? GM_COLUMN_ORDER).map((key, idx, arr) => (
                         <span
@@ -3104,7 +3104,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   {/* Countries � visibility + ordering (what shows first) */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Countries <span className="normal-case font-medium text-muted-foreground/60">� ? ? to order, ? puts it first</span></p>
+                      <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Countries <span className="normal-case font-medium text-muted-foreground/60">drag to order, first is default</span></p>
                       <span className="flex gap-1.5">
                         <button onClick={() => applyGmConfig({ countries: null })} className="text-[10px] font-bold text-primary hover:underline cursor-pointer uppercase tracking-wider">All</button>
                         <button onClick={() => applyGmConfig({ countries: [] })} className="text-[10px] font-bold text-muted-foreground hover:text-rose-400 cursor-pointer uppercase tracking-wider">None</button>
@@ -3190,7 +3190,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               ) : groups.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground text-xs">
                   {globalOverview.length === 0
-                    ? 'No priced markets yet � open a country screener and refresh prices to populate the overview.'
+                    ? 'No priced markets yet - open a country screener and refresh prices to populate the overview.'
                     : 'All countries hidden � click Customize above and select the markets you want to see.'}
                 </div>
               ) : (
@@ -3230,7 +3230,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
                               title="Open Forex table"
                             >
-                              Open ?
+                              Open <ArrowUpRight size={11} className="inline" />
                             </button>
                           </div>
                           <table className="w-full text-left text-[11px]">
@@ -3243,7 +3243,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             </thead>
                             <tbody>
                               {loadingForex ? (
-                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading forex�</td></tr>
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading forex...</td></tr>
                               ) : filteredForex.length === 0 ? (
                                 <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>No forex data</td></tr>
                               ) : filteredForex.slice(0, gmConfig.rows).map((pair) => {
@@ -3308,7 +3308,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
                               title="Open Commodities table"
                             >
-                              Open ?
+                              Open <ArrowUpRight size={11} className="inline" />
                             </button>
                           </div>
                           <table className="w-full text-left text-[11px]">
@@ -3321,7 +3321,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             </thead>
                             <tbody>
                               {loadingCommodities ? (
-                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading commodities�</td></tr>
+                                <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>loading commodities...</td></tr>
                               ) : commodities.length === 0 ? (
                                 <tr><td colSpan={3} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>No commodity data</td></tr>
                               ) : commodities.slice(0, gmConfig.rows).map((c) => {
@@ -3391,7 +3391,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           className="text-[9px] font-bold text-primary/90 uppercase tracking-wider shrink-0 hover:text-primary cursor-pointer bg-transparent border-none p-0"
                           title={`Open ${g.country} screener`}
                         >
-                          Open ?
+                          Open <ArrowUpRight size={11} className="inline" />
                         </button>
                       </div>
                       {anyColumn && (() => {
@@ -3590,22 +3590,22 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <thead>
                   <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleForexSort('symbol')}>
-                      Pair {forexSortField === 'symbol' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Pair {forexSortField === 'symbol' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('name')}>
-                      Name {forexSortField === 'name' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Name {forexSortField === 'name' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleForexSort('base')}>
-                      Base {forexSortField === 'base' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Base {forexSortField === 'base' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleForexSort('quote')}>
-                      Quote {forexSortField === 'quote' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Quote {forexSortField === 'quote' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('price')}>
-                      Rate (USD) {forexSortField === 'price' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Rate (USD) {forexSortField === 'price' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleForexSort('changePct')}>
-                      Change % {forexSortField === 'changePct' && (forexSortOrder === 'asc' ? '?' : '?')}
+                      Change % {forexSortField === 'changePct' && (forexSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
                   </tr>
@@ -3740,31 +3740,31 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <thead>
                   <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleStockSort('symbol')}>
-                      Ticker {stockSortField === 'symbol' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Ticker {stockSortField === 'symbol' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('name')}>
-                      Company {stockSortField === 'name' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Company {stockSortField === 'name' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden md:table-cell whitespace-nowrap" onClick={() => toggleStockSort('securityType')}>
-                      Type {stockSortField === 'securityType' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Type {stockSortField === 'securityType' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden lg:table-cell whitespace-nowrap" onClick={() => toggleStockSort('industry')}>
-                      Industry {stockSortField === 'industry' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Industry {stockSortField === 'industry' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden lg:table-cell whitespace-nowrap" onClick={() => toggleStockSort('country')}>
-                      Country {stockSortField === 'country' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Country {stockSortField === 'country' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleStockSort('marketCap')}>
-                      Market Cap {stockSortField === 'marketCap' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Market Cap {stockSortField === 'marketCap' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleStockSort('peRatio')}>
-                      P/E {stockSortField === 'peRatio' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      P/E {stockSortField === 'peRatio' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('price')}>
-                      Price {stockSortField === 'price' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Price {stockSortField === 'price' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('changePercent')}>
-                      Change {stockSortField === 'changePercent' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Change {stockSortField === 'changePercent' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
                   </tr>
@@ -3910,37 +3910,37 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <thead>
                   <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                     <th className="py-3 px-4 text-center whitespace-nowrap cursor-pointer hover:text-foreground transition-colors" onClick={() => toggleStockSort('rank')}>
-                      Rank {stockSortField === 'rank' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Rank {stockSortField === 'rank' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleStockSort('symbol')}>
-                      Symbol {stockSortField === 'symbol' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Symbol {stockSortField === 'symbol' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('name')}>
-                      Asset Name {stockSortField === 'name' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Asset Name {stockSortField === 'name' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('sector')}>
-                      Category {stockSortField === 'sector' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Category {stockSortField === 'sector' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('price')}>
-                      Price {stockSortField === 'price' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Price {stockSortField === 'price' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('changePercent')}>
-                      24H Change {stockSortField === 'changePercent' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      24H Change {stockSortField === 'changePercent' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('marketCap')}>
-                      Market Cap {stockSortField === 'marketCap' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Market Cap {stockSortField === 'marketCap' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('volume')}>
-                      24H Volume {stockSortField === 'volume' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      24H Volume {stockSortField === 'volume' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('circulatingSupply')}>
-                      Circulating Supply {stockSortField === 'circulatingSupply' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Circulating Supply {stockSortField === 'circulatingSupply' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('maxSupply')}>
-                      Max Supply {stockSortField === 'maxSupply' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      Max Supply {stockSortField === 'maxSupply' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-center cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleStockSort('ath')}>
-                      ATH Distance {stockSortField === 'ath' && (stockSortOrder === 'asc' ? '?' : '?')}
+                      ATH Distance {stockSortField === 'ath' && (stockSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                     </th>
                     <th className="py-3 px-4 text-center whitespace-nowrap">AI Analyst</th>
                   </tr>
@@ -4186,19 +4186,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <thead>
                 <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleEtfSort('symbol')}>
-                    Symbol {etfSortField === 'symbol' && (etfSortOrder === 'asc' ? '?' : '?')}
+                    Symbol {etfSortField === 'symbol' && (etfSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleEtfSort('name')}>
-                    ETF Name {etfSortField === 'name' && (etfSortOrder === 'asc' ? '?' : '?')}
+                    ETF Name {etfSortField === 'name' && (etfSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleEtfSort('category')}>
-                    Category {etfSortField === 'category' && (etfSortOrder === 'asc' ? '?' : '?')}
+                    Category {etfSortField === 'category' && (etfSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleEtfSort('price')}>
-                    Price {etfSortField === 'price' && (etfSortOrder === 'asc' ? '?' : '?')}
+                    Price {etfSortField === 'price' && (etfSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleEtfSort('changePercent')}>
-                    Change % {etfSortField === 'changePercent' && (etfSortOrder === 'asc' ? '?' : '?')}
+                    Change % {etfSortField === 'changePercent' && (etfSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">Volume</th>
                   <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">AUM</th>
@@ -4275,25 +4275,25 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <thead>
                 <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleFundSort('symbol')}>
-                    Symbol {fundSortField === 'symbol' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    Symbol {fundSortField === 'symbol' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleFundSort('name')}>
-                    Fund Name {fundSortField === 'name' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    Fund Name {fundSortField === 'name' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleFundSort('category')}>
-                    Category {fundSortField === 'category' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    Category {fundSortField === 'category' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleFundSort('nav')}>
-                    NAV {fundSortField === 'nav' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    NAV {fundSortField === 'nav' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleFundSort('changePercent')}>
-                    1D Change % {fundSortField === 'changePercent' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    1D Change % {fundSortField === 'changePercent' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors hidden md:table-cell whitespace-nowrap" onClick={() => toggleFundSort('ytdReturn')}>
-                    YTD Return % {fundSortField === 'ytdReturn' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    YTD Return % {fundSortField === 'ytdReturn' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors hidden lg:table-cell whitespace-nowrap" onClick={() => toggleFundSort('expenseRatio')}>
-                    Expense Ratio {fundSortField === 'expenseRatio' && (fundSortOrder === 'asc' ? '?' : '?')}
+                    Expense Ratio {fundSortField === 'expenseRatio' && (fundSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-center hidden md:table-cell whitespace-nowrap">Morningstar</th>
                   <th className="py-3 px-4 text-right font-mono hidden lg:table-cell whitespace-nowrap">AUM</th>
@@ -4380,19 +4380,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <thead>
                 <tr className="border-b border-white/5 text-muted-foreground/80 text-[10px] uppercase tracking-wider font-mono font-semibold bg-white/[0.01]">
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground font-mono transition-colors whitespace-nowrap" onClick={() => toggleDividendSort('symbol')}>
-                    Symbol {dividendSortField === 'symbol' && (dividendSortOrder === 'asc' ? '?' : '?')}
+                    Symbol {dividendSortField === 'symbol' && (dividendSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleDividendSort('name')}>
-                    Company Name {dividendSortField === 'name' && (dividendSortOrder === 'asc' ? '?' : '?')}
+                    Company Name {dividendSortField === 'name' && (dividendSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors hidden sm:table-cell whitespace-nowrap" onClick={() => toggleDividendSort('dividendYield')}>
-                    Dividend Yield {dividendSortField === 'dividendYield' && (dividendSortOrder === 'asc' ? '?' : '?')}
+                    Dividend Yield {dividendSortField === 'dividendYield' && (dividendSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleDividendSort('price')}>
-                    Price {dividendSortField === 'price' && (dividendSortOrder === 'asc' ? '?' : '?')}
+                    Price {dividendSortField === 'price' && (dividendSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors whitespace-nowrap" onClick={() => toggleDividendSort('changePercent')}>
-                    Change % {dividendSortField === 'changePercent' && (dividendSortOrder === 'asc' ? '?' : '?')}
+                    Change % {dividendSortField === 'changePercent' && (dividendSortOrder === 'asc' ? <ArrowUp className="inline w-2.5 h-2.5" /> : <ArrowDown className="inline w-2.5 h-2.5" />)}
                   </th>
                   <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">Volume</th>
                   <th className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">Market Cap</th>

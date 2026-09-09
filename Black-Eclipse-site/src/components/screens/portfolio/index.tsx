@@ -7,6 +7,7 @@ import { Briefcase } from 'lucide-react';
 import { loadFunds, saveFunds } from './fund-store';
 import { FundManager } from './fund-manager';
 import { FundWorkspace } from './fund-workspace';
+import { useCommandStore } from '@/lib/search/store';
 import type { Fund } from '@/lib/portfolio/types';
 
 export function PortfolioScreen() {
@@ -15,6 +16,20 @@ export function PortfolioScreen() {
 
   useEffect(() => {
     setFunds(loadFunds().funds);
+  }, []);
+
+  // Consume a fund id dispatched by the global search bar (⌘K → fund result).
+  // Subscribes so it works even when the tab is already mounted (keep-alive).
+  useEffect(() => {
+    const check = () => {
+      const id = useCommandStore.getState().consumeFundId();
+      if (id) setOpenFundId(id);
+    };
+    check();
+    const unsub = useCommandStore.subscribe((state, prev) => {
+      if (state.pendingFundId !== prev.pendingFundId && state.pendingFundId) check();
+    });
+    return unsub;
   }, []);
 
   const updateFund = useCallback((fundId: string, patch: Partial<Omit<Fund, 'id' | 'seeded'>>) => {

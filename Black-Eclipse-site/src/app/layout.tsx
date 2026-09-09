@@ -3,6 +3,7 @@ import './globals.css';
 import { cn } from "@/lib/utils";
 import { AgentationToolbar } from "@/components/layout/agentation-toolbar";
 import { GlobalLoader } from "@/components/ui/global-loader";
+import { GlobalSearch } from "@/components/layout/global-search";
 
 export const metadata: Metadata = {
   title: 'BlackEclipse — AI Stock Research & Screening Platform',
@@ -16,6 +17,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <GlobalLoader />
         {children}
         <AgentationToolbar />
+        <GlobalSearch />
       </body>
     </html>
   );
