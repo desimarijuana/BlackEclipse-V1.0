@@ -6,6 +6,7 @@ import { ECON_SOURCES } from '@/lib/economics/sources';
 import { EconPanel } from './panel';
 import { SnapshotView } from './snapshot';
 import { CalendarView } from './calendar';
+import { DecisionDashboard } from './dashboard';
 
 // Group the source registry into the reference's taxonomy. Each group renders
 // as its own section with a tab bar to pick which source to view.
@@ -44,6 +45,15 @@ export function EconomicsScreen() {
             desc="Central-bank rates & key US prints, each with its “as of” vintage — pulled from the FRED public CSV feed. Nothing fabricated."
           />
           <SnapshotView />
+        </section>
+
+        {/* ── DECISION DASHBOARD ────────────────────────────────── */}
+        <section className="border-t border-border/10 pt-8">
+          <SectionHead
+            title="Decision dashboard"
+            desc="At-a-glance macro signals to guide positioning — real rate, yield curve, regime, policy stance and dollar."
+          />
+          <DecisionDashboard />
         </section>
 
         {/* ── CALENDAR ─────────────────────────────────────────── */}

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as echarts from 'echarts';
 import { Download, Loader2, Search, KeyRound, Sparkles, X } from 'lucide-react';
 import type { EconSource } from '@/lib/economics/sources';
+import { ECON_SOURCES } from '@/lib/economics/sources';
 import { computeStats, sortByDate, type EconPoint } from '@/lib/economics/fetch';
 
 interface ResearchResult {
@@ -39,6 +40,12 @@ export function EconPanel({ source }: PanelProps) {
   const [logScale, setLogScale] = useState(false);
   const [rolling, setRolling] = useState<0 | 3 | 6 | 12>(0);
   const [recession, setRecession] = useState(false);
+  const [compareId, setCompareId] = useState('');
+  const [compareRows, setCompareRows] = useState<EconPoint[] | null>(null);
+  const [threshold, setThreshold] = useState('');
+  const [thresholdLevel, setThresholdLevel] = useState('');
+  const [narrative, setNarrative] = useState<string | null>(null);
+  const [narrativeLoading, setNarrativeLoading] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
@@ -81,6 +88,19 @@ export function EconPanel({ source }: PanelProps) {
       setLoading(false);
     }
   }, [source, params]);
+
+  // Fetch a second series to overlay for comparison.
+  const fetchCompare = async (id: string) => {
+    if (!id) { setCompareRows(null); return; }
+    try {
+      const qs = new URLSearchParams({ source: id });
+      const res = await fetch(`/api/economics?${qs.toString()}`);
+      const data = await res.json();
+      setCompareRows(data.rows ? sortByDate(data.rows) : null);
+    } catch {
+      setCompareRows(null);
+    }
+  };
 
   useEffect(() => {
     void fetchSeries();
@@ -154,6 +174,13 @@ export function EconPanel({ source }: PanelProps) {
       recessionBands = buildRecessionBands(dates);
     }
 
+    // Comparison overlay series (second source, level only).
+    let compareSeries: { name: string; data: [string, number | null][] } | null = null;
+    if (compareRows && compareRows.length > 0) {
+      const pts = sortByDate(compareRows.filter((r) => r.value !== null));
+      compareSeries = { name: compareId, data: pts.map((r) => [r.date, r.value] as [string, number | null]) };
+    }
+
     return {
       seriesNames,
       dates,
@@ -162,15 +189,16 @@ export function EconPanel({ source }: PanelProps) {
       labelKey,
       rollingSeries,
       recessionBands,
+      compareSeries,
     };
-  }, [rows, source.label, range, viewMode, rolling, recession]);
+  }, [rows, source.label, range, viewMode, rolling, recession, compareRows, compareId]);
 
   useEffect(() => {
     if (!chartRef.current || !chartDeps) return;
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
-    const { seriesNames, dates, grouped, palette, rollingSeries, recessionBands } = chartDeps;
+    const { seriesNames, dates, grouped, palette, rollingSeries, recessionBands, compareSeries } = chartDeps;
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
       grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
@@ -233,6 +261,16 @@ export function EconPanel({ source }: PanelProps) {
           lineStyle: { width: 1.5, color: '#fbbf24', type: 'dashed' as const },
           itemStyle: { color: '#fbbf24' },
         })),
+        ...(compareSeries
+          ? [{
+              name: compareSeries.name,
+              type: 'line' as const,
+              showSymbol: false,
+              data: compareSeries.data,
+              lineStyle: { width: 2, color: '#38bdf8', type: 'dashed' as const },
+              itemStyle: { color: '#38bdf8' },
+            }]
+          : []),
       ] as echarts.SeriesOption[],
     };
     chartInstance.current.setOption(option, true);
@@ -297,6 +335,37 @@ export function EconPanel({ source }: PanelProps) {
     a.href = url;
     a.download = `${source.id}_chart.png`;
     a.click();
+  };
+
+  // ─── AI narrative: plain-language trend summary ────────────────────────
+  const runNarrative = async () => {
+    if (!rows || rows.length === 0) return;
+    setNarrativeLoading(true);
+    setNarrative(null);
+    try {
+      const finite = rows.filter((r) => r.value !== null);
+      const sorted = sortByDate(finite);
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
+      const change = prev && prev.value !== null && latest.value !== null && prev.value !== 0
+        ? ((latest.value - prev.value) / Math.abs(prev.value)) * 100
+        : null;
+      const res = await fetch('/api/agent/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: `Give a 2-3 sentence plain-language summary of this macro series for a trader: "${source.label}". Latest value ${latest.value} as of ${latest.date}${change !== null ? `, ${change >= 0 ? 'up' : 'down'} ${Math.abs(change).toFixed(1)}% vs previous` : ''}. What does the trend signal?`,
+          market: 'US',
+        }),
+      });
+      const d = await res.json();
+      if (d.success) setNarrative(d.answer);
+      else setNarrative('Could not generate narrative.');
+    } catch {
+      setNarrative('Could not reach the research engine.');
+    } finally {
+      setNarrativeLoading(false);
+    }
   };
 
   // ─── Real agent research ───────────────────────────────────────────────
@@ -535,6 +604,16 @@ export function EconPanel({ source }: PanelProps) {
               Recession
             </button>
             <span className="flex-1" />
+            <select
+              value={compareId}
+              onChange={(e) => { setCompareId(e.target.value); void fetchCompare(e.target.value); }}
+              className="h-6 rounded-md bg-background border border-border/30 px-1.5 font-mono text-[10px] text-muted-foreground focus:outline-none focus:border-primary/60"
+            >
+              <option value="">Compare…</option>
+              {ECON_SOURCES.filter((s) => s.id !== source.id).map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
             <button
               onClick={exportPNG}
               className="h-6 px-2.5 rounded-md font-mono text-[10px] text-muted-foreground border border-border/30 hover:text-foreground hover:border-foreground transition-colors cursor-pointer"
@@ -554,6 +633,34 @@ export function EconPanel({ source }: PanelProps) {
         </p>
       )}
 
+      {/* Threshold alert */}
+      {stats && stats.latest !== null && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono text-[10px] text-muted-foreground">Alert when value</span>
+          <select
+            value={threshold}
+            onChange={(e) => setThreshold(e.target.value)}
+            className="h-7 rounded-md bg-background border border-border/30 px-1.5 font-mono text-[10px] text-muted-foreground focus:outline-none focus:border-primary/60"
+          >
+            <option value="">—</option>
+            <option value="above">rises above</option>
+            <option value="below">falls below</option>
+          </select>
+          <input
+            type="number"
+            placeholder="level"
+            value={threshold === 'above' || threshold === 'below' ? thresholdLevel : ''}
+            onChange={(e) => setThresholdLevel(e.target.value)}
+            className="h-7 w-20 rounded-md bg-background border border-border/30 px-2 font-mono text-[10px] text-foreground focus:outline-none focus:border-primary/60"
+          />
+          {threshold && thresholdLevel !== '' && stats.latest !== null && (
+            <span className={`font-mono text-[10px] ${(threshold === 'above' && stats.latest > Number(thresholdLevel)) || (threshold === 'below' && stats.latest < Number(thresholdLevel)) ? 'text-rose-400' : 'text-primary'}`}>
+              {((threshold === 'above' && stats.latest > Number(thresholdLevel)) || (threshold === 'below' && stats.latest < Number(thresholdLevel))) ? '⚠ Triggered' : 'OK'}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* AI analysis */}
       <div className="flex items-center gap-2">
         <button
@@ -564,12 +671,29 @@ export function EconPanel({ source }: PanelProps) {
           {researchLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
           {researchLoading ? 'Analyzing…' : 'Analyze with AI'}
         </button>
+        <button
+          onClick={() => void runNarrative()}
+          disabled={narrativeLoading || !rows || rows.length === 0}
+          className="h-9 px-4 rounded-lg bg-accent/40 hover:bg-accent/70 border border-border/40 text-muted-foreground hover:text-foreground text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {narrativeLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          {narrativeLoading ? 'Summarizing…' : 'Trend summary'}
+        </button>
         {research && (
           <button onClick={() => setResearch(null)} className="h-9 px-3 rounded-lg border border-border/40 text-muted-foreground hover:text-foreground text-[11px] inline-flex items-center gap-1 cursor-pointer">
             <X size={11} /> Close
           </button>
         )}
       </div>
+      {narrative && (
+        <div className="p-4 rounded-xl bg-accent/20 border border-border/20 animate-fade-in-up">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles size={13} className="text-primary" />
+            <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Trend Summary</span>
+          </div>
+          <p className="text-[12px] text-foreground/90 leading-relaxed whitespace-pre-wrap">{narrative}</p>
+        </div>
+      )}
       {research && (
         <div className="p-4 rounded-xl bg-primary/[0.04] border border-primary/20 animate-fade-in-up">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
