@@ -95,6 +95,17 @@ async function eclipse() {
 
 // ─── black doctor ──────────────────────────────────────────────────────────
 function findPython() {
+  // Vendored embedded Python (scripts/vendor/python) is the preferred runtime.
+  const vendored =
+    process.platform === "win32"
+      ? path.join(__dirname, "..", "scripts", "vendor", "python", "python.exe")
+      : null;
+  if (vendored && fs.existsSync(vendored)) {
+    try {
+      const v = execSync(`"${vendored}" --version`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      return { cmd: vendored, version: `${v} (vendored)` };
+    } catch {}
+  }
   const candidates = process.platform === "win32" ? ["python", "python3", "py"] : ["python3", "python"];
   for (const cmd of candidates) {
     try {
@@ -149,10 +160,10 @@ async function doctor() {
   if (py) {
     let yf = false;
     try {
-      execSync(`${py.cmd} -c "import yfinance"`, { stdio: "ignore", timeout: 15000 });
+      execSync(`"${py.cmd}" -c "import yfinance"`, { stdio: "ignore", timeout: 15000 });
       yf = true;
     } catch {}
-    if (!check("yfinance (price bridge)", yf, `run "${py.cmd} -m pip install yfinance scrapling"`)) failures++;
+    if (!check("yfinance (price bridge)", yf, `run "${py.cmd}" -m pip install yfinance scrapling`)) failures++;
   }
 
   // Build cache

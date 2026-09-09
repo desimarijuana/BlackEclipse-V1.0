@@ -62,11 +62,27 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
 }
 
 // 5. Python yfinance bridge (optional — live prices)
+// 5a. On Windows, auto-provision the vendored embedded Python if the system
+//     has no Python, so live prices work out of the box for new users.
+const vendorScript = path.join(__dirname, "setup-embedded-python.js");
+const vendorReady =
+  process.platform === "win32" &&
+  fs.existsSync(path.join(__dirname, "vendor", "python", "python.exe"));
+if (process.platform === "win32" && !vendorReady && fs.existsSync(vendorScript)) {
+  console.log("[setup] No Python found — provisioning embedded Python for live prices...");
+  const v = spawnSync(process.execPath, [vendorScript], { stdio: "inherit" });
+  if (v.status !== 0) {
+    console.error("[setup] Could not provision embedded Python (offline?). Live prices disabled.");
+  }
+}
+
 const pyCmds = process.platform === "win32" ? ["python", "python3", "py"] : ["python3", "python"];
-const py = pyCmds.find((c) => run(`${c} --version`).status === 0);
+const vendoredPy = path.join(__dirname, "vendor", "python", "python.exe");
+const pyCandidates = fs.existsSync(vendoredPy) ? [vendoredPy, ...pyCmds] : pyCmds;
+const py = pyCandidates.find((c) => run(`"${c}" --version`).status === 0);
 if (py) {
-  if (run(`${py} -c "import yfinance"`, { timeout: 15000 }).status !== 0) {
-    fix("Python yfinance bridge", `${py} -m pip install yfinance`);
+  if (run(`"${py}" -c "import yfinance"`, { timeout: 15000 }).status !== 0) {
+    fix("Python yfinance bridge", `"${py}" -m pip install yfinance`);
   }
 } else {
   console.log("[setup] Python not found — live prices disabled. Install from https://python.org, then: pip install yfinance");

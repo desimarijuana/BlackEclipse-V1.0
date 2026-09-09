@@ -55,3 +55,6 @@ jdds.db-*
 # rolling DB backups created by scripts/db-guard.js
 /backups/
 
+# vendored embedded Python (downloaded on-demand, never committed)
+/scripts/vendor/python/
+
