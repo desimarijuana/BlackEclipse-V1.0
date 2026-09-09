@@ -864,6 +864,25 @@ html:not(.dark) .fund-tabs-glass {
     inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
 
+/* Unified tab strip — frosted glass menu shared across every page's tabs.
+   Same recipe as the portfolio fund tabs so all tab bars look identical. */
+.tab-bar-glass {
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .tab-bar-glass {
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+}
+
 /* Floating fund-actions popover — matches the frosted menu recipe. */
 .fund-menu-glass {
   background: rgba(16, 16, 18, 0.78);

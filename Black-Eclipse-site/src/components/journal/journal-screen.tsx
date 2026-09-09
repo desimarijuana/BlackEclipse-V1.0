@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { TabBar } from '@/components/ui/tab-bar';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { JournalOverview } from './overview';
 import { JournalCalendar } from './calendar';
@@ -84,25 +84,11 @@ export function JournalScreen() {
       </div>
 
       {/* Sub-tab navigation */}
-      <div className="mb-5 flex items-center gap-1 overflow-x-auto scrollbar-hide rounded-2xl bg-[#0f0f0f]/60 p-1 backdrop-blur-xl">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const active = tab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer',
-                active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
-              )}
-            >
-              <Icon size={13} />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <TabBar
+        items={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon }))}
+        activeId={tab}
+        onChange={(id) => setTab(id as JournalTab)}
+      />
 
       {error && (
         <div className="mb-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-3.5 text-xs text-rose-400 font-semibold">

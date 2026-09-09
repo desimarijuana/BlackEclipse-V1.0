@@ -10,6 +10,7 @@ import {
   Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TabBar } from '@/components/ui/tab-bar';
 import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -1938,58 +1939,36 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <Coins className="w-3.5 h-3.5" /> Commodities
               </span>
             ) : (
-              <>
-                <button
-                  onClick={() => handleTabChange('stocks')}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock')
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <TrendingUp className="w-3.5 h-3.5" /> Stocks
-                </button>
-                <button
-                  onClick={() => handleTabChange('etfs')}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'etfs' 
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Briefcase className="w-3.5 h-3.5" /> ETFs
-                </button>
-                <button
-                  onClick={() => handleTabChange('funds')}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'funds' 
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" /> Mutual Funds
-                </button>
-                <button
-                  onClick={() => { handleTabChange('stocks'); setFilterType('REIT'); }}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'stocks' && filterType === 'REIT'
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Building2 className="w-3.5 h-3.5" /> REITs
-                </button>
-                <button
-                  onClick={() => { handleTabChange('stocks'); setFilterType('Listed Debt'); }}
-                  className={`screener-tab px-4 py-2 rounded-3xl text-xs font-bold tracking-tight transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                    screenerTab === 'stocks' && filterType === 'Listed Debt'
-                      ? 'bg-accent text-foreground' 
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-                  }`}
-                >
-                  <Coins className="w-3.5 h-3.5" /> Bonds
-                </button>
-              </>
+              <TabBar
+                className="mb-0"
+                items={[
+                  {
+                    id: 'stocks',
+                    label: 'Stocks',
+                    icon: TrendingUp,
+                    active: screenerTab === 'stocks' && (filterType === 'All' || filterType === 'Stock'),
+                  },
+                  { id: 'etfs', label: 'ETFs', icon: Briefcase, active: screenerTab === 'etfs' },
+                  { id: 'funds', label: 'Mutual Funds', icon: Layers, active: screenerTab === 'funds' },
+                  {
+                    id: 'reits',
+                    label: 'REITs',
+                    icon: Building2,
+                    active: screenerTab === 'stocks' && filterType === 'REIT',
+                  },
+                  {
+                    id: 'bonds',
+                    label: 'Bonds',
+                    icon: Coins,
+                    active: screenerTab === 'stocks' && filterType === 'Listed Debt',
+                  },
+                ]}
+                onChange={(id) => {
+                  if (id === 'reits') { handleTabChange('stocks'); setFilterType('REIT'); }
+                  else if (id === 'bonds') { handleTabChange('stocks'); setFilterType('Listed Debt'); }
+                  else handleTabChange(id as 'stocks' | 'etfs' | 'funds');
+                }}
+              />
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">

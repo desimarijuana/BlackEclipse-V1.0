@@ -12,6 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { TabBar } from "@/components/ui/tab-bar";
 
 // ─── Site design system (matches my-portfolio / market-overview) ──────────
 // Frost glass — the default glass panel style used across every screen.
@@ -229,30 +230,23 @@ export function AlertsClient() {
       </div>
 
       {/* ─── VIEW TABS (pill strip) ─────────────────────────────────────── */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {([
+      <TabBar
+        className="mb-5 flex-wrap"
+        items={[
           { id: "watches", label: "Live Watches", icon: Zap },
           { id: "create", label: editing ? "Edit Watch" : "Create Watch", icon: PencilLine },
-          { id: "history", label: "Alert History", icon: History },
-        ] as Array<{ id: View; label: string; icon: React.ElementType }>).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => { if (t.id !== "create") setEditing(null); setView(t.id); }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold border transition-all cursor-pointer shrink-0",
-              view === t.id
-                ? "bg-primary/15 border-primary/50 text-primary"
-                : "border-border/40 text-muted-foreground hover:text-foreground hover:border-primary/30 bg-card/40"
-            )}
-          >
-            <t.icon className="w-3.5 h-3.5" />
-            {t.label}
-            {t.id === "history" && events.length > 0 && (
+          {
+            id: "history",
+            label: "Alert History",
+            icon: History,
+            badge: events.length > 0 ? (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground uppercase tracking-wider">{events.length}</span>
-            )}
-          </button>
-        ))}
-      </div>
+            ) : undefined,
+          },
+        ]}
+        activeId={view}
+        onChange={(id) => { if (id !== "create") setEditing(null); setView(id as View); }}
+      />
 
       {/* ─── TOAST ──────────────────────────────────────────────────────── */}
       {toast && (

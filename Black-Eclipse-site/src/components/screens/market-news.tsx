@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { TabBar } from '@/components/ui/tab-bar';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -789,34 +790,18 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
 
         {/* ─── Category Tabs — one-tap browse, below Market Pulse ─── */}
         <div className="w-full rounded-2xl border border-border/10 bg-[#0f0f0f]/60 backdrop-blur-xl px-4 py-3">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1.5 news-tabs-scroll -mx-1 px-1">
-            <button
-              onClick={() => setFilter({ category: '' })}
-              className={`shrink-0 h-8 px-4 rounded-full text-[12px] font-bold inline-flex items-center cursor-pointer transition-all border whitespace-nowrap ${
-                !filters.category
-                  ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_14px_rgba(59,130,246,0.3)]'
-                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground hover:border-primary/40 hover:bg-accent/50'
-              }`}
-            >
-              All
-            </button>
-            {CATEGORIES.map((cat) => {
-              const active = filters.category === cat;
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setFilter({ category: active ? '' : cat })}
-                  className={`shrink-0 h-8 px-4 rounded-full text-[12px] font-bold inline-flex items-center cursor-pointer transition-all border whitespace-nowrap ${
-                    active
-                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_14px_rgba(59,130,246,0.3)]'
-                      : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground hover:border-primary/40 hover:bg-accent/50'
-                  }`}
-                >
-                  {cat === 'CENTRAL BANKS' ? 'Central Banks' : cat === 'GEOPOLITICS' ? 'Geopolitics' : cat === 'REGULATORY' ? 'Regulatory' : cat === 'ECONOMIC' ? 'Economic' : cat.charAt(0) + cat.slice(1).toLowerCase()}
-                </button>
-              );
-            })}
-          </div>
+          <TabBar
+            className="mb-0"
+            items={[
+              { id: '', label: 'All', active: !filters.category },
+              ...CATEGORIES.map((cat) => ({
+                id: cat,
+                label: cat === 'CENTRAL BANKS' ? 'Central Banks' : cat === 'GEOPOLITICS' ? 'Geopolitics' : cat === 'REGULATORY' ? 'Regulatory' : cat === 'ECONOMIC' ? 'Economic' : cat.charAt(0) + cat.slice(1).toLowerCase(),
+                active: filters.category === cat,
+              })),
+            ]}
+            onChange={(id) => setFilter({ category: id === '' ? '' : (filters.category === id ? '' : id) })}
+          />
         </div>
 
         {/* ─── Result count + Customize ─── */}

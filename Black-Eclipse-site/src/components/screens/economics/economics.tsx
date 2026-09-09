@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Globe } from 'lucide-react';
+import { Globe, LayoutDashboard, CalendarDays, LineChart, Activity } from 'lucide-react';
+import { TabBar } from '@/components/ui/tab-bar';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { EconPanel } from './panel';
 import { SnapshotView } from './snapshot';
@@ -20,9 +21,11 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
 ];
 
 export function EconomicsScreen() {
+  const [section, setSection] = useState<'snapshot' | 'dashboard' | 'calendar' | 'explorer'>('snapshot');
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 h-full overflow-y-auto pb-20">
-      <div className="animate-fade-in-up flex flex-col gap-10">
+      <div className="animate-fade-in-up flex flex-col gap-6">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section>
           <div className="flex items-center gap-3">
@@ -38,46 +41,62 @@ export function EconomicsScreen() {
           </p>
         </section>
 
-        {/* ── SNAPSHOT ──────────────────────────────────────────── */}
-        <section className="border-t border-border/10 pt-8">
-          <SectionHead
-            title="Global macro · live vintages"
-            desc="Central-bank rates & key US prints, each with its “as of” vintage — pulled from the FRED public CSV feed. Nothing fabricated."
-          />
-          <SnapshotView />
-        </section>
+        {/* ── Section tabs ─────────────────────────────────────── */}
+        <TabBar
+          items={[
+            { id: 'snapshot', label: 'Snapshot', icon: Activity },
+            { id: 'dashboard', label: 'Decision Dashboard', icon: LayoutDashboard },
+            { id: 'calendar', label: 'Economic Calendar', icon: CalendarDays },
+            { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
+          ]}
+          activeId={section}
+          onChange={(id) => setSection(id as typeof section)}
+        />
 
-        {/* ── DECISION DASHBOARD ────────────────────────────────── */}
-        <section className="border-t border-border/10 pt-8">
-          <SectionHead
-            title="Decision dashboard"
-            desc="At-a-glance macro signals to guide positioning — real rate, yield curve, regime, policy stance and dollar."
-          />
-          <DecisionDashboard />
-        </section>
+        {section === 'snapshot' && (
+          <section>
+            <SectionHead
+              title="Global macro · live vintages"
+              desc="Central-bank rates & key US prints, each with its “as of” vintage — pulled from the FRED public CSV feed. Nothing fabricated."
+            />
+            <SnapshotView />
+          </section>
+        )}
 
-        {/* ── CALENDAR ─────────────────────────────────────────── */}
-        <section className="border-t border-border/10 pt-8">
-          <SectionHead
-            title="Economic calendar"
-            desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
-          />
-          <CalendarView />
-        </section>
+        {section === 'dashboard' && (
+          <section>
+            <SectionHead
+              title="Decision dashboard"
+              desc="At-a-glance macro signals to guide positioning — real rate, yield curve, regime, policy stance and dollar."
+            />
+            <DecisionDashboard />
+          </section>
+        )}
 
-        {/* ── EXPLORER ─────────────────────────────────────────── */}
-        <section className="border-t border-border/10 pt-8">
-          <SectionHead
-            title="Time-series explorer"
-            desc="Each category below has its own tab bar — click a source to chart its history."
-          />
+        {section === 'calendar' && (
+          <section>
+            <SectionHead
+              title="Economic calendar"
+              desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
+            />
+            <CalendarView />
+          </section>
+        )}
 
-          <div className="flex flex-col gap-8">
-            {SOURCE_GROUPS.map((group) => (
-              <SourceGroup key={group.label} group={group} />
-            ))}
-          </div>
-        </section>
+        {section === 'explorer' && (
+          <section>
+            <SectionHead
+              title="Time-series explorer"
+              desc="Each category below has its own tab bar — click a source to chart its history."
+            />
+
+            <div className="flex flex-col gap-8">
+              {SOURCE_GROUPS.map((group) => (
+                <SourceGroup key={group.label} group={group} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
@@ -96,28 +115,23 @@ function SourceGroup({ group }: { group: { label: string; ids: string[] } }) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-4 py-3 border-b border-border/10">
-        {group.ids.map((id) => {
-          const s = ECON_SOURCES.find((x) => x.id === id);
-          if (!s) return null;
-          const isActive = s.id === activeId;
-          return (
-            <button
-              key={s.id}
-              onClick={() => setActiveId(s.id)}
-              aria-pressed={isActive}
-              className={`h-8 px-3.5 rounded-lg border font-mono text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
-                isActive
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'border-border/30 text-muted-foreground hover:border-foreground hover:text-foreground'
-              }`}
-            >
-              {s.label}
-              {s.keyRequired && <span className="ml-1 text-[8px] opacity-60">KEY</span>}
-            </button>
-          );
-        })}
-      </div>
+      <TabBar
+        className="mb-0 rounded-none border-b border-border/10 px-4 py-3"
+        items={group.ids
+          .map((id) => ECON_SOURCES.find((x) => x.id === id))
+          .filter((s): s is NonNullable<typeof s> => Boolean(s))
+          .map((s) => ({
+            id: s.id,
+            label: (
+              <>
+                {s.label}
+                {s.keyRequired && <span className="ml-1 text-[8px] opacity-60">KEY</span>}
+              </>
+            ),
+          }))}
+        activeId={activeId}
+        onChange={setActiveId}
+      />
 
       {/* Active source panel */}
       <div className="p-5">

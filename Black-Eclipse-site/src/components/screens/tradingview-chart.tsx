@@ -9,6 +9,7 @@ import {
   Sparkles, BookOpen, HelpCircle, Landmark, Gauge, ChartCandlestick, Activity,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TabBar } from '@/components/ui/tab-bar';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { formatPriceWithCurrency } from '@/lib/market-currency';
 
@@ -417,22 +418,15 @@ export function TradingViewChart({
         <div className="flex-1 h-full relative border-r border-border/20 bg-black/20 flex flex-col min-w-0">
           {/* Internal Tab Menu */}
           <div className="flex items-center gap-1.5 p-3 bg-card/25 border-b border-border/10 shrink-0">
-            <button
-              onClick={() => setActiveTab('chart')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'chart' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-              }`}
-            >
-              Interactive Chart
-            </button>
-            <button
-              onClick={() => setActiveTab('fundamentals')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'fundamentals' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
-              }`}
-            >
-              All Metrics
-            </button>
+            <TabBar
+              className="mb-0"
+              items={[
+                { id: 'chart', label: 'Interactive Chart' },
+                { id: 'fundamentals', label: 'All Metrics' },
+              ]}
+              activeId={activeTab}
+              onChange={(id) => setActiveTab(id as 'chart' | 'fundamentals')}
+            />
             <span className="ml-auto text-[10px] font-mono text-muted-foreground/70 hidden md:inline">{tvSymbolDisplay}</span>
           </div>
 

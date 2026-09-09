@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { MessageSquareText, TrendingUp, TrendingDown, CalendarRange, Award, Flame, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TabBar } from '@/components/ui/tab-bar';
 import { fmtR, fmtMoney } from './charts';
 import { AiReview } from './ai-review';
 
@@ -66,21 +67,15 @@ export function JournalReviews() {
           <h2 className="font-serif text-lg font-semibold text-foreground">Reviews</h2>
           <p className="text-xs text-muted-foreground mt-0.5">Weekly performance reviews and your monthly trading wrapped.</p>
         </div>
-        <div className="flex items-center gap-1 rounded-2xl bg-[#0f0f0f]/60 p-1">
-          {(['weekly', 'monthly'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer',
-                view === v ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {v === 'weekly' ? <CalendarRange size={13} /> : <Award size={13} />}
-              {v === 'weekly' ? 'Weekly' : 'Monthly Wrapped'}
-            </button>
-          ))}
-        </div>
+        <TabBar
+          className="mb-0"
+          items={[
+            { id: 'weekly', label: 'Weekly', icon: CalendarRange },
+            { id: 'monthly', label: 'Monthly Wrapped', icon: Award },
+          ]}
+          activeId={view}
+          onChange={(v) => setView(v as View)}
+        />
       </div>
 
       {loading ? (
