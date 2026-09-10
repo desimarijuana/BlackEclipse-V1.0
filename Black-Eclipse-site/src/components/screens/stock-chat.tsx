@@ -47,6 +47,10 @@ const JournalScreen = dynamic(() => import('@/components/journal/journal-screen'
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const DashboardScreen = dynamic(() => import('./dashboard/dashboard-screen').then((m) => m.DashboardScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -470,6 +474,14 @@ function StockChatContent() {
               then stays mounted hidden — revisits are instant with no chunk
               reload, no refetch, no loader flash. Unvisited tabs render
               nothing, preserving the old single-screen boot behavior. */}
+          {visited.has('dashboard') && (
+            <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
+              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+                <DashboardScreen />
+              </div>
+            </div>
+          )}
+
           {visited.has('chat') && (
             <div className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
               <div className="w-full h-full flex flex-col items-center justify-between p-4 md:p-6 relative min-w-0">

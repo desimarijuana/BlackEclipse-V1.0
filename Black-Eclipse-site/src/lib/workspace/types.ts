@@ -10,6 +10,10 @@ export interface WidgetPlacement {
   widgetId: string;
   /** Fixed pixel height; null = natural/auto height. */
   height: number | null;
+  /** Per-instance configuration (widget-specific, opaque to the kernel). */
+  config?: Record<string, unknown>;
+  /** True when the widget is hidden (kept in the layout, not rendered). */
+  hidden?: boolean;
 }
 
 export interface WorkspaceColumn {

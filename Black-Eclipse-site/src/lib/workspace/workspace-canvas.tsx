@@ -20,7 +20,7 @@ import {
   useDroppable, useDraggable, type DragStartEvent,
 } from '@dnd-kit/core';
 import {
-  Columns3, GripVertical, Minus, Plus, Scan, Sparkles, X,
+  ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Scan, Sparkles, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
@@ -50,9 +50,11 @@ interface WorkspaceCanvasProps {
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   widgets: WorkspaceWidgetMeta[];
   className?: string;
+  /** Hide the built-in edit bar (used when a host provides its own chrome). */
+  hideEditBar?: boolean;
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }: WorkspaceCanvasProps) {
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState('');
@@ -239,10 +241,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     const t = dragId && p ? computeTarget(p.x, p.y, dragId) : targetRef.current;
     setTargetBoth(null);
     if (!dragId || !t) return;
-    // Two-click model: the drop ARMS the position (preview ghost shows); a
-    // click confirms it. The user keeps full control over the final placement.
-    setGrabbedId(dragId);
-    setArmedBoth(t);
+    // Real pointer drags commit immediately on release — the card lands where
+    // the user dropped it. The two-click confirm model is reserved for the
+    // click-grab fallback (touch/touchpad) where there is no drag gesture.
+    commitTarget(dragId, t);
   };
 
   // While grabbed (no active dnd drag), the pointermove projection still runs
@@ -297,10 +299,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
   }, [ops]);
 
   /**
-   * Two-click model. Click 1 arms the projected target (preview ghost shows);
-   * click 2 (on the same spot) commits. `coords` is the tap position — on
-   * touch there are no pointermove events before the tap, so the projection
-   * runs at the tap point itself.
+   * Click-to-place for a grabbed card. A single click on a drop target commits
+   * the move immediately — no second confirm click needed. Clicking outside any
+   * drop area cancels the grab.
    */
   const confirmOrArm = useCallback((coords?: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
@@ -313,19 +314,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
       setArmedBoth(null);
       return;
     }
-    const armed = armedTargetRef.current;
-    const same = (a: DropTargetInfo | null, b: DropTargetInfo | null) =>
-      a !== null && b !== null && a.sectionId === b.sectionId && a.columnId === b.columnId && a.index === b.index;
-    if (same(armed, t)) {
-      // Second click on the same spot → confirm.
-      setGrabbedId(null);
-      setTargetBoth(null);
-      setArmedBoth(null);
-      commitTarget(id, t);
-      return;
-    }
-    // First click on a new spot → arm + preview.
-    setArmedBoth(t);
+    // Single click on a target commits immediately.
+    setGrabbedId(null);
+    setTargetBoth(null);
+    setArmedBoth(null);
+    commitTarget(id, t);
   }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
 
   /** Cancel grab entirely (Escape / right-click / strip with no arm). */
@@ -358,25 +351,17 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
     if (id && t) commitTarget(id, t);
   }, [cancelGrab, commitTarget]);
 
-  /** Click on an empty column while grabbing → arm/place into it (index 0). */
+  /** Click on an empty column while grabbing → place into it (index 0). */
   const onEmptyColumnClick = useCallback((coords: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
     if (!id) return;
     const t = computeTarget(coords.x, coords.y, id);
     if (!t) return;
-    const armed = armedTargetRef.current;
-    const same = (a: DropTargetInfo | null, b: DropTargetInfo | null) =>
-      a !== null && b !== null && a.sectionId === b.sectionId && a.columnId === b.columnId && a.index === b.index;
-    if (same(armed, t)) {
-      // Second click on the same empty column → confirm.
-      setGrabbedId(null);
-      setTargetBoth(null);
-      setArmedBoth(null);
-      commitTarget(id, t);
-      return;
-    }
-    // First click → arm + preview.
-    setArmedBoth(t);
+    // Single click on an empty column commits immediately.
+    setGrabbedId(null);
+    setTargetBoth(null);
+    setArmedBoth(null);
+    commitTarget(id, t);
   }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
 
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
@@ -384,12 +369,12 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
   return (
     <div className={cn('relative', className)} data-workspace>
       {/* Compact edit bar — single slim row */}
-      {editMode && (
+      {editMode && !hideEditBar && (
         <div className="ws-glass sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Columns3 size={14} /> Customizing
           </span>
-          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag or click a card · preview shows the spot · click again to confirm · Esc/right-click cancels</span>
+          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag a card to move it · or click a card to pick it up, then click a spot to place · Esc/right-click cancels</span>
           <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={() => setDrawerOpen(v => !v)}
@@ -458,11 +443,12 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
                 ops={ops}
                 renderWidget={renderWidget}
                 onResizeHeight={ops.setWidgetHeight}
-                onCardTap={(id, coords, detail) => {
-                  // Tap-to-grab / two-click confirm fallback for touch devices.
-                  // A double-click (detail>=2) always GRABS — the 2nd click of a
-                  // double-click must not cancel the grab it just started.
-                  if (!grabbedId || (detail ?? 0) >= 2) setGrabbedId(id);
+                onCardTap={(id, coords) => {
+                  // Click-to-pick-up model: a single click picks up a card
+                  // (floating ghost + live drop-line follow the cursor), then a
+                  // single click on a target spot places it. Clicking the same
+                  // card again drops it back. Esc/right-click cancels.
+                  if (!grabbedId) setGrabbedId(id);
                   else if (grabbedId === id) cancelGrab();
                   else confirmOrArm(coords);
                 }}
@@ -499,21 +485,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className }:
         )}
       </DndContext>
 
-      {/* Two-click confirm hint + buttons */}
+      {/* Grab hint + cancel */}
       {grabbedId && (
         <div className="sticky bottom-4 z-40 mt-3 flex items-center justify-center gap-2 animate-fade-in">
           <div className="ws-glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
-              {armedTarget ? 'Click again to confirm · Esc / right-click to cancel' : 'Click a spot to preview · Esc / right-click to cancel'}
+              Click a column to place the held card · Esc / right-click to cancel
             </span>
-            <button
-              onClick={() => { const id = grabStateRef.current.id; const t = armedTargetRef.current; cancelGrab(); if (id && t) commitTarget(id, t); }}
-              disabled={!armedTarget}
-              className={cn(
-                'rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-                armedTarget ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25' : 'border-border/40 bg-accent/30 text-muted-foreground opacity-40 cursor-not-allowed',
-              )}
-            >Confirm</button>
             <button
               onClick={cancelGrab}
               className="rounded-xl border border-border/40 bg-accent/30 hover:bg-accent/60 text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
@@ -540,7 +518,7 @@ function SectionRow({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
   lastDragEndRef: React.MutableRefObject<number>;
   onGhostConfirm: () => void;
   onEmptyColumnClick: (coords: { x: number; y: number }) => void;
@@ -615,7 +593,7 @@ function ColumnDroppable({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
   lastDragEndRef: React.MutableRefObject<number>;
   /** Confirm the armed placement (ghost slot click). */
   onGhostConfirm: () => void;
@@ -732,7 +710,7 @@ function WidgetCard({
   ops: WC['ops'];
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   onResizeHeight: (widgetId: string, h: number | null) => void;
-  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }, detail?: number) => void;
+  onCardTap: (widgetInstanceId: string, coords?: { x: number; y: number }) => void;
   lastDragEndRef: React.MutableRefObject<number>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: placement.id });
@@ -773,7 +751,7 @@ function WidgetCard({
         // A click arriving right after one does — ignore it; everything else
         // is a tap (grab / place / cancel).
         if (performance.now() - lastDragEndRef.current < 200) return;
-        onCardTap(placement.id, { x: e.clientX, y: e.clientY }, e.detail);
+        onCardTap(placement.id, { x: e.clientX, y: e.clientY });
       } : undefined}
       className={cn(
         CARD_CLASS,
@@ -792,15 +770,43 @@ function WidgetCard({
         <div
           className="absolute right-2 top-2 z-20 flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity"
           onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
-          <span className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground cursor-grab" title="Drag">
+          <span
+            {...(editMode ? { ...attributes, ...listeners } : {})}
+            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground cursor-grab active:cursor-grabbing"
+            title="Drag"
+          >
             <GripVertical size={12} />
           </span>
+          <button
+            onClick={() => ops.moveWidgetToAdjacentColumn(placement.id, 'left')}
+            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
+            title="Move to column on the left"
+          ><ChevronLeft size={12} /></button>
+          <button
+            onClick={() => ops.moveWidgetToAdjacentColumn(placement.id, 'right')}
+            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
+            title="Move to column on the right"
+          ><ChevronRight size={12} /></button>
           <button
             onClick={() => ops.setWidgetHeight(placement.id, null)}
             className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
             title="Fit height"
           ><Scan size={12} /></button>
+          <button
+            onClick={() => ops.duplicateWidget(placement.id)}
+            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
+            title="Duplicate widget"
+          ><Copy size={12} /></button>
+          <button
+            onClick={() => ops.toggleWidgetHidden(placement.id)}
+            className={cn(
+              'rounded-lg bg-background/80 border border-border/40 p-1 cursor-pointer',
+              placement.hidden ? 'text-amber-400' : 'text-muted-foreground hover:text-primary',
+            )}
+            title={placement.hidden ? 'Unhide widget' : 'Hide widget'}
+          ><EyeOff size={12} /></button>
           <button
             onClick={() => ops.removeWidget(placement.id)}
             className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-rose-400 cursor-pointer"
@@ -809,7 +815,15 @@ function WidgetCard({
         </div>
       )}
       <div className={cn('min-h-0 flex-1', placement.height != null && 'overflow-y-auto')}>
-        {renderWidget(placement.widgetId, placement)}
+        {placement.hidden ? (
+          <div className="flex h-full items-center justify-center p-4">
+            <span className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-400/80">
+              Hidden — unhide in edit mode
+            </span>
+          </div>
+        ) : (
+          renderWidget(placement.widgetId, placement)
+        )}
       </div>
       {editMode && (
         <div

@@ -16,7 +16,7 @@ import { computeMonteCarlo } from '@/lib/portfolio-analysis';
 import { cssVarToHex } from '@/lib/chart-colors';
 import { normalizeLayout } from '@/lib/workspace/ops';
 import type { WorkspaceLayout } from '@/lib/workspace/types';
-import type { WorkspaceWidgetMeta } from '@/lib/workspace/workspace-drawer';
+import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import { baseChartOption, useEChart } from './use-echart';
 import type { FundData } from './use-fund-data';
 import type { Fund } from '@/lib/portfolio/types';
@@ -502,20 +502,29 @@ export function RebalanceWidget({ data }: WidgetProps) {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
-export const FUND_WIDGETS: WorkspaceWidgetMeta[] = [
-  { widgetId: 'kpi-board', label: 'Key Metrics', desc: 'Value, unrealized P/L, cash, holdings count.' },
-  { widgetId: 'performance', label: 'Performance', desc: 'Fund NAV vs SPY benchmark (indexed).' },
-  { widgetId: 'allocation', label: 'Allocation', desc: 'Donut + per-symbol weights.' },
-  { widgetId: 'holdings', label: 'Holdings', desc: 'Open positions with cost basis and P/L.' },
-  { widgetId: 'rebalance', label: 'Rebalancing', desc: 'Drift vs target weights with trim/add actions.' },
-  { widgetId: 'ledger', label: 'Transactions', desc: 'Full transaction ledger + cash.' },
-  { widgetId: 'risk-metrics', label: 'Risk Metrics', desc: 'Beta, volatility, Sharpe, drawdown.' },
-  { widgetId: 'health', label: 'Portfolio Health', desc: 'Gauge + transparent sub-scores.' },
-  { widgetId: 'monte-carlo', label: 'Monte Carlo', desc: 'Projected outcome bands with contributions.' },
-  { widgetId: 'ai-insights', label: 'AI Insights', desc: 'Engine brief, change feed, attribution.' },
+export const FUND_WIDGETS: WidgetDefinition[] = [
+  { id: 'kpi-board', category: 'portfolio', label: 'Key Metrics', desc: 'Value, unrealized P/L, cash, holdings count.', icon: 'wallet', sizes: ['medium', 'large'] },
+  { id: 'performance', category: 'portfolio', label: 'Performance', desc: 'Fund NAV vs SPY benchmark (indexed).', icon: 'chart-line', sizes: ['large', 'full'] },
+  { id: 'allocation', category: 'portfolio', label: 'Allocation', desc: 'Donut + per-symbol weights.', icon: 'pie', sizes: ['medium', 'large'] },
+  { id: 'holdings', category: 'portfolio', label: 'Holdings', desc: 'Open positions with cost basis and P/L.', icon: 'table', sizes: ['large', 'full'] },
+  { id: 'rebalance', category: 'portfolio', label: 'Rebalancing', desc: 'Drift vs target weights with trim/add actions.', icon: 'layers', sizes: ['large', 'full'] },
+  { id: 'ledger', category: 'portfolio', label: 'Transactions', desc: 'Full transaction ledger + cash.', icon: 'layers', sizes: ['large', 'full'] },
+  { id: 'risk-metrics', category: 'portfolio', label: 'Risk Metrics', desc: 'Beta, volatility, Sharpe, drawdown.', icon: 'activity', sizes: ['medium', 'large'] },
+  { id: 'health', category: 'portfolio', label: 'Portfolio Health', desc: 'Gauge + transparent sub-scores.', icon: 'heart', sizes: ['medium', 'large'] },
+  { id: 'monte-carlo', category: 'portfolio', label: 'Monte Carlo', desc: 'Projected outcome bands with contributions.', icon: 'gauge', sizes: ['large', 'full'] },
+  { id: 'ai-insights', category: 'ai', label: 'AI Insights', desc: 'Engine brief, change feed, attribution.', icon: 'brain', sizes: ['medium', 'large'] },
 ];
 
-export const FUND_WIDGET_IDS = FUND_WIDGETS.map(w => w.widgetId);
+export const FUND_WIDGET_IDS = FUND_WIDGETS.map(w => w.id);
+
+/** Resolve a fund widget's icon by name (lucide). */
+export function fundWidgetIcon(name: string): React.ComponentType<{ size?: number; className?: string }> {
+  const map: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+    wallet: Wallet, 'chart-line': ChartLine, pie: PieChart, table: Table2,
+    layers: Layers, activity: Activity, heart: HeartPulse, gauge: Gauge, brain: Brain,
+  };
+  return map[name] ?? Wallet;
+}
 
 export function renderFundWidget(widgetId: string, props: WidgetProps): React.ReactNode {
   switch (widgetId) {

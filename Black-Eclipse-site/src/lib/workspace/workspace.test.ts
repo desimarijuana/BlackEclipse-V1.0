@@ -3,9 +3,11 @@ import { produce } from 'immer';
 import {
   addWidget,
   allWidgetIds,
+  duplicateWidget,
   emptyLayout,
   locate,
   moveWidget,
+  moveWidgetToAdjacentColumn,
   moveWidgetToNewSection,
   moveWidgetToNewSectionAt,
   normalizeLayout,
@@ -13,7 +15,9 @@ import {
   removeWidget,
   setColumnCount,
   setColumnWeight,
+  setWidgetConfig,
   setWidgetHeight,
+  toggleWidgetHidden,
   widgetCount,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace, type StorageLike } from './persistence';
@@ -352,6 +356,87 @@ describe('pruneLayout', () => {
     expect(n.sections).toHaveLength(1);
     expect(n.sections[0].columns).toHaveLength(2); // empty column kept for drops
     expect(allWidgetIds(n)).toEqual(['kpi']);
+  });
+});
+
+// ── config / hidden / duplicate ──────────────────────────────────────────────
+
+describe('config & hidden & duplicate', () => {
+  it('merges config into a widget instance', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(setWidgetConfig, l, wid0, { symbol: 'NVDA', refresh: '1m' });
+    expect(n.sections[0].columns[0].widgets[0].config).toEqual({ symbol: 'NVDA', refresh: '1m' });
+    const n2 = runOp(setWidgetConfig, n, wid0, { refresh: '5m' });
+    expect(n2.sections[0].columns[0].widgets[0].config).toEqual({ symbol: 'NVDA', refresh: '5m' });
+  });
+
+  it('toggles hidden flag on and off', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const hidden = runOp(toggleWidgetHidden, l, wid0);
+    expect(hidden.sections[0].columns[0].widgets[0].hidden).toBe(true);
+    const shown = runOp(toggleWidgetHidden, hidden, wid0);
+    expect(shown.sections[0].columns[0].widgets[0].hidden).toBeUndefined();
+  });
+
+  it('duplicates a widget directly below the original, copying config', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const withCfg = runOp(setWidgetConfig, l, wid0, { symbol: 'NVDA' });
+    const n = runOp(duplicateWidget, withCfg, wid0);
+    const col = n.sections[0].columns[0];
+    expect(col.widgets).toHaveLength(2);
+    expect(col.widgets[0].id).toBe(wid0);
+    expect(col.widgets[1].widgetId).toBe('kpi');
+    expect(col.widgets[1].id).not.toBe(wid0);
+    expect(col.widgets[1].config).toEqual({ symbol: 'NVDA' });
+  });
+
+  it('round-trips config and hidden through normalizeLayout', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const withCfg = runOp(setWidgetConfig, l, wid0, { symbol: 'NVDA' });
+    const withHidden = runOp(toggleWidgetHidden, withCfg, wid0);
+    const n = normalizeLayout(withHidden, KNOWN)!;
+    expect(n.sections[0].columns[0].widgets[0].config).toEqual({ symbol: 'NVDA' });
+    expect(n.sections[0].columns[0].widgets[0].hidden).toBe(true);
+  });
+});
+
+// ── moveWidgetToAdjacentColumn ────────────────────────────────────────────────
+
+describe('moveWidgetToAdjacentColumn', () => {
+  it('moves a widget to the column on the right', () => {
+    const l = makeLayout([[['kpi'], ['perf']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToAdjacentColumn, l, wid0, 'right');
+    expect(idsOf(n.sections[0].columns[0])).toEqual([]);
+    expect(idsOf(n.sections[0].columns[1])).toEqual(['perf', 'kpi']);
+  });
+
+  it('moves a widget to the column on the left', () => {
+    const l = makeLayout([[['kpi'], ['perf']]]);
+    const wid1 = l.sections[0].columns[1].widgets[0].id;
+    const n = runOp(moveWidgetToAdjacentColumn, l, wid1, 'left');
+    expect(idsOf(n.sections[0].columns[0])).toEqual(['kpi', 'perf']);
+    expect(idsOf(n.sections[0].columns[1])).toEqual([]);
+  });
+
+  it('creates a new column to the right when none exists', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToAdjacentColumn, l, wid0, 'right');
+    expect(n.sections[0].columns).toHaveLength(2);
+    expect(idsOf(n.sections[0].columns[1])).toEqual(['kpi']);
+  });
+
+  it('creates a new column to the left when none exists', () => {
+    const l = makeLayout([[['kpi']]]);
+    const wid0 = l.sections[0].columns[0].widgets[0].id;
+    const n = runOp(moveWidgetToAdjacentColumn, l, wid0, 'left');
+    expect(n.sections[0].columns).toHaveLength(2);
+    expect(idsOf(n.sections[0].columns[0])).toEqual(['kpi']);
   });
 });
 

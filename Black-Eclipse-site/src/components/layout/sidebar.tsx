@@ -4,11 +4,11 @@ import React, { useState } from 'react';
 import {
   Sparkles,
   Newspaper, Plus, Bot, Trash2, X,
-  ChevronLeft, ChevronRight, Menu, Settings, Orbit, Briefcase, ChartCandlestick, Bell, Globe, BookOpen
+  ChevronLeft, ChevronRight, Menu, Settings, Orbit, Briefcase, ChartCandlestick, Bell, Globe, BookOpen, LayoutDashboard
 } from 'lucide-react';
 import { Message } from '@/types/chat';
 
-export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts';
+export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard';
 
 export interface Conversation {
   id: string;
@@ -164,6 +164,7 @@ export function Sidebar({
           isCollapsed ? 'items-center px-2' : ''
         }`}>
           {[
+            { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
             { id: 'chat', label: 'ChatBot', icon: Bot },
             { id: 'discovery', label: 'Market Screener', icon: ChartCandlestick },
             { id: 'portfolio', label: 'Portfolio', icon: Briefcase },

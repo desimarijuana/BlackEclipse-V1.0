@@ -17,6 +17,10 @@ import {
   setColumnCount as setColumnCountDraft,
   setColumnWeight as setColumnWeightDraft,
   setWidgetHeight as setWidgetHeightDraft,
+  setWidgetConfig as setWidgetConfigDraft,
+  toggleWidgetHidden as toggleWidgetHiddenDraft,
+  duplicateWidget as duplicateWidgetDraft,
+  moveWidgetToAdjacentColumn as moveWidgetToAdjacentColumnDraft,
   moveWidgetToNewSection as moveWidgetToNewSectionDraft,
   moveWidgetToNewSectionAt as moveWidgetToNewSectionAtDraft,
   createSectionAt as createSectionAtDraft,
@@ -55,6 +59,10 @@ interface WorkspaceActions {
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
   setWidgetHeight: (widgetId: string, height: number | null) => void;
+  setWidgetConfig: (widgetId: string, patch: Record<string, unknown>) => void;
+  toggleWidgetHidden: (widgetId: string) => void;
+  duplicateWidget: (widgetId: string) => void;
+  moveWidgetToAdjacentColumn: (widgetId: string, direction: 'left' | 'right') => void;
   applyTemplate: (template: WorkspaceTemplate) => void;
   resetToDefault: () => void;
   setEditMode: (on: boolean) => void;
@@ -91,6 +99,10 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
       setWidgetHeight: (widgetId, height) => commit(d => { setWidgetHeightDraft(d, widgetId, height); }),
+      setWidgetConfig: (widgetId, patch) => commit(d => { setWidgetConfigDraft(d, widgetId, patch); }),
+      toggleWidgetHidden: (widgetId) => commit(d => { toggleWidgetHiddenDraft(d, widgetId); }),
+      duplicateWidget: (widgetId) => commit(d => { duplicateWidgetDraft(d, widgetId); }),
+      moveWidgetToAdjacentColumn: (widgetId, direction) => commit(d => { moveWidgetToAdjacentColumnDraft(d, widgetId, direction); }),
       applyTemplate: (template) => {
         clearWorkspace(storageKey);
         set({ layout: template.build(knownWidgetIds ?? []) });
@@ -150,6 +162,10 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,
       setWidgetHeight: useStore.getState().setWidgetHeight,
+      setWidgetConfig: useStore.getState().setWidgetConfig,
+      toggleWidgetHidden: useStore.getState().toggleWidgetHidden,
+      duplicateWidget: useStore.getState().duplicateWidget,
+      moveWidgetToAdjacentColumn: useStore.getState().moveWidgetToAdjacentColumn,
       applyTemplate: useStore.getState().applyTemplate,
       resetToDefault: useStore.getState().resetToDefault,
       selectWidget: useStore.getState().selectWidget,

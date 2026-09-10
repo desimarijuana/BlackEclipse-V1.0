@@ -4,15 +4,14 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  ArrowLeft, Settings2, Plus, RefreshCw,
+  ArrowLeft, Plus, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fmtPct, fmtUsd } from '@/lib/portfolio-analysis';
-import { useWorkspace } from '@/lib/workspace/use-workspace';
-import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
+import { CustomizableWorkspace } from '@/components/workspace/customizable-workspace';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import { useFundData } from './use-fund-data';
-import { FUND_WIDGETS, defaultFundLayout, renderFundWidget } from './widgets';
+import { FUND_WIDGETS, defaultFundLayout, renderFundWidget, fundWidgetIcon } from './widgets';
 import { AddTransactionDialog } from './fund-dialogs';
 import type { Fund, Transaction } from '@/lib/portfolio/types';
 
@@ -26,11 +25,6 @@ const wsKeyFor = (fundId: string) => `be_ws_fund_${fundId}_v2`;
 
 export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps) {
   const defaultLayout = useMemo(() => defaultFundLayout(), []);
-  const workspace = useWorkspace({
-    storageKey: wsKeyFor(fund.id),
-    defaultLayout,
-    knownWidgetIds: FUND_WIDGETS.map(w => w.widgetId),
-  });
   const [taxMethod, setTaxMethod] = useState<'FIFO' | 'LIFO'>('FIFO');
   const [addTxOpen, setAddTxOpen] = useState(false);
   const data = useFundData(fund, taxMethod);
@@ -71,17 +65,6 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
             </button>
           </div>
           <button
-            onClick={() => workspace.setEditMode(!workspace.editMode)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-              workspace.editMode
-                ? 'border-primary/40 bg-primary/15 text-primary'
-                : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
-            )}
-          >
-            <Settings2 size={13} /> Customize
-          </button>
-          <button
             onClick={() => setAddTxOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
           >
@@ -96,9 +79,11 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
           <span className="text-xs text-muted-foreground font-mono">loading live prices…</span>
         </div>
       ) : (
-        <WorkspaceCanvas
-          workspace={workspace}
+        <CustomizableWorkspace
+          storageKey={wsKeyFor(fund.id)}
+          defaultLayout={defaultLayout}
           widgets={FUND_WIDGETS}
+          widgetIcon={fundWidgetIcon}
           renderWidget={(widgetId) => renderFundWidget(widgetId, { fund, data })}
         />
       )}

@@ -25,7 +25,10 @@ export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
       columns: s.columns.map(c => ({
         id: c.id,
         weight: c.weight,
-        widgets: c.widgets.map(w => ({ ...w })),
+        widgets: c.widgets.map(w => ({
+          ...w,
+          config: w.config ? { ...w.config } : undefined,
+        })),
       })),
     })),
   };
@@ -262,6 +265,83 @@ export function setWidgetHeight(d: Draft<WorkspaceLayout>, widgetId: string, hei
   }
 }
 
+/** Merge a partial config into a widget instance (per-instance settings). */
+export function setWidgetConfig(d: Draft<WorkspaceLayout>, widgetId: string, patch: Record<string, unknown>): void {
+  for (const s of d.sections) {
+    for (const c of s.columns) {
+      const w = c.widgets.find(x => x.id === widgetId);
+      if (w) {
+        w.config = { ...(w.config ?? {}), ...patch };
+        return;
+      }
+    }
+  }
+}
+
+/** Toggle a widget's hidden flag (kept in the layout, not rendered). */
+export function toggleWidgetHidden(d: Draft<WorkspaceLayout>, widgetId: string): void {
+  for (const s of d.sections) {
+    for (const c of s.columns) {
+      const w = c.widgets.find(x => x.id === widgetId);
+      if (w) {
+        w.hidden = w.hidden ? undefined : true;
+        return;
+      }
+    }
+  }
+}
+
+/** Duplicate a widget instance, inserting the copy directly below the original. */
+export function duplicateWidget(d: Draft<WorkspaceLayout>, widgetId: string): void {
+  for (const s of d.sections) {
+    for (const c of s.columns) {
+      const idx = c.widgets.findIndex(x => x.id === widgetId);
+      if (idx !== -1) {
+        const src = c.widgets[idx];
+        const copy: WidgetPlacement = {
+          id: newId('wid'),
+          widgetId: src.widgetId,
+          height: src.height,
+          config: src.config ? { ...src.config } : undefined,
+          hidden: src.hidden,
+        };
+        c.widgets.splice(idx + 1, 0, copy);
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * Move a widget to the column immediately left or right of its current column
+ * within the same section. If there is no adjacent column in that direction, a
+ * new column is created beside the current one. The widget is appended to the
+ * target column. This powers the "swap left/right" buttons in edit mode.
+ */
+export function moveWidgetToAdjacentColumn(d: Draft<WorkspaceLayout>, widgetId: string, direction: 'left' | 'right'): void {
+  for (const s of d.sections) {
+    const colIdx = s.columns.findIndex(c => c.widgets.some(w => w.id === widgetId));
+    if (colIdx === -1) continue;
+    const col = s.columns[colIdx];
+    const widget = col.widgets.find(w => w.id === widgetId);
+    if (!widget) return;
+    // Remove the widget from its current column.
+    col.widgets = col.widgets.filter(w => w.id !== widgetId);
+
+    let targetIdx = direction === 'left' ? colIdx - 1 : colIdx + 1;
+    if (targetIdx < 0 || targetIdx >= s.columns.length) {
+      // No adjacent column — create one beside the current column.
+      const fresh: WorkspaceColumn = { id: newId('col'), weight: 3, widgets: [] };
+      const insertAt = direction === 'left' ? colIdx : colIdx + 1;
+      s.columns.splice(insertAt, 0, fresh);
+      targetIdx = insertAt;
+    }
+    s.columns[targetIdx].widgets.push(widget);
+    pruneLayout(d);
+    return;
+  }
+}
+
 // ── Validation / migration / corrupt-read guard ──────────────────────────────
 
 function asPlacement(raw: unknown, known?: ReadonlySet<string>): WidgetPlacement | null {
@@ -270,7 +350,14 @@ function asPlacement(raw: unknown, known?: ReadonlySet<string>): WidgetPlacement
   if (typeof r.id !== 'string' || !r.id || typeof r.widgetId !== 'string' || !r.widgetId) return null;
   if (known && !known.has(r.widgetId)) return null;
   const height = r.height;
-  return { id: r.id, widgetId: r.widgetId, height: typeof height === 'number' && Number.isFinite(height) ? height : null };
+  const config = r.config;
+  return {
+    id: r.id,
+    widgetId: r.widgetId,
+    height: typeof height === 'number' && Number.isFinite(height) ? height : null,
+    config: typeof config === 'object' && config !== null && !Array.isArray(config) ? { ...(config as Record<string, unknown>) } : undefined,
+    hidden: r.hidden === true ? true : undefined,
+  };
 }
 
 /**
