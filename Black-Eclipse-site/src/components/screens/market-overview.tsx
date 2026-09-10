@@ -118,6 +118,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   const handleSymbolClick = (symbol: string, name: string, extra?: Partial<StockItem>, e?: React.MouseEvent) => {
     if (e && openInNewTab(symbol, e)) return;
+    // When embedded in the terminal shell, route symbol clicks to the native
+    // Eclipse Chart tab (provider-switchable) instead of the legacy overlay.
+    if (onSelectChartSymbol) {
+      onSelectChartSymbol(symbol);
+      return;
+    }
     setSelectedAnalysisStock({
         symbol,
         name,

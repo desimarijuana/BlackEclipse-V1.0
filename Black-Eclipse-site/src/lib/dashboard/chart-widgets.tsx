@@ -11,6 +11,7 @@ import { cssVarToHex } from '@/lib/chart-colors';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
 import { getTradingViewSymbol } from '@/lib/utils';
 import type { WidgetPlacement } from '@/lib/workspace/types';
+import { ChartWidget } from '@/components/chart/chart-widget';
 
 interface Bar { date: string; open: number | null; high: number | null; low: number | null; close: number; volume: number | null; }
 interface PriceHistory { symbol: string; currency: string; points: number[]; series: Bar[]; perf?: { week?: number; month?: number; quarter?: number }; }
@@ -261,6 +262,21 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
         </div>
       </div>
       <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border/10" />
+    </div>
+  );
+}
+
+// ── Eclipse Chart widget — the native provider-switchable chart ───────────────
+// Wraps the full ChartWidget (Eclipse + TradingView providers, indicators,
+// timeframes) so it can live inside the Command Center dashboard. Symbol is
+// configurable per-instance via the widget config panel.
+
+export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement }) {
+  const symbol = (placement?.config?.symbol as string) || 'AAPL';
+  const market = (placement?.config?.market as string) || 'US';
+  return (
+    <div className="flex h-full w-full flex-col p-2" style={{ minHeight: 420 }}>
+      <ChartWidget symbol={symbol} market={market} className="h-full" />
     </div>
   );
 }

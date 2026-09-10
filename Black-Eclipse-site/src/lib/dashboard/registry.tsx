@@ -31,7 +31,7 @@ import {
 } from './widgets';
 import {
   AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, MacroSnapshotWidget,
-  TradingViewChartWidget,
+  TradingViewChartWidget, EclipseChartWidget,
 } from './chart-widgets';
 import {
   MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
@@ -141,6 +141,9 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Charts ──
   def('asset-chart', 'markets', 'Asset Chart', 'Line chart with EMA 20/50 and RSI 14.', 'line-chart', ['large', 'full'], () => <AssetChartWidget />, ['chart:asset:AAPL']),
+  def('eclipse-chart', 'markets', 'Eclipse Chart', 'Native BlackEclipse chart — candlesticks, indicators, provider-switchable.', 'candlestick', ['large', 'full'], (p) => <EclipseChartWidget placement={p} />, undefined,
+    [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol…', default: 'AAPL' }],
+    { symbol: 'AAPL' }),
   def('tradingview-chart', 'markets', 'TradingView Chart', 'Full TradingView advanced chart with RSI.', 'candlestick', ['large', 'full'], (p) => <TradingViewChartWidget placement={p} />, undefined,
     [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol…', default: 'AAPL' }],
     { symbol: 'AAPL' }),

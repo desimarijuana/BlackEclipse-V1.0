@@ -21,13 +21,13 @@ export interface DashboardEntry {
   isDefault: boolean;
 }
 
-const INDEX_KEY = 'be_dashboards_index_v2';
+const INDEX_KEY = 'be_dashboards_index_v3';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 
 // Bump the storage prefix when the widget catalog changes so stale layouts
 // (referencing removed widget ids) don't leave empty columns. A fresh default
 // template loads instead.
-export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v2_';
+export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v3_';
 
 function loadIndex(): DashboardEntry[] {
   if (typeof window === 'undefined') return [];

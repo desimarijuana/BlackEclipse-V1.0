@@ -26,7 +26,7 @@ const MarketNews = dynamic(() => import('./market-news').then((m) => m.MarketNew
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
-const EmbeddedChart = dynamic(() => import('./embedded-chart').then((m) => m.EmbeddedChart), {
+const ChartWidget = dynamic(() => import('@/components/chart/chart-widget').then((m) => m.ChartWidget), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
@@ -590,7 +590,7 @@ function StockChatContent() {
                 >
                   <ArrowLeft size={13} /> Back to Market Screener
                 </button>
-                <EmbeddedChart symbol={selectedChartSymbol} />
+                <ChartWidget symbol={selectedChartSymbol} className="h-full" />
               </div>
             </div>
           )}

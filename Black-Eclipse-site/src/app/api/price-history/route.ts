@@ -13,8 +13,8 @@ const historyCache = new Map<string, { t: number; payload: unknown }>();
 const historyInFlight = new Map<string, Promise<unknown>>();
 const PERSIST_PREFIX = "api_cache:price-history:";
 
-function cacheKey(symbol: string, market: string, range: string) {
-  return `${symbol}|${market}|${range}`;
+function cacheKey(symbol: string, market: string, range: string, interval: string) {
+  return `${symbol}|${market}|${range}|${interval}`;
 }
 
 async function persistHistory(key: string, data: unknown) {
@@ -37,12 +37,12 @@ async function loadPersistedHistory(key: string): Promise<unknown | null> {
   return null;
 }
 
-function startBackgroundRefresh(key: string, symbol: string, market: string, range: string) {
+function startBackgroundRefresh(key: string, symbol: string, market: string, range: string, interval: string) {
   if (historyInFlight.has(key)) return;
   const p = (async () => {
     try {
       for (const ticker of tickerCandidates(symbol, market)) {
-        const chart = await fetchYahooChart(ticker, range);
+        const chart = await fetchYahooChart(ticker, range, interval);
         if (chart) {
           const points = chart.bars.map((b) => b.close);
           const payload = {
@@ -50,6 +50,7 @@ function startBackgroundRefresh(key: string, symbol: string, market: string, ran
             currency: MARKET_CURRENCY[market] || "$",
             points,
             series: chart.bars,
+            interval,
             perf: {
               week: perfOver(chart.bars, 5),
               month: perfOver(chart.bars, 21),
@@ -110,10 +111,10 @@ function tickerCandidates(symbol: string, market: string): string[] {
   return candidates;
 }
 
-async function fetchYahooChart(ticker: string, range: string): Promise<{ bars: Bar[] } | null> {
+async function fetchYahooChart(ticker: string, range: string, interval = "1d"): Promise<{ bars: Bar[] } | null> {
   const url =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-    `?range=${range}&interval=1d&includePrePost=false`;
+    `?range=${range}&interval=${interval}&includePrePost=false`;
   try {
     const res = await fetch(url, {
       headers: {
@@ -172,13 +173,14 @@ export async function GET(request: Request) {
   const symbol = (searchParams.get("symbol") || "").trim().toUpperCase();
   const market = (searchParams.get("market") || "US").trim().toUpperCase();
   const range = (searchParams.get("range") || "3mo").trim().toLowerCase();
+  const interval = (searchParams.get("interval") || "1d").trim().toLowerCase();
 
   if (!symbol) {
     return NextResponse.json({ points: [], series: [], source: "none" });
   }
 
   const currency = MARKET_CURRENCY[market] || "$";
-  const key = cacheKey(symbol, market, range);
+  const key = cacheKey(symbol, market, range, interval);
 
   // 0) SWR: fresh cache serves instantly; stale cache serves + background refresh.
   const cached = historyCache.get(key);
@@ -186,13 +188,13 @@ export async function GET(request: Request) {
     return NextResponse.json(cached.payload);
   }
   if (cached) {
-    startBackgroundRefresh(key, symbol, market, range);
+    startBackgroundRefresh(key, symbol, market, range, interval);
     return NextResponse.json(cached.payload);
   }
 
   // 1) Real series from the Yahoo chart API — try each ticker candidate.
   for (const ticker of tickerCandidates(symbol, market)) {
-    const chart = await fetchYahooChart(ticker, range);
+    const chart = await fetchYahooChart(ticker, range, interval);
     if (chart) {
       const points = chart.bars.map((b) => b.close);
       const payload = {
@@ -201,6 +203,7 @@ export async function GET(request: Request) {
         currency,
         points,
         series: chart.bars,
+        interval,
         perf: {
           week: perfOver(chart.bars, 5),
           month: perfOver(chart.bars, 21),
@@ -218,7 +221,7 @@ export async function GET(request: Request) {
   const persisted = await loadPersistedHistory(key);
   if (persisted) {
     historyCache.set(key, { t: Date.now() - HISTORY_TTL_MS / 2, payload: persisted });
-    startBackgroundRefresh(key, symbol, market, range);
+    startBackgroundRefresh(key, symbol, market, range, interval);
     return NextResponse.json(persisted);
   }
 

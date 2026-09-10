@@ -45,3 +45,32 @@ export function cssVarToHex(name: string, fallback = '#888888'): string {
   }
 }
 
+// ── BlackEclipse brand up/down colors ─────────────────────────────────────────
+// The terminal's canonical green/red (see globals.css remaps): green #7aff78 in
+// dark mode / #047857 in light; red #ff3e3e in both. ECharts needs hex, so we
+// resolve the active theme once and cache it.
+
+const UP_DARK = '#7aff78';
+const UP_LIGHT = '#047857';
+const DOWN = '#ff3e3e';
+
+let cached: { up: string; down: string } | null = null;
+
+/** Resolve the current theme's up (green) and down (red) chart colors. */
+export function brandUpDown(): { up: string; down: string } {
+  if (cached) return cached;
+  const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  cached = { up: dark ? UP_DARK : UP_LIGHT, down: DOWN };
+  return cached;
+}
+
+/** Resolve the current theme's up (green) color. */
+export function brandUp(): string {
+  return brandUpDown().up;
+}
+
+/** Resolve the current theme's down (red) color. */
+export function brandDown(): string {
+  return brandUpDown().down;
+}
+
