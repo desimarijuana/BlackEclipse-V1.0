@@ -6,7 +6,7 @@
 // Widgets needing external/broker integrations (not yet wired) render a clear
 // UNAVAILABLE state instead of fake data.
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 
@@ -43,8 +43,45 @@ function Unavailable({ label }: { label: string }) {
   );
 }
 
+/** Tiny inline SVG sparkline — up green, down red (like a market watchlist). */
+export function Sparkline({ points, width = 96, height = 24 }: { points: number[]; width?: number; height?: number }) {
+  const clean = points.filter(p => Number.isFinite(p) && p > 0);
+  if (clean.length < 2) return <span className="inline-block" style={{ width, height }} />;
+  const min = Math.min(...clean);
+  const max = Math.max(...clean);
+  const range = max - min || 1;
+  const step = width / (clean.length - 1);
+  const path = clean.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(height - ((p - min) / range) * height).toFixed(1)}`).join(' ');
+  const up = clean[clean.length - 1] >= clean[0];
+  return (
+    <svg width={width} height={height} className="shrink-0" aria-hidden>
+      <path d={path} fill="none" stroke={up ? '#34d399' : '#fb7185'} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Fetches REAL price history for a symbol and renders a sparkline of actual closes. */
+const sparkCache = new Map<string, number[]>();
+export function RealSparkline({ symbol, market = 'US', width = 96, height = 24 }: { symbol: string; market?: string; width?: number; height?: number }) {
+  const key = `${market}:${symbol}`;
+  const [points, setPoints] = useState<number[]>(() => sparkCache.get(key) ?? []);
+  useEffect(() => {
+    if (sparkCache.has(key)) return;
+    let cancelled = false;
+    fetch(`/api/price-history?symbol=${encodeURIComponent(symbol)}&market=${market}&range=1mo`)
+      .then(r => r.json())
+      .then((d: { points?: number[] }) => {
+        if (cancelled) return;
+        if (d.points && d.points.length) { sparkCache.set(key, d.points); setPoints(d.points); }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [key, symbol, market]);
+  return <Sparkline points={points} width={width} height={height} />;
+}
+
 // ── Data shapes ──────────────────────────────────────────────────────────────
-interface IndexRow { name: string; symbol: string; price: number; change: number; changePercent: number; }
+interface IndexRow { name: string; symbol: string; price: number; change: number; changePercent: number; sparkline?: number[]; }
 interface CommodityRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
 interface ForexRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
 interface OverviewGroup { id: string; country: string; name?: string; stocks: { symbol: string; name: string; price: number; changePct: number }[]; }
@@ -63,9 +100,10 @@ export function MarketIndicesWidget() {
       {rows.length === 0 ? <EmptyNote>Loading indices…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {rows.slice(0, 6).map(i => (
-            <div key={i.symbol} className="flex items-center justify-between text-xs py-0.5">
-              <span className="font-mono font-bold text-foreground">{i.name}</span>
-              <span className="flex items-center gap-2">
+            <div key={i.symbol} className="flex items-center gap-2 text-xs py-0.5">
+              <span className="font-mono font-bold text-foreground w-24 truncate shrink-0">{i.name}</span>
+              <RealSparkline symbol={i.symbol} market="US" />
+              <span className="flex items-center gap-2 ml-auto">
                 <span className="font-mono text-foreground">{fmt(i.price)}</span>
                 <span className={cn('font-mono w-14 text-right', tone(i.changePercent))}>{i.changePercent > 0 ? '+' : ''}{fmt(i.changePercent)}%</span>
               </span>
@@ -109,9 +147,10 @@ export function CryptoMarketsWidget() {
       {rows.length === 0 ? <EmptyNote>Loading crypto…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {rows.slice(0, 6).map(i => (
-            <div key={i.symbol} className="flex items-center justify-between text-xs py-0.5">
-              <span className="font-mono font-bold text-foreground">{i.name}</span>
-              <span className="flex items-center gap-2">
+            <div key={i.symbol} className="flex items-center gap-2 text-xs py-0.5">
+              <span className="font-mono font-bold text-foreground w-24 truncate shrink-0">{i.name}</span>
+              <RealSparkline symbol={i.symbol} market="CRYPTO" />
+              <span className="flex items-center gap-2 ml-auto">
                 <span className="font-mono text-foreground">{fmt(i.price)}</span>
                 <span className={cn('font-mono w-14 text-right', tone(i.changePercent))}>{i.changePercent > 0 ? '+' : ''}{fmt(i.changePercent)}%</span>
               </span>
@@ -279,9 +318,10 @@ export function WatchlistWidget() {
       {quotes.length === 0 ? <EmptyNote>Loading watchlist…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {quotes.map(q => (
-            <div key={q.symbol} className="flex items-center justify-between text-xs py-0.5">
-              <span className="font-mono font-bold text-foreground">{q.symbol}</span>
-              <span className="flex items-center gap-2">
+            <div key={q.symbol} className="flex items-center gap-2 text-xs py-0.5">
+              <span className="font-mono font-bold text-foreground w-16 truncate shrink-0">{q.symbol}</span>
+              <RealSparkline symbol={q.symbol} market="US" />
+              <span className="flex items-center gap-2 ml-auto">
                 <span className="font-mono text-foreground">{fmt(q.price)}</span>
                 <span className={cn('font-mono w-14 text-right', tone(q.changePercent))}>{q.changePercent > 0 ? '+' : ''}{fmt(q.changePercent)}%</span>
               </span>
@@ -295,11 +335,6 @@ export function WatchlistWidget() {
 
 // ── Stubs (external/broker integrations not yet wired) ──────────────────────
 
-export function QuickTradeWidget() { return <Unavailable label="Quick Trade" />; }
-export function OpenPositionsWidget() { return <Unavailable label="Open Positions" />; }
-export function WorkingOrdersWidget() { return <Unavailable label="Working Orders" />; }
-export function MarginUsageWidget() { return <Unavailable label="Margin Usage" />; }
-export function TodayPnLWidget() { return <Unavailable label="Today P&L" />; }
 export function LiveTVWidget() { return <Unavailable label="Live TV / Streams" />; }
 export function RecentFilesWidget() { return <Unavailable label="Recent Files" />; }
 export function AgentErrorsWidget() { return <Unavailable label="Agent Errors" />; }
@@ -446,10 +481,4 @@ export function MarketStatusWidget() {
   );
 }
 
-// ── AI / Agent ─────────────────────────────────────────────────────────────
-
-export function AgentActivityWidget() {
-  return <Unavailable label="Agent Activity" />;
-}
-export function RecentResearchWidget() { return <Unavailable label="Recent Research" />; }
-export function AIInsightsWidget() { return <Unavailable label="AI Insights" />; }
+// ── AI / Agent widgets moved to ai-widgets.tsx (real agent state) ────────────

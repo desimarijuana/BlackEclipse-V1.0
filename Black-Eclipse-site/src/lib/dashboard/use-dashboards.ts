@@ -162,6 +162,36 @@ export function useDashboards() {
 
   const switchTo = useCallback((id: string) => setActiveId(id), []);
 
+  /** Export the active dashboard's layout as a JSON string. */
+  const exportLayout = useCallback((id: string): string | null => {
+    const entry = list.find(d => d.id === id);
+    if (!entry) return null;
+    try {
+      const raw = localStorage.getItem(entry.storageKey);
+      if (!raw) return null;
+      return JSON.stringify({ version: 1, name: entry.name, templateId: entry.templateId, layout: JSON.parse(raw) }, null, 2);
+    } catch { return null; }
+  }, [list]);
+
+  /** Import a dashboard layout from a JSON string, creating a new dashboard. */
+  const importLayout = useCallback((text: string): boolean => {
+    try {
+      const parsed = JSON.parse(text);
+      const layout = parsed.layout ?? parsed;
+      if (!layout || !Array.isArray(layout.sections)) return false;
+      const name = typeof parsed.name === 'string' ? parsed.name : 'Imported';
+      const entry = seedDashboard(name, typeof parsed.templateId === 'string' ? parsed.templateId : 'trader');
+      localStorage.setItem(entry.storageKey, JSON.stringify(layout));
+      setList(prev => {
+        const next = [...prev, entry];
+        persistIndex(next);
+        return next;
+      });
+      setActiveId(entry.id);
+      return true;
+    } catch { return false; }
+  }, []);
+
   return {
     list,
     active,
@@ -174,6 +204,8 @@ export function useDashboards() {
     reset,
     setDefault,
     switchTo,
+    exportLayout,
+    importLayout,
   };
 }
 

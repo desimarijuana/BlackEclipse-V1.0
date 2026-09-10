@@ -15,24 +15,28 @@ import {
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
+import { registerFundNavTopic } from './fund-nav';
+registerFundNavTopic();
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
   StockQuoteWidget, WatchlistWidget,
-  QuickTradeWidget, OpenPositionsWidget, WorkingOrdersWidget, MarginUsageWidget,
-  TodayPnLWidget, LiveTVWidget, RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
+  LiveTVWidget, RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
   NotesWidget, GeopoliticsWidget, MaritimeWidget, PolymarketWidget,
   CryptoQuoteStripWidget, TradeTapeWidget, SparklinesWidget, CandleChartWidget,
   StockScreenerWidget, NewsCategoryWidget, PerformanceWidget, PortfolioSummaryWidget,
   RiskMetricsWidget, HoldingsWidget,
   ActiveAlertsWidget, AlertCountWidget, JournalPerformanceWidget,
-  GlobalMarketsWidget, MarketStatusWidget, AgentActivityWidget,
-  RecentResearchWidget, AIInsightsWidget,
+  GlobalMarketsWidget, MarketStatusWidget,
 } from './widgets';
 import {
   AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, MacroSnapshotWidget,
   TradingViewChartWidget,
 } from './chart-widgets';
+import {
+  MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
+} from './intelligence-widgets';
+import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './ai-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -50,6 +54,7 @@ registerTopic(jsonTopic('journal:analytics', '/api/journal/analytics', { ttl: 60
 registerTopic(jsonTopic('chart:asset:AAPL', '/api/price-history?symbol=AAPL&market=US', { ttl: 300_000, interval: 120_000 }));
 registerTopic(jsonTopic('econ:series:us-cpi', '/api/economics?source=us-cpi', { ttl: 600_000, interval: 300_000 }));
 registerTopic(jsonTopic('econ:snapshot', '/api/economics/snapshot', { ttl: 600_000, interval: 300_000 }));
+registerTopic(jsonTopic('agent:activity', '/api/agent/activity', { ttl: 30_000, interval: 15_000 }));
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   activity: Activity, 'bar-chart': BarChart3, bell: Bell, briefcase: Briefcase,
@@ -101,11 +106,11 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('holdings', 'portfolio', 'Holdings', 'Long-term broker holdings.', 'layers', ['large', 'full'], () => <HoldingsWidget />),
 
   // ── Trading ──
-  def('quick-trade', 'trading', 'Quick Trade', 'Fast order entry (crypto + equities).', 'zap', ['medium', 'large'], () => <QuickTradeWidget />),
-  def('open-positions', 'trading', 'Open Positions', 'Live broker positions.', 'briefcase', ['medium', 'large'], () => <OpenPositionsWidget />),
-  def('working-orders', 'trading', 'Working Orders', 'Pending orders (click × to cancel).', 'bell', ['medium', 'large'], () => <WorkingOrdersWidget />),
-  def('margin-usage', 'trading', 'Margin Usage', 'Available/used margin, total, usage %.', 'gauge', ['small', 'medium'], () => <MarginUsageWidget />),
-  def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => <TodayPnLWidget />),
+  def('quick-trade', 'trading', 'Quick Trade', 'Fast order entry (crypto + equities).', 'zap', ['medium', 'large'], () => UnavailableStub('Quick Trade')),
+  def('open-positions', 'trading', 'Open Positions', 'Live broker positions.', 'briefcase', ['medium', 'large'], () => UnavailableStub('Open Positions')),
+  def('working-orders', 'trading', 'Working Orders', 'Pending orders (click × to cancel).', 'bell', ['medium', 'large'], () => UnavailableStub('Working Orders')),
+  def('margin-usage', 'trading', 'Margin Usage', 'Available/used margin, total, usage %.', 'gauge', ['small', 'medium'], () => UnavailableStub('Margin Usage')),
+  def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => UnavailableStub('Today P&L')),
 
   // ── Tools ──
   def('live-tv', 'tools', 'Live TV / Streams', 'Financial TV networks + custom streams.', 'radio', ['large', 'full'], () => <LiveTVWidget />),
@@ -130,9 +135,9 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('market-status', 'macro', 'Market Status', 'Risk on/off, advancing/declining.', 'activity', ['small', 'medium'], () => <MarketStatusWidget />, ['market:indices:US']),
 
   // ── AI ──
-  def('agent-activity', 'ai', 'Agent Activity', 'Active agents and their tasks.', 'bot', ['medium', 'large'], () => <AgentActivityWidget />),
-  def('recent-research', 'ai', 'Recent Research', 'Recent agent research reports.', 'file-text', ['medium', 'large'], () => <RecentResearchWidget />),
-  def('ai-insights', 'ai', 'AI Insights', 'Engine brief and change feed.', 'brain', ['medium', 'large'], () => <AIInsightsWidget />),
+  def('agent-activity', 'ai', 'Agent Activity', 'Active agents and their tasks.', 'bot', ['medium', 'large'], () => <AgentActivityWidget />, ['agent:activity']),
+  def('recent-research', 'ai', 'Recent Research', 'Recent agent research reports.', 'file-text', ['medium', 'large'], () => <RecentResearchWidget />, ['agent:activity']),
+  def('ai-insights', 'ai', 'AI Insights', 'Engine brief and change feed.', 'brain', ['medium', 'large'], () => <AIInsightsWidget />, ['agent:activity']),
 
   // ── Charts ──
   def('asset-chart', 'markets', 'Asset Chart', 'Line chart with EMA 20/50 and RSI 14.', 'line-chart', ['large', 'full'], () => <AssetChartWidget />, ['chart:asset:AAPL']),
@@ -142,6 +147,12 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('economic-chart', 'macro', 'Economic Data Chart', 'Economic series line chart (US CPI).', 'line-chart', ['large', 'full'], () => <EconomicDataChartWidget />, ['econ:series:us-cpi']),
   def('fund-performance-chart', 'portfolio', 'Fund Performance Chart', 'Fund NAV vs SPY benchmark.', 'line-chart', ['large', 'full'], () => <FundPerformanceChartWidget />),
   def('macro-snapshot', 'macro', 'Macro Snapshot', 'Central-bank rates and key prints.', 'gauge', ['medium', 'large'], () => <MacroSnapshotWidget />, ['econ:snapshot']),
+
+  // ── Intelligence ──
+  def('market-regime', 'intelligence', 'Market Regime', 'Risk on/off, trending, range, volatility.', 'activity', ['medium', 'large'], () => <MarketRegimeWidget />, ['market:indices:US']),
+  def('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], () => <WhatChangedWidget />, ['market:indices:US']),
+  def('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], () => <OpportunityScannerWidget />, ['market:overview']),
+  def('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], () => <MarketDriversWidget />, ['market:indices:US']),
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);

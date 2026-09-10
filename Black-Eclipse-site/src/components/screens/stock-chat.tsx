@@ -467,7 +467,7 @@ function StockChatContent() {
               nothing, preserving the old single-screen boot behavior. */}
           {visited.has('dashboard') && (
             <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+              <div className="flex-1 w-full max-w-[1600px] mx-auto px-4 md:px-8 py-8">
                 <DashboardScreen />
               </div>
             </div>

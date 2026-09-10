@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  ChevronDown, Copy, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2,
+  ChevronDown, Copy, Download, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
@@ -106,6 +106,42 @@ export function DashboardScreen() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const json = dashboards.exportLayout(dashboards.activeId!);
+              if (json) {
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${dashboards.active?.name ?? 'dashboard'}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            title="Export this dashboard layout"
+          >
+            <Download size={13} /> Export
+          </button>
+          <button
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.json';
+              input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                const text = await file.text();
+                dashboards.importLayout(text);
+              };
+              input.click();
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            title="Import a dashboard layout"
+          >
+            <Upload size={13} /> Import
+          </button>
           <button
             onClick={() => dashboards.reset(dashboards.activeId!)}
             className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"

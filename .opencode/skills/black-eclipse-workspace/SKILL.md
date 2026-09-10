@@ -104,6 +104,36 @@ Reuse the `useEChart` binding + `baseChartOption` from
 `src/components/screens/portfolio/use-echart.ts` for consistent frosted styling.
 Indicators (EMA/RSI) are computed deterministically client-side — never fabricated.
 
+## Intelligence widgets
+
+Deterministic market intelligence lives in `src/lib/dashboard/intelligence.ts`
+(pure functions) + `src/lib/dashboard/intelligence-widgets.tsx` (renderers):
+- **Market Regime** — Risk On/Off, Trending Bull/Bear, Range, High Volatility, with measurable factors (breadth, momentum, volatility).
+- **What Changed?** — session-over-session index changes (deterministic, no LLM).
+- **Opportunity Scanner** — momentum/mean-reversion setups with WHY (checks + risks), never framed as prediction.
+- **Market Drivers** — what's moving markets, ranked by absolute change.
+
+All consume the same DataHub topics (`market:indices:US`, `market:overview`) as the other widgets — no extra fetches.
+
+## Paper broker (trading widgets)
+
+The paper broker (`src/lib/dashboard/paper-broker.ts`) is a deterministic simulated
+broker persisted to localStorage — positions, orders, margin, P&L, fills. It is
+the default broker until real broker adapters (Alpaca/Zerodha/KTrade/Questrade/IG)
+are wired with credentials. Paper fills are REAL simulated executions, clearly
+labeled — never fabricated market data.
+
+Trading widgets (`src/lib/dashboard/trading-widgets.tsx`) consume the
+`broker:account` DataHub topic:
+- **Quick Trade** — place market orders (BUY/SELL).
+- **Open Positions** — live positions with unrealized P&L.
+- **Working Orders** — pending orders, click × to cancel.
+- **Margin Usage** — available/used margin, usage %.
+- **Today P&L** — aggregate P&L.
+
+The broker adapter interface (`src/lib/broker/types.ts`) will unify real brokers
+behind one interface; the paper broker implements the same shape.
+
 ## Interaction model (both supported)
 
 - **Drag-and-drop**: click-hold-drag a card, release to place.

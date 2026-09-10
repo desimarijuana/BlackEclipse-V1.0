@@ -161,12 +161,34 @@ export function EconomicDataChartWidget() {
 // ── Portfolio fund performance ───────────────────────────────────────────────
 
 export function FundPerformanceChartWidget() {
+  const t = useTopic<{ nav: number[]; navDates: string[]; benchmarkNav: number[] }>('portfolio:fund:nav');
+  const data = t.data;
+  const primary = useMemo(() => cssVarToHex('--primary', '#34d399'), []);
+
+  const ref = useEChart(() => {
+    if (!data?.nav || data.nav.length < 2) return null;
+    const dates = data.navDates?.length ? data.navDates : data.nav.map((_, i) => String(i));
+    return {
+      ...baseChartOption(),
+      grid: { left: 8, right: 8, top: 10, bottom: 0, containLabel: true },
+      xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
+      series: [
+        { name: 'Fund NAV', type: 'line', data: data.nav, showSymbol: false, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } },
+        ...(data.benchmarkNav?.length === data.nav.length
+          ? [{ name: 'Benchmark', type: 'line' as const, data: data.benchmarkNav, showSymbol: false, lineStyle: { width: 1, color: '#94a3b8', type: 'dashed' as const } }]
+          : []),
+      ],
+      legend: data.benchmarkNav?.length ? { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 9 }, itemWidth: 12 } : undefined,
+    } as EChartsOption;
+  }, [data, primary]);
+
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Fund Performance" hint="NAV vs SPY" />
-      <div className="flex flex-1 items-center justify-center text-center">
-        <p className="text-xs text-amber-400/80 italic max-w-[24ch]">UNAVAILABLE — fund NAV data source not connected yet.</p>
-      </div>
+      <WidgetHeader title="Fund Performance" hint="NAV" />
+      {!data || data.nav.length < 2 ? <EmptyNote>Loading fund performance…</EmptyNote> : (
+        <div ref={ref} className="min-h-[160px] flex-1" />
+      )}
     </div>
   );
 }
