@@ -139,29 +139,110 @@ export type DrawingType =
   | 'vertical'
   | 'rectangle'
   | 'fibonacci'
-  | 'text';
+  | 'text'
+  | 'arrow'
+  | 'measure'
+  | 'long-position'
+  | 'short-position';
 
-/** A point in chart coordinates (candle index + price). */
+/** A market-coordinate point — the ONLY source of truth for drawing anchors. */
 export interface ChartPoint {
-  x: number; // candle index
-  y: number; // price
+  /** Unix timestamp (ms) of the anchor. Never a candle index. */
+  time: number;
+  /** Price of the anchor. */
+  price: number;
 }
 
-/** A persisted drawing object. */
-export interface ChartDrawing {
-  type: DrawingType;
-  id: string;
-  /** Anchor points (2 for line/ray/rect, 1 for horizontal/vertical/text). */
-  points: ChartPoint[];
-  /** Optional text label (for 'text' type). */
-  text?: string;
-  /** Optional style overrides. */
-  style?: {
-    color?: string;
-    lineWidth?: number;
-    lineStyle?: 'solid' | 'dashed' | 'dotted';
-  };
+/** Drawing style. */
+export interface DrawingStyle {
+  color: string;
+  width: number;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  opacity?: number;
 }
+
+/** Base drawing — provider-independent, market-anchored. */
+export interface BaseDrawing {
+  id: string;
+  type: DrawingType;
+  visible: boolean;
+  locked: boolean;
+  selected?: boolean;
+  style: DrawingStyle;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Trendline / ray / arrow — two market anchors. */
+export interface LineDrawing extends BaseDrawing {
+  type: 'trendline' | 'ray' | 'arrow';
+  start: ChartPoint;
+  end: ChartPoint;
+  extendLeft?: boolean;
+  extendRight?: boolean;
+}
+
+/** Horizontal price line. */
+export interface HorizontalDrawing extends BaseDrawing {
+  type: 'horizontal';
+  price: number;
+}
+
+/** Vertical time line. */
+export interface VerticalDrawing extends BaseDrawing {
+  type: 'vertical';
+  time: number;
+}
+
+/** Rectangle — two market anchors. */
+export interface RectangleDrawing extends BaseDrawing {
+  type: 'rectangle';
+  start: ChartPoint;
+  end: ChartPoint;
+  fill?: string;
+  fillOpacity?: number;
+}
+
+/** Fibonacci retracement. */
+export interface FibonacciDrawing extends BaseDrawing {
+  type: 'fibonacci';
+  start: ChartPoint;
+  end: ChartPoint;
+  levels: number[];
+}
+
+/** Text label. */
+export interface TextDrawing extends BaseDrawing {
+  type: 'text';
+  point: ChartPoint;
+  text: string;
+}
+
+/** Measure tool — distance between two points. */
+export interface MeasureDrawing extends BaseDrawing {
+  type: 'measure';
+  start: ChartPoint;
+  end: ChartPoint;
+}
+
+/** Long/short position — entry, stop, take-profit. */
+export interface PositionDrawing extends BaseDrawing {
+  type: 'long-position' | 'short-position';
+  entry: ChartPoint;
+  stop: ChartPoint;
+  takeProfit: ChartPoint;
+}
+
+/** Union of all drawing types. */
+export type ChartDrawing =
+  | LineDrawing
+  | HorizontalDrawing
+  | VerticalDrawing
+  | RectangleDrawing
+  | FibonacciDrawing
+  | TextDrawing
+  | MeasureDrawing
+  | PositionDrawing;
 
 /** A registered drawing tool definition. */
 export interface DrawingDefinition {
@@ -174,6 +255,9 @@ export interface DrawingDefinition {
   /** Whether the drawing needs a text label. */
   needsText?: boolean;
 }
+
+/** Drawing tool mode — cursor (select/move) vs a specific drawing tool. */
+export type DrawingToolMode = 'cursor' | DrawingType;
 
 // ── Market structure (Phase 5) ───────────────────────────────────────────────
 // BlackEclipse-native analysis objects — NOT generic indicators. Each is a

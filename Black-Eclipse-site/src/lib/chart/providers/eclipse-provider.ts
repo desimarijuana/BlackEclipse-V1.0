@@ -11,7 +11,6 @@ import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import { brandUpDown, cssVarToHex } from '@/lib/chart-colors';
 import { calculateIndicator } from '@/lib/chart/indicators/registry';
-import { drawingToMark } from '@/lib/chart/drawings/registry';
 import type {
   ChartData, ChartDrawing, ChartIndicatorConfig, ChartProvider, ChartState, ChartType,
   IndicatorResult, Timeframe,
@@ -41,6 +40,11 @@ export class EclipseChartProvider implements ChartProvider {
 
   constructor(initial: ChartState) {
     this.state = { ...initial };
+  }
+
+  /** Expose the live ECharts instance for the drawing overlay. */
+  getEChartsInstance(): echarts.ECharts | null {
+    return this.chart;
   }
 
   initialize(container: HTMLElement): void {
@@ -206,11 +210,6 @@ export class EclipseChartProvider implements ChartProvider {
           axisLabel: { color: AXIS, fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },
         });
         const priceSeries = this.priceSeries(type, candleData, closes, primary, up, down);
-        // Attach drawings to the first price series as mark overlays.
-        if (priceSeries[0] && this.state.drawings.length > 0) {
-          const marks = this.collectDrawingMarks();
-          priceSeries[0] = { ...priceSeries[0], ...marks };
-        }
         // Attach mark overlays from overlay-pane indicators (e.g. structure).
         if (priceSeries[0]) {
           const marks = this.collectIndicatorMarks();
@@ -304,34 +303,6 @@ export class EclipseChartProvider implements ChartProvider {
           itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down, borderWidth: 1 },
         }];
     }
-  }
-
-  /** Merge all drawings into markLine/markPoint/markArea configs. */
-  private collectDrawingMarks(): Record<string, unknown> {
-    const markLine: unknown[] = [];
-    const markPoint: unknown[] = [];
-    const markArea: unknown[] = [];
-    for (const drawing of this.state.drawings) {
-      const marks = drawingToMark(drawing);
-      const color = drawing.style?.color ?? '#7aff78';
-      const lineStyle = drawing.style?.lineStyle ?? 'solid';
-      const lineWidth = drawing.style?.lineWidth ?? 1.5;
-      // Attach per-item styling so multiple drawings keep their own colors.
-      const style = { lineStyle: { color, width: lineWidth, type: lineStyle } };
-      if (marks.markLine?.data) {
-        const items = marks.markLine.data as unknown[];
-        for (const item of items) {
-          markLine.push({ ...(item as object), ...style });
-        }
-      }
-      if (marks.markPoint?.data) markPoint.push(...(marks.markPoint.data as unknown[]));
-      if (marks.markArea?.data) markArea.push(...(marks.markArea.data as unknown[]));
-    }
-    const out: Record<string, unknown> = {};
-    if (markLine.length) out.markLine = { silent: true, symbol: 'none', data: markLine };
-    if (markPoint.length) out.markPoint = { silent: true, data: markPoint };
-    if (markArea.length) out.markArea = { silent: true, data: markArea };
-    return out;
   }
 
   /** Merge mark overlays from overlay-pane indicators (e.g. structure layers). */
