@@ -17,7 +17,11 @@ export type WidgetCategory =
   | 'news'
   | 'intelligence'
   | 'ai'
-  | 'research';
+  | 'research'
+  | 'tools'
+  | 'geopolitics'
+  | 'alerts'
+  | 'journal';
 
 export const WIDGET_CATEGORY_LABEL: Record<WidgetCategory, string> = {
   markets: 'Markets',
@@ -28,13 +32,17 @@ export const WIDGET_CATEGORY_LABEL: Record<WidgetCategory, string> = {
   intelligence: 'Intelligence',
   ai: 'AI',
   research: 'Research',
+  tools: 'Tools',
+  geopolitics: 'Geopolitics',
+  alerts: 'Alerts',
+  journal: 'Journal',
 };
 
 /** A single configurable field rendered by the config panel. */
 export interface WidgetConfigField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'boolean';
+  type: 'text' | 'number' | 'select' | 'boolean' | 'symbol';
   options?: { value: string; label: string }[];
   placeholder?: string;
   min?: number;

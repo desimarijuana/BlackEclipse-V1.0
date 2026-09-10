@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
@@ -414,19 +414,10 @@ function StockChatContent() {
     setActiveTab('chart');
   };
 
-  // ── Blended site-wide sentiment (drives the aurora glow) ────────────────
-  // Index sentiment (from the screener: equity averages + breadth) and news
-  // sentiment (tier-weighted 24h pulse) each vote; news acts as a tiebreaker
-  // / confirmer, not a standalone flipper. Hysteresis: |net| ≤ 0.12 keeps
-  // the previous glow so quiet periods don't strobe.
-  const lastAuroraBullishRef = useRef(true);
-  const auroraBullish = (() => {
-    const newsVote = newsScore > 0.15 ? 1 : newsScore < -0.15 ? -1 : 0;
-    const net = (isMarketBullish ? 1 : -1) + newsVote * 0.5;
-    if (net > 0.12) lastAuroraBullishRef.current = true;
-    else if (net < -0.12) lastAuroraBullishRef.current = false;
-    return lastAuroraBullishRef.current;
-  })();
+  // ── Aurora glow ─────────────────────────────────────────────────────────
+  // The aurora is a fixed brand accent — it does NOT react to market/news
+  // sentiment (kept constant so the terminal look stays stable).
+  const auroraBullish = true;
 
   return (
     <TooltipProvider delay={0}>

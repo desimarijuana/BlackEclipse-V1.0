@@ -48,17 +48,61 @@ Workspace kernel  (src/lib/workspace/)
   as props (no hard-coded registry).
 - **`WidgetConfigPanel`** (`src/components/workspace/widget-config.tsx`) — renders
   `configFields` and saves to `placement.config`. Takes a `getDefinition` resolver.
+- **`DataHub`** (`src/lib/workspace/data-hub.ts`) — client-side pub/sub data layer.
+  Widgets declare `dataDeps` (topic ids); the hub batches fetches per topic, caches
+  with a TTL, and fans results to subscribers. Hidden widgets unsubscribe so they
+  don't burn rate limits. A failed topic only marks that topic `UNAVAILABLE`.
+  - `registerTopic(jsonTopic(id, url, { ttl, interval }))` at module load.
+  - `useTopic<T>(id)` hook subscribes a component; `useRefreshAll()` returns a
+    force-refresh fn (F5 fan-out).
+- **`StatusBar`** (`src/components/workspace/status-bar.tsx`) — reusable bottom
+  status strip: version, feed indicators (EQ/FX/CM/FI/CR), session uptime, layout
+  status, feeds connected, memory usage, API latency, pending-orders badge, bell.
+  Mount via `CustomizableWorkspace`'s `statusBar` prop.
+- **`MarketSidePanel`** (`src/components/workspace/market-side-panel.tsx`) — reusable
+  collapsible right-hand market overview column: Fear & Greed gauge, market breadth,
+  top gainers/losers, global snapshot (VIX/US 10Y/DXY/Gold/Oil/BTC), and market-hours
+  status dots (NYSE/LSE/Tokyo/Shanghai/NSE). Data flows through the DataHub
+  (`panel:*` topics). Mount beside a `CustomizableWorkspace` in a flex row.
 
 ## How to add a customizable page
 
 1. Define your widgets as `WidgetDefinition[]` (see `portfolio/widgets.tsx` for a
    real example). Give each a stable `id`, a `category`, `label`, `desc`, `icon`
-   name, and `sizes`.
+   name, and `sizes`. Add `dataDeps` for any live data the widget needs.
 2. Provide a `widgetIcon(name)` resolver mapping your icon names to lucide icons.
 3. Provide a `renderWidget(widgetId, placement)` that renders your widget content
    (threading your page's data/props).
 4. Build a `defaultLayout` (see `defaultFundLayout()` in `portfolio/widgets.tsx`).
-5. Render `<CustomizableWorkspace storageKey=… defaultLayout=… widgets=… widgetIcon=… renderWidget=… />`.
+5. Render `<CustomizableWorkspace storageKey=… defaultLayout=… widgets=… widgetIcon=… renderWidget=… statusBar=… />`.
+
+## Toolbar (always visible)
+
+`CustomizableWorkspace` renders a toolbar with **Compact** (row height 60→40px),
+**Refresh** (force-refresh all topics), and **Customize** (enter edit mode).
+
+## Widget catalog (Command Center)
+
+The dashboard registry (`src/lib/dashboard/registry.tsx`) ships a 36-widget
+catalog across categories: Markets, Research, Portfolio, Trading, Tools,
+Geopolitics. Real data widgets live in `src/lib/dashboard/widgets.tsx` and
+consume DataHub topics (indices, forex, crypto, commodities, movers, news,
+economic calendar, quotes). Widgets needing external/broker integrations
+(Quick Trade, Open Positions, Live TV, Geopolitics, etc.) render a clear
+`UNAVAILABLE` state — never fabricate data. Add a widget by registering a
+`WidgetDefinition` in the registry and (optionally) a renderer in `widgets.tsx`.
+
+## Chart widgets
+
+ECharts line charts live in `src/lib/dashboard/chart-widgets.tsx`:
+- **Asset Chart** — price line with EMA 20/50 + RSI 14 (from `/api/price-history`).
+- **Economic Data Chart** — economic series line (from `/api/economics`).
+- **Macro Snapshot** — central-bank rates + key prints (from `/api/economics/snapshot`).
+- **Fund Performance Chart** — fund NAV vs SPY (stubbed until a portfolio API exists).
+
+Reuse the `useEChart` binding + `baseChartOption` from
+`src/components/screens/portfolio/use-echart.ts` for consistent frosted styling.
+Indicators (EMA/RSI) are computed deterministically client-side — never fabricated.
 
 ## Interaction model (both supported)
 

@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
 import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
-import { CustomizableWorkspace } from '@/components/workspace/customizable-workspace';
+import { CustomizableWorkspace, StatusBar, MarketSidePanel } from '@/components/workspace';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 
 export function DashboardScreen() {
@@ -116,14 +116,20 @@ export function DashboardScreen() {
         </div>
       </div>
 
-      {/* Reusable customizable workspace */}
-      <CustomizableWorkspace
-        storageKey={dashboards.active?.storageKey ?? 'be_ws_dashboard_none'}
-        defaultLayout={defaultLayout}
-        widgets={DASHBOARD_WIDGETS}
-        widgetIcon={widgetIcon}
-        renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
-      />
+      {/* Reusable customizable workspace + market side panel */}
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <CustomizableWorkspace
+            storageKey={dashboards.active?.storageKey ?? 'be_ws_dashboard_none'}
+            defaultLayout={defaultLayout}
+            widgets={DASHBOARD_WIDGETS}
+            widgetIcon={widgetIcon}
+            renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
+            statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
+          />
+        </div>
+        <MarketSidePanel className="hidden lg:flex" />
+      </div>
 
       {/* Onboarding */}
       {showOnboarding && (

@@ -11,11 +11,12 @@
 // click-to-place, left/right buttons, duplicate, hide, config, library) is
 // handled here.
 
-import React, { useMemo, useState } from 'react';
-import { Plus, Settings2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
 import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
+import { dataHub, useRefreshAll } from '@/lib/workspace/data-hub';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement, WorkspaceLayout } from '@/lib/workspace/types';
 import { WidgetLibrary } from './widget-library';
@@ -34,6 +35,8 @@ export interface CustomizableWorkspaceProps {
   renderWidget: (widgetId: string, placement: WidgetPlacement) => React.ReactNode;
   /** Optional extra chrome rendered in the top-right of the edit bar. */
   editBarExtra?: React.ReactNode;
+  /** Optional bottom status bar rendered under the canvas. */
+  statusBar?: React.ReactNode;
   className?: string;
 }
 
@@ -44,12 +47,15 @@ export function CustomizableWorkspace({
   widgetIcon,
   renderWidget,
   editBarExtra,
+  statusBar,
   className,
 }: CustomizableWorkspaceProps) {
   const widgetIds = useMemo(() => widgets.map(w => w.id), [widgets]);
   const workspace = useWorkspace({ storageKey, defaultLayout, knownWidgetIds: widgetIds });
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [configPlacement, setConfigPlacement] = useState<WidgetPlacement | null>(null);
+  const [compact, setCompact] = useState(false);
+  const refreshAll = useRefreshAll();
 
   const placed = useMemo(
     () => new Set(workspace.layout.sections.flatMap(s => s.columns.flatMap(c => c.widgets.map(w => w.widgetId)))),
@@ -59,10 +65,47 @@ export function CustomizableWorkspace({
   const getDefinition = (id: string) => widgets.find(w => w.id === id);
   const activeDef = configPlacement ? getDefinition(configPlacement.widgetId) : null;
 
+  // ── Data-hub subscription: subscribe visible widgets' dataDeps, unsubscribe
+  //    hidden ones so they don't burn rate limits. ───────────────────────────
+  useEffect(() => {
+    const unsubs: (() => void)[] = [];
+    for (const s of workspace.layout.sections) {
+      for (const c of s.columns) {
+        for (const w of c.widgets) {
+          if (w.hidden) continue;
+          const def = getDefinition(w.widgetId);
+          for (const dep of def?.dataDeps ?? []) {
+            unsubs.push(dataHub.subscribe(dep, () => {}));
+          }
+        }
+      }
+    }
+    return () => unsubs.forEach(u => u());
+  }, [workspace.layout, widgets]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className={cn('relative', className)}>
-      {/* Customize toggle — always visible so the user can enter edit mode */}
-      <div className="mb-3 flex items-center justify-end">
+      {/* Customize toggle + compact + refresh — always visible */}
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <button
+          onClick={() => setCompact(v => !v)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+            compact
+              ? 'border-primary/40 bg-primary/15 text-primary'
+              : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
+          )}
+          title="Toggle compact row height"
+        >
+          <Settings2 size={13} /> {compact ? 'Compact' : 'Compact'}
+        </button>
+        <button
+          onClick={refreshAll}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+          title="Force refresh all widgets (F5)"
+        >
+          <RefreshCw size={13} /> Refresh
+        </button>
         <button
           onClick={() => workspace.setEditMode(!workspace.editMode)}
           className={cn(
@@ -106,6 +149,7 @@ export function CustomizableWorkspace({
       <WorkspaceCanvas
         workspace={workspace}
         hideEditBar
+        compact={compact}
         widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
         renderWidget={(widgetId, placement) => (
           <div className="relative h-full">
@@ -153,6 +197,9 @@ export function CustomizableWorkspace({
           <Plus size={14} /> Add Widget
         </button>
       )}
+
+      {/* Bottom status bar */}
+      {statusBar}
     </div>
   );
 }

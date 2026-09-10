@@ -28,7 +28,7 @@ function saveSet(key: string, set: Set<string>) {
 }
 
 const CATEGORY_ORDER: WidgetCategory[] = [
-  'markets', 'portfolio', 'trading', 'macro', 'news', 'intelligence', 'ai', 'research',
+  'markets', 'portfolio', 'trading', 'macro', 'news', 'intelligence', 'ai', 'research', 'tools', 'geopolitics', 'alerts', 'journal',
 ];
 
 export function WidgetLibrary({
