@@ -150,27 +150,52 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
   let primaryAction: SearchAction | undefined;
   if (intent.intent === 'action' && actions.length > 0) {
     primaryAction = actions[0];
-    const actionItems: SearchItem[] = actions.map((a, i) => ({
-      entity: {
-        id: a.id,
-        kind: 'action',
-        title: a.title,
-        keywords: a.keywords,
-        icon: a.icon,
-        destination: { tab: 'chat' },
-      },
-      score: 2000 - i,
-      match: 'keyword',
-    }));
+    const actionCtx = { query, normalized, symbol: extractSymbol(query) };
+    const actionItems: SearchItem[] = actions.map((a, i) => {
+      // Execute the action's own `run()` so selecting a command navigates to
+      // its real destination (e.g. "Open Portfolio" → portfolio tab) instead
+      // of always falling through to the chat tab.
+      let destination: SearchEntity['destination'] = { tab: 'chat' };
+      try {
+        const d = a.run(actionCtx);
+        if (d) destination = d;
+      } catch {
+        /* keep the chat fallback if a run handler throws */
+      }
+      return {
+        entity: {
+          id: a.id,
+          kind: 'action',
+          title: a.title,
+          keywords: a.keywords,
+          icon: a.icon,
+          destination,
+        },
+        score: 2000 - i,
+        match: 'keyword',
+      };
+    });
     items.push(...actionItems);
   }
 
   // Sort: score desc, then title asc for stability.
   items.sort((a, b) => b.score - a.score || a.entity.title.localeCompare(b.entity.title));
 
+  // Dedupe: the same instrument can arrive from both the curated registry and
+  // the universe index (e.g. AAPL). Keep the highest-scored row per symbol so
+  // users never see the identical asset listed twice.
+  const seen = new Set<string>();
+  const deduped = items.filter((it) => {
+    const e = it.entity;
+    const key = e.symbol ? `sym:${e.symbol.toUpperCase()}` : `id:${e.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   return {
     intent: intent.intent,
-    items: items.slice(0, max),
+    items: deduped.slice(0, max),
     actions,
     primaryAction,
     symbol: extractSymbol(query),

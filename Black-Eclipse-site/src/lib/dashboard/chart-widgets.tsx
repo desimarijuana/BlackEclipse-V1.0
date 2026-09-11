@@ -10,6 +10,7 @@ import { useTopic } from '@/lib/workspace/data-hub';
 import { cssVarToHex } from '@/lib/chart-colors';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
 import { getTradingViewSymbol } from '@/lib/utils';
+import { defaultChartState, type ChartState } from '@/lib/chart/types';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { ChartWidget } from '@/components/chart/chart-widget';
 
@@ -219,8 +220,23 @@ export function MacroSnapshotWidget() {
 // ── TradingView chart ─────────────────────────────────────────────────────────
 
 export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacement }) {
+  const storageKey = `be_tv_symbol:${placement?.id ?? 'default'}`;
   const [symbol, setSymbol] = React.useState((placement?.config?.symbol as string) || 'AAPL');
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Restore the last-viewed symbol for this widget instance on mount.
+  React.useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved) setSymbol(saved);
+    } catch { /* ignore */ }
+  }, [storageKey]);
+
+  const chooseSymbol = (value: string) => {
+    const next = value.toUpperCase();
+    setSymbol(next);
+    try { window.localStorage.setItem(storageKey, next); } catch { /* ignore */ }
+  };
 
   React.useEffect(() => {
     const container = containerRef.current;
@@ -254,7 +270,7 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
         <div className="flex items-center gap-1.5 shrink-0">
           <input
             value={symbol}
-            onChange={e => setSymbol(e.target.value.toUpperCase())}
+            onChange={e => chooseSymbol(e.target.value)}
             placeholder="Symbol"
             className="w-24 rounded-lg border border-white/10 dark:border-white/10 bg-background/60 px-2 py-1 text-[10px] font-mono text-foreground focus:ring-1 focus:ring-primary outline-none"
           />
@@ -272,11 +288,37 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
 // configurable per-instance via the widget config panel.
 
 export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement }) {
-  const symbol = (placement?.config?.symbol as string) || 'AAPL';
-  const market = (placement?.config?.market as string) || 'US';
+  // Fully controlled chart state, persisted per widget instance so symbol,
+  // market, timeframe, provider, indicators and drawings all survive a reload.
+  const storageKey = `be_chart_state:${placement?.id ?? 'default'}`;
+  const [chartState, setChartState] = React.useState<ChartState>(() => {
+    const base = defaultChartState({
+      symbol: (placement?.config?.symbol as string) || 'AAPL',
+      market: (placement?.config?.market as string) || 'US',
+    });
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw) return { ...base, ...(JSON.parse(raw) as Partial<ChartState>) };
+      } catch { /* ignore corrupt storage */ }
+    }
+    return base;
+  });
+
+  const handleStateChange = (next: ChartState) => {
+    setChartState(next);
+    try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
   return (
     <div className="flex h-full w-full flex-col p-2" style={{ minHeight: 620 }}>
-      <ChartWidget symbol={symbol} market={market} className="h-full" />
+      <ChartWidget
+        symbol={chartState.symbol}
+        market={chartState.market}
+        state={chartState}
+        onStateChange={handleStateChange}
+        className="h-full"
+      />
     </div>
   );
 }

@@ -43,6 +43,7 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     desc: 'TradingView chart on top, indices, movers, watchlist, news, intelligence.',
     build: ids => buildFromSpec([
       [{ widgets: [44] }],
+      [{ widgets: [53] }],
       [{ widgets: [0] }, { widgets: [5] }, { widgets: [18] }],
       [{ widgets: [48], weight: 1 }, { widgets: [49], weight: 1 }, { widgets: [50], weight: 1 }],
       [{ widgets: [51], weight: 1 }, { widgets: [12], weight: 2 }, { widgets: [16], weight: 1 }],

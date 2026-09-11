@@ -6,7 +6,7 @@
 // dashboard gets an independent, persisted layout. This manager owns the
 // dashboard index (list, active id, default id) and CRUD.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { newId } from '@/lib/workspace/types';
 import { getDashboardTemplate } from './templates';
 import { DASHBOARD_WIDGET_IDS } from './registry';
@@ -23,6 +23,9 @@ export interface DashboardEntry {
 
 const INDEX_KEY = 'be_dashboards_index_v3';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
+// Remembers the last-viewed dashboard so a restart/reload reopens the same one
+// instead of always snapping back to the dashboard flagged `isDefault`.
+const ACTIVE_KEY = 'be_dashboards_active_v1';
 
 // Bump the storage prefix when the widget catalog changes so stale layouts
 // (referencing removed widget ids) don't leave empty columns. A fresh default
@@ -100,6 +103,18 @@ function persistIndex(list: DashboardEntry[]) {
   try { localStorage.setItem(INDEX_KEY, JSON.stringify(list)); } catch { /* best effort */ }
 }
 
+function loadActiveId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try { return localStorage.getItem(ACTIVE_KEY); } catch { return null; }
+}
+
+function persistActiveId(id: string | null) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_KEY, id);
+    else localStorage.removeItem(ACTIVE_KEY);
+  } catch { /* best effort */ }
+}
+
 function seedDashboard(name: string, templateId: string): DashboardEntry {
   const id = newId('dash');
   return { id, name, storageKey: `${DASHBOARD_STORAGE_PREFIX}${id}`, templateId, isDefault: false };
@@ -118,6 +133,9 @@ export function useDashboards() {
   const [list, setList] = useState<DashboardEntry[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Mirror of activeId for callbacks that must not close over a stale value.
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
 
   useEffect(() => {
     let existing = loadIndex();
@@ -137,11 +155,22 @@ export function useDashboards() {
       persistIndex(next);
     }
     setList(next);
-    setActiveId(next.find(d => d.isDefault)?.id ?? next[0].id);
+    const savedActive = loadActiveId();
+    setActiveId(
+      savedActive && next.some(d => d.id === savedActive)
+        ? savedActive
+        : (next.find(d => d.isDefault)?.id ?? next[0].id),
+    );
     setLoaded(true);
   }, []);
 
   const active = useMemo(() => list.find(d => d.id === activeId) ?? null, [list, activeId]);
+
+  /** Select a dashboard and remember it so it survives a restart. */
+  const setActive = useCallback((id: string | null) => {
+    setActiveId(id);
+    persistActiveId(id);
+  }, []);
 
   const create = useCallback((name: string, templateId: string) => {
     const entry = seedDashboard(name || 'Untitled', templateId);
@@ -150,9 +179,9 @@ export function useDashboards() {
       persistIndex(next);
       return next;
     });
-    setActiveId(entry.id);
+    setActive(entry.id);
     return entry;
-  }, []);
+  }, [setActive]);
 
   const rename = useCallback((id: string, name: string) => {
     setList(prev => {
@@ -176,8 +205,8 @@ export function useDashboards() {
       persistIndex(next);
       return next;
     });
-    setActiveId(copy.id);
-  }, [list]);
+    setActive(copy.id);
+  }, [list, setActive]);
 
   const remove = useCallback((id: string) => {
     setList(prev => {
@@ -193,14 +222,11 @@ export function useDashboards() {
       persistIndex(next);
       return next;
     });
-    setActiveId(prev => {
-      if (prev === id) {
-        const remaining = list.filter(d => d.id !== id);
-        return (remaining.find(d => d.isDefault) ?? remaining[0])?.id ?? null;
-      }
-      return prev;
-    });
-  }, [list]);
+    if (activeIdRef.current === id) {
+      const remaining = list.filter(d => d.id !== id);
+      setActive((remaining.find(d => d.isDefault) ?? remaining[0])?.id ?? null);
+    }
+  }, [list, setActive]);
 
   const reset = useCallback((id: string) => {
     // Clear the stored layout for this dashboard so the next mount rebuilds
@@ -220,7 +246,7 @@ export function useDashboards() {
     });
   }, []);
 
-  const switchTo = useCallback((id: string) => setActiveId(id), []);
+  const switchTo = useCallback((id: string) => setActive(id), [setActive]);
 
   /** Export the active dashboard's layout as a JSON string. */
   const exportLayout = useCallback((id: string): string | null => {
@@ -247,10 +273,10 @@ export function useDashboards() {
         persistIndex(next);
         return next;
       });
-      setActiveId(entry.id);
+      setActive(entry.id);
       return true;
     } catch { return false; }
-  }, []);
+  }, [setActive]);
 
   return {
     list,

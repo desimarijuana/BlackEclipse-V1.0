@@ -1099,7 +1099,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
-  type OverviewGroup = { id: string; country: string; name?: string; exchange: string; isCrypto: boolean; currency: string; stocks: Array<{ symbol: string; name: string; price: number; changePct: number; marketCap?: number | null }> };
+  type OverviewGroup = { id: string; country: string; name?: string; exchange: string; isCrypto: boolean; currency: string; indexName?: string; index?: { symbol: string; name: string; price: number; changePct: number } | null; stocks: Array<{ symbol: string; name: string; price: number; changePct: number; marketCap?: number | null }> };
   const [globalOverview, setGlobalOverview] = useState<OverviewGroup[]>([]);
   const [loadingGlobalMarkets, setLoadingGlobalMarkets] = useState(false);
   // Visually marks the clicked row so selection stays obvious across cards.
@@ -3412,6 +3412,23 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           Open <ArrowUpRight size={11} className="inline" />
                         </button>
                       </div>
+                      {/* Country headline index — the market's own benchmark. */}
+                      {g.index && (
+                        <div className="flex items-center justify-between gap-2 px-3.5 py-1.5 border-b border-white/5 bg-white/[0.02]">
+                          <span
+                            className="min-w-0 truncate text-[10px] font-mono text-muted-foreground"
+                            title={`${g.index.name} (${g.index.symbol})`}
+                          >
+                            {g.indexName || g.index.name}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
+                            {priceWithCurrency(g.id, g.index.price)}
+                            <span className={cn('ml-1.5', g.index.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                              {g.index.changePct >= 0 ? '+' : ''}{g.index.changePct.toFixed(2)}%
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       {anyColumn && (() => {
                         const rows = processStocks(g.stocks);
                         const best = rows.length ? Math.max(...rows.map(r => r.changePct)) : 0;

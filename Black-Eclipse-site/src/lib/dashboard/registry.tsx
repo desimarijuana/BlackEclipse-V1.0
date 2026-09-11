@@ -33,6 +33,8 @@ import {
   AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, MacroSnapshotWidget,
   TradingViewChartWidget, EclipseChartWidget,
 } from './chart-widgets';
+import { MarketHeatmapWidget } from './heatmap-widget';
+import { HEATMAP_MARKETS } from '@/lib/heatmap';
 import {
   MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
 } from './intelligence-widgets';
@@ -55,6 +57,13 @@ registerTopic(jsonTopic('chart:asset:AAPL', '/api/price-history?symbol=AAPL&mark
 registerTopic(jsonTopic('econ:series:us-cpi', '/api/economics?source=us-cpi', { ttl: 600_000, interval: 300_000 }));
 registerTopic(jsonTopic('econ:snapshot', '/api/economics/snapshot', { ttl: 600_000, interval: 300_000 }));
 registerTopic(jsonTopic('agent:activity', '/api/agent/activity', { ttl: 30_000, interval: 15_000 }));
+
+// Heatmap topic per market — picked via the widget's country/index selector.
+// Registering all markets up front lets the hub cache + auto-refresh each view
+// and unsubscribe hidden ones without a dynamic-registration race.
+for (const m of HEATMAP_MARKETS) {
+  registerTopic(jsonTopic(`market:heatmap:${m.id}`, `/api/heatmap?market=${m.id}`, { ttl: 180_000, interval: 180_000 }));
+}
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   activity: Activity, 'bar-chart': BarChart3, bell: Bell, briefcase: Briefcase,
@@ -156,6 +165,9 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], () => <WhatChangedWidget />, ['market:indices:US']),
   def('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], () => <OpportunityScannerWidget />, ['market:overview']),
   def('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], () => <MarketDriversWidget />, ['market:indices:US']),
+
+  // ── Heatmap ──
+  def('market-heatmap', 'markets', 'Market Heatmap', 'Country/index treemap — sized by market cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);

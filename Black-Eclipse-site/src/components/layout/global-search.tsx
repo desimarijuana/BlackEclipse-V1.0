@@ -196,9 +196,25 @@ export function GlobalSearch() {
   ], []);
 
   // Build sections + a flat navigable row list.
-  const { sections, flatRows } = useMemo(() => {
+  const { sections, flatRows, hasAiRow } = useMemo(() => {
     const flat: Row[] = [];
     const sections: Section[] = [];
+
+    // AI escalation row — shown for sentence-like questions. Built BEFORE any
+    // section flatIndex is assigned so navigation indices stay in sync, and
+    // rendered as its own section (it used to be unshifted but never shown).
+    const aiRow: Row | null = (!showRecents && resolved && resolved.intent === 'ai' && debouncedQuery.trim())
+      ? {
+          type: 'action',
+          id: 'ai-ask',
+          label: `Ask AI: “${debouncedQuery}”`,
+          icon: Bot,
+          onSelect: () => {
+            store.dispatch({ tab: 'chat', params: { prompt: debouncedQuery } });
+            useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+          },
+        }
+      : null;
 
     if (showRecents) {
       if (store.recents.length > 0) {
@@ -215,35 +231,40 @@ export function GlobalSearch() {
           rows: rows.map((row) => ({ row, flatIndex: flat.push(row) - 1 })),
         });
       }
-    } else if (resolved && resolved.items.length > 0) {
-      const byKind = new Map<EntityKind, Row[]>();
-      resolved.items.forEach((it) => {
-        const kind = it.entity.kind;
-        const list = byKind.get(kind) ?? [];
-        const dest = it.entity.destination;
-        list.push({
-          type: 'result',
-          id: it.entity.id,
-          title: it.entity.symbol ? `${it.entity.symbol}  ${it.entity.title}` : it.entity.title,
-          subtitle: it.entity.subtitle || KIND_LABEL[kind],
-          kind,
-          onSelect: () => {
-            if (dest) {
-              store.dispatch(dest);
-              store.recordRecent(store.query);
-              useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-            }
-          },
+    } else {
+      if (aiRow) {
+        sections.push({ key: 'ai', label: 'Ask AI', rows: [{ row: aiRow, flatIndex: flat.push(aiRow) - 1 }] });
+      }
+      if (resolved && resolved.items.length > 0) {
+        const byKind = new Map<EntityKind, Row[]>();
+        resolved.items.forEach((it) => {
+          const kind = it.entity.kind;
+          const list = byKind.get(kind) ?? [];
+          const dest = it.entity.destination;
+          list.push({
+            type: 'result',
+            id: it.entity.id,
+            title: it.entity.symbol ? `${it.entity.symbol}  ${it.entity.title}` : it.entity.title,
+            subtitle: it.entity.subtitle || KIND_LABEL[kind],
+            kind,
+            onSelect: () => {
+              if (dest) {
+                store.dispatch(dest);
+                store.recordRecent(store.query);
+                useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+              }
+            },
+          });
+          byKind.set(kind, list);
         });
-        byKind.set(kind, list);
-      });
-      for (const kind of SECTION_ORDER.filter((k) => byKind.has(k))) {
-        const list = byKind.get(kind)!;
-        sections.push({
-          key: kind,
-          label: KIND_LABEL[kind],
-          rows: list.map((row) => ({ row, flatIndex: flat.push(row) - 1 })),
-        });
+        for (const kind of SECTION_ORDER.filter((k) => byKind.has(k))) {
+          const list = byKind.get(kind)!;
+          sections.push({
+            key: kind,
+            label: KIND_LABEL[kind],
+            rows: list.map((row) => ({ row, flatIndex: flat.push(row) - 1 })),
+          });
+        }
       }
     }
 
@@ -252,23 +273,7 @@ export function GlobalSearch() {
       flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
     }
 
-    // AI escalation row — shown for sentence-like questions. Routes the query
-    // into the chat tab as a prompt (works with or without an LLM configured).
-    if (resolved && resolved.intent === 'ai') {
-      const aiRow: Row = {
-        type: 'action',
-        id: 'ai-ask',
-        label: `Ask AI: “${debouncedQuery}”`,
-        icon: Bot,
-        onSelect: () => {
-          store.dispatch({ tab: 'chat', params: { prompt: debouncedQuery } });
-          useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-        },
-      };
-      flat.unshift(aiRow);
-    }
-
-    return { sections, flatRows: flat };
+    return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, store.recents, store.universeReady, resolved, showRecents, quickActions]);
 
@@ -324,7 +329,7 @@ export function GlobalSearch() {
             </div>
           )}
 
-          {!showRecents && resolved && resolved.items.length === 0 && !store.universeLoading && (
+          {!showRecents && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
             <div className="px-4 py-10 text-center">
               <div className="text-sm text-foreground font-medium mb-1">No results for “{store.query}”</div>
               <p className="text-xs text-muted-foreground/70">
@@ -403,12 +408,14 @@ function RowButton({
   const subtitle = row.type === 'result' ? row.subtitle : null;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={-1}
       onClick={row.onSelect}
       onMouseEnter={() => useCommandStore.getState().setSelectedIndex(flatIndex)}
       data-selected={selected || undefined}
       className={cn(
-        'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+        'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer',
         selected ? 'bg-accent text-foreground' : 'hover:bg-accent/30'
       )}
     >
@@ -443,6 +450,6 @@ function RowButton({
         </button>
       )}
       {selected && row.type !== 'recent' && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
-    </button>
+    </div>
   );
 }

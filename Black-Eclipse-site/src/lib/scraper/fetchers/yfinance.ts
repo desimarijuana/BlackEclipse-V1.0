@@ -52,6 +52,11 @@ export const MARKET_SUFFIX: Record<string, string> = {
 export function yahooSymbol(symbol: string, market: string): string {
   const suffix = MARKET_SUFFIX[market] ?? "";
   const sym = symbol.trim();
+  // Already-qualified Yahoo tickers must pass through untouched: indices (^GSPC,
+  // ^NSEI, ^KS11), futures/commodities (GC=F, CL=F), FX (EURUSD=X), and symbols
+  // that already carry an exchange suffix (000001.SS, 0700.HK). Appending a
+  // market suffix to these (e.g. ^NSEI + .NS) produces a 404.
+  if (sym.includes("^") || sym.includes("=") || sym.includes(".")) return sym;
   // China: 6xxxxx -> Shanghai (.SS), 0/3xxxxx -> Shenzhen (.SZ), 4/8xxxxx -> Beijing (.BJ).
   let resolvedSuffix = suffix;
   if (market === "CN" && /^\d{6}$/.test(sym)) {
