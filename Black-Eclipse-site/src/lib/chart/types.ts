@@ -50,8 +50,31 @@ export interface ChartState {
   panes: ChartPane[];
   /** Market-structure layers (Phase 5). */
   structure: Record<string, boolean>;
+  /** Compare overlays — extra symbols drawn as % lines on the main pane. */
+  compare: ChartCompareItem[];
   /** Free-form provider/engine settings. */
   settings: Record<string, unknown>;
+}
+
+/** One instrument overlaid on the chart for relative-performance comparison. */
+export interface ChartCompareItem {
+  /** Stable id (symbol + market) so duplicates can be replaced. */
+  id: string;
+  symbol: string;
+  market: string;
+  /** Line color (hex). */
+  color: string;
+}
+
+/** A compare series resolved to the primary chart's bars, rebased to % change. */
+export interface ChartCompareSeries {
+  id: string;
+  symbol: string;
+  color: string;
+  /** Close price per primary bar index (null where the compare has no data). */
+  values: (number | null)[];
+  /** % change of the last value vs the first visible/first bar. */
+  changePercent: number;
 }
 
 /** Indicator configuration — registry-driven (Phase 2). */
@@ -406,6 +429,12 @@ export interface ChartProvider {
   /** Update the live last price (Phase 4 — realtime). Optional. */
   setLivePrice?(price: number | null): void;
 
+  /**
+   * Update the compare overlays (extra symbols rebased to % on the main pane).
+   * Optional — only providers that support comparison implement it.
+   */
+  setCompare?(series: ChartCompareSeries[]): void;
+
   /** Reflow to the container's current size. */
   resize(): void;
 
@@ -427,6 +456,7 @@ export function defaultChartState(overrides: Partial<ChartState> = {}): ChartSta
     drawings: [],
     panes: [],
     structure: {},
+    compare: [],
     settings: {},
     ...overrides,
   };

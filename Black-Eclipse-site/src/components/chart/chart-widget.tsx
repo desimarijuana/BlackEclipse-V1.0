@@ -7,11 +7,12 @@
 // preserves shared state (symbol, timeframe, chart type).
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
 import { createChartProvider } from '@/lib/chart/providers';
 import { useChartData } from '@/lib/chart/use-chart-data';
+import { useCompareData } from '@/lib/chart/use-compare-data';
 import { getAllIndicators } from '@/lib/chart/indicators/registry';
 import { getAllDrawingDefs } from '@/lib/chart/drawings/tools';
 import { DrawingManager } from '@/lib/chart/drawings/manager';
@@ -21,7 +22,7 @@ import { ToolbarMenu } from '@/components/chart/toolbar-menu';
 import type { EclipseChartProvider } from '@/lib/chart/providers/eclipse-provider';
 import {
   CHART_TYPES, TIMEFRAMES, defaultChartState,
-  type ChartDrawing, type ChartIndicatorConfig, type ChartProvider, type ChartProviderId, type ChartState, type ChartType, type DrawingToolMode, type Timeframe,
+  type ChartDrawing, type ChartIndicatorConfig, type ChartProvider, type ChartProviderId, type ChartState, type ChartType, type DrawingToolMode, type Timeframe, type ChartCompareItem, type ChartCompareSeries,
 } from '@/lib/chart/types';
 
 interface ChartWidgetProps {
@@ -136,6 +137,8 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     defaultChartState({ symbol: symbol ?? 'AAPL', market: market ?? 'US' })
   );
   const chartState = state ?? internal;
+  // Persisted/templated state may predate the compare field.
+  const compareList = chartState.compare ?? [];
   const setState = (next: ChartState) => {
     if (onStateChange) onStateChange(next);
     else setInternal(next);
@@ -147,6 +150,9 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     chartState.timeframe
   );
 
+  // Compare overlays — fetched/rebasal against the primary bars.
+  const compareSeries = useCompareData(data, compareList, chartState.timeframe);
+
   // Create/destroy the provider when the provider id changes.
   useEffect(() => {
     const el = containerRef.current;
@@ -157,6 +163,7 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     // Push any already-loaded data into the freshly created provider.
     if (data) provider.setData(data);
     if (livePriceRef.current != null) provider.setLivePrice?.(livePriceRef.current);
+    if (compareSeries.length) provider.setCompare?.(compareSeries);
     return () => {
       provider.destroy();
       providerRef.current = null;
@@ -168,6 +175,11 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
   useEffect(() => {
     if (data) providerRef.current?.setData(data);
   }, [data]);
+
+  // Push compare overlays into the provider.
+  useEffect(() => {
+    providerRef.current?.setCompare?.(compareSeries);
+  }, [compareSeries]);
 
   // ── Live quote + refresh timer ────────────────────────────────────────────
   const [refreshMs, setRefreshMs] = useState(60_000);
@@ -280,6 +292,19 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     setState({ ...chartState, indicators: chartState.indicators.filter((i) => i.id !== id) });
   };
 
+  // ── Compare overlays ──────────────────────────────────────────────────────
+  const COMPARE_COLORS = ['#60a5fa', '#f59e0b', '#a78bfa', '#f472b6', '#34d399', '#22d3ee'];
+  const addCompare = (sym: string, market: string) => {
+    const symbol = sym.toUpperCase();
+    const id = `${symbol}:${market || chartState.market}`;
+    if (compareList.some((c) => c.id === id)) return;
+    const color = COMPARE_COLORS[compareList.length % COMPARE_COLORS.length];
+    setState({ ...chartState, compare: [...compareList, { id, symbol, market: market || chartState.market, color }] });
+  };
+  const removeCompare = (id: string) => {
+    setState({ ...chartState, compare: compareList.filter((c) => c.id !== id) });
+  };
+
   // ── Drawing system ────────────────────────────────────────────────────────
   const [drawingManager] = useState(() => {
     const saved = loadSavedDrawings(symbol ?? 'AAPL');
@@ -372,6 +397,10 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
         onRefresh={refresh}
         onAddIndicator={addIndicator}
         onRemoveIndicator={removeIndicator}
+        compare={compareList}
+        compareSeries={compareSeries}
+        onAddCompare={addCompare}
+        onRemoveCompare={removeCompare}
         manager={drawingManager}
         isEclipse={isEclipse}
         onZoomIn={zoomIn}
@@ -704,7 +733,7 @@ function SymbolSearch({
 
 function ChartToolbar({
   state, loading, tool, onTool, onProvider, onTimeframe, onChartType, onSymbol, onPickSymbol, onSearch, onRefresh,
-  onAddIndicator, onRemoveIndicator, manager, isEclipse, onZoomIn, onZoomOut, onPanLeft, onPanRight, onResetZoom,
+  onAddIndicator, onRemoveIndicator, compare, compareSeries, onAddCompare, onRemoveCompare, manager, isEclipse, onZoomIn, onZoomOut, onPanLeft, onPanRight, onResetZoom,
 }: {
   state: ChartState;
   loading: boolean;
@@ -719,6 +748,10 @@ function ChartToolbar({
   onRefresh: () => void;
   onAddIndicator: (config: ChartIndicatorConfig) => void;
   onRemoveIndicator: (id: string) => void;
+  compare: ChartCompareItem[];
+  compareSeries: ChartCompareSeries[];
+  onAddCompare: (symbol: string, market: string) => void;
+  onRemoveCompare: (id: string) => void;
   manager: DrawingManager;
   isEclipse: boolean;
   onZoomIn: () => void;
@@ -769,6 +802,15 @@ function ChartToolbar({
         active={state.indicators}
         onAdd={onAddIndicator}
         onRemove={onRemoveIndicator}
+      />
+
+      {/* Compare */}
+      <CompareMenu
+        compare={compare}
+        series={compareSeries}
+        onAdd={onAddCompare}
+        onRemove={onRemoveCompare}
+        primarySymbol={state.symbol}
       />
 
       {/* Drawing tools */}
@@ -886,6 +928,127 @@ function IndicatorMenu({
                 <span className="ml-2 rounded bg-accent/40 px-1.5 py-0.5 text-[8px] font-bold uppercase text-muted-foreground">{def.category}</span>
               </button>
             ))}
+          </div>
+        </>
+      )}
+    </ToolbarMenu>
+  );
+}
+
+// ── Compare menu ─────────────────────────────────────────────────────────────
+
+/**
+ * Compare menu — add extra instruments overlaid as relative-performance lines on
+ * the main pane. Uses the same autocomplete source as the symbol search, and
+ * shows each active compare's % change with a color swatch + remove control.
+ */
+function CompareMenu({
+  compare, series, onAdd, onRemove, primarySymbol,
+}: {
+  compare: ChartCompareItem[];
+  series: ChartCompareSeries[];
+  onAdd: (symbol: string, market: string) => void;
+  onRemove: (id: string) => void;
+  primarySymbol: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 1) { setSuggestions([]); return; }
+    const controller = new AbortController();
+    setLoading(true);
+    const t = setTimeout(() => {
+      fetch(`/api/quote?q=${encodeURIComponent(q)}`, { signal: controller.signal })
+        .then((r) => (r.ok ? r.json() : { suggestions: [] }))
+        .then((j: { suggestions?: SymbolSuggestion[] }) => {
+          if (!controller.signal.aborted) setSuggestions((j.suggestions ?? []).slice(0, 8));
+        })
+        .catch(() => {})
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, 200);
+    return () => { controller.abort(); clearTimeout(t); };
+  }, [query]);
+
+  const changeOf = (id: string) => series.find((s) => s.id === id)?.changePercent;
+
+  return (
+    <ToolbarMenu
+      icon={<Plus size={12} />}
+      label={<>Compare {compare.length > 0 && `(${compare.length})`}</>}
+      active={compare.length > 0}
+      title="Compare assets"
+      width={288}
+    >
+      {() => (
+        <>
+          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Comparing vs {primarySymbol}</div>
+          {compare.length === 0 && (
+            <div className="px-2 py-1 text-[10px] text-muted-foreground/60 italic">No assets added</div>
+          )}
+          {compare.map((c) => {
+            const chg = changeOf(c.id);
+            return (
+              <div key={c.id} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-accent/40">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
+                  <span className="truncate font-mono text-[11px] font-bold text-foreground">{c.symbol}</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  {chg != null && (
+                    <span className={cn('font-mono text-[10px] font-bold', chg >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                      {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
+                    </span>
+                  )}
+                  <button
+                    onClick={() => onRemove(c.id)}
+                    className="rounded p-0.5 text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer"
+                    title="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+
+          <div className="mt-1 border-t border-border/10 pt-1.5 px-1">
+            <div className="mb-1 flex items-center gap-1.5 rounded-lg bg-accent/40 px-2 py-1">
+              <Search size={12} className="shrink-0 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Add symbol to compare…"
+                spellCheck={false}
+                className="w-full bg-transparent font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50"
+              />
+              {loading && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground/70" />}
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              {suggestions.map((s) => {
+                const id = `${s.symbol.toUpperCase()}:${s.marketId}`;
+                const already = compare.some((c) => c.id === id);
+                return (
+                  <button
+                    key={`${s.symbol}-${s.marketId}`}
+                    onClick={() => { onAdd(s.symbol, s.marketId); setQuery(''); setSuggestions([]); }}
+                    disabled={already}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex min-w-0 flex-col">
+                      <span className="font-mono text-[11px] font-bold text-foreground">{s.symbol}</span>
+                      <span className="truncate text-[9px] text-muted-foreground">{s.name}</span>
+                    </span>
+                    <span className="ml-2 shrink-0 rounded bg-accent/40 px-1.5 py-0.5 text-[8px] font-bold uppercase text-muted-foreground">{s.marketId}</span>
+                  </button>
+                );
+              })}
+              {query.trim().length > 0 && !loading && suggestions.length === 0 && (
+                <div className="px-2 py-1.5 text-[10px] text-muted-foreground/60 italic">No matches</div>
+              )}
+            </div>
           </div>
         </>
       )}

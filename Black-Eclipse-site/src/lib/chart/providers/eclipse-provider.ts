@@ -12,7 +12,8 @@ import type { EChartsOption } from 'echarts';
 import { brandUpDown, cssVarToHex } from '@/lib/chart-colors';
 import { calculateIndicator } from '@/lib/chart/indicators/registry';
 import type {
-  ChartData, ChartDrawing, ChartIndicatorConfig, ChartProvider, ChartState, ChartType,
+  ChartCompareSeries, ChartData, ChartDrawing, ChartIndicatorConfig, ChartProvider,
+  ChartState, ChartType,
   IndicatorResult, Timeframe,
 } from '@/lib/chart/types';
 
@@ -47,6 +48,8 @@ export class EclipseChartProvider implements ChartProvider {
   private userAdjustedZoom = false;
   // Live last price from /api/quote — drawn as a dashed line + tag on the main pane.
   private livePrice: number | null = null;
+  // Compare overlays — extra symbols rebased to % change on the main pane.
+  private compareSeries: ChartCompareSeries[] = [];
   // Right gutter (px) reserved for the live-price tag; shared with the badge.
   private readonly rightGutter = 54;
 
@@ -125,6 +128,11 @@ export class EclipseChartProvider implements ChartProvider {
   setLivePrice(price: number | null): void {
     if (price === this.livePrice) return;
     this.livePrice = price;
+    this.render();
+  }
+
+  setCompare(series: ChartCompareSeries[]): void {
+    this.compareSeries = series;
     this.render();
   }
   addIndicator(config: ChartIndicatorConfig): void {
@@ -372,6 +380,22 @@ export class EclipseChartProvider implements ChartProvider {
           }
         }
         series.push(...priceSeries);
+        // Compare overlays — extra symbols rebased to the primary's first close
+        // so they share the main price axis (TradingView-style relative chart).
+        const primaryBase = bars[0]?.close ?? 0;
+        if (primaryBase > 0) {
+          for (const cmp of this.compareSeries) {
+            const base = cmp.values.find((v): v is number => v != null);
+            if (base == null || base === 0) continue;
+            const mapped = cmp.values.map((v) => (v == null ? null : +(primaryBase * (v / base)).toFixed(4)));
+            series.push({
+              name: cmp.symbol, type: 'line', xAxisIndex: gridIdx, yAxisIndex: gridIdx,
+              data: mapped, showSymbol: false, connectNulls: true, z: 5,
+              lineStyle: { color: cmp.color, width: 1.4 },
+              itemStyle: { color: cmp.color },
+            });
+          }
+        }
         // Overlay indicators (EMA/SMA/Bollinger/VWAP…) draw on the main pane.
         for (const cfg of this.state.indicators) {
           const result = this.indicatorResults.get(cfg.id);
@@ -491,13 +515,16 @@ export class EclipseChartProvider implements ChartProvider {
     return {
       yAxis: price,
       lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
-      // TradingView-style axis tag: solid green/red pill on the right price scale.
+      // TradingView-style axis tag: dark pill with green/red text + border so the
+      // price stays readable against the bright fill.
       label: {
         show: true,
         position: 'end',
         formatter: this.fmt(price),
-        color: '#ffffff',
-        backgroundColor: color,
+        color,
+        backgroundColor: 'rgba(16,16,18,0.92)',
+        borderColor: color,
+        borderWidth: 1,
         fontSize: 10,
         fontFamily: 'monospace',
         fontWeight: 'bold',

@@ -44,6 +44,9 @@ buttons. It supports icons, badges, a `leading`/`trailing` slot, and a per-item
 
 ## Rules
 
+- **Frosted glass ALWAYS has a background blur.** Whenever the user says
+  "frosted glass", it MUST include `backdrop-filter: blur(...)` (the glass
+  classes already do). Never ship a glass surface as a translucent fill alone.
 - **Default to `.glass-card`** for any new card/panel. Use `-strong` for
   floating/overlay surfaces and `-subtle` for small tiles/chips.
 - Keep Tailwind `border`, `rounded-*`, `shadow-*` utilities as-is; only swap the
