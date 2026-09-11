@@ -5,7 +5,7 @@
 // definitions as a prop (no hard-coded registry), so the Command Center, fund
 // workspaces, and future pages all share the same library UX.
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Search, Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WIDGET_CATEGORY_LABEL, type WidgetCategory, type WidgetDefinition } from '@/lib/workspace/widget-def';
@@ -37,12 +37,18 @@ export function WidgetLibrary({
   onAdd,
   onClose,
   placed,
+  onStartAddDrag,
+  dragActive = false,
 }: {
   widgets: WidgetDefinition[];
   widgetIcon: (name: string) => React.ComponentType<{ size?: number; className?: string }>;
   onAdd: (widgetId: string) => void;
   onClose: () => void;
   placed: Set<string>;
+  /** Begin adding a widget: 'hold' = press-drag-release, 'click' = project then double-click. */
+  onStartAddDrag?: (widgetId: string, label: string, mode: 'hold' | 'click') => void;
+  /** True while an add-drag is in flight — the palette becomes click-through. */
+  dragActive?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [favorites, setFavorites] = useState<Set<string>>(() => loadSet(FAV_KEY));
@@ -57,13 +63,15 @@ export function WidgetLibrary({
     });
   };
 
-  const add = (id: string) => {
-    onAdd(id);
+  const begin = (id: string, label: string, mode: 'hold' | 'click') => {
+    // Remember it as recently used the moment the user interacts with it.
     setRecents(prev => {
       const next = [id, ...prev.filter(x => x !== id)].slice(0, 8);
       saveSet(RECENT_KEY, new Set(next));
       return next;
     });
+    if (onStartAddDrag) onStartAddDrag(id, label, mode);
+    else if (mode === 'click') onAdd(id); // fallback when no canvas is wired
   };
 
   const q = query.trim().toLowerCase();
@@ -88,9 +96,9 @@ export function WidgetLibrary({
   }, [filtered]);
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end animate-fade-in" data-nodrag>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative flex w-96 max-w-[90vw] flex-col h-full border-l border-white/15 dark:border-white/10 glass-card-strong shadow-2xl shadow-black/40 animate-slide-in">
+    <div className={cn('fixed inset-0 z-40 flex justify-end animate-fade-in', dragActive && 'pointer-events-none')} data-nodrag>
+      <div className={cn('absolute inset-0 transition-colors', dragActive ? 'bg-transparent' : 'bg-black/20')} onClick={onClose} />
+      <aside className={cn('relative flex w-96 max-w-[90vw] flex-col h-full border-l border-white/15 dark:border-white/10 glass-drawer shadow-2xl shadow-black/40 animate-slide-in transition-opacity', dragActive && 'opacity-70')}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
           <span className="font-serif text-sm font-semibold text-foreground">Add Widget</span>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
@@ -120,7 +128,7 @@ export function WidgetLibrary({
                 <Star size={10} className="text-amber-400" /> Favorites
               </h4>
               <div className="flex flex-col gap-1.5">
-                {favWidgets.map(w => <WidgetRow key={w.id} w={w} fav onAdd={add} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
+                {favWidgets.map(w => <WidgetRow key={w.id} w={w} fav onBegin={begin} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
               </div>
             </section>
           )}
@@ -130,7 +138,7 @@ export function WidgetLibrary({
             <section>
               <h4 className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Recently Used</h4>
               <div className="flex flex-col gap-1.5">
-                {recentWidgets.map(w => <WidgetRow key={w.id} w={w} onAdd={add} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
+                {recentWidgets.map(w => <WidgetRow key={w.id} w={w} onBegin={begin} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
               </div>
             </section>
           )}
@@ -140,7 +148,7 @@ export function WidgetLibrary({
             <section>
               <h4 className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Results</h4>
               <div className="flex flex-col gap-1.5">
-                {filtered.map(w => <WidgetRow key={w.id} w={w} onAdd={add} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
+                {filtered.map(w => <WidgetRow key={w.id} w={w} onBegin={begin} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
               </div>
               {filtered.length === 0 && (
                 <p className="text-xs text-muted-foreground/70 italic py-6 text-center">No widgets match “{query}”.</p>
@@ -154,7 +162,7 @@ export function WidgetLibrary({
                 <section key={cat}>
                   <h4 className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-2">{WIDGET_CATEGORY_LABEL[cat]}</h4>
                   <div className="flex flex-col gap-1.5">
-                    {items.map(w => <WidgetRow key={w.id} w={w} onAdd={add} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
+                    {items.map(w => <WidgetRow key={w.id} w={w} onBegin={begin} onToggleFav={toggleFavorite} placed={placed} widgetIcon={widgetIcon} />)}
                   </div>
                 </section>
               );
@@ -167,21 +175,49 @@ export function WidgetLibrary({
 }
 
 function WidgetRow({
-  w, onAdd, onToggleFav, placed, fav, widgetIcon,
+  w, onBegin, onToggleFav, placed, fav, widgetIcon,
 }: {
   w: WidgetDefinition;
-  onAdd: (id: string) => void;
+  onBegin: (id: string, label: string, mode: 'hold' | 'click') => void;
   onToggleFav: (id: string) => void;
   placed: Set<string>;
   fav?: boolean;
   widgetIcon: (name: string) => React.ComponentType<{ size?: number; className?: string }>;
 }) {
   const Icon = widgetIcon(w.icon);
+  // Two add modes:
+  //  - hold  → press and move past a small threshold starts a drag-and-drop
+  //  - click → a click (no movement) starts "project" mode (double-click place)
+  const dragRef = useRef<{ x: number; y: number; active: boolean } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, active: false };
+    const onMove = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d || d.active) return;
+      if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 5) {
+        d.active = true;
+        onBegin(w.id, w.label, 'hold');
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      // Keep `active` around until the click event (if any) fires so it can be suppressed.
+      window.setTimeout(() => { dragRef.current = null; }, 0);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   return (
     <div className="group flex items-center gap-2 rounded-xl border border-white/10 dark:border-white/10 glass-card-subtle hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 transition-all">
       <button
-        onClick={() => onAdd(w.id)}
+        onPointerDown={onPointerDown}
+        onClick={() => { if (dragRef.current?.active) return; onBegin(w.id, w.label, 'click'); }}
         className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
+        title="Click to project, then double-click to place · or hold and drag"
       >
         <Icon size={14} className="shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
         <span className="min-w-0">

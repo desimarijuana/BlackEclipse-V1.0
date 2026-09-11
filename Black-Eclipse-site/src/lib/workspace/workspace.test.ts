@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { produce } from 'immer';
 import {
   addWidget,
+  addWidgetToNewSectionAt,
   allWidgetIds,
   duplicateWidget,
   emptyLayout,
@@ -12,6 +13,7 @@ import {
   moveWidgetToNewSectionAt,
   normalizeLayout,
   pruneLayout,
+  removeSection,
   removeWidget,
   setColumnCount,
   setColumnWeight,
@@ -314,6 +316,39 @@ describe('add/remove', () => {
     expect(n.sections).toHaveLength(1);
     expect(n.sections[0].columns).toHaveLength(1);
     expect(widgetCount(n)).toBe(0);
+  });
+});
+
+describe('sections: delete + add-into-new-section', () => {
+  it('removeSection drops the section and its widgets', () => {
+    const l = makeLayout([[['kpi']], [['perf'], ['alloc']]]);
+    const n = runOp(removeSection, l, l.sections[0].id);
+    expect(n.sections).toHaveLength(1);
+    expect(allWidgetIds(n)).toEqual(['perf', 'alloc']);
+  });
+
+  it('removeSection always keeps at least one section', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = runOp(removeSection, l, l.sections[0].id);
+    expect(n.sections).toHaveLength(1);
+    expect(widgetCount(n)).toBe(0);
+  });
+
+  it('addWidgetToNewSectionAt inserts a fresh single-column section above the anchor', () => {
+    const l = makeLayout([[['kpi']], [['perf']]]);
+    const n = runOp(addWidgetToNewSectionAt, l, 'alloc', l.sections[1].id, 'above');
+    expect(n.sections).toHaveLength(3);
+    expect(n.sections[1].columns).toHaveLength(1);
+    expect(idsOf(n.sections[1].columns[0])).toEqual(['alloc']);
+    expect(allWidgetIds(n)).toEqual(['kpi', 'alloc', 'perf']);
+  });
+
+  it('addWidgetToNewSectionAt inserts below and appends when the anchor is missing', () => {
+    const l = makeLayout([[['kpi']]]);
+    const below = runOp(addWidgetToNewSectionAt, l, 'alloc', l.sections[0].id, 'below');
+    expect(allWidgetIds(below)).toEqual(['kpi', 'alloc']);
+    const missing = runOp(addWidgetToNewSectionAt, l, 'perf', 'nope', 'above');
+    expect(allWidgetIds(missing)).toEqual(['kpi', 'perf']);
   });
 });
 

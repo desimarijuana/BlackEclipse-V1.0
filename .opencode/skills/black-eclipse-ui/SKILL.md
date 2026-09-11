@@ -27,13 +27,20 @@ top/right highlight lines + soft drop shadow. Light mode gets its own override.
 html:not(.dark) .glass-card { /* light-mode override */ }
 ```
 
-## The three tiers — pick by surface
+## The tiers — pick by surface
 
 | Class                | Use for                                                          |
 | -------------------- | ---------------------------------------------------------------- |
 | `.glass-card`        | Standard cards, panels, content blocks (the default)             |
-| `.glass-card-strong` | Modals, dialogs, drawers, popovers, tooltips, sidebar, overlays  |
+| `.glass-card-strong` | Modals, dialogs, popovers, tooltips, overlays (near-opaque)      |
 | `.glass-card-subtle` | Small tiles, table headers, control strips, chips, stat tiles    |
+| `.glass-drawer`      | Large side drawers/panels that must read as REAL frost over the dark page — lower opacity + higher blur (widget library, config panel, workspace drawers) |
+
+> Drawers that should show the page through them blurred (e.g. the workspace
+> "Add Widget" palette) use **`.glass-drawer`**, not the near-opaque
+> `.glass-card-strong` — the strong tier is too opaque for the blur to be
+> visible. If a drawer sits above a full-screen dim overlay, keep that overlay
+> light (`bg-black/20`) and un-blurred, otherwise it flattens the frost.
 
 ## Tabs
 

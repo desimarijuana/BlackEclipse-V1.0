@@ -11,7 +11,7 @@
 // click-to-place, left/right buttons, duplicate, hide, config, library) is
 // handled here.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
@@ -55,7 +55,14 @@ export function CustomizableWorkspace({
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [configPlacement, setConfigPlacement] = useState<WidgetPlacement | null>(null);
   const [compact, setCompact] = useState(false);
+  // Widget currently being added from the library. `mode`:
+  //   'hold'  — press & drag, release to place (direct drag-and-drop)
+  //   'click' — click to project a ghost, then double-click to confirm
+  //             (or click the ghost), right-click / Esc to cancel.
+  const [addDrag, setAddDrag] = useState<{ widgetId: string; label: string; mode: 'hold' | 'click' } | null>(null);
   const refreshAll = useRefreshAll();
+
+  const endAddDrag = useCallback(() => setAddDrag(null), []);
 
   const placed = useMemo(
     () => new Set(workspace.layout.sections.flatMap(s => s.columns.flatMap(c => c.widgets.map(w => w.widgetId)))),
@@ -121,12 +128,12 @@ export function CustomizableWorkspace({
 
       {/* Edit bar */}
       {workspace.editMode && (
-        <div className="ws-glass sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
+        <div className="glass-card sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Settings2 size={14} /> Customizing
           </span>
           <span className="text-[10px] text-muted-foreground hidden md:inline">
-            Drag a card to move it · or click a card to pick it up, then click a spot to place · Esc/right-click cancels
+            Drag to move · click to pick up, double-click to place · drag a widget from the panel to add
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             {editBarExtra}
@@ -150,6 +157,10 @@ export function CustomizableWorkspace({
         workspace={workspace}
         hideEditBar
         compact={compact}
+        addingWidgetId={addDrag?.widgetId ?? null}
+        addingLabel={addDrag?.label}
+        addingMode={addDrag?.mode ?? 'hold'}
+        onAddingEnd={endAddDrag}
         widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
         renderWidget={(widgetId, placement) => (
           <div className="relative h-full">
@@ -175,6 +186,8 @@ export function CustomizableWorkspace({
           onAdd={(id) => { workspace.ops.addWidget(id); }}
           onClose={() => setLibraryOpen(false)}
           placed={placed}
+          onStartAddDrag={(widgetId, label, mode) => setAddDrag({ widgetId, label, mode })}
+          dragActive={!!addDrag}
         />
       )}
 

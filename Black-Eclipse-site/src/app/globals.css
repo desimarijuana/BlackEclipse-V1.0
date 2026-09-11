@@ -988,3 +988,24 @@ html:not(.dark) .glass-card-subtle {
     0 4px 16px rgba(0, 0, 0, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
+
+/* Side drawer / large panel — a deliberately LOW-opacity, HIGH-blur tier so the
+ * page behind is clearly visible and frosted (the standard card tier is too
+ * opaque to read as glass on a dark page). Used by the workspace widget
+ * library + config panel. */
+.glass-drawer {
+  background: linear-gradient(180deg, rgba(26, 26, 30, 0.44), rgba(14, 14, 16, 0.54));
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.50),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .glass-drawer {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.68));
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.60),
+    inset -1px 0 0 rgba(0, 0, 0, 0.06);
+}

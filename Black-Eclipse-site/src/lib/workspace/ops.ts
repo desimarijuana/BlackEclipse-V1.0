@@ -185,6 +185,38 @@ export function createSectionAt(
   d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
 }
 
+/**
+ * Remove an entire section (and its columns/widgets). Always leaves at least
+ * one section in the layout so the canvas remains a valid drop target.
+ */
+export function removeSection(d: Draft<WorkspaceLayout>, sectionId: string): void {
+  const idx = d.sections.findIndex(s => s.id === sectionId);
+  if (idx === -1) return;
+  d.sections.splice(idx, 1);
+  if (d.sections.length === 0) {
+    d.sections.push({ id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
+  }
+}
+
+/**
+ * Add a NEW widget into a brand-new section inserted above/below an anchor.
+ * Used when dragging a widget in from the library straight onto an
+ * inter-section strip. The new section always has a single column holding it.
+ */
+export function addWidgetToNewSectionAt(
+  d: Draft<WorkspaceLayout>,
+  widgetId: string,
+  anchorSectionId: string,
+  position: 'above' | 'below',
+): void {
+  const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const insertAt = anchorIdx === -1
+    ? d.sections.length
+    : position === 'above' ? anchorIdx : anchorIdx + 1;
+  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
+  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [widget] }] });
+}
+
 export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget): void {
   const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
   if (d.sections.length === 0) d.sections.push({ id: newId('sec'), columns: [] });

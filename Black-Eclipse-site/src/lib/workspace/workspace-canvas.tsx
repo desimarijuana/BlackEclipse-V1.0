@@ -15,12 +15,13 @@
 // auto-scrolls mid-drag, and elementFromPoint then hits the wrong element.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   useDroppable, useDraggable, type DragStartEvent,
 } from '@dnd-kit/core';
 import {
-  ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Scan, Sparkles, X,
+  ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Scan, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
@@ -54,9 +55,17 @@ interface WorkspaceCanvasProps {
   hideEditBar?: boolean;
   /** Compact row height (60→40px) for dense layouts. */
   compact?: boolean;
+  /** Widget id currently being dragged in from the library (add-drag mode). */
+  addingWidgetId?: string | null;
+  /** Label for the add-drag ghost. */
+  addingLabel?: string;
+  /** 'hold' = release to place · 'click' = project then double-click to confirm. */
+  addingMode?: 'hold' | 'click';
+  /** Called when an add-drag ends (committed or cancelled) so the host clears it. */
+  onAddingEnd?: () => void;
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false }: WorkspaceCanvasProps) {
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState('');
@@ -301,9 +310,83 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   }, [ops]);
 
   /**
-   * Click-to-place for a grabbed card. A single click on a drop target commits
-   * the move immediately — no second confirm click needed. Clicking outside any
-   * drop area cancels the grab.
+   * Commit an ADD from the library at a projected target. Mirrors
+   * commitTarget but inserts a brand-new placement instead of moving one, and
+   * creates a whole new section when dropped on an inter-section strip.
+   */
+  const commitAdd = useCallback((widgetId: string, t: DropTargetInfo) => {
+    if (t.columnId.startsWith('__newsec:')) {
+      const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
+      ops.addWidgetToNewSectionAt(widgetId, anchorId, pos);
+      return;
+    }
+    if (t.columnId.startsWith('__newcol:')) {
+      const [, when, anchorColId] = t.columnId.split(':') as [string, string, 'before' | 'after'];
+      const section = layoutRef.current.sections.find(s => s.columns.some(c => c.id === anchorColId));
+      const colIdx = section?.columns.findIndex(c => c.id === anchorColId) ?? -1;
+      if (!section || colIdx === -1) return;
+      ops.addWidget(widgetId, { sectionId: section.id, columnId: null, index: 0, columnIndex: when === 'before' ? colIdx : colIdx + 1 });
+      return;
+    }
+    ops.addWidget(widgetId, { sectionId: t.sectionId, columnId: t.columnId, index: t.index });
+  }, [ops]);
+
+  // ── Add-drag from the library ───────────────────────────────────────────────
+  // A widget dragged out of the palette has no DOM card yet, so it uses the
+  // same real-pointer projection as a grab but commits an ADD on release. The
+  // host passes `addingWidgetId`; we own the listeners + floating ghost.
+  const [addGhost, setAddGhost] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!addingWidgetId) { setAddGhost(null); return; }
+    const widgetId = addingWidgetId;
+    const holdMode = addingMode === 'hold';
+    let raf = 0;
+    let lx = -1, ly = -1;
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('contextmenu', onCtx);
+      if (raf) cancelAnimationFrame(raf);
+      setTargetBoth(null);
+      setAddGhost(null);
+    }
+    function onMove(ev: PointerEvent) {
+      lx = ev.clientX; ly = ev.clientY;
+      lastPointerRef.current = { x: lx, y: ly };
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setTargetBoth(computeTarget(lx, ly, '__add__'));
+        setAddGhost({ x: lx, y: ly });
+      });
+    }
+    function onUp(ev: PointerEvent) {
+      // Hold mode commits on release. Click mode keeps projecting so the user
+      // can position the ghost and then double-click to confirm.
+      if (!holdMode) return;
+      const t = computeTarget(ev.clientX, ev.clientY, '__add__');
+      cleanup();
+      if (t) commitAdd(widgetId, t);
+      onAddingEnd?.();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { cleanup(); onAddingEnd?.(); }
+    }
+    function onCtx(e: MouseEvent) {
+      e.preventDefault(); cleanup(); onAddingEnd?.();
+    }
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('contextmenu', onCtx);
+    return cleanup;
+  }, [addingWidgetId, addingMode, computeTarget, commitAdd, setTargetBoth, onAddingEnd]);
+
+  /**
+   * Click-to-place for a grabbed card. A single click on a drop target ARMS the
+   * preview (ghost slot); a double-click (or clicking the ghost) commits.
+   * Clicking outside any drop area cancels the grab.
    */
   const confirmOrArm = useCallback((coords?: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
@@ -316,12 +399,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       setArmedBoth(null);
       return;
     }
-    // Single click on a target commits immediately.
-    setGrabbedId(null);
-    setTargetBoth(null);
-    setArmedBoth(null);
-    commitTarget(id, t);
-  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
+    // Arm the preview — double-click confirms.
+    setArmedBoth(t);
+  }, [computeTarget, setArmedBoth, setTargetBoth]);
 
   /** Cancel grab entirely (Escape / right-click / strip with no arm). */
   const cancelGrab = useCallback(() => {
@@ -353,30 +433,57 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     if (id && t) commitTarget(id, t);
   }, [cancelGrab, commitTarget]);
 
-  /** Click on an empty column while grabbing → place into it (index 0). */
+  /** Click on an empty column while grabbing → arm the preview there. */
   const onEmptyColumnClick = useCallback((coords: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
     if (!id) return;
     const t = computeTarget(coords.x, coords.y, id);
     if (!t) return;
-    // Single click on an empty column commits immediately.
+    // Arm the preview — double-click confirms.
+    setArmedBoth(t);
+  }, [computeTarget, setArmedBoth]);
+
+  /**
+   * Double-click commits the current projection: the ADD for a library
+   * click-project, or the armed/held card move for a click-grab.
+   */
+  const commitOnDoubleClick = useCallback((px: number, py: number) => {
+    if (addingWidgetId) {
+      const t = computeTarget(px, py, '__add__');
+      onAddingEnd?.();
+      if (t) commitAdd(addingWidgetId, t);
+      return;
+    }
+    const id = grabStateRef.current.id;
+    if (!id) return;
+    const t = computeTarget(px, py, id);
     setGrabbedId(null);
     setTargetBoth(null);
     setArmedBoth(null);
-    commitTarget(id, t);
-  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
+    if (t) commitTarget(id, t);
+  }, [addingWidgetId, computeTarget, commitAdd, commitTarget, onAddingEnd, setArmedBoth, setTargetBoth]);
 
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
+  // Any edit-gesture in flight: dnd drag, click-grab, or an add-drag from the library.
+  const dragging = activeId !== null || grabbedId !== null || addingWidgetId !== null;
 
   return (
-    <div className={cn('relative', className)} data-workspace>
+    <div
+      className={cn('relative', className)}
+      data-workspace
+      onDoubleClick={(e) => {
+        if (!grabbedId && !addingWidgetId) return;
+        e.preventDefault();
+        commitOnDoubleClick(e.clientX, e.clientY);
+      }}
+    >
       {/* Compact edit bar — single slim row */}
       {editMode && !hideEditBar && (
-        <div className="ws-glass sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
+        <div className="glass-card sticky top-0 z-30 mb-3 flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/20 animate-fade-in">
           <span className="flex items-center gap-1.5 text-xs font-bold text-primary font-sans">
             <Columns3 size={14} /> Customizing
           </span>
-          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag a card to move it · or click a card to pick it up, then click a spot to place · Esc/right-click cancels</span>
+          <span className="text-[10px] text-muted-foreground hidden md:inline">Drag to move · click to pick up, double-click to place · right-click / Esc cancels</span>
           <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={() => setDrawerOpen(v => !v)}
@@ -424,21 +531,23 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
         <div className="flex flex-col gap-3">
           {layout.sections.map((section, secIdx) => (
             <React.Fragment key={section.id}>
-              {secIdx === 0 && (editMode || activeId !== null || grabbedId !== null) && (
+              {secIdx === 0 && (editMode || dragging) && (
                 <NewSectionStrip
                   anchorId={section.id} pos="above"
-                  dragging={activeId !== null || grabbedId !== null}
+                  dragging={dragging}
                   isGrabbing={grabbedId !== null}
-                  onStripClick={() => grabbedId
-                    ? ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above')
-                    : ops.createSectionAt(section.id, 'above')}
+                  onStripClick={() => {
+                    if (addingWidgetId) return; // add-project commits on double-click
+                    if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above');
+                    else ops.createSectionAt(section.id, 'above');
+                  }}
                 />
               )}
               <SectionRow
                 section={section}
                 editMode={editMode}
                 compact={compact}
-                dragging={activeId !== null || grabbedId !== null}
+                dragging={dragging}
                 activeId={activeId}
                 grabbedId={grabbedId}
                 armedTarget={armedTarget}
@@ -447,10 +556,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                 renderWidget={renderWidget}
                 onResizeHeight={ops.setWidgetHeight}
                 onCardTap={(id, coords) => {
+                  // Add-project in flight → card clicks are ignored (the ghost
+                  // already follows the pointer; double-click commits).
+                  if (addingWidgetId) return;
                   // Click-to-pick-up model: a single click picks up a card
-                  // (floating ghost + live drop-line follow the cursor), then a
-                  // single click on a target spot places it. Clicking the same
-                  // card again drops it back. Esc/right-click cancels.
+                  // (floating ghost + live drop-line follow the cursor), a
+                  // single click on a target arms the preview, and a
+                  // double-click confirms. Same card click cancels.
                   if (!grabbedId) setGrabbedId(id);
                   else if (grabbedId === id) cancelGrab();
                   else confirmOrArm(coords);
@@ -459,14 +571,16 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                 onGhostConfirm={onGhostConfirm}
                 onEmptyColumnClick={onEmptyColumnClick}
               />
-              {(editMode || activeId !== null || grabbedId !== null) && (
+              {(editMode || dragging) && (
                 <NewSectionStrip
                   anchorId={section.id} pos="below"
-                  dragging={activeId !== null || grabbedId !== null}
+                  dragging={dragging}
                   isGrabbing={grabbedId !== null}
-                  onStripClick={() => grabbedId
-                    ? ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below')
-                    : ops.createSectionAt(section.id, 'below')}
+                  onStripClick={() => {
+                    if (addingWidgetId) return; // add-project commits on double-click
+                    if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below');
+                    else ops.createSectionAt(section.id, 'below');
+                  }}
                 />
               )}
             </React.Fragment>
@@ -491,9 +605,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       {/* Grab hint + cancel */}
       {grabbedId && (
         <div className="sticky bottom-4 z-40 mt-3 flex items-center justify-center gap-2 animate-fade-in">
-          <div className="ws-glass flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
+          <div className="glass-card flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
-              Click a column to place the held card · Esc / right-click to cancel
+              Click a spot to preview · double-click to place · right-click / Esc cancels
             </span>
             <button
               onClick={cancelGrab}
@@ -501,6 +615,39 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
             >Cancel</button>
           </div>
         </div>
+      )}
+
+      {/* Add-drag (library → canvas) hint + floating ghost. Rendered through a
+          portal so fixed positioning is not trapped by a transformed ancestor. */}
+      {addingWidgetId && (
+        <div className="sticky bottom-4 z-40 mt-3 flex items-center justify-center gap-2 animate-fade-in">
+          <div className="glass-card flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
+              {addingMode === 'hold'
+                ? `Drop ${addingLabel ?? 'the widget'} on a column or a “New section” strip · Esc cancels`
+                : `Move over a spot, then double-click to place ${addingLabel ?? 'the widget'} · right-click / Esc cancels`}
+            </span>
+            <button
+              onClick={() => onAddingEnd?.()}
+              className="rounded-xl border border-border/40 bg-accent/30 hover:bg-accent/60 text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+      {addingWidgetId && addGhost && typeof document !== 'undefined' && createPortal(
+        <div
+          className="pointer-events-none fixed z-[60]"
+          style={{ left: addGhost.x, top: addGhost.y, transform: 'translate(-50%, -50%)' }}
+        >
+          <div
+            className={cn(CARD_CLASS, 'flex items-center gap-2 px-4 py-3 opacity-95 shadow-2xl shadow-black/50 rotate-[1.5deg]')}
+            style={{ width: 280 }}
+          >
+            <Plus size={14} className="text-primary shrink-0" />
+            <span className="font-serif text-sm font-semibold text-foreground truncate">{addingLabel ?? 'New widget'}</span>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -548,6 +695,14 @@ function SectionRow({
               title="Add column"
             ><Plus size={12} /></button>
           </div>
+          <button
+            onClick={() => {
+              const count = section.columns.reduce((a, c) => a + c.widgets.length, 0);
+              if (count === 0 || confirm('Delete this section and its widgets?')) ops.removeSection(section.id);
+            }}
+            className="ml-1 rounded-xl border border-white/15 dark:border-white/10 glass-card-subtle p-1.5 text-muted-foreground hover:text-rose-400 hover:border-rose-500/40 transition-colors cursor-pointer"
+            title="Delete this section"
+          ><Trash2 size={12} /></button>
         </div>
       )}
 

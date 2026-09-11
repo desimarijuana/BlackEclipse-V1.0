@@ -24,6 +24,8 @@ import {
   moveWidgetToNewSection as moveWidgetToNewSectionDraft,
   moveWidgetToNewSectionAt as moveWidgetToNewSectionAtDraft,
   createSectionAt as createSectionAtDraft,
+  removeSection as removeSectionDraft,
+  addWidgetToNewSectionAt as addWidgetToNewSectionAtDraft,
   locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
@@ -56,6 +58,8 @@ interface WorkspaceActions {
   moveWidgetToNewSection: (widgetId: string) => void;
   moveWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   createSectionAt: (anchorSectionId: string, position: 'above' | 'below') => void;
+  removeSection: (sectionId: string) => void;
+  addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
   setWidgetHeight: (widgetId: string, height: number | null) => void;
@@ -96,6 +100,8 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       moveWidgetToNewSection: (widgetId) => commit(d => { moveWidgetToNewSectionDraft(d, widgetId); }),
       moveWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { moveWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       createSectionAt: (anchorSectionId, position) => commit(d => { createSectionAtDraft(d, anchorSectionId, position); }),
+      removeSection: (sectionId) => commit(d => { removeSectionDraft(d, sectionId); }),
+      addWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
       setWidgetHeight: (widgetId, height) => commit(d => { setWidgetHeightDraft(d, widgetId, height); }),
@@ -159,6 +165,8 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       moveWidgetToNewSection: useStore.getState().moveWidgetToNewSection,
       moveWidgetToNewSectionAt: useStore.getState().moveWidgetToNewSectionAt,
       createSectionAt: useStore.getState().createSectionAt,
+      removeSection: useStore.getState().removeSection,
+      addWidgetToNewSectionAt: useStore.getState().addWidgetToNewSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,
       setWidgetHeight: useStore.getState().setWidgetHeight,

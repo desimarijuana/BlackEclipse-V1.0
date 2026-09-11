@@ -6,10 +6,10 @@ description: Black-Eclipse reusable customizable-workspace system — the drag-a
 # Black-Eclipse Workspace — Reusable Customizable Widget Grid
 
 The workspace engine lets any page become a user-customizable grid of widgets
-(sections → columns → cards) with drag-and-drop, click-to-place, left/right
-swap, duplicate, hide, per-instance config, and a searchable widget library.
-It is the SAME engine behind the Command Center dashboard and the portfolio
-fund workspaces. Do NOT build a second layout engine.
+(sections → columns → cards) with drag-and-drop, click-to-place, drag-from-library,
+section add/delete, left/right swap, duplicate, hide, per-instance config, and a
+searchable widget library. It is the SAME engine behind the Command Center
+dashboard and the portfolio fund workspaces. Do NOT build a second layout engine.
 
 ## Architecture
 
@@ -22,7 +22,8 @@ CustomizableWorkspace  (src/components/workspace/customizable-workspace.tsx)
    ▼
 Workspace kernel  (src/lib/workspace/)
    ├─ types.ts        WidgetPlacement { id, widgetId, height, config, hidden }
-   ├─ ops.ts          pure Immer layout ops (move/add/remove/resize/duplicate/…)
+   ├─ ops.ts          pure Immer layout ops (move/add/remove/resize/duplicate/
+   │                  removeSection/addWidgetToNewSectionAt/…)
    ├─ persistence.ts  localStorage, corrupt-data-never-overwritten guard
    ├─ use-workspace.ts Zustand store per storageKey
    └─ workspace-canvas.tsx  dnd-kit drag/drop + click-to-place chrome
@@ -45,7 +46,14 @@ Workspace kernel  (src/lib/workspace/)
   optional — the host's `renderWidget` is authoritative.
 - **`WidgetLibrary`** (`src/components/workspace/widget-library.tsx`) — searchable,
   categorized palette with Favorites + Recently Used. Takes `widgets` + `widgetIcon`
-  as props (no hard-coded registry).
+  as props (no hard-coded registry). Rows support TWO add modes (both reported via
+  `onStartAddDrag(id, label, mode)`):
+  - `mode: 'hold'` — press a row and drag past a 5px threshold, release to place.
+  - `mode: 'click'` — a plain click starts **project mode**: a ghost follows the
+    cursor with the live drop-line, and a **double-click confirms** (right-click /
+    Esc cancels).
+  While an add is in flight the palette goes `pointer-events-none` so
+  `elementFromPoint` reaches the canvas underneath.
 - **`WidgetConfigPanel`** (`src/components/workspace/widget-config.tsx`) — renders
   `configFields` and saves to `placement.config`. Takes a `getDefinition` resolver.
 - **`DataHub`** (`src/lib/workspace/data-hub.ts`) — client-side pub/sub data layer.
@@ -134,20 +142,31 @@ Trading widgets (`src/lib/dashboard/trading-widgets.tsx`) consume the
 The broker adapter interface (`src/lib/broker/types.ts`) will unify real brokers
 behind one interface; the paper broker implements the same shape.
 
-## Interaction model (both supported)
+## Interaction model (all supported)
 
-- **Drag-and-drop**: click-hold-drag a card, release to place.
-- **Click-to-place**: single-click a card to pick it up (floating ghost + live
-  drop-line follow the cursor), then single-click a target spot to place it.
-  Clicking the same card again drops it back; Esc/right-click cancels.
+- **Hold-and-place** (drag): click-hold a card and drag, release to place.
+- **Click-to-project** (cards & adds): a single click *projects* the card/widget
+  (floating ghost + live drop-line follow the cursor). A single click on a spot
+  **arms a preview**, a **double-click confirms**, and **right-click / Esc
+  cancels**. Clicking the same card again cancels the grab.
+- **Add from the library** uses the same two modes:
+  - *hold* — press a palette row, drag out, release to place;
+  - *click* — click a palette row to project, then double-click to place.
+  Dropping onto an inter-section **“New section” strip automatically creates a
+  new section** holding that widget (`ops.addWidgetToNewSectionAt`).
+- **Sections**: inter-section strips create sections; the **trash button in each
+  section’s edit controls deletes that section** (`ops.removeSection`, confirm
+  guarded; at least one section always remains).
 - **Left/right swap buttons** on each card move it to the adjacent column
   (creating one if needed).
 - **Duplicate / hide / remove / fit-height** buttons on each card in edit mode.
 
 ## Design rules
 
-- Use the frosted-glass classes (`.glass-card`, `-strong`, `-subtle`) per the
-  `black-eclipse-ui` skill. The edit bar uses `.ws-glass`.
+- Use the frosted-glass classes per the `black-eclipse-ui` skill. The workspace
+  **edit bar uses `.glass-card`**; the **widget library + config drawers use
+  `.glass-drawer`** (a lower-opacity / higher-blur tier that reads as real frost
+  over the dark page). Do NOT use the near-opaque `-strong` tier for these.
 - Widgets are pure: they consume data via props and report null/empty where data
   is missing — never fabricate financial data.
 - Persistence is automatic via the kernel; corrupt stored data is never
@@ -158,5 +177,14 @@ behind one interface; the paper broker implements the same shape.
 - The edit-chrome container on each card stops `pointerdown` AND `click`
   propagation so its buttons don't trigger card grab/place. The grip handle has
   its own dnd-kit listeners so it still starts a drag.
+- Add is NOT a dnd-kit drag: it reuses the canvas’s real-pointer projection
+  (`computeTarget(..., '__add__')`) and renders its floating ghost through a
+  portal. In `'click'` mode `pointerup` does NOT commit — the double-click
+  handler on the canvas does. The host (`CustomizableWorkspace`) owns
+  `addingWidgetId` / `addingMode` and must pass a stable `onAddingEnd`
+  (useCallback) so the projection effect isn’t torn down mid-project.
+- The library’s full-screen backdrop intercepts pointer events; close the drawer
+  (or run an add-project, which sets `pointer-events-none`) before interacting
+  with cards underneath.
 - `WidgetDefinition.render` is optional; prefer the host's `renderWidget` so page
   data can be threaded in. Only set `render` for self-contained widgets.
