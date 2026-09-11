@@ -491,19 +491,20 @@ export class EclipseChartProvider implements ChartProvider {
     return {
       yAxis: price,
       lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
-      // The price tag is rendered as a frosted HTML pill (LivePricePill) so it
-      // can carry the green/red glass treatment; keep only the dashed line here.
-      label: { show: false },
+      // TradingView-style axis tag: solid green/red pill on the right price scale.
+      label: {
+        show: true,
+        position: 'end',
+        formatter: this.fmt(price),
+        color: '#ffffff',
+        backgroundColor: color,
+        fontSize: 10,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        padding: [3, 6],
+        borderRadius: 3,
+      },
     };
-  }
-
-  /** Current live price (folded into the forming candle) + its up/down tint. */
-  getLivePriceInfo(): { price: number; up: boolean } | null {
-    if (this.livePrice == null || !Number.isFinite(this.livePrice)) return null;
-    const bars = this.data?.bars;
-    if (!bars || bars.length === 0) return null;
-    const ref = bars.length >= 2 ? bars[bars.length - 2].close : this.livePrice;
-    return { price: this.livePrice, up: this.livePrice >= ref };
   }
 
   /** Merge mark overlays from overlay-pane indicators (e.g. structure layers). */

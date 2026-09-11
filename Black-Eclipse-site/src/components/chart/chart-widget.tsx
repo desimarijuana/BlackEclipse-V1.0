@@ -389,8 +389,6 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
             symbol={chartState.symbol}
             market={chartState.market}
             timeframe={chartState.timeframe}
-            quote={quote}
-            getInfo={() => (providerRef.current as EclipseChartProvider | null)?.getLivePriceInfo?.() ?? null}
           />
         )}
         {loading && (
@@ -445,59 +443,28 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
 // ── Price footer ──────────────────────────────────────────────────────────────
 
 /**
- * On-chart live-price ticker, pinned to the top-right of the chart. ONE frosted
- * pill (always with a backdrop blur) combining, in a single tab-like row:
- *   `PRICE  <time-until-candle-close>`
- * The pill is tinted green (up) / red (down) to match the current candle.
- * Falls back to a neutral tint until the quote resolves.
+ * On-chart candle countdown, pinned to the top-right of the chart as a black
+ * frosted-glass pill (always with a backdrop blur). The live PRICE is shown on
+ * the right price axis (TradingView-style tag) by the provider, so this overlay
+ * carries ONLY the time until the current candle closes.
  */
 function LivePriceOverlay({
-  symbol, market, timeframe, quote, getInfo,
+  symbol, market, timeframe,
 }: {
   symbol: string;
   market: string;
   timeframe: Timeframe;
-  quote: LiveQuote | null;
-  getInfo: () => { price: number; up: boolean } | null;
 }) {
   const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market);
-  const [info, setInfo] = useState<{ price: number; up: boolean } | null>(null);
-
-  // Re-sample the provider's live tint (folded candle) so the pill tracks the
-  // current direction; quote is the fallback while the provider warms up.
-  useEffect(() => {
-    const sample = () => setInfo(getInfo());
-    sample();
-    const t = setInterval(sample, 500);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const up = info?.up ?? (quote?.changePercent ?? 0) >= 0;
-  const price = info?.price ?? quote?.price ?? null;
-  const currency = quote?.currency ?? '';
-  const fmtPrice = (n: number) =>
-    n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 6 : 2 });
 
   return (
     <div
-      className={cn(
-        'pointer-events-none absolute right-3 top-3 z-20 flex items-stretch overflow-hidden rounded-lg border font-mono text-[10px] glass-ticker',
-        up ? 'glass-ticker-up' : 'glass-ticker-down',
-      )}
-      title={`Last price · next ${candle.label} in ${formatCountdown(candleLeft)}`}
+      className="pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-lg border border-border/30 px-2 py-1 font-mono text-[10px] glass-ticker"
+      title={`Time until the next ${candle.label}`}
     >
-      {/* Price segment */}
-      <span className="flex items-center px-2 py-1 text-[11px] font-bold tabular-nums">
-        {price != null ? `${currency}${fmtPrice(price)}` : symbol}
-      </span>
-      {/* Divider + time segment (tab-like) */}
-      <span className="flex items-center gap-1.5 border-l border-current/25 px-2 py-1">
-        <span className={cn('h-1.5 w-1.5 rounded-full', closedMarket ? 'bg-amber-400' : 'animate-pulse bg-current')} />
-        <span className={cn('font-bold tabular-nums', closedMarket && 'text-amber-300')}>
-          {closedMarket ? 'closed' : formatCountdown(candleLeft)}
-        </span>
-      </span>
+      <span className={cn('h-1.5 w-1.5 rounded-full', closedMarket ? 'bg-amber-400' : 'animate-pulse bg-primary')} />
+      <span className="text-muted-foreground">{closedMarket ? 'closed' : candle.label}</span>
+      <span className="font-bold tabular-nums text-foreground">{formatCountdown(candleLeft)}</span>
     </div>
   );
 }
