@@ -90,6 +90,7 @@ function startBackgroundRefresh(key: string, symbol: string, market: string, ran
 
 interface Bar {
   date: string;
+  time?: number;
   open: number | null;
   high: number | null;
   low: number | null;
@@ -146,6 +147,7 @@ async function fetchYahooChart(ticker: string, range: string, interval = "1d"): 
       if (close == null || !Number.isFinite(close) || close <= 0) continue;
       bars.push({
         date: new Date(ts[i] * 1000).toISOString().slice(0, 10),
+        time: ts[i] * 1000,
         open: q.open?.[i] ?? null,
         high: q.high?.[i] ?? null,
         low: q.low?.[i] ?? null,

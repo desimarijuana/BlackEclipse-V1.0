@@ -280,7 +280,15 @@ export class EclipseChartProvider implements ChartProvider {
 
   private buildOption(data: ChartData): EChartsOption {
     const bars = data.bars;
-    const dates = bars.map((b) => b.date);
+    // Category labels: intraday bars share a calendar date, so append the
+    // bar's time to keep the axis (and hover readout) unambiguous.
+    const intraday = (['1m', '3m', '5m', '15m', '30m', '1H', '2H', '4H'] as Timeframe[]).includes(this.state.timeframe);
+    const barLabel = (b: ChartData['bars'][number]): string => {
+      if (!intraday || b.time == null) return b.date;
+      const t = new Date(b.time);
+      return `${b.date} ${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
+    };
+    const dates = bars.map(barLabel);
     const { up, down } = brandUpDown();
     const primary = cssVarToHex('--primary', up);
     const type = this.state.chartType;
@@ -506,19 +514,19 @@ export class EclipseChartProvider implements ChartProvider {
     return {
       yAxis: price,
       lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
-      label: {
-        show: true,
-        position: 'end',
-        formatter: this.fmt(price),
-        color: '#0b0b0b',
-        backgroundColor: color,
-        fontSize: 9,
-        fontFamily: 'monospace',
-        fontWeight: 'bold',
-        padding: [2, 4],
-        borderRadius: 2,
-      },
+      // The price tag is rendered as a frosted HTML pill (LivePricePill) so it
+      // can carry the green/red glass treatment; keep only the dashed line here.
+      label: { show: false },
     };
+  }
+
+  /** Current live price (folded into the forming candle) + its up/down tint. */
+  getLivePriceInfo(): { price: number; up: boolean } | null {
+    if (this.livePrice == null || !Number.isFinite(this.livePrice)) return null;
+    const bars = this.data?.bars;
+    if (!bars || bars.length === 0) return null;
+    const ref = bars.length >= 2 ? bars[bars.length - 2].close : this.livePrice;
+    return { price: this.livePrice, up: this.livePrice >= ref };
   }
 
   /** Merge mark overlays from overlay-pane indicators (e.g. structure layers). */
@@ -568,14 +576,24 @@ export class EclipseChartProvider implements ChartProvider {
   }
 
   private tooltipFormatter(params: unknown, bars: ChartData['bars'], currency: string): string {
-    const arr = (params as Array<{ axisValue: string; seriesName: string; data: unknown }>);
+    const arr = (params as Array<{ dataIndex?: number; axisValue?: string; seriesName: string; data: unknown }>);
     const first = arr[0];
     if (!first) return '';
-    const bar = bars.find((b) => b.date === first.axisValue);
+    // Prefer the hovered dataIndex so intraday bars (which share a date) resolve
+    // to the exact candle, not the first bar of that day.
+    const idx = typeof first.dataIndex === 'number' ? first.dataIndex : bars.findIndex((b) => b.date === first.axisValue);
+    const bar = bars[idx];
     if (!bar) return '';
     const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: 4 }));
+    let stamp = bar.date;
+    if (bar.time != null) {
+      const t = new Date(bar.time);
+      const hh = String(t.getUTCHours()).padStart(2, '0');
+      const mm = String(t.getUTCMinutes()).padStart(2, '0');
+      stamp = `${bar.date} ${hh}:${mm} UTC`;
+    }
     const lines = [
-      `<b>${bar.date}</b>`,
+      `<b>${stamp}</b>`,
       `O ${currency} ${fmt(bar.open)}`,
       `H ${currency} ${fmt(bar.high)}`,
       `L ${currency} ${fmt(bar.low)}`,

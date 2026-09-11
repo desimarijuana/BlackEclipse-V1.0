@@ -7,6 +7,8 @@
 /** One normalized OHLCV bar. Mirrors the shape served by /api/price-history. */
 export interface PriceBar {
   date: string;
+  /** Epoch ms of the bar's open — present for intraday bars (Yahoo timestamps). */
+  time?: number;
   open: number | null;
   high: number | null;
   low: number | null;

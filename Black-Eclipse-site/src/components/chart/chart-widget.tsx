@@ -385,11 +385,13 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
         <div ref={containerRef} className="absolute inset-0" />
         <DrawingOverlay getChart={getChart} manager={drawingManager} controller={drawingController} tool={tool} />
         {!emptyResult && (
-          <CandleBadge
+          <LivePriceOverlay
             symbol={chartState.symbol}
             market={chartState.market}
             timeframe={chartState.timeframe}
+            quote={quote}
             getY={() => (providerRef.current as EclipseChartProvider | null)?.getLivePriceY?.() ?? null}
+            getInfo={() => (providerRef.current as EclipseChartProvider | null)?.getLivePriceInfo?.() ?? null}
             getRightGutter={() => (providerRef.current as EclipseChartProvider | null)?.getRightGutter?.() ?? 54}
           />
         )}
@@ -445,30 +447,36 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
 // ── Price footer ──────────────────────────────────────────────────────────────
 
 /**
- * On-chart countdown badge anchored to the live-price line (like TradingView's
- * price label), showing when the currently-forming candle closes. Falls back to
- * the top-right corner until the price level is known. Keeps the timer visible
- * even when the footer is clipped by a short viewport.
+ * On-chart live-price overlay anchored to the live-price line (like TradingView's
+ * price label). Renders two SEPARATE frosted pills tinted green/red:
+ *   1. the candle countdown timer (left), and
+ *   2. the current price tag (right, pinned to the right gutter).
+ * Falls back to the top-right corner until the price level is known. Keeps the
+ * timer visible even when the footer is clipped by a short viewport.
  */
-function CandleBadge({
-  symbol, market, timeframe, getY, getRightGutter,
+function LivePriceOverlay({
+  symbol, market, timeframe, quote, getY, getInfo, getRightGutter,
 }: {
   symbol: string;
   market: string;
   timeframe: Timeframe;
+  quote: LiveQuote | null;
   getY: () => number | null;
+  getInfo: () => { price: number; up: boolean } | null;
   getRightGutter: () => number;
 }) {
   const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market);
   const [y, setY] = useState<number | null>(null);
   const [gutter, setGutter] = useState(54);
+  const [info, setInfo] = useState<{ price: number; up: boolean } | null>(null);
 
-  // Track the live-price pixel row so the badge rides the price. Re-sampled on a
-  // light interval + on window resize (cheap; the chart also re-renders often).
+  // Track the live-price pixel row + tint so the pills ride the price. Re-sampled
+  // on a light interval + on window resize (cheap; the chart re-renders often).
   useEffect(() => {
     const sample = () => {
       setY(getY());
       setGutter(getRightGutter());
+      setInfo(getInfo());
     };
     sample();
     const t = setInterval(sample, 500);
@@ -477,15 +485,41 @@ function CandleBadge({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const up = info?.up ?? (quote?.changePercent ?? 0) >= 0;
+  const price = info?.price ?? quote?.price ?? null;
+  const currency = quote?.currency ?? '';
+  const fmtPrice = (n: number) =>
+    n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 6 : 2 });
+  // Frosted glass tinted green (up) / red (down).
+  const tint = up
+    ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300 shadow-[0_4px_18px_rgba(16,185,129,0.18)]'
+    : 'border-rose-400/40 bg-rose-500/15 text-rose-300 shadow-[0_4px_18px_rgba(244,63,94,0.18)]';
+  const pos = y != null ? { top: y - 11, right: gutter + 6 } : { top: 8, right: gutter + 6 };
+
   return (
-    <div
-      className="pointer-events-none absolute z-20 flex items-center gap-1.5 rounded-lg border border-border/30 glass-card-strong px-2 py-1 font-mono text-[10px] transition-[top] duration-150"
-      style={y != null ? { top: y - 11, right: gutter + 6 } : { top: 8, right: gutter + 6 }}
-      title={`Time until the next ${candle.label}`}
-    >
-      <span className={cn('h-1.5 w-1.5 rounded-full', closedMarket ? 'bg-amber-400' : 'animate-pulse bg-primary')} />
-      <span className="text-muted-foreground">{closedMarket ? 'closed' : candle.label}</span>
-      <span className="font-bold tabular-nums text-foreground">{formatCountdown(candleLeft)}</span>
+    <div className="pointer-events-none absolute z-20 flex items-center gap-1.5 transition-[top] duration-150" style={pos}>
+      {/* Timer pill (separate from the price) */}
+      <div
+        className={cn(
+          'flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[10px] backdrop-blur-md',
+          'border-border/30 glass-card-strong',
+        )}
+        title={`Time until the next ${candle.label}`}
+      >
+        <span className={cn('h-1.5 w-1.5 rounded-full', closedMarket ? 'bg-amber-400' : 'animate-pulse bg-primary')} />
+        <span className="text-muted-foreground">{closedMarket ? 'closed' : candle.label}</span>
+        <span className="font-bold tabular-nums text-foreground">{formatCountdown(candleLeft)}</span>
+      </div>
+
+      {/* Price pill — frosted green/red */}
+      {price != null && (
+        <div
+          className={cn('rounded-lg border px-2 py-1 font-mono text-[10px] font-bold tabular-nums backdrop-blur-md', tint)}
+          title="Last price"
+        >
+          {currency}{fmtPrice(price)}
+        </div>
+      )}
     </div>
   );
 }
