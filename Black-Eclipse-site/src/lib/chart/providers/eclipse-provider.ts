@@ -67,29 +67,6 @@ export class EclipseChartProvider implements ChartProvider {
     return this.chart;
   }
 
-  /**
-   * Pixel offset (from the chart container's top-right) of the live-price line,
-   * so the candle countdown badge can sit on the price like TradingView. Returns
-   * null when there is no live price or the chart cannot resolve the point.
-   */
-  getLivePriceY(): number | null {
-    if (!this.chart || this.livePrice == null || !Number.isFinite(this.livePrice)) return null;
-    const data = this.data;
-    if (!data || data.bars.length === 0) return null;
-    try {
-      const px = this.chart.convertToPixel({ gridIndex: 0 }, [data.bars.length - 1, this.livePrice]);
-      if (!px || !Array.isArray(px) || !Number.isFinite(px[1])) return null;
-      return px[1];
-    } catch {
-      return null;
-    }
-  }
-
-  /** Right gutter (px) reserved for the live-price tag. */
-  getRightGutter(): number {
-    return this.rightGutter;
-  }
-
   initialize(container: HTMLElement): void {
     this.container = container;
     this.chart = echarts.init(container, undefined, { renderer: 'canvas' });

@@ -883,8 +883,44 @@ html:not(.dark) .tab-bar-glass {
     inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
 
-/* Floating fund-actions popover — matches the frosted menu recipe. */
-.fund-menu-glass {
+/* On-chart live price ticker — one frosted pill, tinted by direction. ALWAYS
+   keeps a real backdrop blur (frosted glass), never a flat translucent fill. */
+.glass-ticker {
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+.glass-ticker-up {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+.glass-ticker-down {
+  background: rgba(244, 63, 94, 0.18);
+  border-color: rgba(251, 113, 133, 0.45);
+  color: #fda4af;
+}
+html:not(.dark) .glass-ticker {
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+}
+html:not(.dark) .glass-ticker-up {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+html:not(.dark) .glass-ticker-down {
+  background: rgba(244, 63, 94, 0.16);
+  color: #be123c;
+}
+
+/* Floating fund-actions popover — matches the frosted menu recipe. */.fund-menu-glass {
   background: rgba(16, 16, 18, 0.78);
   backdrop-filter: blur(22px) saturate(1.4);
   -webkit-backdrop-filter: blur(22px) saturate(1.4);
