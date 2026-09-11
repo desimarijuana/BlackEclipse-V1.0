@@ -11,7 +11,7 @@
 // click-to-place, left/right buttons, duplicate, hide, config, library) is
 // handled here.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
@@ -62,7 +62,19 @@ export function CustomizableWorkspace({
   const [addDrag, setAddDrag] = useState<{ widgetId: string; label: string; mode: 'hold' | 'click' } | null>(null);
   const refreshAll = useRefreshAll();
 
-  const endAddDrag = useCallback(() => setAddDrag(null), []);
+  // Timestamp of the last add-commit. The trailing click of a double-click
+  // lands on the palette backdrop (which becomes interactive the instant the
+  // add ends) — ignore backdrop closes for a moment so it doesn't shut the
+  // panel mid double-click.
+  const lastAddEndRef = useRef(0);
+  const endAddDrag = useCallback(() => {
+    lastAddEndRef.current = performance.now();
+    setAddDrag(null);
+  }, []);
+  const closeLibrary = useCallback(() => {
+    if (performance.now() - lastAddEndRef.current < 450) return;
+    setLibraryOpen(false);
+  }, []);
 
   const placed = useMemo(
     () => new Set(workspace.layout.sections.flatMap(s => s.columns.flatMap(c => c.widgets.map(w => w.widgetId)))),
@@ -133,7 +145,7 @@ export function CustomizableWorkspace({
             <Settings2 size={14} /> Customizing
           </span>
           <span className="text-[10px] text-muted-foreground hidden md:inline">
-            Drag to move · click to pick up, double-click to place · drag a widget from the panel to add
+            Drag to move · click to pick up, click a spot to place (double-click confirms) · drag a widget from the panel
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             {editBarExtra}
@@ -184,7 +196,7 @@ export function CustomizableWorkspace({
           widgets={widgets}
           widgetIcon={widgetIcon}
           onAdd={(id) => { workspace.ops.addWidget(id); }}
-          onClose={() => setLibraryOpen(false)}
+          onClose={closeLibrary}
           placed={placed}
           onStartAddDrag={(widgetId, label, mode) => setAddDrag({ widgetId, label, mode })}
           dragActive={!!addDrag}

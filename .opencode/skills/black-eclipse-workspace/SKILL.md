@@ -50,8 +50,8 @@ Workspace kernel  (src/lib/workspace/)
   `onStartAddDrag(id, label, mode)`):
   - `mode: 'hold'` — press a row and drag past a 5px threshold, release to place.
   - `mode: 'click'` — a plain click starts **project mode**: a ghost follows the
-    cursor with the live drop-line, and a **double-click confirms** (right-click /
-    Esc cancels).
+    cursor with the live drop-line; a **single click on the canvas places** it
+    (a double-click also confirms; right-click / Esc cancels).
   While an add is in flight the palette goes `pointer-events-none` so
   `elementFromPoint` reaches the canvas underneath.
 - **`WidgetConfigPanel`** (`src/components/workspace/widget-config.tsx`) — renders
@@ -146,9 +146,10 @@ behind one interface; the paper broker implements the same shape.
 
 - **Hold-and-place** (drag): click-hold a card and drag, release to place.
 - **Click-to-project** (cards & adds): a single click *projects* the card/widget
-  (floating ghost + live drop-line follow the cursor). A single click on a spot
-  **arms a preview**, a **double-click confirms**, and **right-click / Esc
-  cancels**. Clicking the same card again cancels the grab.
+  (floating ghost + live drop-line follow the cursor). A **single click on a
+  target places immediately** (the classic two-click flow); a **double-click
+  also confirms** and **right-click / Esc cancels**. Clicking the same card
+  again cancels the grab.
 - **Add from the library** uses the same two modes:
   - *hold* — press a palette row, drag out, release to place;
   - *click* — click a palette row to project, then double-click to place.
@@ -179,10 +180,12 @@ behind one interface; the paper broker implements the same shape.
   its own dnd-kit listeners so it still starts a drag.
 - Add is NOT a dnd-kit drag: it reuses the canvas’s real-pointer projection
   (`computeTarget(..., '__add__')`) and renders its floating ghost through a
-  portal. In `'click'` mode `pointerup` does NOT commit — the double-click
-  handler on the canvas does. The host (`CustomizableWorkspace`) owns
-  `addingWidgetId` / `addingMode` and must pass a stable `onAddingEnd`
-  (useCallback) so the projection effect isn’t torn down mid-project.
+  portal. In `'click'` mode `pointerup` does NOT commit — a real single click on
+  the canvas (the workspace `onClick`), a double-click, or a drop on an empty
+  column does. The host (`CustomizableWorkspace`) owns `addingWidgetId` /
+  `addingMode` and passes a stable `onAddingEnd` (useCallback); it also ignores
+  palette-backdrop closes for ~450ms after an add so the trailing click of a
+  double-click doesn’t shut the panel.
 - The library’s full-screen backdrop intercepts pointer events; close the drawer
   (or run an add-project, which sets `pointer-events-none`) before interacting
   with cards underneath.

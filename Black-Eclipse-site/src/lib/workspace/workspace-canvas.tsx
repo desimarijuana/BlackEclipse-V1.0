@@ -384,9 +384,8 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   }, [addingWidgetId, addingMode, computeTarget, commitAdd, setTargetBoth, onAddingEnd]);
 
   /**
-   * Click-to-place for a grabbed card. A single click on a drop target ARMS the
-   * preview (ghost slot); a double-click (or clicking the ghost) commits.
-   * Clicking outside any drop area cancels the grab.
+   * Click-to-place for a grabbed card. A click on a drop target commits the
+   * move (and a double-click also confirms). Clicking outside cancels.
    */
   const confirmOrArm = useCallback((coords?: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
@@ -399,9 +398,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       setArmedBoth(null);
       return;
     }
-    // Arm the preview — double-click confirms.
-    setArmedBoth(t);
-  }, [computeTarget, setArmedBoth, setTargetBoth]);
+    setGrabbedId(null);
+    setTargetBoth(null);
+    setArmedBoth(null);
+    commitTarget(id, t);
+  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
 
   /** Cancel grab entirely (Escape / right-click / strip with no arm). */
   const cancelGrab = useCallback(() => {
@@ -433,27 +434,36 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     if (id && t) commitTarget(id, t);
   }, [cancelGrab, commitTarget]);
 
-  /** Click on an empty column while grabbing → arm the preview there. */
+  /** Click on an empty column while grabbing → place into it (index 0). */
   const onEmptyColumnClick = useCallback((coords: { x: number; y: number }) => {
     const id = grabStateRef.current.id;
     if (!id) return;
     const t = computeTarget(coords.x, coords.y, id);
     if (!t) return;
-    // Arm the preview — double-click confirms.
-    setArmedBoth(t);
-  }, [computeTarget, setArmedBoth]);
+    setGrabbedId(null);
+    setTargetBoth(null);
+    setArmedBoth(null);
+    commitTarget(id, t);
+  }, [computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
+
+  // Single-click placement for a library add-project. A double-click fires
+  // click→click→dblclick, so guard against committing twice.
+  const addCommitGuardRef = useRef(0);
+  const commitAddAt = useCallback((px: number, py: number) => {
+    if (!addingWidgetId) return;
+    const now = performance.now();
+    if (now - addCommitGuardRef.current < 350) return;
+    addCommitGuardRef.current = now;
+    const t = computeTarget(px, py, '__add__');
+    onAddingEnd?.();
+    if (t) commitAdd(addingWidgetId, t);
+  }, [addingWidgetId, computeTarget, commitAdd, onAddingEnd]);
 
   /**
-   * Double-click commits the current projection: the ADD for a library
-   * click-project, or the armed/held card move for a click-grab.
+   * Double-click commit: the ADD for a click-project, or the held card move.
    */
   const commitOnDoubleClick = useCallback((px: number, py: number) => {
-    if (addingWidgetId) {
-      const t = computeTarget(px, py, '__add__');
-      onAddingEnd?.();
-      if (t) commitAdd(addingWidgetId, t);
-      return;
-    }
+    if (addingWidgetId) { commitAddAt(px, py); return; }
     const id = grabStateRef.current.id;
     if (!id) return;
     const t = computeTarget(px, py, id);
@@ -461,7 +471,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     setTargetBoth(null);
     setArmedBoth(null);
     if (t) commitTarget(id, t);
-  }, [addingWidgetId, computeTarget, commitAdd, commitTarget, onAddingEnd, setArmedBoth, setTargetBoth]);
+  }, [addingWidgetId, commitAddAt, computeTarget, commitTarget, setArmedBoth, setTargetBoth]);
 
   const isEmpty = layout.sections.every(s => s.columns.every(c => c.widgets.length === 0));
   // Any edit-gesture in flight: dnd drag, click-grab, or an add-drag from the library.
@@ -471,6 +481,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
     <div
       className={cn('relative', className)}
       data-workspace
+      onClick={(e) => {
+        // Single click places a library add-project (the classic
+        // "click to project, click to place"); double-click also confirms.
+        if (addingWidgetId) commitAddAt(e.clientX, e.clientY);
+      }}
       onDoubleClick={(e) => {
         if (!grabbedId && !addingWidgetId) return;
         e.preventDefault();
@@ -536,8 +551,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                   anchorId={section.id} pos="above"
                   dragging={dragging}
                   isGrabbing={grabbedId !== null}
+                  isAdding={addingWidgetId !== null}
                   onStripClick={() => {
-                    if (addingWidgetId) return; // add-project commits on double-click
+                    if (addingWidgetId) return; // add-project commits on click
                     if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above');
                     else ops.createSectionAt(section.id, 'above');
                   }}
@@ -576,8 +592,9 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                   anchorId={section.id} pos="below"
                   dragging={dragging}
                   isGrabbing={grabbedId !== null}
+                  isAdding={addingWidgetId !== null}
                   onStripClick={() => {
-                    if (addingWidgetId) return; // add-project commits on double-click
+                    if (addingWidgetId) return; // add-project commits on click
                     if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below');
                     else ops.createSectionAt(section.id, 'below');
                   }}
@@ -607,7 +624,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
         <div className="sticky bottom-4 z-40 mt-3 flex items-center justify-center gap-2 animate-fade-in">
           <div className="glass-card flex items-center gap-2 rounded-2xl px-3 py-2 shadow-lg shadow-black/30">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
-              Click a spot to preview · double-click to place · right-click / Esc cancels
+              Click a spot to place (double-click confirms) · right-click / Esc cancels
             </span>
             <button
               onClick={cancelGrab}
@@ -625,7 +642,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:inline">
               {addingMode === 'hold'
                 ? `Drop ${addingLabel ?? 'the widget'} on a column or a “New section” strip · Esc cancels`
-                : `Move over a spot, then double-click to place ${addingLabel ?? 'the widget'} · right-click / Esc cancels`}
+                : `Click a spot to place ${addingLabel ?? 'the widget'} (double-click confirms) · right-click / Esc cancels`}
             </span>
             <button
               onClick={() => onAddingEnd?.()}
@@ -824,8 +841,12 @@ function ColumnDroppable({
         <button
           type="button"
           onClick={(e) => {
-            e.stopPropagation();
-            if (grabbedId) onEmptyColumnClick({ x: e.clientX, y: e.clientY });
+            if (grabbedId) {
+              e.stopPropagation();
+              onEmptyColumnClick({ x: e.clientX, y: e.clientY });
+            }
+            // Otherwise let the click bubble: during an add-project the canvas
+            // commits the placement at the pointer; idle clicks are no-ops.
           }}
           className={cn(
             'flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-dashed border-white/15 dark:border-white/10 text-[10px] font-semibold text-muted-foreground/50 cursor-pointer',
@@ -1034,11 +1055,12 @@ function ColumnEdge({ side, column, section, hot }: {
 
 /** Slim strip between/around sections: dropping (or clicking) creates a new
  * section there. While a card is click-grabbed, clicking commits the grab. */
-function NewSectionStrip({ anchorId, pos, dragging, isGrabbing, onStripClick }: {
+function NewSectionStrip({ anchorId, pos, dragging, isGrabbing, isAdding, onStripClick }: {
   anchorId: string;
   pos: 'above' | 'below';
   dragging: boolean;
   isGrabbing: boolean;
+  isAdding: boolean;
   onStripClick: () => void;
 }) {
   const dndId = idOf.newsection(anchorId, pos);
@@ -1049,7 +1071,13 @@ function NewSectionStrip({ anchorId, pos, dragging, isGrabbing, onStripClick }: 
       type="button"
       data-newsec={`${anchorId}:${pos}`}
       data-nodrag
-      onClick={(e) => { e.stopPropagation(); onStripClick(); }}
+      onClick={(e) => {
+        // During an add-project the click must bubble to the canvas so it
+        // commits the placement (including "new section" targets).
+        if (isAdding) return;
+        e.stopPropagation();
+        onStripClick();
+      }}
       className={cn(
         'flex h-7 items-center justify-center gap-2 rounded-xl border border-dashed text-[9px] font-bold uppercase tracking-widest transition-all cursor-pointer touch-none',
         dragging ? 'opacity-100' : 'opacity-40 hover:opacity-100',
@@ -1059,8 +1087,8 @@ function NewSectionStrip({ anchorId, pos, dragging, isGrabbing, onStripClick }: 
       )}
     >
       <Plus size={11} />
-      {isGrabbing
-        ? (isOver ? 'Release to place here' : 'Click to place the held card here')
+      {isGrabbing || isAdding
+        ? (isOver ? 'Click to place here' : 'Click to place the held widget here')
         : isOver ? 'Release for a new section' : 'New section here'}
     </button>
   );
