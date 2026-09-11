@@ -385,7 +385,13 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
         <div ref={containerRef} className="absolute inset-0" />
         <DrawingOverlay getChart={getChart} manager={drawingManager} controller={drawingController} tool={tool} />
         {!emptyResult && (
-          <CandleBadge symbol={chartState.symbol} market={chartState.market} timeframe={chartState.timeframe} />
+          <CandleBadge
+            symbol={chartState.symbol}
+            market={chartState.market}
+            timeframe={chartState.timeframe}
+            getY={() => (providerRef.current as EclipseChartProvider | null)?.getLivePriceY?.() ?? null}
+            getRightGutter={() => (providerRef.current as EclipseChartProvider | null)?.getRightGutter?.() ?? 54}
+          />
         )}
         {loading && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -439,15 +445,42 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
 // ── Price footer ──────────────────────────────────────────────────────────────
 
 /**
- * On-chart countdown badge (top-right, near the live price tag) showing when the
- * currently-forming candle closes. Keeps the timer visible even when the footer
- * is clipped by a short viewport.
+ * On-chart countdown badge anchored to the live-price line (like TradingView's
+ * price label), showing when the currently-forming candle closes. Falls back to
+ * the top-right corner until the price level is known. Keeps the timer visible
+ * even when the footer is clipped by a short viewport.
  */
-function CandleBadge({ symbol, market, timeframe }: { symbol: string; market: string; timeframe: Timeframe }) {
+function CandleBadge({
+  symbol, market, timeframe, getY, getRightGutter,
+}: {
+  symbol: string;
+  market: string;
+  timeframe: Timeframe;
+  getY: () => number | null;
+  getRightGutter: () => number;
+}) {
   const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market);
+  const [y, setY] = useState<number | null>(null);
+  const [gutter, setGutter] = useState(54);
+
+  // Track the live-price pixel row so the badge rides the price. Re-sampled on a
+  // light interval + on window resize (cheap; the chart also re-renders often).
+  useEffect(() => {
+    const sample = () => {
+      setY(getY());
+      setGutter(getRightGutter());
+    };
+    sample();
+    const t = setInterval(sample, 500);
+    window.addEventListener('resize', sample);
+    return () => { clearInterval(t); window.removeEventListener('resize', sample); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div
-      className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-lg border border-border/30 glass-card-strong px-2 py-1 font-mono text-[10px]"
+      className="pointer-events-none absolute z-20 flex items-center gap-1.5 rounded-lg border border-border/30 glass-card-strong px-2 py-1 font-mono text-[10px] transition-[top] duration-150"
+      style={y != null ? { top: y - 11, right: gutter + 6 } : { top: 8, right: gutter + 6 }}
       title={`Time until the next ${candle.label}`}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', closedMarket ? 'bg-amber-400' : 'animate-pulse bg-primary')} />

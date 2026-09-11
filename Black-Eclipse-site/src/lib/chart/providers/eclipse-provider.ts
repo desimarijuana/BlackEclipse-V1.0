@@ -47,6 +47,8 @@ export class EclipseChartProvider implements ChartProvider {
   private userAdjustedZoom = false;
   // Live last price from /api/quote — drawn as a dashed line + tag on the main pane.
   private livePrice: number | null = null;
+  // Right gutter (px) reserved for the live-price tag; shared with the badge.
+  private readonly rightGutter = 54;
 
   constructor(initial: ChartState) {
     this.state = { ...initial };
@@ -63,6 +65,29 @@ export class EclipseChartProvider implements ChartProvider {
   /** Expose the live ECharts instance for the drawing overlay. */
   getEChartsInstance(): echarts.ECharts | null {
     return this.chart;
+  }
+
+  /**
+   * Pixel offset (from the chart container's top-right) of the live-price line,
+   * so the candle countdown badge can sit on the price like TradingView. Returns
+   * null when there is no live price or the chart cannot resolve the point.
+   */
+  getLivePriceY(): number | null {
+    if (!this.chart || this.livePrice == null || !Number.isFinite(this.livePrice)) return null;
+    const data = this.data;
+    if (!data || data.bars.length === 0) return null;
+    try {
+      const px = this.chart.convertToPixel({ gridIndex: 0 }, [data.bars.length - 1, this.livePrice]);
+      if (!px || !Array.isArray(px) || !Number.isFinite(px[1])) return null;
+      return px[1];
+    } catch {
+      return null;
+    }
+  }
+
+  /** Right gutter (px) reserved for the live-price tag. */
+  getRightGutter(): number {
+    return this.rightGutter;
   }
 
   initialize(container: HTMLElement): void {
@@ -271,6 +296,21 @@ export class EclipseChartProvider implements ChartProvider {
     const closes = bars.map((b) => b.close);
     const volumes = bars.map((b) => b.volume ?? 0);
 
+    // Fold the live quote into the currently-forming (last) candle so the last
+    // price line, tag, and candle body all sit at the same level — TradingView
+    // does this. Without it the quote (fresher than the delayed candle) floats
+    // above the last bar.
+    if (this.livePrice != null && Number.isFinite(this.livePrice) && bars.length > 0) {
+      const i = bars.length - 1;
+      const c = candleData[i];
+      candleData[i] = [
+        c[0],
+        this.livePrice,
+        Math.min(c[2], this.livePrice),
+        Math.max(c[3], this.livePrice),
+      ];
+      closes[i] = this.livePrice;
+    }
     // ── Grids: one per pane, stacked vertically ────────────────────────────
     const grids: EChartsOption['grid'] = [];
     const xAxes: EChartsOption['xAxis'] = [];
@@ -287,7 +327,7 @@ export class EclipseChartProvider implements ChartProvider {
     const gap = 0.02;
     // Right gutter reserved for the live-price tag (TradingView-style). Applied
     // to every pane so their x-axes stay aligned.
-    const rightGutter = 54;
+    const rightGutter = this.rightGutter;
 
     let cursor = topMargin;
     panes.forEach((pane, idx) => {
@@ -352,16 +392,6 @@ export class EclipseChartProvider implements ChartProvider {
           const result = this.indicatorResults.get(cfg.id);
           if (!result || result.pane !== 'overlay') continue;
           series.push(...this.indicatorSeries(result, gridIdx, gridIdx, up, down));
-        }
-        // Invisible point at the live price so the y-axis scales to include it
-        // (otherwise the dashed last-price line can sit off-screen).
-        if (this.livePrice != null && Number.isFinite(this.livePrice)) {
-          const liveData = closes.map((_, i) => (i === closes.length - 1 ? this.livePrice : null));
-          series.push({
-            name: '__live', type: 'line', xAxisIndex: gridIdx, yAxisIndex: gridIdx,
-            data: liveData, showSymbol: false, silent: true, lineStyle: { opacity: 0 },
-            tooltip: { show: false }, z: 0,
-          });
         }
       } else if (pane.type === 'volume') {
         yAxes.push({
@@ -467,11 +497,12 @@ export class EclipseChartProvider implements ChartProvider {
    * latest price with a filled price tag on the right axis.
    */
   private livePriceMarkLine(closes: number[], up: string, down: string): Record<string, unknown> | null {
-    const last = closes[closes.length - 1];
-    const price = this.livePrice ?? last;
+    const price = this.livePrice ?? closes[closes.length - 1];
     if (price == null || !Number.isFinite(price)) return null;
-    const isUp = price >= last;
-    const color = isUp ? up : down;
+    // `closes` already has the live price folded into its last slot, so compare
+    // against the previous bar to decide the up/down tint.
+    const ref = closes.length >= 2 ? closes[closes.length - 2] : closes[closes.length - 1];
+    const color = price >= ref ? up : down;
     return {
       yAxis: price,
       lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
