@@ -238,8 +238,14 @@ register({
     const period = Number(settings.period ?? 14);
     const values = candles.map((c) => c.close);
     return {
-      pane: 'separate', paneHeight: 0.2, yMin: 0, yMax: 100,
+      pane: 'separate', paneHeight: 0.22, yMin: 0, yMax: 100,
       series: [{ id: 'rsi', label: `RSI ${period}`, kind: 'line', data: rsi(values, period), color: '#a78bfa' }],
+      marks: {
+        markLine: [
+          { yAxis: 70, lineStyle: { color: 'rgba(255,62,62,0.35)', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: 30, lineStyle: { color: 'rgba(122,255,120,0.35)', type: 'dashed', width: 1 }, label: { show: false } },
+        ],
+      },
     };
   },
 });

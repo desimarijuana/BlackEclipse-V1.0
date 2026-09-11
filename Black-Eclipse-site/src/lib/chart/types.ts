@@ -401,6 +401,9 @@ export interface ChartProvider {
   /** Switch the chart rendering style. */
   setChartType(type: ChartType): void;
 
+  /** Update the live last price (Phase 4 — realtime). Optional. */
+  setLivePrice?(price: number | null): void;
+
   /** Reflow to the container's current size. */
   resize(): void;
 
@@ -438,7 +441,7 @@ export function timeframeToYahoo(timeframe: Timeframe): { interval: string; rang
     case '1H': return { interval: '60m', range: '3mo' };
     case '2H': return { interval: '60m', range: '6mo' };
     case '4H': return { interval: '60m', range: '6mo' };
-    case '1D': return { interval: '1d', range: '3mo' };
+    case '1D': return { interval: '1d', range: '6mo' };
     case '1W': return { interval: '1wk', range: '1y' };
     case '1M': return { interval: '1mo', range: '5y' };
   }

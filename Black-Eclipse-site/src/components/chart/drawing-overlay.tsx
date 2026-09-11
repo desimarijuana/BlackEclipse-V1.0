@@ -2,8 +2,13 @@
 
 // ── Drawing Overlay ───────────────────────────────────────────────────────────
 // A transparent canvas layered over the ECharts chart. It renders all drawings
-// (market-anchored), handles pointer events for the DrawingController, and
-// redraws on every chart transform (zoom/pan/resize) and drawing change.
+// (market-anchored) and handles pointer events for the DrawingController.
+//
+// The canvas itself is `pointer-events: none` so it NEVER blocks ECharts
+// pan/zoom. Instead we attach capture-phase listeners to the chart container:
+// when a drawing/handle is under the cursor (or a drawing tool is active) we
+// consume the event before ECharts sees it; otherwise the event falls through
+// to ECharts so wheel-zoom and drag-pan work natively.
 
 import React, { useEffect, useRef } from 'react';
 import type { ECharts } from 'echarts';
@@ -25,6 +30,7 @@ export function DrawingOverlay({ getChart, manager, controller, tool }: DrawingO
   const transformRef = useRef<CoordinateTransformer | null>(null);
   const rafRef = useRef<number | null>(null);
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const captureRef = useRef(false);
 
   // Rebuild the transformer whenever the chart instance changes.
   useEffect(() => {
@@ -42,9 +48,12 @@ export function DrawingOverlay({ getChart, manager, controller, tool }: DrawingO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manager]);
 
-  // Redraw on tool change.
+  // Redraw on tool change + reflect the active tool in the cursor.
   useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (parent) parent.style.cursor = tool === 'cursor' ? '' : 'crosshair';
     scheduleDraw();
+    return () => { if (parent) parent.style.cursor = ''; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
 
@@ -62,6 +71,69 @@ export function DrawingOverlay({ getChart, manager, controller, tool }: DrawingO
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getChart]);
+
+  // Capture-phase pointer routing on the chart container. Consuming an event
+  // (stopPropagation + preventDefault) prevents ECharts from panning; letting
+  // it through enables native pan/zoom.
+  useEffect(() => {
+    const parent = canvasRef.current?.parentElement;
+    if (!parent) return;
+
+    const local = (e: PointerEvent): { x: number; y: number } => {
+      const rect = parent.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+
+    const onDown = (e: PointerEvent) => {
+      const { x, y } = local(e);
+      pointerRef.current = { x, y };
+      if (controller.wantsPointer(x, y)) {
+        captureRef.current = true;
+        e.stopPropagation();
+        e.preventDefault();
+        controller.pointerDown(x, y);
+        scheduleDraw();
+      }
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const { x, y } = local(e);
+      pointerRef.current = { x, y };
+      if (captureRef.current) {
+        e.stopPropagation();
+        e.preventDefault();
+        controller.pointerMove(x, y);
+      }
+      scheduleDraw();
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (captureRef.current) {
+        captureRef.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+        controller.pointerUp();
+        scheduleDraw();
+      }
+    };
+
+    const onLeave = () => {
+      pointerRef.current = null;
+      scheduleDraw();
+    };
+
+    parent.addEventListener('pointerdown', onDown, true);
+    parent.addEventListener('pointermove', onMove, true);
+    parent.addEventListener('pointerup', onUp, true);
+    parent.addEventListener('pointerleave', onLeave, true);
+    return () => {
+      parent.removeEventListener('pointerdown', onDown, true);
+      parent.removeEventListener('pointermove', onMove, true);
+      parent.removeEventListener('pointerup', onUp, true);
+      parent.removeEventListener('pointerleave', onLeave, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller, tool]);
 
   function scheduleDraw() {
     if (rafRef.current != null) return;
@@ -144,41 +216,11 @@ export function DrawingOverlay({ getChart, manager, controller, tool }: DrawingO
     }
   }
 
-  function toLocal(e: React.PointerEvent): { x: number; y: number } {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }
-
-  function onPointerDown(e: React.PointerEvent) {
-    const { x, y } = toLocal(e);
-    pointerRef.current = { x, y };
-    const consumed = controller.pointerDown(x, y);
-    if (consumed) e.preventDefault();
-    scheduleDraw();
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    const { x, y } = toLocal(e);
-    pointerRef.current = { x, y };
-    const consumed = controller.pointerMove(x, y);
-    if (consumed) e.preventDefault();
-    scheduleDraw();
-  }
-
-  function onPointerUp() {
-    controller.pointerUp();
-    scheduleDraw();
-  }
-
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 z-10 h-full w-full"
-      style={{ cursor: tool === 'cursor' ? 'default' : 'crosshair', touchAction: 'none' }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={() => { pointerRef.current = null; scheduleDraw(); }}
+      className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+      style={{ touchAction: 'none' }}
     />
   );
 }

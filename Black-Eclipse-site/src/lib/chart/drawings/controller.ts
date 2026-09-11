@@ -157,8 +157,23 @@ export class DrawingController {
     return { tool: this.state.tool, points: this.state.points };
   }
 
-  private hitTest(x: number, y: number): { id: string; handleIndex: number | null } | null {
-    const drawings = this.manager.getAll();
+  /**
+   * True when the given screen point should be captured by the overlay (i.e.
+   * a drawing/handle is under the cursor, or a drawing tool is active). When
+   * false the overlay yields pointer events to ECharts so pan/zoom work.
+   */
+  wantsPointer(x: number, y: number): boolean {
+    if (this.tool !== 'cursor') return true;
+    if (this.state.phase !== 'idle') return true;
+    return this.hitTest(x, y) != null;
+  }
+
+  /** True while an interaction is in progress (drawing/moving/resizing). */
+  isInteracting(): boolean {
+    return this.state.phase !== 'idle';
+  }
+
+  private hitTest(x: number, y: number): { id: string; handleIndex: number | null } | null {    const drawings = this.manager.getAll();
     // Handles of the selected drawing first.
     const selected = this.manager.getSelected();
     if (selected) {

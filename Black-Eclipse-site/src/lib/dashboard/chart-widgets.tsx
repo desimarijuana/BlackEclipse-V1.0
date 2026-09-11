@@ -275,7 +275,7 @@ export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement 
   const symbol = (placement?.config?.symbol as string) || 'AAPL';
   const market = (placement?.config?.market as string) || 'US';
   return (
-    <div className="flex h-full w-full flex-col p-2" style={{ minHeight: 420 }}>
+    <div className="flex h-full w-full flex-col p-2" style={{ minHeight: 620 }}>
       <ChartWidget symbol={symbol} market={market} className="h-full" />
     </div>
   );

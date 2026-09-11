@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
+import { ChartWidget } from '@/components/chart/chart-widget';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { formatPriceWithCurrency } from '@/lib/market-currency';
 
@@ -165,7 +166,6 @@ export function TradingViewChart({
   dividendRate = 'N/A',
   fdv = 'N/A',
 }: TradingViewChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals'>('chart');
   const [showGlossary, setShowGlossary] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -239,40 +239,6 @@ export function TradingViewChart({
   // "1301") only resolve with their exchange prefix (SZSE:, PSX:, TSE:...).
   const tvResolved = getTradingViewSymbol(symbol, isCryptoAsset, effCountry || undefined);
   const tvSymbolDisplay = tvResolved;
-
-  // Interactive Chart script loading (uses the reliable advanced-chart embed widget)
-  useEffect(() => {
-    if (activeTab !== 'chart' || !mounted) return;
-    const container = containerRef.current;
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
-    script.type = 'text/javascript';
-    script.async = true;
-    script.innerHTML = JSON.stringify({
-      autosize: true,
-      symbol: tvResolved,
-      interval: 'D',
-      timezone: 'Etc/UTC',
-      theme: 'dark',
-      style: '1',
-      locale: 'en',
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      gridColor: 'rgba(122, 255, 120, 0.05)',
-      allow_symbol_change: true,
-      hide_side_toolbar: false,
-      hide_legend: false,
-      studies: ['STD;RSI'],
-    });
-    container.appendChild(script);
-
-    return () => {
-      container.innerHTML = '';
-    };
-  }, [symbol, activeTab, mounted, isCryptoAsset, tvResolved]);
 
   // ESC closes the overlay — a standard exit users expect.
   useEffect(() => {
@@ -455,9 +421,9 @@ export function TradingViewChart({
           <div className="flex-1 w-full h-full relative min-h-0 overflow-y-auto tv-metrics-rail">
             {activeTab === 'chart' && (
               <div className="w-full h-full flex flex-col">
-                <div id="tradingview_widget_container" ref={containerRef} className="flex-1 w-full glass-card-subtle dark:bg-transparent min-h-0" />
-                {/* Breathing room below the TradingView widget so it never looks cramped */}
-                <div className="h-16 shrink-0 bg-gradient-to-b from-transparent to-background/60 pointer-events-none" />
+                <div className="flex-1 w-full min-h-0">
+                  <ChartWidget symbol={symbol} market={effCountry || 'US'} className="h-full" />
+                </div>
               </div>
             )}
 

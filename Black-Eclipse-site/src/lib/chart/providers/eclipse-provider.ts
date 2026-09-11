@@ -37,9 +37,27 @@ export class EclipseChartProvider implements ChartProvider {
   private state: ChartState;
   private data: ChartData | null = null;
   private indicatorResults = new Map<string, IndicatorResult>();
+  // Persisted dataZoom window so re-renders (indicator add, resize, etc.)
+  // don't snap the user's pan/zoom back to the full range.
+  private zoomStart = 0;
+  private zoomEnd = 100;
+  // False until the user pans/zooms. While false, new data loads show the most
+  // recent window (like TradingView) instead of the entire history, so there is
+  // room to pan left.
+  private userAdjustedZoom = false;
+  // Live last price from /api/quote — drawn as a dashed line + tag on the main pane.
+  private livePrice: number | null = null;
 
   constructor(initial: ChartState) {
     this.state = { ...initial };
+  }
+
+  /** Show the most recent ~90 bars on first load (TradingView-style). */
+  private defaultZoom(bars: { length: number }): { start: number; end: number } {
+    const total = bars.length;
+    const visible = Math.min(90, total);
+    if (total <= visible) return { start: 0, end: 100 };
+    return { start: +(((total - visible) / total) * 100).toFixed(2), end: 100 };
   }
 
   /** Expose the live ECharts instance for the drawing overlay. */
@@ -52,6 +70,14 @@ export class EclipseChartProvider implements ChartProvider {
     this.chart = echarts.init(container, undefined, { renderer: 'canvas' });
     this.ro = new ResizeObserver(() => this.chart?.resize());
     this.ro.observe(container);
+    // Track the user's zoom window so re-renders preserve it.
+    this.chart.on('datazoom', (e: unknown) => {
+      const batch = (e as { batch?: Array<{ start?: number; end?: number }> }).batch;
+      const first = batch?.[0] ?? (e as { start?: number; end?: number });
+      if (first && typeof first.start === 'number') this.zoomStart = first.start;
+      if (first && typeof first.end === 'number') this.zoomEnd = first.end;
+      this.userAdjustedZoom = true;
+    });
     this.render();
   }
 
@@ -64,17 +90,39 @@ export class EclipseChartProvider implements ChartProvider {
   }
 
   setSymbol(symbol: string, market: string): void {
+    if (this.state.symbol !== symbol || this.state.market !== market) {
+      this.zoomStart = 0;
+      this.zoomEnd = 100;
+      this.userAdjustedZoom = false;
+      this.livePrice = null;
+    }
     this.state.symbol = symbol;
     this.state.market = market;
   }
 
   setTimeframe(timeframe: Timeframe): void {
+    if (this.state.timeframe !== timeframe) {
+      this.zoomStart = 0;
+      this.zoomEnd = 100;
+      this.userAdjustedZoom = false;
+    }
     this.state.timeframe = timeframe;
   }
 
   setData(data: ChartData): void {
     this.data = data;
+    if (!this.userAdjustedZoom) {
+      const z = this.defaultZoom(data.bars);
+      this.zoomStart = z.start;
+      this.zoomEnd = z.end;
+    }
     this.recomputeIndicators();
+    this.render();
+  }
+
+  setLivePrice(price: number | null): void {
+    if (price === this.livePrice) return;
+    this.livePrice = price;
     this.render();
   }
   addIndicator(config: ChartIndicatorConfig): void {
@@ -106,6 +154,41 @@ export class EclipseChartProvider implements ChartProvider {
 
   resize(): void {
     this.chart?.resize();
+  }
+
+  /** Zoom the visible window in/out by a multiplicative factor around center. */
+  zoomBy(factor: number): void {
+    const span = this.zoomEnd - this.zoomStart;
+    const center = (this.zoomStart + this.zoomEnd) / 2;
+    const nextSpan = Math.max(1, Math.min(100, span * factor));
+    let start = center - nextSpan / 2;
+    let end = center + nextSpan / 2;
+    if (start < 0) { end -= start; start = 0; }
+    if (end > 100) { start -= end - 100; end = 100; }
+    start = Math.max(0, start);
+    this.zoomStart = start;
+    this.zoomEnd = end;
+    this.chart?.dispatchAction({ type: 'dataZoom', start, end });
+  }
+
+  /** Pan the visible window left/right by a fraction of the current span. */
+  panBy(fraction: number): void {
+    const span = this.zoomEnd - this.zoomStart;
+    let start = this.zoomStart + span * fraction;
+    let end = this.zoomEnd + span * fraction;
+    if (start < 0) { end -= start; start = 0; }
+    if (end > 100) { start -= end - 100; end = 100; }
+    this.zoomStart = Math.max(0, start);
+    this.zoomEnd = end;
+    this.chart?.dispatchAction({ type: 'dataZoom', start: this.zoomStart, end: this.zoomEnd });
+  }
+
+  /** Reset the visible window to the full range. */
+  resetZoom(): void {
+    this.zoomStart = 0;
+    this.zoomEnd = 100;
+    this.userAdjustedZoom = true;
+    this.chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
   }
 
   getState(): ChartState {
@@ -142,22 +225,31 @@ export class EclipseChartProvider implements ChartProvider {
   }
 
   // Build the pane layout: main + volume + any separate-pane indicators.
+  // Heights are fractions of the AVAILABLE area (container minus top/bottom
+  // margins), and are normalised so the stacked grids never overflow.
   private buildPanes(): Pane[] {
-    const gap = 0.02;
+    const separate = this.state.indicators.filter((cfg) => {
+      const r = this.indicatorResults.get(cfg.id);
+      return r && r.pane === 'separate';
+    });
+
     const panes: Pane[] = [{ id: 'main', type: 'main', height: 0 }];
-    // Volume always present.
-    panes.push({ id: 'volume', type: 'volume', height: 0.16 });
-    for (const cfg of this.state.indicators) {
+    panes.push({ id: 'volume', type: 'volume', height: 0.14 });
+    for (const cfg of separate) {
       const result = this.indicatorResults.get(cfg.id);
-      if (result && result.pane === 'separate') {
-        panes.push({ id: `ind-${cfg.id}`, type: 'indicator', indicatorId: cfg.id, height: result.paneHeight ?? 0.2 });
-      }
+      panes.push({ id: `ind-${cfg.id}`, type: 'indicator', indicatorId: cfg.id, height: result?.paneHeight ?? 0.22 });
     }
-    // Main takes the remaining height, minus the inter-pane gaps so the
-    // stacked grids never overflow the container.
+
+    // Main pane takes whatever is left after the fixed panes, with a floor so
+    // it stays the dominant pane. If there are many sub-panes, shrink them
+    // proportionally so everything fits.
     const fixed = panes.slice(1).reduce((a, p) => a + p.height, 0);
-    const gaps = (panes.length - 1) * gap;
-    panes[0].height = Math.max(0.3, 1 - fixed - gaps);
+    const minMain = 0.4;
+    if (fixed > 1 - minMain) {
+      const scale = (1 - minMain) / fixed;
+      for (let i = 1; i < panes.length; i++) panes[i].height *= scale;
+    }
+    panes[0].height = 1 - panes.slice(1).reduce((a, p) => a + p.height, 0);
     return panes;
   }
 
@@ -185,15 +277,26 @@ export class EclipseChartProvider implements ChartProvider {
     const yAxes: EChartsOption['yAxis'] = [];
     const series: echarts.SeriesOption[] = [];
     const dataZoomX: number[] = [];
+    const titles: NonNullable<EChartsOption['title']>[] = [];
 
-    let top = 0.06;
+    // Vertical region available to the stacked grids: leave a small top margin
+    // and reserve the bottom for the dataZoom slider so nothing overlaps.
+    const topMargin = 0.03;
+    const bottomMargin = 0.06;
+    const available = 1 - topMargin - bottomMargin;
     const gap = 0.02;
+    // Right gutter reserved for the live-price tag (TradingView-style). Applied
+    // to every pane so their x-axes stay aligned.
+    const rightGutter = 54;
+
+    let cursor = topMargin;
     panes.forEach((pane, idx) => {
-      const h = pane.height;
+      const h = pane.height * available;
       const gridIdx = idx;
       grids.push({
-        left: 8, right: 8, top: `${top * 100}%`, height: `${(h - gap) * 100}%`, containLabel: true,
-      });      xAxes.push({
+        left: 8, right: rightGutter, top: `${cursor * 100}%`, height: `${Math.max(0.05, h - gap * available) * 100}%`, containLabel: true,
+      });
+      xAxes.push({
         type: 'category', data: dates, gridIndex: gridIdx, boundaryGap: true,
         axisLine: { lineStyle: { color: GRID } },
         axisLabel: idx === panes.length - 1
@@ -202,6 +305,22 @@ export class EclipseChartProvider implements ChartProvider {
         axisTick: { show: false },
       });
       dataZoomX.push(gridIdx);
+
+      // Pane label (small, top-left of each sub-pane) so indicators are
+      // identifiable at a glance.
+      const paneLabel = pane.type === 'volume'
+        ? 'Volume'
+        : pane.type === 'indicator' && pane.indicatorId
+          ? this.indicatorResults.get(pane.indicatorId)?.series[0]?.label
+          : null;
+      if (paneLabel) {
+        titles.push({
+          text: paneLabel,
+          left: 12,
+          top: `${(cursor + 0.005) * 100}%`,
+          textStyle: { color: 'rgba(160,160,160,0.75)', fontSize: 9, fontFamily: 'monospace', fontWeight: 'normal' },
+        });
+      }
 
       if (pane.type === 'main') {
         yAxes.push({
@@ -216,8 +335,34 @@ export class EclipseChartProvider implements ChartProvider {
           if (Object.keys(marks).length > 0) {
             priceSeries[0] = { ...priceSeries[0], ...marks };
           }
+          const liveMark = this.livePriceMarkLine(closes, up, down);
+          if (liveMark) {
+            const existing = (priceSeries[0] as { markLine?: { data?: unknown[] } }).markLine;
+            priceSeries[0] = {
+              ...priceSeries[0],
+              markLine: (existing
+                ? { ...existing, data: [...(existing.data ?? []), liveMark] }
+                : { silent: true, symbol: 'none', data: [liveMark] }) as echarts.SeriesOption['markLine'],
+            };
+          }
         }
         series.push(...priceSeries);
+        // Overlay indicators (EMA/SMA/Bollinger/VWAP…) draw on the main pane.
+        for (const cfg of this.state.indicators) {
+          const result = this.indicatorResults.get(cfg.id);
+          if (!result || result.pane !== 'overlay') continue;
+          series.push(...this.indicatorSeries(result, gridIdx, gridIdx, up, down));
+        }
+        // Invisible point at the live price so the y-axis scales to include it
+        // (otherwise the dashed last-price line can sit off-screen).
+        if (this.livePrice != null && Number.isFinite(this.livePrice)) {
+          const liveData = closes.map((_, i) => (i === closes.length - 1 ? this.livePrice : null));
+          series.push({
+            name: '__live', type: 'line', xAxisIndex: gridIdx, yAxisIndex: gridIdx,
+            data: liveData, showSymbol: false, silent: true, lineStyle: { opacity: 0 },
+            tooltip: { show: false }, z: 0,
+          });
+        }
       } else if (pane.type === 'volume') {
         yAxes.push({
           type: 'value', gridIndex: gridIdx, splitNumber: 2,
@@ -238,11 +383,22 @@ export class EclipseChartProvider implements ChartProvider {
             axisLabel: { color: AXIS, fontSize: 8, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },
           });
           series.push(...this.indicatorSeries(result, gridIdx, gridIdx, up, down));
+          // Attach any mark overlays the indicator declares (e.g. RSI 30/70 guides).
+          const firstIdx = series.length - result.series.length;
+          if (firstIdx >= 0 && series[firstIdx] && result.marks) {
+            const first = series[firstIdx] as Record<string, unknown>;
+            if (result.marks.markLine?.length) {
+              first.markLine = { silent: true, symbol: 'none', data: result.marks.markLine };
+            }
+            if (result.marks.markArea?.length) {
+              first.markArea = { silent: true, data: result.marks.markArea };
+            }
+          }
         } else {
           yAxes.push({ type: 'value', gridIndex: gridIdx, splitLine: { show: false }, axisLabel: { show: false } });
         }
       }
-      top += h;
+      cursor += h;
     });
 
     return {
@@ -264,9 +420,10 @@ export class EclipseChartProvider implements ChartProvider {
       grid: grids,
       xAxis: xAxes,
       yAxis: yAxes,
+      title: titles.length > 0 ? titles : undefined,
       dataZoom: [
-        { type: 'inside', xAxisIndex: dataZoomX, start: 0, end: 100 },
-        { type: 'slider', xAxisIndex: dataZoomX, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.08)', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
+        { type: 'inside', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.08)', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
       ],
       series,
     } as EChartsOption;
@@ -303,6 +460,34 @@ export class EclipseChartProvider implements ChartProvider {
           itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down, borderWidth: 1 },
         }];
     }
+  }
+
+  /**
+   * TradingView-style live last-price line: a dashed horizontal line at the
+   * latest price with a filled price tag on the right axis.
+   */
+  private livePriceMarkLine(closes: number[], up: string, down: string): Record<string, unknown> | null {
+    const last = closes[closes.length - 1];
+    const price = this.livePrice ?? last;
+    if (price == null || !Number.isFinite(price)) return null;
+    const isUp = price >= last;
+    const color = isUp ? up : down;
+    return {
+      yAxis: price,
+      lineStyle: { color, type: 'dashed', width: 1, opacity: 0.9 },
+      label: {
+        show: true,
+        position: 'end',
+        formatter: this.fmt(price),
+        color: '#0b0b0b',
+        backgroundColor: color,
+        fontSize: 9,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        padding: [2, 4],
+        borderRadius: 2,
+      },
+    };
   }
 
   /** Merge mark overlays from overlay-pane indicators (e.g. structure layers). */

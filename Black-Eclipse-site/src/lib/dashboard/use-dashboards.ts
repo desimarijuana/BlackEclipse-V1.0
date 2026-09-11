@@ -29,6 +29,59 @@ const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 // template loads instead.
 export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v3_';
 
+// Legacy index keys, newest first. When the storage prefix is bumped we migrate
+// the user's existing dashboards forward instead of silently seeding a fresh
+// default (which made layouts appear "lost" after an update).
+const LEGACY_INDEX_KEYS = ['be_dashboards_index_v2', 'be_dashboards_index_v1'];
+
+/**
+ * One-time migration from an older dashboard index/prefix to the current one.
+ * Copies each legacy layout payload to its new storageKey and rewrites the
+ * index. Idempotent: once v3 exists this is a no-op. Returns the migrated list
+ * (or [] when there is nothing to migrate).
+ */
+function migrateLegacyDashboards(): DashboardEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    for (const legacyKey of LEGACY_INDEX_KEYS) {
+      const raw = localStorage.getItem(legacyKey);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) continue;
+      const migrated: DashboardEntry[] = [];
+      for (const e of parsed) {
+        if (!e || typeof e.id !== 'string' || typeof e.name !== 'string') continue;
+        const oldKey = typeof e.storageKey === 'string' ? e.storageKey : '';
+        const newKey = `${DASHBOARD_STORAGE_PREFIX}${e.id}`;
+        // Copy the layout payload to the new key (if it exists and isn't already there).
+        if (oldKey && oldKey !== newKey) {
+          try {
+            const layout = localStorage.getItem(oldKey);
+            if (layout && !localStorage.getItem(newKey)) localStorage.setItem(newKey, layout);
+          } catch { /* best effort */ }
+        }
+        migrated.push({
+          id: e.id,
+          name: e.name,
+          storageKey: newKey,
+          templateId: typeof e.templateId === 'string' ? e.templateId : 'trader',
+          isDefault: !!e.isDefault,
+        });
+      }
+      if (migrated.length === 0) continue;
+      if (!migrated.some((d) => d.isDefault)) migrated[0].isDefault = true;
+      persistIndex(migrated);
+      return migrated;
+    }
+  } catch { /* fall through to fresh seed */ }
+  return [];
+}
+
+/** True when a dashboard entry has no stored layout yet (auto-seeded default). */
+function isUnseeded(entry: DashboardEntry): boolean {
+  try { return !localStorage.getItem(entry.storageKey); } catch { return true; }
+}
+
 function loadIndex(): DashboardEntry[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -67,7 +120,14 @@ export function useDashboards() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const existing = loadIndex();
+    let existing = loadIndex();
+    // If the current index only holds an auto-seeded default with no saved
+    // layout, try to recover the user's legacy dashboards before giving up.
+    const onlyUnseededSeed = existing.length === 1 && existing[0].templateId === 'trader' && isUnseeded(existing[0]);
+    if (existing.length === 0 || onlyUnseededSeed) {
+      const migrated = migrateLegacyDashboards();
+      if (migrated.length > 0) existing = migrated;
+    }
     let next = existing;
     if (next.length === 0) {
       // First run: seed a default "Main" dashboard from the Trader template.

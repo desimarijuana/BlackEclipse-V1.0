@@ -118,12 +118,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   const handleSymbolClick = (symbol: string, name: string, extra?: Partial<StockItem>, e?: React.MouseEvent) => {
     if (e && openInNewTab(symbol, e)) return;
-    // When embedded in the terminal shell, route symbol clicks to the native
-    // Eclipse Chart tab (provider-switchable) instead of the legacy overlay.
-    if (onSelectChartSymbol) {
-      onSelectChartSymbol(symbol);
-      return;
-    }
+    // Open the full detail overlay (chart + all fundamental metrics). The
+    // overlay embeds the native Eclipse chart so the terminal chart controls
+    // (indicators, drawings, zoom/pan) are available in the popup.
     setSelectedAnalysisStock({
         symbol,
         name,
