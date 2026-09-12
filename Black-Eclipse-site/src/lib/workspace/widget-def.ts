@@ -42,7 +42,7 @@ export const WIDGET_CATEGORY_LABEL: Record<WidgetCategory, string> = {
 export interface WidgetConfigField {
   key: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'boolean' | 'symbol';
+  type: 'text' | 'number' | 'select' | 'boolean' | 'symbol' | 'symbols';
   options?: { value: string; label: string }[];
   placeholder?: string;
   min?: number;

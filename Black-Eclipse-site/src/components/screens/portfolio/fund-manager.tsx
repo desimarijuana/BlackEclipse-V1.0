@@ -18,7 +18,7 @@ import { baseChartOption, useEChart } from './use-echart';
 import { marketHintFor } from './use-live-quotes';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import {
-  exportAllFundsJson, exportFundCsv, exportFundJson, isDemoFund, loadFunds, parseFundsPayload,
+  exportAllFundsJson, exportFundCsv, exportFundJson, isDemoFund, loadFunds, parseFundsPayload, saveFunds,
 } from './fund-store';
 import { useLiveQuotes } from './use-live-quotes';
 import { AddTransactionDialog, ConfirmDialog, CreateFundDialog, RenameFundDialog } from './fund-dialogs';
@@ -92,7 +92,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
 
   const persist = (next: Fund[]) => {
     setFunds(next);
-    try { localStorage.setItem('be_portfolio_funds_v1', JSON.stringify(next)); } catch { /* ignore */ }
+    saveFunds(next);
   };
 
   // Live prices across every symbol in every fund for the ribbon, cards & chart.

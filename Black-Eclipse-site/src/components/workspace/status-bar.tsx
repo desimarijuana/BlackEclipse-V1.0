@@ -63,7 +63,7 @@ export function StatusBar({
   const totalFeeds = Object.keys(feeds).length;
 
   return (
-    <div className={cn('ws-glass mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-2xl px-4 py-2 text-[10px] font-mono text-muted-foreground', className)}>
+    <div className={cn('glass-card mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-2xl border border-border/10 px-4 py-2 text-[10px] font-mono text-muted-foreground', className)}>
       {/* Version */}
       <span className="font-bold text-foreground/80">{version}</span>
 

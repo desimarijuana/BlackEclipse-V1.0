@@ -161,6 +161,19 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
     fontSize: 10,
     fontWeight: 'bold' as const,
     backgroundColor: 'transparent',
+    // Rich-text styles are NOT inherited from `label` — they must be declared
+    // on `upperLabel` itself, otherwise ECharts renders the raw `{name|…}`
+    // markup literally.
+    rich: {
+      name: { fontSize: 10, fontWeight: 'bold' as const, color: '#e5e7eb' },
+      pct: { fontSize: 9, color: '#dbeafe' },
+    },
+    formatter: (params: unknown) => {
+      const p = params as { data?: Record<string, unknown> };
+      const d = p.data ?? {};
+      if (d.name == null || d.name === '') return '';
+      return `{name|${String(d.name)}}  {pct|${pctLabel(Number(d.change ?? 0))}}`;
+    },
   };
 
   const ref = useEChart(() => {
@@ -233,12 +246,12 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
             formatter: (params: unknown) => {
               const p = params as { data?: Record<string, unknown> };
               const d = p.data ?? {};
-              if (Array.isArray(d.children)) {
-                const change = Number(d.change ?? 0);
-                return `{name|${String(d.name ?? '')}}  {pct|${pctLabel(change)}}`;
-              }
+              // Parent (sector) nodes render their name/pct via `upperLabel`
+              // so the band and the tile label don't overlap.
+              if (Array.isArray(d.children) || Array.isArray(d.subChildren)) return '';
+              if (d.symbol == null && d.name == null) return '';
               const change = Number(d.changePct ?? 0);
-              return `{sym|${String(d.symbol ?? d.name ?? '')}}\n{pct|${pctLabel(change)}}`;
+              return `{sym|${String(d.symbol ?? d.name)}}\n{pct|${pctLabel(change)}}`;
             },
             rich: {
               name: { fontSize: 10, fontWeight: 'bold', color: '#e5e7eb' },

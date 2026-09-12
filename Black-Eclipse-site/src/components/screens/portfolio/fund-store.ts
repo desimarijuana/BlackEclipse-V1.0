@@ -145,7 +145,14 @@ export function loadFunds(): { funds: Fund[]; seeded: boolean } {
 
 export function saveFunds(funds: Fund[]): void {
   try { localStorage.setItem(FUNDS_KEY, JSON.stringify(funds)); } catch { /* ignore */ }
+  // Notify any same-tab listeners (Command Center portfolio widgets) so they
+  // re-read the book without requiring a reload.
+  try { window.dispatchEvent(new CustomEvent(FUNDS_CHANGED_EVENT)); } catch { /* ignore */ }
 }
+
+/** Event fired whenever the guest fund book is written. */
+export const FUNDS_CHANGED_EVENT = 'be:funds-changed';
+export const FUNDS_STORAGE_KEY = FUNDS_KEY;
 
 export function newFund(name: string, icon: string, accent: string, goalValue?: number | null): Fund {
   return {

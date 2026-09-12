@@ -1,12 +1,18 @@
 'use client';
 
-// ── MarketSidePanel — collapsible right-hand market overview column ─────────
+// ── MarketSidePanel — collapsible, customizable right-hand market column ────
 // A mini market-overview: Fear & Greed gauge, market breadth, top gainers/losers,
 // global snapshot (VIX, US 10Y, DXY, Gold, Oil, BTC), and market-hours status dots
 // for NYSE, LSE, Tokyo, Shanghai, NSE. Collapsible; data flows through the DataHub.
+//
+// The panel is user-customizable: enter edit mode to hide/reorder each section.
+// Preferences persist to localStorage so the layout survives reloads.
 
-import React, { useMemo, useState } from 'react';
-import { ChevronRight, ChevronLeft, TrendingUp, TrendingDown, Activity, Globe, Gauge } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ChevronRight, ChevronLeft, ChevronDown, ChevronUp, TrendingUp, TrendingDown,
+  Activity, Globe, Gauge, Settings2, Eye, EyeOff, RotateCcw,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 
@@ -49,8 +55,53 @@ const EXCHANGES = [
   { label: 'NSE', tz: 'Asia/Kolkata', open: 9, close: 15 },
 ];
 
+type SectionId = 'fear-greed' | 'breadth' | 'movers' | 'snapshot' | 'hours';
+const SECTION_META: Array<{ id: SectionId; label: string }> = [
+  { id: 'fear-greed', label: 'Fear & Greed' },
+  { id: 'breadth', label: 'Market Breadth' },
+  { id: 'movers', label: 'Top Movers' },
+  { id: 'snapshot', label: 'Global Snapshot' },
+  { id: 'hours', label: 'Market Hours' },
+];
+const DEFAULT_ORDER: SectionId[] = SECTION_META.map(s => s.id);
+const PANEL_KEY = 'be_market_panel_v1';
+
+interface PanelConfig { order: SectionId[]; hidden: SectionId[]; }
+
+function loadPanelConfig(): PanelConfig {
+  if (typeof window === 'undefined') return { order: DEFAULT_ORDER, hidden: [] };
+  try {
+    const raw = window.localStorage.getItem(PANEL_KEY);
+    if (!raw) return { order: DEFAULT_ORDER, hidden: [] };
+    const parsed = JSON.parse(raw) as Partial<PanelConfig>;
+    const known = new Set(DEFAULT_ORDER);
+    const order = Array.isArray(parsed.order)
+      ? parsed.order.filter((id): id is SectionId => known.has(id as SectionId))
+      : [];
+    // Append any sections not present in the stored order (e.g. new sections).
+    for (const id of DEFAULT_ORDER) if (!order.includes(id)) order.push(id);
+    const hidden = Array.isArray(parsed.hidden)
+      ? parsed.hidden.filter((id): id is SectionId => known.has(id as SectionId))
+      : [];
+    return { order, hidden };
+  } catch {
+    return { order: DEFAULT_ORDER, hidden: [] };
+  }
+}
+
 export function MarketSidePanel({ className }: { className?: string }) {
   const [open, setOpen] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [config, setConfig] = useState<PanelConfig>(() => ({ order: DEFAULT_ORDER, hidden: [] }));
+
+  // Load persisted customization on mount (avoids SSR hydration mismatch).
+  useEffect(() => { setConfig(loadPanelConfig()); }, []);
+
+  const update = (next: PanelConfig) => {
+    setConfig(next);
+    try { window.localStorage.setItem(PANEL_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
   const indices = useTopic<{ indices: IndexRow[] }>('panel:indices');
   const commodities = useTopic<{ commodities: CommodityRow[] }>('panel:commodities');
   const forex = useTopic<{ pairs: ForexRow[] }>('panel:forex');
@@ -112,6 +163,140 @@ export function MarketSidePanel({ className }: { className?: string }) {
     return Math.round(Math.min(100, Math.max(0, breadth * 0.6 + momentum * 0.4)));
   }, [movers, indicesData]);
 
+  const visible = config.order.filter(id => !config.hidden.includes(id));
+
+  const moveSection = (id: SectionId, dir: -1 | 1) => {
+    const visIdx = visible.indexOf(id);
+    const target = visible[visIdx + dir];
+    if (!target) return;
+    const order = [...config.order];
+    const a = order.indexOf(id);
+    const b = order.indexOf(target);
+    [order[a], order[b]] = [order[b], order[a]];
+    update({ ...config, order });
+  };
+
+  const toggleSection = (id: SectionId) => {
+    update({
+      ...config,
+      hidden: config.hidden.includes(id) ? config.hidden.filter(x => x !== id) : [...config.hidden, id],
+    });
+  };
+
+  const renderSection = (id: SectionId): React.ReactNode => {
+    switch (id) {
+      case 'fear-greed':
+        return (
+          <div className="rounded-2xl glass-card p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <Gauge size={11} className="text-primary" /> Fear &amp; Greed
+              </span>
+              <span className="font-mono text-sm font-bold text-foreground">{fearGreed}</span>
+            </div>
+            <div className="h-2 rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 overflow-hidden">
+              <div className="h-full bg-background/70" style={{ width: `${100 - fearGreed}%`, marginLeft: 'auto' }} />
+            </div>
+            <div className="mt-1 flex justify-between text-[8px] text-muted-foreground/60">
+              <span>Extreme Fear</span><span>Neutral</span><span>Extreme Greed</span>
+            </div>
+          </div>
+        );
+      case 'breadth':
+        return (
+          <div className="rounded-2xl glass-card p-3">
+            <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+              <Activity size={11} className="text-primary" /> Market Breadth
+            </span>
+            <div className="flex flex-col gap-1.5">
+              {breadthRows.map(m => {
+                const total = m.adv + m.dec || 1;
+                const advPct = (m.adv / total) * 100;
+                return (
+                  <div key={m.label} className="flex items-center gap-2 text-[10px]">
+                    <span className="w-14 shrink-0 text-muted-foreground">{m.label}</span>
+                    <div className="flex flex-1 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-emerald-400" style={{ width: `${advPct}%` }} />
+                      <div className="bg-rose-400" style={{ width: `${100 - advPct}%` }} />
+                    </div>
+                    <span className="w-8 text-right font-mono text-emerald-400">{m.adv}</span>
+                    <span className="w-8 text-right font-mono text-rose-400">{m.dec}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      case 'movers':
+        return (
+          <div className="rounded-2xl glass-card p-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Top Movers</span>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 mb-1"><TrendingUp size={10} /> Gainers</span>
+                {movers.gainers.map(s => (
+                  <div key={s.symbol} className="flex items-center justify-between text-[10px] py-0.5">
+                    <span className="font-mono font-bold text-foreground">{s.symbol}</span>
+                    <span className={cn('font-mono', tone(s.changePct))}>{s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <span className="flex items-center gap-1 text-[9px] font-bold text-rose-400 mb-1"><TrendingDown size={10} /> Losers</span>
+                {movers.losers.map(s => (
+                  <div key={s.symbol} className="flex items-center justify-between text-[10px] py-0.5">
+                    <span className="font-mono font-bold text-foreground">{s.symbol}</span>
+                    <span className={cn('font-mono', tone(s.changePct))}>{s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      case 'snapshot':
+        return (
+          <div className="rounded-2xl glass-card p-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Global Snapshot</span>
+            <div className="flex flex-col gap-1">
+              {snapshot.map(s => (
+                <div key={s.label} className="flex items-center justify-between text-[10px]">
+                  <span className="text-muted-foreground">{s.label}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-foreground">{s.value != null ? s.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>
+                    {s.change != null && <span className={cn('font-mono w-12 text-right', tone(s.change))}>{s.change > 0 ? '+' : ''}{s.change.toFixed(2)}%</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'hours':
+        return (
+          <div className="rounded-2xl glass-card p-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Market Hours</span>
+            <div className="flex flex-col gap-1">
+              {EXCHANGES.map(ex => {
+                const st = marketStatus(ex.label, ex.tz, ex.open, ex.close);
+                return (
+                  <div key={ex.label} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground">{ex.label}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className={cn('h-2 w-2 rounded-full',
+                        st === 'open' ? 'bg-emerald-400' : st === 'pre' ? 'bg-amber-400' : 'bg-rose-400')} />
+                      <span className={cn('font-mono capitalize',
+                        st === 'open' ? 'text-emerald-400' : st === 'pre' ? 'text-amber-400' : 'text-rose-400')}>{st}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   if (!open) {
     return (
       <button
@@ -131,112 +316,71 @@ export function MarketSidePanel({ className }: { className?: string }) {
         <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
           <Globe size={13} className="text-primary" /> Market
         </span>
-        <button onClick={() => setOpen(false)} className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer" title="Collapse">
-          <ChevronRight size={14} />
-        </button>
-      </div>
-
-      {/* Fear & Greed */}
-      <div className="rounded-2xl glass-card p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            <Gauge size={11} className="text-primary" /> Fear & Greed
-          </span>
-          <span className="font-mono text-sm font-bold text-foreground">{fearGreed}</span>
-        </div>
-        <div className="h-2 rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 overflow-hidden">
-          <div className="h-full bg-background/70" style={{ width: `${100 - fearGreed}%`, marginLeft: 'auto' }} />
-        </div>
-        <div className="mt-1 flex justify-between text-[8px] text-muted-foreground/60">
-          <span>Extreme Fear</span><span>Neutral</span><span>Extreme Greed</span>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setEditMode(v => !v)}
+            className={cn('rounded-lg p-1 transition-colors cursor-pointer', editMode ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent')}
+            title={editMode ? 'Done customizing' : 'Customize panel sections'}
+          >
+            <Settings2 size={13} />
+          </button>
+          <button onClick={() => setOpen(false)} className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer" title="Collapse">
+            <ChevronRight size={14} />
+          </button>
         </div>
       </div>
 
-      {/* Market breadth */}
-      <div className="rounded-2xl glass-card p-3">
-        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-          <Activity size={11} className="text-primary" /> Market Breadth
-        </span>
-        <div className="flex flex-col gap-1.5">
-          {breadthRows.map(m => {
-            const total = m.adv + m.dec || 1;
-            const advPct = (m.adv / total) * 100;
-            return (
-              <div key={m.label} className="flex items-center gap-2 text-[10px]">
-                <span className="w-14 shrink-0 text-muted-foreground">{m.label}</span>
-                <div className="flex flex-1 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-400" style={{ width: `${advPct}%` }} />
-                  <div className="bg-rose-400" style={{ width: `${100 - advPct}%` }} />
+      {/* Edit strip */}
+      {editMode && (
+        <div className="rounded-2xl glass-card p-3 animate-fade-in">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Sections</span>
+            <button
+              onClick={() => update({ order: DEFAULT_ORDER, hidden: [] })}
+              className="inline-flex items-center gap-1 rounded-lg border border-border/20 px-2 py-0.5 text-[9px] font-bold text-muted-foreground hover:text-primary hover:border-primary/40 cursor-pointer"
+              title="Reset panel layout"
+            >
+              <RotateCcw size={9} /> Reset
+            </button>
+          </div>
+          <div className="flex flex-col gap-1">
+            {config.order.map(id => {
+              const meta = SECTION_META.find(s => s.id === id);
+              const isHidden = config.hidden.includes(id);
+              return (
+                <div key={id} className="flex items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-accent/30">
+                  <span className={cn('flex-1 text-[10px] font-semibold', isHidden ? 'text-muted-foreground/40 line-through' : 'text-foreground')}>
+                    {meta?.label ?? id}
+                  </span>
+                  <button onClick={() => moveSection(id, -1)} disabled={visible.indexOf(id) === 0}
+                    className="rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-25 cursor-pointer" title="Move up">
+                    <ChevronUp size={11} />
+                  </button>
+                  <button onClick={() => moveSection(id, 1)} disabled={visible.indexOf(id) === visible.length - 1}
+                    className="rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-25 cursor-pointer" title="Move down">
+                    <ChevronDown size={11} />
+                  </button>
+                  <button onClick={() => toggleSection(id)}
+                    className="rounded p-0.5 text-muted-foreground hover:text-primary cursor-pointer" title={isHidden ? 'Show section' : 'Hide section'}>
+                    {isHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                  </button>
                 </div>
-                <span className="w-8 text-right font-mono text-emerald-400">{m.adv}</span>
-                <span className="w-8 text-right font-mono text-rose-400">{m.dec}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Top gainers / losers */}
-      <div className="rounded-2xl glass-card p-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Top Movers</span>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 mb-1"><TrendingUp size={10} /> Gainers</span>
-            {movers.gainers.map(s => (
-              <div key={s.symbol} className="flex items-center justify-between text-[10px] py-0.5">
-                <span className="font-mono font-bold text-foreground">{s.symbol}</span>
-                <span className={cn('font-mono', tone(s.changePct))}>{s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <div>
-            <span className="flex items-center gap-1 text-[9px] font-bold text-rose-400 mb-1"><TrendingDown size={10} /> Losers</span>
-            {movers.losers.map(s => (
-              <div key={s.symbol} className="flex items-center justify-between text-[10px] py-0.5">
-                <span className="font-mono font-bold text-foreground">{s.symbol}</span>
-                <span className={cn('font-mono', tone(s.changePct))}>{s.changePct > 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-              </div>
-            ))}
-          </div>
+          <p className="mt-2 text-[9px] text-muted-foreground/60">Reorder with the arrows, hide with the eye.</p>
         </div>
-      </div>
+      )}
 
-      {/* Global snapshot */}
-      <div className="rounded-2xl glass-card p-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Global Snapshot</span>
-        <div className="flex flex-col gap-1">
-          {snapshot.map(s => (
-            <div key={s.label} className="flex items-center justify-between text-[10px]">
-              <span className="text-muted-foreground">{s.label}</span>
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-foreground">{s.value != null ? s.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>
-                {s.change != null && <span className={cn('font-mono w-12 text-right', tone(s.change))}>{s.change > 0 ? '+' : ''}{s.change.toFixed(2)}%</span>}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {visible.map(id => (
+        <React.Fragment key={id}>{renderSection(id)}</React.Fragment>
+      ))}
 
-      {/* Market hours */}
-      <div className="rounded-2xl glass-card p-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Market Hours</span>
-        <div className="flex flex-col gap-1">
-          {EXCHANGES.map(ex => {
-            const st = marketStatus(ex.label, ex.tz, ex.open, ex.close);
-            return (
-              <div key={ex.label} className="flex items-center justify-between text-[10px]">
-                <span className="text-muted-foreground">{ex.label}</span>
-                <span className="flex items-center gap-1.5">
-                  <span className={cn('h-2 w-2 rounded-full',
-                    st === 'open' ? 'bg-emerald-400' : st === 'pre' ? 'bg-amber-400' : 'bg-rose-400')} />
-                  <span className={cn('font-mono capitalize',
-                    st === 'open' ? 'text-emerald-400' : st === 'pre' ? 'text-amber-400' : 'text-rose-400')}>{st}</span>
-                </span>
-              </div>
-            );
-          })}
+      {!editMode && visible.length === 0 && (
+        <div className="rounded-2xl glass-card p-3 text-center">
+          <p className="text-[10px] text-muted-foreground/70 italic">All sections hidden — open the gear to add some back.</p>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

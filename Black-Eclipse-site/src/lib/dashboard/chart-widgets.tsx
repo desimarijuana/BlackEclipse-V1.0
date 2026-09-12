@@ -7,8 +7,10 @@
 import React, { useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
 import { useTopic } from '@/lib/workspace/data-hub';
+import { cn } from '@/lib/utils';
 import { cssVarToHex } from '@/lib/chart-colors';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
+import { usePortfolioPerformance, useFundComparison } from './portfolio-store';
 import { getTradingViewSymbol } from '@/lib/utils';
 import { defaultChartState, type ChartState } from '@/lib/chart/types';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -160,36 +162,125 @@ export function EconomicDataChartWidget() {
   );
 }
 
-// ── Portfolio fund performance ───────────────────────────────────────────────
+// ── Portfolio performance (ALL funds) ────────────────────────────────────────
+// Aggregates every fund's ledger with real price histories into one indexed
+// performance curve (100 = first holding) and overlays user-chosen benchmarks.
 
-export function FundPerformanceChartWidget() {
-  const t = useTopic<{ nav: number[]; navDates: string[]; benchmarkNav: number[] }>('portfolio:fund:nav');
-  const data = t.data;
+const COMPARE_COLORS = ['#94a3b8', '#fbbf24', '#60a5fa', '#f472b6', '#a78bfa', '#2dd4bf'];
+
+function readCompare(config: unknown): string[] {
+  if (Array.isArray(config)) return config.map(s => String(s).toUpperCase().trim()).filter(Boolean).slice(0, 6);
+  if (typeof config === 'string') return config.split(',').map(s => s.toUpperCase().trim()).filter(Boolean).slice(0, 6);
+  return ['SPY'];
+}
+
+export function FundPerformanceChartWidget({ placement }: { placement?: WidgetPlacement }) {
+  const compare = useMemo(() => readCompare(placement?.config?.compare), [placement?.config?.compare]);
+  const perf = usePortfolioPerformance(compare);
   const primary = useMemo(() => cssVarToHex('--primary', '#34d399'), []);
 
   const ref = useEChart(() => {
-    if (!data?.nav || data.nav.length < 2) return null;
-    const dates = data.navDates?.length ? data.navDates : data.nav.map((_, i) => String(i));
+    if (!perf?.portfolio || perf.portfolio.length < 2) return null;
     return {
       ...baseChartOption(),
-      grid: { left: 8, right: 8, top: 10, bottom: 0, containLabel: true },
-      xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
+      grid: { left: 8, right: 8, top: 26, bottom: 0, containLabel: true },
+      xAxis: { type: 'category', data: perf.dates, axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
       yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
       series: [
-        { name: 'Fund NAV', type: 'line', data: data.nav, showSymbol: false, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } },
-        ...(data.benchmarkNav?.length === data.nav.length
-          ? [{ name: 'Benchmark', type: 'line' as const, data: data.benchmarkNav, showSymbol: false, lineStyle: { width: 1, color: '#94a3b8', type: 'dashed' as const } }]
-          : []),
+        { name: 'Portfolio', type: 'line', data: perf.portfolio, showSymbol: false, smooth: true, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.14 } },
+        ...perf.benchmarks.map((b, i) => ({
+          name: b.symbol,
+          type: 'line' as const,
+          data: b.data,
+          showSymbol: false,
+          smooth: true,
+          lineStyle: { width: 1, color: COMPARE_COLORS[i % COMPARE_COLORS.length], type: 'dashed' as const },
+        })),
       ],
-      legend: data.benchmarkNav?.length ? { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 9 }, itemWidth: 12 } : undefined,
+      legend: { top: 0, right: 4, textStyle: { color: '#94a3b8', fontSize: 9 }, itemWidth: 12 },
     } as EChartsOption;
-  }, [data, primary]);
+  }, [perf, primary]);
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Fund Performance" hint="NAV" />
-      {!data || data.nav.length < 2 ? <EmptyNote>Loading fund performance…</EmptyNote> : (
+      <WidgetHeader title="Portfolio Performance" hint={compare.length ? `ALL FUNDS · ${compare.join(' · ')}` : 'ALL FUNDS'} />
+      {!perf || perf.portfolio.length < 2 ? (
+        <EmptyNote>Add transactions in the Portfolio page — the curve indexes to 100 at your first holding.</EmptyNote>
+      ) : (
         <div ref={ref} className="min-h-[160px] flex-1" />
+      )}
+    </div>
+  );
+}
+
+// ── Funds comparison (each fund vs the others) ───────────────────────────────
+
+export function FundsComparisonChartWidget() {
+  const { lines, ready } = useFundComparison();
+
+  const ref = useEChart(() => {
+    if (lines.length === 0) return null;
+    const len = Math.min(...lines.map(l => l.nav.length));
+    const navs = lines.map(l => l.nav.slice(-len));
+    return {
+      ...baseChartOption(),
+      grid: { left: 8, right: 8, top: 8, bottom: 0, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: lines[0].dates.length >= len ? lines[0].dates.slice(-len) : Array.from({ length: len }, (_, i) => i),
+        axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } },
+        axisLabel: { color: '#94a3b8', fontSize: 9 },
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } },
+        axisLabel: { color: '#94a3b8', fontSize: 9, formatter: (v: number) => v.toFixed(2) },
+      },
+      series: navs.map((nav, i) => ({
+        name: lines[i].name,
+        type: 'line' as const,
+        data: nav.map(v => Number(v.toFixed(4))),
+        showSymbol: false,
+        lineStyle: { width: lines[i].dashed ? 1.2 : 2, color: lines[i].color, type: lines[i].dashed ? ('dashed' as const) : ('solid' as const) },
+        emphasis: { focus: 'series' as const },
+      })),
+      legend: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(15,15,15,0.94)',
+        borderWidth: 0,
+        textStyle: { color: '#e5e7eb', fontSize: 11 },
+        valueFormatter: (v: unknown) => (typeof v === 'number' ? `${((v - 1) * 100).toFixed(2)}%` : String(v)),
+      },
+    } as EChartsOption;
+  }, [lines]);
+
+  const header = (
+    <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+      {lines.map(l => {
+        const ret = l.nav.length >= 2 ? ((l.nav[l.nav.length - 1] / l.nav[0]) - 1) * 100 : 0;
+        return (
+          <span key={l.name} className="flex items-center gap-1.5 font-mono text-[10px]">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: l.color }} />
+            <span className="text-muted-foreground">{l.name}</span>
+            <span className={cn('font-bold', ret >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Funds Comparison" hint="EACH FUND · 3MO · INDEXED" />
+      {lines.length === 0 ? (
+        <EmptyNote>{ready ? 'Add holdings across your funds to compare performance.' : 'Loading price history…'}</EmptyNote>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {header}
+          <div ref={ref} className="min-h-[180px] flex-1" />
+        </div>
       )}
     </div>
   );

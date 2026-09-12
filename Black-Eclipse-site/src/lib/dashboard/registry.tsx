@@ -15,8 +15,6 @@ import {
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
-import { registerFundNavTopic } from './fund-nav';
-registerFundNavTopic();
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
@@ -30,7 +28,7 @@ import {
   GlobalMarketsWidget, MarketStatusWidget,
 } from './widgets';
 import {
-  AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, MacroSnapshotWidget,
+  AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, FundsComparisonChartWidget, MacroSnapshotWidget,
   TradingViewChartWidget, EclipseChartWidget,
 } from './chart-widgets';
 import { MarketHeatmapWidget } from './heatmap-widget';
@@ -47,7 +45,7 @@ registerTopic(jsonTopic('market:indices:CRYPTO', '/api/indices?market=CRYPTO', {
 registerTopic(jsonTopic('market:overview', '/api/global-overview', { ttl: 300_000, interval: 120_000 }));
 registerTopic(jsonTopic('market:commodities', '/api/commodities', { ttl: 120_000, interval: 60_000 }));
 registerTopic(jsonTopic('market:forex', '/api/forex', { ttl: 120_000, interval: 60_000 }));
-registerTopic(jsonTopic('news:feed', '/api/news?limit=10', { ttl: 60_000, interval: 30_000 }));
+registerTopic(jsonTopic('news:feed', '/api/news?limit=30', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('econ:calendar', '/api/economics/calendar', { ttl: 300_000, interval: 120_000 }));
 registerTopic(jsonTopic('market:quote:AAPL', '/api/quote?symbols=AAPL', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('market:quote:AAPL,MSFT,NVDA,TSLA,AMZN', '/api/quote?symbols=AAPL,MSFT,NVDA,TSLA,AMZN', { ttl: 60_000, interval: 30_000 }));
@@ -108,7 +106,7 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />),
 
   // ── Portfolio ──
-  def('watchlist', 'portfolio', 'Watchlist', 'Saved symbols with live prices.', 'bar-chart', ['medium', 'large'], () => <WatchlistWidget />, ['market:quote:AAPL,MSFT,NVDA,TSLA,AMZN']),
+  def('watchlist', 'portfolio', 'Watchlist', 'Your symbols with live prices and favourites.', 'bar-chart', ['medium', 'large'], () => <WatchlistWidget />, ['market:quote:AAPL,MSFT,NVDA,TSLA,AMZN']),
   def('performance', 'portfolio', 'Performance', 'P&L today/week/month/YTD.', 'line-chart', ['medium', 'large'], () => <PerformanceWidget />),
   def('portfolio-summary', 'portfolio', 'Portfolio Summary', 'Holdings with allocation breakdown.', 'briefcase', ['medium', 'large'], () => <PortfolioSummaryWidget />),
   def('risk-metrics', 'portfolio', 'Risk Metrics', 'Volatility, beta, drawdown, Sharpe.', 'activity', ['medium', 'large'], () => <RiskMetricsWidget />),
@@ -157,7 +155,9 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
     [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol…', default: 'AAPL' }],
     { symbol: 'AAPL' }),
   def('economic-chart', 'macro', 'Economic Data Chart', 'Economic series line chart (US CPI).', 'line-chart', ['large', 'full'], () => <EconomicDataChartWidget />, ['econ:series:us-cpi']),
-  def('fund-performance-chart', 'portfolio', 'Fund Performance Chart', 'Fund NAV vs SPY benchmark.', 'line-chart', ['large', 'full'], () => <FundPerformanceChartWidget />),
+  def('fund-performance-chart', 'portfolio', 'Portfolio Performance', 'All funds indexed vs the benchmarks you pick.', 'line-chart', ['large', 'full'], (p) => <FundPerformanceChartWidget placement={p} />, undefined,
+    [{ key: 'compare', label: 'Compare with', type: 'symbols', placeholder: 'Add SPY, QQQ, BTC-USD…' }],
+    { compare: ['SPY'] }),
   def('macro-snapshot', 'macro', 'Macro Snapshot', 'Central-bank rates and key prints.', 'gauge', ['medium', 'large'], () => <MacroSnapshotWidget />, ['econ:snapshot']),
 
   // ── Intelligence ──
@@ -168,6 +168,9 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Heatmap ──
   def('market-heatmap', 'markets', 'Market Heatmap', 'Country/index treemap — sized by market cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
+
+  // ── Portfolio comparisons ──
+  def('funds-comparison-chart', 'portfolio', 'Funds Comparison', "Each fund's indexed performance, side by side.", 'line-chart', ['large', 'full'], () => <FundsComparisonChartWidget />),
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);

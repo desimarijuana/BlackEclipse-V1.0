@@ -113,6 +113,8 @@ function Field({ field, value, onChange }: { field: WidgetConfigField; value: un
       );
     case 'symbol':
       return <SymbolField field={field} value={String(value ?? '')} onChange={onChange} />;
+    case 'symbols':
+      return <SymbolsField field={field} value={value} onChange={onChange} />;
     case 'boolean':
       return (
         <label className="flex items-center justify-between gap-2 cursor-pointer">
@@ -128,6 +130,102 @@ function Field({ field, value, onChange }: { field: WidgetConfigField; value: un
     default:
       return null;
   }
+}
+
+/** Editable list of symbols — add via search/Enter, remove via chip ✕. */
+function SymbolsField({ field, value, onChange }: { field: WidgetConfigField; value: unknown; onChange: (v: unknown) => void }) {
+  const list = (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map(s => String(s).trim().toUpperCase())
+    .filter(Boolean);
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<{ symbol: string; name: string; marketId: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const commit = (symbols: string[]) => onChange(symbols.slice(0, 20));
+  const add = (sym: string) => {
+    const s = sym.trim().toUpperCase();
+    if (!s || list.includes(s) || list.length >= 20) { setQuery(''); setSuggestions([]); setOpen(false); return; }
+    commit([...list, s]);
+    setQuery('');
+    setSuggestions([]);
+    setOpen(false);
+  };
+  const remove = (sym: string) => commit(list.filter(s => s !== sym));
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 1) { setSuggestions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/quote?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setSuggestions(data.suggestions ?? []);
+        setOpen(true);
+      } catch { setSuggestions([]); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const inputCls = 'w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
+
+  return (
+    <div className="flex flex-col gap-2" ref={boxRef}>
+      <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">
+        {field.label} · {list.length}/20
+      </span>
+
+      {list.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {list.map(s => (
+            <span key={s} className="inline-flex items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
+              {s}
+              <button type="button" onClick={() => remove(s)} className="cursor-pointer text-primary/70 hover:text-primary" title={`Remove ${s}`}>
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="relative">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+        <input
+          type="text"
+          value={query}
+          placeholder={field.placeholder ?? 'Search any symbol…'}
+          onChange={e => setQuery(e.target.value)}
+          onFocus={() => { if (suggestions.length) setOpen(true); }}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(query); } }}
+          className={cn(inputCls, 'pl-7')}
+        />
+        {open && suggestions.length > 0 && (
+          <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-white/10 glass-card-strong shadow-2xl shadow-black/40 p-1">
+            {suggestions.filter(s => !list.includes(s.symbol.toUpperCase())).map(s => (
+              <button
+                key={`${s.symbol}-${s.marketId}`}
+                type="button"
+                onClick={() => add(s.symbol)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-accent/50 cursor-pointer"
+              >
+                <span className="font-mono font-bold text-foreground">{s.symbol}</span>
+                <span className="truncate text-[10px] text-muted-foreground">{s.name} · {s.marketId}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[9px] text-muted-foreground/60">Type a symbol and press Enter, or pick from the suggestions.</p>
+    </div>
+  );
 }
 
 /** Searchable symbol autocomplete — queries /api/quote?q= for the full JDDS
