@@ -109,10 +109,8 @@ export function CustomizableWorkspace({
         <button
           onClick={() => setCompact(v => !v)}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-            compact
-              ? 'border-primary/40 bg-primary/15 text-primary'
-              : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
+            'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+            compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
           )}
           title="Toggle compact row height"
         >
@@ -120,7 +118,7 @@ export function CustomizableWorkspace({
         </button>
         <button
           onClick={refreshAll}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+          className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
           title="Force refresh all widgets (F5)"
         >
           <RefreshCw size={13} /> Refresh
@@ -128,10 +126,8 @@ export function CustomizableWorkspace({
         <button
           onClick={() => workspace.setEditMode(!workspace.editMode)}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-            workspace.editMode
-              ? 'border-primary/40 bg-primary/15 text-primary'
-              : 'border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40',
+            'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+            workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
           )}
         >
           <Settings2 size={13} /> {workspace.editMode ? 'Done' : 'Customize'}
@@ -152,10 +148,8 @@ export function CustomizableWorkspace({
             <button
               onClick={() => setLibraryOpen(v => !v)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-                libraryOpen
-                  ? 'border-primary/40 bg-primary/15 text-primary'
-                  : 'border-white/15 dark:border-white/10 bg-accent/30 hover:bg-accent/60 hover:border-primary/40 hover:text-primary text-muted-foreground',
+                'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+                libraryOpen ? 'text-primary' : 'text-muted-foreground hover:text-primary',
               )}
             >
               <Plus size={13} /> Widgets

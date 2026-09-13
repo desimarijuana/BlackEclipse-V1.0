@@ -6,6 +6,7 @@
 // by a WidgetDefinition and saves them to the widget instance's `config`.
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WidgetConfigField, WidgetDefinition } from '@/lib/workspace/widget-def';
@@ -28,13 +29,17 @@ export function WidgetConfigPanel({
     ...(def?.defaultConfig ?? {}),
     ...(placement.config ?? {}),
   }));
+  // Portal target: the panel must render at <body> so backdrop-filter samples
+  // the page instead of a transformed ancestor's scoped backdrop root.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const set = (key: string, value: unknown) => setValues(prev => ({ ...prev, [key]: value }));
 
-  return (
+  const panel = (
     <div className="fixed inset-0 z-40 flex justify-end animate-fade-in" data-nodrag>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative flex w-80 max-w-[85vw] flex-col h-full border-l border-white/15 dark:border-white/10 glass-drawer shadow-2xl shadow-black/40 animate-slide-in">
+      <aside className="relative flex w-80 max-w-[85vw] flex-col h-full glass-drawer shadow-2xl shadow-black/40 animate-slide-in">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
           <span className="font-serif text-sm font-semibold text-foreground">Configure · {def?.label ?? placement.widgetId}</span>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
@@ -63,6 +68,9 @@ export function WidgetConfigPanel({
       </aside>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(panel, document.body);
 }
 
 function Field({ field, value, onChange }: { field: WidgetConfigField; value: unknown; onChange: (v: unknown) => void }) {

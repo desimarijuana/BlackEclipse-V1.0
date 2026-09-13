@@ -53,7 +53,7 @@ export function DashboardScreen() {
         <div className="relative ml-auto">
           <button
             onClick={() => setSwitcherOpen(v => !v)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 hover:border-primary/40 hover:text-primary px-3 py-1.5 text-xs font-bold text-muted-foreground transition-all cursor-pointer"
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
           >
             {dashboards.active?.name ?? 'Dashboard'}
             <ChevronDown size={13} />
@@ -119,7 +119,7 @@ export function DashboardScreen() {
                 URL.revokeObjectURL(url);
               }
             }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Export this dashboard layout"
           >
             <Download size={13} /> Export
@@ -137,14 +137,14 @@ export function DashboardScreen() {
               };
               input.click();
             }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Import a dashboard layout"
           >
             <Upload size={13} /> Import
           </button>
           <button
             onClick={() => dashboards.reset(dashboards.activeId!)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 text-muted-foreground hover:text-primary hover:border-primary/40 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer"
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
             title="Reset this dashboard to its template"
           >
             <RotateCcw size={13} /> Reset

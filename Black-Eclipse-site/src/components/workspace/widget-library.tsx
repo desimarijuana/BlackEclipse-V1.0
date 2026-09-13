@@ -6,6 +6,7 @@
 // workspaces, and future pages all share the same library UX.
 
 import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WIDGET_CATEGORY_LABEL, type WidgetCategory, type WidgetDefinition } from '@/lib/workspace/widget-def';
@@ -53,6 +54,11 @@ export function WidgetLibrary({
   const [query, setQuery] = useState('');
   const [favorites, setFavorites] = useState<Set<string>>(() => loadSet(FAV_KEY));
   const [recents, setRecents] = useState<string[]>(() => [...loadSet(RECENT_KEY)]);
+  // Portal target — drawers must render at <body> so their backdrop-filter
+  // samples the real page. Inside the page tree they sit under transformed
+  // ancestors (animate-fade-in-up) which scope/backdrop-root the blur away.
+  const [mounted, setMounted] = useState(false);
+  React.useEffect(() => setMounted(true), []);
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
@@ -95,10 +101,10 @@ export function WidgetLibrary({
     return map;
   }, [filtered]);
 
-  return (
+  const drawer = (
     <div className={cn('fixed inset-0 z-40 flex justify-end animate-fade-in', dragActive && 'pointer-events-none')} data-nodrag>
       <div className={cn('absolute inset-0 transition-colors', dragActive ? 'bg-transparent' : 'bg-black/20')} onClick={onClose} />
-      <aside className={cn('relative flex w-96 max-w-[90vw] flex-col h-full border-l border-white/15 dark:border-white/10 glass-drawer shadow-2xl shadow-black/40 animate-slide-in transition-opacity', dragActive && 'opacity-70')}>
+      <aside className={cn('relative flex w-96 max-w-[90vw] flex-col h-full glass-drawer shadow-2xl shadow-black/40 animate-slide-in transition-opacity', dragActive && 'opacity-70')}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
           <span className="font-serif text-sm font-semibold text-foreground">Add Widget</span>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
@@ -108,7 +114,7 @@ export function WidgetLibrary({
 
         {/* Search */}
         <div className="px-4 py-3 border-b border-border/10">
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 dark:border-white/10 glass-card-subtle px-3 py-2">
+          <div className="flex items-center gap-2 rounded-xl glass-card-subtle px-3 py-2">
             <Search size={13} className="text-muted-foreground/70 shrink-0" />
             <input
               value={query}
@@ -172,6 +178,9 @@ export function WidgetLibrary({
       </aside>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(drawer, document.body);
 }
 
 function WidgetRow({
@@ -212,7 +221,7 @@ function WidgetRow({
   };
 
   return (
-    <div className="group flex items-center gap-2 rounded-xl border border-white/10 dark:border-white/10 glass-card-subtle hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 transition-all">
+    <div className="group flex items-center gap-2 rounded-xl glass-card-subtle hover:bg-accent/50 px-3 py-2.5 transition-all">
       <button
         onPointerDown={onPointerDown}
         onClick={() => { if (dragRef.current?.active) return; onBegin(w.id, w.label, 'click'); }}
