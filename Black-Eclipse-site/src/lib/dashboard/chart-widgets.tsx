@@ -213,7 +213,9 @@ export function FundPerformanceChartWidget({ placement }: { placement?: WidgetPl
   );
 }
 
-// ── Funds comparison (each fund vs the others) ───────────────────────────────
+// ── Overall performance (each fund vs the benchmarks) ────────────────────────
+// Mirrors the Portfolio page's "Overall Performance" chart: one indexed line per
+// fund plus the standard benchmarks (SPY/QQQ/BTC-USD) as dashed references.
 
 export function FundsComparisonChartWidget() {
   const { lines, ready } = useFundComparison();
@@ -273,7 +275,7 @@ export function FundsComparisonChartWidget() {
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Funds Comparison" hint="EACH FUND · 3MO · INDEXED" />
+      <WidgetHeader title="Overall Performance" hint="FUNDS vs BENCHMARKS · 3MO · INDEXED" />
       {lines.length === 0 ? (
         <EmptyNote>{ready ? 'Add holdings across your funds to compare performance.' : 'Loading price history…'}</EmptyNote>
       ) : (

@@ -170,7 +170,7 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('market-heatmap', 'markets', 'Market Heatmap', 'Country/index treemap — sized by market cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
 
   // ── Portfolio comparisons ──
-  def('funds-comparison-chart', 'portfolio', 'Funds Comparison', "Each fund's indexed performance, side by side.", 'line-chart', ['large', 'full'], () => <FundsComparisonChartWidget />),
+  def('funds-comparison-chart', 'portfolio', 'Overall Performance', 'Every fund indexed vs the benchmarks — 3MO.', 'line-chart', ['large', 'full'], () => <FundsComparisonChartWidget />),
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
