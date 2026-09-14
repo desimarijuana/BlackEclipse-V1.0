@@ -882,7 +882,7 @@ function PriceHistoryChart({ bars, currency }: { bars: PriceBar[]; currency: str
     grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(18,18,20,0.74)',
+      backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
       borderColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1,
       padding: [10, 12],
@@ -999,7 +999,7 @@ function VolumeChart({ bars }: { bars: PriceBar[] }) {
     grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(18,18,20,0.74)',
+      backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
       borderColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1,
       padding: [10, 12],

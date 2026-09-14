@@ -17,7 +17,7 @@ const DOWN = '#ff3e3e';
 
 /** Shared frosted tooltip style. */
 const tooltipStyle = {
-  backgroundColor: 'rgba(18, 18, 20, 0.74)',
+  backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
   borderColor: 'rgba(255, 255, 255, 0.12)',
   borderWidth: 1,
   padding: [10, 12] as [number, number],

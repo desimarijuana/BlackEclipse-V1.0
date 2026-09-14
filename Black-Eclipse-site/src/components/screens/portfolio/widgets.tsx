@@ -131,7 +131,7 @@ export function AllocationWidget({ data }: WidgetProps) {
     if (!holdings.length) return null;
     return {
       ...baseChartOption(),
-      tooltip: { trigger: 'item', backgroundColor: 'rgba(18,18,20,0.74)', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: [10, 12], textStyle: { color: '#e5e7eb', fontSize: 11 }, extraCssText: 'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);' },
+      tooltip: { trigger: 'item', backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: [10, 12], textStyle: { color: '#e5e7eb', fontSize: 11 }, extraCssText: 'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);' },
       series: [{
         type: 'pie', radius: ['58%', '82%'], center: ['50%', '50%'],
         label: { show: false }, silent: false,

@@ -62,6 +62,46 @@ is missing, the frost does not render and it reads as a flat panel:
    Corollary: never put `animate-fade-in`/`animate-fade-in-up` (or any
    forwards/both animation) on the *wrapper element that contains* a glass
    drawer/palette — animate a **sibling** (e.g. the dim overlay) instead.
+5. **`getComputedStyle(...).backdropFilter` is NOT proof of frost — the pixels
+   are.** A surface can report `blur(18px)` and still render perfectly sharp
+   (rules 2–4 are the usual causes). When the user says "frosted glass", they
+   mean the background must be *visibly blurred*. Always verify with a
+   high-contrast test: put a checkerboard behind the surface and compare edge
+   energy inside vs. outside it — or simply screenshot and look. If the checker
+   still reads sharp through the panel, the frost is broken no matter what the
+   computed style says.
+
+### ECharts tooltip overlays (charts, heatmaps, curves)
+
+Tooltips are HTML overlays ECharts injects — they do NOT go through lightningcss,
+so their `extraCssText` blur is written verbatim. Three things are mandatory:
+
+```ts
+tooltip: {
+  backgroundColor: 'rgba(18,18,20,0.5)',   // (a) translucent — NEVER 0.7+
+  appendTo: 'body',                          // (b) escape the chart's backdrop root
+  borderColor: 'rgba(255,255,255,0.12)',
+  borderWidth: 1,
+  padding: [10, 12],
+  textStyle: { color: '#e5e7eb', fontSize: 11 },
+  extraCssText:
+    'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; ' +
+    'box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
+}
+```
+
+- (a) A high-alpha fill (e.g. `0.74`, `0.9`, `0.94`) hides the blur — the panel
+  reads flat. Keep tooltip tint ≤ ~0.55.
+- (b) By default the tooltip is a child of the chart container, which sits inside
+  the widget's glass card → a nested backdrop root → the blur samples an empty
+  box and does nothing. `appendTo: 'body'` renders the tooltip at `<body>` level
+  so it blurs the real page (same lesson as portaling drawers/popovers).
+- Never write `-webkit-backdrop-filter` in `extraCssText` (rule 1).
+
+Apply this to every chart tooltip: `eclipse-provider.ts`, `tradingview-chart.tsx`,
+`journal/charts`, `journal/trade-replay.tsx`, `economics/panel.tsx`,
+`dashboard/chart-widgets.tsx`, `dashboard/heatmap-widget.tsx`,
+`portfolio/{fund-manager,use-echart,widgets}.tsx`.
 
 
 ## The tiers — pick by surface

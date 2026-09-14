@@ -204,7 +204,7 @@ export function EconPanel({ source }: PanelProps) {
       grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(18,18,20,0.74)',
+        backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
         borderColor: 'rgba(255,255,255,0.12)',
         borderWidth: 1,
         padding: [10, 12],

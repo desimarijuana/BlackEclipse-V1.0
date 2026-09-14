@@ -60,7 +60,7 @@ export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayCha
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(18,18,20,0.74)',
+        backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
         borderColor: 'rgba(255,255,255,0.12)',
         borderWidth: 1,
         padding: [10, 12],

@@ -40,7 +40,7 @@ export function baseChartOption(): EChartsOption {
     textStyle: { fontFamily: 'var(--font-sans, sans-serif)' },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(18,18,20,0.74)',
+      backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
       borderColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1,
       padding: [10, 12],
