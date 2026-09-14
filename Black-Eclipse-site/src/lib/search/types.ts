@@ -15,7 +15,8 @@ export type AppTab =
   | 'journal'
   | 'settings'
   | 'alerts'
-  | 'dashboard';
+  | 'dashboard'
+  | 'market-workspace';
 
 /**
  * A resolved navigation target. Black Eclipse is a tabbed SPA (no router), so

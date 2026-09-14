@@ -52,6 +52,16 @@ export class EclipseChartProvider implements ChartProvider {
   private compareSeries: ChartCompareSeries[] = [];
   // Right gutter (px) reserved for the live-price tag; shared with the badge.
   private readonly rightGutter = 54;
+  // Dense mode for small multi-chart panels: slimmer axes + fewer labels.
+  private compact = false;
+  // Linked-chart observers.
+  private crosshairCb: ((time: number | null) => void) | null = null;
+  private rangeCb: ((range: { start: number; end: number }) => void) | null = null;
+  // True while a linked peer is driving our crosshair/range (echo suppression).
+  private applyingExternal = false;
+  // Bar open timestamps (ms), indexed to the current data — resolves crosshair
+  // category indices back to a shared timestamp across instruments.
+  private barTimes: number[] = [];
 
   constructor(initial: ChartState) {
     this.state = { ...initial };
@@ -82,6 +92,17 @@ export class EclipseChartProvider implements ChartProvider {
       if (first && typeof first.start === 'number') this.zoomStart = first.start;
       if (first && typeof first.end === 'number') this.zoomEnd = first.end;
       this.userAdjustedZoom = true;
+      if (!this.applyingExternal) this.rangeCb?.({ start: this.zoomStart, end: this.zoomEnd });
+    });
+    // Crosshair moves → resolve the category index to a bar timestamp so linked
+    // charts can snap to the same moment in time.
+    this.chart.on('updateAxisPointer', (e: unknown) => {
+      if (!this.crosshairCb) return;
+      const idx = (e as { axesInfo?: Array<{ value?: unknown; axisDim?: string }> }).axesInfo
+        ?.find((a) => a.axisDim === 'x')?.value;
+      const i = typeof idx === 'number' ? idx : null;
+      const t = i != null ? this.barTimes[i] ?? null : null;
+      if (!this.applyingExternal) this.crosshairCb(t);
     });
     this.render();
   }
@@ -116,6 +137,9 @@ export class EclipseChartProvider implements ChartProvider {
 
   setData(data: ChartData): void {
     this.data = data;
+    // Resolve each bar's timestamp for crosshair linking. Intraday bars carry
+    // `time`; daily bars fall back to their date parsed as UTC midnight.
+    this.barTimes = data.bars.map((b) => b.time ?? Date.parse(`${b.date}T00:00:00Z`));
     if (!this.userAdjustedZoom) {
       const z = this.defaultZoom(data.bars);
       this.zoomStart = z.start;
@@ -159,6 +183,12 @@ export class EclipseChartProvider implements ChartProvider {
 
   setChartType(type: ChartType): void {
     this.state.chartType = type;
+    this.render();
+  }
+
+  /** Toggle the volume pane (persisted via ChartState.settings). */
+  setShowVolume(show: boolean): void {
+    this.state.settings = { ...this.state.settings, showVolume: show };
     this.render();
   }
 
@@ -211,6 +241,63 @@ export class EclipseChartProvider implements ChartProvider {
     this.render();
   }
 
+  // ── Dense mode + linked charts ─────────────────────────────────────────────
+
+  setCompact(compact: boolean): void {
+    if (this.compact === compact) return;
+    this.compact = compact;
+    this.render();
+  }
+
+  onCrosshair(cb: (time: number | null) => void): void {
+    this.crosshairCb = cb;
+  }
+
+  onRange(cb: (range: { start: number; end: number }) => void): void {
+    this.rangeCb = cb;
+  }
+
+  /** Move the crosshair to the bar nearest a timestamp (linked crosshair). */
+  setCrosshair(time: number | null): void {
+    if (!this.chart) return;
+    this.applyingExternal = true;
+    try {
+      if (time == null) {
+        this.chart.dispatchAction({ type: 'hideTip' });
+      } else {
+        const idx = this.nearestBarIndex(time);
+        if (idx >= 0) this.chart.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: idx });
+      }
+    } finally {
+      this.applyingExternal = false;
+    }
+  }
+
+  /** Snap the visible window to a peer's range (linked range). */
+  setRange(range: { start: number; end: number }): void {
+    if (!this.chart) return;
+    this.zoomStart = range.start;
+    this.zoomEnd = range.end;
+    this.userAdjustedZoom = true;
+    this.applyingExternal = true;
+    try {
+      this.chart.dispatchAction({ type: 'dataZoom', start: range.start, end: range.end });
+    } finally {
+      this.applyingExternal = false;
+    }
+  }
+
+  private nearestBarIndex(time: number): number {
+    if (this.barTimes.length === 0) return -1;
+    let best = -1;
+    let bestDelta = Infinity;
+    for (let i = 0; i < this.barTimes.length; i++) {
+      const delta = Math.abs(this.barTimes[i] - time);
+      if (delta < bestDelta) { bestDelta = delta; best = i; }
+    }
+    return best;
+  }
+
   private recomputeIndicators(): void {
     this.indicatorResults.clear();
     if (!this.data) return;
@@ -244,7 +331,10 @@ export class EclipseChartProvider implements ChartProvider {
     });
 
     const panes: Pane[] = [{ id: 'main', type: 'main', height: 0 }];
-    panes.push({ id: 'volume', type: 'volume', height: 0.14 });
+    // Volume pane is user-toggleable (settings.showVolume, default true).
+    if (this.state.settings?.showVolume !== false) {
+      panes.push({ id: 'volume', type: 'volume', height: 0.14 });
+    }
     for (const cfg of separate) {
       const result = this.indicatorResults.get(cfg.id);
       panes.push({ id: `ind-${cfg.id}`, type: 'indicator', indicatorId: cfg.id, height: result?.paneHeight ?? 0.22 });
@@ -315,12 +405,13 @@ export class EclipseChartProvider implements ChartProvider {
     // Vertical region available to the stacked grids: leave a small top margin
     // and reserve the bottom for the dataZoom slider so nothing overlaps.
     const topMargin = 0.03;
-    const bottomMargin = 0.06;
+    const bottomMargin = this.compact ? 0.02 : 0.06;
     const available = 1 - topMargin - bottomMargin;
-    const gap = 0.02;
+    const gap = this.compact ? 0.01 : 0.02;
     // Right gutter reserved for the live-price tag (TradingView-style). Applied
-    // to every pane so their x-axes stay aligned.
-    const rightGutter = this.rightGutter;
+    // to every pane so their x-axes stay aligned. Tightened in dense mode.
+    const rightGutter = this.compact ? 42 : this.rightGutter;
+    const axisFont = this.compact ? 8 : 9;
 
     let cursor = topMargin;
     panes.forEach((pane, idx) => {
@@ -333,14 +424,14 @@ export class EclipseChartProvider implements ChartProvider {
         type: 'category', data: dates, gridIndex: gridIdx, boundaryGap: true,
         axisLine: { lineStyle: { color: GRID } },
         axisLabel: idx === panes.length - 1
-          ? { color: AXIS, fontSize: 9, fontFamily: 'monospace' }
+          ? { color: AXIS, fontSize: axisFont, fontFamily: 'monospace' }
           : { show: false },
         axisTick: { show: false },
       });
       dataZoomX.push(gridIdx);
 
       // Pane label (small, top-left of each sub-pane) so indicators are
-      // identifiable at a glance.
+      // identifiable at a glance. Hidden in dense mode to protect the candles.
       const paneLabel = pane.type === 'volume'
         ? 'Volume'
         : pane.type === 'indicator' && pane.indicatorId
@@ -351,7 +442,7 @@ export class EclipseChartProvider implements ChartProvider {
           text: paneLabel,
           left: 12,
           top: `${(cursor + 0.005) * 100}%`,
-          textStyle: { color: 'rgba(160,160,160,0.75)', fontSize: 9, fontFamily: 'monospace', fontWeight: 'normal' },
+          textStyle: { color: 'rgba(160,160,160,0.75)', fontSize: axisFont, fontFamily: 'monospace', fontWeight: 'normal' },
         });
       }
 
@@ -359,7 +450,7 @@ export class EclipseChartProvider implements ChartProvider {
         yAxes.push({
           type: 'value', scale: true, gridIndex: gridIdx,
           splitLine: { lineStyle: { color: GRID } },
-          axisLabel: { color: AXIS, fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },
+          axisLabel: { color: AXIS, fontSize: axisFont, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v), showMaxLabel: !this.compact },
         });
         const priceSeries = this.priceSeries(type, candleData, closes, primary, up, down);
         // Attach mark overlays from overlay-pane indicators (e.g. structure).
@@ -419,7 +510,7 @@ export class EclipseChartProvider implements ChartProvider {
             type: 'value', gridIndex: gridIdx, scale: true,
             min: result.yMin, max: result.yMax,
             splitLine: { lineStyle: { color: GRID } },
-            axisLabel: { color: AXIS, fontSize: 8, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },
+            axisLabel: { color: AXIS, fontSize: axisFont - 1, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },
           });
           series.push(...this.indicatorSeries(result, gridIdx, gridIdx, up, down));
           // Attach any mark overlays the indicator declares (e.g. RSI 30/70 guides).
@@ -451,7 +542,7 @@ export class EclipseChartProvider implements ChartProvider {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
-        backgroundColor: 'rgba(18,18,20,0.74)',
+        backgroundColor: 'rgba(18,18,20,0.5)', appendTo: 'body',
         borderColor: 'rgba(255,255,255,0.12)',
         borderWidth: 1,
         padding: [10, 12],
@@ -466,7 +557,9 @@ export class EclipseChartProvider implements ChartProvider {
       title: titles.length > 0 ? titles : undefined,
       dataZoom: [
         { type: 'inside', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
-        { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.08)', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
+        this.compact
+          ? { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 6, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.06)', handleSize: 0, showDetail: false }
+          : { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.08)', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
       ],
       series,
     } as EChartsOption;

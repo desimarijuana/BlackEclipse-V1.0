@@ -143,6 +143,7 @@ export function getAllActions(): SearchAction[] {
 // ── Default registrations ────────────────────────────────────────────────────
 // Pages.
 registerPage({ id: 'page-dashboard', kind: 'page', title: 'Command Center', aliases: ['dashboard', 'command center', 'home', 'overview', 'workspace'], keywords: ['dashboard', 'command center', 'home', 'overview', 'workspace', 'widgets'], icon: 'dashboard', tab: 'dashboard', rankBoost: 1.15 });
+registerPage({ id: 'page-market-workspace', kind: 'page', title: 'Market Workspace', aliases: ['market workspace', 'multi chart', 'charts', 'terminal', 'workspace', 'trading terminal', 'grid'], keywords: ['market workspace', 'multi chart', 'charts', 'terminal', 'grid', 'layout', 'linked charts'], icon: 'dashboard', tab: 'market-workspace', rankBoost: 1.2 });
 registerPage({ id: 'page-chat', kind: 'page', title: 'ChatBot', aliases: ['chat', 'ai', 'assistant', 'ask ai'], keywords: ['chatbot', 'chat', 'conversation', 'ai'], icon: 'bot', tab: 'chat' });
 registerPage({ id: 'page-screener', kind: 'page', title: 'Market Screener', aliases: ['screener', 'discovery', 'stocks', 'discover', 'screen'], keywords: ['screener', 'market', 'stocks', 'discovery'], icon: 'chart', tab: 'discovery' });
 registerPage({ id: 'page-portfolio', kind: 'page', title: 'Portfolio', aliases: ['my portfolio', 'holdings', 'watchlist', 'positions'], keywords: ['portfolio', 'holdings', 'watchlist', 'positions'], icon: 'briefcase', tab: 'portfolio', rankBoost: 1.1 });
@@ -268,6 +269,14 @@ registerAction({
   keywords: ['open heatmap', 'market bubbles', 'heatmap', 'bubbles'],
   icon: 'orbit',
   run: () => ({ tab: 'heatmap' }),
+});
+registerAction({
+  id: 'act-open-market-workspace',
+  verb: 'open',
+  title: 'Open Market Workspace',
+  keywords: ['open market workspace', 'multi chart', 'trading terminal', 'charts', 'workspace'],
+  icon: 'dashboard',
+  run: () => ({ tab: 'market-workspace' }),
 });
 
 export { registerPage, registerInstrument, registerAction };

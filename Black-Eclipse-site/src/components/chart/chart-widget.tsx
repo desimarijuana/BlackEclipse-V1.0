@@ -6,13 +6,14 @@
 // it never depends on Eclipse or TradingView internals. Switching providers
 // preserves shared state (symbol, timeframe, chart type).
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
 import { createChartProvider } from '@/lib/chart/providers';
 import { useChartData } from '@/lib/chart/use-chart-data';
 import { useCompareData } from '@/lib/chart/use-compare-data';
+import { useLiveQuote } from '@/lib/chart/subscription-manager';
 import { getAllIndicators } from '@/lib/chart/indicators/registry';
 import { getAllDrawingDefs } from '@/lib/chart/drawings/tools';
 import { DrawingManager } from '@/lib/chart/drawings/manager';
@@ -32,6 +33,29 @@ interface ChartWidgetProps {
   /** Optional external state control (e.g. from a dashboard widget). */
   state?: ChartState;
   onStateChange?: (state: ChartState) => void;
+  /** Dense mode: tighter chrome for small multi-chart panels. */
+  compact?: boolean;
+  /** Hide the header toolbar entirely (the panel renders its own). */
+  hideToolbar?: boolean;
+  /** Hide the bottom price footer. */
+  hideFooter?: boolean;
+  /** Controlled drawing tool (when hosted in a chart panel toolbar). */
+  tool?: DrawingToolMode;
+  onToolChange?: (tool: DrawingToolMode) => void;
+  /** Crosshair move callback (timestamp ms) — linked charts. */
+  onCrosshair?: (time: number | null) => void;
+  /** Visible-range callback (0–100 %) — linked range. */
+  onRange?: (range: { start: number; end: number }) => void;
+  /** External crosshair target (timestamp ms) from a linked peer. */
+  crosshairTime?: number | null;
+  /** External range from a linked peer. */
+  range?: { start: number; end: number } | null;
+  /**
+   * Called with the live provider whenever it is (re)created / destroyed. Lets
+   * hosts (e.g. linked chart panels) apply crosshair/range updates imperatively
+   * without routing high-frequency events through React state.
+   */
+  onProviderReady?: (provider: ChartProvider | null) => void;
 }
 
 /** Live quote snapshot shown in the chart footer + fed to the last-price line. */
@@ -127,7 +151,12 @@ function useCandleCountdown(timeframe: Timeframe, symbol: string, market: string
   return { candle, candleLeft: candle.at - now, closedMarket };
 }
 
-export function ChartWidget({ symbol, market, className, state, onStateChange }: ChartWidgetProps) {
+export function ChartWidget({
+  symbol, market, className, state, onStateChange,
+  compact = false, hideToolbar = false, hideFooter = false,
+  tool: controlledTool, onToolChange,
+  onCrosshair, onRange, crosshairTime, range, onProviderReady,
+}: ChartWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const providerRef = useRef<ChartProvider | null>(null);
   const livePriceRef = useRef<number | null>(null);
@@ -160,11 +189,14 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     const provider = createChartProvider(chartState.provider, chartState);
     providerRef.current = provider;
     provider.initialize(el);
+    provider.setCompact?.(compact);
     // Push any already-loaded data into the freshly created provider.
     if (data) provider.setData(data);
     if (livePriceRef.current != null) provider.setLivePrice?.(livePriceRef.current);
     if (compareSeries.length) provider.setCompare?.(compareSeries);
+    onProviderReady?.(provider);
     return () => {
+      onProviderReady?.(null);
       provider.destroy();
       providerRef.current = null;
     };
@@ -182,61 +214,43 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
   }, [compareSeries]);
 
   // ── Live quote + refresh timer ────────────────────────────────────────────
+  // Quotes come from the shared DataSubscriptionManager, so duplicate charts of
+  // the same instrument share ONE /api/quote subscription (spec §9).
   const [refreshMs, setRefreshMs] = useState(60_000);
   const refreshMsRef = useRef(refreshMs);
   refreshMsRef.current = refreshMs;
   const [quote, setQuote] = useState<LiveQuote | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(60);
 
+  const sharedQuote = useLiveQuote(chartState.symbol, chartState.market, refreshMs);
+
   useEffect(() => {
-    let cancelled = false;
+    const price = sharedQuote.found && sharedQuote.price != null ? sharedQuote.price : null;
+    livePriceRef.current = price;
+    providerRef.current?.setLivePrice?.(price);
+    setQuote(
+      price != null
+        ? {
+            price,
+            changePercent: sharedQuote.changePercent,
+            currency: sharedQuote.currency,
+            updatedAt: sharedQuote.updatedAt,
+            at: sharedQuote.at ?? Date.now(),
+          }
+        : null,
+    );
+  }, [sharedQuote]);
+
+  // Per-chart countdown to the next refresh (uses the shared poll cadence).
+  useEffect(() => {
     let nextAt = Date.now() + refreshMsRef.current;
-    const push = (price: number | null) => {
-      livePriceRef.current = price;
-      providerRef.current?.setLivePrice?.(price);
-    };
-    const load = async () => {
-      try {
-        const params = new URLSearchParams({ symbols: chartState.symbol, market: chartState.market });
-        const res = await fetch(`/api/quote?${params.toString()}`);
-        if (!res.ok) return;
-        const json = (await res.json()) as {
-          quotes?: Array<{ price?: number; changePercent?: number; currency?: string; updatedAt?: string; found?: boolean }>;
-        };
-        if (cancelled) return;
-        const q = json.quotes?.[0];
-        if (q?.found && typeof q.price === 'number' && q.price > 0) {
-          push(q.price);
-          setQuote({
-            price: q.price,
-            changePercent: q.changePercent ?? 0,
-            currency: q.currency ?? '$',
-            updatedAt: q.updatedAt ?? null,
-            at: Date.now(),
-          });
-        } else {
-          push(null);
-          setQuote(null);
-        }
-      } catch {
-        // Network hiccup — keep the last known price.
-      }
-    };
-    const reset = () => {
-      nextAt = Date.now() + refreshMsRef.current;
-      setSecondsLeft(Math.round(refreshMsRef.current / 1000));
-    };
-    push(null);
-    setQuote(null);
-    load();
-    reset();
+    let cancelled = false;
+    setSecondsLeft(Math.round(refreshMsRef.current / 1000));
     const timer = setInterval(() => {
-      if (cancelled || refreshMsRef.current <= 0) return;
+      if (cancelled) return;
+      if (refreshMsRef.current <= 0) return;
+      if (Date.now() >= nextAt) nextAt = Date.now() + refreshMsRef.current;
       setSecondsLeft(Math.max(0, Math.ceil((nextAt - Date.now()) / 1000)));
-      if (Date.now() >= nextAt) {
-        load();
-        reset();
-      }
     }, 1000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [chartState.symbol, chartState.market, refreshMs]);
@@ -257,6 +271,27 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     schedule();
     return () => clearTimeout(timer);
   }, [chartState.symbol, chartState.market, chartState.timeframe]);
+
+  // Dense mode for small multi-chart panels.
+  useEffect(() => {
+    providerRef.current?.setCompact?.(compact);
+  }, [compact, chartState.provider]);
+
+  // Linked-chart observers: publish crosshair moves + range changes to the host.
+  useEffect(() => {
+    providerRef.current?.onCrosshair?.((t) => onCrosshair?.(t));
+  }, [onCrosshair, chartState.provider]);
+  useEffect(() => {
+    providerRef.current?.onRange?.((r) => onRange?.(r));
+  }, [onRange, chartState.provider]);
+
+  // Apply crosshair / range driven by a linked peer (echo-suppressed upstream).
+  useEffect(() => {
+    providerRef.current?.setCrosshair?.(crosshairTime ?? null);
+  }, [crosshairTime]);
+  useEffect(() => {
+    if (range) providerRef.current?.setRange?.(range);
+  }, [range]);
 
   // Keep the provider's symbol/timeframe/chartType in sync with state.
   useEffect(() => {
@@ -311,8 +346,18 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     return new DrawingManager(saved);
   });
   const [drawingController] = useState(() => new DrawingController(drawingManager));
-  const [tool, setTool] = useState<DrawingToolMode>('cursor');
+  const [internalTool, setInternalTool] = useState<DrawingToolMode>('cursor');
+  const tool = controlledTool ?? internalTool;
+  const setTool = useCallback((t: DrawingToolMode) => {
+    if (controlledTool === undefined) setInternalTool(t);
+    onToolChange?.(t);
+  }, [controlledTool, onToolChange]);
   const [, forceRender] = useState(0);
+
+  // Mirror an externally controlled tool into the drawing controller.
+  useEffect(() => {
+    if (controlledTool !== undefined) drawingController.setTool(controlledTool);
+  }, [controlledTool, drawingController]);
 
   // Keep the manager in sync with external state changes (symbol/timeframe
   // switch). On mount, the manager already holds the persisted drawings, so we
@@ -355,7 +400,7 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [drawingManager, drawingController]);
+  }, [drawingManager, drawingController, setTool]);
 
   const selectTool = (t: DrawingToolMode) => {
     drawingController.setTool(t);
@@ -369,6 +414,13 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
 
   // Navigation controls — only meaningful for the native Eclipse provider.
   const isEclipse = chartState.provider === 'eclipse';
+  const showVolume = chartState.settings?.showVolume !== false;
+  const toggleVolume = () => {
+    const next = { ...chartState, settings: { ...chartState.settings, showVolume: !showVolume } };
+    (providerRef.current as EclipseChartProvider | null)?.setShowVolume?.(!showVolume);
+    setState(next);
+  };
+
   const zoomIn = () => (providerRef.current as EclipseChartProvider | null)?.zoomBy?.(0.7);
   const zoomOut = () => (providerRef.current as EclipseChartProvider | null)?.zoomBy?.(1.4);
   const panLeft = () => (providerRef.current as EclipseChartProvider | null)?.panBy?.(-0.25);
@@ -382,38 +434,43 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
   const emptyResult = notFound || (!!error && !loading);
 
   return (
-    <div className={cn('flex h-full w-full flex-col gap-2', className)} style={{ minHeight: 400 }}>
-      <ChartToolbar
-        state={chartState}
-        loading={loading}
-        tool={tool}
-        onTool={selectTool}
-        onProvider={setProvider}
-        onTimeframe={setTimeframe}
-        onChartType={setChartType}
-        onSymbol={setSymbol}
-        onPickSymbol={pickSymbol}
-        onSearch={openSearch}
-        onRefresh={refresh}
-        onAddIndicator={addIndicator}
-        onRemoveIndicator={removeIndicator}
-        compare={compareList}
-        compareSeries={compareSeries}
-        onAddCompare={addCompare}
-        onRemoveCompare={removeCompare}
-        manager={drawingManager}
-        isEclipse={isEclipse}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onPanLeft={panLeft}
-        onPanRight={panRight}
-        onResetZoom={resetZoom}
-      />
+    <div className={cn('flex h-full min-h-0 w-full flex-col', compact ? 'gap-1' : 'gap-2', className)}>
+      {!hideToolbar && (
+        <ChartToolbar
+          state={chartState}
+          loading={loading}
+          compact={compact}
+          tool={tool}
+          onTool={selectTool}
+          onProvider={setProvider}
+          onTimeframe={setTimeframe}
+          onChartType={setChartType}
+          onSymbol={setSymbol}
+          onPickSymbol={pickSymbol}
+          onSearch={openSearch}
+          onRefresh={refresh}
+          onAddIndicator={addIndicator}
+          onRemoveIndicator={removeIndicator}
+          showVolume={showVolume}
+          onToggleVolume={toggleVolume}
+          compare={compareList}
+          compareSeries={compareSeries}
+          onAddCompare={addCompare}
+          onRemoveCompare={removeCompare}
+          manager={drawingManager}
+          isEclipse={isEclipse}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onPanLeft={panLeft}
+          onPanRight={panRight}
+          onResetZoom={resetZoom}
+        />
+      )}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/10 glass-card-subtle">
+      <div className={cn('relative min-h-0 flex-1 overflow-hidden', compact ? 'rounded-lg' : 'rounded-2xl', 'border border-border/10 glass-card-subtle')}>
         <div ref={containerRef} className="absolute inset-0" />
         <DrawingOverlay getChart={getChart} manager={drawingManager} controller={drawingController} tool={tool} />
-        {!emptyResult && (
+        {!emptyResult && !compact && (
           <LivePriceOverlay
             symbol={chartState.symbol}
             market={chartState.market}
@@ -454,17 +511,19 @@ export function ChartWidget({ symbol, market, className, state, onStateChange }:
         )}
       </div>
 
-      <PriceFooter
-        symbol={chartState.symbol}
-        market={chartState.market}
-        timeframe={chartState.timeframe}
-        quote={quote}
-        refreshMs={refreshMs}
-        secondsLeft={secondsLeft}
-        onRefreshMs={setRefreshMs}
-        onRefresh={refresh}
-        loading={loading}
-      />
+      {!hideFooter && !compact && (
+        <PriceFooter
+          symbol={chartState.symbol}
+          market={chartState.market}
+          timeframe={chartState.timeframe}
+          quote={quote}
+          refreshMs={refreshMs}
+          secondsLeft={secondsLeft}
+          onRefreshMs={setRefreshMs}
+          onRefresh={refresh}
+          loading={loading}
+        />
+      )}
     </div>
   );
 }
@@ -732,11 +791,14 @@ function SymbolSearch({
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
 function ChartToolbar({
-  state, loading, tool, onTool, onProvider, onTimeframe, onChartType, onSymbol, onPickSymbol, onSearch, onRefresh,
-  onAddIndicator, onRemoveIndicator, compare, compareSeries, onAddCompare, onRemoveCompare, manager, isEclipse, onZoomIn, onZoomOut, onPanLeft, onPanRight, onResetZoom,
+  state, loading, compact, tool, onTool, onProvider, onTimeframe, onChartType, onSymbol, onPickSymbol, onSearch, onRefresh,
+  onAddIndicator, onRemoveIndicator, showVolume, onToggleVolume, compare, compareSeries, onAddCompare, onRemoveCompare, manager, isEclipse, onZoomIn, onZoomOut, onPanLeft, onPanRight, onResetZoom,
 }: {
   state: ChartState;
   loading: boolean;
+  compact: boolean;
+  showVolume: boolean;
+  onToggleVolume: () => void;
   tool: DrawingToolMode;
   onTool: (t: DrawingToolMode) => void;
   onProvider: (p: ChartProviderId) => void;
@@ -761,13 +823,16 @@ function ChartToolbar({
   onResetZoom: () => void;
 }) {
   return (
-    <div className="relative z-20 flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/10 glass-card-subtle px-2 py-1.5">
+    <div className={cn(
+      'relative z-20 flex flex-wrap items-center gap-1.5 border border-border/10 glass-card-subtle',
+      compact ? 'rounded-lg px-1 py-0.5' : 'rounded-2xl px-2 py-1.5',
+    )}>
       {/* Symbol search — autocompletes against the full JDDS universe */}
       <SymbolSearch current={state.symbol} onPick={onPickSymbol} onSubmit={onSymbol} onOpenPalette={onSearch} />
 
-      {/* Timeframe */}
+      {/* Timeframe. Dense panels trim the list to the intraday + daily core. */}
       <div className="flex items-center gap-0.5 rounded-lg bg-accent/30 p-0.5">
-        {TIMEFRAMES.map((tf) => (
+        {(compact ? TIMEFRAMES.filter(t => ['5m', '15m', '1H', '4H', '1D'].includes(t)) : TIMEFRAMES).map((tf) => (
           <button
             key={tf}
             onClick={() => onTimeframe(tf)}
@@ -802,22 +867,27 @@ function ChartToolbar({
         active={state.indicators}
         onAdd={onAddIndicator}
         onRemove={onRemoveIndicator}
+        showVolume={showVolume}
+        onToggleVolume={onToggleVolume}
       />
 
-      {/* Compare */}
-      <CompareMenu
-        compare={compare}
-        series={compareSeries}
-        onAdd={onAddCompare}
-        onRemove={onRemoveCompare}
-        primarySymbol={state.symbol}
-      />
+
+      {/* Compare — hidden on dense panels where toolbar space is scarce. */}
+      {!compact && (
+        <CompareMenu
+          compare={compare}
+          series={compareSeries}
+          onAdd={onAddCompare}
+          onRemove={onRemoveCompare}
+          primarySymbol={state.symbol}
+        />
+      )}
 
       {/* Drawing tools */}
       <DrawingToolbar tool={tool} onTool={onTool} manager={manager} />
 
       {/* Navigation — pan / zoom / reset (Eclipse provider only) */}
-      {isEclipse && (
+      {isEclipse && !compact && (
         <div className="flex items-center gap-0.5 rounded-lg bg-accent/30 p-0.5">
           <button
             onClick={onPanLeft}
@@ -867,11 +937,13 @@ function ChartToolbar({
 // ── Indicator menu ───────────────────────────────────────────────────────────
 
 function IndicatorMenu({
-  active, onAdd, onRemove,
+  active, onAdd, onRemove, showVolume, onToggleVolume,
 }: {
   active: ChartIndicatorConfig[];
   onAdd: (config: ChartIndicatorConfig) => void;
   onRemove: (id: string) => void;
+  showVolume: boolean;
+  onToggleVolume: () => void;
 }) {
   const indicators = getAllIndicators();
 
@@ -893,7 +965,17 @@ function IndicatorMenu({
     >
       {() => (
         <>
-          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Active</div>
+          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Panes</div>
+          <button
+            onClick={onToggleVolume}
+            className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent/40 cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold text-foreground">Volume</span>
+            <span className={cn('h-3.5 w-6 rounded-full border relative transition-colors', showVolume ? 'bg-primary/30 border-primary/50' : 'bg-accent/40 border-border/40')}>
+              <span className={cn('absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all', showVolume ? 'left-3 bg-primary' : 'left-0.5 bg-muted-foreground/60')} />
+            </span>
+          </button>
+          <div className="mt-1 border-t border-border/10 px-2 pt-1.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Active</div>
           {active.length === 0 && (
             <div className="px-2 py-1 text-[10px] text-muted-foreground/60 italic">No indicators added</div>
           )}

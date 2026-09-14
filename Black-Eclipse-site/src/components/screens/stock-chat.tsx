@@ -51,6 +51,10 @@ const DashboardScreen = dynamic(() => import('./dashboard/dashboard-screen').the
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const MarketWorkspaceScreen = dynamic(
+  () => import('@/components/market-workspace/market-workspace').then((m) => m.MarketWorkspace),
+  { ssr: false, loading: () => <ScreenSkeleton /> },
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -158,6 +162,17 @@ function StockChatContent() {
     });
     return unsub;
   }, [mounted]);
+
+  // Workspace panels dispatch `be:navigate` to switch the SPA tab (e.g. the
+  // Screener panel links out to the full screener tab).
+  useEffect(() => {
+    const onNavigate = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
+      if (tab) setActiveTab(tab as AppTab);
+    };
+    window.addEventListener('be:navigate', onNavigate);
+    return () => window.removeEventListener('be:navigate', onNavigate);
+  }, []);
 
   // Load conversations from local storage
   useEffect(() => {
@@ -469,6 +484,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <DashboardScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('market-workspace') && (
+            <div className={cn('w-full', activeTab === 'market-workspace' ? '' : 'hidden')}>
+              <div className="w-full px-3 md:px-5 py-4">
+                <MarketWorkspaceScreen />
               </div>
             </div>
           )}

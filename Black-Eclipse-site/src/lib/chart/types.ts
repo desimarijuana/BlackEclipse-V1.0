@@ -442,6 +442,19 @@ export interface ChartProvider {
   getState(): ChartState;
   /** Restore a previously serialized state. */
   restoreState(state: ChartState): void;
+
+  // ── Optional capabilities (providers may no-op) ──────────────────────────
+
+  /** Dense mode: tighter chrome + fewer labels for small multi-chart panels. */
+  setCompact?(compact: boolean): void;
+  /** Subscribe to crosshair moves. `time` is a bar timestamp (ms) or null. */
+  onCrosshair?(cb: (time: number | null) => void): void;
+  /** Programmatically move the crosshair to a bar timestamp (linked charts). */
+  setCrosshair?(time: number | null): void;
+  /** Subscribe to visible-range (zoom) changes, expressed as 0–100 percent. */
+  onRange?(cb: (range: { start: number; end: number }) => void): void;
+  /** Programmatically set the visible range (linked charts). */
+  setRange?(range: { start: number; end: number }): void;
 }
 
 /** Default chart state factory. */
