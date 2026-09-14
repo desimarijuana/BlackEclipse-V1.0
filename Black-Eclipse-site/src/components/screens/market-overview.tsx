@@ -1449,7 +1449,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       <>
         <TopLoader />
         <div className={cn(
-          "w-full px-4 md:px-8 py-6 space-y-6 pb-20",
+          "w-full py-6 space-y-6 pb-20",
           !embedded && "flex-1 overflow-y-auto h-full bg-transparent"
         )}>
           {!embedded && (
@@ -1489,7 +1489,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     <>
       {(loadingApi || loadingTab || loadingDashboard) && <TopLoader />}
       <div className={cn(
-        "w-full px-4 md:px-8 py-6 space-y-8 pb-20 relative bg-transparent",
+        "w-full py-6 space-y-8 pb-20 relative bg-transparent",
         !embedded && "flex-1 overflow-y-auto h-full"
       )}>
       
