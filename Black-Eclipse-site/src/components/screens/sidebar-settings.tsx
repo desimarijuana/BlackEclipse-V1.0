@@ -8,12 +8,12 @@
 
 import { useState } from 'react';
 import {
-  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff, Lock,
+  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DEFAULT_SIDEBAR_SECTIONS, SHORTCUT_OPTIONS, isPinnedSection, type SidebarSectionDef } from '@/lib/sidebar/config';
+import { DEFAULT_SIDEBAR_SECTIONS, SHORTCUT_OPTIONS, type SidebarSectionDef } from '@/lib/sidebar/config';
 import { useSidebarConfigStore } from '@/lib/sidebar/store';
 import type { AppTab } from '@/components/layout/sidebar';
 import {
@@ -27,16 +27,14 @@ import { CSS } from '@dnd-kit/utilities';
 
 const DEF_BY_ID = new Map<string, SidebarSectionDef>(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
-      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors",
-        disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
+        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
         checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
       )}
     >
@@ -75,9 +73,6 @@ export function SidebarSettingsPanel() {
     const from = config.sections.findIndex((s) => s.id === active.id);
     const to = config.sections.findIndex((s) => s.id === over.id);
     if (from === -1 || to === -1) return;
-    // Never let a drag move a pinned row or drop into the pinned region; the
-    // store enforces this too, but bail early so we don't even preview a swap.
-    if (isPinnedSection(config.sections[from].id) || isPinnedSection(config.sections[to].id)) return;
     move(from, to);
   };
 
@@ -129,20 +124,14 @@ export function SidebarSettingsPanel() {
               {config.sections.map((section, index) => {
                 const def = DEF_BY_ID.get(section.id);
                 if (!def) return null;
-                const pinned = isPinnedSection(section.id as AppTab);
-                // A row can't be pushed into the pinned region above, nor swapped
-                // with the pinned row directly above it.
-                const prevPinned = index === 0 || isPinnedSection(config.sections[index - 1].id as AppTab);
-                const nextPinned = index === config.sections.length - 1 || isPinnedSection(config.sections[index + 1].id as AppTab);
                 return (
                   <SortableRow
                     key={section.id}
                     def={def}
                     id={section.id as AppTab}
                     enabled={section.enabled}
-                    pinned={pinned}
-                    canMoveUp={!pinned && index > 0 && !prevPinned}
-                    canMoveDown={!pinned && index < config.sections.length - 1 && !nextPinned}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < config.sections.length - 1}
                     shortcut={section.shortcut}
                     usedShortcuts={usedShortcuts}
                     onToggle={() => toggleEnabled(section.id as AppTab)}
@@ -168,7 +157,7 @@ export function SidebarSettingsPanel() {
         </DndContext>
 
         <p className="text-[10px] text-muted-foreground px-5 py-3.5 border-t border-border/10 flex items-center gap-1.5">
-          <Lock size={11} /> ChatBot and Command Center are pinned to the top. Shortcuts work anywhere in the app; hidden items stay in this list but leave the sidebar.
+          <Keyboard size={11} /> Shortcuts work anywhere in the app. Hidden items stay in this list but leave the sidebar.
         </p>
       </div>
     </div>
@@ -179,7 +168,6 @@ interface SortableRowProps {
   def: SidebarSectionDef;
   id: AppTab;
   enabled: boolean;
-  pinned: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   shortcut: string;
@@ -191,13 +179,10 @@ interface SortableRowProps {
 }
 
 function SortableRow({
-  def, id, enabled, pinned, canMoveUp, canMoveDown, shortcut, usedShortcuts,
+  def, id, enabled, canMoveUp, canMoveDown, shortcut, usedShortcuts,
   onToggle, onShortcut, onMoveUp, onMoveDown,
 }: SortableRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-    disabled: pinned,
-  });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const Icon = def.icon;
 
   return (
@@ -213,16 +198,12 @@ function SortableRow({
       )}
     >
       <span
-        {...(pinned ? {} : { ...attributes, ...listeners })}
-        className={cn(
-          "shrink-0 touch-none select-none",
-          pinned
-            ? "text-muted-foreground/40 cursor-default"
-            : "cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground"
-        )}
-        title={pinned ? "Pinned to the top" : "Drag to reorder"}
+        {...attributes}
+        {...listeners}
+        className="shrink-0 touch-none select-none cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground"
+        title="Drag to reorder"
       >
-        {pinned ? <Lock size={14} /> : <GripVertical size={15} />}
+        <GripVertical size={15} />
       </span>
 
       <span className={cn(
@@ -286,7 +267,7 @@ function SortableRow({
 
       <span className="shrink-0 flex items-center gap-2">
         {!enabled && <EyeOff size={12} className="text-muted-foreground hidden sm:block" />}
-        <Toggle checked={enabled} onChange={onToggle} disabled={pinned} />
+        <Toggle checked={enabled} onChange={onToggle} />
       </span>
     </div>
   );

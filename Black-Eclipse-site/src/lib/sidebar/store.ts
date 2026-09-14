@@ -12,8 +12,6 @@ import {
   defaultSidebarConfig,
   loadSidebarConfig,
   saveSidebarConfig,
-  normalizeSidebarConfig,
-  isPinnedSection,
   type SidebarConfig,
 } from './config';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -50,7 +48,6 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
 
   toggleEnabled: (id) =>
     set((s) => {
-      if (isPinnedSection(id)) return {};
       const config = {
         sections: s.config.sections.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)),
       };
@@ -77,14 +74,9 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
       if (from < 0 || to < 0 || from >= sections.length || to >= sections.length || from === to) {
         return {};
       }
-      // Pinned items stay locked at the top: neither the dragged item nor the
-      // drop slot may fall inside the pinned region.
-      if (isPinnedSection(sections[from].id) || isPinnedSection(sections[to].id)) {
-        return {};
-      }
       const [item] = sections.splice(from, 1);
       sections.splice(to, 0, item);
-      const config = normalizeSidebarConfig({ sections });
+      const config = { sections };
       saveSidebarConfig(config);
       return { config };
     }),
