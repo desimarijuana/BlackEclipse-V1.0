@@ -23,9 +23,9 @@ export interface SidebarSectionDef {
 
 /** The primary navigation menu, in the shipped default order. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
+  { id: 'chat', label: 'ChatBot', icon: Bot },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
   { id: 'market-workspace', label: 'Market Workspace', icon: Grid2x2 },
-  { id: 'chat', label: 'ChatBot', icon: Bot },
   { id: 'discovery', label: 'Market Screener', icon: ChartCandlestick },
   { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { id: 'journal', label: 'Journal', icon: BookOpen },
@@ -34,6 +34,38 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'economics', label: 'Economics', icon: Globe },
   { id: 'alerts', label: 'Price Alerts', icon: Bell },
 ];
+
+/**
+ * Always-first navigation items, in this order. ChatBot is the harness and
+ * Command Center the terminal home, so they are pinned to the top and cannot be
+ * reordered or hidden — the rest of the menu is user-customizable below them.
+ */
+export const PINNED_SIDEBAR_IDS: AppTab[] = ['chat', 'dashboard'];
+
+/** Is this nav item locked to its position (unmovable / untoggleable)? */
+export function isPinnedSection(id: AppTab): boolean {
+  return PINNED_SIDEBAR_IDS.includes(id);
+}
+
+/**
+ * Force the pinned items to the front in their canonical order, keep them
+ * enabled, and append everything else in the given order. Applied after every
+ * load/move so pinned items can never drift — even from a stale saved config.
+ */
+export function normalizeSidebarConfig(cfg: SidebarConfig): SidebarConfig {
+  const byId = new Map(cfg.sections.map((s) => [s.id, s]));
+  const pinned: SidebarSectionConfig[] = PINNED_SIDEBAR_IDS
+    .filter((id) => DEFAULT_SIDEBAR_SECTIONS.some((d) => d.id === id))
+    .map((id) => ({ id, enabled: true, shortcut: byId.get(id)?.shortcut ?? '' }));
+  const pinnedSet = new Set<AppTab>(PINNED_SIDEBAR_IDS);
+  const rest = cfg.sections.filter((s) => !pinnedSet.has(s.id));
+  // Re-append any canonical section missing entirely (upgrade path).
+  const present = new Set(cfg.sections.map((s) => s.id));
+  for (const def of DEFAULT_SIDEBAR_SECTIONS) {
+    if (!present.has(def.id)) rest.push({ id: def.id, enabled: true, shortcut: '' });
+  }
+  return { sections: [...pinned, ...rest] };
+}
 
 /** Per-item user config; id is the AppTab id. */
 export interface SidebarSectionConfig {
@@ -79,7 +111,7 @@ export function loadSidebarConfig(): SidebarConfig {
       const s = saved.get(def.id);
       merged.push({ id: def.id, enabled: s ? s.enabled !== false : true, shortcut: s?.shortcut ?? '' });
     }
-    return { sections: merged };
+    return normalizeSidebarConfig({ sections: merged });
   } catch {
     return base;
   }

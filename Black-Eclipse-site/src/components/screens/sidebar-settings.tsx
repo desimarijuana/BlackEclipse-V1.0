@@ -8,25 +8,35 @@
 
 import { useState } from 'react';
 import {
-  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff,
+  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff, Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DEFAULT_SIDEBAR_SECTIONS, SHORTCUT_OPTIONS, type SidebarSectionDef } from '@/lib/sidebar/config';
+import { DEFAULT_SIDEBAR_SECTIONS, SHORTCUT_OPTIONS, isPinnedSection, type SidebarSectionDef } from '@/lib/sidebar/config';
 import { useSidebarConfigStore } from '@/lib/sidebar/store';
 import type { AppTab } from '@/components/layout/sidebar';
+import {
+  DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  closestCenter, type DragStartEvent, type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const DEF_BY_ID = new Map<string, SidebarSectionDef>(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
+        "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors",
+        disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
         checked ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
       )}
     >
@@ -47,17 +57,33 @@ export function SidebarSettingsPanel() {
   const move = useSidebarConfigStore((s) => s.move);
   const reset = useSidebarConfigStore((s) => s.reset);
 
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [activeId, setActiveId] = useState<AppTab | null>(null);
 
-  const handleDrop = (toIndex: number) => {
-    if (dragIndex !== null) move(dragIndex, toIndex);
-    setDragIndex(null);
-    setOverIndex(null);
+  // Pointer + keyboard sensors: the drag owns the pointer (so the modal's own
+  // scroll/click handling never swallows it) and is reachable by keyboard.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragStart = (e: DragStartEvent) => setActiveId(e.active.id as AppTab);
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = config.sections.findIndex((s) => s.id === active.id);
+    const to = config.sections.findIndex((s) => s.id === over.id);
+    if (from === -1 || to === -1) return;
+    // Never let a drag move a pinned row or drop into the pinned region; the
+    // store enforces this too, but bail early so we don't even preview a swap.
+    if (isPinnedSection(config.sections[from].id) || isPinnedSection(config.sections[to].id)) return;
+    move(from, to);
   };
 
   // Shortcuts already taken — shown as disabled options in the other rows.
   const usedShortcuts = new Set(config.sections.filter((s) => s.shortcut).map((s) => s.shortcut));
+  const sortableIds = config.sections.map((s) => s.id);
 
   return (
     <div className="animate-fade-in-up">
@@ -91,110 +117,177 @@ export function SidebarSettingsPanel() {
           </Button>
         </div>
 
-        <div className="p-2 sm:p-3 space-y-1.5">
-          {config.sections.map((section, index) => {
-            const def = DEF_BY_ID.get(section.id);
-            if (!def) return null;
-            const Icon = def.icon;
-            const isDragging = dragIndex === index;
-            const isOver = overIndex === index && dragIndex !== null && dragIndex !== index;
-            return (
-              <div
-                key={section.id}
-                draggable
-                onDragStart={() => setDragIndex(index)}
-                onDragEnd={() => { setDragIndex(null); setOverIndex(null); }}
-                onDragOver={(e) => { e.preventDefault(); setOverIndex(index); }}
-                onDrop={(e) => { e.preventDefault(); handleDrop(index); }}
-                className={cn(
-                  "flex items-center gap-2 sm:gap-3 px-2.5 sm:px-3 py-2.5 rounded-xl border transition-all",
-                  isDragging
-                    ? "opacity-50 border-primary/40 bg-primary/5"
-                    : isOver
-                    ? "border-primary/40 bg-primary/5"
-                    : "border-border/20 glass-card-subtle hover:border-border/40",
-                  !section.enabled && "opacity-60"
-                )}
-              >
-                <span className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0" title="Drag to reorder">
-                  <GripVertical size={15} />
-                </span>
-
-                <span className={cn(
-                  "w-8 h-8 rounded-lg border flex items-center justify-center shrink-0",
-                  section.enabled ? "border-primary/20 bg-primary/10" : "border-border/30 bg-muted/20"
-                )}>
-                  <Icon size={15} className={section.enabled ? "text-primary" : "text-muted-foreground"} />
-                </span>
-
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-xs font-semibold text-foreground truncate">{def.label}</span>
-                  <span className="text-[9px] text-muted-foreground tracking-wide truncate">{section.id}</span>
-                </div>
-
-                {/* Shortcut assignment */}
-                <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                  <Keyboard size={13} className="text-muted-foreground" />
-                  <Select
-                    value={section.shortcut || "__none__"}
-                    onValueChange={(v) => setShortcut(section.id as AppTab, v === "__none__" ? "" : v ?? "")}
-                  >
-                    <SelectTrigger className="h-7 w-[76px] text-[10px] rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SHORTCUT_OPTIONS.map((opt) => {
-                        const takenByOther = opt.value !== "" && opt.value !== section.shortcut && usedShortcuts.has(opt.value);
-                        return (
-                          <SelectItem
-                            key={opt.value || "__none__"}
-                            value={opt.value || "__none__"}
-                            disabled={takenByOther}
-                          >
-                            {opt.value === "" ? "None" : `${opt.label}${takenByOther ? " (used)" : ""}`}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Reorder fallback buttons */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    onClick={() => move(index, index - 1)}
-                    disabled={index === 0}
-                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                    title="Move up"
-                  >
-                    <ArrowUp size={13} />
-                  </button>
-                  <button
-                    onClick={() => move(index, index + 1)}
-                    disabled={index === config.sections.length - 1}
-                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                    title="Move down"
-                  >
-                    <ArrowDown size={13} />
-                  </button>
-                </div>
-
-                <span className="shrink-0 flex items-center gap-2">
-                  {!section.enabled && <EyeOff size={12} className="text-muted-foreground hidden sm:block" />}
-                  <Toggle
-                    checked={section.enabled}
-                    onChange={() => toggleEnabled(section.id as AppTab)}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
+        >
+          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+            <div className="p-2 sm:p-3 space-y-1.5">
+              {config.sections.map((section, index) => {
+                const def = DEF_BY_ID.get(section.id);
+                if (!def) return null;
+                const pinned = isPinnedSection(section.id as AppTab);
+                // A row can't be pushed into the pinned region above, nor swapped
+                // with the pinned row directly above it.
+                const prevPinned = index === 0 || isPinnedSection(config.sections[index - 1].id as AppTab);
+                const nextPinned = index === config.sections.length - 1 || isPinnedSection(config.sections[index + 1].id as AppTab);
+                return (
+                  <SortableRow
+                    key={section.id}
+                    def={def}
+                    id={section.id as AppTab}
+                    enabled={section.enabled}
+                    pinned={pinned}
+                    canMoveUp={!pinned && index > 0 && !prevPinned}
+                    canMoveDown={!pinned && index < config.sections.length - 1 && !nextPinned}
+                    shortcut={section.shortcut}
+                    usedShortcuts={usedShortcuts}
+                    onToggle={() => toggleEnabled(section.id as AppTab)}
+                    onShortcut={(v) => setShortcut(section.id as AppTab, v)}
+                    onMoveUp={() => move(index, index - 1)}
+                    onMoveDown={() => move(index, index + 1)}
                   />
+                );
+              })}
+            </div>
+          </SortableContext>
+
+          <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            {activeId ? (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-primary/40 bg-popover glass-card-strong shadow-2xl shadow-black/50 rotate-[1.5deg] pointer-events-none">
+                <GripVertical size={15} className="text-primary shrink-0" />
+                <span className="text-xs font-semibold text-foreground truncate">
+                  {DEF_BY_ID.get(activeId)?.label ?? activeId}
                 </span>
               </div>
-            );
-          })}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         <p className="text-[10px] text-muted-foreground px-5 py-3.5 border-t border-border/10 flex items-center gap-1.5">
-          <Keyboard size={11} /> Shortcuts work anywhere in the app. Hidden items stay in this list but leave the sidebar.
+          <Lock size={11} /> ChatBot and Command Center are pinned to the top. Shortcuts work anywhere in the app; hidden items stay in this list but leave the sidebar.
         </p>
       </div>
+    </div>
+  );
+}
+
+interface SortableRowProps {
+  def: SidebarSectionDef;
+  id: AppTab;
+  enabled: boolean;
+  pinned: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  shortcut: string;
+  usedShortcuts: Set<string>;
+  onToggle: () => void;
+  onShortcut: (v: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}
+
+function SortableRow({
+  def, id, enabled, pinned, canMoveUp, canMoveDown, shortcut, usedShortcuts,
+  onToggle, onShortcut, onMoveUp, onMoveDown,
+}: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled: pinned,
+  });
+  const Icon = def.icon;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex items-center gap-2 sm:gap-3 px-2.5 sm:px-3 py-2.5 rounded-xl border transition-all",
+        isDragging
+          ? "opacity-40 border-primary/40 bg-primary/5"
+          : "border-border/20 glass-card-subtle hover:border-border/40",
+        !enabled && "opacity-60"
+      )}
+    >
+      <span
+        {...(pinned ? {} : { ...attributes, ...listeners })}
+        className={cn(
+          "shrink-0 touch-none select-none",
+          pinned
+            ? "text-muted-foreground/40 cursor-default"
+            : "cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground"
+        )}
+        title={pinned ? "Pinned to the top" : "Drag to reorder"}
+      >
+        {pinned ? <Lock size={14} /> : <GripVertical size={15} />}
+      </span>
+
+      <span className={cn(
+        "w-8 h-8 rounded-lg border flex items-center justify-center shrink-0",
+        enabled ? "border-primary/20 bg-primary/10" : "border-border/30 bg-muted/20"
+      )}>
+        <Icon size={15} className={enabled ? "text-primary" : "text-muted-foreground"} />
+      </span>
+
+      <div className="flex flex-col min-w-0 flex-1">
+        <span className="text-xs font-semibold text-foreground truncate">{def.label}</span>
+        <span className="text-[9px] text-muted-foreground tracking-wide truncate">{id}</span>
+      </div>
+
+      {/* Shortcut assignment */}
+      <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+        <Keyboard size={13} className="text-muted-foreground" />
+        <Select
+          value={shortcut || "__none__"}
+          onValueChange={(v) => onShortcut(v === "__none__" ? "" : v ?? "")}
+        >
+          <SelectTrigger className="h-7 w-[76px] text-[10px] rounded-lg">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SHORTCUT_OPTIONS.map((opt) => {
+              const takenByOther = opt.value !== "" && opt.value !== shortcut && usedShortcuts.has(opt.value);
+              return (
+                <SelectItem
+                  key={opt.value || "__none__"}
+                  value={opt.value || "__none__"}
+                  disabled={takenByOther}
+                >
+                  {opt.value === "" ? "None" : `${opt.label}${takenByOther ? " (used)" : ""}`}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Reorder fallback buttons */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          onClick={onMoveUp}
+          disabled={!canMoveUp}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+          title="Move up"
+        >
+          <ArrowUp size={13} />
+        </button>
+        <button
+          onClick={onMoveDown}
+          disabled={!canMoveDown}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+          title="Move down"
+        >
+          <ArrowDown size={13} />
+        </button>
+      </div>
+
+      <span className="shrink-0 flex items-center gap-2">
+        {!enabled && <EyeOff size={12} className="text-muted-foreground hidden sm:block" />}
+        <Toggle checked={enabled} onChange={onToggle} disabled={pinned} />
+      </span>
     </div>
   );
 }
