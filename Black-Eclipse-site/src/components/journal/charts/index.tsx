@@ -17,12 +17,12 @@ const DOWN = '#ff3e3e';
 
 /** Shared frosted tooltip style. */
 const tooltipStyle = {
-  backgroundColor: 'rgba(10,10,12,0.95)',
-  borderColor: 'rgba(122,255,120,0.2)',
+  backgroundColor: 'rgba(18, 18, 20, 0.74)',
+  borderColor: 'rgba(255, 255, 255, 0.12)',
   borderWidth: 1,
-  padding: [8, 12] as [number, number],
+  padding: [10, 12] as [number, number],
   textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' },
-  extraCssText: 'box-shadow: 0 8px 30px rgba(0,0,0,0.5); border-radius: 8px;',
+  extraCssText: 'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
 };
 
 // ── Equity curve (cumulative R) with drawdown shading ────────────────────────

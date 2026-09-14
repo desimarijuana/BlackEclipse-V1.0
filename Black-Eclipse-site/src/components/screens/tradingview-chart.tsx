@@ -882,9 +882,13 @@ function PriceHistoryChart({ bars, currency }: { bars: PriceBar[]; currency: str
     grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(15,15,15,0.92)',
-      borderColor: 'rgba(122,255,120,0.25)',
+      backgroundColor: 'rgba(18,18,20,0.74)',
+      borderColor: 'rgba(255,255,255,0.12)',
+      borderWidth: 1,
+      padding: [10, 12],
       textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' },
+      extraCssText:
+        'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
       formatter: (params: unknown) => {
         const p = (params as Array<{ axisValue: string; data: number }>)[0];
         if (!p) return '';
@@ -995,9 +999,13 @@ function VolumeChart({ bars }: { bars: PriceBar[] }) {
     grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(15,15,15,0.92)',
-      borderColor: 'rgba(122,255,120,0.25)',
+      backgroundColor: 'rgba(18,18,20,0.74)',
+      borderColor: 'rgba(255,255,255,0.12)',
+      borderWidth: 1,
+      padding: [10, 12],
       textStyle: { color: '#e5e5e5', fontSize: 11, fontFamily: 'monospace' },
+      extraCssText:
+        'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
       formatter: (params: unknown) => {
         const p = (params as Array<{ axisValue: string; data: number }>)[0];
         if (!p) return '';
