@@ -29,8 +29,8 @@ export function WorkspaceDrawer({ onClose, workspace, widgets }: WorkspaceDrawer
 
   return (
     <>
-      <div className="fixed inset-0 z-40 flex justify-end animate-fade-in" data-nodrag>
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex justify-end" data-nodrag>
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose} />
         <aside className="relative flex w-80 max-w-[85vw] flex-col h-full border-l border-white/15 dark:border-white/10 glass-card-strong shadow-2xl shadow-black/40 animate-slide-in">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
             <span className="font-serif text-sm font-semibold text-foreground">Customize workspace</span>

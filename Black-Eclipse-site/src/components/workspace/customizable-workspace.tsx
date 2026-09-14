@@ -37,6 +37,18 @@ export interface CustomizableWorkspaceProps {
   editBarExtra?: React.ReactNode;
   /** Optional bottom status bar rendered under the canvas. */
   statusBar?: React.ReactNode;
+  /** Toolbar style: full labelled buttons, icon-only (for narrow columns), or hidden. */
+  toolbar?: 'default' | 'compact' | 'none';
+  /** Hide the floating "Add Widget" button (e.g. in a narrow side panel). */
+  hideFloatingAdd?: boolean;
+  /** Width class for the secondary rail zone (sections with zone:'rail'). */
+  railClassName?: string;
+  /** Header rendered above the rail zone (e.g. the "Market" title + collapse). */
+  railHeader?: React.ReactNode;
+  /** Collapse the rail zone down to a slim expand affordance. */
+  railCollapsed?: boolean;
+  /** Toggle the rail collapse state. */
+  onToggleRail?: () => void;
   className?: string;
 }
 
@@ -48,6 +60,12 @@ export function CustomizableWorkspace({
   renderWidget,
   editBarExtra,
   statusBar,
+  toolbar = 'default',
+  hideFloatingAdd = false,
+  railClassName,
+  railHeader,
+  railCollapsed = false,
+  onToggleRail,
   className,
 }: CustomizableWorkspaceProps) {
   const widgetIds = useMemo(() => widgets.map(w => w.id), [widgets]);
@@ -105,34 +123,66 @@ export function CustomizableWorkspace({
   return (
     <div className={cn('relative', className)}>
       {/* Customize toggle + compact + refresh — always visible */}
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-        <button
-          onClick={() => setCompact(v => !v)}
-          className={cn(
-            'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-            compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
-          )}
-          title="Toggle compact row height"
-        >
-          <Settings2 size={13} /> {compact ? 'Compact' : 'Compact'}
-        </button>
-        <button
-          onClick={refreshAll}
-          className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
-          title="Force refresh all widgets (F5)"
-        >
-          <RefreshCw size={13} /> Refresh
-        </button>
-        <button
-          onClick={() => workspace.setEditMode(!workspace.editMode)}
-          className={cn(
-            'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-            workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
-          )}
-        >
-          <Settings2 size={13} /> {workspace.editMode ? 'Done' : 'Customize'}
-        </button>
-      </div>
+      {toolbar === 'compact' ? (
+        <div className="mb-3 flex items-center justify-end gap-1">
+          <button
+            onClick={() => setCompact(v => !v)}
+            className={cn(
+              'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
+              compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
+            )}
+            title="Toggle compact row height"
+          >
+            <Settings2 size={12} />
+          </button>
+          <button
+            onClick={refreshAll}
+            className="glass-button rounded-lg p-1.5 text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            title="Force refresh all widgets (F5)"
+          >
+            <RefreshCw size={12} />
+          </button>
+          <button
+            onClick={() => workspace.setEditMode(!workspace.editMode)}
+            className={cn(
+              'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
+              workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
+            )}
+            title={workspace.editMode ? 'Done customizing' : 'Customize layout'}
+          >
+            <Settings2 size={12} />
+          </button>
+        </div>
+      ) : toolbar === 'default' ? (
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <button
+            onClick={() => setCompact(v => !v)}
+            className={cn(
+              'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+              compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
+            )}
+            title="Toggle compact row height"
+          >
+            <Settings2 size={13} /> {compact ? 'Compact' : 'Compact'}
+          </button>
+          <button
+            onClick={refreshAll}
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            title="Force refresh all widgets (F5)"
+          >
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button
+            onClick={() => workspace.setEditMode(!workspace.editMode)}
+            className={cn(
+              'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+              workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
+            )}
+          >
+            <Settings2 size={13} /> {workspace.editMode ? 'Done' : 'Customize'}
+          </button>
+        </div>
+      ) : null}
 
       {/* Edit bar */}
       {workspace.editMode && (
@@ -168,13 +218,17 @@ export function CustomizableWorkspace({
         addingMode={addDrag?.mode ?? 'hold'}
         onAddingEnd={endAddDrag}
         widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
+        railClassName={railClassName}
+        railHeader={railHeader}
+        railCollapsed={railCollapsed}
+        onToggleRail={onToggleRail}
         renderWidget={(widgetId, placement) => (
           <div className="relative h-full">
             {renderWidget(widgetId, placement)}
             {workspace.editMode && (
               <button
                 onClick={() => setConfigPlacement(placement)}
-                className="absolute right-2 bottom-2 z-20 rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
+                className="absolute right-2 bottom-2 z-30 rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
                 title="Configure widget"
               >
                 <Settings2 size={12} />
@@ -208,7 +262,7 @@ export function CustomizableWorkspace({
       )}
 
       {/* Floating add-widget button in edit mode */}
-      {workspace.editMode && !libraryOpen && (
+      {workspace.editMode && !libraryOpen && !hideFloatingAdd && (
         <button
           onClick={() => setLibraryOpen(true)}
           className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 text-primary px-4 py-2.5 text-xs font-bold shadow-lg shadow-black/30 hover:bg-primary/25 transition-all cursor-pointer"

@@ -13,6 +13,7 @@ import {
   type WorkspaceColumn,
   type WorkspaceLayout,
   type WorkspaceSection,
+  type WorkspaceZone,
   type WidgetPlacement,
 } from './types';
 import type { Draft } from 'immer';
@@ -22,6 +23,7 @@ export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
     version: 1,
     sections: l.sections.map(s => ({
       id: s.id,
+      zone: s.zone,
       columns: s.columns.map(c => ({
         id: c.id,
         weight: c.weight,
@@ -39,6 +41,7 @@ export function emptyLayout(): WorkspaceLayout {
     version: 1,
     sections: [{
       id: newId('sec'),
+      zone: 'main',
       columns: [{ id: newId('col'), weight: 3, widgets: [] }],
     }],
   };
@@ -76,6 +79,7 @@ export function pruneLayout(d: Draft<WorkspaceLayout>): void {
     if (d.sections.length > 0) {
       d.sections = [{
         id: d.sections[0].id,
+        zone: d.sections[0].zone,
         columns: d.sections[0].columns.length > 0 ? d.sections[0].columns : [{ id: newId('col'), weight: 3, widgets: [] }],
       }];
     }
@@ -83,6 +87,7 @@ export function pruneLayout(d: Draft<WorkspaceLayout>): void {
   }
   d.sections = nonEmpty.map(s => ({
     id: s.id,
+    zone: s.zone,
     columns: s.columns.length > 0 ? s.columns : [{ id: newId('col'), weight: 3, widgets: [] }],
   }));
 }
@@ -140,14 +145,15 @@ export function moveWidget(d: Draft<WorkspaceLayout>, widgetId: string, target: 
 export function moveWidgetToNewSection(d: Draft<WorkspaceLayout>, widgetId: string): void {
   const moved = takeWidget(d, widgetId);
   if (!moved) return;
-  d.sections.push({ id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
+  d.sections.push({ id: newId('sec'), zone: 'main', columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
   pruneLayout(d);
 }
 
 /**
  * Move a card into a brand-new section inserted relative to an existing
  * section: before it (above) or after it (below). This is what powers the
- * inter-section "+" strips in the editor.
+ * inter-section "+" strips in the editor. The new section inherits the anchor
+ * section's zone so a strip in the rail creates a rail section.
  */
 export function moveWidgetToNewSectionAt(
   d: Draft<WorkspaceLayout>,
@@ -159,19 +165,20 @@ export function moveWidgetToNewSectionAt(
   // (and prune away) the anchor section itself, e.g. dragging the only card
   // of a section onto that section's own above/below strip.
   const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const anchorZone = anchorIdx === -1 ? 'main' : (d.sections[anchorIdx].zone ?? 'main');
   const moved = takeWidget(d, widgetId);
   if (!moved) return;
   const insertAt = anchorIdx === -1
     ? d.sections.length
     : position === 'above' ? anchorIdx : anchorIdx + 1;
-  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
+  d.sections.splice(insertAt, 0, { id: newId('sec'), zone: anchorZone, columns: [{ id: newId('col'), weight: 3, widgets: [moved] }] });
   pruneLayout(d);
 }
 
 /**
  * Create an empty section above/below an anchor section (click affordance on
  * the inter-section strips). Empty sections are preserved — the user just
- * asked for one; pruneLayout only runs through moves.
+ * asked for one; pruneLayout only runs through moves. Inherits the anchor's zone.
  */
 export function createSectionAt(
   d: Draft<WorkspaceLayout>,
@@ -179,10 +186,11 @@ export function createSectionAt(
   position: 'above' | 'below',
 ): void {
   const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const anchorZone = anchorIdx === -1 ? 'main' : (d.sections[anchorIdx].zone ?? 'main');
   const insertAt = anchorIdx === -1
     ? d.sections.length
     : position === 'above' ? anchorIdx : anchorIdx + 1;
-  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
+  d.sections.splice(insertAt, 0, { id: newId('sec'), zone: anchorZone, columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
 }
 
 /**
@@ -194,8 +202,13 @@ export function removeSection(d: Draft<WorkspaceLayout>, sectionId: string): voi
   if (idx === -1) return;
   d.sections.splice(idx, 1);
   if (d.sections.length === 0) {
-    d.sections.push({ id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
+    d.sections.push({ id: newId('sec'), zone: 'main', columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
   }
+}
+
+/** Create an empty section in a specific zone (used to re-seed the rail). */
+export function createSectionInZone(d: Draft<WorkspaceLayout>, zone: WorkspaceZone): void {
+  d.sections.push({ id: newId('sec'), zone, columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
 }
 
 /**
@@ -210,11 +223,12 @@ export function addWidgetToNewSectionAt(
   position: 'above' | 'below',
 ): void {
   const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
+  const anchorZone = anchorIdx === -1 ? 'main' : (d.sections[anchorIdx].zone ?? 'main');
   const insertAt = anchorIdx === -1
     ? d.sections.length
     : position === 'above' ? anchorIdx : anchorIdx + 1;
   const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
-  d.sections.splice(insertAt, 0, { id: newId('sec'), columns: [{ id: newId('col'), weight: 3, widgets: [widget] }] });
+  d.sections.splice(insertAt, 0, { id: newId('sec'), zone: anchorZone, columns: [{ id: newId('col'), weight: 3, widgets: [widget] }] });
 }
 
 export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget): void {
@@ -439,7 +453,8 @@ export function normalizeLayout(raw: unknown, knownWidgetIds?: ReadonlySet<strin
     if (columns.length === 0) continue;
     const secId = typeof s.id === 'string' && s.id && !seenSections.has(s.id) ? s.id : newId('sec');
     seenSections.add(secId);
-    sections.push({ id: secId, columns: columns.slice(0, 4) });
+    const zone = s.zone === 'rail' ? 'rail' as const : 'main' as const;
+    sections.push({ id: secId, zone, columns: columns.slice(0, 4) });
   }
 
   if (sections.length === 0) return null;

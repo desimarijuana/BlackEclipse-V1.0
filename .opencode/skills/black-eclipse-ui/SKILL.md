@@ -18,7 +18,6 @@ top/right highlight lines + soft drop shadow. Light mode gets its own override.
 .glass-card {
   background: rgba(18, 18, 20, 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
-  -webkit-backdrop-filter: blur(18px) saturate(1.35);
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.30),
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
@@ -26,6 +25,44 @@ top/right highlight lines + soft drop shadow. Light mode gets its own override.
 }
 html:not(.dark) .glass-card { /* light-mode override */ }
 ```
+
+### Hard rules for frosted glass (learned the hard way)
+
+These three requirements are MANDATORY for any frosted-glass surface. If any one
+is missing, the frost does not render and it reads as a flat panel:
+
+1. **Declare `backdrop-filter` — and ONLY the standard property.** Do NOT also
+   write `-webkit-backdrop-filter`. Next's CSS minifier (lightningcss) collapses
+   the pair down to `-webkit-backdrop-filter` alone, and modern Chrome no longer
+   supports the `-webkit-` form (`CSS.supports('-webkit-backdrop-filter')` is
+   `false`), so the blur silently disappears site-wide. Give lightningcss only
+   `backdrop-filter`; it adds any needed prefixes itself.
+2. **Keep the tint translucent (alpha ≤ ~0.55 for dark).** `backdrop-filter`
+   blurs what is *behind* the element, but an opaque background hides that
+   result. A panel at `rgba(18,18,20,0.8)` looks flat even with a 32px blur. If
+   you bump opacity to make text readable, you have broken the frost — instead
+   raise the blur radius and/or use text shadows.
+3. **The element must not sit under a transformed/backdrop-root ancestor.**
+   A CSS `transform` or a `filter`/`backdrop-filter` on an ancestor creates a
+   containing block + backdrop root, scoping the blur so it can only sample
+   within that subtree — producing no visible frost.
+   Render floating surfaces (drawers, palettes, popovers) through a
+   **`createPortal` to `document.body`** so they sample the real page. This is
+   why the workspace widget library / config panel are portaled.
+4. **Never use `animation-fill-mode: forwards`/`both` on an ancestor of a
+   `backdrop-filter` surface — use `backwards` instead.** A *persisting*
+   animation (`forwards`/`both`) keeps the animating element "in effect", which
+   makes Chrome treat it as a **backdrop root**. Any descendant `backdrop-filter`
+   then samples that empty ancestor instead of the page: `getComputedStyle`
+   still reports `blur(32px)`, but the pixels stay perfectly sharp, so the frost
+   silently vanishes. This is subtle and was the reason the widget drawer stayed
+   flat for so long. Our `.animate-fade-in` / `.animate-fade-in-up` utilities
+   therefore use **`backwards`** (holds the start state through any
+   `[animation-delay]`, then releases the effect so no backdrop root lingers).
+   Corollary: never put `animate-fade-in`/`animate-fade-in-up` (or any
+   forwards/both animation) on the *wrapper element that contains* a glass
+   drawer/palette — animate a **sibling** (e.g. the dim overlay) instead.
+
 
 ## The tiers — pick by surface
 
@@ -35,6 +72,7 @@ html:not(.dark) .glass-card { /* light-mode override */ }
 | `.glass-card-strong` | Modals, dialogs, popovers, tooltips, overlays (near-opaque)      |
 | `.glass-card-subtle` | Small tiles, table headers, control strips, chips, stat tiles    |
 | `.glass-drawer`      | Large side drawers/panels that must read as REAL frost over the dark page — lower opacity + higher blur (widget library, config panel, workspace drawers) |
+| `.glass-button`      | Frosted button/toolbar control — translucent tint + blur, no border (workspace toolbar, dashboard header buttons) |
 
 > Drawers that should show the page through them blurred (e.g. the workspace
 > "Add Widget" palette) use **`.glass-drawer`**, not the near-opaque
@@ -54,8 +92,18 @@ buttons. It supports icons, badges, a `leading`/`trailing` slot, and a per-item
 - **Frosted glass ALWAYS has a background blur.** Whenever the user says
   "frosted glass", it MUST include `backdrop-filter: blur(...)` (the glass
   classes already do). Never ship a glass surface as a translucent fill alone.
+- **Never write `-webkit-backdrop-filter`** in `globals.css` or inline styles —
+  see hard rule #1 above. Standard `backdrop-filter` only.
+- **Never raise a glass surface's background alpha above ~0.55** to "improve
+  readability" — that hides the blur. See hard rule #2.
+- **Portal floating surfaces to `document.body`** if they are nested under a
+  transformed/animated ancestor. See hard rule #3.
+- **Never use `animation-fill-mode: forwards`/`both` above a glass surface**
+  (including on the drawer's own wrapper) — it creates a backdrop root that
+  silently kills the blur. Use `backwards`, or animate a sibling. See hard rule #4.
 - **Default to `.glass-card`** for any new card/panel. Use `-strong` for
-  floating/overlay surfaces and `-subtle` for small tiles/chips.
+  floating/overlay surfaces, `-subtle` for small tiles/chips, and `.glass-button`
+  for toolbar buttons.
 - Keep Tailwind `border`, `rounded-*`, `shadow-*` utilities as-is; only swap the
   background+blur for the glass class.
 - **Do NOT** combine a glass class with `backdrop-blur-*` (double blur).

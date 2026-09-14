@@ -23,9 +23,19 @@ export interface WorkspaceColumn {
   widgets: WidgetPlacement[];
 }
 
+/**
+ * Which canvas column a section belongs to. `main` is the primary/centre
+ * canvas; `rail` is the narrow secondary column beside it (e.g. the Command
+ * Center Market panel). Both render under the SAME workspace + DndContext, so
+ * cards drag freely between them. Undefined = `main`.
+ */
+export type WorkspaceZone = 'main' | 'rail';
+
 export interface WorkspaceSection {
   id: string;
   columns: WorkspaceColumn[];
+  /** Defaults to 'main' when omitted (legacy layouts). */
+  zone?: WorkspaceZone;
 }
 
 export interface WorkspaceLayout {

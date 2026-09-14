@@ -6,23 +6,27 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  ChevronDown, Copy, Download, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
+  ChevronDown, ChevronRight, Copy, Download, Globe, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
-import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget } from '@/lib/dashboard/registry';
+import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildRailSections } from '@/lib/dashboard/registry';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
-import { CustomizableWorkspace, StatusBar, MarketSidePanel } from '@/components/workspace';
+import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 
 export function DashboardScreen() {
   const dashboards = useDashboards();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(true);
 
-  // Seed the default layout from the active dashboard's template.
+  // Seed the default layout from the active dashboard's template, then append
+  // the Market rail sections. Centre + rail are ONE layout in ONE workspace, so
+  // the single Customize button drives both and cards drag between them.
   const defaultLayout = useMemo(() => {
     const t = getDashboardTemplate(dashboards.active?.templateId ?? 'trader');
-    return t ? t.build(DASHBOARD_WIDGET_IDS) : { version: 1 as const, sections: [] };
+    const base = t ? t.build(DASHBOARD_WIDGET_IDS) : { version: 1 as const, sections: [] };
+    return { version: 1 as const, sections: [...base.sections, ...buildRailSections()] };
   }, [dashboards.active?.templateId]);
 
   // First-run onboarding.
@@ -152,20 +156,33 @@ export function DashboardScreen() {
         </div>
       </div>
 
-      {/* Reusable customizable workspace + market side panel */}
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <CustomizableWorkspace
-            storageKey={dashboards.active?.storageKey ?? 'be_ws_dashboard_none'}
-            defaultLayout={defaultLayout}
-            widgets={DASHBOARD_WIDGETS}
-            widgetIcon={widgetIcon}
-            renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
-            statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
-          />
-        </div>
-        <MarketSidePanel className="hidden lg:flex" />
-      </div>
+      {/* Reusable customizable workspace — centre + rail are ONE workspace.
+          The single Customize button drives both and cards drag between them. */}
+      <CustomizableWorkspace
+        storageKey={dashboards.active?.storageKey ?? 'be_ws_dashboard_none'}
+        defaultLayout={defaultLayout}
+        widgets={DASHBOARD_WIDGETS}
+        widgetIcon={widgetIcon}
+        renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
+        railClassName="hidden lg:block w-72"
+        railCollapsed={!marketOpen}
+        onToggleRail={() => setMarketOpen(v => !v)}
+        railHeader={(
+          <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+              <Globe size={13} className="text-primary" /> Market
+            </span>
+            <button
+              onClick={() => setMarketOpen(false)}
+              className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+              title="Collapse market panel"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+        statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
+      />
 
       {/* Onboarding */}
       {showOnboarding && (

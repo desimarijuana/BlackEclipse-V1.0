@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
+import { newId, type WorkspaceSection } from '@/lib/workspace/types';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
@@ -37,6 +38,7 @@ import {
   MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
 } from './intelligence-widgets';
 import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './ai-widgets';
+import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -73,9 +75,8 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   ship: Ship, gauge: Gauge, table: Table2, layers: Layers, heart: HeartPulse,
   brain: Brain, zap: Zap,
 };
-
 export function widgetIcon(name: string) {
-  return ICONS[name] ?? LayoutDashboard;
+  return ICONS[name] ?? marketPanelIcon(name) ?? LayoutDashboard;
 }
 
 function def(id: string, category: WidgetDefinition['category'], label: string, desc: string, icon: string, sizes: WidgetDefinition['sizes'], body: (placement: WidgetPlacement) => React.ReactNode, dataDeps?: string[], configFields?: WidgetDefinition['configFields'], defaultConfig?: Record<string, unknown>): WidgetDefinition {
@@ -171,6 +172,14 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Portfolio comparisons ──
   def('funds-comparison-chart', 'portfolio', 'Overall Performance', 'Every fund indexed vs the benchmarks — 3MO.', 'line-chart', ['large', 'full'], () => <FundsComparisonChartWidget />),
+
+  // ── Market rail (default right-hand column; draggable to the centre too) ──
+  ...MARKET_RAIL_WIDGETS,
+];
+
+/** Widget ids that ship in the default Market rail (kept for the migration). */
+export const MARKET_RAIL_WIDGET_IDS = [
+  'mp-fear-greed', 'mp-breadth', 'mp-movers', 'mp-snapshot', 'mp-hours',
 ];
 
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
@@ -178,11 +187,24 @@ export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
 export function getWidgetDefinition(id: string): WidgetDefinition | undefined {
   return DASHBOARD_WIDGETS.find(w => w.id === id);
 }
-
 export function renderDashboardWidget(widgetId: string, placement: WidgetPlacement): React.ReactNode {
   const def = getWidgetDefinition(widgetId);
   if (!def) return <div className="p-4 text-xs text-muted-foreground">Unknown widget: {widgetId}</div>;
   return def.render ? def.render(placement) : <div className="p-4 text-xs text-muted-foreground">No renderer for {widgetId}</div>;
+}
+
+/**
+ * Build the default `rail` sections (the Market column) for a dashboard's
+ * layout. Each widget id becomes its own stacked section so the rail behaves
+ * like the classic side panel, while remaining fully draggable — a card can be
+ * dragged out to the centre or dropped back in.
+ */
+export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS): WorkspaceSection[] {
+  return widgetIds.map(widgetId => ({
+    id: newId('sec'),
+    zone: 'rail' as const,
+    columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
+  }));
 }
 
 function UnavailableStub(label: string) {

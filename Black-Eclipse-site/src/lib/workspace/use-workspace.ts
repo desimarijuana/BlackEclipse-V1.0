@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { produce } from 'immer';
+import { newId } from './types';
 import {
   addWidget as addWidgetDraft,
   moveWidget as moveWidgetDraft,
@@ -25,12 +26,13 @@ import {
   moveWidgetToNewSectionAt as moveWidgetToNewSectionAtDraft,
   createSectionAt as createSectionAtDraft,
   removeSection as removeSectionDraft,
+  createSectionInZone as createSectionInZoneDraft,
   addWidgetToNewSectionAt as addWidgetToNewSectionAtDraft,
   locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
 import { WORKSPACE_TEMPLATES, type WorkspaceTemplate } from './templates';
-import type { DropTarget, WidgetPlacement, WorkspaceLayout } from './types';
+import type { DropTarget, WidgetPlacement, WorkspaceLayout, WorkspaceZone } from './types';
 
 export interface UseWorkspaceOptions {
   /** localStorage key — unique per page/fund instance. */
@@ -59,6 +61,7 @@ interface WorkspaceActions {
   moveWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   createSectionAt: (anchorSectionId: string, position: 'above' | 'below') => void;
   removeSection: (sectionId: string) => void;
+  createSectionInZone: (zone: WorkspaceZone) => void;
   addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
@@ -79,6 +82,28 @@ export type WorkspaceStore = WorkspaceState & WorkspaceActions;
 function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWorkspaceOptions) {
   const known = knownWidgetIds ? new Set(knownWidgetIds) : undefined;
   const initial = loadWorkspace(storageKey, defaultLayout, { knownWidgetIds: known });
+
+  // One-time rail migration: when the default layout declares `rail` sections
+  // but a stored (pre-rail) layout has none, append the default rail sections
+  // (with their widgets) so an existing dashboard gains the secondary column
+  // without losing its centre arrangement. Persisted immediately so it runs
+  // once. No-op for single-zone pages (fund workspaces) whose defaults have
+  // no rail.
+  const defaultRail = defaultLayout.sections.filter(s => s.zone === 'rail');
+  const storedHasRail = initial.layout.sections.some(s => s.zone === 'rail');
+  if (!initial.corrupt && defaultRail.length > 0 && !storedHasRail) {
+    const railSections = defaultRail.map(s => ({
+      id: newId('sec'),
+      zone: 'rail' as const,
+      columns: s.columns.map(c => ({
+        id: newId('col'),
+        weight: c.weight,
+        widgets: c.widgets.map(w => ({ ...w, id: newId('wid') })),
+      })),
+    }));
+    initial.layout = { version: 1, sections: [...initial.layout.sections, ...railSections] };
+    saveWorkspace(storageKey, initial.layout);
+  }
 
   return create<WorkspaceStore>()((set, get) => {
     const commit = (recipe: (draft: WorkspaceLayout) => void) => {
@@ -101,6 +126,7 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       moveWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { moveWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       createSectionAt: (anchorSectionId, position) => commit(d => { createSectionAtDraft(d, anchorSectionId, position); }),
       removeSection: (sectionId) => commit(d => { removeSectionDraft(d, sectionId); }),
+      createSectionInZone: (zone) => commit(d => { createSectionInZoneDraft(d, zone); }),
       addWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
@@ -166,6 +192,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       moveWidgetToNewSectionAt: useStore.getState().moveWidgetToNewSectionAt,
       createSectionAt: useStore.getState().createSectionAt,
       removeSection: useStore.getState().removeSection,
+      createSectionInZone: useStore.getState().createSectionInZone,
       addWidgetToNewSectionAt: useStore.getState().addWidgetToNewSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,

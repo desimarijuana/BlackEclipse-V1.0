@@ -102,8 +102,8 @@ export function WidgetLibrary({
   }, [filtered]);
 
   const drawer = (
-    <div className={cn('fixed inset-0 z-40 flex justify-end animate-fade-in', dragActive && 'pointer-events-none')} data-nodrag>
-      <div className={cn('absolute inset-0 transition-colors', dragActive ? 'bg-transparent' : 'bg-black/20')} onClick={onClose} />
+    <div className={cn('fixed inset-0 z-40 flex justify-end', dragActive && 'pointer-events-none')} data-nodrag>
+      <div className={cn('absolute inset-0 transition-colors animate-fade-in', dragActive ? 'bg-transparent' : 'bg-black/20')} onClick={onClose} />
       <aside className={cn('relative flex w-96 max-w-[90vw] flex-col h-full glass-drawer shadow-2xl shadow-black/40 animate-slide-in transition-opacity', dragActive && 'opacity-70')}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
           <span className="font-serif text-sm font-semibold text-foreground">Add Widget</span>

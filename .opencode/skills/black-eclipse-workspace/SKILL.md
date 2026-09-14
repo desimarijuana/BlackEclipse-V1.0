@@ -40,6 +40,11 @@ Workspace kernel  (src/lib/workspace/)
   - `renderWidget` (widgetId, placement → ReactNode) — the source of truth for
     rendering; thread page data (fund, market data, etc.) through here.
   - optional `editBarExtra` (extra chrome in the edit bar)
+  - optional `toolbar` (`'default'` labelled buttons · `'compact'` icon-only ·
+    `'none'`) and `hideFloatingAdd`.
+  - optional **rail zone**: `railClassName`, `railHeader`, `railCollapsed`,
+    `onToggleRail`. When any section is `zone:'rail'` the canvas lays the main
+    zone and the rail side-by-side under ONE DndContext — see "Zones" below.
 - **`WidgetDefinition`** (`src/lib/workspace/widget-def.ts`) — the plug-and-play
   widget contract: `{ id, category, label, desc, icon, sizes, defaultConfig?,
   configFields?, dataDeps?, refreshPolicy?, lazy?, render? }`. `render` is
@@ -67,11 +72,34 @@ Workspace kernel  (src/lib/workspace/)
   status strip: version, feed indicators (EQ/FX/CM/FI/CR), session uptime, layout
   status, feeds connected, memory usage, API latency, pending-orders badge, bell.
   Mount via `CustomizableWorkspace`'s `statusBar` prop.
-- **`MarketSidePanel`** (`src/components/workspace/market-side-panel.tsx`) — reusable
-  collapsible right-hand market overview column: Fear & Greed gauge, market breadth,
-  top gainers/losers, global snapshot (VIX/US 10Y/DXY/Gold/Oil/BTC), and market-hours
-  status dots (NYSE/LSE/Tokyo/Shanghai/NSE). Data flows through the DataHub
-  (`panel:*` topics). Mount beside a `CustomizableWorkspace` in a flex row.
+- **`MarketSidePanel`** was REMOVED. The Command Center's Market column is now
+  the workspace's **rail zone** — not a separate page/panel. Its widgets live in
+  `src/lib/dashboard/market-rail-widgets.tsx` (`MARKET_RAIL_WIDGETS`,
+  `marketPanelIcon`) and are merged into the single `DASHBOARD_WIDGETS` catalog.
+  The default rail sections come from `buildRailSections()` in
+  `src/lib/dashboard/registry.tsx`; `dashboard-screen.tsx` appends them to the
+  template layout and passes one `CustomizableWorkspace` with `railClassName` +
+  `railHeader` + `railCollapsed`/`onToggleRail`.
+
+## Zones (centre + rail)
+
+A workspace layout is a flat list of sections, each tagged with an optional
+`zone: 'main' | 'rail'` (undefined = `main`). The canvas renders all `main`
+sections in the primary column and all `rail` sections in a narrow column beside
+it — **both under one `DndContext`**, so cards drag freely between the centre and
+the rail, and **one Customize button drives everything**. Never build a second
+customization surface / second workspace for a side column.
+
+- Sections created via strips inherit the anchor section's zone
+  (`createSectionAt` / `moveWidgetToNewSectionAt` / `addWidgetToNewSectionAt`).
+- `normalizeLayout` preserves the zone; `pruneLayout`/`cloneLayout` carry it.
+- `useWorkspace` runs a one-time migration: if the `defaultLayout` has rail
+  sections but the stored layout has none, it appends the default rail sections
+  (and persists) so existing dashboards gain the rail without losing their
+  centre arrangement — no storage-prefix bump needed.
+- The rail is only active when `railClassName`/`railHeader` are passed AND the
+  layout actually contains rail sections; single-zone pages (fund workspaces)
+  are unaffected.
 
 ## How to add a customizable page
 
@@ -82,6 +110,7 @@ Workspace kernel  (src/lib/workspace/)
 3. Provide a `renderWidget(widgetId, placement)` that renders your widget content
    (threading your page's data/props).
 4. Build a `defaultLayout` (see `defaultFundLayout()` in `portfolio/widgets.tsx`).
+   For a centre + rail page, append rail sections (see `buildRailSections()`).
 5. Render `<CustomizableWorkspace storageKey=… defaultLayout=… widgets=… widgetIcon=… renderWidget=… statusBar=… />`.
 
 ## Toolbar (always visible)

@@ -37,8 +37,8 @@ export function WidgetConfigPanel({
   const set = (key: string, value: unknown) => setValues(prev => ({ ...prev, [key]: value }));
 
   const panel = (
-    <div className="fixed inset-0 z-40 flex justify-end animate-fade-in" data-nodrag>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-40 flex justify-end" data-nodrag>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose} />
       <aside className="relative flex w-80 max-w-[85vw] flex-col h-full glass-drawer shadow-2xl shadow-black/40 animate-slide-in">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/10">
           <span className="font-serif text-sm font-semibold text-foreground">Configure · {def?.label ?? placement.widgetId}</span>

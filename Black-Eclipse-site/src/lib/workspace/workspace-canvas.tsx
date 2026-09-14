@@ -63,9 +63,22 @@ interface WorkspaceCanvasProps {
   addingMode?: 'hold' | 'click';
   /** Called when an add-drag ends (committed or cancelled) so the host clears it. */
   onAddingEnd?: () => void;
+  /**
+   * Enable the secondary `rail` zone: sections with `zone:'rail'` render in a
+   * narrow column beside the main canvas, under the SAME drag context, so cards
+   * can be dragged freely between the centre and the rail. When unset, all
+   * sections render in the main column (single-zone pages like fund workspaces).
+   */
+  railClassName?: string;
+  /** Header rendered above the rail zone (e.g. the "Market" title + collapse). */
+  railHeader?: React.ReactNode;
+  /** Collapse the rail zone down to a slim expand affordance. */
+  railCollapsed?: boolean;
+  /** Toggle the rail collapse state (renders the expand button when collapsed). */
+  onToggleRail?: () => void;
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd }: WorkspaceCanvasProps) {
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, railClassName, railHeader, railCollapsed = false, onToggleRail }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState('');
@@ -134,29 +147,37 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   };
 
   const computeTarget = useCallback((px: number, py: number, dragId: string): DropTargetInfo | null => {
-    const el = document.elementFromPoint(px, py);
-    if (!el) return null;
-
+    // CRITICAL: use elementsFromPoint (plural), not elementFromPoint. During a
+    // drag, dnd-kit's DragOverlay follows the cursor and sits above the columns,
+    // so elementFromPoint returns the overlay (which has no [data-wcol]) and the
+    // projection yields null → drops never commit. Walk the stack and use the
+    // first element that belongs to a real drop zone, skipping the overlay.
+    const stack = document.elementsFromPoint(px, py);
     // 1) Inter-section strips → new section above/below the anchor.
-    const strip = el.closest<HTMLElement>('[data-newsec]');
-    if (strip) {
-      const [anchorId, pos] = strip.dataset.newsec!.split(':') as [string, 'above' | 'below'];
-      return { sectionId: anchorId, columnId: `__newsec:${anchorId}:${pos}`, index: 0 };
+    for (const el of stack) {
+      const strip = el.closest<HTMLElement>('[data-newsec]');
+      if (strip) {
+        const [anchorId, pos] = strip.dataset.newsec!.split(':') as [string, 'above' | 'below'];
+        return { sectionId: anchorId, columnId: `__newsec:${anchorId}:${pos}`, index: 0 };
+      }
     }
 
     // 2) Left/right edges of a column → new column beside it.
-    const edge = el.closest<HTMLElement>('[data-edge]');
-    if (edge) {
-      const { edge: side, col, sec } = edge.dataset as { edge: 'L' | 'R'; col: string; sec: string };
-      return { sectionId: sec, columnId: `__newcol:${side === 'L' ? 'before' : 'after'}:${col}`, index: 0 };
+    for (const el of stack) {
+      const edge = el.closest<HTMLElement>('[data-edge]');
+      if (edge) {
+        const { edge: side, col, sec } = edge.dataset as { edge: 'L' | 'R'; col: string; sec: string };
+        return { sectionId: sec, columnId: `__newcol:${side === 'L' ? 'before' : 'after'}:${col}`, index: 0 };
+      }
     }
 
     // 3) Column interior → projected insertion index between cards.
-    const colEl = el.closest<HTMLElement>('[data-wcol]');
-    if (colEl) {
+    for (const el of stack) {
+      const colEl = el.closest<HTMLElement>('[data-wcol]');
+      if (!colEl) continue;
       const colId = colEl.dataset.wcol!;
       const section = layoutRef.current.sections.find(s => s.columns.some(c => c.id === colId));
-      if (!section) return null;
+      if (!section) continue;
       return { sectionId: section.id, columnId: colId, index: insertIndexFor(colEl, dragId, py) };
     }
 
@@ -477,6 +498,74 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   // Any edit-gesture in flight: dnd drag, click-grab, or an add-drag from the library.
   const dragging = activeId !== null || grabbedId !== null || addingWidgetId !== null;
 
+  const mainSections = layout.sections.filter(s => (s.zone ?? 'main') === 'main');
+  const railSections = layout.sections.filter(s => s.zone === 'rail');
+
+  /** Render one zone's stack of sections (strips + rows) — both zones share the
+   *  same DndContext so cards drag freely between the centre and the rail. */
+  const renderZone = (sections: WorkspaceSection[]) => (
+    <div className="flex flex-col gap-3">
+      {sections.map((section, secIdx) => (
+        <React.Fragment key={section.id}>
+          {secIdx === 0 && (editMode || dragging) && (
+            <NewSectionStrip
+              anchorId={section.id} pos="above"
+              dragging={dragging}
+              isGrabbing={grabbedId !== null}
+              isAdding={addingWidgetId !== null}
+              onStripClick={() => {
+                if (addingWidgetId) return; // add-project commits on click
+                if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above');
+                else ops.createSectionAt(section.id, 'above');
+              }}
+            />
+          )}
+          <SectionRow
+            section={section}
+            editMode={editMode}
+            compact={compact}
+            dragging={dragging}
+            activeId={activeId}
+            grabbedId={grabbedId}
+            armedTarget={armedTarget}
+            target={target}
+            ops={ops}
+            renderWidget={renderWidget}
+            onResizeHeight={ops.setWidgetHeight}
+            onCardTap={(id, coords) => {
+              // Add-project in flight → card clicks are ignored (the ghost
+              // already follows the pointer; double-click commits).
+              if (addingWidgetId) return;
+              // Click-to-pick-up model: a single click picks up a card
+              // (floating ghost + live drop-line follow the cursor), a
+              // single click on a target arms the preview, and a
+              // double-click confirms. Same card click cancels.
+              if (!grabbedId) setGrabbedId(id);
+              else if (grabbedId === id) cancelGrab();
+              else confirmOrArm(coords);
+            }}
+            lastDragEndRef={lastDragEndRef}
+            onGhostConfirm={onGhostConfirm}
+            onEmptyColumnClick={onEmptyColumnClick}
+          />
+          {(editMode || dragging) && (
+            <NewSectionStrip
+              anchorId={section.id} pos="below"
+              dragging={dragging}
+              isGrabbing={grabbedId !== null}
+              isAdding={addingWidgetId !== null}
+              onStripClick={() => {
+                if (addingWidgetId) return; // add-project commits on click
+                if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below');
+                else ops.createSectionAt(section.id, 'below');
+              }}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+
   return (
     <div
       className={cn('relative', className)}
@@ -543,66 +632,27 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
       >
-        <div className="flex flex-col gap-3">
-          {layout.sections.map((section, secIdx) => (
-            <React.Fragment key={section.id}>
-              {secIdx === 0 && (editMode || dragging) && (
-                <NewSectionStrip
-                  anchorId={section.id} pos="above"
-                  dragging={dragging}
-                  isGrabbing={grabbedId !== null}
-                  isAdding={addingWidgetId !== null}
-                  onStripClick={() => {
-                    if (addingWidgetId) return; // add-project commits on click
-                    if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'above');
-                    else ops.createSectionAt(section.id, 'above');
-                  }}
-                />
-              )}
-              <SectionRow
-                section={section}
-                editMode={editMode}
-                compact={compact}
-                dragging={dragging}
-                activeId={activeId}
-                grabbedId={grabbedId}
-                armedTarget={armedTarget}
-                target={target}
-                ops={ops}
-                renderWidget={renderWidget}
-                onResizeHeight={ops.setWidgetHeight}
-                onCardTap={(id, coords) => {
-                  // Add-project in flight → card clicks are ignored (the ghost
-                  // already follows the pointer; double-click commits).
-                  if (addingWidgetId) return;
-                  // Click-to-pick-up model: a single click picks up a card
-                  // (floating ghost + live drop-line follow the cursor), a
-                  // single click on a target arms the preview, and a
-                  // double-click confirms. Same card click cancels.
-                  if (!grabbedId) setGrabbedId(id);
-                  else if (grabbedId === id) cancelGrab();
-                  else confirmOrArm(coords);
-                }}
-                lastDragEndRef={lastDragEndRef}
-                onGhostConfirm={onGhostConfirm}
-                onEmptyColumnClick={onEmptyColumnClick}
-              />
-              {(editMode || dragging) && (
-                <NewSectionStrip
-                  anchorId={section.id} pos="below"
-                  dragging={dragging}
-                  isGrabbing={grabbedId !== null}
-                  isAdding={addingWidgetId !== null}
-                  onStripClick={() => {
-                    if (addingWidgetId) return; // add-project commits on click
-                    if (grabbedId) ops.moveWidgetToNewSectionAt(grabbedId, section.id, 'below');
-                    else ops.createSectionAt(section.id, 'below');
-                  }}
-                />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
+        {railSections.length > 0 ? (
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">{renderZone(mainSections)}</div>
+            {railCollapsed ? (
+              <button
+                onClick={onToggleRail}
+                className="glass-card-subtle shrink-0 self-start rounded-xl p-2 text-muted-foreground hover:text-primary cursor-pointer"
+                title="Open market panel"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            ) : (
+              <div className={cn('shrink-0', railClassName ?? 'w-72')}>
+                {railHeader}
+                {renderZone(railSections)}
+              </div>
+            )}
+          </div>
+        ) : (
+          renderZone(mainSections)
+        )}
 
         {(activePlacement || grabStateRef.current.id) && (
           <DragOverlay dropAnimation={null}>
@@ -953,7 +1003,7 @@ function WidgetCard({
     >
       {editMode && (
         <div
-          className="absolute right-2 top-2 z-20 flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity"
+          className="absolute right-2 top-2 z-30 flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1013,7 +1063,7 @@ function WidgetCard({
       {editMode && (
         <div
           onPointerDown={onResizePointerDown}
-          className="absolute inset-x-0 bottom-0 h-3 cursor-ns-resize z-20 flex items-end justify-center opacity-0 group-hover/card:opacity-100 transition-opacity"
+          className="absolute inset-x-0 bottom-0 h-3 cursor-ns-resize z-30 flex items-end justify-center opacity-0 group-hover/card:opacity-100 transition-opacity"
           title="Drag to resize height"
         >
           <div className="mb-0.5 h-1 w-10 rounded-full bg-border" />
