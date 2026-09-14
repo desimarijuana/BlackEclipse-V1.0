@@ -68,7 +68,7 @@
 
 ## Things That Must Not Change
 
-- **The Aurora background** (`src/components/ui/Aurora.tsx`) — it is the visual USP. It must render at the **top of the viewport** (`h-56`, `z-0`, `pointer-events-none`, with a downward fade mask) and react to market sentiment (green = bullish, red = bearish via `isMarketBullish`).
+- **The Aurora background** (`src/components/ui/Aurora.tsx`) — it is the visual USP. It must render at the **top of the viewport** (`h-56`, `z-0`, `pointer-events-none`, with a downward fade mask) and reflect **combined market + news sentiment** via the `sentiment` prop (a continuous score in [-1, +1]): bright green = bullish, subdued green = neutral/mixed, red = bearish. **Never purple** — Aurora stays in the green-on-black brand language unless sentiment is negative. The score is computed by `src/lib/aurora-sentiment.ts` (market 60% + news 40%, smoothed inside the component's rAF loop). Do not hard-code it to bullish.
 - **The green-on-black / dark Bloomberg identity** — do not introduce light-mode or arbitrary color overrides.
 - **Zero-config behavior** — the app must always run with no setup.
 - **`getTradingViewSymbol()`** mappings (crypto, PSX `.KA`, India `.NS`, etc.) — many screens depend on them.

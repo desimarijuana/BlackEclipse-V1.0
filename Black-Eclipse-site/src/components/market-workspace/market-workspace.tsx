@@ -120,10 +120,29 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   previewRef.current = preview;
 
   // ── Panel CRUD / layout ────────────────────────────────────────────────────
+  // A new panel usually lands below the fold, so remember the count we expect
+  // and scroll/flash the new panel in a post-commit effect (deterministic —
+  // no timer guessing about when React has rendered).
+  const pendingScroll = useRef(false);
   const addPanel = useCallback((type: MarketPanelType) => {
+    pendingScroll.current = true;
     ops.addPanel(type);
     ops.setActivePanel(null);
   }, [ops]);
+
+  useEffect(() => {
+    if (!pendingScroll.current) return;
+    pendingScroll.current = false;
+    const grid = gridRef.current;
+    const last = grid?.children[grid.children.length - 1] as HTMLElement | undefined;
+    if (!last) return;
+    // Two frames so the grid has fully laid out before measuring.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      last.classList.add('ring-2', 'ring-primary/80');
+      window.setTimeout(() => last.classList.remove('ring-2', 'ring-primary/80'), 1800);
+    }));
+  }, [layout.panels.length]);
 
   const applyPreset = useCallback((presetId: string) => {
     const p = getWorkspacePreset(presetId);
@@ -227,11 +246,22 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
 
   const focused = focusedPanelId ? layout.panels.find(p => p.id === focusedPanelId) ?? null : null;
 
+  // Dense mode is driven by the panel's REAL rendered width/height, not its
+  // column span — a 4-unit panel on a 3-col preset is wide, while a 4-unit panel
+  // on a 12-col custom grid is narrow. Falls back to span heuristics until the
+  // grid has been measured.
+  const compactFor = (rect: PanelRect): boolean => {
+    const w = cellSize.w * rect.colSpan;
+    const h = cellSize.h * rect.rowSpan;
+    if (cellSize.w <= 0 || w < 360) return rect.colSpan <= 4 || rect.rowSpan <= 1;
+    return w < 560 || h < 320;
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const renderChartPanel = (panel: MarketPanel, rectOverride?: PanelRect) => (
     <ChartPanel
       panel={panel}
-      compact={panel.rect.colSpan <= 4 || panel.rect.rowSpan <= 1}
+      compact={compactFor(rectOverride ?? panel.rect)}
       gridStyle={panelStyle(panel, rectOverride)}
       active={activePanelId === panel.id}
       editMode={editMode}

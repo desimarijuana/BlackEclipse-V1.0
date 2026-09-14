@@ -21,6 +21,7 @@ import {
 } from './market-data';
 import { useScreenerFilters } from './use-screener-filters';
 import { currencyCodeFor as currencyFor, formatPriceWithCurrency } from '@/lib/market-currency';
+import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 
 // Currency helpers come from @/lib/market-currency (shared with the API
 // routes and the chart panel) � dollar assets keep "$", everything else
@@ -413,38 +414,33 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [stripMode, topGainers, topLosers, customSymbols, customQuotes, apiStocks, indexData, userCountry]);
 
   // -- Market sentiment (drives the app-wide aurora glow) --------------------
-  // Scored from the selected market's dashboard data:
-  //   � EQUITY INDEX AVERAGE � Bitcoin/Gold/oil cards are excluded: they are
+  // SOURCE OF TRUTH: derived from the selected market's live dashboard data via
+  // `marketSentimentFromIndices` (src/lib/aurora-sentiment.ts):
+  //   • EQUITY INDEX AVERAGE — Bitcoin/Gold/oil cards are excluded: they are
   //     hedges that rise on risk-off days and used to invert the signal
   //     (gold +1% painted the glow green while every stock index bled red).
-  //   � INDEX BREADTH � fraction of equity indices trading up. A 0.0% avg
+  //   • INDEX BREADTH — fraction of equity indices trading up. A 0.0% avg
   //     with 5/5 indices red is bearish, not neutral.
-  //   � SECTOR BREADTH � fraction of sectors up, as confirmation.
-  // Hysteresis: |score| within �0.15 keeps the previous state so neutral
-  // afternoons don't strobe the aurora green/red on rounding noise.
-  const sentimentScore = React.useMemo(() => {
-    const HEDGES = new Set(['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD', 'DOGE-USD', 'GC=F', 'SI=F', 'CL=F', 'BZ=F']);
-    const equity = (indexData ?? []).filter(i => i.price > 0 && !HEDGES.has(i.symbol));
-    const pool = equity.length > 0 ? equity : (indexData ?? []).filter(i => i.price > 0);
-    if (pool.length === 0) return 0;
-    const avg = pool.reduce((a, i) => a + i.changePercent, 0) / pool.length;
-    const breadthUp = pool.filter(i => i.changePercent > 0).length / pool.length;
-    const secUp = sectorPerformance.length > 0
-      ? sectorPerformance.filter(s => s.change > 0).length / sectorPerformance.length
-      : 0.5;
-    // Index avg dominates (% units); breadth/sector are �0.5-scale nudges.
-    return avg + (breadthUp - 0.5) * 0.6 + (secUp - 0.5) * 0.3;
-  }, [indexData, sectorPerformance]);
+  //   • SECTOR BREADTH — fraction of sectors up, as confirmation.
+  // The reading is normalized to [-1, +1] (tanh-compressed); `null` means no
+  // priced index data → UNAVAILABLE (callers fall back to neutral, never bull).
+  const sentimentScore = React.useMemo(
+    () => marketSentimentFromIndices(indexData, sectorPerformance),
+    [indexData, sectorPerformance],
+  );
 
+  // Boolean mirror for legacy consumers. Hysteresis: |score| within ±0.15
+  // keeps the previous state so neutral afternoons don't strobe green/red.
   const lastSentimentRef = React.useRef(true);
   const isMarketBullish = React.useMemo(() => {
+    if (sentimentScore === null) return lastSentimentRef.current;
     if (sentimentScore > 0.15) lastSentimentRef.current = true;
     else if (sentimentScore < -0.15) lastSentimentRef.current = false;
     // Within the dead-band: keep the previous state (hysteresis).
     return lastSentimentRef.current;
   }, [sentimentScore]);
 
-  // Sync market status with layout container
+  // Sync the legacy boolean with the layout container.
   useEffect(() => {
     if (onMarketStatusChange) {
       onMarketStatusChange(isMarketBullish);

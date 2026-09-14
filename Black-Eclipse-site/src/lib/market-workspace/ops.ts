@@ -8,6 +8,7 @@ import {
   GRID_COLUMNS,
   MAX_ROWS,
   MIN_PANEL_COLS,
+  MIN_PANEL_ROWS,
   newPanelId,
   presetRect,
   rectsOverlap,
@@ -67,6 +68,39 @@ export function firstFreeRow(panels: MarketPanel[], rect: PanelRect, ignoreId?: 
   return row;
 }
 
+/**
+ * Default size for a NEW panel. Presets tile into their logical columns
+ * (3-col preset → 4 units wide, one row tall). A custom workspace has no
+ * logical columns, so new panels get a generous half-width, two-row-tall chart
+ * — big enough to read immediately, never a 1-unit sliver.
+ */
+function defaultPanelSize(layoutId: string): { colSpan: number; rowSpan: number } {
+  if (layoutId === 'custom') {
+    return { colSpan: Math.floor(GRID_COLUMNS / 2), rowSpan: 2 };
+  }
+  const { columns } = gridPreset(layoutId);
+  return { colSpan: Math.max(MIN_PANEL_COLS, Math.floor(GRID_COLUMNS / Math.max(1, columns))), rowSpan: 1 };
+}
+
+/**
+ * First-fit slot scan: rows top→bottom, columns left→right, returning the first
+ * position where a `colSpan × rowSpan` rect clears every existing panel. Grows
+ * the returned row past the current layout when needed so a new panel never
+ * stacks awkwardly at the far left below everything.
+ */
+export function findFreeSlot(panels: MarketPanel[], colSpan: number, rowSpan: number): { col: number; row: number } {
+  const span = Math.min(GRID_COLUMNS, Math.max(MIN_PANEL_COLS, colSpan));
+  const maxRow = panels.reduce((a, p) => Math.max(a, p.rect.row + p.rect.rowSpan), 0);
+  for (let row = 0; row <= maxRow; row++) {
+    for (let col = 0; col + span <= GRID_COLUMNS; col++) {
+      const candidate: PanelRect = { col, row, colSpan: span, rowSpan: Math.max(MIN_PANEL_ROWS, rowSpan) };
+      if (!panels.some(p => rectsOverlap(candidate, p.rect))) return { col, row };
+    }
+  }
+  // Nothing fit inside the existing rows — drop it on a fresh row at the left.
+  return { col: 0, row: maxRow };
+}
+
 /** Clamp every rect, then re-flow overlaps downward. Order is preserved. */
 export function normalizePanels(d: Draft<MarketWorkspaceLayout>): void {
   const placed: MarketPanel[] = [];
@@ -80,21 +114,26 @@ export function normalizePanels(d: Draft<MarketWorkspaceLayout>): void {
   if (maxRow > d.rows) d.rows = Math.min(MAX_ROWS, maxRow);
 }
 
-/** Add a panel, appended below existing content at its natural size. */
+/**
+ * Add a panel at a sensible size, first-fit packed into the first free slot so
+ * it shows up big and immediately visible — never a 1-unit sliver, never
+ * buried at the far-left of a new row when space exists above.
+ */
 export function addPanel(d: Draft<MarketWorkspaceLayout>, type: MarketPanelType, rect?: PanelRect): MarketPanel {
   const { columns } = gridPreset(d.layoutId);
   const index = d.panels.length;
   const panel = makePanel(type, index, columns);
-  const base = rect ?? {
-    col: 0,
-    row: 0,
-    colSpan: Math.max(MIN_PANEL_COLS, Math.floor(GRID_COLUMNS / Math.max(1, columns))),
-    rowSpan: 1,
-  };
-  panel.rect = clampRect({ ...panel.rect, ...base }, d.rows);
-  panel.rect.row = firstFreeRow(d.panels, panel.rect);
+  if (rect) {
+    panel.rect = clampRect(rect, Math.max(d.rows + rect.row + rect.rowSpan, d.rows));
+    panel.rect.row = firstFreeRow(d.panels, panel.rect);
+  } else {
+    const { colSpan, rowSpan } = defaultPanelSize(d.layoutId);
+    const slot = findFreeSlot(d.panels, colSpan, rowSpan);
+    panel.rect = { col: slot.col, row: slot.row, colSpan, rowSpan };
+  }
   d.panels.push(panel);
-  if (panel.rect.row + panel.rect.rowSpan > d.rows) d.rows = Math.min(MAX_ROWS, panel.rect.row + panel.rect.rowSpan);
+  const needed = panel.rect.row + panel.rect.rowSpan;
+  if (needed > d.rows) d.rows = Math.min(MAX_ROWS, needed);
   return panel;
 }
 

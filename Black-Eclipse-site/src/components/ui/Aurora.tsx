@@ -1,5 +1,6 @@
 import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
 import { useEffect, useRef } from 'react';
+import { resolveAuroraVisuals, stepSentiment } from '@/lib/aurora-sentiment';
 import './Aurora.css';
 
 const VERT = `#version 300 es
@@ -109,17 +110,31 @@ void main() {
 `;
 
 export interface AuroraProps {
+  /** Legacy static palette. Ignored when `sentiment` is provided. */
   colorStops?: [string, string, string];
   amplitude?: number;
   blend?: number;
   speed?: number;
   time?: number;
+  /**
+   * Combined market + news sentiment in [-1, +1] (-1 extreme bearish, 0 neutral,
+   * +1 extreme bullish). When set, it drives color + motion continuously and
+   * overrides `colorStops`/`amplitude`/`speed`. The WebGL context is created
+   * once and only uniforms are updated, so changing this never re-initializes GL.
+   */
+  sentiment?: number;
+  /** Per-frame easing factor toward `sentiment` (0..1). Higher = snappier. */
+  smoothing?: number;
 }
 
 export default function Aurora(props: AuroraProps) {
-  const { colorStops = ['#5227FF', '#7cff67', '#5227FF'], amplitude = 1.0, blend = 0.5 } = props;
+  const { colorStops = ['#02170f', '#3d9e63', '#02170f'], amplitude = 1.0, blend = 0.5 } = props;
+  // Keep the latest props in a ref so the rAF loop can read them without the
+  // effect (and therefore the WebGL context) ever being torn down / rebuilt.
   const propsRef = useRef<AuroraProps>(props);
   propsRef.current = props;
+  // Smoothed sentiment lives entirely inside the animation loop.
+  const sentimentRef = useRef<number>(props.sentiment ?? 0);
 
   const ctnDom = useRef<HTMLDivElement>(null);
 
@@ -177,13 +192,38 @@ export default function Aurora(props: AuroraProps) {
     ctn.appendChild(gl.canvas);
 
     let animateId = 0;
+    let lastT = 0;
     const update = (t: number) => {
       animateId = requestAnimationFrame(update);
-      const { time = t * 0.01, speed = 1.0 } = propsRef.current;
-      program.uniforms.uTime.value = time * speed * 0.1;
-      program.uniforms.uAmplitude.value = propsRef.current.amplitude ?? 1.0;
-      program.uniforms.uBlend.value = propsRef.current.blend ?? blend;
-      const stops = propsRef.current.colorStops ?? colorStops;
+      const current = propsRef.current;
+      const useSentiment = typeof current.sentiment === 'number' && Number.isFinite(current.sentiment);
+
+      // Ease the displayed score toward the incoming one so sentiment ticks
+      // (e.g. +0.03 → -0.02) never flash the aurora green/red. Converted to a
+      // frame-rate-independent step from a 60fps reference so slow devices ease
+      // at the same wall-clock rate instead of lagging behind.
+      if (useSentiment) {
+        const target = Math.max(-1, Math.min(1, current.sentiment as number));
+        const base = current.smoothing ?? 0.04;
+        const dt = lastT ? Math.min(0.25, (t - lastT) / 1000) : 1 / 60;
+        const alpha = 1 - Math.pow(1 - base, dt * 60);
+        sentimentRef.current = stepSentiment(sentimentRef.current, target, alpha);
+      }
+      lastT = t;
+
+      // Resolve the effective palette + motion. Sentiment drives continuous
+      // interpolation; without it the legacy static props are used verbatim.
+      const vis = useSentiment ? resolveAuroraVisuals(sentimentRef.current) : null;
+      const effectiveAmplitude = vis ? vis.amplitude : (current.amplitude ?? amplitude);
+      const effectiveSpeed = vis ? vis.speed : (current.speed ?? 1.0);
+      const effectiveBlend = vis ? vis.blend : (current.blend ?? blend);
+      const stops = vis ? vis.colorStops : (current.colorStops ?? colorStops);
+
+      // `time` / `speed` remain a valid manual override for external clocks.
+      const { time = t * 0.01 } = current;
+      program.uniforms.uTime.value = time * effectiveSpeed * 0.1;
+      program.uniforms.uAmplitude.value = effectiveAmplitude;
+      program.uniforms.uBlend.value = effectiveBlend;
       program.uniforms.uColorStops.value = stops.map(hex => {
         const c = new Color(hex);
         return [c.r, c.g, c.b];

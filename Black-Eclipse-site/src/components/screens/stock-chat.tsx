@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
@@ -60,7 +60,16 @@ import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { auroraSentiment, marketSentimentFromIndices } from '@/lib/aurora-sentiment';
+import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
+
+// Aurora needs the US index topic even on a cold boot straight into chat, where
+// the dashboard chunk (which normally registers it) is never loaded. Idempotent:
+// the DataHub ignores a duplicate registration, and the dashboard registry uses
+// identical ttl/interval values.
+registerTopic(jsonTopic('market:indices:US', '/api/indices?market=US', { ttl: 120_000, interval: 60_000 }));
 import { useCommandStore } from '@/lib/search/store';
+import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import type { Destination } from '@/lib/search/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -86,13 +95,36 @@ function StockChatContent() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMarketBullish, setIsMarketBullish] = useState(true);
-  // Tier-weighted 24h news sentiment score in [-1, 1] from the news feed.
-  const [newsScore, setNewsScore] = useState(0);
+
+  // ── App-wide sentiment (drives the Aurora glow) ──────────────────────────
+  // Market sentiment is a continuous [-1, +1] score from the global DataHub
+  // topic `market:indices:US` (registered above, so it resolves on every tab,
+  // not just when the dashboard chunk loads). The hub subscribes while the
+  // Aurora is mounted and auto-refreshes, so the glow stays live with no bespoke
+  // fetch. News sentiment is the tier-weighted 24h score emitted by the news API.
+  const [newsScore, setNewsScore] = useState<number | null>(null);
+  const indicesTopic = useTopic<{ indices?: Array<{ symbol: string; price: number; changePercent: number }>; sectors?: Array<{ name: string; change: number }> }>('market:indices:US');
+
+  // Recompute only when the hub entry actually changes (its object identity is
+  // stable per refresh), keeping the sentiment math off the render hot path.
+  const marketScore = useMemo(
+    () => marketSentimentFromIndices(indicesTopic.data?.indices, indicesTopic.data?.sectors),
+    [indicesTopic.data],
+  );
+
+  // Combine market (60%) + news (40%) into the Aurora contract. Missing sides
+  // are renormalized; both missing → neutral (never a false bullish reading).
+  const aurora = useMemo(
+    () => auroraSentiment(marketScore, newsScore),
+    [marketScore, newsScore],
+  );
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // User-assigned F1–F12 shortcuts open their sidebar tab anywhere in the app.
+  useSidebarKeybinds(setActiveTab);
 
   // Keep-alive tabs: a tab mounts on first visit and stays mounted (hidden
   // with display:none) after that. Boot mounts ONLY the initial tab, so we
@@ -430,14 +462,16 @@ function StockChatContent() {
   };
 
   // ── Aurora glow ─────────────────────────────────────────────────────────
-  // The aurora is a fixed brand accent — it does NOT react to market/news
-  // sentiment (kept constant so the terminal look stays stable).
-  const auroraBullish = true;
+  // Aurora is the app-wide market-state indicator. `aurora.score` is the
+  // combined market (60%) + news (40%) sentiment in [-1, +1]; the component
+  // maps it to a continuous red→green palette (subdued green at neutral) and
+  // subtly scales motion, easing between values internally so ticks never
+  // flicker. See src/lib/aurora-sentiment.ts for the single source of truth.
 
   return (
     <TooltipProvider delay={0}>
     <div className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
-      {/* Aurora full-viewport top glow — reacts to blended market + news sentiment */}
+      {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
       <div
         className="absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden"
         style={{
@@ -445,16 +479,7 @@ function StockChatContent() {
           WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
         }}
       >
-        <Aurora
-          colorStops={
-            auroraBullish
-              ? ["#022c22", "#7aff78", "#022c22"]
-              : ["#450a0a", "#ff3e3e", "#450a0a"]
-          }
-          blend={0.95}
-          amplitude={1.5}
-          speed={1.6}
-        />
+        <Aurora sentiment={aurora.score} />
       </div>
 
       <Sidebar 
@@ -561,7 +586,6 @@ function StockChatContent() {
                       setActiveTab('chart');
                     }}
                     embedded={false}
-                    onMarketStatusChange={setIsMarketBullish}
                   />
                 </div>
               </div>

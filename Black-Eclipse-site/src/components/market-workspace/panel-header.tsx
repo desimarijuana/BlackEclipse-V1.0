@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  formatCompact, formatInstrumentChange, formatInstrumentPrice, formatPercent,
+  formatCompact, formatInstrumentPrice, formatPercent,
   instrumentMeta, marketSession, sessionLabel, toneClass, type SessionStatus,
 } from '@/lib/market-workspace/instruments';
 
@@ -91,15 +91,17 @@ export function PanelHeader({
       )}
       onMouseDown={onFocus}
     >
-      {/* PRIMARY row */}
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className={cn('truncate font-mono font-bold text-foreground', compact ? 'text-[11px]' : 'text-sm')} title={name || symbol}>
+      {/* PRIMARY row — wraps instead of overlapping when the panel is narrow. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <div className="flex min-w-0 shrink-0 items-baseline gap-1.5">
+          <span className={cn('max-w-[16ch] truncate font-mono font-bold text-foreground', compact ? 'text-[11px]' : 'text-sm')} title={name || symbol}>
             {symbol}
           </span>
-          <span className={cn('shrink-0 rounded px-1 py-px font-bold uppercase tracking-wide text-muted-foreground bg-accent/40', compact ? 'text-[7px]' : 'text-[8px]')}>
-            {meta.exchange}
-          </span>
+          {!compact && (
+            <span className="shrink-0 rounded bg-accent/40 px-1 py-px text-[8px] font-bold uppercase tracking-wide text-muted-foreground">
+              {meta.exchange}
+            </span>
+          )}
         </div>
 
         {price != null && (
@@ -109,11 +111,11 @@ export function PanelHeader({
         )}
         {changePct != null && (
           <span className={cn('shrink-0 font-mono text-[10px] font-semibold tabular-nums', toneClass(changePct))}>
-            {quote?.change != null ? `${formatInstrumentChange(meta, quote.change)} · ` : ''}{formatPercent(changePct)}
+            {formatPercent(changePct)}
           </span>
         )}
 
-        <div className="flex-1" />
+        <div className="flex min-w-4 flex-1" />
 
         {/* status + controls */}
         <div className="flex shrink-0 items-center gap-1">
@@ -122,7 +124,7 @@ export function PanelHeader({
             {source.label}
           </span>
           {!compact && (
-            <span className={cn('hidden font-mono text-[8px] font-bold uppercase tracking-wider sm:inline', SESSION_TONE[session])} title="Market session">
+            <span className={cn('hidden font-mono text-[8px] font-bold uppercase tracking-wider xl:inline', SESSION_TONE[session])} title="Market session">
               {sessionLabel(session)}
             </span>
           )}

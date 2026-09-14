@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState } from 'react';
-import {
-  Sparkles,
-  Newspaper, Plus, Bot, Trash2, X,
-  ChevronLeft, ChevronRight, Menu, Settings, Orbit, Briefcase, ChartCandlestick, Bell, Globe, BookOpen, LayoutDashboard, Grid2x2
-} from 'lucide-react';
+import { Sparkles, Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { Message } from '@/types/chat';
+import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
+import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
+
+const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
 export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace';
 
@@ -43,6 +43,19 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // User-customized menu: order, visibility, and shortcuts come from the
+  // shared store (edited in Settings › Sidebar). Hydrate once on mount.
+  useHydrateSidebarConfig();
+  const sidebarConfig = useSidebarConfigStore((s) => s.config);
+  const cfgMap = configMap(sidebarConfig);
+  const navItems = sidebarConfig.sections
+    .filter((s) => cfgMap.get(s.id)?.enabled !== false)
+    .map((s) => {
+      const def = NAV_DEF.get(s.id);
+      return def ? { ...def, shortcut: s.shortcut } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
 
   const handleSelectChat = (id: string) => {
     onSelectConversation(id);
@@ -163,26 +176,15 @@ export function Sidebar({
         <div className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
           isCollapsed ? 'items-center px-2' : ''
         }`}>
-          {[
-            { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
-            { id: 'market-workspace', label: 'Market Workspace', icon: Grid2x2 },
-            { id: 'chat', label: 'ChatBot', icon: Bot },
-            { id: 'discovery', label: 'Market Screener', icon: ChartCandlestick },
-            { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
-            { id: 'journal', label: 'Journal', icon: BookOpen },
-            { id: 'news', label: 'Market News', icon: Newspaper },
-            { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
-            { id: 'economics', label: 'Economics', icon: Globe },
-            { id: 'alerts', label: 'Price Alerts', icon: Bell },
-          ].map((tab) => {
+          {navItems.map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
 
             return (
               <button
                 key={tab.id}
-                onClick={() => handleTabClick(tab.id as AppTab)}
-                title={isCollapsed ? tab.label : undefined}
+                onClick={() => handleTabClick(tab.id)}
+                title={isCollapsed ? (tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label) : undefined}
                 className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden ${
                   isSelected
                     ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
@@ -190,9 +192,14 @@ export function Sidebar({
                 } ${isCollapsed ? 'justify-center w-10 px-0 gap-0' : 'justify-start w-full gap-3'}`}
               >
                 <Icon size={16} className={`shrink-0 transition-colors duration-300 ${isSelected ? 'text-primary' : ''}`} />
-                <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden ${
+                <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden flex-1 text-left ${
                   isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
                 }`}>{tab.label}</span>
+                {tab.shortcut && !isCollapsed && (
+                  <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
+                    isSelected ? 'border-primary/30 text-primary' : 'border-border/40 text-muted-foreground'
+                  }`}>{tab.shortcut}</span>
+                )}
               </button>
             );
           })}

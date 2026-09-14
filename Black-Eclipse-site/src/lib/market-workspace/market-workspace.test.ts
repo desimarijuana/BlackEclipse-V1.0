@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { produce } from 'immer';
 import {
   addPanel, applyGridPreset, autoArrange, cloneLayout, duplicatePanel,
-  firstFreeRow, normalizeLayout, removePanel, setPanelSymbol,
+  findFreeSlot, firstFreeRow, normalizeLayout, removePanel, setPanelSymbol,
   togglePanelAi,
 } from './ops';
 import {
@@ -122,6 +122,59 @@ describe('layout ops', () => {
       togglePanelAi(d, p.id);
     });
     expect(layout.panels[0].aiOpen).toBe(true);
+  });
+
+  it('gives a new custom-workspace panel a usable half-width, two-row size', () => {
+    const layout = produce(empty(), (d) => { addPanel(d, 'chart'); });
+    expect(layout.panels[0].rect.colSpan).toBe(GRID_COLUMNS / 2);
+    expect(layout.panels[0].rect.rowSpan).toBe(2);
+  });
+
+  it('never adds a new custom panel as a 1-unit sliver', () => {
+    const layout = produce(empty(), (d) => {
+      for (let i = 0; i < 6; i++) addPanel(d, 'chart');
+    });
+    for (const p of layout.panels) {
+      expect(p.rect.colSpan).toBeGreaterThanOrEqual(GRID_COLUMNS / 2);
+      expect(p.rect.colSpan).toBeLessThanOrEqual(GRID_COLUMNS);
+    }
+  });
+
+  it('fills the first free slot instead of always starting at column 0', () => {
+    const layout = produce(empty(), (d) => {
+      addPanel(d, 'chart');
+      addPanel(d, 'chart');
+    });
+    expect(layout.panels[0].rect).toMatchObject({ col: 0, row: 0 });
+    expect(layout.panels[1].rect).toMatchObject({ col: 6, row: 0 });
+  });
+
+  it('sizes new preset panels to their logical column count', () => {
+    const layout = produce({ version: 1, layoutId: '3x2', rows: 2, panels: [] } as MarketWorkspaceLayout, (d) => {
+      addPanel(d, 'chart');
+    });
+    expect(layout.panels[0].rect.colSpan).toBe(4);
+    expect(layout.panels[0].rect.rowSpan).toBe(1);
+  });
+});
+
+describe('findFreeSlot', () => {
+  it('packs left-to-right on the first row', () => {
+    const placed = [{ id: 'a', type: 'chart' as const, rect: { col: 0, row: 0, colSpan: 6, rowSpan: 1 } }];
+    expect(findFreeSlot(placed, 6, 1)).toEqual({ col: 6, row: 0 });
+  });
+
+  it('drops to the next row when the current row is full', () => {
+    const placed = [
+      { id: 'a', type: 'chart' as const, rect: { col: 0, row: 0, colSpan: 6, rowSpan: 1 } },
+      { id: 'b', type: 'chart' as const, rect: { col: 6, row: 0, colSpan: 6, rowSpan: 1 } },
+    ];
+    expect(findFreeSlot(placed, 6, 1)).toEqual({ col: 0, row: 1 });
+  });
+
+  it('returns a fresh row when nothing fits in the existing rows', () => {
+    const placed = [{ id: 'a', type: 'chart' as const, rect: { col: 0, row: 0, colSpan: 12, rowSpan: 2 } }];
+    expect(findFreeSlot(placed, 12, 1)).toEqual({ col: 0, row: 2 });
   });
 });
 
