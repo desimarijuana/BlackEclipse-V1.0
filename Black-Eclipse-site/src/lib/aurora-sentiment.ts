@@ -37,6 +37,32 @@ export interface AuroraVisuals {
   blend: number;
 }
 
+/**
+ * One sentiment state's ramp: the bright center (`core`) and the deep falloff
+ * at both ends (`edge`). The shader's three stops are [edge, core, edge].
+ */
+export interface AuroraColorPair {
+  core: string;
+  edge: string;
+}
+
+/** User-customizable Aurora palette — one color pair per sentiment state. */
+export interface AuroraPalette {
+  bearish: AuroraColorPair;
+  neutral: AuroraColorPair;
+  bullish: AuroraColorPair;
+}
+
+/**
+ * Shipped default palette. Green-on-black brand identity: neutral is a subdued
+ * green, bullish brightens the same hue, bearish shifts red. Never purple.
+ */
+export const DEFAULT_AURORA_PALETTE: AuroraPalette = {
+  bullish: { core: '#7aff78', edge: '#022c22' },
+  neutral: { core: '#3d9e63', edge: '#02170f' },
+  bearish: { core: '#ff3e3e', edge: '#450a0a' },
+};
+
 export interface CombineOptions {
   marketWeight?: number;
   newsWeight?: number;
@@ -54,14 +80,6 @@ export const AURORA_BEARISH_THRESHOLD = -0.35;
 
 /** Daily % move that reads as a "fully" bullish/bearish equity market. */
 const MARKET_PERCENT_SCALE = 1.5;
-
-// Anchor palettes — preserved from the original Aurora identity.
-// Neutral is a *subdued green* (not purple): Aurora stays within the brand's
-// green-on-black language at rest and only shifts red when sentiment turns
-// negative. Bullish brightens the same hue toward the original accent.
-const BULL_STOPS: [string, string, string] = ['#022c22', '#7aff78', '#022c22'];
-const BEAR_STOPS: [string, string, string] = ['#450a0a', '#ff3e3e', '#450a0a'];
-const NEUTRAL_STOPS: [string, string, string] = ['#02170f', '#3d9e63', '#02170f'];
 
 // Crypto + commodities move as risk hedges; averaged in they inverted the
 // signal (gold up on a risk-off day painted the glow green while stocks bled).
@@ -113,6 +131,11 @@ function mixStops(
   t: number,
 ): [string, string, string] {
   return [mixHex(a[0], b[0], t), mixHex(a[1], b[1], t), mixHex(a[2], b[2], t)];
+}
+
+/** Expand a state's color pair into the shader's [edge, core, edge] ramp. */
+function pairStops(pair: AuroraColorPair): [string, string, string] {
+  return [pair.edge, pair.core, pair.edge];
 }
 
 // ── Market sentiment ─────────────────────────────────────────────────────────
@@ -226,20 +249,41 @@ export function auroraSentiment(
  *
  * Colors interpolate smoothly (no green/red switch), and motion stays subtle:
  * amplitude 1.2→1.8, speed 1.2→2.0 as |score| goes 0→1.
+ *
+ * `palette` overrides the shipped colors (Settings › Aurora). Missing or
+ * partial palettes fall back to `DEFAULT_AURORA_PALETTE`, so a user can change
+ * just one state and still get a coherent ramp.
  */
-export function resolveAuroraVisuals(score: number): AuroraVisuals {
+export function resolveAuroraVisuals(score: number, palette?: AuroraPalette | null): AuroraVisuals {
   const s = finiteOrNull(score) ?? 0;
   const intensity = Math.abs(s);
+  const pal = normalizePalette(palette);
+  const bullStops = pairStops(pal.bullish);
+  const bearStops = pairStops(pal.bearish);
+  const neutralStops = pairStops(pal.neutral);
   const colorStops =
     s >= 0
-      ? mixStops(NEUTRAL_STOPS, BULL_STOPS, s)
-      : mixStops(NEUTRAL_STOPS, BEAR_STOPS, -s);
+      ? mixStops(neutralStops, bullStops, s)
+      : mixStops(neutralStops, bearStops, -s);
   return {
     state: classifyAuroraState(s),
     colorStops,
     amplitude: 1.2 + 0.6 * intensity,
     speed: 1.2 + 0.8 * intensity,
     blend: 0.95,
+  };
+}
+
+/** Fill any missing state/pair/color in a user palette from the defaults. */
+export function normalizePalette(palette?: AuroraPalette | null): AuroraPalette {
+  const safe = (pair: Partial<AuroraColorPair> | undefined, fallback: AuroraColorPair) => ({
+    core: typeof pair?.core === 'string' && pair.core ? pair.core : fallback.core,
+    edge: typeof pair?.edge === 'string' && pair.edge ? pair.edge : fallback.edge,
+  });
+  return {
+    bullish: safe(palette?.bullish, DEFAULT_AURORA_PALETTE.bullish),
+    neutral: safe(palette?.neutral, DEFAULT_AURORA_PALETTE.neutral),
+    bearish: safe(palette?.bearish, DEFAULT_AURORA_PALETTE.bearish),
   };
 }
 

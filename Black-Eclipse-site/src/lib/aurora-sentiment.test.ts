@@ -3,9 +3,11 @@ import {
   auroraSentiment,
   classifyAuroraState,
   combineSentiment,
+  DEFAULT_AURORA_PALETTE,
   marketSentimentFromIndices,
   mixHex,
   normalizeMarketSentiment,
+  normalizePalette,
   resolveAuroraVisuals,
   stepSentiment,
 } from './aurora-sentiment';
@@ -197,6 +199,69 @@ describe('resolveAuroraVisuals', () => {
 
   it('handles NaN as neutral', () => {
     expect(resolveAuroraVisuals(NaN).state).toBe('neutral');
+  });
+});
+
+describe('resolveAuroraVisuals — user palette', () => {
+  const custom = {
+    bullish: { core: '#ff0000', edge: '#000000' },
+    neutral: { core: '#00ff00', edge: '#000000' },
+    bearish: { core: '#0000ff', edge: '#000000' },
+  };
+
+  it('uses the custom palette for the extremes', () => {
+    expect(resolveAuroraVisuals(1, custom).colorStops[1].toLowerCase()).toBe('#ff0000');
+    expect(resolveAuroraVisuals(-1, custom).colorStops[1].toLowerCase()).toBe('#0000ff');
+    expect(resolveAuroraVisuals(0, custom).colorStops[1].toLowerCase()).toBe('#00ff00');
+  });
+
+  it('matches the shipped default when no palette is passed', () => {
+    for (const s of [-1, -0.5, 0, 0.4, 1]) {
+      expect(resolveAuroraVisuals(s).colorStops).toEqual(
+        resolveAuroraVisuals(s, DEFAULT_AURORA_PALETTE).colorStops,
+      );
+    }
+  });
+
+  it('falls back to defaults for missing/partial palettes', () => {
+    const partial = { bullish: { core: '#123456' } } as never;
+    expect(resolveAuroraVisuals(1, partial).colorStops[1].toLowerCase()).toBe('#123456');
+    // Neutral + bearish fall back to the shipped default.
+    expect(resolveAuroraVisuals(-1, partial).colorStops[1].toLowerCase()).toBe(
+      DEFAULT_AURORA_PALETTE.bearish.core,
+    );
+    expect(resolveAuroraVisuals(0, partial).colorStops[1].toLowerCase()).toBe(
+      DEFAULT_AURORA_PALETTE.neutral.core,
+    );
+  });
+
+  it('still interpolates smoothly with a custom palette', () => {
+    const near = resolveAuroraVisuals(0.1, custom).colorStops[1];
+    const mid = resolveAuroraVisuals(0.5, custom).colorStops[1];
+    const far = resolveAuroraVisuals(1, custom).colorStops[1];
+    expect(near).not.toBe(mid);
+    expect(mid).not.toBe(far);
+  });
+
+  it('never mutates the caller palette (pure)', () => {
+    const snapshot = JSON.stringify(custom);
+    resolveAuroraVisuals(1, custom);
+    resolveAuroraVisuals(-1, custom);
+    expect(JSON.stringify(custom)).toBe(snapshot);
+  });
+});
+
+describe('normalizePalette', () => {
+  it('returns a complete palette from nothing', () => {
+    expect(normalizePalette()).toEqual(DEFAULT_AURORA_PALETTE);
+    expect(normalizePalette(null)).toEqual(DEFAULT_AURORA_PALETTE);
+  });
+
+  it('fills only the gaps', () => {
+    const p = normalizePalette({ neutral: { core: '#abcdef', edge: '#111111' } } as never);
+    expect(p.neutral).toEqual({ core: '#abcdef', edge: '#111111' });
+    expect(p.bullish).toEqual(DEFAULT_AURORA_PALETTE.bullish);
+    expect(p.bearish).toEqual(DEFAULT_AURORA_PALETTE.bearish);
   });
 });
 

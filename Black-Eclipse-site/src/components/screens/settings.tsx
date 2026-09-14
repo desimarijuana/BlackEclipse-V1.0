@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
+import { AuroraSettingsPanel } from "./aurora-settings";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ const ALL_MARKETS = [
 ];
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-type SectionId = "appearance" | "sidebar" | "agent" | "market" | "news" | "integrations" | "data" | "alerts";
+type SectionId = "appearance" | "aurora" | "sidebar" | "agent" | "market" | "news" | "integrations" | "data" | "alerts";
 
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env) / Mock",
@@ -323,6 +324,7 @@ export function Settings() {
 
   const NAV: { id: SectionId; label: string; desc: string; icon: React.ElementType }[] = [
     { id: "appearance", label: "Appearance", desc: "Theme & refresh", icon: Palette },
+    { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles },
     { id: "sidebar", label: "Sidebar", desc: "Menu & shortcuts", icon: PanelLeft },
     { id: "agent", label: "AI Agent", desc: "Provider & model", icon: Bot },
     { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
@@ -467,6 +469,8 @@ export function Settings() {
                 </Panel>
               </div>
             )}
+
+            {section === "aurora" && <AuroraSettingsPanel />}
 
             {section === "sidebar" && <SidebarSettingsPanel />}
 

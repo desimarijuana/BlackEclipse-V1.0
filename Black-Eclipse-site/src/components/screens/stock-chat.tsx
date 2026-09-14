@@ -62,6 +62,7 @@ import Aurora from '@/components/ui/Aurora';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { auroraSentiment, marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
+import { useHydrateAuroraPalette, useAuroraPaletteStore } from '@/lib/aurora/store';
 
 // Aurora needs the US index topic even on a cold boot straight into chat, where
 // the dashboard chunk (which normally registers it) is never loaded. Idempotent:
@@ -118,6 +119,11 @@ function StockChatContent() {
     () => auroraSentiment(marketScore, newsScore),
     [marketScore, newsScore],
   );
+
+  // User-customized Aurora colors (Settings › Aurora), hydrated from
+  // localStorage post-mount so SSR stays on the shipped default.
+  useHydrateAuroraPalette();
+  const auroraPalette = useAuroraPaletteStore((s) => s.palette);
 
   useEffect(() => {
     setMounted(true);
@@ -479,7 +485,7 @@ function StockChatContent() {
           WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
         }}
       >
-        <Aurora sentiment={aurora.score} />
+        <Aurora sentiment={aurora.score} palette={auroraPalette} />
       </div>
 
       <Sidebar 

@@ -1,6 +1,6 @@
 import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
 import { useEffect, useRef } from 'react';
-import { resolveAuroraVisuals, stepSentiment } from '@/lib/aurora-sentiment';
+import { resolveAuroraVisuals, stepSentiment, type AuroraPalette } from '@/lib/aurora-sentiment';
 import './Aurora.css';
 
 const VERT = `#version 300 es
@@ -125,6 +125,12 @@ export interface AuroraProps {
   sentiment?: number;
   /** Per-frame easing factor toward `sentiment` (0..1). Higher = snappier. */
   smoothing?: number;
+  /**
+   * Optional user palette (Settings › Aurora). Recolors each sentiment state
+   * without touching the interpolation/motion model. Missing states fall back
+   * to the shipped default. Only applied when `sentiment` is set.
+   */
+  palette?: AuroraPalette | null;
 }
 
 export default function Aurora(props: AuroraProps) {
@@ -213,7 +219,7 @@ export default function Aurora(props: AuroraProps) {
 
       // Resolve the effective palette + motion. Sentiment drives continuous
       // interpolation; without it the legacy static props are used verbatim.
-      const vis = useSentiment ? resolveAuroraVisuals(sentimentRef.current) : null;
+      const vis = useSentiment ? resolveAuroraVisuals(sentimentRef.current, current.palette) : null;
       const effectiveAmplitude = vis ? vis.amplitude : (current.amplitude ?? amplitude);
       const effectiveSpeed = vis ? vis.speed : (current.speed ?? 1.0);
       const effectiveBlend = vis ? vis.blend : (current.blend ?? blend);
