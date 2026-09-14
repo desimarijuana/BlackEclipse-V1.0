@@ -866,7 +866,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   return (
     <>
       {loading && <TopLoader />}
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
+      <div className="flex-1 w-full px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
         
         {/* Title Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/20 pb-4 shrink-0">

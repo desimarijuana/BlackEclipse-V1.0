@@ -467,7 +467,7 @@ function StockChatContent() {
               nothing, preserving the old single-screen boot behavior. */}
           {visited.has('dashboard') && (
             <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-[1600px] mx-auto px-4 md:px-8 py-8">
+              <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <DashboardScreen />
               </div>
             </div>
@@ -503,7 +503,7 @@ function StockChatContent() {
 
           {visited.has('news') && (
             <div className={cn('w-full h-full', activeTab === 'news' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8 overflow-y-auto h-full pb-20">
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto h-full pb-20">
                 <div className="animate-fade-in-up w-full h-full flex flex-col">
                   <div className="mb-6 flex items-center gap-2 border-b border-border/10 pb-3">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
@@ -527,7 +527,7 @@ function StockChatContent() {
 
           {visited.has('discovery') && (
             <div className={cn('w-full h-full', activeTab === 'discovery' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+              <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <div className="animate-fade-in-up w-full h-full">
                   <MarketOverviewScreen
                     key={discoveryMarket ?? 'default'}
@@ -567,7 +567,7 @@ function StockChatContent() {
 
           {visited.has('portfolio') && (
             <div className={cn('w-full h-full', activeTab === 'portfolio' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+              <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <PortfolioScreen />
               </div>
             </div>
@@ -575,7 +575,7 @@ function StockChatContent() {
 
           {visited.has('journal') && (
             <div className={cn('w-full h-full', activeTab === 'journal' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+              <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <JournalScreen />
               </div>
             </div>
@@ -583,7 +583,7 @@ function StockChatContent() {
 
           {visited.has('chart') && (
             <div className={cn('w-full h-full', activeTab === 'chart' ? '' : 'hidden')}>
-              <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-6 h-full">
+              <div className="flex-1 w-full px-4 md:px-8 py-6 h-full">
                 <button
                   onClick={() => setActiveTab('discovery')}
                   className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/40 bg-accent/30 hover:bg-accent/60 rounded-xl px-3 py-1.5 transition-all cursor-pointer"

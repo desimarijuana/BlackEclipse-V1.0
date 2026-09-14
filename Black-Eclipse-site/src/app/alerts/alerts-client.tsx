@@ -182,7 +182,7 @@ export function AlertsClient() {
   const firedToday = events.filter((e) => Date.now() - new Date(e.firedAt).getTime() < 86400000).length;
 
   return (
-    <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-full text-foreground animate-in fade-in duration-500 relative overflow-x-hidden">
+    <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-full text-foreground animate-in fade-in duration-500 relative overflow-x-hidden w-full">
 
       {/* ─── HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
