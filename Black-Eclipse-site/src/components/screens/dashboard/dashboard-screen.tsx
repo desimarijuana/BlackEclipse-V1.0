@@ -29,14 +29,16 @@ export function DashboardScreen() {
   const layoutId = markets.active?.id ?? 'US';
   const activeMarket = markets.active?.market ?? 'US';
 
-  // Seed the starting workspace for this layout. The US layout keeps the persona
-  // template the user picked at onboarding, plus asset-class lead/extra widgets
-  // for the layout's default market (FX panels, commodities, crypto, …).
+  // Seed the starting workspace for this layout. A layout created from a preset
+  // uses its own templateId; otherwise it inherits the dashboard's template
+  // (the persona the user picked at onboarding). Asset-class lead/extra widgets
+  // are layered on for the layout's default market.
+  const templateId = markets.active?.templateId ?? dashboards.active?.templateId ?? 'trader';
   const defaultLayout = useMemo(() => {
-    const t = getDashboardTemplate(dashboards.active?.templateId ?? 'trader');
+    const t = getDashboardTemplate(templateId);
     const templateBase = t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;
     return buildMarketViewLayout(activeMarket, DASHBOARD_WIDGET_IDS, templateBase);
-  }, [activeMarket, dashboards.active?.templateId]);
+  }, [activeMarket, templateId]);
 
   // Per-dashboard + per-layout storage key. Seed the US layout key from the
   // legacy (un-suffixed) arrangement BEFORE the workspace store is created on

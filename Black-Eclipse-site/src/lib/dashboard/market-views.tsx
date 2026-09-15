@@ -20,6 +20,12 @@ export interface MarketView {
   name: string;
   /** Default market for widgets that follow the tab (US, PK, CRYPTO, …). */
   market: string;
+  /**
+   * Starting dashboard template chosen when the layout was created (a persona
+   * preset like 'trader' / 'investor'). Seeds the layout's initial widgets the
+   * first time it opens; absent = inherit the dashboard's own template.
+   */
+  templateId?: string;
 }
 
 const STORAGE_KEY = 'be_market_views_v3';
@@ -102,7 +108,8 @@ function normalizeView(v: unknown): MarketView | null {
   const market = rawMarket || (knownMarket ? id : 'US');
   const rawName = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : '';
   const name = !rawName || LEGACY_NAMES.has(rawName.toLowerCase()) ? marketViewName(market) : rawName;
-  return { id, name, market };
+  const templateId = typeof r.templateId === 'string' && r.templateId.trim() ? r.templateId.trim() : undefined;
+  return { id, name, market, templateId };
 }
 
 function safeParse(raw: string | null): MarketView[] | null {
@@ -156,8 +163,11 @@ export interface MarketViewsContextValue {
   /** The active view record (never null while views exist). */
   active: MarketView | null;
   setActiveId: (id: string) => void;
-  /** Create a new named layout with an optional default market. Returns its id. */
-  create: (name: string, market?: string) => string;
+  /**
+   * Create a new named layout with an optional default market and starting
+   * template (persona preset). Returns the new layout's id.
+   */
+  create: (name: string, market?: string, templateId?: string) => string;
   remove: (id: string) => void;
   /** Rename a layout (display label only). */
   rename: (id: string, name: string) => void;
@@ -196,11 +206,12 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     try { window.localStorage.setItem(ACTIVE_KEY, id); } catch { /* ignore */ }
   }, []);
 
-  // A layout is just a NAMED workspace — the user types any name they like.
-  const create = useCallback((name: string, market?: string) => {
+  // A layout is just a NAMED workspace — the user types any name they like and
+  // may start from a persona preset (templateId).
+  const create = useCallback((name: string, market?: string, templateId?: string) => {
     const label = name.trim() || 'New layout';
     const mkt = (market?.trim() || 'US').toUpperCase();
-    const view: MarketView = { id: newId('layout'), name: label, market: mkt };
+    const view: MarketView = { id: newId('layout'), name: label, market: mkt, templateId };
     setViews(prev => {
       const next = [...prev, view];
       writeViews(next);

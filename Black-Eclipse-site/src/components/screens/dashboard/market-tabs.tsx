@@ -9,24 +9,20 @@
 // Uses the shared frosted-glass <TabBar> so it matches every other tab strip.
 
 import React, { useState } from 'react';
-import { Globe, Plus } from 'lucide-react';
+import { Globe, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabBar, type TabItem } from '@/components/ui/tab-bar';
 import { useMarketViews } from '@/lib/dashboard/market-views';
+import { NewLayoutDialog } from './new-layout-dialog';
 
 export function MarketTabs() {
   const { views, activeId, active, setActiveId, create, remove, rename } = useMarketViews();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [creating, setCreating] = useState(false);
   // A new layout inherits the active layout's data context (no country picker).
   const inheritMarket = active?.market ?? 'US';
-
-  // Add → create a layout immediately, then rename it inline on the tab.
-  const addLayout = () => {
-    const id = create(`Layout ${views.length + 1}`, inheritMarket);
-    setEditingId(id);
-    setDraft(`Layout ${views.length + 1}`);
-  };
+  const nextName = `Layout ${views.length + 1}`;
 
   const startRename = (id: string) => {
     const view = views.find(v => v.id === id);
@@ -64,31 +60,42 @@ export function MarketTabs() {
   }));
 
   return (
-    <TabBar
-      className="mb-3"
-      items={items}
-      activeId={activeId}
-      onChange={setActiveId}
-      onItemDoubleClick={startRename}
-      onItemRemove={views.length > 1 ? remove : undefined}
-      leading={(
-        <span className="hidden shrink-0 pl-3 pr-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground sm:inline">
-          Layouts
-        </span>
+    <>
+      <TabBar
+        variant="subtle"
+        className="mb-3"
+        items={items}
+        activeId={activeId}
+        onChange={setActiveId}
+        onItemDoubleClick={startRename}
+        onItemRemove={views.length > 1 ? remove : undefined}
+        leading={(
+          <span className="hidden shrink-0 pl-3 pr-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground sm:inline">
+            Layouts
+          </span>
+        )}
+        trailing={(
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-white/15 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
+              'dark:border-white/10 bg-accent/30 text-muted-foreground hover:border-primary/40 hover:text-primary',
+            )}
+            title="Add a new layout"
+          >
+            <LayoutGrid size={12} /> New layout
+          </button>
+        )}
+      />
+
+      {creating && (
+        <NewLayoutDialog
+          defaultName={nextName}
+          onClose={() => setCreating(false)}
+          onCreate={(name, templateId) => { create(name, inheritMarket, templateId); setCreating(false); }}
+        />
       )}
-      trailing={(
-        <button
-          type="button"
-          onClick={addLayout}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-2xl border border-white/15 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer',
-            'dark:border-white/10 bg-accent/30 text-muted-foreground hover:border-primary/40 hover:text-primary',
-          )}
-          title="Add a new layout"
-        >
-          <Plus size={12} /> New layout
-        </button>
-      )}
-    />
+    </>
   );
 }
