@@ -12,18 +12,25 @@ import { cn } from '@/lib/utils';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useWatchlist } from './watchlist-store';
 import { useAggregatePortfolio } from './portfolio-store';
-import { useMarketIndices, useMarketGroup, useMarketSectors, marketViewName } from './market-views';
+import { useMarketIndices, useMarketGroup, useMarketSectors } from './market-views';
+import { MarketPicker } from '@/components/workspace/market-picker';
+import type { WidgetPlacement } from '@/lib/workspace/types';
 
 const UP = 'text-emerald-400';
 const DOWN = 'text-rose-400';
 const tone = (n: number) => (n > 0 ? UP : n < 0 ? DOWN : 'text-muted-foreground');
 const fmt = (n?: number | null, d = 2) => (n == null || !Number.isFinite(n) ? '—' : n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
 
-function WidgetHeader({ title, hint }: { title: string; hint?: string }) {
+function WidgetHeader({ title, hint, right }: { title: string; hint?: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-border/10 pb-2.5 mb-3">
       <h3 className="font-serif text-sm font-semibold text-foreground truncate">{title}</h3>
-      {hint && <span className="font-mono text-[9px] text-muted-foreground/70 shrink-0">{hint}</span>}
+      <span className="flex items-center gap-2 shrink-0">
+        {hint && (typeof hint === 'string'
+          ? <span className="font-mono text-[9px] text-muted-foreground/70">{hint}</span>
+          : hint)}
+        {right}
+      </span>
     </div>
   );
 }
@@ -115,11 +122,11 @@ interface QuoteRow { symbol: string; name: string; price: number; changePercent:
 
 // ── Markets ──────────────────────────────────────────────────────────────────
 
-export function MarketIndicesWidget() {
-  const { market, rows } = useMarketIndices();
+export function MarketIndicesWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, rows } = useMarketIndices(placement);
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Indices" hint={marketViewName(market)} />
+      <WidgetHeader title="Market Indices" hint={<MarketPicker placement={placement} />} />
       {rows.length === 0 ? <EmptyNote>Loading indices…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {rows.slice(0, 6).map(i => (
@@ -212,13 +219,13 @@ export function CommoditiesWidget() {
   );
 }
 
-export function TopMoversWidget() {
-  const { market, stocks } = useMarketGroup();
+export function TopMoversWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { stocks } = useMarketGroup(placement);
   const gainers = useMemo(() => [...stocks].filter(s => s.changePct > 0).sort((a, b) => b.changePct - a.changePct).slice(0, 5), [stocks]);
   const losers = useMemo(() => [...stocks].filter(s => s.changePct < 0).sort((a, b) => a.changePct - b.changePct).slice(0, 5), [stocks]);
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Top Movers" hint={marketViewName(market)} />
+      <WidgetHeader title="Top Movers" hint={<MarketPicker placement={placement} />} />
       {stocks.length === 0 ? <EmptyNote>Loading movers…</EmptyNote> : (
         <div className="grid flex-1 grid-cols-2 gap-2">
           <div>
@@ -245,12 +252,12 @@ export function TopMoversWidget() {
   );
 }
 
-export function SectorHeatmapWidget() {
+export function SectorHeatmapWidget({ placement }: { placement?: WidgetPlacement }) {
   // Sector performance rides along on the same /api/indices payload — no extra fetch.
-  const { market, sectors } = useMarketSectors();
+  const { sectors } = useMarketSectors(placement);
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Sector Heatmap" hint={marketViewName(market)} />
+      <WidgetHeader title="Sector Heatmap" hint={<MarketPicker placement={placement} />} />
       {sectors.length === 0 ? <EmptyNote>Loading sectors…</EmptyNote> : (
         <div className="grid flex-1 grid-cols-2 gap-1.5 content-start">
           {sectors.map(s => (
@@ -801,13 +808,13 @@ export function GlobalMarketsWidget() {
   );
 }
 
-export function MarketStatusWidget() {
-  const { market, rows } = useMarketIndices();
+export function MarketStatusWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { rows } = useMarketIndices(placement);
   const up = rows.filter(i => i.changePercent > 0).length;
   const down = rows.filter(i => i.changePercent < 0).length;
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Status" hint={marketViewName(market)} />
+      <WidgetHeader title="Market Status" hint={<MarketPicker placement={placement} />} />
       <div className="flex flex-1 flex-col justify-center gap-2">
         <div className="flex items-center gap-2">
           <span className={cn('h-2.5 w-2.5 rounded-full', up >= down ? 'bg-emerald-400' : 'bg-rose-400')} />

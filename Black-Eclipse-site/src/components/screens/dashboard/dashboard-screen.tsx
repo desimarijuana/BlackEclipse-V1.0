@@ -26,9 +26,10 @@ export function DashboardScreen() {
   const activeMarket = markets.activeId || 'US';
 
   // Seed the default layout for the ACTIVE MARKET VIEW. Each market gets its
-  // own stored workspace (per dashboard) and its own starting widget set, so a
-  // FOREX tab opens with FX panels, a PSX tab with Pakistan's constituents, etc.
-  // The US tab keeps the persona template the user picked at onboarding.
+  // own stored workspace (per dashboard) and its own starting widget set. Every
+  // tab shares the same body of widgets (the persona template the user picked at
+  // onboarding) plus asset-class lead/extra widgets — FX panels for the Forex
+  // tab, commodities for Commodities, crypto for Crypto, constituents for PSX.
   const defaultLayout = useMemo(() => {
     const t = getDashboardTemplate(dashboards.active?.templateId ?? 'trader');
     const templateBase = t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;

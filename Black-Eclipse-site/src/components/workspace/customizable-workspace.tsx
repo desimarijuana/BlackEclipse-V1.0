@@ -19,6 +19,7 @@ import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
 import { dataHub, useRefreshAll } from '@/lib/workspace/data-hub';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement, WorkspaceLayout } from '@/lib/workspace/types';
+import { WidgetConfigProvider } from '@/lib/workspace/widget-config-context';
 import { WidgetLibrary } from './widget-library';
 import { WidgetConfigPanel } from './widget-config';
 
@@ -208,35 +209,50 @@ export function CustomizableWorkspace({
         </div>
       )}
 
-      {/* Canvas */}
-      <WorkspaceCanvas
-        workspace={workspace}
-        hideEditBar
-        compact={compact}
-        addingWidgetId={addDrag?.widgetId ?? null}
-        addingLabel={addDrag?.label}
-        addingMode={addDrag?.mode ?? 'hold'}
-        onAddingEnd={endAddDrag}
-        widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
-        railClassName={railClassName}
-        railHeader={railHeader}
-        railCollapsed={railCollapsed}
-        onToggleRail={onToggleRail}
-        renderWidget={(widgetId, placement) => (
-          <div className="relative h-full">
-            {renderWidget(widgetId, placement)}
-            {workspace.editMode && (
-              <button
-                onClick={() => setConfigPlacement(placement)}
-                className="absolute right-2 bottom-2 z-30 rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
-                title="Configure widget"
-              >
-                <Settings2 size={12} />
-              </button>
-            )}
-          </div>
-        )}
-      />
+      {/* Canvas — wrapped in a widget-config channel so widgets can edit their
+          OWN settings inline (e.g. pick the market a card shows). */}
+      <WidgetConfigProvider
+        value={{
+          get: (id) => workspace.layout.sections
+            .flatMap(s => s.columns.flatMap(c => c.widgets))
+            .find(w => w.id === id)?.config ?? {},
+          set: (id, patch) => workspace.ops.setWidgetConfig(id, patch),
+        }}
+      >
+        <WorkspaceCanvas
+          workspace={workspace}
+          hideEditBar
+          compact={compact}
+          addingWidgetId={addDrag?.widgetId ?? null}
+          addingLabel={addDrag?.label}
+          addingMode={addDrag?.mode ?? 'hold'}
+          onAddingEnd={endAddDrag}
+          widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
+          railClassName={railClassName}
+          railHeader={railHeader}
+          railCollapsed={railCollapsed}
+          onToggleRail={onToggleRail}
+          renderWidget={(widgetId, placement) => (
+            <div className="relative h-full">
+              {renderWidget(widgetId, placement)}
+              {/* Configure — visible in edit mode, and on hover in normal mode
+                  when the widget actually has settings. */}
+              {(workspace.editMode || (getDefinition(widgetId)?.configFields?.length ?? 0) > 0) && (
+                <button
+                  onClick={() => setConfigPlacement(placement)}
+                  className={cn(
+                    'absolute right-2 bottom-2 z-30 rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer transition-opacity',
+                    workspace.editMode ? 'opacity-100' : 'opacity-0 hover:opacity-100 group-hover/card:opacity-100',
+                  )}
+                  title="Configure widget"
+                >
+                  <Settings2 size={12} />
+                </button>
+              )}
+            </div>
+          )}
+        />
+      </WidgetConfigProvider>
 
       {/* Widget library */}
       {libraryOpen && (

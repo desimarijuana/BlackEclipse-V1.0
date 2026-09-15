@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { cssVarToHex } from '@/lib/chart-colors';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
 import { usePortfolioPerformance, useFundComparison } from './portfolio-store';
+import { useMarketLeadSymbol } from './market-views';
 import { getTradingViewSymbol } from '@/lib/utils';
 import { defaultChartState, type ChartState } from '@/lib/chart/types';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -37,6 +38,12 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
       <p className="text-xs text-muted-foreground/70 italic">{children}</p>
     </div>
   );
+}
+
+/** True when a chart instance has a persisted state (i.e. user-touched). */
+function hasStoredChart(storageKey: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try { return Boolean(window.localStorage.getItem(storageKey)); } catch { return false; }
 }
 
 // ── Technical indicators (deterministic) ───────────────────────────────────
@@ -318,19 +325,31 @@ export function MacroSnapshotWidget() {
 
 export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacement }) {
   const storageKey = `be_tv_symbol:${placement?.id ?? 'default'}`;
-  const [symbol, setSymbol] = React.useState((placement?.config?.symbol as string) || 'AAPL');
+  const { market, symbol: leadSymbol } = useMarketLeadSymbol(placement);
+  const [symbol, setSymbol] = React.useState((placement?.config?.symbol as string) || leadSymbol);
+  const [touched, setTouched] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // Restore the last-viewed symbol for this widget instance on mount.
+  // Restore the last-viewed symbol for this widget instance on mount — but only
+  // when the user has explicitly chosen one, so a market tab's chart defaults to
+  // that market's own lead instrument.
   React.useEffect(() => {
     try {
       const saved = window.localStorage.getItem(storageKey);
-      if (saved) setSymbol(saved);
+      if (saved) { setSymbol(saved); setTouched(true); }
     } catch { /* ignore */ }
   }, [storageKey]);
 
+  // Follow the active market tab until the user pins a symbol on this card.
+  React.useEffect(() => {
+    if (!touched) setSymbol((placement?.config?.symbol as string) || leadSymbol);
+  }, [leadSymbol, touched, placement?.config?.symbol]);
+
+  void market;
+
   const chooseSymbol = (value: string) => {
     const next = value.toUpperCase();
+    setTouched(true);
     setSymbol(next);
     try { window.localStorage.setItem(storageKey, next); } catch { /* ignore */ }
   };
@@ -387,11 +406,19 @@ export function TradingViewChartWidget({ placement }: { placement?: WidgetPlacem
 export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement }) {
   // Fully controlled chart state, persisted per widget instance so symbol,
   // market, timeframe, provider, indicators and drawings all survive a reload.
+  // Defaults to the ACTIVE MARKET TAB's lead instrument (a PSX tab opens OGDC,
+  // a Crypto tab BTC, …) — the user can still search any symbol.
+  const { market: activeMarket, symbol: leadSymbol } = useMarketLeadSymbol(placement);
   const storageKey = `be_chart_state:${placement?.id ?? 'default'}`;
+  // "pinned" = the user (or config) chose a symbol for this card, so the tab
+  // should no longer override it.
+  const [pinned, setPinned] = React.useState<boolean>(
+    () => Boolean(placement?.config?.symbol) || hasStoredChart(storageKey),
+  );
   const [chartState, setChartState] = React.useState<ChartState>(() => {
     const base = defaultChartState({
-      symbol: (placement?.config?.symbol as string) || 'AAPL',
-      market: (placement?.config?.market as string) || 'US',
+      symbol: (placement?.config?.symbol as string) || leadSymbol,
+      market: (placement?.config?.market as string) || activeMarket,
     });
     if (typeof window !== 'undefined') {
       try {
@@ -402,7 +429,16 @@ export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement 
     return base;
   });
 
+  // Follow the active tab until this card is pinned to its own symbol.
+  React.useEffect(() => {
+    if (pinned) return;
+    setChartState(prev => (prev.market === activeMarket && prev.symbol === leadSymbol
+      ? prev
+      : { ...prev, market: activeMarket, symbol: leadSymbol }));
+  }, [activeMarket, leadSymbol, pinned]);
+
   const handleStateChange = (next: ChartState) => {
+    if (next.symbol !== chartState.symbol) setPinned(true);
     setChartState(next);
     try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
   };

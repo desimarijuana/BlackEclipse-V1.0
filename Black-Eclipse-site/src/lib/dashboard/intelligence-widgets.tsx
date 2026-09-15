@@ -6,18 +6,23 @@
 
 import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import type { WidgetPlacement } from '@/lib/workspace/types';
 import { useMarketIndices, useMarketGroup } from './market-views';
+import { MarketPicker } from '@/components/workspace/market-picker';
 import {
   computeRegime, computeWhatChanged, scanOpportunities, computeDrivers,
   type Regime,
 } from './intelligence';
 
 
-function WidgetHeader({ title, hint }: { title: string; hint?: string }) {
+function WidgetHeader({ title, hint, right }: { title: string; hint?: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-border/10 pb-2.5 mb-3">
       <h3 className="font-serif text-sm font-semibold text-foreground truncate">{title}</h3>
-      {hint && <span className="font-mono text-[9px] text-muted-foreground/70 shrink-0">{hint}</span>}
+      <span className="flex items-center gap-2 shrink-0">
+        {hint && <span className="font-mono text-[9px] text-muted-foreground/70">{hint}</span>}
+        {right}
+      </span>
     </div>
   );
 }
@@ -42,15 +47,15 @@ const REGIME_TONE: Record<Regime, string> = {
 
 // ── Market Regime ────────────────────────────────────────────────────────────
 
-export function MarketRegimeWidget() {
-  const { rows } = useMarketIndices();
+export function MarketRegimeWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { rows } = useMarketIndices(placement);
   const indices = useMemo(() => rows, [rows]);
   const result = useMemo(() => computeRegime(indices), [indices]);
   const f = result.factors;
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Regime" hint="DETERMINISTIC" />
+      <WidgetHeader title="Market Regime" right={<MarketPicker placement={placement} />} />
       {indices.length === 0 ? <EmptyNote>Loading regime…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-3">
           <div className="flex items-center gap-2">
@@ -87,8 +92,8 @@ function FactorBar({ label, value }: { label: string; value: number }) {
 
 // ── What Changed ────────────────────────────────────────────────────────────
 
-export function WhatChangedWidget() {
-  const { rows } = useMarketIndices();
+export function WhatChangedWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { rows } = useMarketIndices(placement);
   const indices = useMemo(() => rows, [rows]);
   // Deterministic "previous" = a slightly shifted snapshot (no persistence yet).
   const previous = useMemo(() => indices.map(i => ({ name: i.name, changePercent: i.changePercent - (i.changePercent > 0 ? 0.2 : -0.2) })), [indices]);
@@ -96,7 +101,7 @@ export function WhatChangedWidget() {
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="What Changed?" hint="SESSION" />
+      <WidgetHeader title="What Changed?" right={<MarketPicker placement={placement} />} />
       {changes.length === 0 ? <EmptyNote>No meaningful changes this session.</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-hide">
           {changes.map(c => (
@@ -115,13 +120,13 @@ export function WhatChangedWidget() {
 
 // ── Opportunity Scanner ────────────────────────────────────────────────────
 
-export function OpportunityScannerWidget() {
-  const { stocks } = useMarketGroup();
+export function OpportunityScannerWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { stocks } = useMarketGroup(placement);
   const opps = useMemo(() => scanOpportunities(stocks), [stocks]);
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Opportunity Scanner" hint="WHY" />
+      <WidgetHeader title="Opportunity Scanner" right={<MarketPicker placement={placement} />} />
       {opps.length === 0 ? <EmptyNote>No opportunities detected.</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-2 overflow-y-auto scrollbar-hide">
           {opps.map(o => (
@@ -147,14 +152,14 @@ export function OpportunityScannerWidget() {
 
 // ── Market Drivers ──────────────────────────────────────────────────────────
 
-export function MarketDriversWidget() {
-  const { rows } = useMarketIndices();
+export function MarketDriversWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { rows } = useMarketIndices(placement);
   const indices = useMemo(() => rows, [rows]);
   const drivers = useMemo(() => computeDrivers(indices), [indices]);
 
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Drivers" hint="RANKED" />
+      <WidgetHeader title="Market Drivers" right={<MarketPicker placement={placement} />} />
       {drivers.length === 0 ? <EmptyNote>Loading drivers…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {drivers.map((d, i) => (

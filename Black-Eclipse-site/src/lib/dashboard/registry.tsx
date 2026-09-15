@@ -15,7 +15,9 @@ import {
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 import { newId, type WorkspaceLayout, type WorkspaceSection } from '@/lib/workspace/types';
+import { allWidgetIds } from '@/lib/workspace/ops';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
+import { MARKET_CONFIG_FIELD } from './market-views';
 
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
@@ -84,14 +86,38 @@ function def(id: string, category: WidgetDefinition['category'], label: string, 
   return { id, category, label, desc, icon, sizes, dataDeps, configFields, defaultConfig, render: (placement) => body(placement) };
 }
 
+/**
+ * Market-aware widget definition. Adds the shared Market config field (so the
+ * user can pin the widget to any market — US, PSX, Crypto, Forex, …) alongside
+ * any widget-specific fields, and defaults it to "follow the active tab".
+ */
+function mdef(
+  id: string,
+  category: WidgetDefinition['category'],
+  label: string,
+  desc: string,
+  icon: string,
+  sizes: WidgetDefinition['sizes'],
+  body: (placement: WidgetPlacement) => React.ReactNode,
+  dataDeps?: string[],
+  extraFields?: WidgetDefinition['configFields'],
+  extraConfig?: Record<string, unknown>,
+): WidgetDefinition {
+  return def(
+    id, category, label, desc, icon, sizes, body, dataDeps,
+    [MARKET_CONFIG_FIELD, ...(extraFields ?? [])],
+    { ...(extraConfig ?? {}) },
+  );
+}
+
 export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   // ── Markets ──
-  def('market-indices', 'markets', 'Market Indices', "The active market's headline index quotes.", 'line-chart', ['medium', 'large'], () => <MarketIndicesWidget />),
+  mdef('market-indices', 'markets', 'Market Indices', 'Headline index quotes for the chosen market.', 'line-chart', ['medium', 'large'], (p) => <MarketIndicesWidget placement={p} />),
   def('forex-pairs', 'markets', 'Forex Pairs', 'EURUSD, GBPUSD, USDJPY and more.', 'droplets', ['medium', 'large'], () => <ForexPairsWidget />, ['market:forex']),
   def('crypto-markets', 'markets', 'Crypto Markets', 'BTC, ETH, BNB, SOL live prices.', 'coins', ['medium', 'large'], () => <CryptoMarketsWidget />, ['market:indices:CRYPTO']),
   def('commodities', 'markets', 'Commodities', 'Gold, Oil, Natural Gas, Copper.', 'flame', ['medium', 'large'], () => <CommoditiesWidget />, ['market:commodities']),
-  def('sector-heatmap', 'markets', 'Sector Heatmap', "The active market's sector performance.", 'pie', ['medium', 'large'], () => <SectorHeatmapWidget />),
-  def('top-movers', 'markets', 'Top Movers', "The active market's biggest gainers and losers.", 'trending', ['medium', 'large'], () => <TopMoversWidget />),
+  mdef('sector-heatmap', 'markets', 'Sector Heatmap', 'Sector performance for the chosen market.', 'pie', ['medium', 'large'], (p) => <SectorHeatmapWidget placement={p} />),
+  mdef('top-movers', 'markets', 'Top Movers', 'Biggest gainers and losers for the chosen market.', 'trending', ['medium', 'large'], (p) => <TopMoversWidget placement={p} />),
   def('market-sentiment', 'markets', 'Market Sentiment', 'Fear & greed, bull/bear indicators.', 'activity', ['small', 'medium'], () => UnavailableStub('')),
   def('quote-strip', 'markets', 'Quote Strip', 'Configurable live quote list.', 'bar-chart', ['large', 'full'], () => UnavailableStub('')),
   def('crypto-ticker', 'markets', 'Crypto Ticker', 'Live Kraken/HyperLiquid ticker strip.', 'radio', ['large', 'full'], () => <CryptoQuoteStripWidget />),
@@ -141,7 +167,7 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Macro / Global ──
   def('global-markets', 'macro', 'Global Markets', 'World market overview.', 'globe', ['medium', 'large'], () => <GlobalMarketsWidget />, ['market:overview']),
-  def('market-status', 'macro', 'Market Status', 'Risk on/off, advancing/declining.', 'activity', ['small', 'medium'], () => <MarketStatusWidget />),
+  mdef('market-status', 'macro', 'Market Status', 'Risk on/off, advancing/declining.', 'activity', ['small', 'medium'], (p) => <MarketStatusWidget placement={p} />),
 
   // ── AI ──
   def('agent-activity', 'ai', 'Agent Activity', 'Active agents and their tasks.', 'bot', ['medium', 'large'], () => <AgentActivityWidget />, ['agent:activity']),
@@ -150,12 +176,12 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Charts ──
   def('asset-chart', 'markets', 'Asset Chart', 'Line chart with EMA 20/50 and RSI 14.', 'line-chart', ['large', 'full'], () => <AssetChartWidget />, ['chart:asset:AAPL']),
-  def('eclipse-chart', 'markets', 'Eclipse Chart', 'Native BlackEclipse chart — candlesticks, indicators, provider-switchable.', 'candlestick', ['large', 'full'], (p) => <EclipseChartWidget placement={p} />, undefined,
-    [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol…', default: 'AAPL' }],
-    { symbol: 'AAPL' }),
-  def('tradingview-chart', 'markets', 'TradingView Chart', 'Full TradingView advanced chart with RSI.', 'candlestick', ['large', 'full'], (p) => <TradingViewChartWidget placement={p} />, undefined,
-    [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol…', default: 'AAPL' }],
-    { symbol: 'AAPL' }),
+  // Charts default to the active market tab's lead instrument; the Symbol
+  // field pins a specific one, and the Market field pins the data market.
+  mdef('eclipse-chart', 'markets', 'Eclipse Chart', 'Native BlackEclipse chart — opens on the active market, symbol configurable.', 'candlestick', ['large', 'full'], (p) => <EclipseChartWidget placement={p} />, undefined,
+    [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol (blank = market default)…' }]),
+  mdef('tradingview-chart', 'markets', 'TradingView Chart', 'Full TradingView chart — opens on the active market, symbol configurable.', 'candlestick', ['large', 'full'], (p) => <TradingViewChartWidget placement={p} />, undefined,
+    [{ key: 'symbol', label: 'Symbol', type: 'symbol', placeholder: 'Search any symbol (blank = market default)…' }]),
   def('economic-chart', 'macro', 'Economic Data Chart', 'Economic series line chart (US CPI).', 'line-chart', ['large', 'full'], () => <EconomicDataChartWidget />, ['econ:series:us-cpi']),
   def('fund-performance-chart', 'portfolio', 'Portfolio Performance', 'All funds indexed vs the benchmarks you pick.', 'line-chart', ['large', 'full'], (p) => <FundPerformanceChartWidget placement={p} />, undefined,
     [{ key: 'compare', label: 'Compare with', type: 'symbols', placeholder: 'Add SPY, QQQ, BTC-USD…' }],
@@ -163,13 +189,13 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('macro-snapshot', 'macro', 'Macro Snapshot', 'Central-bank rates and key prints.', 'gauge', ['medium', 'large'], () => <MacroSnapshotWidget />, ['econ:snapshot']),
 
   // ── Intelligence ──
-  def('market-regime', 'intelligence', 'Market Regime', 'Risk on/off, trending, range, volatility.', 'activity', ['medium', 'large'], () => <MarketRegimeWidget />),
-  def('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], () => <WhatChangedWidget />),
-  def('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], () => <OpportunityScannerWidget />),
-  def('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], () => <MarketDriversWidget />),
+  mdef('market-regime', 'intelligence', 'Market Regime', 'Risk on/off, trending, range, volatility.', 'activity', ['medium', 'large'], (p) => <MarketRegimeWidget placement={p} />),
+  mdef('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], (p) => <WhatChangedWidget placement={p} />),
+  mdef('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], (p) => <OpportunityScannerWidget placement={p} />),
+  mdef('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], (p) => <MarketDriversWidget placement={p} />),
 
-  // ── Heatmap ──
-  def('market-heatmap', 'markets', 'Market Heatmap', 'Country/index treemap — sized by market cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
+  // ── Heatmap ── (market picker lives IN the widget header; no config field)
+  def('market-heatmap', 'markets', 'Market Heatmap', 'Treemap of equities, crypto, forex or commodities — sized by cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
 
   // ── Portfolio comparisons ──
   def('funds-comparison-chart', 'portfolio', 'Overall Performance', 'Every fund indexed vs the benchmarks — 3MO.', 'line-chart', ['large', 'full'], () => <FundsComparisonChartWidget />),
@@ -208,17 +234,55 @@ export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS):
   }));
 }
 
-/** Global venues whose "own market" is a different JDDS feed. */
-const GLOBAL_MARKET_FEED: Record<string, string> = {
-  FOREX: 'market:forex',
-  COMMODITIES: 'market:commodities',
+/** Asset classes for a market id (equity country, forex, commodities, crypto). */
+type AssetClass = 'equity' | 'forex' | 'commodities' | 'crypto';
+
+export function assetClassFor(market: string): AssetClass {
+  if (market === 'FOREX') return 'forex';
+  if (market === 'COMMODITIES') return 'commodities';
+  if (market === 'CRYPTO') return 'crypto';
+  return 'equity';
+}
+
+/** Lead row — the asset-class headline widgets, shown first on that market tab. */
+const ASSET_LEAD: Record<AssetClass, string[]> = {
+  equity: ['market-heatmap', 'mp-country-watch', 'market-indices', 'top-movers', 'sector-heatmap'],
+  forex: ['forex-pairs', 'mp-forex', 'economic-calendar'],
+  commodities: ['commodities', 'mp-commodities', 'top-movers'],
+  crypto: ['crypto-markets', 'market-heatmap', 'mp-crypto', 'top-movers'],
+};
+
+/** Extra asset-class widgets appended after the shared body. */
+const ASSET_EXTRAS: Record<AssetClass, string[]> = {
+  equity: ['global-markets', 'macro-snapshot'],
+  forex: ['global-markets', 'macro-snapshot', 'economic-chart'],
+  commodities: ['macro-snapshot', 'global-markets', 'economic-chart'],
+  crypto: ['crypto-ticker', 'trade-tape', 'sparklines', 'global-markets'],
+};
+
+/** Generic body shown when a tab has no persona template (custom markets). */
+const DEFAULT_MARKET_BODY = ['news-feed', 'watchlist', 'market-regime', 'opportunity-scanner'];
+
+/**
+ * Market rail (right column) per asset class. FOREX / COMMODITIES have no JDDS
+ * overview group, so overview-driven tiles (movers, breadth) are omitted there.
+ */
+const ASSET_RAIL: Record<AssetClass, string[]> = {
+  equity: ['mp-indices', 'mp-country-watch', 'mp-movers', 'mp-breadth', 'mp-snapshot', 'mp-hours'],
+  forex: ['mp-forex', 'mp-snapshot', 'mp-hours'],
+  commodities: ['mp-commodities', 'mp-snapshot', 'mp-hours'],
+  crypto: ['mp-crypto', 'mp-movers', 'mp-fear-greed', 'mp-breadth', 'mp-snapshot'],
 };
 
 /**
- * Build the starting layout for a single market view. The market is threaded
- * into every market-aware widget instance's config, so a FOREX tab opens with
- * FX widgets, a PSX tab with the country's own stocks, and so on. The user can
- * then freely rearrange each market's widgets — the layout is per-view.
+ * Build the starting layout for a single market view. Every market tab gets the
+ * SAME full body of widgets the US tab has (the persona template the user picked
+ * at onboarding, or the default when there is none). Market-aware widgets follow
+ * the active tab by default — a widget is only pinned to a specific market when
+ * the user sets its Market config field. Asset-class-specific lead and extra
+ * widgets are layered on top: FX panels for Forex, commodities for Commodities,
+ * crypto for Crypto, country constituents for equities. The layout is per-view,
+ * so each market can also arrange its own set of widgets.
  */
 export function buildMarketViewLayout(
   market: string,
@@ -226,57 +290,39 @@ export function buildMarketViewLayout(
   templateBase?: WorkspaceLayout,
 ): WorkspaceLayout {
   const known = new Set(baseWidgetIds);
-  const widget = (widgetId: string): WidgetPlacement => ({ id: newId('wid'), widgetId, height: null, config: { market } });
+  const cls = assetClassFor(market);
+  const widget = (widgetId: string): WidgetPlacement => ({ id: newId('wid'), widgetId, height: null });
   const section = (widgetIds: string[]): WorkspaceSection => ({
     id: newId('sec'),
     zone: 'main',
-    columns: widgetIds
-      .filter(id => known.has(id))
-      .map(widgetId => ({ id: newId('col'), weight: 1, widgets: [widget(widgetId)] })),
+    columns: widgetIds.map(widgetId => ({ id: newId('col'), weight: 1, widgets: [widget(widgetId)] })),
   });
 
-  // Global venues (forex / commodities) lead with their dedicated feed panels;
-  // country / equity markets lead with the country's own constituents, index
-  // quotes and movers. Heatmaps only exist for countries + crypto.
-  const isGlobal = Boolean(GLOBAL_MARKET_FEED[market]);
-  const heatmap = market === 'CRYPTO' || HEATMAP_MARKETS.some(m => m.id === market) ? ['market-heatmap'] : [];
-  const lead = market === 'FOREX'
-    ? ['forex-pairs', 'news-feed']
-    : market === 'COMMODITIES'
-      ? ['commodities', 'news-feed']
-      : market === 'CRYPTO'
-        ? ['crypto-markets', 'top-movers', 'news-feed']
-        : ['mp-country-watch', 'market-indices', 'top-movers', 'news-feed'];
+  // The shared body — identical across every tab so all markets match US.
+  const body = templateBase && templateBase.sections.length > 0
+    ? templateBase.sections
+    : DEFAULT_MARKET_BODY.filter(id => known.has(id)).map(id => ({
+        id: newId('sec'),
+        zone: 'main' as const,
+        columns: [{ id: newId('col'), weight: 1 as const, widgets: [widget(id)] }],
+      }));
 
-  const rail = isGlobal
-    ? ['mp-forex', 'mp-commodities', 'mp-snapshot', 'mp-hours']
-    : ['mp-indices', 'mp-country-watch', 'mp-movers', 'mp-snapshot', 'mp-hours'];
-  const railSections = buildRailSections(rail.filter(id => known.has(id)));
+  // Dedupe idempotently: a lead/extra widget already in the body is skipped.
+  const present = new Set(allWidgetIds({ version: 1, sections: body }));
+  const pick = (ids: string[]) => ids.filter(id => known.has(id) && !present.has(id));
 
-  // The US market keeps the persona template the user picked at onboarding (so
-  // Investor / Quant / Crypto starting arrangements still apply); every other
-  // market opens with the country-focused layout above.
-  if (market === 'US' && templateBase && templateBase.sections.length > 0) {
-    return { version: 1, sections: [...stampMarket(templateBase, market).sections, ...railSections] };
-  }
+  const lead = pick(ASSET_LEAD[cls]);
+  const extras = pick(ASSET_EXTRAS[cls]);
+  const railSections = buildRailSections(ASSET_RAIL[cls].filter(id => known.has(id)));
 
   return {
     version: 1,
-    sections: [section(heatmap), section(lead), ...railSections].filter(s => s.columns.length > 0),
-  };
-}
-
-/** Stamp a market onto every placement's config so config-driven widgets agree. */
-function stampMarket(layout: WorkspaceLayout, market: string): WorkspaceLayout {
-  return {
-    version: 1,
-    sections: layout.sections.map(s => ({
-      ...s,
-      columns: s.columns.map(c => ({
-        ...c,
-        widgets: c.widgets.map(w => ({ ...w, config: { ...(w.config ?? {}), market } })),
-      })),
-    })),
+    sections: [
+      ...(lead.length ? [section(lead)] : []),
+      ...body,
+      ...(extras.length ? [section(extras)] : []),
+      ...railSections,
+    ].filter(s => s.columns.length > 0),
   };
 }
 

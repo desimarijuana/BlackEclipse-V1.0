@@ -14,15 +14,16 @@ import {
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { MARKET_SEEDS } from '@/lib/scraper/markets';
-import { useActiveMarket, useMarketIndices, useMarketGroup, marketViewName } from './market-views';
+import { useMarketIndices, useMarketGroup, marketViewName, MARKET_CONFIG_FIELD, MARKET_FOLLOW } from './market-views';
+import { MarketPicker } from '@/components/workspace/market-picker';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
+import type { WidgetPlacement } from '@/lib/workspace/types';
 
 const UP = 'text-emerald-400';
 const DOWN = 'text-rose-400';
 const tone = (n: number) => (n > 0 ? UP : n < 0 ? DOWN : 'text-muted-foreground');
 const fmt = (n?: number | null, d = 2) => (n == null || !Number.isFinite(n) ? '—' : n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
 
-interface IndexRow { name: string; symbol: string; price: number; change: number; changePercent: number; }
 interface CommodityRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
 interface ForexRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
 
@@ -43,10 +44,12 @@ function MarketChip({ market }: { market: string }) {
   );
 }
 
+type PlacementLike = { config?: Record<string, unknown> } | undefined;
+
 // ── Fear & Greed ─────────────────────────────────────────────────────────────
-function useFearGreed() {
-  const { rows: indexRows } = useMarketIndices();
-  const { stocks } = useMarketGroup();
+function useFearGreed(placement?: PlacementLike) {
+  const { rows: indexRows } = useMarketIndices(placement);
+  const { stocks } = useMarketGroup(placement);
   const rows = indexRows;
   const adv = stocks.filter(s => s.changePct > 0).length;
   const dec = stocks.filter(s => s.changePct < 0).length;
@@ -56,9 +59,8 @@ function useFearGreed() {
   return Math.round(Math.min(100, Math.max(0, breadth * 0.6 + momentum * 0.4)));
 }
 
-function FearGreedWidget() {
-  const fearGreed = useFearGreed();
-  const market = useActiveMarket();
+function FearGreedWidget({ placement }: { placement?: WidgetPlacement }) {
+  const fearGreed = useFearGreed(placement);
   return (
     <div className="flex h-full flex-col p-3">
       <div className="flex items-center justify-between mb-2">
@@ -66,7 +68,7 @@ function FearGreedWidget() {
           <Gauge size={11} className="text-primary" /> Fear &amp; Greed
         </span>
         <span className="flex items-center gap-2">
-          <MarketChip market={market} />
+          <MarketPicker placement={placement} />
           <span className="font-mono text-sm font-bold text-foreground">{fearGreed}</span>
         </span>
       </div>
@@ -81,8 +83,8 @@ function FearGreedWidget() {
 }
 
 // ── Market Breadth ───────────────────────────────────────────────────────────
-function MarketBreadthWidget() {
-  const { market, stocks, group } = useMarketGroup();
+function MarketBreadthWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, stocks, group } = useMarketGroup(placement);
   const adv = stocks.filter(s => s.changePct > 0).length;
   const dec = stocks.filter(s => s.changePct < 0).length;
   const label = group?.exchange || marketViewName(market);
@@ -95,7 +97,7 @@ function MarketBreadthWidget() {
         <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           <Activity size={11} className="text-primary" /> Market Breadth
         </span>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       <div className="flex flex-col gap-1.5">
         {rows.map(m => {
@@ -119,15 +121,15 @@ function MarketBreadthWidget() {
 }
 
 // ── Top Movers ───────────────────────────────────────────────────────────────
-function TopMoversPanelWidget() {
-  const { market, stocks } = useMarketGroup();
+function TopMoversPanelWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { stocks } = useMarketGroup(placement);
   const gainers = [...stocks].filter(s => s.changePct > 0).sort((a, b) => b.changePct - a.changePct).slice(0, 5);
   const losers = [...stocks].filter(s => s.changePct < 0).sort((a, b) => a.changePct - b.changePct).slice(0, 5);
   return (
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
         <SectionTitle>Top Movers</SectionTitle>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -154,8 +156,8 @@ function TopMoversPanelWidget() {
 }
 
 // ── Global Snapshot ──────────────────────────────────────────────────────────
-function GlobalSnapshotWidget() {
-  const { market, rows: idx } = useMarketIndices();
+function GlobalSnapshotWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, rows: idx } = useMarketIndices(placement);
   const commodities = useTopic<{ commodities: CommodityRow[] }>('market:commodities');
   const forex = useTopic<{ pairs: ForexRow[] }>('market:forex');
   const com = commodities.data?.commodities ?? [];
@@ -182,7 +184,7 @@ function GlobalSnapshotWidget() {
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
         <SectionTitle>Global Snapshot</SectionTitle>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       <div className="flex flex-col gap-1">
         {rows.map(s => (
@@ -246,8 +248,8 @@ function marketStatus(tz: string, openHour: number, closeHour: number): 'open' |
   } catch { return 'open'; }
 }
 
-function MarketHoursWidget() {
-  const { market, group } = useMarketGroup();
+function MarketHoursWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, group } = useMarketGroup(placement);
   // Show the active market's own exchange first (when we know its session).
   const active = marketExchange(market, group?.exchange);
   const list = active && !EXCHANGES.some(ex => ex.label === active.label)
@@ -257,7 +259,7 @@ function MarketHoursWidget() {
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
         <SectionTitle>Market Hours</SectionTitle>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       <div className="flex flex-col gap-1">
         {list.map(ex => {
@@ -278,13 +280,13 @@ function MarketHoursWidget() {
 }
 
 // ── Live market widgets (self-contained, follow the active market tab) ───────
-function LiveIndicesWidget() {
-  const { market, rows } = useMarketIndices();
+function LiveIndicesWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { rows } = useMarketIndices(placement);
   return (
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
         <SectionTitle>Market Indices</SectionTitle>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       <div className="flex flex-1 flex-col gap-1">
         {rows.slice(0, 8).map(i => (
@@ -328,8 +330,8 @@ function LiveForexWidget() {
 }
 
 function LiveCryptoWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:CRYPTO');
-  const rows = t.data?.indices ?? [];
+  // Always the crypto market feed, regardless of the active country tab.
+  const { rows } = useMarketIndices({ config: { market: 'CRYPTO' } });
   return (
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
@@ -378,13 +380,13 @@ function LiveCommoditiesWidget() {
 }
 
 // ── Country Watch — the active market's own top constituents ─────────────────
-function CountryWatchWidget() {
-  const { market, stocks, group } = useMarketGroup();
+function CountryWatchWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, stocks, group } = useMarketGroup(placement);
   return (
     <div className="flex h-full flex-col p-3">
       <span className="mb-2 flex items-center justify-between gap-2">
         <SectionTitle>{marketViewName(market)} Top Stocks</SectionTitle>
-        <MarketChip market={market} />
+        <MarketPicker placement={placement} />
       </span>
       {stocks.length === 0 ? (
         <p className="py-4 text-center text-[10px] italic text-muted-foreground/60">
@@ -423,15 +425,37 @@ export function marketPanelIcon(name: string): React.ComponentType<{ size?: numb
   return ICONS[name];
 }
 
+// Every rail widget is market-aware and exposes the shared Market config field
+// so the user can pin it to any market (or leave it following the active tab).
+// Forex / Commodities / Crypto feed widgets are naturally locked to their own
+// asset class, so they omit the field.
+function railDef(
+  id: string,
+  category: WidgetDefinition['category'],
+  label: string,
+  desc: string,
+  icon: string,
+  sizes: WidgetDefinition['sizes'],
+  render: (p: WidgetPlacement) => React.ReactNode,
+  configurable = true,
+): WidgetDefinition {
+  return {
+    id, category, label, desc, icon, sizes,
+    configFields: configurable ? [MARKET_CONFIG_FIELD] : undefined,
+    defaultConfig: configurable ? { market: MARKET_FOLLOW } : undefined,
+    render: (placement) => render(placement),
+  };
+}
+
 export const MARKET_RAIL_WIDGETS: WidgetDefinition[] = [
-  { id: 'mp-fear-greed', category: 'markets', label: 'Fear & Greed', desc: 'Composite sentiment gauge.', icon: 'gauge', sizes: ['small', 'medium'], render: () => <FearGreedWidget /> },
-  { id: 'mp-breadth', category: 'markets', label: 'Market Breadth', desc: 'Advancers vs decliners.', icon: 'activity', sizes: ['small', 'medium'], render: () => <MarketBreadthWidget /> },
-  { id: 'mp-movers', category: 'markets', label: 'Top Movers', desc: 'Biggest gainers and losers.', icon: 'trending', sizes: ['small', 'medium'], render: () => <TopMoversPanelWidget /> },
-  { id: 'mp-snapshot', category: 'macro', label: 'Global Snapshot', desc: 'VIX, US 10Y, DXY, Gold, Oil, BTC.', icon: 'globe', sizes: ['small', 'medium'], render: () => <GlobalSnapshotWidget /> },
-  { id: 'mp-hours', category: 'markets', label: 'Market Hours', desc: 'Exchange open/closed status.', icon: 'activity', sizes: ['small', 'medium'], render: () => <MarketHoursWidget /> },
-  { id: 'mp-indices', category: 'markets', label: 'Market Indices', desc: 'Major US indices, live.', icon: 'line-chart', sizes: ['small', 'medium'], render: () => <LiveIndicesWidget /> },
-  { id: 'mp-forex', category: 'markets', label: 'Forex', desc: 'Major FX pairs, live.', icon: 'arrow-up-down', sizes: ['small', 'medium'], render: () => <LiveForexWidget /> },
-  { id: 'mp-crypto', category: 'markets', label: 'Crypto', desc: 'BTC, ETH, SOL and more, live.', icon: 'coins', sizes: ['small', 'medium'], render: () => <LiveCryptoWidget /> },
-  { id: 'mp-commodities', category: 'markets', label: 'Commodities', desc: 'Gold, Oil, Gas, Copper, live.', icon: 'flame', sizes: ['small', 'medium'], render: () => <LiveCommoditiesWidget /> },
-  { id: 'mp-country-watch', category: 'markets', label: 'Country Watch', desc: "The active market's own top constituents.", icon: 'table', sizes: ['medium', 'large'], render: () => <CountryWatchWidget /> },
+  railDef('mp-fear-greed', 'markets', 'Fear & Greed', 'Composite sentiment gauge.', 'gauge', ['small', 'medium'], (p) => <FearGreedWidget placement={p} />),
+  railDef('mp-breadth', 'markets', 'Market Breadth', 'Advancers vs decliners.', 'activity', ['small', 'medium'], (p) => <MarketBreadthWidget placement={p} />),
+  railDef('mp-movers', 'markets', 'Top Movers', 'Biggest gainers and losers.', 'trending', ['small', 'medium'], (p) => <TopMoversPanelWidget placement={p} />),
+  railDef('mp-snapshot', 'macro', 'Global Snapshot', 'Headline index, VIX, 10Y, DXY, Gold, Oil, BTC.', 'globe', ['small', 'medium'], (p) => <GlobalSnapshotWidget placement={p} />),
+  railDef('mp-hours', 'markets', 'Market Hours', 'Exchange open/closed status.', 'activity', ['small', 'medium'], (p) => <MarketHoursWidget placement={p} />),
+  railDef('mp-indices', 'markets', 'Market Indices', 'Headline indices for the chosen market.', 'line-chart', ['small', 'medium'], (p) => <LiveIndicesWidget placement={p} />),
+  railDef('mp-forex', 'markets', 'Forex', 'Major FX pairs, live.', 'arrow-up-down', ['small', 'medium'], () => <LiveForexWidget />, false),
+  railDef('mp-crypto', 'markets', 'Crypto', 'BTC, ETH, SOL and more, live.', 'coins', ['small', 'medium'], () => <LiveCryptoWidget />, false),
+  railDef('mp-commodities', 'markets', 'Commodities', 'Gold, Oil, Gas, Copper, live.', 'flame', ['small', 'medium'], () => <LiveCommoditiesWidget />, false),
+  railDef('mp-country-watch', 'markets', 'Country Watch', "The chosen market's own top constituents.", 'table', ['medium', 'large'], (p) => <CountryWatchWidget placement={p} />),
 ];

@@ -18,17 +18,16 @@ export interface MarketView {
   id: string;
   /** Display name shown on the tab (e.g. "PSX", "United States"). */
   name: string;
-  /** Pinned to the front of the bar. */
-  favorite?: boolean;
 }
 
-const STORAGE_KEY = 'be_market_views_v1';
+const STORAGE_KEY = 'be_market_views_v2';
 const ACTIVE_KEY = 'be_market_active_v1';
 const EVENT = 'be:market-views-changed';
 
-/** Top markets every user starts with — US + the two global venues + PSX. */
+/** Top markets every user starts with — US + the global venues + PSX. */
 export const DEFAULT_MARKET_VIEWS: MarketView[] = [
-  { id: 'US', name: 'US', favorite: true },
+  { id: 'US', name: 'US' },
+  { id: 'CRYPTO', name: 'Crypto' },
   { id: 'FOREX', name: 'Forex' },
   { id: 'COMMODITIES', name: 'Commodities' },
   { id: 'PK', name: 'PSX' },
@@ -37,11 +36,11 @@ export const DEFAULT_MARKET_VIEWS: MarketView[] = [
 /** Everything a user can add as a market tab (countries + global venues). */
 export const MARKET_OPTIONS: { id: string; name: string }[] = [
   { id: 'US', name: 'United States' },
+  { id: 'CRYPTO', name: 'Global Crypto' },
   { id: 'FOREX', name: 'Forex' },
   { id: 'COMMODITIES', name: 'Commodities' },
-  { id: 'CRYPTO', name: 'Global Crypto' },
   ...HEATMAP_MARKETS
-    .filter(m => m.id !== 'US' && m.id !== 'CRYPTO')
+    .filter(m => m.id !== 'US' && m.id !== 'CRYPTO' && m.id !== 'FOREX' && m.id !== 'COMMODITIES')
     .map(m => ({ id: m.id, name: m.country })),
 ];
 
@@ -62,7 +61,7 @@ function safeParse(raw: string | null): MarketView[] | null {
         if (!id) return null;
         const rawName = (v as { name?: unknown }).name;
         const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : id;
-        return { id, name, favorite: Boolean((v as { favorite?: unknown }).favorite) };
+        return { id, name };
       })
       .filter((v): v is MarketView => v !== null);
     return views.length ? views : null;
@@ -94,29 +93,23 @@ function readActiveId(): string {
 export interface MarketViewsContextValue {
   views: MarketView[];
   activeId: string;
-  /** Views with favourites pinned to the front (stable otherwise). */
-  orderedViews: MarketView[];
   setActiveId: (id: string) => void;
   add: (id: string, name?: string) => void;
   remove: (id: string) => void;
-  toggleFavorite: (id: string) => void;
+  /** Rename a tab (display label only — the market id is unchanged). */
+  rename: (id: string, name: string) => void;
 }
 
 const FALLBACK: MarketViewsContextValue = {
   views: DEFAULT_MARKET_VIEWS,
   activeId: 'US',
-  orderedViews: DEFAULT_MARKET_VIEWS,
   setActiveId: () => {},
   add: () => {},
   remove: () => {},
-  toggleFavorite: () => {},
+  rename: () => {},
 };
 
 const MarketViewsContext = createContext<MarketViewsContextValue | null>(null);
-
-function orderFavoritesFirst(views: MarketView[]): MarketView[] {
-  return [...views.filter(v => v.favorite), ...views.filter(v => !v.favorite)];
-}
 
 export function MarketViewsProvider({ children }: { children: React.ReactNode }) {
   const [views, setViews] = useState<MarketView[]>(DEFAULT_MARKET_VIEWS);
@@ -161,10 +154,12 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     });
   }, []);
 
-  const toggleFavorite = useCallback((id: string) => {
+  const rename = useCallback((id: string, name: string) => {
     const code = id.trim().toUpperCase();
+    const label = name.trim();
+    if (!code || !label) return;
     setViews(prev => {
-      const next = prev.map(v => (v.id === code ? { ...v, favorite: !v.favorite } : v));
+      const next = prev.map(v => (v.id === code ? { ...v, name: label } : v));
       writeViews(next);
       return next;
     });
@@ -180,11 +175,10 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
   const value: MarketViewsContextValue = {
     views,
     activeId,
-    orderedViews: orderFavoritesFirst(views),
     setActiveId,
     add,
     remove,
-    toggleFavorite,
+    rename,
   };
 
   return <MarketViewsContext.Provider value={value}>{children}</MarketViewsContext.Provider>;
@@ -216,6 +210,35 @@ export function ensureMarketIndicesTopic(market: string): string {
   return id;
 }
 
+/** Sentinel stored in a widget's config to mean "follow the active market tab". */
+export const MARKET_FOLLOW = '';
+
+/**
+ * The market a widget should render: its per-instance `config.market` when set
+ * (empty/undefined = follow the active tab), else the active market tab.
+ */
+export function useWidgetMarket(placement?: { config?: Record<string, unknown> }): string {
+  const active = useActiveMarket();
+  const override = placement?.config?.market;
+  return typeof override === 'string' && override ? override.toUpperCase() : active;
+}
+
+/**
+ * Config field every market-aware widget exposes so the user can pin a widget
+ * to a specific market (or leave it following the active tab). Rendered by the
+ * shared WidgetConfigPanel.
+ */
+export const MARKET_CONFIG_FIELD = {
+  key: 'market',
+  label: 'Market',
+  type: 'select' as const,
+  options: [
+    { value: MARKET_FOLLOW, label: 'Follow active tab' },
+    ...MARKET_OPTIONS.map(o => ({ value: o.id, label: o.name })),
+  ],
+  default: MARKET_FOLLOW,
+};
+
 export interface MarketIndexRow {
   name: string;
   symbol: string;
@@ -242,29 +265,59 @@ export interface MarketGroup {
   stocks: MarketStockRow[];
 }
 
-/** Live index quotes for the active market (registered on demand). */
-export function useMarketIndices(): { market: string; rows: MarketIndexRow[] } {
-  const market = useActiveMarket();
+type PlacementLike = { config?: Record<string, unknown> } | undefined;
+
+/** Live index quotes for a widget's market (config-pinned or the active tab). */
+export function useMarketIndices(placement?: PlacementLike): { market: string; rows: MarketIndexRow[] } {
+  const market = useWidgetMarket(placement);
   const id = useMemo(() => ensureMarketIndicesTopic(market), [market]);
   const t = useTopic<{ indices: MarketIndexRow[] }>(id);
   return { market, rows: t.data?.indices ?? [] };
 }
 
-/** Sector performance for the active market (rides the indices payload). */
-export function useMarketSectors(): { market: string; sectors: { name: string; change: number }[] } {
-  const market = useActiveMarket();
+/** Sector performance for a widget's market (rides the indices payload). */
+export function useMarketSectors(placement?: PlacementLike): { market: string; sectors: { name: string; change: number }[] } {
+  const market = useWidgetMarket(placement);
   const id = useMemo(() => ensureMarketIndicesTopic(market), [market]);
   const t = useTopic<{ sectors?: { name: string; change: number }[] }>(id);
   return { market, sectors: t.data?.sectors ?? [] };
 }
 
-/** The global-overview group (top constituents) for the active market. */
-export function useMarketGroup(): { market: string; group: MarketGroup | null; stocks: MarketStockRow[] } {
-  const market = useActiveMarket();
+/** The global-overview group (top constituents) for a widget's market. */
+export function useMarketGroup(placement?: PlacementLike): { market: string; group: MarketGroup | null; stocks: MarketStockRow[] } {
+  const market = useWidgetMarket(placement);
   const overview = useTopic<{ groups: MarketGroup[] }>('market:overview');
   const group = useMemo(
     () => overview.data?.groups?.find(g => g.id === market) ?? null,
     [overview.data, market],
   );
   return { market, group, stocks: group?.stocks ?? [] };
+}
+
+/** Global venues whose lead instrument doesn't come from the overview feed. */
+const GLOBAL_LEAD_SYMBOL: Record<string, string> = {
+  FOREX: 'EURUSD=X',
+  COMMODITIES: 'GC=F',
+};
+
+/**
+ * The default chart symbol for a market — its most prominent instrument (the
+ * top constituent by market cap, or the headline index). Lets a market tab's
+ * chart open on that market's own asset instead of always AAPL.
+ */
+export function useMarketLeadSymbol(placement?: PlacementLike): { market: string; symbol: string } {
+  const market = useWidgetMarket(placement);
+  const { group } = useMarketGroup(placement);
+  const indices = useTopic<{ indices?: MarketIndexRow[] }>(
+    useMemo(() => ensureMarketIndicesTopic(market), [market]),
+  );
+  const symbol = useMemo(() => {
+    if (group?.stocks?.length) return group.stocks[0].symbol;
+    if (GLOBAL_LEAD_SYMBOL[market]) return GLOBAL_LEAD_SYMBOL[market];
+    if (market === 'CRYPTO') return 'BTC';
+    const idx = indices.data?.indices ?? [];
+    if (idx.length) return idx[0].symbol;
+    return 'AAPL';
+  }, [group, market, indices.data]);
+  return { market, symbol };
 }

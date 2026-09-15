@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface TabItem {
@@ -10,6 +11,8 @@ export interface TabItem {
   badge?: React.ReactNode
   /** Override the active state (e.g. sub-tabs that share a parent id). */
   active?: boolean
+  /** Render as a non-button container (e.g. an inline rename input). */
+  editing?: boolean
 }
 
 interface TabBarProps {
@@ -19,6 +22,10 @@ interface TabBarProps {
   className?: string
   leading?: React.ReactNode
   trailing?: React.ReactNode
+  /** Double-clicking a tab (e.g. to start a rename). */
+  onItemDoubleClick?: (id: string) => void
+  /** When provided, each tab shows a remove affordance. */
+  onItemRemove?: (id: string) => void
 }
 
 /**
@@ -33,6 +40,8 @@ export function TabBar({
   className,
   leading,
   trailing,
+  onItemDoubleClick,
+  onItemRemove,
 }: TabBarProps) {
   return (
     <div
@@ -45,21 +54,44 @@ export function TabBar({
       {items.map((item) => {
         const Icon = item.icon
         const active = item.active ?? item.id === activeId
+        const classNameForTab = cn(
+          "group flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+          active
+            ? "bg-primary/15 text-primary"
+            : "bg-accent/30 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+        )
+
+        if (item.editing) {
+          return (
+            <div key={item.id} className={classNameForTab} aria-pressed={active}>
+              {item.label}
+            </div>
+          )
+        }
+
         return (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
+            onDoubleClick={onItemDoubleClick ? () => onItemDoubleClick(item.id) : undefined}
             aria-pressed={active}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
-              active
-                ? "bg-primary/15 text-primary"
-                : "bg-accent/30 text-muted-foreground hover:text-foreground hover:bg-accent/60"
-            )}
+            className={classNameForTab}
           >
             {Icon && <Icon size={12} />}
             {item.label}
             {item.badge}
+            {onItemRemove && (
+              <span
+                role="button"
+                tabIndex={-1}
+                onClick={(e) => { e.stopPropagation(); onItemRemove(item.id); }}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="ml-0.5 -mr-1 cursor-pointer rounded-md p-0.5 text-muted-foreground/40 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100"
+                title="Remove"
+              >
+                <X size={11} />
+              </span>
+            )}
           </button>
         )
       })}

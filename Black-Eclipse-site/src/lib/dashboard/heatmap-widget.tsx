@@ -18,6 +18,7 @@ import { useEChart } from '@/components/screens/portfolio/use-echart';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { cn } from '@/lib/utils';
 import { HEATMAP_MARKETS, heatmapMeta, type HeatmapPayload } from '@/lib/heatmap';
+import { useActiveMarket } from './market-views';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 
 // Gradient stops shared by the visualMap and the tooltip accents.
@@ -86,8 +87,11 @@ function tooltipHtml(params: unknown, currency: string): string {
 }
 
 export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement }) {
-  // Persist the selected country/index per widget instance so it survives a
-  // reload/restart. Falls back to a per-instance config value, then localStorage.
+  // The heatmap defaults to whatever market tab is active, but keeps its own
+  // picker so a single heatmap card can be pinned to any asset class (equities,
+  // crypto, forex, commodities) independently of the tab. Selection persists per
+  // widget instance in localStorage.
+  const activeMarket = useActiveMarket();
   const storageKey = `be_heatmap_market:${placement?.id ?? 'default'}`;
   const [market, setMarket] = useState<string>(() => {
     const configured = placement?.config?.market as string | undefined;
@@ -98,10 +102,24 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
         if (saved) return saved;
       } catch { /* ignore */ }
     }
-    return 'US';
+    return activeMarket;
   });
 
+  // When the user has no per-card override, follow the active market tab.
+  const [pinned, setPinned] = useState<boolean>(() => {
+    if (placement?.config?.market) return true;
+    if (typeof window !== 'undefined') {
+      try { return Boolean(window.localStorage.getItem(storageKey)); } catch { /* ignore */ }
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (!pinned) setMarket(activeMarket);
+  }, [activeMarket, pinned]);
+
   const chooseMarket = (next: string) => {
+    setPinned(true);
     setMarket(next);
     try { window.localStorage.setItem(storageKey, next); } catch { /* ignore */ }
   };
@@ -300,7 +318,8 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
         </div>
         <p className="mt-0.5 truncate text-[9px] text-muted-foreground/70">
           {meta.country} · {data?.indexName ?? meta.index}
-          {data && !data.empty ? ` · ${data.live} stocks` : ''}
+          {data && !data.empty ? ` · ${data.live} ${data.live === 1 ? 'instrument' : 'instruments'}` : ''}
+          {!pinned ? ' · following tab' : ''}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
@@ -332,12 +351,26 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
             </button>
           </div>
         )}
+        {pinned && (
+          <button
+            type="button"
+            onClick={() => {
+              setPinned(false);
+              setMarket(activeMarket);
+              try { window.localStorage.removeItem(storageKey); } catch { /* ignore */ }
+            }}
+            className="hidden rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 px-2 py-1.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground transition-all hover:border-primary/40 hover:text-primary cursor-pointer sm:block"
+            title="Follow the active market tab"
+          >
+            Follow tab
+          </button>
+        )}
         <div className="relative shrink-0">
           <select
             value={market}
             onChange={e => chooseMarket(e.target.value)}
             className="cursor-pointer appearance-none rounded-xl border border-white/15 dark:border-white/10 bg-background/60 py-1.5 pl-2.5 pr-7 text-[10px] font-semibold text-foreground outline-none transition-all hover:border-primary/40 focus:ring-1 focus:ring-primary"
-            title="Select the country / index to map"
+            title="Select the market to map"
           >
             {HEATMAP_MARKETS.map(m => (
               <option key={m.id} value={m.id} className="bg-[#121212] text-foreground">

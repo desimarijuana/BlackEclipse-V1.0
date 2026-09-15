@@ -17,6 +17,9 @@ export interface HeatmapMarket {
 
 export const HEATMAP_MARKETS: HeatmapMarket[] = [
   { id: 'US', country: 'United States', index: 'S&P 500', indexSymbol: '^GSPC' },
+  { id: 'CRYPTO', country: 'Global Crypto', index: 'Top Assets' },
+  { id: 'FOREX', country: 'Forex', index: 'Major Pairs' },
+  { id: 'COMMODITIES', country: 'Commodities', index: 'Futures' },
   { id: 'IN', country: 'India', index: 'Nifty 50', indexSymbol: '^NSEI' },
   { id: 'CN', country: 'China', index: 'Shanghai Composite', indexSymbol: '000001.SS' },
   { id: 'TW', country: 'Taiwan', index: 'TAIEX Weighted', indexSymbol: '^TWII' },
@@ -44,7 +47,6 @@ export const HEATMAP_MARKETS: HeatmapMarket[] = [
   { id: 'TH', country: 'Thailand', index: 'SET Index', indexSymbol: '^SET.BK' },
   { id: 'VN', country: 'Vietnam', index: 'VN Index', indexSymbol: '^VNINDEX' },
   { id: 'PK', country: 'Pakistan', index: 'KSE 100', indexSymbol: '^KSE100' },
-  { id: 'CRYPTO', country: 'Global Crypto', index: 'Top Assets' },
 ];
 
 export function heatmapMeta(market: string): HeatmapMarket {
