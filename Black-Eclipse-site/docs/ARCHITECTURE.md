@@ -211,12 +211,13 @@ headers, pins entities (persisted in `localStorage`, replayed from a serialized
 destination), and copies symbols. Pins, visits, and collapse state live in the
 command store — the resolver stays pure.
 
-**Full navigation + scrolling.** The palette's bottom "Go to" group is
-**generated from `getPageEntries()`** (not hand-listed), so every registered page
-is reachable — adding a `registerPage` entry automatically adds a nav row.
-Sub-pages (`group` = a parent tab, `child: true`) nest under their parent and
-render indented. The group is collapsible (shared `collapsedGroups` key `'nav'`)
-and is part of the same flat keyboard list. Navigation keys: ↑/↓ (wrap),
+**Sub-page list + scrolling.** The palette's bottom **Pages** group lists the
+**sub-pages only** (the top-level tabs live in the sidebar and still resolve
+through search). It is **generated from `getPageEntries().filter(p => p.child)`**
+— not hand-listed — so registering a sub-page adds a row automatically. Labels
+are qualified by parent tab (`Journal · Analytics`, `Screener · Crypto`) because
+several share a name. The group is collapsible (shared `collapsedGroups` key
+`'nav'`) and is part of the same flat keyboard list. Navigation keys: ↑/↓ (wrap),
 PageUp/PageDown (jump `PAGE_SIZE`), Home/End, Enter to run. A bottom gradient
 fades in only while the list can still scroll (`canScrollDown`, tracked via
 scroll + ResizeObserver), so overflow is visible without a permanent shadow.

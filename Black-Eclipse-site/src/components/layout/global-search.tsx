@@ -12,6 +12,8 @@ import {
   BookOpen,
   Briefcase,
   ChartCandlestick,
+  ChartPie,
+  ScanSearch,
   Globe,
   Search,
   CornerDownLeft,
@@ -53,6 +55,9 @@ import type { EntityKind, SearchEntity } from '@/lib/search/types';
 const NAME_ICON: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
   chart: ChartCandlestick,
+  candlestick: ChartCandlestick,
+  screen: ScanSearch,
+  pie: ChartPie,
   bot: Bot,
   briefcase: Briefcase,
   book: BookOpen,
@@ -66,6 +71,18 @@ const NAME_ICON: Record<string, LucideIcon> = {
 function nameIcon(name?: string): LucideIcon {
   return (name && NAME_ICON[name]) || Sparkles;
 }
+
+/** Human-readable parent-tab name for a sub-page's group id. */
+const PARENT_LABEL: Record<string, string> = {
+  economics: 'Economics',
+  journal: 'Journal',
+  discovery: 'Screener',
+  alerts: 'Alerts',
+  settings: 'Settings',
+};
+
+/** Display order of sub-page groups in the Pages list. */
+const GROUP_ORDER = ['economics', 'journal', 'discovery', 'alerts', 'settings'];
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {
   security: ChartCandlestick,
@@ -120,7 +137,7 @@ type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
   | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
   | { type: 'calc'; id: string; title: string; subtitle: string; onCopy: () => void }
-  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void; indent?: boolean };
+  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void };
 
 interface Section {
   key: string;
@@ -235,28 +252,33 @@ export function GlobalSearch() {
     () => (paramCmd ? paramCandidates(paramCmd.arg) : []),
     [paramCmd],
   );
-  // "Go to" group collapse (shares the store's collapsedGroups list).
+  // Pages-group collapse (shares the store's collapsedGroups list).
   const navCollapsed = store.collapsedGroups.includes('nav');
 
-  // All registered pages as "go to …" commands, generated from the registry so
-  // every tab/route is reachable without hand-listing them here. Sub-pages are
-  // nested under their parent tab (group) and labelled without the "Go to" verb.
-  const navPages: (QuickAction & { group: string; child: boolean })[] = useMemo(
+  // Sub-pages only — top-level tabs are NOT listed (they live in the sidebar
+  // and still resolve through search). Generated from the registry so
+  // registering a sub-page adds a row automatically. Labels are qualified by
+  // parent tab because several share a name ('Calendar', 'Overview', 'Markets').
+  const navPages: (QuickAction & { parent: string })[] = useMemo(
     () =>
       getPageEntries()
+        .filter((p) => p.child)
         .map((p) => ({
           id: `nav-${p.id}`,
-          label: p.child ? p.title : `Go to ${p.title}`,
+          label: `${PARENT_LABEL[p.group] ?? p.group} · ${p.title}`,
           icon: nameIcon(p.icon),
-          group: p.group,
-          child: p.child,
+          parent: p.group,
           run: () => {
             store.dispatch(p.destination);
             useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
           },
         }))
-        // Top-level apps first (sorted), then sub-pages in registry order.
-        .sort((a, b) => Number(a.child) - Number(b.child) || a.label.localeCompare(b.label)),
+        // Group by parent tab in a deliberate order, alphabetical within group.
+        .sort(
+          (a, b) =>
+            (GROUP_ORDER.indexOf(a.parent) - GROUP_ORDER.indexOf(b.parent)) ||
+            a.label.localeCompare(b.label),
+        ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -402,7 +424,7 @@ export function GlobalSearch() {
           type: 'action',
           id: `param-${paramCmd.verb}`,
           label,
-          icon: paramCmd.verb === 'chart' ? ChartCandlestick : paramCmd.verb === 'watch' ? Briefcase : Bell,
+          icon: paramCmd.verb === 'chart' ? ChartCandlestick : paramCmd.verb === 'watch' ? ChartPie : Bell,
           // With a resolved arg, Enter runs it immediately; otherwise the first
           // candidate is used.
           onSelect: () => {
@@ -503,7 +525,7 @@ export function GlobalSearch() {
 
     // Pinned navigation commands at the bottom (part of the flat list).
     // Suppressed while the syntax help card is open, and skipped when the
-    // "Go to" group is collapsed.
+    // Pages group is collapsed.
     if (!showHelp && !navCollapsed) {
       for (const qa of quickActions) {
         flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
@@ -738,7 +760,7 @@ export function GlobalSearch() {
                   className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
                 >
                   <ChevronRight size={11} className={cn('transition-transform', !navCollapsed && 'rotate-90')} />
-                  Go to
+                  Pages
                   <span className="text-muted-foreground/40">{navPages.length}</span>
                 </button>
               </div>
@@ -747,7 +769,7 @@ export function GlobalSearch() {
                   ? null
                   : navPages.map((qa) => {
                       const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
-                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run, indent: qa.child };
+                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
                       return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
                     })}
               </div>
@@ -920,7 +942,6 @@ const RowButton = memo(function RowButton({
       data-selected={selected || undefined}
       className={cn(
         'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer',
-        row.type === 'action' && row.indent && 'pl-9',
         selected ? 'bg-accent text-foreground' : 'hover:bg-accent/30'
       )}
     >
