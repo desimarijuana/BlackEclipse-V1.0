@@ -43,6 +43,24 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Aurora** — Made the shipped bearish color a proper pure red (`#ff0000` core /
+  `#3a0000` edge) instead of the yellowish `#ff3e3e`, so the default Eclipse
+  preset's red no longer reads orange.
+  no doc change — default color values only; palette model/contract unchanged.
+- **Search** — Wired the command palette's cross-tab pivots and parameterized
+  commands to real behavior (they were previously cosmetic). `alert SYMBOL` now
+  creates a ±3% CHANGE_PCT watch via new `lib/alerts/quick-alert.ts` and opens
+  the Alerts tab; `watch SYMBOL` calls new `addToWatchlist` /
+  `removeFromWatchlist` / `isInWatchlist` exports in
+  `lib/dashboard/watchlist-store.ts`; `chart SYMBOL` opens the chart. The
+  misleading `compare` verb was removed, registry actions gained `requiresArg`
+  so they never render as bare commands, failures surface an inline error
+  instead of a fake recent, and the keep-alive Alerts screen re-lists on a
+  `be:alerts-changed` event. `MarketNews` gained a `symbol` prop (seeds the
+  `ticker:` operator); `MarketOverviewScreen` gained `initialSymbol`; the
+  destination bus in `stock-chat.tsx` now routes `tab:news`/`tab:discovery`
+  symbols.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
 - **Docs** — Documentation/skills audit before sharing with an external tool.
   The `docs/` set was already current; the agent *skills* had drifted badly and
   were corrected against code: `skills/ARCHITECT.md` §2–4 described a pre-JDDS app

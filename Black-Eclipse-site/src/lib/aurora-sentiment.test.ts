@@ -126,7 +126,7 @@ describe('auroraSentiment (end-to-end)', () => {
     const a = auroraSentiment(-1, -1);
     expect(a.score).toBeCloseTo(-1, 5);
     expect(a.state).toBe('bearish');
-    expect(resolveAuroraVisuals(a.score).colorStops[1].toLowerCase()).toBe('#ff3e3e');
+    expect(resolveAuroraVisuals(a.score).colorStops[1].toLowerCase()).toBe('#ff0000');
   });
 
   it('Test 3: market 0, news 0 → neutral (subdued green, not purple)', () => {

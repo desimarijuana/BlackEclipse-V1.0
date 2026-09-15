@@ -60,7 +60,7 @@ export interface AuroraPalette {
 export const DEFAULT_AURORA_PALETTE: AuroraPalette = {
   bullish: { core: '#7aff78', edge: '#022c22' },
   neutral: { core: '#3d9e63', edge: '#02170f' },
-  bearish: { core: '#ff3e3e', edge: '#450a0a' },
+  bearish: { core: '#ff0000', edge: '#3a0000' },
 };
 
 export interface CombineOptions {
