@@ -505,6 +505,7 @@ function StockChatContent() {
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden glass-card min-w-0 h-full before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent">
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
+          activeTab={activeTab}
         />
 
         <div className="flex-1 overflow-y-auto relative w-full h-full z-10">

@@ -26,6 +26,11 @@ interface TabBarProps {
   onItemDoubleClick?: (id: string) => void
   /** When provided, each tab shows a remove affordance. */
   onItemRemove?: (id: string) => void
+  /**
+   * Container weight. `glass` (default) is the heavy frosted strip; `subtle`
+   * is the restrained control-strip tier for dense/toolbar-adjacent tab rows.
+   */
+  variant?: 'glass' | 'subtle'
 }
 
 /**
@@ -42,11 +47,13 @@ export function TabBar({
   trailing,
   onItemDoubleClick,
   onItemRemove,
+  variant = 'glass',
 }: TabBarProps) {
   return (
     <div
       className={cn(
-        "tab-bar-glass mb-5 flex items-center gap-2 p-1.5 rounded-3xl shrink-0 overflow-x-auto scrollbar-hide",
+        'mb-5 flex items-center gap-1.5 p-1 rounded-2xl shrink-0 overflow-x-auto scrollbar-hide',
+        variant === 'glass' ? 'tab-bar-glass' : 'tab-bar-subtle',
         className
       )}
     >
@@ -55,10 +62,11 @@ export function TabBar({
         const Icon = item.icon
         const active = item.active ?? item.id === activeId
         const classNameForTab = cn(
-          "group flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+          'group flex items-center gap-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0',
+          variant === 'glass' ? 'px-4 py-2' : 'px-3 py-1.5',
           active
-            ? "bg-primary/15 text-primary"
-            : "bg-accent/30 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+            ? 'bg-primary/15 text-primary'
+            : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
         )
 
         if (item.editing) {

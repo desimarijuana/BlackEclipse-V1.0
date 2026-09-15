@@ -14,6 +14,7 @@ import { getGlobalEntities } from './global';
 import { settingsEntities } from './settings';
 import { marketEntities } from './markets';
 import { resolveEvent } from './events';
+import { matchesFilters, parseQuery, scopeKinds, type ParsedQuery, type Scope } from './grammar';
 import {
   getUniverseBySymbol,
   isUniverseLoaded,
@@ -39,6 +40,10 @@ export interface ResolvedSearch {
   symbol?: string;
   /** True when the universe index finished loading (so we can show more). */
   universeReady: boolean;
+  /** Scope + field filters parsed from the query grammar. */
+  parsed: ParsedQuery;
+  /** True when the query is a bare '?' asking for syntax help. */
+  showHelp: boolean;
 }
 
 export interface ResolveOptions {
@@ -68,31 +73,54 @@ function boostedScore(match: number, e: SearchEntity, currentTab?: string, recen
 }
 
 export function resolveQuery(query: string, opts: ResolveOptions = {}): ResolvedSearch {
-  const q = query.trim();
-  const intent = classifyIntent(query);
-  const normalized = norm(query);
+  const parsed = parseQuery(query);
+  const scope: Scope = parsed.scope;
+  const restrictedKinds = scopeKinds(scope);
+  const text = parsed.text;
+
+  const q = text.trim();
+  const intent = classifyIntent(text);
+  const normalized = norm(text);
   const recency = opts.recencyScore ?? (() => 0);
   const max = opts.maxResults ?? 12;
 
+  // A bare scope prefix (">", "#", …) or a pure-help query has no terms to
+  // resolve — the palette renders scope hints / the help card instead.
+  if (!q) {
+    return {
+      intent: intent.intent,
+      items: [],
+      actions: [],
+      universeReady: isUniverseLoaded(),
+      parsed,
+      showHelp: parsed.showHelp,
+    };
+  }
+
   const items: SearchItem[] = [];
 
+  const allowed = (e: SearchEntity): boolean => {
+    if (restrictedKinds && !restrictedKinds.includes(e.kind)) return false;
+    return matchesFilters(e, parsed.filters);
+  };
+
   // ── 1. Registry exact (indicators, curated instruments, aliases) ─────────
-  const regExact = getInstrumentByAlias(query);
-  if (regExact) {
+  const regExact = getInstrumentByAlias(q);
+  if (regExact && allowed(regExact)) {
     items.push({ entity: regExact, score: 1001, match: 'exact' });
   }
 
   // ── 2. Universe exact symbol (O(1)) ──────────────────────────────────────
-  const uniExact = getUniverseBySymbol(query);
+  const uniExact = getUniverseBySymbol(q);
   if (uniExact) {
     const e = universeRowToEntity(uniExact);
-    items.push({ entity: e, score: 1000, match: 'exact' });
+    if (allowed(e)) items.push({ entity: e, score: 1000, match: 'exact' });
   }
 
   // ── 2b. Economic event (live calendar) — "next NFP", "CPI this month" ─────
   if (intent.intent === 'event' || intent.intent === 'indicator') {
-    const ev = resolveEvent(query);
-    if (ev) items.push({ entity: ev, score: 990, match: 'exact' });
+    const ev = resolveEvent(q);
+    if (ev && allowed(ev)) items.push({ entity: ev, score: 990, match: 'exact' });
   }
 
   // ── 3. Static registry fuzzy/prefix (small set — cheap to score) ─────────
@@ -105,6 +133,7 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
     ...marketEntities(),
   ];
   for (const e of staticEntities) {
+    if (!allowed(e)) continue;
     if (regExact && e.id === regExact.id) continue;
     const s = scoreEntity({ entity: e, query: normalized, currentTab: opts.currentTab, recencyScore: recency(e.id) });
     if (s > 0) {
@@ -117,19 +146,22 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
   }
 
   // ── 4. Universe fuzzy (FlexSearch — fast) ────────────────────────────────
-  // Only when the query is a plausible instrument query, to avoid polluting
-  // page/action lookups with thousands of ticker rows.
+  // Only when the query is a plausible instrument query and the scope allows
+  // securities, to avoid polluting page/action lookups with thousands of rows.
   const isInstrumentQuery =
     intent.intent === 'entity' ||
     intent.intent === 'indicator' ||
     intent.intent === 'data' ||
-    intent.intent === 'unknown';
-  if (isInstrumentQuery && q.length >= 2) {
-    const hits = searchUniverse(query, 6);
+    intent.intent === 'unknown' ||
+    scope === 'symbol';
+  const symbolScope = !restrictedKinds || restrictedKinds.includes('security') || restrictedKinds.includes('instrument');
+  if (isInstrumentQuery && symbolScope && q.length >= 2) {
+    const hits = searchUniverse(q, 6);
     for (const row of hits) {
       const sym = row.symbol.toLowerCase();
       if (sym === normalized || (regExact && regExact.symbol?.toLowerCase() === sym)) continue;
       const e = universeRowToEntity(row);
+      if (!allowed(e)) continue;
       // Prefix/symbol matches rank above fuzzy name matches.
       const isSymPrefix = row.symbol.toLowerCase().startsWith(normalized);
       const score = isSymPrefix ? 700 : 520;
@@ -138,19 +170,22 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
   }
 
   // ── 5. Actions (command palette) ─────────────────────────────────────────
-  const actions = getAllActions().filter((a) => {
-    if (a.static && normalized.length < 2) return false;
-    return (
-      normalized.includes(a.title.toLowerCase()) ||
-      a.keywords.some((k) => normalized.includes(k)) ||
-      a.title.toLowerCase().includes(normalized)
-    );
-  });
+  const actionScope = !restrictedKinds || restrictedKinds.includes('action');
+  const actions = actionScope
+    ? getAllActions().filter((a) => {
+        if (a.static && normalized.length < 2) return false;
+        return (
+          normalized.includes(a.title.toLowerCase()) ||
+          a.keywords.some((k) => normalized.includes(k)) ||
+          a.title.toLowerCase().includes(normalized)
+        );
+      })
+    : [];
 
   let primaryAction: SearchAction | undefined;
-  if (intent.intent === 'action' && actions.length > 0) {
+  if ((intent.intent === 'action' || scope === 'action') && actions.length > 0) {
     primaryAction = actions[0];
-    const actionCtx = { query, normalized, symbol: extractSymbol(query) };
+    const actionCtx = { query: text, normalized, symbol: extractSymbol(text) };
     const actionItems: SearchItem[] = actions.map((a, i) => {
       // Execute the action's own `run()` so selecting a command navigates to
       // its real destination (e.g. "Open Portfolio" → portfolio tab) instead
@@ -194,12 +229,14 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
   });
 
   return {
-    intent: intent.intent,
+    intent: primaryAction ? 'action' : intent.intent,
     items: deduped.slice(0, max),
     actions,
     primaryAction,
-    symbol: extractSymbol(query),
-    universeReady: !!getUniverseBySymbol(query) || isUniverseBuilt(),
+    symbol: extractSymbol(text),
+    universeReady: !!getUniverseBySymbol(q) || isUniverseBuilt(),
+    parsed,
+    showHelp: parsed.showHelp,
   };
 }
 

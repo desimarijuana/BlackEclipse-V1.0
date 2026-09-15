@@ -11,7 +11,7 @@
 
 import React from 'react';
 import {
-  Activity, AlertTriangle, ChevronDown, ChevronUp, Layers, RefreshCw, Settings2, X,
+  Activity, AlertTriangle, ChevronDown, ChevronUp, Layers, RefreshCw, Settings2, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -140,8 +140,13 @@ export function PanelHeader({
             </button>
           )}
           {onRemove && (
-            <button onClick={onRemove} title="Remove panel" className="rounded p-0.5 text-muted-foreground hover:text-rose-400 cursor-pointer">
-              <X size={11} />
+            <button
+              onClick={onRemove}
+              title="Remove this panel"
+              aria-label="Remove panel"
+              className="rounded p-0.5 text-muted-foreground hover:text-rose-400 cursor-pointer"
+            >
+              <Trash2 size={11} />
             </button>
           )}
         </div>

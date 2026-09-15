@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
 import { resolveQuery } from '@/lib/search/resolver';
 import { universeCount } from '@/lib/search/universe';
+import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
 import type { EntityKind } from '@/lib/search/types';
 
@@ -154,6 +155,14 @@ export function GlobalSearch() {
 
   const showRecents = !debouncedQuery.trim();
   const indexCount = universeCount();
+  const activeScope: ScopeMeta = useMemo(() => {
+    const { scope } = parseQuery(store.query);
+    return SCOPES.find((s) => s.scope === scope) ?? DEFAULT_SCOPE;
+  }, [store.query]);
+  const showHelp = !!(resolved && resolved.showHelp);
+  // A bare scope prefix (e.g. ">") — no terms yet, so nudge with scope hints
+  // instead of the generic empty state.
+  const bareScope = !showHelp && !showRecents && !!resolved && activeScope.scope !== 'all' && !resolved.parsed.text.trim();
 
   const quickActions: QuickAction[] = useMemo(() => [
     {
@@ -268,14 +277,17 @@ export function GlobalSearch() {
       }
     }
 
-    // Pinned quick actions at the bottom (part of the flat list).
-    for (const qa of quickActions) {
-      flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
+    // Pinned quick actions at the bottom (part of the flat list). Suppressed
+    // while the syntax help card is open — they are hidden from view then.
+    if (!showHelp) {
+      for (const qa of quickActions) {
+        flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
+      }
     }
 
     return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.recents, store.universeReady, resolved, showRecents, quickActions]);
+  }, [debouncedQuery, store.recents, store.universeReady, resolved, showRecents, quickActions, showHelp]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const count = flatRows.length;
@@ -304,32 +316,63 @@ export function GlobalSearch() {
         {/* Input row */}
         <div className="flex items-center gap-3 px-4 py-3.5">
           <Search size={17} className="text-muted-foreground/70 shrink-0" />
+          {activeScope.scope !== 'all' && (
+            <span className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/15 px-2 py-1 text-[11px] font-medium text-primary shrink-0">
+              <span className="font-mono">{activeScope.prefix}</span>
+              {activeScope.label}
+            </span>
+          )}
           <input
             ref={inputRef}
             value={store.query}
             onChange={(e) => store.setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search instruments, indicators, pages…"
+            placeholder={activeScope.placeholder}
             className="h-8 flex-1 border-0 bg-transparent outline-none px-0 font-mono text-[15px] text-foreground placeholder:text-muted-foreground/60"
             autoComplete="off"
             spellCheck={false}
           />
           {store.universeLoading && <Loader2 size={14} className="animate-spin text-muted-foreground/60 shrink-0" />}
+          {store.query && (
+            <button
+              onClick={() => store.setQuery('')}
+              className="shrink-0 rounded p-1 text-muted-foreground/40 hover:text-foreground transition-colors cursor-pointer"
+              title="Clear search"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
         <div className="h-px bg-border/60" />
 
         {/* Results */}
         <div ref={resultsRef} className="max-h-[min(50dvh,400px)] overflow-y-auto py-2">
+          {showHelp && <SyntaxHelp onPick={(p) => store.setQuery(p)} />}
+
+          {bareScope && (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground/70">
+              <span className="font-mono text-primary">{activeScope.prefix}</span> {activeScope.hint} — start typing, or type{' '}
+              <span className="font-mono text-primary">?</span> for all syntax.
+            </div>
+          )}
+
           {showRecents && sections.length === 0 && (
             <div className="px-4 py-8 text-center text-xs text-muted-foreground/60">
               No recent searches yet — try a symbol like{' '}
               <span className="font-mono text-primary">AAPL</span> or{' '}
-              <span className="font-mono text-primary">NFP</span>.
+              <span className="font-mono text-primary">NFP</span>. Type{' '}
+              <button
+                onClick={() => store.setQuery('?')}
+                className="font-mono text-primary hover:underline cursor-pointer"
+              >
+                ?
+              </button>{' '}
+              for syntax.
             </div>
           )}
 
-          {!showRecents && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
+          {!showRecents && !showHelp && !bareScope && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
             <div className="px-4 py-10 text-center">
               <div className="text-sm text-foreground font-medium mb-1">No results for “{store.query}”</div>
               <p className="text-xs text-muted-foreground/70">
@@ -361,15 +404,20 @@ export function GlobalSearch() {
             </div>
           ))}
 
-          {/* Pinned quick actions — dashed divider like Linear */}
-          <div className="mx-4 my-2 border-t border-dashed border-border/60" />
-          <div className="px-2 flex flex-col gap-px">
-            {quickActions.map((qa) => {
-              const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
-              const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
-              return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} />;
-            })}
-          </div>
+          {/* Pinned quick actions — dashed divider like Linear. Hidden while the
+              syntax help card is open so the card reads as the whole panel. */}
+          {!showHelp && (
+            <>
+              <div className="mx-4 my-2 border-t border-dashed border-border/60" />
+              <div className="px-2 flex flex-col gap-px">
+                {quickActions.map((qa) => {
+                  const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
+                  const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
+                  return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} />;
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -381,11 +429,69 @@ export function GlobalSearch() {
             ↑↓ to navigate
             <span className="mx-1 text-muted-foreground/30">·</span>
             esc to close
+            <span className="mx-1 text-muted-foreground/30">·</span>
+            <button
+              onClick={() => store.setQuery('?')}
+              className="font-mono hover:text-foreground transition-colors cursor-pointer"
+              title="Search syntax"
+            >
+              ?
+            </button>{' '}
+            for syntax
           </span>
           {store.universeReady && <span>{indexCount.toLocaleString()} instruments indexed</span>}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Syntax help ──────────────────────────────────────────────────────────────
+
+function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
+  const operators: { token: string; desc: string }[] = [
+    { token: 'kind:crypto', desc: 'filter by entity kind' },
+    { token: 'class:etf', desc: 'filter by asset class' },
+    { token: 'market:us', desc: 'filter by market' },
+    { token: 'symbol:aapl', desc: 'match a symbol' },
+  ];
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-2 text-[11px] font-medium text-muted-foreground/60">Search syntax</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+        {SCOPES.map((s) => (
+          <button
+            key={s.scope}
+            onClick={() => onPick(`${s.prefix} `)}
+            className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent/30 transition-colors cursor-pointer"
+          >
+            <kbd className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-accent/40 font-mono text-[11px] text-muted-foreground/70 group-hover:text-primary group-hover:border-primary/30">
+              {s.prefix}
+            </kbd>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm text-foreground/90">{s.hint}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 border-t border-dashed border-border/60 pt-3">
+        <div className="mb-2 text-[11px] font-medium text-muted-foreground/60">Operators</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          {operators.map((o) => (
+            <button
+              key={o.token}
+              onClick={() => onPick(`${o.token} `)}
+              className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent/30 transition-colors cursor-pointer"
+            >
+              <kbd className="shrink-0 rounded-md border border-border/60 bg-accent/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground/70">
+                {o.token}
+              </kbd>
+              <span className="truncate text-xs text-muted-foreground/70">{o.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

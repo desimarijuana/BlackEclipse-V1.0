@@ -1,13 +1,52 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Sparkles, Menu, Search, Command } from 'lucide-react';
 import { useCommandStore } from '@/lib/search/store';
+import { universeCount } from '@/lib/search/universe';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
+  /** Active SPA tab, used to make the search placeholder contextual. */
+  activeTab?: string;
 }
 
-export function TopBar({ onToggleMenu }: TopBarProps) {
+const TAB_PLACEHOLDER: Record<string, string> = {
+  chat: 'Ask or search anything…',
+  portfolio: 'Search your funds and holdings…',
+  journal: 'Search your trades…',
+  discovery: 'Search instruments or markets…',
+  news: 'Search news and headlines…',
+  economics: 'Search indicators and events…',
+  dashboard: 'Search widgets and commands…',
+  'market-workspace': 'Search instruments to chart…',
+  chart: 'Search an instrument to chart…',
+  heatmap: 'Search a market or sector…',
+  alerts: 'Search price alerts…',
+  settings: 'Search settings…',
+};
+
+export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
+  const [modKey, setModKey] = useState('Ctrl');
+  const [indexed, setIndexed] = useState(0);
+
+  // Platform-aware shortcut label: ⌘ on macOS, Ctrl elsewhere. Resolved on the
+  // client so SSR stays stable.
+  useEffect(() => {
+    const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform);
+    setModKey(isMac ? '⌘' : 'Ctrl');
+  }, []);
+
+  // Reflect warm index status in the trigger (0 until the palette first loads).
+  useEffect(() => {
+    const read = () => setIndexed(universeCount());
+    read();
+    const unsub = useCommandStore.subscribe(read);
+    return unsub;
+  }, []);
+
+  const placeholder = (activeTab && TAB_PLACEHOLDER[activeTab]) || 'Search instruments, indicators, commands…';
+
   return (
     <div className="w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0">
        {/* Mobile Logo & Menu Toggle */}
@@ -37,10 +76,16 @@ export function TopBar({ onToggleMenu }: TopBarProps) {
           >
             <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />
             <span className="flex-1 truncate text-sm text-muted-foreground/80 font-mono">
-              Search instruments, indicators, commands…
+              {placeholder}
             </span>
+            {indexed > 0 && (
+              <span className="hidden lg:inline-flex shrink-0 items-center gap-1 text-[10px] font-mono text-muted-foreground/40" title={`${indexed.toLocaleString()} instruments indexed`}>
+                {indexed.toLocaleString()} indexed
+              </span>
+            )}
             <kbd className="hidden sm:inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-              <Command size={11} /> K
+              {modKey === '⌘' ? <Command size={11} /> : <span>{modKey}</span>}
+              K
             </kbd>
           </button>
        </div>

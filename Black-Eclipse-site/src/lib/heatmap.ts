@@ -66,8 +66,14 @@ export interface HeatmapStock {
   price: number;
   /** Percent change, already in percent units (e.g. 1.84 = +1.84%). */
   changePct: number;
-  /** Market capitalisation in the market's currency (0 when unavailable). */
+  /**
+   * Tile-size value: the market's raw market cap COMPRESSED for the treemap so
+   * a mega-cap cannot flatten every other tile. Use `rawMarketCap` to display
+   * the true figure.
+   */
   marketCap: number;
+  /** The true, uncompressed market cap (what the tooltip shows). */
+  rawMarketCap?: number;
   /** Fallback size metric (24h volume) when market cap is missing. */
   volume: number;
 }
@@ -76,8 +82,10 @@ export interface HeatmapSector {
   name: string;
   /** Cap-weighted percent change for the sector. */
   change: number;
-  /** Total market cap of the sector (same units as HeatmapStock.marketCap). */
+  /** Tile-size total (compressed) of the sector's constituents. */
   marketCap: number;
+  /** The sector's true, uncompressed market cap. */
+  rawMarketCap?: number;
   stocks: HeatmapStock[];
 }
 

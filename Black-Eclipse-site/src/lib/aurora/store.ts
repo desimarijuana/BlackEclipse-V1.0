@@ -11,6 +11,7 @@ import { create } from 'zustand';
 import {
   defaultAuroraPalette,
   loadAuroraPalette,
+  parseAuroraPalette,
   resetAuroraPalette,
   saveAuroraPalette,
   type AuroraColorPair,
@@ -52,8 +53,11 @@ export const useAuroraPaletteStore = create<AuroraPaletteStore>((set) => ({
     }),
 
   setPalette: (palette) => {
-    saveAuroraPalette(palette);
-    set({ palette });
+    // Normalize + clone so applying a preset never stores a shared module
+    // reference (a later edit would otherwise mutate the preset itself).
+    const clean = parseAuroraPalette(palette);
+    saveAuroraPalette(clean);
+    set({ palette: clean });
   },
 
   reset: () => {

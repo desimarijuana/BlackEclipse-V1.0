@@ -58,6 +58,20 @@ const FOREX_BUCKET: Record<string, string> = {
   NGN: "Africa", AED: "Middle East", SAR: "Middle East",
 };
 
+/**
+ * Compress a raw tile size so a mega-cap doesn't flatten everything else.
+ *
+ * Raw market caps in crypto span ~6500× (BTC $1.26T → $193M), so a linear
+ * treemap renders BTC as one giant tile and every other coin as an unreadable
+ * speck. Raising to a power < 1 (sqrt) keeps the ordering and the "big coins
+ * are big" read while giving smaller coins enough area to show a symbol.
+ * Equities are far flatter (top ~200×), so they are compressed more gently.
+ */
+function compressSize(size: number, market: string): number {
+  if (size <= 0) return 0;
+  return Math.pow(size, market === 'CRYPTO' ? 0.5 : 0.75);
+}
+
 // Coins imported before category enrichment (or with no CoinGecko categories)
 // land in sector "Other" — 1300+ of them, which renders as one giant tile and
 // hides the real per-coin moves. Fall back to a market-cap tier so crypto
@@ -119,8 +133,12 @@ async function buildFeedHeatmap(market: "FOREX" | "COMMODITIES", limit: number, 
 
 /** Group priced instruments into sectors and compute cap-weighted changes. */
 function assemblePayload(market: string, meta: ReturnType<typeof heatmapMeta>, stocks: Priced[]) {
+  // Compress tile sizes BEFORE grouping so the sector caps and the tile areas
+  // agree, and so no single mega-cap swallows the board.
+  const compressed = stocks.map(s => ({ ...s, size: compressSize(s.size, market) }));
+
   const bySector = new Map<string, Priced[]>();
-  for (const s of stocks) {
+  for (const s of compressed) {
     const list = bySector.get(s.sector) || [];
     list.push(s);
     bySector.set(s.sector, list);
@@ -131,9 +149,11 @@ function assemblePayload(market: string, meta: ReturnType<typeof heatmapMeta>, s
   const sectors: HeatmapSector[] = [...bySector.entries()]
     .map(([name, list]) => {
       let cap = 0;
+      let rawCap = 0;
       let weighted = 0;
       const sectorStocks: HeatmapStock[] = list.map(s => {
         cap += s.size;
+        rawCap += s.marketCap;
         weighted += s.size * s.changePct;
         return {
           symbol: s.symbol,
@@ -141,14 +161,17 @@ function assemblePayload(market: string, meta: ReturnType<typeof heatmapMeta>, s
           sector: name,
           price: s.price,
           changePct: s.changePct,
-          marketCap: s.marketCap,
+          // `marketCap` drives tile AREA (compressed); `rawMarketCap` is the
+          // real figure the tooltip and sector totals display.
+          marketCap: s.size,
+          rawMarketCap: s.marketCap,
           volume: s.volume,
         };
       });
       const change = cap > 0 ? weighted / cap : 0;
       totalSize += cap;
       totalWeightedChange += weighted;
-      return { name, change: +change.toFixed(4), marketCap: cap, stocks: sectorStocks };
+      return { name, change: +change.toFixed(4), marketCap: cap, rawMarketCap: rawCap, stocks: sectorStocks };
     })
     .sort((a, b) => b.marketCap - a.marketCap);
 

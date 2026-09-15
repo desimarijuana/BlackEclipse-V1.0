@@ -13,15 +13,28 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, Minimize2, X } from 'lucide-react';
+import { Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMarketWorkspace, type MarketWorkspaceController } from '@/lib/market-workspace/use-market-workspace';
 import { useWorkspaces } from '@/lib/market-workspace/use-workspaces';
 import { getWorkspacePreset } from '@/lib/market-workspace/presets';
 import {
-  clampRect, GRID_COLUMNS, MIN_PANEL_COLS, MIN_PANEL_ROWS, rectsOverlap,
+  clampRect, GRID_COLUMNS, MAX_ROWS, MIN_PANEL_COLS, MIN_PANEL_ROWS,
   type ChartLink, type MarketPanel, type MarketPanelType, type PanelRect,
 } from '@/lib/market-workspace/types';
+
+/** Fallback row height (px) when the grid has not been measured yet. */
+const CUSTOM_ROW_HEIGHT = 380;
+
+/** Charts-per-row for full page — chosen so N charts tile a near-square grid. */
+function fullPagePerRow(count: number): number {
+  if (count <= 1) return 1;
+  if (count === 2) return 2;
+  if (count <= 4) return 2;
+  if (count <= 6) return 3;
+  if (count <= 9) return 3;
+  return 4;
+}
 import type { ChartState } from '@/lib/chart/types';
 import { ChartPanel } from './chart-panel';
 import { PanelContent } from './panel-content';
@@ -52,13 +65,21 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // so panels resize freely without collapsing rows.
   const isCustom = layout.layoutId === 'custom';
 
-  // Measure the grid so pointer drags convert px → grid units.
+  // Measure the grid so pointer drags convert px → grid units. The row height is
+  // read from the ACTUAL first-row track size (not a guessed constant) so a drag
+  // of N pixels moves the panel exactly N/rowHeight rows.
   useEffect(() => {
     const el = gridRef.current;
     if (!el) return;
     const measure = () => {
       const rect = el.getBoundingClientRect();
-      setCellSize({ w: rect.width / GRID_COLUMNS, h: isCustom ? 140 : rect.height / Math.max(1, layout.rows) });
+      const cs = getComputedStyle(el);
+      // Prefer the resolved template track; fall back to a sensible constant.
+      const firstTrack = cs.gridTemplateRows.split(' ').map(parseFloat).find(Number.isFinite);
+      const track = firstTrack && firstTrack > 0 ? firstTrack : CUSTOM_ROW_HEIGHT;
+      // Moving a panel down by ONE row moves it by (track + row-gap) pixels.
+      const gap = parseFloat(cs.rowGap) || 0;
+      setCellSize({ w: rect.width / GRID_COLUMNS, h: track + gap });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -83,38 +104,44 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     e.stopPropagation();
     ops.setActivePanel(panel.id);
     dragRef.current = { mode, id: panel.id, startX: e.clientX, startY: e.clientY, startRect: { ...panel.rect } };
+    ops.setDragging(true);
     document.body.style.userSelect = 'none';
+
+    const cellW = cellSize.w > 0 ? cellSize.w : 100;
+    const cellH = cellSize.h > 0 ? cellSize.h : CUSTOM_ROW_HEIGHT;
 
     const onMove = (ev: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const dCols = Math.round((ev.clientX - d.startX) / cellSize.w);
-      const dRows = Math.round((ev.clientY - d.startY) / cellSize.h);
-      let rect: PanelRect;
-      if (d.mode === 'move') {
-        rect = { ...d.startRect, col: d.startRect.col + dCols, row: d.startRect.row + dRows };
-      } else {
-        rect = {
-          ...d.startRect,
-          colSpan: Math.max(MIN_PANEL_COLS, d.startRect.colSpan + dCols),
-          rowSpan: Math.max(MIN_PANEL_ROWS, d.startRect.rowSpan + dRows),
-        };
-      }
-      setPreview({ id: d.id, rect: clampRect(rect, Math.max(layout.rows + 4, 24)) });
+      const dCols = Math.round((ev.clientX - d.startX) / cellW);
+      const dRows = Math.round((ev.clientY - d.startY) / cellH);
+      const rect: PanelRect = d.mode === 'move'
+        ? { ...d.startRect, col: d.startRect.col + dCols, row: d.startRect.row + dRows }
+        : {
+            ...d.startRect,
+            colSpan: Math.max(MIN_PANEL_COLS, d.startRect.colSpan + dCols),
+            rowSpan: Math.max(MIN_PANEL_ROWS, d.startRect.rowSpan + dRows),
+          };
+      setPreview({ id: d.id, rect: clampRect(rect, MAX_ROWS) });
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       document.body.style.userSelect = '';
+      ops.setDragging(false);
       const d = dragRef.current;
       dragRef.current = null;
       const p = previewRef.current;
       setPreview(null);
-      if (d && p && p.id === d.id) ops.setPanelRect(d.id, p.rect);
+      if (!d || !p || p.id !== d.id) return;
+      // MOVE commits absolute placement (panel stays where dropped; anything it
+      // lands on is pushed aside). RESIZE commits the new span.
+      if (d.mode === 'move') ops.placePanel(d.id, p.rect.col, p.rect.row);
+      else ops.setPanelRect(d.id, p.rect);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  }, [editMode, cellSize, layout.rows, ops]);
+  }, [editMode, cellSize, ops]);
 
   const previewRef = useRef(preview);
   previewRef.current = preview;
@@ -126,9 +153,14 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   const pendingScroll = useRef(false);
   const addPanel = useCallback((type: MarketPanelType) => {
     pendingScroll.current = true;
-    ops.addPanel(type);
+    // Seed a NEW chart with this workspace's own lead instrument rather than a
+    // hard-coded AAPL: reuse the first chart's symbol/market in the layout.
+    const lead = layout.panels.find(p => p.type === 'chart' && p.chart?.symbol);
+    ops.addPanel(type, undefined, lead
+      ? { symbol: lead.chart!.symbol, market: lead.chart!.market }
+      : undefined);
     ops.setActivePanel(null);
-  }, [ops]);
+  }, [ops, layout.panels]);
 
   useEffect(() => {
     if (!pendingScroll.current) return;
@@ -186,6 +218,15 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     setSavedAt(Date.now());
   }, [layout.panels, ops]);
 
+  // Lock page scroll while full page (or a chart is fullscreen) so the reclaimed
+  // space is actually usable and the background can't drift behind the overlay.
+  useEffect(() => {
+    if (!fullPage && !focusedPanelId) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [fullPage, focusedPanelId]);
+
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -221,19 +262,21 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   }, [activePanelId, focusedPanelId, fullPage, editMode, layout.panels, ops, saveNow, onRequestExitFullPage]);
 
   // ── Panel grid styles ──────────────────────────────────────────────────────
-  // Normal mode: rows get a generous minimum height so charts stay big and
-  // readable; the page scrolls when there are many rows. Full-page uses its own
-  // viewport-filling style built below (from the chart-only row count).
+  // Normal mode: rows are exactly `layout.rows` tracks. When the panels fit on
+  // screen the grid STRETCHES to fill the viewport (1fr min); when there are
+  // more rows than fit, each track stays readable at >= 380px and the page
+  // scrolls. `recomputeRows` keeps layout.rows equal to the content height, so
+  // there is never phantom scroll space below the last panel.
   const gridStyle: React.CSSProperties = isCustom
     ? {
         gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-        gridAutoRows: '380px',
+        gridAutoRows: `${CUSTOM_ROW_HEIGHT}px`,
         gridAutoFlow: 'row dense',
       }
     : {
         gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${Math.max(1, layout.rows)}, minmax(380px, 1fr))`,
-        gridAutoRows: 'minmax(380px, 1fr)',
+        gridTemplateRows: `repeat(${Math.max(1, layout.rows)}, minmax(${CUSTOM_ROW_HEIGHT}px, 1fr))`,
+        gridAutoRows: `minmax(${CUSTOM_ROW_HEIGHT}px, 1fr)`,
       };
 
   const panelStyle = (panel: MarketPanel, override?: PanelRect): React.CSSProperties => {
@@ -313,31 +356,44 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // pure price action. Everything else stays exactly where the user left it.
   const visiblePanels = fullPage ? layout.panels.filter(p => p.type === 'chart') : layout.panels;
 
-  // Render-only compaction for full page: keep each chart's column/span, but
-  // re-flow rows tightly so there are no empty gaps left behind by non-chart
-  // panels. Stored layout is never mutated.
+  // Full page re-tiles the charts into a near-square grid that FILLS the
+  // viewport, independent of their stored spans (a stored 2-row-tall chart would
+  // otherwise render short). Stored layout is never mutated — this is a pure
+  // render projection while full page is open.
+  const fullPageRows = React.useMemo(
+    () => Math.max(1, Math.ceil(visiblePanels.length / fullPagePerRow(visiblePanels.length))),
+    [visiblePanels.length],
+  );
   const fullPageRects = React.useMemo(() => {
     if (!fullPage) return new Map<string, PanelRect>();
+    const perRow = fullPagePerRow(visiblePanels.length);
     const map = new Map<string, PanelRect>();
-    const placed: PanelRect[] = [];
-    for (const p of visiblePanels) {
-      let row = 0;
-      // Walk down until this rect clears everything already placed.
-      for (let guard = 0; guard < 200; guard++) {
-        const candidate: PanelRect = { ...p.rect, row };
-        if (!placed.some(r => rectsOverlap(candidate, r))) { placed.push(candidate); map.set(p.id, candidate); break; }
-        row += 1;
-      }
+    // Group panels into rows of `perRow`; within each row divide the 12 columns
+    // evenly so the final, shorter row still spans the full width.
+    for (let start = 0; start < visiblePanels.length; start += perRow) {
+      const rowItems = visiblePanels.slice(start, start + perRow);
+      const colSpan = Math.floor(GRID_COLUMNS / rowItems.length);
+      const row = Math.floor(start / perRow);
+      rowItems.forEach((p, j) => {
+        // The last item of a row absorbs any rounding remainder so the row
+        // always fills all 12 columns (8+4, 4+4+4, etc).
+        const isLast = j === rowItems.length - 1;
+        const col = j * colSpan;
+        const span = isLast ? GRID_COLUMNS - col : colSpan;
+        map.set(p.id, { col, row, colSpan: span, rowSpan: 1 });
+      });
     }
     return map;
   }, [fullPage, visiblePanels]);
 
-  const chartOnlyRows = Math.max(1, [...fullPageRects.values()].reduce((a, r) => Math.max(a, r.row + r.rowSpan), 0));
+  // Full page: every row is an equal fraction of the FULL viewport height, so
+  // charts expand to use all the reclaimed space (no compact, no letterboxing).
   const fullPageGridStyle: React.CSSProperties = {
     gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${chartOnlyRows}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${fullPageRows}, minmax(0, 1fr))`,
     gridAutoRows: 'minmax(0, 1fr)',
     height: '100%',
+    minHeight: 0,
     flex: '1 1 0%',
   };
 
@@ -359,6 +415,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
               <ChartPanel
                 panel={panel}
                 compact={false}
+                chrome="minimal"
                 gridStyle={panelStyle(panel, fullPageRects.get(panel.id))}
                 active={activePanelId === panel.id}
                 onChartChange={(chart) => publishChart(panel.id, chart)}
@@ -390,9 +447,10 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // Full-page overlay. Portaled to <body> because the app shell wraps this page
   // in a glass-card (backdrop-filter creates a containing block), which would
   // otherwise trap `position: fixed` and keep the global nav visible on top.
+  // While open, background scroll is locked so the charts own the whole screen.
   const fullPageOverlay = fullPage && typeof document !== 'undefined'
     ? createPortal(
-        <div className="fixed inset-0 z-[70] flex flex-col bg-background p-2">
+        <div className="fixed inset-0 z-[70] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background p-2">
           <div className="pointer-events-none absolute right-3 top-3 z-[75] flex items-center gap-1.5">
             <button
               onClick={() => { ops.setFullPage(false); onRequestExitFullPage?.(); }}
@@ -472,7 +530,16 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     : null;
 
   return (
-    <div className={cn('relative flex min-h-0 flex-col', className)}>
+    <div
+      className={cn(
+        // Fill the viewport (minus the top bar, page padding and the heading) so
+        // a small number of charts stretch big, while extra rows still scroll.
+        'relative flex flex-col',
+        fullPage ? '' : 'min-h-[calc(100dvh-190px)]',
+        className,
+      )}
+      data-market-workspace-root
+    >
       {!embedded && !fullPage && (
         <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border/10 pb-3">
           <div className="min-w-0">
@@ -527,6 +594,9 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
 }
 
 // ── Edit chrome for a content (non-chart) panel ──────────────────────────────
+// Only ever rendered in edit mode. Icons are deliberately DISTINCT from the
+// panel's close affordances: Fullscreen (expand), Duplicate (copy), Remove
+// (trash) — no bare × here, so a trash can never be mistaken for "close chart".
 
 function PanelEditChrome({
   onMove, onResize, onRemove, onDuplicate, onFocus,
@@ -541,28 +611,28 @@ function PanelEditChrome({
     <>
       <div
         onPointerDown={onMove}
-        className="absolute inset-x-0 top-0 z-30 flex h-6 cursor-grab items-center justify-center rounded-t-2xl bg-background/50 opacity-0 transition-opacity group-hover/panel:opacity-100 active:cursor-grabbing"
+        className="absolute inset-x-0 top-0 z-30 flex h-6 cursor-grab items-center justify-center rounded-t-2xl bg-primary/10 opacity-0 transition-opacity group-hover/panel:opacity-100 active:cursor-grabbing"
         title="Drag to move panel"
       >
-        <span className="h-1 w-10 rounded-full bg-border" />
+        <GripVertical size={12} className="text-primary" />
       </div>
       <div className="absolute right-2 top-1.5 z-30 flex items-center gap-1 opacity-0 transition-opacity group-hover/panel:opacity-100">
         <button onClick={onFocus} className="rounded-lg border border-border/40 bg-background/80 p-1 text-muted-foreground hover:text-primary cursor-pointer" title="Fullscreen">
           <Maximize2 size={11} />
         </button>
-        <button onClick={onDuplicate} className="rounded-lg border border-border/40 bg-background/80 p-1 text-muted-foreground hover:text-primary cursor-pointer" title="Duplicate">
-          <Minimize2 size={11} className="rotate-45" />
+        <button onClick={onDuplicate} className="rounded-lg border border-border/40 bg-background/80 p-1 text-muted-foreground hover:text-primary cursor-pointer" title="Duplicate panel">
+          <Copy size={11} />
         </button>
-        <button onClick={onRemove} className="rounded-lg border border-border/40 bg-background/80 p-1 text-muted-foreground hover:text-rose-400 cursor-pointer" title="Remove">
-          <X size={11} />
+        <button onClick={onRemove} className="rounded-lg border border-border/40 bg-background/80 p-1 text-muted-foreground hover:text-rose-400 cursor-pointer" title="Remove panel">
+          <Trash2 size={11} />
         </button>
       </div>
       <div
         onPointerDown={onResize}
-        className="absolute bottom-0 right-0 z-30 h-4 w-4 cursor-nwse-resize opacity-0 transition-opacity group-hover/panel:opacity-100"
+        className="absolute bottom-0 right-0 z-30 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1 opacity-0 transition-opacity group-hover/panel:opacity-100"
         title="Drag to resize panel"
       >
-        <div className="absolute bottom-1 right-1 h-2 w-2 rounded-sm border-b-2 border-r-2 border-border" />
+        <span className="h-2 w-2 rounded-sm border-b-2 border-r-2 border-primary" />
       </div>
     </>
   );

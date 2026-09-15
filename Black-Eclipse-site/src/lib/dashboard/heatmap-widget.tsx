@@ -60,7 +60,7 @@ function tooltipHtml(params: unknown, currency: string): string {
         </div>
         <div style="color:#9ca3af;font-size:10px;margin-top:2px">${children.length} constituents</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:7px 0"></div>
-        <div style="color:#9ca3af;font-size:10px">Market cap <span style="color:#e5e7eb">${fmtCap(Number(d.marketCap ?? 0))}</span></div>
+        <div style="color:#9ca3af;font-size:10px">Market cap <span style="color:#e5e7eb">${fmtCap(Number(d.rawMarketCap ?? 0))}</span></div>
       </div>`;
   }
 
@@ -79,7 +79,7 @@ function tooltipHtml(params: unknown, currency: string): string {
       <div style="height:1px;background:rgba(255,255,255,.08);margin:7px 0"></div>
       <table style="font-size:10px;border-collapse:collapse;width:100%">
         ${row('Price', fmtMoney(Number(d.price), currency))}
-        ${row('Mkt Cap', fmtCap(Number(d.marketCap ?? 0)))}
+        ${row('Mkt Cap', fmtCap(Number(d.rawMarketCap ?? d.marketCap ?? 0)))}
         ${row('Volume', fmtCap(Number(d.volume ?? 0)))}
         ${row('Sector', String(d.sector ?? '—'))}
       </table>
@@ -150,6 +150,8 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
     if (!data?.sectors?.length) return [];
     return data.sectors.map(sec => {
       const children = sec.stocks.map(s => {
+        // `sectorCap` is the server's COMPRESSED size for this leaf (it rides on
+        // `marketCap`); the raw cap is kept for the tooltip via `rawMarketCap`.
         const size = s.marketCap > 0 ? s.marketCap : s.volume;
         return {
           name: s.symbol,
@@ -160,11 +162,21 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
           price: s.price,
           changePct: s.changePct,
           marketCap: s.marketCap,
+          rawMarketCap: s.rawMarketCap ?? s.marketCap,
           volume: s.volume,
         };
       });
-      const total = sec.stocks.reduce((a, s) => a + (s.marketCap > 0 ? s.marketCap : s.volume), 0);
-      return { name: sec.name, value: [total, sec.change], change: sec.change, marketCap: total, children };
+      // Sector tile area = sum of its children's (already compressed) sizes, so
+      // the group band matches the leaves exactly.
+      const total = children.reduce((a, c) => a + Number(c.value[0] ?? 0), 0);
+      return {
+        name: sec.name,
+        value: [total, sec.change],
+        change: sec.change,
+        marketCap: total,
+        rawMarketCap: sec.rawMarketCap ?? total,
+        children,
+      };
     });
   }, [data]);
 

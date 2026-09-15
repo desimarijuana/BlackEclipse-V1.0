@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bot, Link2, Maximize2, MoreHorizontal, ChevronDown,
+  Bot, Copy, GripVertical, Link2, Maximize2, MoreHorizontal, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChartWidget } from '@/components/chart/chart-widget';
@@ -45,6 +45,12 @@ export interface ChartPanelProps {
   resizeHandleProps?: { onPointerDown: React.PointerEventHandler };
   /** Drop target callback when a symbol from the watchlist is dropped. */
   onDropSymbol?: (symbol: string, market?: string) => void;
+  /**
+   * `minimal` = full-page mode: hide every interactive control (toolbar, AI,
+   * link, menu, remove) so the screen is pure price action. The header keeps
+   * only symbol + price + change.
+   */
+  chrome?: 'full' | 'minimal';
 }
 
 /** A chart panel only needs the chart fields of a ChartState. */
@@ -71,8 +77,9 @@ export function ChartPanel({
   onChartChange, onLinkChange, onToggleAi,
   onRemove, onDuplicate, onFocus,
   dragHandleProps, resizeHandleProps,
-  onDropSymbol,
+  onDropSymbol, chrome = 'full',
 }: ChartPanelProps) {
+  const minimal = chrome === 'minimal';
   const chart = useMemo(() => normalizeChart(panel), [panel]);
   const providerRef = useRef<ChartProvider | null>(null);
 
@@ -157,10 +164,10 @@ export function ChartPanel({
       {editMode && dragHandleProps && (
         <div
           {...dragHandleProps}
-          className="flex h-5 shrink-0 cursor-grab items-center justify-center gap-1 border-b border-border/10 bg-accent/20 active:cursor-grabbing"
+          className="flex h-5 shrink-0 cursor-grab items-center justify-center gap-1 border-b border-border/10 bg-primary/10 active:cursor-grabbing"
           title="Drag to move panel"
         >
-          <span className="h-1 w-10 rounded-full bg-border" />
+          <GripVertical size={12} className="text-primary" />
         </div>
       )}
 
@@ -171,9 +178,9 @@ export function ChartPanel({
         loading={loading}
         compact={compact}
         active={active}
-        onRefresh={refresh}
-        onRemove={onRemove}
-        actions={
+        onRefresh={minimal ? undefined : refresh}
+        onRemove={minimal ? undefined : onRemove}
+        actions={minimal ? undefined : (
           <>
             <LinkMenu link={link} active={linkActive} onToggle={toggleLink} />
 
@@ -200,12 +207,13 @@ export function ChartPanel({
                   </div>
                   <div className="mt-1 border-t border-border/10 pt-1" />
                   <MenuItem icon={<Maximize2 size={12} />} label="Chart fullscreen" onClick={() => { onFocus(); close(); }} />
-                  <MenuItem icon={<ChevronDown size={12} />} label="Duplicate panel" onClick={() => { onDuplicate(); close(); }} />
+                  <MenuItem icon={<Copy size={12} />} label="Duplicate panel" onClick={() => { onDuplicate(); close(); }} />
+                  <MenuItem icon={<Trash2 size={12} />} label="Remove panel" onClick={() => { onRemove(); close(); }} danger />
                 </>
               )}
             </ToolbarMenu>
           </>
-        }
+        )}
       />
 
       <div className={cn('relative flex min-h-0 flex-1', aiOpen && !compact ? 'flex-row' : 'flex-col')}>
@@ -213,6 +221,7 @@ export function ChartPanel({
           state={chart}
           onStateChange={onChartChange}
           compact={compact}
+          hideToolbar={minimal}
           hideFooter
           onProviderReady={(p) => { providerRef.current = p; }}
           onCrosshair={(t) => linkBus.publishCrosshair(t, panel.id)}
@@ -235,14 +244,16 @@ export function ChartPanel({
         )}
       </div>
 
-      {/* Fullscreen affordance on hover */}
-      <button
-        onClick={onFocus}
-        title="Fullscreen (F)"
-        className="absolute bottom-2 right-2 z-20 hidden items-center gap-1 rounded-lg border border-border/40 bg-background/80 px-2 py-1 text-[9px] font-bold text-muted-foreground transition-colors hover:text-primary group-hover/panel:flex cursor-pointer"
-      >
-        <Maximize2 size={10} /> Fullscreen
-      </button>
+      {/* Fullscreen affordance on hover — hidden in minimal (full-page) chrome. */}
+      {!minimal && (
+        <button
+          onClick={onFocus}
+          title="Fullscreen (F)"
+          className="absolute bottom-2 right-2 z-20 hidden items-center gap-1 rounded-lg border border-border/40 bg-background/80 px-2 py-1 text-[9px] font-bold text-muted-foreground transition-colors hover:text-primary group-hover/panel:flex cursor-pointer"
+        >
+          <Maximize2 size={10} /> Fullscreen
+        </button>
+      )}
 
       {/* Edit-mode resize grip (bottom-right corner). */}
       {editMode && resizeHandleProps && (
@@ -258,11 +269,14 @@ export function ChartPanel({
   );
 }
 
-function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function MenuItem({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-foreground transition-colors hover:bg-accent/50 cursor-pointer"
+      className={cn(
+        'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition-colors cursor-pointer',
+        danger ? 'text-rose-400 hover:bg-rose-500/10' : 'text-foreground hover:bg-accent/50',
+      )}
     >
       {icon} {label}
     </button>

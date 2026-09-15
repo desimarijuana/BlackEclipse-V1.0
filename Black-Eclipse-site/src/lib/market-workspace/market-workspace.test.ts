@@ -6,8 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { produce } from 'immer';
 import {
   addPanel, applyGridPreset, autoArrange, cloneLayout, duplicatePanel,
-  findFreeSlot, firstFreeRow, normalizeLayout, removePanel, setPanelSymbol,
-  togglePanelAi,
+  findFreeSlot, firstFreeRow, normalizeLayout, placePanel, recomputeRows,
+  removePanel, setPanelRect, setPanelSymbol, togglePanelAi,
 } from './ops';
 import {
   GRID_COLUMNS, MAX_ROWS, clampRect, gridPreset, newPanelId, presetRect,
@@ -155,6 +155,91 @@ describe('layout ops', () => {
     });
     expect(layout.panels[0].rect.colSpan).toBe(4);
     expect(layout.panels[0].rect.rowSpan).toBe(1);
+  });
+});
+
+describe('row fitting (no phantom scroll space)', () => {
+  it('shrinks rows to content after removing a panel', () => {
+    const layout = produce(empty(), (d) => {
+      const a = addPanel(d, 'chart');
+      addPanel(d, 'chart');
+      addPanel(d, 'chart');
+      // Two half-width panels per row → 3 panels span rows 0 and 1.
+      removePanel(d, a.id);
+    });
+    const maxRow = layout.panels.reduce((m, p) => Math.max(m, p.rect.row + p.rect.rowSpan), 0);
+    expect(layout.rows).toBe(maxRow);
+  });
+
+  it('never leaves rows below the last panel', () => {
+    const layout = produce(empty(), (d) => {
+      for (let i = 0; i < 3; i++) addPanel(d, 'chart');
+    });
+    const maxRow = layout.panels.reduce((m, p) => Math.max(m, p.rect.row + p.rect.rowSpan), 0);
+    expect(layout.rows).toBe(maxRow);
+  });
+
+  it('recomputeRows clamps to at least 1 and at most MAX_ROWS', () => {
+    const layout = produce(empty(), (d) => {
+      addPanel(d, 'chart');
+      d.panels[0].rect.row = 999;
+      recomputeRows(d);
+    });
+    expect(layout.rows).toBeGreaterThanOrEqual(1);
+    expect(layout.rows).toBeLessThanOrEqual(MAX_ROWS);
+  });
+});
+
+describe('placePanel (interactive drag)', () => {
+  it('keeps the moved panel exactly where it was dropped', () => {
+    const layout = produce(empty(), (d) => {
+      const p = addPanel(d, 'chart');
+      placePanel(d, p.id, 6, 3);
+    });
+    expect(layout.panels[0].rect.col).toBe(6);
+    expect(layout.panels[0].rect.row).toBe(3);
+  });
+
+  it('pushes overlapped panels down instead of snapping the moved one back', () => {
+    const layout = produce(empty(), (d) => {
+      const a = addPanel(d, 'chart'); // row 0
+      addPanel(d, 'chart');           // row 0 right / row 2
+      // Drop A onto where the other panels already sit.
+      placePanel(d, a.id, 6, 0);
+    });
+    const [a, b] = layout.panels;
+    expect(a.rect).toMatchObject({ col: 6, row: 0 });
+    expect(rectsOverlap(a.rect, b.rect)).toBe(false);
+  });
+
+  it('grows the grid when dropped near the bottom', () => {
+    const layout = produce(empty(), (d) => {
+      const p = addPanel(d, 'chart');
+      placePanel(d, p.id, 0, 5);
+    });
+    // The panel stays at row 5 and the grid grows to cover its full span.
+    expect(layout.panels[0].rect.row).toBe(5);
+    expect(layout.rows).toBe(5 + layout.panels[0].rect.rowSpan);
+  });
+});
+
+describe('setPanelRect (interactive resize)', () => {
+  it('resizes the panel and grows rows to fit', () => {
+    const layout = produce(empty(), (d) => {
+      const p = addPanel(d, 'chart');
+      setPanelRect(d, p.id, { col: 0, row: 0, colSpan: 12, rowSpan: 3 });
+    });
+    expect(layout.panels[0].rect).toMatchObject({ colSpan: 12, rowSpan: 3 });
+    expect(layout.rows).toBe(3);
+  });
+
+  it('pushes down a panel that the resize would overlap', () => {
+    const layout = produce(empty(), (d) => {
+      const a = addPanel(d, 'chart');
+      addPanel(d, 'chart'); // second panel sits right of A
+      setPanelRect(d, a.id, { col: 0, row: 0, colSpan: 12, rowSpan: 1 });
+    });
+    expect(rectsOverlap(layout.panels[0].rect, layout.panels[1].rect)).toBe(false);
   });
 });
 

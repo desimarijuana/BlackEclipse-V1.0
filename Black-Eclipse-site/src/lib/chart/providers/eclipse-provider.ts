@@ -408,9 +408,10 @@ export class EclipseChartProvider implements ChartProvider {
     const bottomMargin = this.compact ? 0.02 : 0.06;
     const available = 1 - topMargin - bottomMargin;
     const gap = this.compact ? 0.01 : 0.02;
-    // Right gutter reserved for the live-price tag (TradingView-style). Applied
-    // to every pane so their x-axes stay aligned. Tightened in dense mode.
-    const rightGutter = this.compact ? 42 : this.rightGutter;
+    // Right gutter carries the price axis labels AND the live-price tag, so it
+    // is a touch wider than a bare axis would need. Applied to every pane so
+    // their x-axes stay aligned. Tightened in dense mode.
+    const rightGutter = this.compact ? 52 : this.rightGutter + 14;
     const axisFont = this.compact ? 8 : 9;
 
     let cursor = topMargin;
@@ -447,8 +448,11 @@ export class EclipseChartProvider implements ChartProvider {
       }
 
       if (pane.type === 'main') {
+        // Price axis sits on the RIGHT (TradingView convention) — the y-axis is
+        // positioned right and the grid's right gutter reserves room for it plus
+        // the live-price tag.
         yAxes.push({
-          type: 'value', scale: true, gridIndex: gridIdx,
+          type: 'value', scale: true, gridIndex: gridIdx, position: 'right',
           splitLine: { lineStyle: { color: GRID } },
           axisLabel: { color: AXIS, fontSize: axisFont, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v), showMaxLabel: !this.compact },
         });
@@ -495,7 +499,7 @@ export class EclipseChartProvider implements ChartProvider {
         }
       } else if (pane.type === 'volume') {
         yAxes.push({
-          type: 'value', gridIndex: gridIdx, splitNumber: 2,
+          type: 'value', gridIndex: gridIdx, splitNumber: 2, position: 'right',
           splitLine: { show: false },
           axisLabel: { color: 'rgba(160,160,160,0.5)', fontSize: 8, fontFamily: 'monospace', formatter: (v: number) => this.fmtVol(v) },
         });
@@ -507,7 +511,7 @@ export class EclipseChartProvider implements ChartProvider {
         const result = this.indicatorResults.get(pane.indicatorId);
         if (result) {
           yAxes.push({
-            type: 'value', gridIndex: gridIdx, scale: true,
+            type: 'value', gridIndex: gridIdx, scale: true, position: 'right',
             min: result.yMin, max: result.yMax,
             splitLine: { lineStyle: { color: GRID } },
             axisLabel: { color: AXIS, fontSize: axisFont - 1, fontFamily: 'monospace', formatter: (v: number) => this.fmt(v) },

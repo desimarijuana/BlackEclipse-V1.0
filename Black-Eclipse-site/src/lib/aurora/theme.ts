@@ -29,9 +29,33 @@ export interface AuroraPreset {
   palette: AuroraPalette;
 }
 
+/** Build a preset from three compact `[core, edge]` tuples. */
+function preset(
+  id: string,
+  label: string,
+  description: string,
+  bearish: [string, string],
+  neutral: [string, string],
+  bullish: [string, string],
+): AuroraPreset {
+  return {
+    id,
+    label,
+    description,
+    palette: {
+      bearish: { core: bearish[0], edge: bearish[1] },
+      neutral: { core: neutral[0], edge: neutral[1] },
+      bullish: { core: bullish[0], edge: bullish[1] },
+    },
+  };
+}
+
 /**
  * Shipped presets. The first is the default brand identity; the rest are
- * tasteful variations that stay inside the dark-terminal aesthetic.
+ * tasteful variations that stay inside the dark-terminal aesthetic. Every
+ * palette is validated in `theme.test.ts` (all six colors must be valid hex),
+ * and applying one is guaranteed to drive `resolveAuroraVisuals` to those
+ * exact cores at the sentiment extremes.
  */
 export const AURORA_PRESETS: AuroraPreset[] = [
   {
@@ -40,46 +64,30 @@ export const AURORA_PRESETS: AuroraPreset[] = [
     description: 'The default green-on-black brand glow.',
     palette: DEFAULT_AURORA_PALETTE,
   },
-  {
-    id: 'emerald',
-    label: 'Emerald',
-    description: 'Deeper, cooler green with a teal bearish shift.',
-    palette: {
-      bullish: { core: '#34d399', edge: '#022c22' },
-      neutral: { core: '#2f7d5a', edge: '#001b12' },
-      bearish: { core: '#ff6b6b', edge: '#3f0d0d' },
-    },
-  },
-  {
-    id: 'gold',
-    label: 'Gold',
-    description: 'Amber bullish glow with a rust bearish shift.',
-    palette: {
-      bullish: { core: '#ffd166', edge: '#3a2a05' },
-      neutral: { core: '#b98b3a', edge: '#241905' },
-      bearish: { core: '#ff5c5c', edge: '#3f0d0d' },
-    },
-  },
-  {
-    id: 'ice',
-    label: 'Ice',
-    description: 'Cool cyan bullish glow with a magenta bearish shift.',
-    palette: {
-      bullish: { core: '#67e8f9', edge: '#062b33' },
-      neutral: { core: '#4a8ea3', edge: '#04181f' },
-      bearish: { core: '#e879f9', edge: '#2e0733' },
-    },
-  },
-  {
-    id: 'crimson',
-    label: 'Crimson',
-    description: 'Rose-forward glow for a warmer terminal.',
-    palette: {
-      bullish: { core: '#fb7185', edge: '#3f0d1a' },
-      neutral: { core: '#a35565', edge: '#24070e' },
-      bearish: { core: '#ff2d55', edge: '#3f0511' },
-    },
-  },
+  preset('emerald', 'Emerald', 'Deeper, cooler green with a soft red bearish shift.',
+    ['#ff6b6b', '#3f0d0d'], ['#2f7d5a', '#001b12'], ['#34d399', '#022c22']),
+  preset('matrix', 'Matrix', 'Pure phosphor-green terminal, minimal red.',
+    ['#ff3b3b', '#3a0505'], ['#0f8a2e', '#001207'], ['#00ff41', '#001a05']),
+  preset('ice', 'Ice', 'Cold cyan bullish with a magenta bearish shift.',
+    ['#e879f9', '#2e0733'], ['#4a8ea3', '#04181f'], ['#67e8f9', '#062b33']),
+  preset('ocean', 'Ocean', 'Deep-sea blue glow with a coral bearish shift.',
+    ['#fb7185', '#3a0a14'], ['#2f6f8f', '#041825'], ['#38bdf8', '#07263a']),
+  preset('nord', 'Nord', 'Muted arctic frost — slate blue and understated red.',
+    ['#bf616a', '#2e1418'], ['#5e81ac', '#141d2b'], ['#88c0d0', '#1b2b33']),
+  preset('gold', 'Gold', 'Amber bullish glow with a rust bearish shift.',
+    ['#ff5c5c', '#3f0d0d'], ['#b98b3a', '#241905'], ['#ffd166', '#3a2a05']),
+  preset('sunset', 'Sunset', 'Warm orange bullish fading into a dusky rose bearish.',
+    ['#d64550', '#320a0e'], ['#c96f3a', '#241005'], ['#ffb347', '#3a1e05']),
+  preset('volcano', 'Volcano', 'Molten orange glow with a deep crimson drop.',
+    ['#e63946', '#33070c'], ['#b3542a', '#240d05'], ['#ff8c42', '#3a1605']),
+  preset('copper', 'Copper', 'Brushed copper bullish with an oxidised red bearish.',
+    ['#c94f4f', '#320a0a'], ['#a9714b', '#241509'], ['#e8a87c', '#3a2415']),
+  preset('crimson', 'Crimson', 'Rose-forward glow for a warmer terminal.',
+    ['#ff2d55', '#3f0511'], ['#a35565', '#24070e'], ['#fb7185', '#3f0d1a']),
+  preset('rose', 'Rose', 'Pink bullish with a deep rose bearish.',
+    ['#e11d48', '#3a0512'], ['#b86f96', '#240b17'], ['#f9a8d4', '#3a1226']),
+  preset('neon', 'Neon', 'Electric lime bullish with a hot-pink bearish.',
+    ['#ff2bd6', '#2e0526'], ['#22c55e', '#03170a'], ['#39ff14', '#0a1f05']),
 ];
 
 export const STATE_LABELS: Record<AuroraMarketState, string> = {

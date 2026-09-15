@@ -14,7 +14,7 @@ import {
   applyGridPreset as applyGridPresetDraft,
   autoArrange as autoArrangeDraft,
   duplicatePanel as duplicatePanelDraft,
-  normalizePanels as normalizePanelsDraft,
+  placePanel as placePanelDraft,
   removePanel as removePanelDraft,
   setPanelChart as setPanelChartDraft,
   setPanelConfig as setPanelConfigDraft,
@@ -49,10 +49,12 @@ interface MarketWorkspaceState {
 
 interface MarketWorkspaceActions {
   commit: (recipe: (draft: MarketWorkspaceLayout) => void) => void;
-  addPanel: (type: MarketPanelType, rect?: PanelRect) => void;
+  addPanel: (type: MarketPanelType, rect?: PanelRect, seed?: { symbol?: string; market?: string }) => void;
   removePanel: (id: string) => void;
   duplicatePanel: (id: string) => void;
   setPanelRect: (id: string, rect: PanelRect) => void;
+  /** Absolute-placement drag commit (keeps the panel where it was dropped). */
+  placePanel: (id: string, col: number, row: number) => void;
   setPanelChart: (id: string, chart: MarketPanel['chart']) => void;
   setPanelSymbol: (id: string, symbol: string, market?: string) => void;
   setPanelLink: (id: string, link: MarketPanel['link']) => void;
@@ -90,10 +92,11 @@ function makeStore({ storageKey, defaultLayout }: UseMarketWorkspaceOptions) {
       dragging: false,
 
       commit,
-      addPanel: (type, rect) => commit(d => { addPanelDraft(d, type, rect); }),
+      addPanel: (type, rect, seed) => commit(d => { addPanelDraft(d, type, rect, seed); }),
       removePanel: (id) => commit(d => { removePanelDraft(d, id); }),
       duplicatePanel: (id) => commit(d => { duplicatePanelDraft(d, id); }),
-      setPanelRect: (id, rect) => commit(d => { setPanelRectDraft(d, id, rect); normalizePanelsDraft(d); }),
+      setPanelRect: (id, rect) => commit(d => { setPanelRectDraft(d, id, rect); }),
+      placePanel: (id, col, row) => commit(d => { placePanelDraft(d, id, col, row); }),
       setPanelChart: (id, chart) => commit(d => { setPanelChartDraft(d, id, chart); }),
       setPanelSymbol: (id, symbol, market) => commit(d => { setPanelSymbolDraft(d, id, symbol, market); }),
       setPanelLink: (id, link) => commit(d => { setPanelLinkDraft(d, id, link); }),
@@ -158,6 +161,7 @@ export function useMarketWorkspace(options: UseMarketWorkspaceOptions) {
       removePanel: ops.removePanel,
       duplicatePanel: ops.duplicatePanel,
       setPanelRect: ops.setPanelRect,
+      placePanel: ops.placePanel,
       setPanelChart: ops.setPanelChart,
       setPanelSymbol: ops.setPanelSymbol,
       setPanelLink: ops.setPanelLink,

@@ -276,9 +276,15 @@ export function resolveAuroraVisuals(score: number, palette?: AuroraPalette | nu
 
 /** Fill any missing state/pair/color in a user palette from the defaults. */
 export function normalizePalette(palette?: AuroraPalette | null): AuroraPalette {
+  // Validate that a color is a real hex, not merely a string — a malformed
+  // value would otherwise reach the shader and render as transparent/NaN.
+  const hex = (v: unknown, fallback: string): string =>
+    typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v.trim())
+      ? v.trim().toLowerCase()
+      : fallback;
   const safe = (pair: Partial<AuroraColorPair> | undefined, fallback: AuroraColorPair) => ({
-    core: typeof pair?.core === 'string' && pair.core ? pair.core : fallback.core,
-    edge: typeof pair?.edge === 'string' && pair.edge ? pair.edge : fallback.edge,
+    core: hex(pair?.core, fallback.core),
+    edge: hex(pair?.edge, fallback.edge),
   });
   return {
     bullish: safe(palette?.bullish, DEFAULT_AURORA_PALETTE.bullish),

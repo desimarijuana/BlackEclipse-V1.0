@@ -48,11 +48,27 @@ export function emptyLayout(layoutId = '2x2'): MarketWorkspaceLayout {
   return { version: 1, layoutId, rows, panels: [makePanel('chart', 0, columns)] };
 }
 
-/** Build a panel with a preset cell placement. */
-export function makePanel(type: MarketPanelType, index: number, columns: number): MarketPanel {
+/**
+ * Build a panel with a preset cell placement. Chart panels take an optional
+ * `seed` so a NEW chart opens on the workspace's own asset (a Crypto layout's
+ * next chart opens BTC, a PSX layout's opens OGDC, …) instead of always AAPL.
+ */
+export function makePanel(
+  type: MarketPanelType,
+  index: number,
+  columns: number,
+  seed?: { symbol?: string; market?: string },
+): MarketPanel {
   const rect = presetRect(index, columns);
   const panel: MarketPanel = { id: newPanelId(type), type, rect };
-  if (type === 'chart') panel.chart = defaultChartState({ symbol: 'AAPL', market: 'US' });
+  if (type === 'chart') {
+    panel.chart = defaultChartState({
+      symbol: seed?.symbol ?? 'AAPL',
+      market: seed?.market ?? 'US',
+    });
+  }
+  if (seed?.symbol) panel.symbol = seed.symbol;
+  if (seed?.market) panel.market = seed.market;
   return panel;
 }
 
@@ -66,6 +82,17 @@ export function firstFreeRow(panels: MarketPanel[], rect: PanelRect, ignoreId?: 
     row += 1;
   }
   return row;
+}
+
+/**
+ * Shrink the grid's row count to exactly fit its content (never below 1).
+ * This is what keeps the page from scrolling into empty space after a panel is
+ * removed or a layout is compacted: the grid tracks always end at the last row
+ * that actually holds a panel.
+ */
+export function recomputeRows(d: Draft<MarketWorkspaceLayout>): void {
+  const maxRow = d.panels.reduce((a, p) => Math.max(a, p.rect.row + p.rect.rowSpan), 0);
+  d.rows = Math.max(1, Math.min(MAX_ROWS, maxRow));
 }
 
 /**
@@ -101,17 +128,68 @@ export function findFreeSlot(panels: MarketPanel[], colSpan: number, rowSpan: nu
   return { col: 0, row: maxRow };
 }
 
-/** Clamp every rect, then re-flow overlaps downward. Order is preserved. */
-export function normalizePanels(d: Draft<MarketWorkspaceLayout>): void {
+/**
+ * Clamp every rect into the grid bounds WITHOUT moving panels between rows.
+ * Used after a drag/resize so the panel the user placed stays exactly where
+ * they dropped it; then grow rows to fit it. Overlaps are the caller's problem
+ * (the drag op resolves them by pushing displaced panels down).
+ */
+export function clampPanels(d: Draft<MarketWorkspaceLayout>): void {
+  for (const panel of d.panels) {
+    panel.rect = clampRect(panel.rect, MAX_ROWS);
+  }
+  recomputeRows(d);
+}
+
+/**
+ * Fully pack panels top-to-bottom with no gaps or overlaps (order preserved).
+ * Used for templates/presets and corruption repair, NOT for interactive moves.
+ */
+export function packPanels(d: Draft<MarketWorkspaceLayout>): void {
   const placed: MarketPanel[] = [];
   for (const panel of d.panels) {
-    const rect = clampRect(panel.rect, d.rows);
+    const rect = clampRect(panel.rect, MAX_ROWS);
     rect.row = firstFreeRow(placed, rect);
     panel.rect = rect;
     placed.push(panel);
   }
-  const maxRow = placed.reduce((a, p) => Math.max(a, p.rect.row + p.rect.rowSpan), 0);
-  if (maxRow > d.rows) d.rows = Math.min(MAX_ROWS, maxRow);
+  recomputeRows(d);
+}
+
+/** @deprecated use packPanels — kept as the historical entry point. */
+export function normalizePanels(d: Draft<MarketWorkspaceLayout>): void {
+  packPanels(d);
+}
+
+/**
+ * Move `panel` so its top-left lands at an absolute grid cell, pushing any
+ * panels it would overlap downward (out of the way) rather than snapping the
+ * moved panel back. This is the interactive drag/drop contract.
+ *
+ * Resolution order: the moved panel is fixed first, then every other panel is
+ * re-seated top-to-bottom, shifted down past anything already placed. A guard
+ * bounds the work so a pathological layout can never loop forever.
+ */
+export function placePanel(d: Draft<MarketWorkspaceLayout>, id: string, col: number, row: number): void {
+  const moved = d.panels.find(p => p.id === id);
+  if (!moved) return;
+  const rect = clampRect({ ...moved.rect, col, row }, MAX_ROWS);
+  moved.rect = rect;
+
+  const settled: MarketPanel[] = [moved];
+  const others = d.panels.filter(p => p.id !== id);
+  for (const panel of others) {
+    let r = clampRect(panel.rect, MAX_ROWS);
+    // Push down until clear of every already-settled panel.
+    for (let guard = 0; guard < MAX_ROWS * 2; guard++) {
+      const collision = settled.find(s => rectsOverlap(r, s.rect));
+      if (!collision) break;
+      r = { ...r, row: collision.rect.row + collision.rect.rowSpan };
+    }
+    panel.rect = r;
+    settled.push(panel);
+  }
+  recomputeRows(d);
 }
 
 /**
@@ -119,10 +197,15 @@ export function normalizePanels(d: Draft<MarketWorkspaceLayout>): void {
  * it shows up big and immediately visible — never a 1-unit sliver, never
  * buried at the far-left of a new row when space exists above.
  */
-export function addPanel(d: Draft<MarketWorkspaceLayout>, type: MarketPanelType, rect?: PanelRect): MarketPanel {
+export function addPanel(
+  d: Draft<MarketWorkspaceLayout>,
+  type: MarketPanelType,
+  rect?: PanelRect,
+  seed?: { symbol?: string; market?: string },
+): MarketPanel {
   const { columns } = gridPreset(d.layoutId);
   const index = d.panels.length;
-  const panel = makePanel(type, index, columns);
+  const panel = makePanel(type, index, columns, seed);
   if (rect) {
     panel.rect = clampRect(rect, Math.max(d.rows + rect.row + rect.rowSpan, d.rows));
     panel.rect.row = firstFreeRow(d.panels, panel.rect);
@@ -132,37 +215,58 @@ export function addPanel(d: Draft<MarketWorkspaceLayout>, type: MarketPanelType,
     panel.rect = { col: slot.col, row: slot.row, colSpan, rowSpan };
   }
   d.panels.push(panel);
-  const needed = panel.rect.row + panel.rect.rowSpan;
-  if (needed > d.rows) d.rows = Math.min(MAX_ROWS, needed);
+  recomputeRows(d);
   return panel;
 }
 
+/**
+ * Remove a panel and let the grid SHRINK to fit the remaining content. Without
+ * this the removed panel's rows linger as empty scrollable space.
+ */
 export function removePanel(d: Draft<MarketWorkspaceLayout>, id: string): void {
   d.panels = d.panels.filter(p => p.id !== id);
+  recomputeRows(d);
 }
 
-/** Duplicate a panel (new id), placed below the original via compaction. */
+/**
+ * Duplicate a panel (new id). The copy is packed into the first genuinely free
+ * slot so it never overlaps its source; the grid grows if needed.
+ */
 export function duplicatePanel(d: Draft<MarketWorkspaceLayout>, id: string): void {
   const idx = d.panels.findIndex(p => p.id === id);
   if (idx === -1) return;
   const src = d.panels[idx];
+  const slot = findFreeSlot(d.panels, src.rect.colSpan, src.rect.rowSpan);
   const copy: MarketPanel = {
     ...src,
     id: newPanelId(src.type),
-    rect: { ...src.rect, row: src.rect.row + src.rect.rowSpan },
+    rect: { col: slot.col, row: slot.row, colSpan: src.rect.colSpan, rowSpan: src.rect.rowSpan },
     chart: src.chart
       ? { ...src.chart, drawings: src.chart.drawings.map(dr => ({ ...dr, id: `${dr.id}-copy` })) }
       : undefined,
     config: src.config ? { ...src.config } : undefined,
   };
-  copy.rect.row = firstFreeRow(d.panels, copy.rect);
   d.panels.splice(idx + 1, 0, copy);
+  recomputeRows(d);
 }
 
+/**
+ * Set a panel's rect from an interactive resize: clamp to the grid, cascade any
+ * panels it now overlaps downward, then shrink/grow rows to fit. The panel stays
+ * exactly where the user put it.
+ */
 export function setPanelRect(d: Draft<MarketWorkspaceLayout>, id: string, rect: PanelRect): void {
   const panel = d.panels.find(p => p.id === id);
   if (!panel) return;
-  panel.rect = clampRect(rect, d.rows);
+  const next = clampRect(rect, MAX_ROWS);
+  panel.rect = next;
+  // Push down anything the new size now collides with.
+  for (let guard = 0; guard < MAX_ROWS * 2; guard++) {
+    const hit = d.panels.find(p => p.id !== id && rectsOverlap(next, p.rect));
+    if (!hit) break;
+    hit.rect = { ...hit.rect, row: next.row + next.rowSpan };
+  }
+  recomputeRows(d);
 }
 
 /** Update a chart panel's serializable chart state. */
