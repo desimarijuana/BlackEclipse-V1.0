@@ -184,8 +184,24 @@ editing `grammar.ts` and its tests together.
   explicit match still wins. Ranking is personalized by entity *visit* history
   (`recencyScore` opt; the palette feeds it `visitRecencyScore` from the store).
 - `calc.ts` powers an inline offline calculator + indicative currency conversion;
-  `commands.ts` detects parameterized verbs (`alert`, `watch`, `compare`, `chart`)
-  and offers argument autocomplete. Both are pure and unit-tested.
+  `commands.ts` detects parameterized verbs (`alert`, `watch`, `chart`) and
+  offers argument autocomplete. Both are pure and unit-tested.
+- Parameterized commands **run real side effects**: `alert SYMBOL` creates a
+  ±3% `CHANGE_PCT` watch via `lib/alerts/quick-alert.ts` (`POST /api/alerts`)
+  and opens the Alerts tab; `watch SYMBOL` calls `addToWatchlist`
+  (`lib/dashboard/watchlist-store.ts`) and opens the dashboard; `chart SYMBOL`
+  opens the chart. Registry actions declare `requiresArg`, so they are excluded
+  from ordinary action matching and can never render as a bare command that
+  navigates without acting.
+
+**Cross-tab pivots.** `resolveQuery` returns `related` rows for a resolved
+instrument. These are honest about what each destination can do: the news pivot
+passes `params.symbol`, which `MarketNews` consumes via its `symbol` prop (it
+seeds the server-side `ticker:` query operator — the news API has no other
+per-symbol filter); the screener pivot passes `symbol` + `focus:'chart'`, which
+pre-fills `MarketOverviewScreen`'s `initialSymbol` → `stockSearch` (the screener
+has no single-symbol query — it is a paginated universe partition, so a ticker
+narrows the search box rather than defining a new filter dimension).
 
 **Result UX.** The resolver returns `total` (untruncated match count, for
 "showing N of M"), a `suggestion` "did you mean" on a zero-hit query (static
@@ -194,6 +210,15 @@ palette groups results by entity kind with per-group counts and collapsible
 headers, pins entities (persisted in `localStorage`, replayed from a serialized
 destination), and copies symbols. Pins, visits, and collapse state live in the
 command store — the resolver stays pure.
+
+**Full navigation + scrolling.** The palette's bottom "Go to" group is
+**generated from `getAllPages()`** (not hand-listed), so every registered page
+is reachable — adding a `registerPage` entry automatically adds a nav row. The
+group is collapsible (shared `collapsedGroups` key `'nav'`) and is part of the
+same flat keyboard list. Navigation keys: ↑/↓ (wrap), PageUp/PageDown (jump
+`PAGE_SIZE`), Home/End, Enter to run. A bottom gradient fades in only while the
+list can still scroll (`canScrollDown`, tracked via scroll + ResizeObserver), so
+overflow is visible without a permanent shadow.
 
 **Accessibility.** The input is an ARIA combobox driving a `role="listbox"`
 result list with `aria-activedescendant`; a polite live region announces result

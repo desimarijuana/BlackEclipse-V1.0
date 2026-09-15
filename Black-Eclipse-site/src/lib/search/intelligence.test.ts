@@ -34,6 +34,15 @@ describe('resolveQuery — related rows', () => {
     expect(res.related.every((r) => r.destination.params?.symbol === 'AAPL')).toBe(true);
   });
 
+  it('routes the news pivot with a symbol and the screener pivot with focus:chart', () => {
+    const res = resolveQuery('AAPL');
+    const news = res.related.find((r) => r.destination.tab === 'news');
+    const discovery = res.related.find((r) => r.destination.tab === 'discovery');
+    expect(news?.destination.params?.symbol).toBe('AAPL');
+    // The screener has no single-symbol query; it pre-fills the search box.
+    expect(discovery?.destination.params).toMatchObject({ symbol: 'AAPL', focus: 'chart' });
+  });
+
   it('does not offer related rows inside a scoped symbol search', () => {
     const res = resolveQuery('# AAPL');
     expect(res.related).toEqual([]);

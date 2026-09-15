@@ -43,6 +43,13 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Search** — The palette is now full navigation, not just search. The bottom
+  group is generated from `getAllPages()` so every registered page is reachable
+  (adding a `registerPage` entry adds a nav row automatically); it is labeled
+  "Go to", collapsible, and part of the keyboard list. Added paging keys
+  (PageUp/PageDown/Home/End), a conditional bottom scroll-fade so overflow is
+  visible, and a `nameIcon` map for registry string icon names.
+  docs updated: `docs/ARCHITECTURE.md`
 - **Aurora** — Made the shipped bearish color a proper pure red (`#ff0000` core /
   `#3a0000` edge) instead of the yellowish `#ff3e3e`, so the default Eclipse
   preset's red no longer reads orange.

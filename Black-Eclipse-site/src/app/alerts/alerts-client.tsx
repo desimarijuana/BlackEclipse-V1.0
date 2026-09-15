@@ -137,6 +137,25 @@ export function AlertsClient() {
     return () => clearInterval(t);
   }, [loadAll, loadLive]);
 
+  // Re-list whenever a watch is created elsewhere (e.g. the command palette's
+  // `alert SYMBOL`). The Alerts tab is keep-alive (display:none), so switching
+  // to it does not remount or fire focus — an explicit event is the reliable
+  // signal. Also refresh on real browser-tab focus.
+  useEffect(() => {
+    const onChanged = () => loadAll();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadAll();
+    };
+    window.addEventListener('be:alerts-changed', onChanged);
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('be:alerts-changed', onChanged);
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadAll]);
+
   const notify = (m: string) => {
     setToast(m);
     setTimeout(() => setToast(null), 5000);

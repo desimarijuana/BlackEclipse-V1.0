@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveQuery } from './resolver';
-import { getInstrumentByAlias, getPage } from './registry';
+import { getAllActions, getAllPages, getInstrumentByAlias, getPage } from './registry';
 
 describe('registry', () => {
   it('resolves symbol aliases to the same canonical entity', () => {
@@ -31,6 +31,17 @@ describe('registry', () => {
     expect(portfolio?.destination.tab).toBe('portfolio');
   });
 
+  it('exposes every registered page with a destination (the palette nav list)', () => {
+    const pages = getAllPages();
+    // The whole app is reachable from the palette's generated "Go to" group.
+    expect(pages.length).toBeGreaterThanOrEqual(11);
+    expect(pages.every((p) => Boolean(p.title && p.destination?.tab))).toBe(true);
+    const tabs = new Set(pages.map((p) => p.destination.tab));
+    for (const tab of ['chat', 'dashboard', 'discovery', 'portfolio', 'journal', 'news', 'heatmap', 'economics', 'alerts', 'settings', 'market-workspace']) {
+      expect(tabs.has(tab as never)).toBe(true);
+    }
+  });
+
   it('returns undefined for unknown symbols', () => {
     expect(getInstrumentByAlias('ZZZZZZ')).toBeUndefined();
   });
@@ -40,6 +51,23 @@ describe('registry', () => {
     expect(getInstrumentByAlias('gold')?.assetClass).toBe('commodity');
     expect(getInstrumentByAlias('S&P 500')?.assetClass).toBe('index');
     expect(getInstrumentByAlias('crude oil')?.symbol).toBe('CL');
+  });
+
+  it('registers parameterized alert/watch actions that navigate to their tab', () => {
+    const actions = getAllActions();
+    const alert = actions.find((a) => a.id === 'act-alert-symbol');
+    const watch = actions.find((a) => a.id === 'act-watch-symbol');
+    expect(alert?.verb).toBe('alert');
+    expect(alert?.run({ query: 'alert aapl', normalized: 'alert aapl' })?.tab).toBe('alerts');
+    expect(watch?.verb).toBe('watch');
+    expect(watch?.run({ query: 'watch aapl', normalized: 'watch aapl' })?.tab).toBe('dashboard');
+  });
+
+  it('never offers a requiresArg command as a bare paletted action', () => {
+    // "alert" and "watch" must only run with a symbol, via the param path.
+    const res = resolveQuery('alert');
+    expect(res.actions.some((a) => a.id === 'act-alert-symbol')).toBe(false);
+    expect(res.items.some((i) => i.entity.id === 'act-alert-symbol')).toBe(false);
   });
 });
 

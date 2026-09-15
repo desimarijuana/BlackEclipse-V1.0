@@ -24,6 +24,11 @@ import {
   Check,
   Calculator,
   Bell,
+  LayoutDashboard,
+  Newspaper,
+  Orbit,
+  Settings,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -32,10 +37,35 @@ import { useCommandStore, visitRecencyScore } from '@/lib/search/store';
 import { resolveQuery } from '@/lib/search/resolver';
 import { evaluateCalc, type CalcResult } from '@/lib/search/calc';
 import { detectParamCommand, paramCandidates } from '@/lib/search/commands';
+import { createQuickAlert } from '@/lib/alerts/quick-alert';
+import { addToWatchlist } from '@/lib/dashboard/watchlist-store';
 import { universeCount } from '@/lib/search/universe';
+import { getAllPages } from '@/lib/search/registry';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
+
+/**
+ * Map the registry's string icon names (used by pages/instruments/actions) to
+ * lucide components. Kept local to the palette because it is the only consumer
+ * that renders those strings. Unknown names fall back to a generic glyph.
+ */
+const NAME_ICON: Record<string, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  chart: ChartCandlestick,
+  bot: Bot,
+  briefcase: Briefcase,
+  book: BookOpen,
+  news: Newspaper,
+  orbit: Orbit,
+  globe: Globe,
+  bell: Bell,
+  settings: Settings,
+};
+
+function nameIcon(name?: string): LucideIcon {
+  return (name && NAME_ICON[name]) || Sparkles;
+}
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {
   security: ChartCandlestick,
@@ -75,6 +105,9 @@ const SECTION_ORDER: EntityKind[] = [
   'doc',
   'user',
 ];
+
+/** Rows moved per PageUp/PageDown in the results list. */
+const PAGE_SIZE = 6;
 
 interface QuickAction {
   id: string;
@@ -121,6 +154,10 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  // Inline error for a failed parameterized command (e.g. alert creation).
+  const [paramError, setParamError] = useState<string | null>(null);
+  // Whether the results list can still scroll down (drives the bottom fade).
+  const [canScrollDown, setCanScrollDown] = useState(false);
 
   useCommandCenterKeybind({
     open: store.open,
@@ -155,6 +192,12 @@ export function GlobalSearch() {
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(store.query), 80);
     return () => clearTimeout(t);
+  }, [store.query]);
+
+  // Clear a stale command error as soon as the user edits the query.
+  useEffect(() => {
+    if (paramError) setParamError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.query]);
 
   // Resolve against the debounced query; re-resolves when the universe,
@@ -192,8 +235,32 @@ export function GlobalSearch() {
     () => (paramCmd ? paramCandidates(paramCmd.arg) : []),
     [paramCmd],
   );
+  // "Go to" group collapse (shares the store's collapsedGroups list).
+  const navCollapsed = store.collapsedGroups.includes('nav');
 
-  const quickActions: QuickAction[] = useMemo(() => [
+  // All registered pages as "go to …" commands, generated from the registry so
+  // every tab/route is reachable without hand-listing them here. This is the
+  // bottom Navigation group (scrollable), replacing the old 4-item shortcut.
+  const navPages: QuickAction[] = useMemo(
+    () =>
+      getAllPages()
+        .map((p) => ({
+          id: `nav-${p.id}`,
+          label: `Go to ${p.title}`,
+          icon: nameIcon(p.icon),
+          run: () => {
+            store.dispatch(p.destination);
+            useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+          },
+        }))
+        // Market Workspace / Command Center first, then registry order.
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Pinned commands shown above the navigation list.
+  const pinnedCommands: QuickAction[] = useMemo(() => [
     {
       id: 'qa-new-chat',
       label: 'Start new chat',
@@ -203,35 +270,14 @@ export function GlobalSearch() {
         useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
       },
     },
-    {
-      id: 'qa-portfolio',
-      label: 'Open Portfolio',
-      icon: Briefcase,
-      run: () => {
-        store.dispatch({ tab: 'portfolio' });
-        useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-      },
-    },
-    {
-      id: 'qa-journal',
-      label: 'Open Trading Journal',
-      icon: BookOpen,
-      run: () => {
-        store.dispatch({ tab: 'journal' });
-        useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-      },
-    },
-    {
-      id: 'qa-events',
-      label: "Today's economic events",
-      icon: Globe,
-      run: () => {
-        store.dispatch({ tab: 'economics', subroute: 'economics.calendar' });
-        useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-      },
-    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
+
+  // Flat navigable list = commands then every page (order matches render).
+  const quickActions: QuickAction[] = useMemo(
+    () => [...pinnedCommands, ...navPages],
+    [pinnedCommands, navPages],
+  );
 
   // Build sections + a flat navigable row list (collapsed groups are skipped).
   const { sections, flatRows, hasAiRow } = useMemo(() => {
@@ -317,9 +363,36 @@ export function GlobalSearch() {
         built.push({ key: 'calc', label: 'Calculator', count: 1, collapsed: false, rows: [calcRow] });
       }
       // Parameterized command with inline argument autocomplete. Selecting an
-      // argument dispatches through the registry action so navigation stays
-      // centralized (the palette never builds a destination by hand).
+      // argument RUNS the command (create alert / add watchlist) and navigates
+      // to where the result is visible.
       if (paramCmd) {
+        const runParam = (symbol: string) => {
+          const sym = symbol.trim().toUpperCase();
+          if (!sym) return;
+          if (paramCmd.verb === 'alert' || paramCmd.verb === 'alerts') {
+            void createQuickAlert(sym).then((r) => {
+              if (!r.ok) {
+                // Keep the palette open so the failure is visible; the alert
+                // genuinely does not exist, so we never claim it does.
+                setParamError(`Could not create alert for ${sym}: ${r.error ?? 'unknown error'}`);
+                return;
+              }
+              store.recordRecent(`${paramCmd.verb} ${sym}`);
+              store.dispatch({ tab: 'alerts' });
+              useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+            });
+            return;
+          }
+          if (paramCmd.verb === 'watch') {
+            addToWatchlist(sym);
+            store.dispatch({ tab: 'dashboard' });
+          } else {
+            store.dispatch({ tab: 'chart', params: { symbol: sym } });
+          }
+          store.recordRecent(`${paramCmd.verb} ${sym}`);
+          useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+        };
+
         const label = paramCmd.arg
           ? paramCmd.template.replace('{arg}', paramCmd.arg.toUpperCase())
           : paramCmd.template.replace('{arg}', '…');
@@ -327,9 +400,12 @@ export function GlobalSearch() {
           type: 'action',
           id: `param-${paramCmd.verb}`,
           label,
-          icon: paramCmd.verb === 'compare' ? ChartCandlestick : Bell,
+          icon: paramCmd.verb === 'chart' ? ChartCandlestick : paramCmd.verb === 'watch' ? Briefcase : Bell,
+          // With a resolved arg, Enter runs it immediately; otherwise the first
+          // candidate is used.
           onSelect: () => {
-            if (paramArgs[0]) store.setQuery(`${paramCmd.verb} ${paramArgs[0].value}`);
+            const sym = paramCmd.arg || paramArgs[0]?.value;
+            if (sym) runParam(sym);
           },
         };
         const argRows = paramArgs.map<Row>((c) => ({
@@ -347,7 +423,7 @@ export function GlobalSearch() {
             destination: { tab: 'chart', params: { symbol: c.value } },
             subtitle: c.subtitle,
           },
-          onSelect: () => store.setQuery(`${paramCmd.verb} ${c.value}`),
+          onSelect: () => runParam(c.value),
         }));
         built.push({
           key: 'param',
@@ -423,9 +499,10 @@ export function GlobalSearch() {
       return { key: s.key, label: s.label, count: s.count, collapsed: s.collapsed, rows };
     });
 
-    // Pinned quick actions at the bottom (part of the flat list). Suppressed
-    // while the syntax help card is open — they are hidden from view then.
-    if (!showHelp) {
+    // Pinned navigation commands at the bottom (part of the flat list).
+    // Suppressed while the syntax help card is open, and skipped when the
+    // "Go to" group is collapsed.
+    if (!showHelp && !navCollapsed) {
       for (const qa of quickActions) {
         flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
       }
@@ -433,19 +510,58 @@ export function GlobalSearch() {
 
     return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, calc, paramCmd, paramArgs]);
+  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, calc, paramCmd, paramArgs, navCollapsed]);
+  // Track whether more content exists below the fold so the fade can show/hide.
+  // Re-measured when the flat list changes (query, collapse, pins, …).
+  useEffect(() => {
+    const container = resultsRef.current;
+    if (!container) return;
+    const measure = () => {
+      setCanScrollDown(container.scrollTop + container.clientHeight < container.scrollHeight - 4);
+    };
+    measure();
+    container.addEventListener('scroll', measure, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(container);
+    return () => {
+      container.removeEventListener('scroll', measure);
+      ro?.disconnect();
+    };
+  }, [store.open, flatRows.length]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const count = flatRows.length;
+    if (count === 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        store.runPrimary();
+      }
+      return;
+    }
+    const last = count - 1;
+    const clamp = (i: number) => Math.max(0, Math.min(last, i));
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      store.setSelectedIndex(count > 0 ? (store.selectedIndex + 1) % count : 0);
+      store.setSelectedIndex((store.selectedIndex + 1) % count);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      store.setSelectedIndex(count > 0 ? (store.selectedIndex - 1 + count) % count : 0);
+      store.setSelectedIndex((store.selectedIndex - 1 + count) % count);
+    } else if (e.key === 'PageDown') {
+      // Jump a page in the list, keeping the active row visible.
+      e.preventDefault();
+      store.setSelectedIndex(clamp(store.selectedIndex + PAGE_SIZE));
+    } else if (e.key === 'PageUp') {
+      e.preventDefault();
+      store.setSelectedIndex(clamp(store.selectedIndex - PAGE_SIZE));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      store.setSelectedIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      store.setSelectedIndex(last);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const row = flatRows[Math.min(store.selectedIndex, count - 1)];
+      const row = flatRows[clamp(store.selectedIndex)];
       if (row) {
         if (row.type === 'calc') row.onCopy();
         else row.onSelect();
@@ -502,8 +618,14 @@ export function GlobalSearch() {
 
         <div className="h-px bg-border/60" />
 
-        {/* Results */}
+        {/* Results — wrapped so a bottom fade signals more below the fold. */}
+        <div className="relative">
         <div ref={resultsRef} id="command-results" role="listbox" aria-label="Search results" className="max-h-[min(70dvh,400px)] sm:max-h-[min(50dvh,400px)] overflow-y-auto py-2">
+          {paramError && (
+            <div className="mx-3 mb-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+              {paramError}
+            </div>
+          )}
           {showHelp && <SyntaxHelp onPick={(p) => store.setQuery(p)} />}
 
           {bareScope && (
@@ -595,19 +717,45 @@ export function GlobalSearch() {
             </div>
           ))}
 
-          {/* Pinned quick actions — dashed divider like Linear. Hidden while the
-              syntax help card is open so the card reads as the whole panel. */}
+          {/* Go-to navigation — every registered page, generated from the
+              registry. Collapsible + part of the scrollable/keyboard list.
+              Hidden while the syntax help card is open. */}
           {!showHelp && (
             <>
               <div className="mx-4 my-2 border-t border-dashed border-border/60" />
               <div className="px-2 flex flex-col gap-px">
-                {quickActions.map((qa) => {
+                {pinnedCommands.map((qa) => {
                   const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
                   const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
                   return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
                 })}
               </div>
+              <div className="flex items-center justify-between px-4 pt-2 pb-1.5">
+                <button
+                  onClick={() => store.toggleGroup('nav')}
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <ChevronRight size={11} className={cn('transition-transform', !navCollapsed && 'rotate-90')} />
+                  Go to
+                  <span className="text-muted-foreground/40">{navPages.length}</span>
+                </button>
+              </div>
+              <div className="px-2 flex flex-col gap-px">
+                {navCollapsed
+                  ? null
+                  : navPages.map((qa) => {
+                      const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
+                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
+                      return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
+                    })}
+              </div>
             </>
+          )}
+        </div>
+          {/* Scroll affordance — pointer-events-none so rows stay clickable.
+              Only shown when there is more content below the fold. */}
+          {canScrollDown && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/35 dark:from-black/50 to-transparent" />
           )}
         </div>
 
@@ -617,7 +765,9 @@ export function GlobalSearch() {
           <span className="flex items-center gap-1.5">
             <CornerDownLeft size={11} /> to select
             <span className="mx-1 text-muted-foreground/30">·</span>
-            ↑↓ to navigate
+            ↑↓ navigate
+            <span className="mx-1 text-muted-foreground/30">·</span>
+            <span title="PageUp / PageDown">PgUp/Dn</span>
             <span className="mx-1 text-muted-foreground/30">·</span>
             esc to close
             <span className="mx-1 text-muted-foreground/30">·</span>

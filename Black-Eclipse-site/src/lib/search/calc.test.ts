@@ -67,6 +67,12 @@ describe('detectParamCommand', () => {
   it('returns null for non-commands', () => {
     expect(detectParamCommand('aapl')).toBeNull();
     expect(detectParamCommand('open portfolio')).toBeNull();
+    // 'compare' was removed — it has no wired side effect.
+    expect(detectParamCommand('compare aapl')).toBeNull();
+  });
+
+  it('detects chart as a parameterized verb', () => {
+    expect(detectParamCommand('chart aapl')?.verb).toBe('chart');
   });
 });
 

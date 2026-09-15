@@ -19,7 +19,7 @@ export interface ParamCandidate {
 
 export interface ParamCommand {
   /** The matched verb, e.g. 'alert'. */
-  verb: string;
+  verb: ParamVerb;
   /** Remaining argument text (may be empty). */
   arg: string;
   /** Human template with a {arg} placeholder. */
@@ -27,11 +27,16 @@ export interface ParamCommand {
 }
 
 // Verbs that take an instrument symbol argument, in the palette's vocabulary.
-const PARAM_COMMANDS: { verb: string; template: string }[] = [
-  { verb: 'alert', template: 'Set price alert for {arg}' },
-  { verb: 'alerts', template: 'Set price alert for {arg}' },
+// Each verb has a real side effect wired in the palette (see global-search.tsx):
+//   alert/alerts → create a ±3% CHANGE_PCT watch
+//   watch        → add the symbol to the guest watchlist
+//   chart        → open the symbol's chart
+export type ParamVerb = 'alert' | 'alerts' | 'watch' | 'chart';
+
+const PARAM_COMMANDS: { verb: ParamVerb; template: string }[] = [
+  { verb: 'alert', template: 'Set price alert for {arg} (±3%)' },
+  { verb: 'alerts', template: 'Set price alert for {arg} (±3%)' },
   { verb: 'watch', template: 'Add {arg} to watchlist' },
-  { verb: 'compare', template: 'Compare {arg}' },
   { verb: 'chart', template: 'Chart {arg}' },
 ];
 
@@ -44,7 +49,7 @@ export function detectParamCommand(raw: string): ParamCommand | null {
   const verb = m[1].toLowerCase();
   const cmd = PARAM_COMMANDS.find((c) => c.verb === verb);
   if (!cmd) return null;
-  return { verb, arg: (m[2] ?? '').trim(), template: cmd.template };
+  return { verb: cmd.verb, arg: (m[2] ?? '').trim(), template: cmd.template };
 }
 
 /** Candidate instrument args for the current argument fragment. */

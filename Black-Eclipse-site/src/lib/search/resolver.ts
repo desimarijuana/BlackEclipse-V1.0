@@ -224,6 +224,9 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
   const actionScope = !restrictedKinds || restrictedKinds.includes('action');
   const actions = actionScope
     ? getAllActions().filter((a) => {
+        // Argument-taking commands are driven by the parameterized-command path
+        // (parsed from the verb + symbol), never offered as a bare command.
+        if (a.requiresArg) return false;
         if (a.static && normalized.length < 2) return false;
         return (
           normalized.includes(a.title.toLowerCase()) ||
@@ -315,19 +318,22 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
 /** Tab pivots offered alongside a resolved instrument (e.g. "AAPL news"). */
 function relatedEntities(entity: SearchEntity): SearchEntity[] {
   const symbol = entity.symbol!;
-  const mk = (suffix: string, tab: SearchEntity['destination']['tab'], params: Record<string, string>): SearchEntity => ({
+  const mk = (suffix: string, tab: SearchEntity['destination']['tab'], params: Record<string, string>, subtitle: string): SearchEntity => ({
     id: `rel-${symbol}-${suffix}`,
     kind: 'page',
     title: `${symbol} ${suffix}`,
     keywords: [symbol, suffix],
     destination: { tab, params: { symbol, ...params } },
-    subtitle: `Open ${suffix}`,
+    subtitle,
     rankBoost: 0.6,
   });
   return [
-    mk('news', 'news', { symbol }),
-    mk('chart', 'chart', { symbol }),
-    mk('screener', 'discovery', { symbol }),
+    // News pins the feed to the ticker (MarketNews reads `symbol`).
+    mk('news', 'news', { symbol }, `News for ${symbol}`),
+    // The screener has no single-symbol query — it routes to the symbol's
+    // chart, which is the real per-ticker detail view.
+    mk('chart', 'chart', { symbol }, `Chart ${symbol}`),
+    mk('instruments', 'discovery', { symbol, focus: 'chart' }, `Open ${symbol} in Market Screener`),
   ];
 }
 

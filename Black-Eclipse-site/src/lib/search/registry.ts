@@ -279,4 +279,29 @@ registerAction({
   run: () => ({ tab: 'market-workspace' }),
 });
 
+// ── Parameterized commands ───────────────────────────────────────────────────
+// These are not matched as ordinary actions (they require an argument). The
+// palette's `detectParamCommand` recognizes the verb and runs the side effect
+// (create an alert / add to watchlist) before navigating.
+
+registerAction({
+  id: 'act-alert-symbol',
+  verb: 'alert',
+  title: 'Set price alert',
+  keywords: ['alert', 'price alert', 'set alert', 'notify'],
+  icon: 'bell',
+  requiresArg: true,
+  run: () => ({ tab: 'alerts' }),
+});
+
+registerAction({
+  id: 'act-watch-symbol',
+  verb: 'watch',
+  title: 'Add to watchlist',
+  keywords: ['watch', 'watchlist', 'add to watchlist', 'follow'],
+  icon: 'briefcase',
+  requiresArg: true,
+  run: () => ({ tab: 'dashboard' }),
+});
+
 export { registerPage, registerInstrument, registerAction };

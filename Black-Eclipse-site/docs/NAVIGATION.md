@@ -49,7 +49,9 @@ Black-Eclipse-site/
 | Change alerts | `src/lib/alerts/`, `src/app/api/alerts/`, `src/app/alerts/` |
 | Change the AI agent / research | `src/lib/agent/` (`registry.ts`, `loop.ts`, `research.ts`, `tools.ts`) |
 | Change the chart | `src/lib/chart/`, `src/components/chart/`, `src/components/screens/tradingview-chart.tsx` |
-| Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`), `src/components/layout/global-search.tsx` |
+| Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
+| Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
+| Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Change the DB schema | `prisma/schema.prisma` → `prisma db push` |

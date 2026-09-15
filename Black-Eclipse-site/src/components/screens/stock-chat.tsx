@@ -88,6 +88,10 @@ function StockChatContent() {
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
   const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
+  // Symbol pinned into the news tab by global search ("SYMBOL news").
+  const [newsSymbol, setNewsSymbol] = useState<string | undefined>(undefined);
+  // Symbol pre-filling the screener search ("SYMBOL screener").
+  const [discoverySymbol, setDiscoverySymbol] = useState<string | undefined>(undefined);
   
   // Conversations states
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -167,6 +171,13 @@ function StockChatContent() {
       }
       if (dest.params?.symbol) {
         setSelectedChartSymbol(dest.params.symbol.toUpperCase());
+        // A symbol on the news tab pins the feed to that ticker instead of
+        // just loading it into the chart.
+        if (dest.tab === 'news') setNewsSymbol(dest.params.symbol.toUpperCase());
+        // `focus: 'chart'` is the screener pivot — pre-fill its search box.
+        if (dest.tab === 'discovery' && dest.params.focus === 'chart') {
+          setDiscoverySymbol(dest.params.symbol.toUpperCase());
+        }
       }
       if (dest.params?.fund) {
         useCommandStore.setState({ pendingFundId: dest.params.fund });
@@ -577,6 +588,7 @@ function StockChatContent() {
                     onAnalyzeTicker={handleChartTicker}
                     fullPage={true}
                     onNewsSentiment={setNewsScore}
+                    symbol={newsSymbol}
                   />
                 </div>
               </div>
@@ -588,8 +600,9 @@ function StockChatContent() {
               <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <div className="animate-fade-in-up w-full h-full">
                   <MarketOverviewScreen
-                    key={discoveryMarket ?? 'default'}
+                    key={`${discoveryMarket ?? 'default'}:${discoverySymbol ?? ''}`}
                     market={discoveryMarket}
+                    initialSymbol={discoverySymbol}
                     onAnalyzeTicker={(t: string, customCtx?: string) => handleInjectPrompt(t, 'research', customCtx)}
                     onSelectChartSymbol={(sym) => {
                       setSelectedChartSymbol(sym);

@@ -54,6 +54,34 @@ function write(items: WatchlistItem[]): void {
   } catch { /* ignore */ }
 }
 
+// ── Imperative API (for non-React callers: command palette, event handlers) ──
+// These write the same storage key and fire the same event, so every
+// `useWatchlist()` subscriber re-syncs automatically.
+
+/** Add a symbol to the guest watchlist. Returns the symbol, or null if rejected. */
+export function addToWatchlist(symbol: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const sym = symbol.trim().toUpperCase();
+  if (!sym) return null;
+  const items = read();
+  if (items.some(i => i.symbol === sym) || items.length >= 50) return null;
+  write([...items, { symbol: sym }]);
+  return sym;
+}
+
+/** Remove a symbol from the guest watchlist. */
+export function removeFromWatchlist(symbol: string): void {
+  if (typeof window === 'undefined') return;
+  const sym = symbol.trim().toUpperCase();
+  write(read().filter(i => i.symbol !== sym));
+}
+
+/** True when the symbol is already on the guest watchlist. */
+export function isInWatchlist(symbol: string): boolean {
+  const sym = symbol.trim().toUpperCase();
+  return read().some(i => i.symbol === sym);
+}
+
 /** Subscribe to the guest watchlist. Reactive across components/tabs. */
 export function useWatchlist() {
   const [items, setItems] = useState<WatchlistItem[]>(DEFAULT_ITEMS);

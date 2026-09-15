@@ -96,6 +96,13 @@ export interface SearchAction {
   run: (ctx: ActionContext) => Destination | null;
   /** Static, always-available command (independent of a typed param). */
   static?: boolean;
+  /**
+   * True when the command needs a symbol argument and is driven by the palette's
+   * parameterized-command path (see `search/commands.ts`). Such actions are
+   * excluded from ordinary action matching so they never appear as a bare
+   * command that navigates without performing its side effect.
+   */
+  requiresArg?: boolean;
 }
 
 export interface ActionContext {

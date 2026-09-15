@@ -50,6 +50,11 @@ interface MarketNewsProps {
   fullPage?: boolean;
   /** Receives the tier-weighted 24h news sentiment score in [-1, 1]. */
   onNewsSentiment?: (score: number) => void;
+  /**
+   * Narrow the feed to a single ticker (set by global search's "SYMBOL news"
+   * related pivot). Changing it re-seeds the `ticker:` query operator.
+   */
+  symbol?: string;
 }
 
 const CATEGORIES = [
@@ -176,7 +181,7 @@ function FilterSelect({ value, onChange, placeholder, options }: {
 
 // ─── Price Reaction mini chart removed — no longer shown.
 
-export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }: MarketNewsProps) {
+export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, symbol }: MarketNewsProps) {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -321,6 +326,20 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment }:
     // fetchNews is stable per-render; only run on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Symbol pin from global search ("AAPL news"). The news API parses a
+  // `ticker:` operator out of the free-text `q`, so we set that instead of
+  // adding a new filter dimension. An empty symbol clears the pin.
+  const pinnedSymbol = (symbol || '').toUpperCase();
+  useEffect(() => {
+    const next: FilterState = { ...EMPTY_FILTERS, q: pinnedSymbol ? `ticker:${pinnedSymbol}` : '' };
+    setPendingQ(next.q);
+    setMyStocksOnly(false);
+    setSavedView(false);
+    setFilters(next);
+    fetchNews(1, next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedSymbol]);
 
   // ─── Auto-refresh: silent background polling ─────────────────────────
   // Fetches page 1 quietly (no loading skeleton), compares against the

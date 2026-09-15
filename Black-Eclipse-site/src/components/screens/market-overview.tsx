@@ -100,9 +100,11 @@ interface MarketOverviewScreenProps {
   onMarketStatusChange?: (isBullish: boolean) => void;
   /** Optional initial market/country code to load (e.g. 'PK', 'US', 'IN'). */
   market?: string;
+  /** Optional initial ticker to pre-fill the screener search (global search pivot). */
+  initialSymbol?: string;
 }
 
-export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange, market }: MarketOverviewScreenProps) {
+export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange, market, initialSymbol }: MarketOverviewScreenProps) {
 
   // Ctrl/Cmd+click on any symbol row opens that symbol in a NEW browser tab
   // (deep link: /?symbol=XYZ boots the app straight into its chart), instead
@@ -180,8 +182,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   };
   
   // Screener state
-  const [stockSearch, setStockSearch] = useState('');
-  const [stockSortField, setStockSortField] = useState<keyof StockItem>('symbol');
+  const [stockSearch, setStockSearch] = useState(initialSymbol ? initialSymbol.toUpperCase() : '');  const [stockSortField, setStockSortField] = useState<keyof StockItem>('symbol');
   const [stockSortOrder, setStockSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Finviz-style advanced filter states
