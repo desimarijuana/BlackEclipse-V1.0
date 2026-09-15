@@ -23,30 +23,31 @@ export function DashboardScreen() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(true);
 
-  const activeMarket = markets.activeId || 'US';
+  // The active layout's id + default market. The layout id keys the workspace
+  // (each named layout owns its own widgets); the market drives "follow the tab"
+  // widgets. A widget can still be pinned to any market from its own header.
+  const layoutId = markets.active?.id ?? 'US';
+  const activeMarket = markets.active?.market ?? 'US';
 
-  // Seed the default layout for the ACTIVE MARKET VIEW. Each market gets its
-  // own stored workspace (per dashboard) and its own starting widget set. Every
-  // tab shares the same body of widgets (the persona template the user picked at
-  // onboarding) plus asset-class lead/extra widgets — FX panels for the Forex
-  // tab, commodities for Commodities, crypto for Crypto, constituents for PSX.
+  // Seed the starting workspace for this layout. The US layout keeps the persona
+  // template the user picked at onboarding, plus asset-class lead/extra widgets
+  // for the layout's default market (FX panels, commodities, crypto, …).
   const defaultLayout = useMemo(() => {
     const t = getDashboardTemplate(dashboards.active?.templateId ?? 'trader');
     const templateBase = t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;
     return buildMarketViewLayout(activeMarket, DASHBOARD_WIDGET_IDS, templateBase);
   }, [activeMarket, dashboards.active?.templateId]);
 
-  // Per-dashboard + per-market storage key. Market-aware widgets read the live
-  // active market, so switching tabs swaps data even before a layout is touched.
-  // Seed the US market key from the legacy (un-suffixed) layout BEFORE the
-  // workspace store is created on first render, so an existing user's centre
-  // arrangement survives the upgrade instead of reverting to the template.
+  // Per-dashboard + per-layout storage key. Seed the US layout key from the
+  // legacy (un-suffixed) arrangement BEFORE the workspace store is created on
+  // first render, so an existing user's centre layout survives the upgrade.
   const storageKey = useMemo(() => {
     const baseKey = dashboards.active?.storageKey ?? 'be_ws_dashboard_none';
-    const key = `${baseKey}__m_${activeMarket}`;
-    seedMarketKeyFromLegacy(baseKey, key, activeMarket);
+    const key = `${baseKey}__m_${layoutId}`;
+    // Only the built-in US layout inherits the pre-layout arrangement.
+    if (layoutId === 'US') seedMarketKeyFromLegacy(baseKey, key, 'US');
     return key;
-  }, [dashboards.active?.storageKey, activeMarket]);
+  }, [dashboards.active?.storageKey, layoutId]);
 
   // First-run onboarding.
   const [onboarded, setOnboarded] = useState<boolean>(() => isOnboarded());

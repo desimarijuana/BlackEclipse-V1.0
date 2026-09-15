@@ -1,35 +1,38 @@
 'use client';
 
-// ── Market views — country tabs for the Command Center ───────────────────────
-// The user's favourite markets ("tabs") plus custom-added countries/markets.
-// Each view drives which market the market-aware widgets show AND gets its own
-// persisted workspace layout, so every country can arrange its own widgets.
+// ── Market views — named workspace layouts for the Command Center ────────────
+// A "view" is a NAMED LAYOUT the user can call anything ("US", "PK", "My Tech
+// Sheet", …). Each one keeps its own persisted workspace of widgets. A view
+// also carries a default `market` used by widgets that "follow the tab" — the
+// user can still pin any individual widget to any market from its header.
 //
-// Persisted to localStorage; reactive across components/tabs. The active view
-// is tracked here too so widgets can read it via useActiveMarket().
+// Persisted to localStorage; reactive across components/tabs.
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { HEATMAP_MARKETS } from '@/lib/heatmap';
 import { registerTopic, jsonTopic, useTopic } from '@/lib/workspace/data-hub';
+import { newId } from '@/lib/workspace/types';
 
 export interface MarketView {
-  /** Canonical market id (US, PK, FOREX, COMMODITIES, …). */
+  /** Stable layout id (opaque for user-created views; market code for legacy). */
   id: string;
-  /** Display name shown on the tab (e.g. "PSX", "United States"). */
+  /** Free-form name the user chose (e.g. "US", "Crypto", "My Sheet"). */
   name: string;
+  /** Default market for widgets that follow the tab (US, PK, CRYPTO, …). */
+  market: string;
 }
 
-const STORAGE_KEY = 'be_market_views_v2';
+const STORAGE_KEY = 'be_market_views_v3';
 const ACTIVE_KEY = 'be_market_active_v1';
 const EVENT = 'be:market-views-changed';
 
-/** Top markets every user starts with — US + the global venues + Pakistan. */
+/** Top layouts every user starts with — one per major market. */
 export const DEFAULT_MARKET_VIEWS: MarketView[] = [
-  { id: 'US', name: 'US' },
-  { id: 'CRYPTO', name: 'Crypto' },
-  { id: 'FOREX', name: 'Forex' },
-  { id: 'COMMODITIES', name: 'Commodities' },
-  { id: 'PK', name: 'PK' },
+  { id: 'US', name: 'US', market: 'US' },
+  { id: 'CRYPTO', name: 'Crypto', market: 'CRYPTO' },
+  { id: 'FOREX', name: 'Forex', market: 'FOREX' },
+  { id: 'COMMODITIES', name: 'Commodities', market: 'COMMODITIES' },
+  { id: 'PK', name: 'PK', market: 'PK' },
 ];
 
 /** Friendlier short labels for the non-country markets (everything else = id). */
@@ -49,16 +52,20 @@ export function marketViewName(id: string): string {
   return GLOBAL_VENUE_LABEL[code] || code;
 }
 
-/** A market that can be added as a tab: short code + full name (for search). */
+/** A market the user can pick as a layout's default data source. */
 export interface MarketOption {
   id: string;
-  /** Short label shown on the tab (US, PK, Crypto…). */
+  /** Short label (US, PK, Crypto…). */
   name: string;
   /** Full country / market name, used for search + secondary display. */
   full: string;
 }
 
-/** Everything a user can add as a market tab (countries + global venues). */
+/**
+ * Every market a layout can default to (countries + global venues). Used for
+ * search in the layout editor and as the widget config market list — NOT as a
+ * tab list (tabs are named layouts the user creates).
+ */
 export const MARKET_OPTIONS: MarketOption[] = [
   { id: 'US', name: 'US', full: 'United States' },
   { id: 'CRYPTO', name: 'Crypto', full: 'Global Crypto' },
@@ -78,26 +85,46 @@ const LEGACY_NAMES = new Set(
   ].map(n => n.toLowerCase()),
 );
 
+/**
+ * Repair one stored view. Accepts the current shape ({id,name,market}) and the
+ * legacy shape ({id,name} where the id WAS the market code) — the market
+ * defaults to the id in that case. Legacy labels are normalised to short codes.
+ */
+function normalizeView(v: unknown): MarketView | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const rawId = typeof r.id === 'string' ? r.id.trim() : '';
+  if (!rawId) return null;
+  // Legacy market-code ids are upper-cased; user layout ids are opaque.
+  const knownMarket = MARKET_OPTIONS.some(o => o.id === rawId.toUpperCase());
+  const id = knownMarket ? rawId.toUpperCase() : rawId;
+  const rawMarket = typeof r.market === 'string' ? r.market.trim().toUpperCase() : '';
+  const market = rawMarket || (knownMarket ? id : 'US');
+  const rawName = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : '';
+  const name = !rawName || LEGACY_NAMES.has(rawName.toLowerCase()) ? marketViewName(market) : rawName;
+  return { id, name, market };
+}
+
 function safeParse(raw: string | null): MarketView[] | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
-    const views = parsed
-      .map((v): MarketView | null => {
-        if (!v || typeof v !== 'object') return null;
-        const id = typeof (v as { id?: unknown }).id === 'string' ? (v as { id: string }).id.trim().toUpperCase() : '';
-        if (!id) return null;
-        const rawName = (v as { name?: unknown }).name;
-        const stored = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : '';
-        // Migrate a legacy full-name default to the short code; keep a rename.
-        const name = !stored || LEGACY_NAMES.has(stored.toLowerCase())
-          ? marketViewName(id)
-          : stored;
-        return { id, name };
-      })
-      .filter((v): v is MarketView => v !== null);
+    const views = parsed.map(normalizeView).filter((v): v is MarketView => v !== null);
     return views.length ? views : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One-time migration from the v2 key (market-code tabs) to the v3 layout key. */
+function migrateLegacyViews(): MarketView[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const legacy = safeParse(window.localStorage.getItem('be_market_views_v2'));
+    if (!legacy) return null;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
+    return legacy;
   } catch {
     return null;
   }
@@ -105,7 +132,7 @@ function safeParse(raw: string | null): MarketView[] | null {
 
 function readViews(): MarketView[] {
   if (typeof window === 'undefined') return DEFAULT_MARKET_VIEWS;
-  const views = safeParse(window.localStorage.getItem(STORAGE_KEY));
+  const views = safeParse(window.localStorage.getItem(STORAGE_KEY)) ?? migrateLegacyViews();
   if (views) return views;
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_MARKET_VIEWS)); } catch { /* ignore */ }
   return DEFAULT_MARKET_VIEWS;
@@ -120,26 +147,33 @@ function writeViews(views: MarketView[]): void {
 
 function readActiveId(): string {
   if (typeof window === 'undefined') return 'US';
-  try { return (window.localStorage.getItem(ACTIVE_KEY) || 'US').toUpperCase(); } catch { return 'US'; }
+  try { return window.localStorage.getItem(ACTIVE_KEY) || 'US'; } catch { return 'US'; }
 }
 
 export interface MarketViewsContextValue {
   views: MarketView[];
   activeId: string;
+  /** The active view record (never null while views exist). */
+  active: MarketView | null;
   setActiveId: (id: string) => void;
-  add: (id: string, name?: string) => void;
+  /** Create a new named layout with an optional default market. Returns its id. */
+  create: (name: string, market?: string) => string;
   remove: (id: string) => void;
-  /** Rename a tab (display label only — the market id is unchanged). */
+  /** Rename a layout (display label only). */
   rename: (id: string, name: string) => void;
+  /** Change which market the layout's "follow the tab" widgets show. */
+  setMarket: (id: string, market: string) => void;
 }
 
 const FALLBACK: MarketViewsContextValue = {
   views: DEFAULT_MARKET_VIEWS,
   activeId: 'US',
+  active: DEFAULT_MARKET_VIEWS[0],
   setActiveId: () => {},
-  add: () => {},
+  create: () => 'US',
   remove: () => {},
   rename: () => {},
+  setMarket: () => {},
 };
 
 const MarketViewsContext = createContext<MarketViewsContextValue | null>(null);
@@ -157,32 +191,29 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const setActiveId = useCallback((id: string) => {
-    const next = id.trim().toUpperCase();
-    if (!next) return;
-    setActiveIdState(next);
-    try { window.localStorage.setItem(ACTIVE_KEY, next); } catch { /* ignore */ }
+    if (!id) return;
+    setActiveIdState(id);
+    try { window.localStorage.setItem(ACTIVE_KEY, id); } catch { /* ignore */ }
   }, []);
 
-  // Tabs show SHORT codes by default (US, PK, IN, CN…); `name` is only used
-  // when a caller explicitly wants a custom label (e.g. a user rename).
-  const add = useCallback((id: string, name?: string) => {
-    const code = id.trim().toUpperCase();
-    if (!code) return;
+  // A layout is just a NAMED workspace — the user types any name they like.
+  const create = useCallback((name: string, market?: string) => {
+    const label = name.trim() || 'New layout';
+    const mkt = (market?.trim() || 'US').toUpperCase();
+    const view: MarketView = { id: newId('layout'), name: label, market: mkt };
     setViews(prev => {
-      if (prev.some(v => v.id === code)) return prev;
-      const label = name?.trim() || marketViewName(code);
-      const next = [...prev, { id: code, name: label }];
+      const next = [...prev, view];
       writeViews(next);
       return next;
     });
-    setActiveId(code);
+    setActiveId(view.id);
+    return view.id;
   }, [setActiveId]);
 
   const remove = useCallback((id: string) => {
-    const code = id.trim().toUpperCase();
     setViews(prev => {
-      const next = prev.filter(v => v.id !== code);
-      // Never leave the bar empty — keep at least one market.
+      const next = prev.filter(v => v.id !== id);
+      // Never leave the bar empty — keep at least one layout.
       if (next.length === 0) return prev;
       writeViews(next);
       return next;
@@ -190,11 +221,20 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const rename = useCallback((id: string, name: string) => {
-    const code = id.trim().toUpperCase();
     const label = name.trim();
-    if (!code || !label) return;
+    if (!id || !label) return;
     setViews(prev => {
-      const next = prev.map(v => (v.id === code ? { ...v, name: label } : v));
+      const next = prev.map(v => (v.id === id ? { ...v, name: label } : v));
+      writeViews(next);
+      return next;
+    });
+  }, []);
+
+  const setMarket = useCallback((id: string, market: string) => {
+    const mkt = market.trim().toUpperCase();
+    if (!id || !mkt) return;
+    setViews(prev => {
+      const next = prev.map(v => (v.id === id ? { ...v, market: mkt } : v));
       writeViews(next);
       return next;
     });
@@ -207,13 +247,17 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     }
   }, [views, activeId, setActiveId]);
 
+  const active = useMemo(() => views.find(v => v.id === activeId) ?? views[0] ?? null, [views, activeId]);
+
   const value: MarketViewsContextValue = {
     views,
     activeId,
+    active,
     setActiveId,
-    add,
+    create,
     remove,
     rename,
+    setMarket,
   };
 
   return <MarketViewsContext.Provider value={value}>{children}</MarketViewsContext.Provider>;
@@ -224,9 +268,15 @@ export function useMarketViews(): MarketViewsContextValue {
   return useContext(MarketViewsContext) ?? FALLBACK;
 }
 
-/** The market every market-aware widget should render. Defaults to US. */
+/** The market a "follow the tab" widget should render. Defaults to US. */
 export function useActiveMarket(): string {
-  return useContext(MarketViewsContext)?.activeId ?? 'US';
+  const ctx = useContext(MarketViewsContext);
+  return ctx?.active?.market ?? 'US';
+}
+
+/** The active layout record (name + default market). */
+export function useActiveView(): MarketView | null {
+  return useContext(MarketViewsContext)?.active ?? null;
 }
 
 /** DataHub topic id for a market's index payload. */
