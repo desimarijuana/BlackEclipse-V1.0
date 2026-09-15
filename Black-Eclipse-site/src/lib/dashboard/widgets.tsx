@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useWatchlist } from './watchlist-store';
 import { useAggregatePortfolio } from './portfolio-store';
-import { useMarketIndices, useMarketGroup, useMarketSectors } from './market-views';
+import { useMarketIndices, useMarketGroup, useMarketSectors, marketViewName } from './market-views';
 import { MarketPicker } from '@/components/workspace/market-picker';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 
@@ -797,7 +797,7 @@ export function GlobalMarketsWidget() {
             const top = g.stocks[0];
             return (
               <div key={g.id} className="flex items-center justify-between text-[10px] py-0.5">
-                <span className="font-mono font-bold text-foreground">{g.name ?? g.country}</span>
+                <span className="font-mono font-bold text-foreground" title={g.name ?? g.country}>{marketViewName(g.id)}</span>
                 {top && <span className={cn('font-mono', tone(top.changePct))}>{top.changePct > 0 ? '+' : ''}{fmt(top.changePct)}%</span>}
               </div>
             );

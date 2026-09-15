@@ -18,7 +18,7 @@ import { useEChart } from '@/components/screens/portfolio/use-echart';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { cn } from '@/lib/utils';
 import { HEATMAP_MARKETS, heatmapMeta, type HeatmapPayload } from '@/lib/heatmap';
-import { useActiveMarket } from './market-views';
+import { marketViewName, useActiveMarket } from './market-views';
 import type { WidgetPlacement } from '@/lib/workspace/types';
 
 // Gradient stops shared by the visualMap and the tooltip accents.
@@ -317,7 +317,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
           )}
         </div>
         <p className="mt-0.5 truncate text-[9px] text-muted-foreground/70">
-          {meta.country} · {data?.indexName ?? meta.index}
+          {marketViewName(market)} · {data?.indexName ?? meta.index}
           {data && !data.empty ? ` · ${data.live} ${data.live === 1 ? 'instrument' : 'instruments'}` : ''}
           {!pinned ? ' · following tab' : ''}
         </p>
@@ -374,7 +374,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
           >
             {HEATMAP_MARKETS.map(m => (
               <option key={m.id} value={m.id} className="bg-[#121212] text-foreground">
-                {m.country} — {m.index}
+                {marketViewName(m.id)} — {m.index}
               </option>
             ))}
           </select>
@@ -401,7 +401,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
   ) : data.empty || !tree.length ? (
     <div className="flex flex-1 items-center justify-center py-8 text-center">
       <p className="max-w-[28ch] text-xs italic text-amber-400/80">
-        No priced constituents for {meta.country} in JDDS yet.
+        No priced constituents for {marketViewName(market)} in JDDS yet.
       </p>
     </div>
   ) : (

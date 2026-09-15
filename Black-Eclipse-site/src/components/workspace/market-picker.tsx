@@ -56,7 +56,7 @@ export function MarketPicker({
         </option>
         {MARKET_OPTIONS.map(o => (
           <option key={o.id} value={o.id} className="bg-[#121212] text-foreground normal-case">
-            {o.name}
+            {o.name === o.full ? o.name : `${o.name} — ${o.full}`}
           </option>
         ))}
       </select>

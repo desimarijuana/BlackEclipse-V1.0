@@ -31,7 +31,9 @@ export function MarketTabs() {
     const q = query.trim().toLowerCase();
     return MARKET_OPTIONS
       .filter(o => !existing.has(o.id))
-      .filter(o => !q || o.name.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+      // Search matches the short code AND the full country name (so "China"
+      // finds CN), but the row shows the short code.
+      .filter(o => !q || o.full.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
   }, [query, existing]);
 
   const codeCandidate = query.trim().toUpperCase();
@@ -144,11 +146,11 @@ export function MarketTabs() {
                   <button
                     key={o.id}
                     type="button"
-                    onClick={() => pick(o.id, o.name)}
+                    onClick={() => pick(o.id)}
                     className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs hover:bg-accent/50 cursor-pointer"
                   >
-                    <span className="font-semibold text-foreground">{o.name}</span>
-                    <span className="font-mono text-[9px] text-muted-foreground">{o.id}</span>
+                    <span className="font-mono font-bold text-foreground">{o.name}</span>
+                    <span className="truncate text-[9px] text-muted-foreground">{o.full}</span>
                   </button>
                 ))}
 

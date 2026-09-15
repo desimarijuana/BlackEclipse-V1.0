@@ -9,7 +9,6 @@
 // is tracked here too so widgets can read it via useActiveMarket().
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { MARKET_FULL_NAME } from '@/lib/markets';
 import { HEATMAP_MARKETS } from '@/lib/heatmap';
 import { registerTopic, jsonTopic, useTopic } from '@/lib/workspace/data-hub';
 
@@ -24,30 +23,60 @@ const STORAGE_KEY = 'be_market_views_v2';
 const ACTIVE_KEY = 'be_market_active_v1';
 const EVENT = 'be:market-views-changed';
 
-/** Top markets every user starts with — US + the global venues + PSX. */
+/** Top markets every user starts with — US + the global venues + Pakistan. */
 export const DEFAULT_MARKET_VIEWS: MarketView[] = [
   { id: 'US', name: 'US' },
   { id: 'CRYPTO', name: 'Crypto' },
   { id: 'FOREX', name: 'Forex' },
   { id: 'COMMODITIES', name: 'Commodities' },
-  { id: 'PK', name: 'PSX' },
+  { id: 'PK', name: 'PK' },
 ];
+
+/** Friendlier short labels for the non-country markets (everything else = id). */
+const GLOBAL_VENUE_LABEL: Record<string, string> = {
+  CRYPTO: 'Crypto',
+  FOREX: 'Forex',
+  COMMODITIES: 'Commodities',
+};
+
+/**
+ * Short display label for a market id — the code itself for countries (US, PK,
+ * IN, CN, …), a friendly word for the global venues (Crypto / Forex /
+ * Commodities). Full country names live in MARKET_FULL_NAME for search only.
+ */
+export function marketViewName(id: string): string {
+  const code = id.trim().toUpperCase();
+  return GLOBAL_VENUE_LABEL[code] || code;
+}
+
+/** A market that can be added as a tab: short code + full name (for search). */
+export interface MarketOption {
+  id: string;
+  /** Short label shown on the tab (US, PK, Crypto…). */
+  name: string;
+  /** Full country / market name, used for search + secondary display. */
+  full: string;
+}
 
 /** Everything a user can add as a market tab (countries + global venues). */
-export const MARKET_OPTIONS: { id: string; name: string }[] = [
-  { id: 'US', name: 'United States' },
-  { id: 'CRYPTO', name: 'Global Crypto' },
-  { id: 'FOREX', name: 'Forex' },
-  { id: 'COMMODITIES', name: 'Commodities' },
+export const MARKET_OPTIONS: MarketOption[] = [
+  { id: 'US', name: 'US', full: 'United States' },
+  { id: 'CRYPTO', name: 'Crypto', full: 'Global Crypto' },
+  { id: 'FOREX', name: 'Forex', full: 'Forex' },
+  { id: 'COMMODITIES', name: 'Commodities', full: 'Commodities' },
   ...HEATMAP_MARKETS
     .filter(m => m.id !== 'US' && m.id !== 'CRYPTO' && m.id !== 'FOREX' && m.id !== 'COMMODITIES')
-    .map(m => ({ id: m.id, name: m.country })),
+    .map(m => ({ id: m.id, name: m.id, full: m.country })),
 ];
 
-/** Human-readable name for a market id (market map, then any override). */
-export function marketViewName(id: string): string {
-  return MARKET_FULL_NAME[id] || id;
-}
+// Old default labels (full country names / "PSX") that should be migrated to
+// the short code. A name the user customised is left untouched.
+const LEGACY_NAMES = new Set(
+  [
+    ...HEATMAP_MARKETS.map(m => m.country),
+    'United States', 'Global Crypto', 'PSX', 'Pakistan',
+  ].map(n => n.toLowerCase()),
+);
 
 function safeParse(raw: string | null): MarketView[] | null {
   if (!raw) return null;
@@ -60,7 +89,11 @@ function safeParse(raw: string | null): MarketView[] | null {
         const id = typeof (v as { id?: unknown }).id === 'string' ? (v as { id: string }).id.trim().toUpperCase() : '';
         if (!id) return null;
         const rawName = (v as { name?: unknown }).name;
-        const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : id;
+        const stored = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : '';
+        // Migrate a legacy full-name default to the short code; keep a rename.
+        const name = !stored || LEGACY_NAMES.has(stored.toLowerCase())
+          ? marketViewName(id)
+          : stored;
         return { id, name };
       })
       .filter((v): v is MarketView => v !== null);
@@ -130,6 +163,8 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     try { window.localStorage.setItem(ACTIVE_KEY, next); } catch { /* ignore */ }
   }, []);
 
+  // Tabs show SHORT codes by default (US, PK, IN, CN…); `name` is only used
+  // when a caller explicitly wants a custom label (e.g. a user rename).
   const add = useCallback((id: string, name?: string) => {
     const code = id.trim().toUpperCase();
     if (!code) return;
