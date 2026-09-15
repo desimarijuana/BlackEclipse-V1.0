@@ -5,9 +5,15 @@
 
 ---
 
-## Phase: Data Layer & Market Screener (CURRENT)
+## Phase: Data Layer & Market Screener (built) → Agentic Research (current)
 
-We are in the **data + market screener phase**. The agentic AI chat is **not** being worked on yet. The focus is: give users real, explorable market data across global markets, sourced from either their own API or Eclipse's built-in data.
+The **data + market screener phase is largely built** (JDDS, the scraper
+scheduler, the screener, portfolio, journal, economics, alerts, and the command
+palette all read from JDDS). The focus has shifted to **agentic research**: the
+tool loop (`src/lib/agent/loop.ts` + `tools.ts`), the OpenAI-compatible provider,
+and the multi-agent research pipeline (`research.ts`) that persists findings in
+JDDS. Extend those; do not rebuild a parallel stack. The original phase intent is
+kept below for the "why".
 
 ### The core problem we're solving
 Users may not have an API, or their API may not cover a specific market (e.g. Hong Kong). We want users to always have data to look at and explore — whether it comes from their API or from Eclipse's built-in data.
@@ -51,8 +57,11 @@ Eclipse data ┘
 - Users track their portfolio and check performance.
 - Portfolio data also comes from **JDDS**.
 
-### 4. AI Chat (agentic side)
-- **NOT being worked on in this phase.** Deferred. The agentic research engine is a later phase.
+### 4. AI Chat (agentic side) — NOW ACTIVE
+- **This is the current phase.** `src/lib/agent/` ships a tool loop, an
+  OpenAI-compatible server provider, and a multi-agent research pipeline that
+  persists `ResearchReport` / `AgentRun` / `ResearchFinding` into JDDS. Extend
+  these rather than building new agents from scratch.
 
 ### 5. Self-healing scraper — REDIRECTED
 - **Original idea:** scrape the internet for any stock price on demand.
@@ -71,9 +80,9 @@ Eclipse data ┘
 - "AI analyze" per-row button on the screener (on-demand research trigger).
 
 ## What is OUT of scope (this phase)
-- The agentic AI chat / research engine (later phase).
 - Building the Tool-Builder Agent (later phase).
 - PDF export / report card UI (later phase).
+- Broker / paper-trading integration (trading widgets stay `UNAVAILABLE` stubs).
 
 ---
 

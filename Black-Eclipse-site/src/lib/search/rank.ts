@@ -115,3 +115,29 @@ export function fuzzyScore(entity: SearchEntity, query: string, maxDist = 2): nu
   const score = 250 + closeness * 350;
   return base(score, entity, undefined, 0);
 }
+
+/**
+ * Best "did you mean" correction for a query that produced no results. Scans a
+ * small entity set (the static registry) for the nearest title within a
+ * length-aware edit distance. Returns the original title casing, or undefined.
+ */
+export function suggestCorrection(
+  query: string,
+  entities: SearchEntity[],
+  maxDist = 2,
+): string | undefined {
+  const q = norm(query);
+  if (q.length < 3) return undefined;
+  const max = q.length <= 4 ? Math.min(maxDist, 1) : maxDist;
+
+  let best: { title: string; d: number } | null = null;
+  for (const e of entities) {
+    if (!e.title) continue;
+    const title = norm(e.title);
+    // Cheap length gate before running the DP.
+    if (Math.abs(title.length - q.length) > max) continue;
+    const d = editDistance(q, title, max);
+    if (d <= max && (!best || d < best.d)) best = { title: e.title, d };
+  }
+  return best?.title;
+}

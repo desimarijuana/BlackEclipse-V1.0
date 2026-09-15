@@ -9,14 +9,14 @@
 ## Product Context
 
 - **BlackEclipse** is an open-source, agentic AI investment research platform with a Bloomberg-inspired terminal UI.
-- Runs **zero-configuration**: demo data by default, free RSS for news, optional user API keys later.
-- Single-page terminal UI with 6 tabs: Chat, Discovery (screener), Market (portfolio), News, Bubbles (heatmap), Chart.
-- Dark theme, glassmorphic, green-on-black, dense financial UI.
+- Runs **zero-configuration**: JDDS seeds itself + `jdds.db` ships as a committed seed snapshot; free RSS for news; optional user API keys.
+- Single-page terminal UI. Tabs (`AppTab` in `src/components/layout/sidebar.tsx`): ChatBot, Command Center, Market Workspace, Market Screener, Portfolio, Journal, Market News, Market Bubbles, Economics, Price Alerts, Settings, plus an embedded Chart tab. Tabs are keep-alive (mount once, then hide).
+- Dark theme, glassmorphic, green-on-black, dense financial UI (frosted-glass classes — see the `black-eclipse-ui` skill).
 
 ## Current Priorities
 
-1. **Phase 1 — Data System**: an **agentic scraper** as the primary, free, zero-config data source (Yahoo Finance + cheerio fallback + smart scheduler). User-provided APIs are optional opt-ins. Demo data is the fallback. Source priority: **agentic scraper → user API → demo**.
-2. **Phase 2 — Agentic Research Agents**: extend `src/lib/agent/` with tools (query data, scrape, search) and skills (research, screen, portfolio, monitor), Hermes-style.
+1. **Phase 1 — Data System (largely built)**: the **agentic scraper** is the primary, free, zero-config data source (TradingView scanner + yfinance Python bridge + adaptive fallback chain + in-process scheduler), importing into JDDS. User-provided APIs are optional opt-ins. Demo data is the fallback. Source priority: **scraper → user API → demo**.
+2. **Phase 2 — Agentic Research Agents (partly built)**: `src/lib/agent/` now has the tool loop (`loop.ts` + `tools.ts`), an OpenAI-compatible server provider (`openai-provider.ts`), and a multi-agent research pipeline (`research.ts`) that persists findings into JDDS (`ResearchReport` / `AgentRun` / `ResearchFinding`). Extend, don't rebuild.
 3. User-provided API settings (Finnhub/Alpha Vantage/etc.) as optional opt-ins.
 4. **STANDING GOAL — Simple, fast, light**: the website must be simple, fast, and light for the best user experience. Applies to every change, forever. See `skills/GOALS.md` → "Performance & Simplicity".
 
@@ -29,19 +29,25 @@
 - **[2026] RSS for news** — `/api/news` uses free RSS feeds, with `NEWS_MOCK` offline fallback.
 - **[2026] Test after every change** — run `npm run test` and `npx tsc --noEmit` after each change to catch issues early, not just at the end.
 - **[2026] Simple, fast, light is a standing goal** — every feature/refactor/dependency is evaluated against it. Prefer the simpler, lighter, faster option. See `skills/GOALS.md`.
-- **[2026] Customization kernel** — page/widget customization is registered via `PageDefinition` + `useCustomize()` from `src/lib/customize/`; never hand-roll layout state, localStorage, or width-picker UI in a screen (ADR-005 in `skills/ARCHITECT.md`, patterns in `skills/CUSTOMIZE.md`).
+- **[2026] Workspace kernel** — page/widget customization is registered via the shared kernel in `src/lib/workspace/` (`useWorkspace` + `CustomizableWorkspace` + `WidgetDefinition`); never hand-roll layout state, localStorage, or width-picker UI in a screen (ADR-005/006 in `skills/ARCHITECT.md`, patterns in `skills/CUSTOMIZE.md`). `src/lib/customize/` is **retired**.
+- **[2026] Central command palette** — global search (⌘K) is one palette over `src/lib/search/`, split into a pure grammar (`grammar.ts`) and a pure resolver (`resolver.ts`); it dispatches a `Destination` bus and stays offline/deterministic (ADR-009). Never put an LLM on the query path.
 
 ## Established Conventions
 
 - **Folder structure:**
-  - `src/components/ui/` — reusable primitives (button, card, skeleton, error-boundary, etc.)
+  - `src/components/ui/` — reusable primitives (button, card, skeleton, error-boundary, tab-bar, etc.)
   - `src/components/screens/` — full-page views + their data/logic modules
-  - `src/components/layout/` — sidebar, top-bar
+  - `src/components/layout/` — sidebar, top-bar, global-search (command palette)
   - `src/components/chat/` — chat-specific pieces
-   - `src/lib/agent/` — AI provider abstraction
-   - `src/lib/customize/` — customization kernel (layout state, presets, WidthPicker); see `skills/CUSTOMIZE.md`
-   - `src/app/api/` — API routes (server-side only)
+  - `src/components/workspace/` — customizable widget grid UI
+  - `src/components/market-workspace/` — the multi-panel market grid UI
+  - `src/lib/workspace/` — the widget workspace kernel (layout state, ops, presets, DataHub)
+  - `src/lib/market-workspace/` — the separate market-panel engine
+  - `src/lib/agent/` — AI provider abstraction + tool loop + research pipeline
+  - `src/lib/search/` — the command palette (registry, grammar, resolver, stores)
+  - `src/app/api/` — API routes (server-side only)
 - **Client components** start with `'use client'`.
+- **Frosted glass** is the default surface style (`.glass-card` / `-strong` / `-subtle` / `.glass-drawer` / `.glass-button`) — never raw `backdrop-blur-*` or flat fills. See the `black-eclipse-ui` skill.
 - **Named exports**, not default exports (except Aurora which is default).
 - **`cn()` helper** from `src/lib/utils.ts` for class merging.
 - **Barrel exports** via `index.ts` in component folders.
@@ -56,7 +62,8 @@
 - **Memory**: The machine has 7.9GB RAM. `next build`/`next dev` on the large `market-overview.tsx` (~1900 lines) can hit 16GB allocation failures when free RAM is low. **Keep components small; split large files into hooks/modules.**
 - **@base-ui/react v1.5.0**: SSR/hydration quirks. Portal-based components (Tooltip, Dialog) must be **mounted-gated** (render `null` until client `mounted` state is true).
 - **Fonts**: `--font-sans` and `--font-serif` are the **same** system sans stack (intentional for consistency). `--font-mono` is JetBrains/IBM Plex mono.
-- **No database** currently — persistence is localStorage only.
+- **Database = JDDS**: one SQLite file (`jdds.db`) via Prisma + better-sqlite3. `src/lib/db.ts` owns the client; `yieldToEventLoop()` must be used between bulk write chunks (better-sqlite3 is synchronous). Client-only UI state still persists to localStorage.
+- **`jdds.db` is a committed seed snapshot** — do NOT re-commit it on routine changes; it churns constantly from background scraping. See the `black-eclipse-db` skill.
 
 ## Known Problems
 
@@ -65,6 +72,7 @@
 - Chat is a keyword-based mock (no real LLM yet).
 - `getTradingViewSymbol()` regex for ticker extraction is naive.
 - **SQLite Prisma connector does NOT support `mode: "insensitive"`** on string filters. JDDS stores symbols uppercase, so normalize input to uppercase (e.g. `symbol.toUpperCase()`) instead of using `mode`. (Fixed in `src/lib/agent/tools.ts`.)
+- **`skills/ARCHITECT.md` sections 2–4 were stale** (pre-JDDS: claimed "no database" and "only /api/news"). Corrected 2026-09-15; if you spot similar relics, fix them against `docs/` + code.
 
 ## Things That Must Not Change
 
@@ -82,11 +90,10 @@
 
 ## Future Plans
 
-- SQLite local storage (zero-config persistence).
-- yahoo-finance2 free scraper + cheerio fallback for PSX/global markets.
-- Provider registry auto-chain: user API → free scraper → demo.
-- Agent tools (query data, scrape, search) + skills (research, screen, portfolio, monitor).
-- A background scheduler / cron for price/universe/news refresh.
+- Broker / paper-trading integration — the `trading`-category dashboard widgets (Quick Trade, Open Positions, …) are `UNAVAILABLE` stubs until then.
+- Vercel/serverless-friendly scheduling (in-process node-cron + SQLite don't fit serverless; `POST /api/cron/run` exists for hosted schedulers).
+- Deeper agent skills (research, screen, portfolio, monitor) on top of the existing tool loop.
+- More markets / better coverage in the scraper fallback chain.
 
 ## Lessons Learned
 
@@ -97,7 +104,8 @@
 
 ## Important Discoveries
 
-- `src/app/api/news/route.ts` returns `{ news, source: "rss"|"empty"|"error", pagination }`.
+- `src/app/api/news/route.ts` returns `{ news, source: "rss"|"empty"|"error", pagination }` and reads from JDDS (RSS is ingested in the background).
 - `market-news.tsx` fetches `/api/news?page=N&limit=10` and falls back to `NEWS_MOCK` when the feed is empty/unreachable.
-- `getAgentProvider()` in `src/lib/agent/registry.ts` returns the mock provider today.
-- `.gitignore` excludes `*.sql`, `*.log`, `dev-server.log`, `dev-log.txt`, and `.env*`.
+- `getAgentProvider()` in `src/lib/agent/registry.ts` returns the first configured provider (openai-compatible via `/api/agent/chat`) else the mock.
+- `.gitignore` excludes `*.sql`, `*.log`, `dev-server.log`, `dev-log.txt`, `.env*`, and `jdds.db-*` (WAL/shm side files). `jdds.db` itself IS committed (seed snapshot).
+- The canonical human docs live in `docs/` (start at `docs/README.md`); `skills/` is the agent engineering OS. See `skills/DOCS.md`.

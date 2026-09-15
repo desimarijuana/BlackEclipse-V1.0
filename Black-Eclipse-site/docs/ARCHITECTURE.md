@@ -178,6 +178,27 @@ bus*: the palette dispatches a `Destination`, the shell subscribes to
 vocabulary (scopes/operators) is a user-facing contract — extending it means
 editing `grammar.ts` and its tests together.
 
+**Intelligence & actions.** Beyond the resolver:
+- `resolver.ts` `expandTerms` (a curated synonym/acronym table) turns "gold",
+  "us jobs data", "fed rate" into the right symbol at a score discount, so an
+  explicit match still wins. Ranking is personalized by entity *visit* history
+  (`recencyScore` opt; the palette feeds it `visitRecencyScore` from the store).
+- `calc.ts` powers an inline offline calculator + indicative currency conversion;
+  `commands.ts` detects parameterized verbs (`alert`, `watch`, `compare`, `chart`)
+  and offers argument autocomplete. Both are pure and unit-tested.
+
+**Result UX.** The resolver returns `total` (untruncated match count, for
+"showing N of M"), a `suggestion` "did you mean" on a zero-hit query (static
+registry only), and `related` cross-tab pivots for a resolved instrument. The
+palette groups results by entity kind with per-group counts and collapsible
+headers, pins entities (persisted in `localStorage`, replayed from a serialized
+destination), and copies symbols. Pins, visits, and collapse state live in the
+command store — the resolver stays pure.
+
+**Accessibility.** The input is an ARIA combobox driving a `role="listbox"`
+result list with `aria-activedescendant`; a polite live region announces result
+counts. Rows are memoized so selection changes don't re-render the whole list.
+
 ## Design system
 
 All surfaces use the shared frosted-glass classes from

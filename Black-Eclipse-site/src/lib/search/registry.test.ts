@@ -76,4 +76,40 @@ describe('resolveQuery', () => {
   it('returns nothing for empty query', () => {
     expect(resolveQuery('').items).toEqual([]);
   });
+
+  it('scopes results with a prefix and exposes parsed grammar', () => {
+    const res = resolveQuery('# AAPL');
+    expect(res.parsed.scope).toBe('symbol');
+    expect(res.items.length).toBeGreaterThan(0);
+    expect(res.items.every((r) => r.entity.kind === 'security' || r.entity.kind === 'instrument')).toBe(true);
+  });
+
+  it('returns a bare scope with no text and no results', () => {
+    const res = resolveQuery('>');
+    expect(res.parsed.scope).toBe('action');
+    expect(res.items).toEqual([]);
+  });
+
+  it('reports a total count and a did-you-mean suggestion', () => {
+    const ok = resolveQuery('AAPL');
+    expect(ok.total).toBeGreaterThanOrEqual(ok.items.length);
+
+    // Scoping to symbols filters the curated "Portfolio" page out, so nothing
+    // resolves and the nearest registry title is offered as a correction.
+    const miss = resolveQuery('# portfoloi');
+    expect(miss.items.length).toBe(0);
+    expect(miss.suggestion?.toLowerCase()).toContain('portfolio');
+  });
+
+  it('flags a bare "?" as the syntax help request', () => {
+    const res = resolveQuery('?');
+    expect(res.showHelp).toBe(true);
+    expect(res.items).toEqual([]);
+  });
+
+  it('applies class: operators', () => {
+    const res = resolveQuery('class:crypto btc');
+    expect(res.items.length).toBeGreaterThan(0);
+    expect(res.items.every((r) => r.entity.assetClass === 'crypto')).toBe(true);
+  });
 });

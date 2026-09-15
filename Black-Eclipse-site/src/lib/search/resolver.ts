@@ -8,7 +8,7 @@
 
 import { getAllActions, getAllInstruments, getAllPages, getInstrumentByAlias } from './registry';
 import { classifyIntent, extractSymbol } from './intent';
-import { fuzzyScore, scoreEntity } from './rank';
+import { fuzzyScore, scoreEntity, suggestCorrection } from './rank';
 import { getUserEntities } from './user';
 import { getGlobalEntities } from './global';
 import { settingsEntities } from './settings';
@@ -40,6 +40,12 @@ export interface ResolvedSearch {
   symbol?: string;
   /** True when the universe index finished loading (so we can show more). */
   universeReady: boolean;
+  /** Total matches before the `maxResults` slice (drives "showing N of M"). */
+  total: number;
+  /** Best fuzzy correction offered when a query returns nothing. */
+  suggestion?: string;
+  /** Cross-entity shortcuts derived from the top instrument hit. */
+  related: SearchEntity[];
   /** Scope + field filters parsed from the query grammar. */
   parsed: ParsedQuery;
   /** True when the query is a bare '?' asking for syntax help. */
@@ -50,6 +56,37 @@ export interface ResolveOptions {
   currentTab?: string;
   recencyScore?: (id: string) => number;
   maxResults?: number;
+}
+
+// ── Deterministic query expansion ───────────────────────────────────────────
+// A small, curated synonym/acronym table so natural phrasings and shorthand
+// resolve without an LLM. Expansion produces *additional* normalized terms the
+// registry scorer can match; it never replaces the user's own query.
+const EXPANSIONS: { trigger: RegExp; terms: string[] }[] = [
+  { trigger: /\bgold\b/, terms: ['xauusd', 'xau'] },
+  { trigger: /\bsilver\b/, terms: ['xagusd', 'xag'] },
+  { trigger: /\b(oil|crude|wti)\b/, terms: ['cl'] },
+  { trigger: /\b(nasdaq|tech index)\b/, terms: ['ndx'] },
+  { trigger: /\b(s&p|sp500|s&p 500)\b/, terms: ['spx'] },
+  { trigger: /\b(dow|dow jones)\b/, terms: ['dji'] },
+  { trigger: /\b(us jobs|jobs report|jobs data|payrolls|nonfarm|non-farm)\b/, terms: ['nfp'] },
+  { trigger: /\b(inflation|consumer prices)\b/, terms: ['cpi'] },
+  { trigger: /\b(fed rate|federal reserve|rate decision|interest rate decision)\b/, terms: ['fomc'] },
+  { trigger: /\b(economic growth|domestic product)\b/, terms: ['gdp'] },
+  { trigger: /\b(jobless|unemployment)\b/, terms: ['unemp'] },
+  { trigger: /\b(british pound|pound sterling)\b/, terms: ['gbpusd'] },
+  { trigger: /\b(yen|japanese yen)\b/, terms: ['usdjpy'] },
+  { trigger: /\b(bitcoin)\b/, terms: ['btc'] },
+  { trigger: /\b(ethereum|ether)\b/, terms: ['eth'] },
+];
+
+/** Expand a normalized query into extra search terms (does not include input). */
+export function expandTerms(normalized: string): string[] {
+  const out: string[] = [];
+  for (const { trigger, terms } of EXPANSIONS) {
+    if (trigger.test(normalized)) out.push(...terms);
+  }
+  return [...new Set(out)];
 }
 
 const KIND_BOOST: Record<string, number> = {
@@ -92,6 +129,8 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
       items: [],
       actions: [],
       universeReady: isUniverseLoaded(),
+      total: 0,
+      related: [],
       parsed,
       showHelp: parsed.showHelp,
     };
@@ -140,6 +179,18 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
       items.push({ entity: e, score: boostedScore(s, e, opts.currentTab, recency(e.id)), match: matchKind(s) });
       continue;
     }
+    // Synonym/acronym expansion — score against derived terms at a discount so
+    // an explicit word match always outranks an inferred one.
+    let expanded = false;
+    for (const term of expandTerms(normalized)) {
+      const es = scoreEntity({ entity: e, query: term, currentTab: opts.currentTab, recencyScore: recency(e.id) });
+      if (es > 0) {
+        items.push({ entity: e, score: boostedScore(es * 0.85, e, opts.currentTab, recency(e.id)), match: 'keyword' });
+        expanded = true;
+        break;
+      }
+    }
+    if (expanded) continue;
     // Fuzzy fallback on the small static set (cheap, handles "Aplle").
     const f = fuzzyScore(e, normalized, 2);
     if (f > 0) items.push({ entity: e, score: f, match: 'fuzzy' });
@@ -228,16 +279,56 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
     return true;
   });
 
-  return {
+  const sliced = deduped.slice(0, max);
+  const result: ResolvedSearch = {
     intent: primaryAction ? 'action' : intent.intent,
-    items: deduped.slice(0, max),
+    items: sliced,
     actions,
     primaryAction,
     symbol: extractSymbol(text),
     universeReady: !!getUniverseBySymbol(q) || isUniverseBuilt(),
+    total: deduped.length,
+    related: [],
     parsed,
     showHelp: parsed.showHelp,
   };
+
+  // Cross-entity shortcuts: when the query lands on a specific instrument,
+  // offer quick pivots into other tabs for that same symbol.
+  if (!restrictedKinds && !primaryAction) {
+    const top = sliced.find((it) => it.entity.symbol && (it.entity.kind === 'security' || it.entity.kind === 'instrument'));
+    if (top?.entity.symbol) {
+      result.related = relatedEntities(top.entity);
+    }
+  }
+
+  // No hits at all → offer the nearest registry title as "did you mean …".
+  // Uses only the small static set, so it is cheap and never runs on the
+  // universe fuzzy path.
+  if (sliced.length === 0 && !primaryAction) {
+    result.suggestion = suggestCorrection(text, staticEntities);
+  }
+
+  return result;
+}
+
+/** Tab pivots offered alongside a resolved instrument (e.g. "AAPL news"). */
+function relatedEntities(entity: SearchEntity): SearchEntity[] {
+  const symbol = entity.symbol!;
+  const mk = (suffix: string, tab: SearchEntity['destination']['tab'], params: Record<string, string>): SearchEntity => ({
+    id: `rel-${symbol}-${suffix}`,
+    kind: 'page',
+    title: `${symbol} ${suffix}`,
+    keywords: [symbol, suffix],
+    destination: { tab, params: { symbol, ...params } },
+    subtitle: `Open ${suffix}`,
+    rankBoost: 0.6,
+  });
+  return [
+    mk('news', 'news', { symbol }),
+    mk('chart', 'chart', { symbol }),
+    mk('screener', 'discovery', { symbol }),
+  ];
 }
 
 function matchKind(s: number): SearchItem['match'] {

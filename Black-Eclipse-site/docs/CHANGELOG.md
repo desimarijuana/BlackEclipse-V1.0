@@ -43,6 +43,30 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Docs** — Documentation/skills audit before sharing with an external tool.
+  The `docs/` set was already current; the agent *skills* had drifted badly and
+  were corrected against code: `skills/ARCHITECT.md` §2–4 described a pre-JDDS app
+  ("no database", "only `/api/news`", 6 tabs, SQLite listed as PLANNED) — rewritten
+  to the JDDS/scheduler/agent reality; `skills/REMEMBER.md` (DB, tabs, agent,
+  retired `src/lib/customize/`) and `skills/GOALS.md` (agentic research now
+  active, not deferred) updated; `skills/README.md` skill list fixed (6 → 8);
+  `CONTRIBUTING.md` "no database/demo data" claim corrected.
+  docs updated: `docs/DECISIONS.md` (mirror), `docs/CHANGELOG.md`
+- **Search** — Completed the command-center improvement phases. Phase 4:
+  deterministic synonym/acronym expansion (`expandTerms`), visit-history
+  personalized ranking, and cross-tab `related` pivots for a resolved
+  instrument. Phase 5: offline in-palette calculator + indicative currency
+  conversion (`calc.ts`) and parameterized commands with argument autocomplete
+  (`commands.ts`). Phase 6: ARIA combobox/listbox semantics with a polite live
+  region, memoized rows, and a mobile-sized palette. New store state: `visits`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+- **Search** — Result UX pass on the command palette: groups now show per-kind
+  counts and collapse on click, results can be pinned (persisted to
+  `localStorage` and replayed from a serialized destination) or have their symbol
+  copied, the footer shows "N of M results", and a zero-hit query offers a
+  "did you mean" correction from the static registry (`suggestCorrection`).
+  `ResolvedSearch` gained `total` + `suggestion`.
+  docs updated: `docs/ARCHITECTURE.md`
 - **Search** — Added a query grammar to the command center: scoped prefixes
   (`>` commands, `#` instruments, `@` indicators, `/` pages, `~` your data, `?`
   syntax help) and field operators (`kind:`, `class:`, `market:`, `symbol:`).

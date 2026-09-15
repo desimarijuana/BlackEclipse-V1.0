@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
   BookOpen,
@@ -18,16 +18,24 @@ import {
   Plus,
   Loader2,
   X,
+  Pin,
+  ChevronRight,
+  Copy,
+  Check,
+  Calculator,
+  Bell,
   type LucideIcon,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { useCommandStore } from '@/lib/search/store';
+import { useCommandStore, visitRecencyScore } from '@/lib/search/store';
 import { resolveQuery } from '@/lib/search/resolver';
+import { evaluateCalc, type CalcResult } from '@/lib/search/calc';
+import { detectParamCommand, paramCandidates } from '@/lib/search/commands';
 import { universeCount } from '@/lib/search/universe';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
-import type { EntityKind } from '@/lib/search/types';
+import type { EntityKind, SearchEntity } from '@/lib/search/types';
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {
   security: ChartCandlestick,
@@ -77,12 +85,17 @@ interface QuickAction {
 
 type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
-  | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; onSelect: () => void }
+  | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
+  | { type: 'calc'; id: string; title: string; subtitle: string; onCopy: () => void }
   | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void };
 
 interface Section {
   key: string;
   label: string;
+  /** Total rows in the group before any cap (drives the count badge). */
+  count: number;
+  /** True when the user collapsed this group (rows render but are skipped). */
+  collapsed: boolean;
   rows: { row: Row; flatIndex: number }[];
 }
 
@@ -145,13 +158,15 @@ export function GlobalSearch() {
   }, [store.query]);
 
   // Resolve against the debounced query; re-resolves when the universe,
-  // calendar, or server-side entities finish loading.
+  // calendar, or server-side entities finish loading. Recency personalizes the
+  // ranking from the user's own visit history (kept off the resolver's hot path).
   const resolved = useMemo(() => {
     const q = debouncedQuery.trim();
     if (!q) return null;
-    return resolveQuery(q);
+    const visits = useCommandStore.getState().visits;
+    return resolveQuery(q, { recencyScore: (id) => visitRecencyScore(visits, id) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.universeReady, store.calendarReady, store.globalReady]);
+  }, [debouncedQuery, store.universeReady, store.calendarReady, store.globalReady, store.visits]);
 
   const showRecents = !debouncedQuery.trim();
   const indexCount = universeCount();
@@ -163,6 +178,20 @@ export function GlobalSearch() {
   // A bare scope prefix (e.g. ">") — no terms yet, so nudge with scope hints
   // instead of the generic empty state.
   const bareScope = !showHelp && !showRecents && !!resolved && activeScope.scope !== 'all' && !resolved.parsed.text.trim();
+  // Inline calculator/conversion, evaluated only on the all-scope path.
+  const calc: CalcResult | null = useMemo(
+    () => (showRecents || showHelp ? null : evaluateCalc(store.query)),
+    [store.query, showRecents, showHelp],
+  );
+  // Parameterized command + its argument autocomplete (e.g. "alert aapl").
+  const paramCmd = useMemo(
+    () => (showRecents || showHelp ? null : detectParamCommand(store.query)),
+    [store.query, showRecents, showHelp],
+  );
+  const paramArgs = useMemo(
+    () => (paramCmd ? paramCandidates(paramCmd.arg) : []),
+    [paramCmd],
+  );
 
   const quickActions: QuickAction[] = useMemo(() => [
     {
@@ -204,10 +233,17 @@ export function GlobalSearch() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
-  // Build sections + a flat navigable row list.
+  // Build sections + a flat navigable row list (collapsed groups are skipped).
   const { sections, flatRows, hasAiRow } = useMemo(() => {
     const flat: Row[] = [];
-    const sections: Section[] = [];
+    interface DraftSection {
+      key: string;
+      label: string;
+      count: number;
+      collapsed: boolean;
+      rows: Row[];
+    }
+    const built: DraftSection[] = [];
 
     // AI escalation row — shown for sentence-like questions. Built BEFORE any
     // section flatIndex is assigned so navigation indices stay in sync, and
@@ -226,6 +262,35 @@ export function GlobalSearch() {
       : null;
 
     if (showRecents) {
+      if (store.pins.length > 0) {
+        const rows = store.pins.map<Row>((p) => {
+          const entity: SearchEntity = {
+            id: p.id,
+            kind: p.kind as EntityKind,
+            title: p.title,
+            symbol: p.symbol,
+            keywords: [],
+            destination: { tab: p.tab as SearchEntity['destination']['tab'], params: p.params },
+            subtitle: p.subtitle,
+          };
+          return {
+            type: 'result',
+            id: `pin-${p.id}`,
+            title: p.symbol ? `${p.symbol}  ${p.title}` : p.title,
+            subtitle: p.subtitle || KIND_LABEL[p.kind as EntityKind] || 'Pinned',
+            kind: p.kind as EntityKind,
+            entity,
+            pinned: true,
+            onSelect: () => {
+              store.recordVisit(p.id);
+              store.dispatch(entity.destination);
+              store.recordRecent(p.symbol || p.title);
+              useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+            },
+          };
+        });
+        built.push({ key: 'pinned', label: 'Pinned', count: rows.length, collapsed: false, rows });
+      }
       if (store.recents.length > 0) {
         const rows = store.recents.map<Row>((r) => ({
           type: 'recent',
@@ -234,15 +299,63 @@ export function GlobalSearch() {
           onSelect: () => store.setQuery(r.text),
           onDelete: () => store.removeRecent(r.text),
         }));
-        sections.push({
-          key: 'recent',
-          label: 'Recent searches',
-          rows: rows.map((row) => ({ row, flatIndex: flat.push(row) - 1 })),
-        });
+        built.push({ key: 'recent', label: 'Recent searches', count: rows.length, collapsed: false, rows });
       }
     } else {
-      if (aiRow) {
-        sections.push({ key: 'ai', label: 'Ask AI', rows: [{ row: aiRow, flatIndex: flat.push(aiRow) - 1 }] });
+      if (aiRow) built.push({ key: 'ai', label: 'Ask AI', count: 1, collapsed: false, rows: [aiRow] });
+      if (calc) {
+        const calcRow: Row = {
+          type: 'calc',
+          id: 'calc-result',
+          title: calc.display,
+          subtitle: calc.kind === 'conversion' ? 'Indicative conversion · click to copy' : 'Calculation · click to copy',
+          onCopy: () => {
+            void navigator.clipboard?.writeText(calc.display);
+            useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+          },
+        };
+        built.push({ key: 'calc', label: 'Calculator', count: 1, collapsed: false, rows: [calcRow] });
+      }
+      // Parameterized command with inline argument autocomplete. Selecting an
+      // argument dispatches through the registry action so navigation stays
+      // centralized (the palette never builds a destination by hand).
+      if (paramCmd) {
+        const label = paramCmd.arg
+          ? paramCmd.template.replace('{arg}', paramCmd.arg.toUpperCase())
+          : paramCmd.template.replace('{arg}', '…');
+        const cmdRow: Row = {
+          type: 'action',
+          id: `param-${paramCmd.verb}`,
+          label,
+          icon: paramCmd.verb === 'compare' ? ChartCandlestick : Bell,
+          onSelect: () => {
+            if (paramArgs[0]) store.setQuery(`${paramCmd.verb} ${paramArgs[0].value}`);
+          },
+        };
+        const argRows = paramArgs.map<Row>((c) => ({
+          type: 'result',
+          id: `arg-${c.value}`,
+          title: c.label,
+          subtitle: c.subtitle,
+          kind: 'security',
+          entity: {
+            id: `arg-${c.value}`,
+            kind: 'security',
+            title: c.subtitle,
+            symbol: c.value,
+            keywords: [],
+            destination: { tab: 'chart', params: { symbol: c.value } },
+            subtitle: c.subtitle,
+          },
+          onSelect: () => store.setQuery(`${paramCmd.verb} ${c.value}`),
+        }));
+        built.push({
+          key: 'param',
+          label: `${paramCmd.verb} — pick an instrument`,
+          count: 1 + argRows.length,
+          collapsed: store.collapsedGroups.includes('param'),
+          rows: [cmdRow, ...argRows],
+        });
       }
       if (resolved && resolved.items.length > 0) {
         const byKind = new Map<EntityKind, Row[]>();
@@ -256,10 +369,13 @@ export function GlobalSearch() {
             title: it.entity.symbol ? `${it.entity.symbol}  ${it.entity.title}` : it.entity.title,
             subtitle: it.entity.subtitle || KIND_LABEL[kind],
             kind,
+            entity: it.entity,
+            pinned: store.pins.some((p) => p.id === it.entity.id),
             onSelect: () => {
               if (dest) {
+                store.recordVisit(it.entity.id);
                 store.dispatch(dest);
-                store.recordRecent(store.query);
+                store.recordRecent(it.entity.symbol || store.query);
                 useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
               }
             },
@@ -267,15 +383,45 @@ export function GlobalSearch() {
           byKind.set(kind, list);
         });
         for (const kind of SECTION_ORDER.filter((k) => byKind.has(k))) {
-          const list = byKind.get(kind)!;
-          sections.push({
+          const rows = byKind.get(kind)!;
+          built.push({
             key: kind,
             label: KIND_LABEL[kind],
-            rows: list.map((row) => ({ row, flatIndex: flat.push(row) - 1 })),
+            count: rows.length,
+            collapsed: store.collapsedGroups.includes(kind),
+            rows,
           });
         }
       }
+      // Cross-entity pivots for the top instrument hit (AAPL news / chart / …).
+      if (resolved && resolved.related.length > 0) {
+        const rows = resolved.related.map<Row>((e) => ({
+          type: 'result',
+          id: e.id,
+          title: e.title,
+          subtitle: e.subtitle || 'Related',
+          kind: e.kind,
+          entity: e,
+          onSelect: () => {
+            store.dispatch(e.destination);
+            useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+          },
+        }));
+        built.push({ key: 'related', label: 'Related', count: rows.length, collapsed: store.collapsedGroups.includes('related'), rows });
+      }
     }
+
+    // Assign flat indices in render order, skipping collapsed groups. Collapsed
+    // sections stay in the list (header only) so the toggle remains clickable.
+    const sections: Section[] = built.map((s) => {
+      const rows = s.collapsed
+        ? []
+        : s.rows.map((row) => {
+            flat.push(row);
+            return { row, flatIndex: flat.length - 1 };
+          });
+      return { key: s.key, label: s.label, count: s.count, collapsed: s.collapsed, rows };
+    });
 
     // Pinned quick actions at the bottom (part of the flat list). Suppressed
     // while the syntax help card is open — they are hidden from view then.
@@ -287,7 +433,7 @@ export function GlobalSearch() {
 
     return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.recents, store.universeReady, resolved, showRecents, quickActions, showHelp]);
+  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, calc, paramCmd, paramArgs]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const count = flatRows.length;
@@ -300,8 +446,12 @@ export function GlobalSearch() {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const row = flatRows[Math.min(store.selectedIndex, count - 1)];
-      if (row) row.onSelect();
-      else store.runPrimary();
+      if (row) {
+        if (row.type === 'calc') row.onCopy();
+        else row.onSelect();
+      } else {
+        store.runPrimary();
+      }
     }
   };
 
@@ -309,7 +459,7 @@ export function GlobalSearch() {
     <Dialog open={store.open} onOpenChange={(o) => store.setOpen(o)}>
       <DialogContent
         showCloseButton={false}
-        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-lg max-w-[calc(100%-1rem)] mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
+        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-lg max-w-[calc(100%-1rem)] mt-2 sm:mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
       >
         <DialogTitle className="sr-only">Global Search</DialogTitle>
 
@@ -331,6 +481,12 @@ export function GlobalSearch() {
             className="h-8 flex-1 border-0 bg-transparent outline-none px-0 font-mono text-[15px] text-foreground placeholder:text-muted-foreground/60"
             autoComplete="off"
             spellCheck={false}
+            role="combobox"
+            aria-expanded={store.open}
+            aria-controls="command-results"
+            aria-autocomplete="list"
+            aria-activedescendant={flatRows.length > 0 ? `command-opt-${Math.min(store.selectedIndex, flatRows.length - 1)}` : undefined}
+            aria-label="Global search"
           />
           {store.universeLoading && <Loader2 size={14} className="animate-spin text-muted-foreground/60 shrink-0" />}
           {store.query && (
@@ -347,7 +503,7 @@ export function GlobalSearch() {
         <div className="h-px bg-border/60" />
 
         {/* Results */}
-        <div ref={resultsRef} className="max-h-[min(50dvh,400px)] overflow-y-auto py-2">
+        <div ref={resultsRef} id="command-results" role="listbox" aria-label="Search results" className="max-h-[min(70dvh,400px)] sm:max-h-[min(50dvh,400px)] overflow-y-auto py-2">
           {showHelp && <SyntaxHelp onPick={(p) => store.setQuery(p)} />}
 
           {bareScope && (
@@ -372,21 +528,49 @@ export function GlobalSearch() {
             </div>
           )}
 
-          {!showRecents && !showHelp && !bareScope && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
+          {!showRecents && !showHelp && !bareScope && !calc && !paramCmd && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
             <div className="px-4 py-10 text-center">
               <div className="text-sm text-foreground font-medium mb-1">No results for “{store.query}”</div>
-              <p className="text-xs text-muted-foreground/70">
-                Try <span className="font-mono text-primary">AAPL</span>,{' '}
-                <span className="font-mono text-primary">NFP</span>, or{' '}
-                <span className="font-mono text-primary">portfolio</span>.
-              </p>
+              {resolved.suggestion ? (
+                <p className="text-xs text-muted-foreground/70">
+                  Did you mean{' '}
+                  <button
+                    onClick={() => store.setQuery(resolved.suggestion!)}
+                    className="font-medium text-primary hover:underline cursor-pointer"
+                  >
+                    {resolved.suggestion}
+                  </button>
+                  ?
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground/70">
+                  Try <span className="font-mono text-primary">AAPL</span>,{' '}
+                  <span className="font-mono text-primary">NFP</span>, or{' '}
+                  <span className="font-mono text-primary">portfolio</span>.
+                </p>
+              )}
             </div>
           )}
 
           {sections.map((section) => (
             <div key={section.key} className="mb-1.5">
               <div className="flex items-center justify-between px-4 pt-2 pb-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground/60">{section.label}</span>
+                <button
+                  onClick={() => section.key !== 'recent' && section.key !== 'pinned' && store.toggleGroup(section.key)}
+                  className={cn(
+                    'flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60',
+                    section.key !== 'recent' && section.key !== 'pinned' && 'hover:text-foreground transition-colors cursor-pointer',
+                  )}
+                >
+                  {section.key !== 'recent' && section.key !== 'pinned' && (
+                    <ChevronRight
+                      size={11}
+                      className={cn('transition-transform', !section.collapsed && 'rotate-90')}
+                    />
+                  )}
+                  {section.label}
+                  <span className="text-muted-foreground/40">{section.count}</span>
+                </button>
                 {section.key === 'recent' && (
                   <button
                     onClick={() => store.clearRecents()}
@@ -398,7 +582,14 @@ export function GlobalSearch() {
               </div>
               <div className="px-2 flex flex-col gap-px">
                 {section.rows.map(({ row, flatIndex }) => (
-                  <RowButton key={row.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} />
+                  <RowButton
+                    key={row.id}
+                    row={row}
+                    flatIndex={flatIndex}
+                    selected={flatIndex === store.selectedIndex}
+                    query={store.query}
+                    onTogglePin={store.togglePin}
+                  />
                 ))}
               </div>
             </div>
@@ -413,7 +604,7 @@ export function GlobalSearch() {
                 {quickActions.map((qa) => {
                   const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
                   const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
-                  return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} />;
+                  return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
                 })}
               </div>
             </>
@@ -439,7 +630,22 @@ export function GlobalSearch() {
             </button>{' '}
             for syntax
           </span>
-          {store.universeReady && <span>{indexCount.toLocaleString()} instruments indexed</span>}
+          {store.universeReady && (
+            <span>
+              {resolved && resolved.total > resolved.items.length
+                ? `${resolved.items.length} of ${resolved.total.toLocaleString()} results`
+                : `${indexCount.toLocaleString()} instruments indexed`}
+            </span>
+          )}
+        </div>
+
+        {/* Screen-reader result announcement (visual footer stays terse). */}
+        <div className="sr-only" role="status" aria-live="polite">
+          {calc
+            ? `Calculator result ${calc.display}`
+            : resolved && !showRecents
+              ? `${resolved.items.length} result${resolved.items.length === 1 ? '' : 's'} for ${store.query}`
+              : ''}
         </div>
       </DialogContent>
     </Dialog>
@@ -496,28 +702,68 @@ function SyntaxHelp({ onPick }: { onPick: (q: string) => void }) {
 }
 
 // ── Row renderer ─────────────────────────────────────────────────────────────
+// Memoized: hovering/arrowing changes only `selected`, and every row object is
+// rebuilt only when the resolved sections change — so memo skips re-rendering
+// the dozens of untouched rows on each selection change.
 
-function RowButton({
+const RowButton = memo(function RowButton({
   row,
   flatIndex,
   selected,
   query,
+  onTogglePin,
 }: {
   row: Row;
   flatIndex: number;
   selected: boolean;
   query: string;
+  onTogglePin: (pin: { id: string; title: string; symbol?: string; kind: string; tab: string; params?: Record<string, string>; subtitle?: string }) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const isCalc = row.type === 'calc';
   const Icon =
-    row.type === 'action' ? row.icon : row.type === 'recent' ? Search : KIND_ICON[row.kind] ?? Search;
+    row.type === 'action'
+      ? row.icon
+      : row.type === 'recent'
+        ? Search
+        : isCalc
+          ? Calculator
+          : KIND_ICON[row.kind] ?? Search;
   const label = row.type === 'action' ? row.label : row.type === 'recent' ? row.text : row.title;
-  const subtitle = row.type === 'result' ? row.subtitle : null;
+  const subtitle = row.type === 'result' || row.type === 'calc' ? row.subtitle : null;
+  const onSelect = row.type === 'calc' ? row.onCopy : row.onSelect;
+
+  const copySymbol = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (row.type !== 'result' || !row.entity.symbol) return;
+    void navigator.clipboard?.writeText(row.entity.symbol).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
+  const togglePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (row.type !== 'result') return;
+    const e2 = row.entity;
+    onTogglePin({
+      id: e2.id,
+      title: e2.title,
+      symbol: e2.symbol,
+      kind: e2.kind,
+      tab: e2.destination.tab,
+      params: e2.destination.params,
+      subtitle: e2.subtitle,
+    });
+  };
 
   return (
     <div
-      role="button"
+      id={`command-opt-${flatIndex}`}
+      role="option"
+      aria-selected={selected}
       tabIndex={-1}
-      onClick={row.onSelect}
+      onClick={onSelect}
       onMouseEnter={() => useCommandStore.getState().setSelectedIndex(flatIndex)}
       data-selected={selected || undefined}
       className={cn(
@@ -543,6 +789,31 @@ function RowButton({
           <div className="mt-0.5 truncate text-[11px] text-muted-foreground/60">{subtitle}</div>
         )}
       </div>
+
+      {row.type === 'result' && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          {row.entity.symbol && (
+            <button
+              onClick={copySymbol}
+              className="rounded p-1 text-muted-foreground/40 hover:text-foreground transition-colors cursor-pointer"
+              title="Copy symbol"
+            >
+              {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+            </button>
+          )}
+          <button
+            onClick={togglePin}
+            className={cn(
+              'rounded p-1 transition-colors cursor-pointer',
+              row.pinned ? 'text-primary' : 'text-muted-foreground/40 hover:text-foreground',
+            )}
+            title={row.pinned ? 'Unpin' : 'Pin'}
+          >
+            <Pin size={13} className={row.pinned ? 'fill-current' : ''} />
+          </button>
+        </div>
+      )}
+
       {row.type === 'recent' && (
         <button
           onClick={(e) => {
@@ -555,7 +826,8 @@ function RowButton({
           <X size={13} />
         </button>
       )}
-      {selected && row.type !== 'recent' && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
+      {selected && row.type !== 'recent' && !isCalc && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
+      {isCalc && <Calculator size={13} className="shrink-0 text-muted-foreground/50" />}
     </div>
   );
-}
+});

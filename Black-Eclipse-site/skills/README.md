@@ -2,7 +2,7 @@
 
 This folder contains a persistent engineering operating system for any AI coding agent (opencode, Claude, Cursor, etc.) working on BlackEclipse.
 
-## The 6 skills
+## The skills
 
 | File | Purpose |
 |---|---|
@@ -12,6 +12,8 @@ This folder contains a persistent engineering operating system for any AI coding
 | `RECOVER.md` | Failure recovery protocol — STOP→INSPECT→IDENTIFY→RECOVER→VERIFY |
 | `IMPRINT.md` | Design system, visual identity, and financial UI rules |
 | `DOCS.md` | Documentation system — where docs live and when they must be updated |
+| `CUSTOMIZE.md` | Customization/workspace patterns (section → column → widget) |
+| `GOALS.md` | Current phase goals and the standing simplicity/performance goal |
 
 The **user-facing documentation** itself lives in [`../docs/`](../docs/) and is
 maintained per `DOCS.md`. `docs/` is canonical for "how the system works";
@@ -37,7 +39,11 @@ For a significant development task, the agent should follow:
 
 ## opencode registration
 
-The same 6 skills are also registered as opencode skills in `.opencode/skills/` so opencode auto-loads them when a task matches their trigger description. The `.opencode/skills/*/SKILL.md` files reference these docs.
+The project-specific skills are also registered as opencode skills in
+`.opencode/skills/` (`black-eclipse-docs`, `black-eclipse-db`,
+`black-eclipse-ui`, `black-eclipse-workspace`) so opencode auto-loads them when a
+task matches their trigger description. Those `SKILL.md` files reference these
+docs rather than restating them.
 
 ## Priority
 

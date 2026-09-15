@@ -85,6 +85,23 @@ scroll-adjusted deltas, off-screen targets) and gave no chance to verify.
 (`pointermove` + `elementFromPoint`), not dnd-kit's delta. Any new interaction
 must respect the two-click contract.
 
+## ADR-009 — Central command palette + query grammar (2026)
+**Decision:** Global search (⌘K) is one command palette over `src/lib/search/`
+built as two **pure, framework-free** steps: a **grammar** (`grammar.ts`) that
+parses scopes (`>` `#` `@` `/` `~` `?`) and field operators (`kind:`, `class:`,
+`market:`, `symbol:`), then a **resolver** (`resolver.ts`) that classifies intent,
+scores the static registry + FlexSearch universe, and returns a `ResolvedSearch`.
+The palette dispatches a **`Destination`** on a bus (`pendingDestination`) rather
+than navigating directly.
+**Why:** The command-center vocabulary is a user-facing contract that must grow
+without touching the UI, and the query path must stay fully offline and
+deterministic (no LLM on the query path — only an explicit "Ask AI" row).
+**Impact:** Extending scopes/operators means editing `grammar.ts` and its tests
+together. Ranking stays pure; personalization (visit history), pins, and collapse
+state live in the Zustand command store. `calc.ts`/`commands.ts` add an offline
+calculator and parameterized-command autocomplete. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The command center".
+
 ---
 
 ## Decisions implied by the code (not yet formal ADRs)

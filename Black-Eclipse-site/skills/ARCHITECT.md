@@ -8,7 +8,7 @@
 ## 1. Product Definition
 
 ### What BlackEclipse is
-An **open-source, agentic AI investment research platform** presented as a Bloomberg-inspired terminal UI. It provides market screening, crypto bubble visualization, portfolio tracking, financial news, and an AI research chat — all in a dark, glassmorphic interface.
+An **open-source, agentic AI Harness and investment research platform** presented as a Bloomberg-inspired terminal UI. It provides market screening, crypto bubble visualization, portfolio tracking, financial news, and an AI research chat — all in a dark, glassmorphic interface.
 
 ### Long-term vision
 BlackEclipse will grow into a **zero-configuration, agentic finance research tool** where users bring their own data sources (or use free built-in ones) and an AI agent performs research, screening, monitoring, and analysis. The immediate goal (Phase 1) is a working **data system**; the next is **agentic research agents** in the style of Hermes.
@@ -44,88 +44,142 @@ Free, good-quality market data APIs are scarce or expensive. Most users can't af
 
 ### Architecture Map (current, accurate as of this writing)
 
+> This is the deep reference. The canonical, readable summary with the same
+> layer model lives in [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and
+> [`../docs/OVERVIEW.md`](../docs/OVERVIEW.md). Where they overlap, **the code
+> wins**; fix the doc.
+
 ```
 User
  │
  ▼
-UI / Chat (StockChat terminal)
- ├── Chat tab        → src/components/screens/stock-chat.tsx → src/lib/agent/*
- ├── Discovery tab   → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts + market-data.ts)
- ├── Market tab      → MyPortfolio (my-portfolio.tsx + use-portfolio-engine.ts)
- ├── News tab        → MarketNews (market-news.tsx) → /api/news (RSS)
- ├── Bubbles tab     → MarketBubbles (market-bubbles.tsx)
- └── Chart tab       → EmbeddedChart (embedded-chart.tsx) → TradingView widget
+UI / Shell (StockChat terminal — ONE page, keep-alive tabs)
+ ├── ChatBot tab        → src/components/screens/stock-chat.tsx → src/lib/agent/*
+ ├── Command Center     → src/components/screens/dashboard/ → src/lib/workspace/ + src/lib/dashboard/
+ ├── Market Workspace   → src/components/market-workspace/ → src/lib/market-workspace/
+ ├── Market Screener    → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts)
+ ├── Portfolio          → src/components/screens/portfolio/ → use-portfolio-engine.ts
+ ├── Journal            → src/components/journal/ → src/lib/journal/
+ ├── News               → MarketNews → /api/news (reads JDDS; RSS ingested in background)
+ ├── Market Bubbles     → market-bubbles.tsx
+ ├── Economics          → src/components/screens/economics/ → /api/economics
+ ├── Price Alerts       → src/app/alerts/ → src/lib/alerts/ (server poll loop)
+ └── Chart (embedded)   → embedded-chart.tsx / tradingview-chart.tsx
  │
  ▼
-Application Layer (React client components, 'use client')
+Client Data Layer
+ ├── DataHub (src/lib/workspace/data-hub.ts) — pub/sub topics, TTL, fan-out
+ ├── Zustand stores — sidebar, dashboard, search, market-workspace, aurora
+ └── Portfolio engine (src/hooks/use-portfolio-engine.ts) — pure FIFO/LIFO math
  │
  ▼
-API / Services (src/app/api/*)
- └── /api/news → rss-parser → Yahoo/CoinDesk/CoinTelegraph/CNBC feeds
+API / Services (src/app/api/**/route.ts — thin, server-only, api-guard protected)
+ └── stocks · quote · price-history · asset-details · symbols · markets · indices ·
+     forex · commodities · heatmap · news · economics · search · agent ·
+     journal/* · alerts/* · scraper · refresh · settings · cron
  │
  ▼
-AI / Research Layer (src/lib/agent/*)
- ├── types.ts        → AgentProvider, AgentTool, ChatMessage interfaces
- ├── mock-provider.ts→ built-in keyword-based mock
- └── registry.ts     → getAgentProvider() → first configured provider, else mock
+JDDS — jdds.db (SQLite via Prisma + better-sqlite3, src/lib/db.ts)
+ ├── Market universe: Market, Asset, Price, IndexQuote
+ ├── News: NewsItem, SourceHealth
+ ├── Macro: MacroSeries, CronJob, SystemConfig
+ ├── Research memory: ResearchReport, AgentRun, ResearchFinding
+ ├── Alerts: PriceAlert, PriceAlertEvent, Candles
+ └── Trading journal: JournalProfile, TradingAccount, Strategy, … , Review
+ │
+ ▼
+Background workers (all in-process, started from src/instrumentation.ts)
+ ├── Price refresh (src/lib/scraper/scheduler.ts)      — default 15 min
+ ├── Universe sync (daily) + News ingest (default 5 min)
+ ├── Boot warm-up (prod-only unless BE_WARMUP=1)
+ └── Alert monitor (src/lib/alerts/alertMonitor.ts)
  │
  ▼
 Data Sources
- └── RSS feeds (free) + demo data (src/components/screens/market-data.ts)
+ └── TradingView scanner (whole-market) · yfinance Python bridge ·
+     RSS feeds (free) · crypto/macro providers · user API keys · demo fallback
 ```
 
 ### Frontend
 - **Next.js 15 App Router**, React 19, TypeScript, Tailwind CSS v4.
 - Client components marked `'use client'` at the top of each file.
-- All screens live in `src/components/screens/` and are routed through `src/components/screens/stock-chat.tsx` via an `activeTab` state (no URL routing for tabs — single page).
-- Reusable primitives in `src/components/ui/` (button, card, dialog, etc.).
+- The app is **one page**: `src/app/page.tsx` renders `<StockChat />`, which owns
+  the `activeTab` state machine and keep-alive tabs (`AppTab` in
+  `src/components/layout/sidebar.tsx`). There is no URL routing for main screens.
+- Screens are loaded with `next/dynamic` + `ssr: false` (memory decision — do not
+  convert to static imports).
+- Reusable primitives in `src/components/ui/` (button, card, dialog, tab-bar, …).
 
 ### Backend
-- Minimal — only `/api/news` currently exists (`src/app/api/news/route.ts`).
-- Route handlers use `NextResponse` and `export const dynamic = "force-dynamic"`.
+- Many route groups under `src/app/api/**/route.ts` — see the map above. Handlers
+  are thin and server-only; mutating routes go through `src/lib/api-guard.ts`.
 
 ### Zero Configuration Policy
-- The app runs fully on **demo data** (`src/components/screens/market-data.ts`) with no keys/DB.
-- News works via **free RSS** with an offline mock fallback (`NEWS_MOCK` in market-news.tsx).
+- The app runs with **zero setup**: `npm install && npm run dev`. `instrumentation.ts`
+  seeds the US universe and starts the schedulers; `jdds.db` ships as a seed snapshot.
 - **Data source priority (user configures as little as possible):**
   1. **Agentic scraper** (primary) — free, built-in, works for any market with zero setup.
   2. **User-provided API** (optional) — used only if the user supplies a key (Finnhub, Alpha Vantage, etc.).
-  3. **Demo data** (fallback) — always works when no live source is available.
+  3. **Demo data** (fallback) — always works when no live source is available, behind a visible `DEMO` banner.
 - The user should **never be required** to configure anything. The agentic scraper is the default.
 
 ### API Layer
-- `src/app/api/news/route.ts` — fetches RSS, extracts headline/summary/source/sentiment, paginates server-side.
+- Route groups are listed in the Architecture Map above. `/api/news` reads from
+  JDDS (`NewsItem`) rather than fetching feeds per request; RSS ingestion happens
+  in the background (`src/lib/news/ingest.ts`).
 
-### Database
-- **None currently.** No SQLite, no PostgreSQL, no ORM in the active codebase.
-- Portfolio + watchlist + chat persistence are client-side via **localStorage**.
-- `jdds_backup.sql` (a removed PostgreSQL dump) is deleted and gitignored (`*.sql`).
-- **PLANNED:** a local SQLite store for real persistence (zero-config, file-based).
+### Database — JDDS (SQLite)
+- **`jdds.db`** (SQLite) via **Prisma + `@prisma/adapter-better-sqlite3`**;
+  `src/lib/db.ts` owns the client and exports `prisma` + `yieldToEventLoop()`.
+- Schema in `prisma/schema.prisma`, organized in domains (market universe, news,
+  macro, scheduling/config, research memory, alerts, trading journal). See the
+  Architecture Map above for the model list.
+- **Dedup by constraint.** `Asset` unique on `[marketId, symbol]`; `Price` keyed
+  by `assetId`; `NewsItem` has a `dedupKey`. Imports are idempotent upserts.
+- **Auth-ready, not auth-ful.** The journal carries an optional owner concept so a
+  `User` relation can be added later. There are no accounts today.
+- **Synchronous-write discipline.** better-sqlite3 blocks the event loop, so bulk
+  writers chunk and `yieldToEventLoop()`. See `docs/DATA-FLOW.md`.
+- Client-only state (sidebar, dashboard layouts, search, market-workspace,
+  aurora) persists to **localStorage**, not the DB. The committed `jdds.db` is a
+  **seed snapshot** — do not re-commit it on routine changes (see the
+  `black-eclipse-db` skill).
 
 ### Data Ingestion
-- **PRIMARY: agentic scraper** — a smart scheduler that scrapes market data for free. It is timezone-aware (only scrapes open markets), priority-based (watchlists first), and de-duplicated. This is the default source so users configure nothing.
+- **PRIMARY: agentic scraper** — a smart scheduler that scrapes market data for free. It is timezone-aware (only scrapes open markets), priority-based, and de-duplicated. This is the default source so users configure nothing.
 - **SECONDARY: user-provided API** — optional keys (Finnhub, Alpha Vantage, etc.) override the scraper for that source when supplied.
-- **FALLBACK: demo data** — used when no live source is available or reachable.
+- **FALLBACK: demo data** — used when no live source is available or reachable, behind a `DEMO` banner.
+- Full detail lives in [`../docs/DATA-FLOW.md`](../docs/DATA-FLOW.md) — read it before touching ingestion.
 
 ### Market data providers
-- **CURRENT:** none live. Demo data only.
-- **PRIMARY (PLANNED): agentic scraper** — Yahoo Finance (`yahoo-finance2`, free, covers 80+ markets incl. PSX `.KA`, India `.NS`, China `.SS`) with a lightweight cheerio fallback for markets Yahoo misses.
+- **PRIMARY: TradingView scanner** (`fetchers/tradingview.ts`) — a whole-market scan prices an entire market in ~1 request; the primary path and covers markets Yahoo misses.
+- **SECONDARY: yfinance bridge** (`fetchers/yfinance.ts` + `scripts/yfinance_bridge.py`) — batched Python bridge for markets TradingView covers poorly (optional Python 3.9+).
+- **FALLBACK chain:** `fetchers/http.ts`, `fetchers/browser.ts` (Playwright), `fetchers/scrapling.ts`, `fetchers/crypto.ts`. `SourceHealth` learns which source is reliable.
 - **OPTIONAL: user-supplied** Finnhub/Alpha Vantage/Twelve Data when a user configures them.
 - Symbols map to TradingView via `getTradingViewSymbol()` in `src/lib/utils.ts`.
 
 ### Background workers / scheduled jobs
-- **None currently.** No daemon. **PLANNED:** cron-based scheduler for price/universe/news refresh.
+All in-process, started from `src/instrumentation.ts` (no external daemon). They
+coordinate through mutex flags so two heavy SQLite write storms never collide.
+
+| Worker | Cadence | Source |
+|---|---|---|
+| Price refresh | default 15 min | `src/lib/scraper/scheduler.ts` |
+| Universe sync | daily | `src/lib/scraper/scheduler.ts` |
+| News ingest | default 5 min | `src/lib/news/ingest.ts` |
+| Boot warm-up | once (prod-only unless `BE_WARMUP=1`) | `src/lib/scraper/scheduler.ts` |
+| Alert monitor | polling loop | `src/lib/alerts/alertMonitor.ts` |
 
 ### Agent/AI architecture
 - `src/lib/agent/types.ts` defines `AgentProvider`, `AgentTool`, `ChatMessage`.
-- `src/lib/agent/mock-provider.ts` — built-in keyword-based responder.
-- `src/lib/agent/registry.ts` — `getAgentProvider()` returns first configured provider else mock.
-- `src/components/screens/stock-chat.tsx` calls `getAgentProvider().chat(...)` for replies.
-- **PLANNED:** real providers (OpenAI/Anthropic/Ollama), a tool registry (query data, scrape, search), and skills (research, screen, portfolio, monitor).
+- `src/lib/agent/mock-provider.ts` — built-in keyword-based responder (last-resort fallback).
+- `src/lib/agent/openai-provider.ts` — OpenAI-compatible provider (OpenAI / Ollama / Anthropic-style) that runs **server-side**; the client reaches it via `POST /api/agent/chat`.
+- `src/lib/agent/registry.ts` — `getAgentProvider()` returns the first configured provider else mock. `NEXT_PUBLIC_LLM_CONFIGURED` (set by `instrumentation.ts`) tells the client whether a real LLM exists.
+- `src/lib/agent/loop.ts` + `tools.ts` — the tool-calling loop and tool registry (query data, scrape, search); `research.ts` is the multi-agent research pipeline that persists findings (`ResearchReport` / `AgentRun` / `ResearchFinding`).
+- `src/components/screens/stock-chat.tsx` calls `getAgentProvider().chat(...)` for replies; research-worded questions hit the research engine.
 
 ### Charts & visualization
-- TradingView widget via `src/components/screens/embedded-chart.tsx` and `tradingview-chart.tsx`.
-- Recharts for portfolio charts (my-portfolio.tsx).
+- ECharts (`echarts` + `useEChart` in `src/components/screens/portfolio/use-echart.ts`) for dashboard/chart widgets; TradingView widget via `src/components/screens/embedded-chart.tsx` and `tradingview-chart.tsx`; Recharts for portfolio charts.
 - `ogl` WebGL for the **Aurora background** (`src/components/ui/Aurora.tsx`).
 
 ---
@@ -140,54 +194,81 @@ Data Sources
 | UI | React **19.1.0** |
 | Styling | Tailwind CSS **v4** + tw-animate-css + class-variance-authority |
 | Components | @base-ui/react **1.5.0** (shadcn-style), lucide-react icons |
-| Charts | Recharts **3.8.1** |
+| DB | Prisma **7.9.1** + @prisma/adapter-better-sqlite3 + better-sqlite3 |
+| Workspace | @dnd-kit/core + @dnd-kit/sortable + zustand + immer |
+| Charts | echarts **6.1.0**, Recharts **3.8.1**, TradingView widget |
+| Search | flexsearch **0.7.31** |
+| Scraping | cheerio, playwright, `scripts/yfinance_bridge.py` (Python) |
+| Scheduling | node-cron **4.6.0** (in-process) |
 | 3D/GL | ogl **1.0.11** |
 | News | rss-parser **3.13.0** |
+| Alerts/agent | nodemailer, axios, duck-duck-scrape |
 | PDF | jspdf + jspdf-autotable |
 | Utils | clsx, tailwind-merge |
 | Tests | Vitest **4.1.10** |
 
 ### PLANNED (not yet implemented — do not treat as current)
-- SQLite / better-sqlite3 (local storage)
-- yahoo-finance2 (free market data)
-- A real LLM provider SDK (openai / @anthropic-ai/sdk / ollama)
-- A background scheduler / daemon
+- A broker / paper-trading integration (the `trading`-category dashboard
+  widgets are `UNAVAILABLE` stubs today).
+- Vercel/serverless support for the in-process SQLite scheduler (a
+  `POST /api/cron/run` endpoint exists for hosted schedulers).
 
 ### EXPERIMENTAL / DEPRECATED
 - The original **JDdS daemon** and its PostgreSQL provider system were **removed**. Do not reintroduce them without updating this file.
+- `src/lib/customize/` — the older customization kernel, **superseded** by
+  `src/lib/workspace/` (ADR-005). The folder no longer exists; do not rebuild it.
 - `@base-ui/react` v1.5.0 has **SSR/hydration quirks** — Portal-based components (Tooltip, Dialog) must be mounted-gated.
 
 ---
 
 ## 4. Data Architecture
 
-### Core entities
-- `StockItem` — full fundamental/technical stock record (see `market-data.ts`).
-- `IndexCard`, `SectorPerformance`, `ShifterItem` — dashboard metadata.
-- `FundItem`, `ETFItem`, `NewStockItem`, `BlueChipItem` — screener categories.
-- `NewsItem` — headline, source, ticker, sentiment, impact, url.
+### Core entities (DB — see `prisma/schema.prisma`)
+- **Market universe** — `Market`, `Asset` (unique `[marketId, symbol]`), `Price`
+  (one per `assetId`, `source: 'scraper' | 'csv'`), `IndexQuote`.
+- **News** — `NewsItem` (unique `dedupKey`), `SourceHealth`.
+- **Macro** — `MacroSeries` (JSON cache keyed by `cacheKey`).
+- **Scheduling & config** — `CronJob`, `SystemConfig`.
+- **Research memory** — `ResearchReport`, `AgentRun`, `ResearchFinding`.
+- **Alerts** — `PriceAlert`, `PriceAlertEvent`, `Candles`.
+- **Trading journal** — `JournalProfile`, `TradingAccount`, `Strategy`,
+  `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`,
+  `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`,
+  `MarketContext`, `JournalEntry`, `Review`.
+
+Client-side shapes:
+- `StockItem` — demo/screener record (`market-data.ts`).
 - `Message` (`src/types/chat.ts`) — chat messages.
-- Portfolio/transaction/alert data — client-side shapes in `my-portfolio.tsx` + `use-portfolio-engine.ts`.
+- Portfolio/transaction shapes come from `use-portfolio-engine.ts`; persisted client-side.
 
 ### Relationships
-- No DB relationships — all data is in-memory/static or localStorage.
+- The journal domain is the most relational (profiles → accounts → strategies →
+  trades → executions/annotations). Market data is upsert-only and keyed by
+  unique constraints. Optional journal owner is reserved for a future `User`.
 
 ### Market data flow
-1. Screens call `/api/stocks` **or** read demo data directly (currently the latter).
-2. `use-screener-filters.ts` applies filter/sort logic as a pure hook.
-3. `market-data.ts` supplies demo universe + regional datasets.
+1. Background workers scrape/import into **JDDS** (see the map above).
+2. Screens read through an API route (`/api/stocks`, `/api/indices`, …) or a
+   DataHub topic that wraps it.
+3. `use-screener-filters.ts` applies filter/sort logic as a pure hook; the
+   screener filters/paginates **server-side**.
+4. Demo data (`market-data.ts`) is the fallback when no universe is loaded.
 
 ### Symbol/universe management
 - `getTradingViewSymbol()` maps raw symbols → TradingView format (crypto, indices, PSX `.KA`, India `.NS`, etc.).
-- `getRegional*()` functions in `market-data.ts` return country-specific datasets (USA/India/Pakistan).
+- `universe-sync.ts` scans TradingView markets, upserts new listings, and
+  deactivates symbols that miss repeatedly (daily).
 
 ### Data normalization & validation
 - Filter logic in `use-screener-filters.ts` parses market-cap/volume strings (`1.3T`, `28.4B`, `540M`) to numbers.
-- Sentiment is a keyword heuristic in the news route.
+- News sentiment is a keyword heuristic (`src/lib/sentiment.ts`).
 
 ### Data freshness
-- News is `force-dynamic` (fetched per request).
-- No caching layer currently (the old `data-layer/cache.ts` was removed).
+- **`Price.source`** is the provenance field: `'scraper'` = live scrape, `'csv'` = imported.
+- `Price.updatedAt` / `CronJob.lastRunAt` tell you how old data is.
+- DataHub entries carry a `DataSource` label
+  (`LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | UNAVAILABLE`).
+- Never present stale or simulated data as live. See `docs/DATA-FLOW.md`.
 
 ---
 
@@ -236,11 +317,6 @@ Data Sources
 **Reason:** The flat span model could not express free-form placement (multiple widgets per column, individual column widths). A prior v3 "element model" (`src/lib/customize/`) was sketched in docs but never shipped — the workspace kernel is the real implementation.
 **Impact:** Adding a customizable page = one widget registry + `useWorkspace()` + `<WorkspaceCanvas renderWidget={...}>`. The fund workspace and portfolio pages are migrated; other screens follow when touched (see `skills/CUSTOMIZE.md`).
 
-### ADR-008 — Two-click placement confirm (2026)
-**Decision:** Widget placement is **preview-then-confirm**, not drop-to-commit. Grab a card (click or drag-release), hover to preview a labeled ghost slot, then click again (or the ghost / Confirm button) to commit; **Escape or right-click cancels** at any point. Empty columns and inter-section strips are clickable while grabbing; auto-scroll runs during both drag and grab so off-screen rows are reachable.
-**Reason:** Drop-to-commit was unreliable across devices (touch pan-gestures, scroll-adjusted deltas, off-screen targets) and gave users no chance to verify placement before committing. A two-click model is deterministic, works on mouse/touch/trackpad, and never mutates the layout until the user confirms.
-**Impact:** The drop target is projected from the **real pointer** (native `pointermove` + `elementFromPoint`), not dnd-kit's scroll-adjusted delta. New ops: `moveWidgetToNewSectionAt` (insert above/below any section), `createSectionAt` (click strips to create empty sections), and `DropTarget.columnIndex` (insert new columns before/after an anchor). See `skills/CUSTOMIZE.md` for the exact interaction contract.
-
 ### ADR-006 — Workspace kernel stack: dnd-kit + Zustand + Immer (2026)
 **Decision:** The customization kernel is built on three libraries: **dnd-kit** (`@dnd-kit/core`) owns drag & drop (`DndContext` + `PointerSensor` + `useDraggable`/`useDroppable` + `DragOverlay`), **Zustand** owns editor/layout/selection state (one cached store per workspace storageKey, selector subscriptions, `selectedWidgetId`/`dragging`), **Immer** owns layout mutations (all ops in `ops.ts` are draft mutators invoked via `produce` in the store's `commit()`).
 **Reason:** Replaced hand-rolled pointer-drag DOM surgery, useState plumbing, and manual structural clones. dnd-kit gives accessible, collision-driven DnD; Zustand gives cross-mount state without prop drilling; Immer removes clone boilerplate and makes ops trivially testable (tests wrap calls in `produce`).
@@ -250,3 +326,24 @@ Data Sources
 **Decision:** Every page header uses the portfolio-style icon tile: a 56px (`h-14 w-14`) rounded-2xl container with `border-primary/25 bg-primary/15 shadow-lg shadow-primary/10` wrapping a 30px primary-colored lucide icon.
 **Reason:** Bare inline icons looked inconsistent next to the redesigned portfolio header.
 **Impact:** New screens copy the tile pattern (see market-overview.tsx or economics.tsx headers); do not revert to bare `w-7 h-7` icons.
+
+### ADR-008 — Two-click placement confirm (2026)
+**Decision:** Widget placement is **preview-then-confirm**, not drop-to-commit. Grab a card (click or drag-release), hover to preview a labeled ghost slot, then click again (or the ghost / Confirm button) to commit; **Escape or right-click cancels** at any point. Empty columns and inter-section strips are clickable while grabbing; auto-scroll runs during both drag and grab so off-screen rows are reachable.
+**Reason:** Drop-to-commit was unreliable across devices (touch pan-gestures, scroll-adjusted deltas, off-screen targets) and gave users no chance to verify placement before committing. A two-click model is deterministic, works on mouse/touch/trackpad, and never mutates the layout until the user confirms.
+**Impact:** The drop target is projected from the **real pointer** (native `pointermove` + `elementFromPoint`), not dnd-kit's scroll-adjusted delta. New ops: `moveWidgetToNewSectionAt` (insert above/below any section), `createSectionAt` (click strips to create empty sections), and `DropTarget.columnIndex` (insert new columns before/after an anchor). See `skills/CUSTOMIZE.md` for the exact interaction contract.
+
+### ADR-009 — Central command palette + query grammar (2026)
+**Decision:** Global search (⌘K) is a single command palette over
+`src/lib/search/`, structured as two **pure, framework-free** steps: a **grammar**
+(`grammar.ts`) that parses scopes/operators, then a **resolver** (`resolver.ts`)
+that classifies intent, scores the static registry + FlexSearch universe, and
+returns a `ResolvedSearch`. The palette dispatches a **`Destination`** on a bus
+(`pendingDestination`) rather than navigating directly.
+**Reason:** The command-center vocabulary (scopes/operators) is a user-facing
+contract that must grow without touching the UI; keeping the query path fully
+offline and deterministic avoids an LLM on every keystroke.
+**Impact:** Extending scopes/operators means editing `grammar.ts` + its tests
+together. Ranking stays pure; personalization (visit history), pins, and collapse
+state live in the Zustand command store. `calc.ts`/`commands.ts` add offline
+calculation and parameterized-command autocomplete. See `docs/ARCHITECTURE.md`
+→ "The command center".

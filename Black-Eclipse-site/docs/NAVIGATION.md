@@ -74,7 +74,7 @@ Black-Eclipse-site/
 | `news/` | Background RSS ingestion |
 | `portfolio/` | Portfolio types + risk math |
 | `scraper/` | Price/universe scraping, scheduler, fetchers, CSV |
-| `search/` | Global search registry, intent, query grammar/operators, ranking, resolver, stores |
+| `search/` | Global search registry, intent, query grammar/operators, ranking, resolver, calculator/commands, stores |
 | `sidebar/` | Sidebar config + store |
 | `workspace/` | The widget workspace kernel (DataHub, ops, persistence, canvas) |
 

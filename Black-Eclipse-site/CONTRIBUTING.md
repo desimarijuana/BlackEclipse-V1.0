@@ -8,7 +8,9 @@ Thanks for your interest in contributing! Here's how to get started.
 2. Run `npm install`
 3. Run `npm run dev` and open http://localhost:3000
 
-No API keys or database are required — the app runs on demo data.
+No API keys or database setup are required. `npm install` runs `prisma generate`,
+and first boot seeds JDDS and starts the scraper — the committed `jdds.db` is a
+seed snapshot, so there is real market data on screen without any configuration.
 
 New to the codebase? Read [`docs/OVERVIEW.md`](docs/OVERVIEW.md) first, then use
 [`docs/NAVIGATION.md`](docs/NAVIGATION.md) to find the file you want.
