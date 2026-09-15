@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { TabBar } from "@/components/ui/tab-bar";
+import { useSubroute } from "@/hooks/use-subroute";
 
 // ─── Site design system (matches my-portfolio / market-overview) ──────────
 // Frost glass — the default glass panel style used across every screen.
@@ -102,6 +103,15 @@ export function AlertsClient() {
   const [notices, setNotices] = useState<NoticeRow[]>([]);
   const [editing, setEditing] = useState<AlertRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Global search: 'alerts.watches' | 'alerts.create' | 'alerts.history'.
+  useSubroute('alerts', (req) => {
+    const v = req.subroute as View;
+    if (v === 'watches' || v === 'create' || v === 'history') {
+      if (v !== 'create') setEditing(null);
+      setView(v);
+    }
+  });
 
   const loadLive = useCallback(async () => {
     try {

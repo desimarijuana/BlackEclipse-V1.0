@@ -31,6 +31,7 @@ const ChartWidget = dynamic(() => import('@/components/chart/chart-widget').then
   loading: () => <ScreenSkeleton />,
 });
 const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false });
+import type { SectionId } from './settings';
 const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m) => m.AlertsClient), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
@@ -101,6 +102,8 @@ function StockChatContent() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Section requested by a `settings.<section>` palette subroute.
+  const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
 
   // ── App-wide sentiment (drives the Aurora glow) ──────────────────────────
   // Market sentiment is a continuous [-1, +1] score from the global DataHub
@@ -189,6 +192,21 @@ function StockChatContent() {
       if (dest.params?.market) {
         useCommandStore.setState({ pendingMarket: dest.params.market });
         setDiscoveryMarket(dest.params.market);
+      }
+      // Sub-view routing: `subroute` (e.g. 'economics.calendar', 'journal.analytics')
+      // is published to the target screen via the command store, with an optional
+      // `focus` target. Screens consume it with the `useSubroute` hook.
+      if (dest.subroute) {
+        const sub = dest.subroute.split('.').slice(1).join('.') || dest.subroute;
+        useCommandStore.getState().requestSubroute(dest.tab, sub, dest.params?.focus);
+      }
+      // Settings has no tab screen — it is a modal. Route there instead of
+      // switching to a tab that renders nothing.
+      if (dest.tab === 'settings') {
+        const sec = dest.subroute?.split('.')[1];
+        if (sec) setSettingsSection(sec as SectionId);
+        setSettingsOpen(true);
+        return;
       }
       if (dest.tab === 'chart') {
         // Chart needs a symbol; default to the last selected one.
@@ -670,7 +688,9 @@ function StockChatContent() {
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong shadow-2xl text-foreground">
           <DialogTitle className="sr-only">Settings</DialogTitle>
-          <Settings />
+          {/* Keyed so a palette `settings.<section>` request remounts into the
+              requested section even while the modal is already open. */}
+          <Settings key={settingsSection ?? 'default'} initialSection={settingsSection} />
         </DialogContent>
       </Dialog>
     </div>

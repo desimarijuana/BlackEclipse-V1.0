@@ -17,6 +17,7 @@ import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/li
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
+import { DataSourcesPanel } from "./data-sources-panel";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -46,16 +47,14 @@ interface AppPreferences {
 
 interface IntegrationStatus {
   llm: { provider: string; model: string; configured: boolean };
-  finnhub: boolean;
-  binance: boolean;
-  coingecko: boolean;
+  // Only integrations actually wired at runtime — mirrors
+  // `getIntegrationsStatus()` in `src/lib/settings.ts`.
   yahoo: boolean;
   fred: boolean;
   bea: boolean;
   bls: boolean;
   tradingEconomics: boolean;
   akshare: boolean;
-  auth: boolean;
   database: boolean;
 }
 
@@ -78,8 +77,13 @@ const ALL_MARKETS = [
 ];
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-type SectionId = "appearance" | "aurora" | "sidebar" | "agent" | "market" | "news" | "integrations" | "data" | "alerts";
+export type SectionId = "appearance" | "aurora" | "sidebar" | "agent" | "market" | "news" | "connectors" | "integrations" | "data" | "alerts";
 
+/** Valid settings sub-view ids, for the palette's settings sub-pages. */
+export const SETTINGS_SECTIONS: readonly SectionId[] = [
+  "appearance", "aurora", "sidebar", "agent", "market",
+  "news", "connectors", "integrations", "data", "alerts",
+] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env) / Mock",
   openai: "OpenAI",
@@ -195,12 +199,12 @@ function StatusDot({ ok }: { ok: boolean | undefined }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────
 
-export function Settings() {
+export function Settings({ initialSection }: { initialSection?: SectionId } = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionId>("appearance");
+  const [section, setSection] = useState<SectionId>(initialSection ?? "appearance");
 
   // LLM
   const [llm, setLlm] = useState<LLMConfig>({
@@ -329,6 +333,7 @@ export function Settings() {
     { id: "agent", label: "AI Agent", desc: "Provider & model", icon: Bot },
     { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
     { id: "news", label: "News Feeds", desc: "RSS sources", icon: Newspaper },
+    { id: "connectors", label: "Data Sources", desc: "Your own APIs", icon: Boxes },
     { id: "integrations", label: "Integrations", desc: "Service status", icon: ShieldCheck },
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: Activity },
     { id: "data", label: "Data", desc: "Local storage", icon: Database },
@@ -667,6 +672,8 @@ export function Settings() {
                 </Panel>
               </div>
             )}
+
+            {section === "connectors" && <DataSourcesPanel />}
 
             {section === "integrations" && (
               <div className="animate-fade-in-up">

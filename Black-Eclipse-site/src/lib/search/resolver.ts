@@ -11,7 +11,6 @@ import { classifyIntent, extractSymbol } from './intent';
 import { fuzzyScore, scoreEntity, suggestCorrection } from './rank';
 import { getUserEntities } from './user';
 import { getGlobalEntities } from './global';
-import { settingsEntities } from './settings';
 import { marketEntities } from './markets';
 import { resolveEvent } from './events';
 import { matchesFilters, parseQuery, scopeKinds, type ParsedQuery, type Scope } from './grammar';
@@ -168,7 +167,6 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
     ...getAllInstruments(),
     ...getUserEntities(),
     ...getGlobalEntities(),
-    ...settingsEntities(),
     ...marketEntities(),
   ];
   for (const e of staticEntities) {

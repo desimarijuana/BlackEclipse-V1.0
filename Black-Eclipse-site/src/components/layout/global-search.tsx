@@ -40,7 +40,7 @@ import { detectParamCommand, paramCandidates } from '@/lib/search/commands';
 import { createQuickAlert } from '@/lib/alerts/quick-alert';
 import { addToWatchlist } from '@/lib/dashboard/watchlist-store';
 import { universeCount } from '@/lib/search/universe';
-import { getAllPages } from '@/lib/search/registry';
+import { getPageEntries } from '@/lib/search/registry';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
@@ -120,7 +120,7 @@ type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
   | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
   | { type: 'calc'; id: string; title: string; subtitle: string; onCopy: () => void }
-  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void };
+  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void; indent?: boolean };
 
 interface Section {
   key: string;
@@ -239,22 +239,24 @@ export function GlobalSearch() {
   const navCollapsed = store.collapsedGroups.includes('nav');
 
   // All registered pages as "go to …" commands, generated from the registry so
-  // every tab/route is reachable without hand-listing them here. This is the
-  // bottom Navigation group (scrollable), replacing the old 4-item shortcut.
-  const navPages: QuickAction[] = useMemo(
+  // every tab/route is reachable without hand-listing them here. Sub-pages are
+  // nested under their parent tab (group) and labelled without the "Go to" verb.
+  const navPages: (QuickAction & { group: string; child: boolean })[] = useMemo(
     () =>
-      getAllPages()
+      getPageEntries()
         .map((p) => ({
           id: `nav-${p.id}`,
-          label: `Go to ${p.title}`,
+          label: p.child ? p.title : `Go to ${p.title}`,
           icon: nameIcon(p.icon),
+          group: p.group,
+          child: p.child,
           run: () => {
             store.dispatch(p.destination);
             useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
           },
         }))
-        // Market Workspace / Command Center first, then registry order.
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        // Top-level apps first (sorted), then sub-pages in registry order.
+        .sort((a, b) => Number(a.child) - Number(b.child) || a.label.localeCompare(b.label)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -745,7 +747,7 @@ export function GlobalSearch() {
                   ? null
                   : navPages.map((qa) => {
                       const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
-                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
+                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run, indent: qa.child };
                       return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
                     })}
               </div>
@@ -918,6 +920,7 @@ const RowButton = memo(function RowButton({
       data-selected={selected || undefined}
       className={cn(
         'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer',
+        row.type === 'action' && row.indent && 'pl-9',
         selected ? 'bg-accent text-foreground' : 'hover:bg-accent/30'
       )}
     >

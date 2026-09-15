@@ -41,7 +41,25 @@ const IMP_LABEL: Record<CalendarEvent['importance'], string> = {
   low: 'Low',
 };
 
-export function CalendarView() {
+/**
+ * Match an indicator focus token (from global search, e.g. 'NFP', 'CPI',
+ * 'FOMC', 'Unemployment') against event titles. Mirrors `EVENT_KEYWORDS` in
+ * `src/lib/search/events.ts` so the palette focus and the calendar agree.
+ */
+const FOCUS_PATTERNS: Record<string, RegExp> = {
+  nfp: /nonfarm|non-farm|payroll|nfp/i,
+  cpi: /cpi|consumer price/i,
+  gdp: /gdp|gross domestic/i,
+  fomc: /fomc|federal reserve|interest rate decision/i,
+  pmi: /pmi|ism|purchasing managers/i,
+  unemployment: /unemployment|jobless/i,
+  unemp: /unemployment|jobless/i,
+  ecb: /ecb|european central bank/i,
+  boe: /boe|bank of england/i,
+  boj: /boj|bank of japan/i,
+};
+
+export function CalendarView({ focus }: { focus?: string } = {}) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [source, setSource] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -105,6 +123,14 @@ export function CalendarView() {
 
   const visible = filter === 'all' ? events : events.filter((e) => e.importance === filter);
 
+  // Focus highlight: when global search dispatched `focus: 'NFP'`, ring those
+  // rows and reorder them to the top so the user sees the target immediately.
+  const focusRe = focus ? FOCUS_PATTERNS[focus.toLowerCase()] : undefined;
+  const isFocused = (e: CalendarEvent) => !!focusRe && focusRe.test(e.title);
+  const ordered = focusRe
+    ? [...visible].sort((a, b) => Number(isFocused(b)) - Number(isFocused(a)))
+    : visible;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -136,6 +162,12 @@ export function CalendarView() {
         </div>
       )}
 
+      {focus && (
+        <p className="text-[11px] font-mono text-primary/80">
+          Showing <span className="font-bold">{focus.toUpperCase()}</span> releases first.
+        </p>
+      )}
+
       {visible.length > 0 && (
         <div className="rounded-xl glass-card border border-border/10 overflow-hidden">
           <div className="overflow-x-auto">
@@ -153,12 +185,13 @@ export function CalendarView() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((e) => {
+                {ordered.map((e) => {
                   const when = new Date(e.date);
                   const day = when.toUTCString().slice(0, 16);
                   const time = when.toISOString().slice(11, 16);
+                  const focused = isFocused(e);
                   return (
-                    <tr key={e.id} className="border-b border-border/10 last:border-0 hover:bg-accent/20 transition-colors">
+                    <tr key={e.id} className={`border-b border-border/10 last:border-0 hover:bg-accent/20 transition-colors ${focused ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/30' : ''}`}>
                       <td className="px-3 py-2.5 font-mono font-semibold text-foreground whitespace-nowrap">{day}</td>
                       <td className="px-3 py-2.5 font-mono text-muted-foreground whitespace-nowrap">{time}</td>
                       <td className="px-3 py-2.5 font-mono font-semibold text-foreground">{e.country}</td>

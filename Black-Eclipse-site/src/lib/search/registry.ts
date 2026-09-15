@@ -23,6 +23,14 @@ interface PageEntry {
   params?: Record<string, string>;
   deepLink?: string;
   rankBoost?: number;
+  /**
+   * Navigation grouping for the palette's "Go to" list. Top-level tabs use
+   * 'app'; a tab's sub-pages use the tab id (e.g. 'journal') so they nest under
+   * their parent instead of mixing into the top-level list. Defaults to 'app'.
+   */
+  group?: string;
+  /** True for a sub-page of another page (rendered indented in the palette). */
+  child?: boolean;
 }
 
 const pages = new Map<string, PageEntry>();
@@ -41,6 +49,15 @@ export function getPage(id: string): SearchEntity | undefined {
 /** All registered pages, as search entities. */
 export function getAllPages(): SearchEntity[] {
   return [...pages.values()].map(pageToEntity);
+}
+
+/** Registered pages plus their nav metadata (group / child), for the palette. */
+export function getPageEntries(): Array<SearchEntity & { group: string; child: boolean }> {
+  return [...pages.values()].map((p) => ({
+    ...pageToEntity(p),
+    group: p.group ?? 'app',
+    child: !!p.child,
+  }));
 }
 
 function pageToEntity(p: PageEntry): SearchEntity {
@@ -153,6 +170,54 @@ registerPage({ id: 'page-heatmap', kind: 'page', title: 'Market Bubbles', aliase
 registerPage({ id: 'page-economics', kind: 'page', title: 'Economics', aliases: ['economics', 'economic calendar', 'macro', 'calendar', 'events'], keywords: ['economics', 'macro', 'calendar', 'indicators'], icon: 'globe', tab: 'economics' });
 registerPage({ id: 'page-alerts', kind: 'page', title: 'Price Alerts', aliases: ['alerts', 'price alerts', 'notifications'], keywords: ['alerts', 'price', 'notifications'], icon: 'bell', tab: 'alerts' });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
+
+// ── Sub-pages ────────────────────────────────────────────────────────────────
+// Every internal view that used to be unreachable (the shell ignored
+// `Destination.subroute`). These are real destinations: each `subroute` is
+// consumed by its screen via the `useSubroute` hook. Grouped by parent tab so
+// the palette's "Go to" list nests them instead of flattening the top level.
+
+// Economics — section tabs + the indicator-focused calendar.
+registerPage({ id: 'sub-econ-overview', kind: 'page', title: 'Overview', aliases: ['economics overview', 'macro snapshot'], keywords: ['economics', 'overview', 'snapshot', 'macro'], icon: 'globe', tab: 'economics', subroute: 'economics.overview', group: 'economics', child: true });
+registerPage({ id: 'sub-econ-calendar', kind: 'page', title: 'Calendar', aliases: ['economic calendar', 'econ calendar', 'releases'], keywords: ['economics', 'calendar', 'events', 'releases'], icon: 'globe', tab: 'economics', subroute: 'economics.calendar', group: 'economics', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-econ-explorer', kind: 'page', title: 'Time-series Explorer', aliases: ['econ explorer', 'time series', 'macro data'], keywords: ['economics', 'explorer', 'time series', 'series'], icon: 'globe', tab: 'economics', subroute: 'economics.explorer', group: 'economics', child: true });
+
+// Journal — one row per sub-tab.
+registerPage({ id: 'sub-journal-overview', kind: 'page', title: 'Overview', aliases: ['journal overview'], keywords: ['journal', 'overview'], icon: 'book', tab: 'journal', subroute: 'journal.overview', group: 'journal', child: true });
+registerPage({ id: 'sub-journal-calendar', kind: 'page', title: 'Calendar', aliases: ['journal calendar'], keywords: ['journal', 'calendar'], icon: 'book', tab: 'journal', subroute: 'journal.calendar', group: 'journal', child: true });
+registerPage({ id: 'sub-journal-trades', kind: 'page', title: 'Trades', aliases: ['journal trades', 'my trades', 'trade log'], keywords: ['journal', 'trades', 'log'], icon: 'book', tab: 'journal', subroute: 'journal.trades', group: 'journal', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-journal-analytics', kind: 'page', title: 'Analytics', aliases: ['journal analytics', 'performance', 'stats'], keywords: ['journal', 'analytics', 'performance', 'stats'], icon: 'book', tab: 'journal', subroute: 'journal.analytics', group: 'journal', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-journal-psychology', kind: 'page', title: 'Psychology', aliases: ['journal psychology', 'emotions'], keywords: ['journal', 'psychology', 'emotions'], icon: 'book', tab: 'journal', subroute: 'journal.psychology', group: 'journal', child: true });
+registerPage({ id: 'sub-journal-playbook', kind: 'page', title: 'Playbook', aliases: ['journal playbook', 'setups', 'strategies'], keywords: ['journal', 'playbook', 'setups', 'strategy'], icon: 'book', tab: 'journal', subroute: 'journal.playbook', group: 'journal', child: true });
+registerPage({ id: 'sub-journal-reviews', kind: 'page', title: 'Reviews', aliases: ['journal reviews'], keywords: ['journal', 'reviews'], icon: 'book', tab: 'journal', subroute: 'journal.reviews', group: 'journal', child: true });
+registerPage({ id: 'sub-journal-insights', kind: 'page', title: 'Insights', aliases: ['journal insights'], keywords: ['journal', 'insights'], icon: 'book', tab: 'journal', subroute: 'journal.insights', group: 'journal', child: true });
+
+// Screener — asset-class tabs.
+registerPage({ id: 'sub-disc-markets', kind: 'page', title: 'Markets', aliases: ['screener markets', 'global markets'], keywords: ['screener', 'markets', 'indices'], icon: 'chart', tab: 'discovery', subroute: 'discovery.markets', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-stocks', kind: 'page', title: 'Stocks', aliases: ['screener stocks'], keywords: ['screener', 'stocks', 'equities'], icon: 'chart', tab: 'discovery', subroute: 'discovery.stocks', group: 'discovery', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-disc-etfs', kind: 'page', title: 'ETFs', aliases: ['screener etfs'], keywords: ['screener', 'etf', 'funds'], icon: 'chart', tab: 'discovery', subroute: 'discovery.etfs', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-funds', kind: 'page', title: 'Funds', aliases: ['screener funds', 'mutual funds'], keywords: ['screener', 'funds'], icon: 'chart', tab: 'discovery', subroute: 'discovery.funds', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-dividends', kind: 'page', title: 'Dividend Stocks', aliases: ['dividends', 'dividend stocks', 'yield'], keywords: ['screener', 'dividend', 'yield'], icon: 'chart', tab: 'discovery', subroute: 'discovery.dividend_stocks', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-crypto', kind: 'page', title: 'Crypto', aliases: ['screener crypto', 'cryptocurrencies'], keywords: ['screener', 'crypto', 'coins'], icon: 'chart', tab: 'discovery', subroute: 'discovery.crypto', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-forex', kind: 'page', title: 'Forex', aliases: ['screener forex', 'currencies', 'fx'], keywords: ['screener', 'forex', 'fx', 'currencies'], icon: 'chart', tab: 'discovery', subroute: 'discovery.forex', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-commodities', kind: 'page', title: 'Commodities', aliases: ['screener commodities', 'metals', 'energy'], keywords: ['screener', 'commodities', 'metals', 'energy'], icon: 'chart', tab: 'discovery', subroute: 'discovery.commodities', group: 'discovery', child: true });
+
+// Alerts — view tabs.
+registerPage({ id: 'sub-alerts-watches', kind: 'page', title: 'Live Watches', aliases: ['live watches', 'my alerts'], keywords: ['alerts', 'watches'], icon: 'bell', tab: 'alerts', subroute: 'alerts.watches', group: 'alerts', child: true, rankBoost: 1.05 });
+registerPage({ id: 'sub-alerts-create', kind: 'page', title: 'Create Watch', aliases: ['new alert', 'create alert', 'new watch'], keywords: ['alerts', 'create', 'new', 'watch'], icon: 'bell', tab: 'alerts', subroute: 'alerts.create', group: 'alerts', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-alerts-history', kind: 'page', title: 'Alert History', aliases: ['alert history', 'fired alerts'], keywords: ['alerts', 'history', 'fired'], icon: 'bell', tab: 'alerts', subroute: 'alerts.history', group: 'alerts', child: true });
+
+// Settings — modal sections (the shell opens the Settings modal for these).
+registerPage({ id: 'sub-set-appearance', kind: 'page', title: 'Appearance', aliases: ['appearance', 'theme', 'dark mode', 'preferences'], keywords: ['settings', 'appearance', 'theme'], icon: 'settings', tab: 'settings', subroute: 'settings.appearance', group: 'settings', child: true });
+registerPage({ id: 'sub-set-aurora', kind: 'page', title: 'Aurora', aliases: ['aurora', 'glow colors', 'aurora palette'], keywords: ['settings', 'aurora', 'glow', 'colors'], icon: 'settings', tab: 'settings', subroute: 'settings.aurora', group: 'settings', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-set-sidebar', kind: 'page', title: 'Sidebar', aliases: ['sidebar settings', 'shortcuts'], keywords: ['settings', 'sidebar', 'shortcuts'], icon: 'settings', tab: 'settings', subroute: 'settings.sidebar', group: 'settings', child: true });
+registerPage({ id: 'sub-set-agent', kind: 'page', title: 'AI Agent', aliases: ['llm provider', 'ai model', 'agent settings'], keywords: ['settings', 'agent', 'llm', 'model', 'ai'], icon: 'settings', tab: 'settings', subroute: 'settings.agent', group: 'settings', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-set-market', kind: 'page', title: 'Market Data', aliases: ['market data settings', 'data sources'], keywords: ['settings', 'market', 'data'], icon: 'settings', tab: 'settings', subroute: 'settings.market', group: 'settings', child: true });
+registerPage({ id: 'sub-set-news', kind: 'page', title: 'News Feeds', aliases: ['news settings', 'rss feeds'], keywords: ['settings', 'news', 'feeds', 'rss'], icon: 'settings', tab: 'settings', subroute: 'settings.news', group: 'settings', child: true });
+registerPage({ id: 'sub-set-connectors', kind: 'page', title: 'Data Sources', aliases: ['connectors', 'data sources'], keywords: ['settings', 'connectors', 'sources'], icon: 'settings', tab: 'settings', subroute: 'settings.connectors', group: 'settings', child: true });
+registerPage({ id: 'sub-set-integrations', kind: 'page', title: 'Integrations', aliases: ['integrations', 'channels', 'webhooks'], keywords: ['settings', 'integrations', 'webhooks'], icon: 'settings', tab: 'settings', subroute: 'settings.integrations', group: 'settings', child: true });
+registerPage({ id: 'sub-set-alerts', kind: 'page', title: 'Alert Settings', aliases: ['alert channels', 'alert settings'], keywords: ['settings', 'alerts', 'channels'], icon: 'settings', tab: 'settings', subroute: 'settings.alerts', group: 'settings', child: true });
+registerPage({ id: 'sub-set-data', kind: 'page', title: 'Data Hygiene', aliases: ['data hygiene', 'clear cache', 'reset'], keywords: ['settings', 'data', 'hygiene', 'reset', 'cache'], icon: 'settings', tab: 'settings', subroute: 'settings.data', group: 'settings', child: true });
 
 // Economic indicators (curated — full set arrives with Phase 2/5).
 registerInstrument({ id: 'ind-nfp', kind: 'indicator', title: 'Non-Farm Payrolls', symbol: 'NFP', assetClass: 'indicator', market: 'US', aliases: ['nfp', 'non farm', 'non-farm', 'payrolls', 'jobs report', 'us jobs data', 'job report'], keywords: ['non farm payrolls', 'nfp', 'jobs', 'employment', 'payrolls', 'labor'], icon: 'globe', tab: 'economics', subroute: 'economics.calendar', params: { focus: 'NFP' }, rankBoost: 1.2 });

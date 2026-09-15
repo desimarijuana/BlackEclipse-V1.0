@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from 'lucide-react';
 import { TabBar } from '@/components/ui/tab-bar';
+import { useSubroute } from '@/hooks/use-subroute';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { JournalOverview } from './overview';
 import { JournalCalendar } from './calendar';
@@ -41,6 +42,12 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dailyOpen, setDailyOpen] = useState(false);
+
+  // Global search: 'journal.<tab>' sub-pages (e.g. 'journal.analytics').
+  useSubroute('journal', (req) => {
+    const target = req.subroute as JournalTab;
+    if (TABS.some((t) => t.id === target)) setTab(target);
+  });
 
   const load = useCallback(async () => {
     setLoading(true);

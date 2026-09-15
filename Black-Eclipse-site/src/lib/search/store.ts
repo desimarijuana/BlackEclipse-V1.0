@@ -125,6 +125,16 @@ interface CommandStore {
   pendingFundId: string | null;
   /** Market/country code to load into the screener (consumed by MarketOverview). */
   pendingMarket: string | null;
+  /**
+   * Sub-view request, scoped to a tab: `{ tab, subroute, focus? }`. Consumed by
+   * the target screen's `useSubroute` hook. A channel (not a single slot) so a
+   * keep-alive screen can subscribe and react even when already mounted, and so
+   * two screens never steal each other's request. `seq` makes repeat requests
+   * for the same sub-view re-fire.
+   */
+  pendingSubroute: { tab: string; subroute: string; focus?: string; seq: number } | null;
+  /** Monotonic counter behind `pendingSubroute.seq`. */
+  subrouteSeq: number;
 
   // Universe index status (Phase 2).
   universeReady: boolean;
@@ -155,6 +165,10 @@ interface CommandStore {
   consumeDestination: () => Destination | null;
   consumeFundId: () => string | null;
   consumeMarket: () => string | null;
+  /** Publish a sub-view request for a tab (shell calls this from `apply`). */
+  requestSubroute: (tab: string, subroute: string, focus?: string) => void;
+  /** Clear the subroute request for a tab once a screen has applied it. */
+  clearSubroute: (tab: string) => void;
 
   recordRecent: (text: string) => void;
   removeRecent: (text: string) => void;
@@ -184,6 +198,8 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   pendingDestination: null,
   pendingFundId: null,
   pendingMarket: null,
+  pendingSubroute: null,
+  subrouteSeq: 0,
 
   universeReady: false,
   universeLoading: false,
@@ -275,6 +291,15 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     if (id) set({ pendingMarket: null });
     return id;
   },
+
+  requestSubroute: (tab, subroute, focus) =>
+    set((s) => ({
+      pendingSubroute: { tab, subroute, focus, seq: s.subrouteSeq + 1 },
+      subrouteSeq: s.subrouteSeq + 1,
+    })),
+
+  clearSubroute: (tab) =>
+    set((s) => (s.pendingSubroute?.tab === tab ? { pendingSubroute: null } : {})),
 
   recordRecent: (text) => {
     const t = text.trim();

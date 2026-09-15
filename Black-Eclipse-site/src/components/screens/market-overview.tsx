@@ -15,6 +15,7 @@ import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
 import { useCommandStore } from '@/lib/search/store';
+import { useSubroute } from '@/hooks/use-subroute';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
@@ -474,6 +475,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     setExpandedSymbol(null);
     setStockSearch('');
   };
+
+  // Global search: 'discovery.<tab>' sub-pages (e.g. 'discovery.crypto').
+  // `handleTabChange` above resets filters, matching a real tab switch.
+  useSubroute('discovery', (req) => {
+    const SCREENER_TABS = ['stocks', 'etfs', 'funds', 'dividend_stocks', 'crypto', 'markets', 'forex', 'commodities'] as const;
+    type ScreenerTab = (typeof SCREENER_TABS)[number];
+    const target = req.subroute as ScreenerTab;
+    if (SCREENER_TABS.includes(target)) handleTabChange(target);
+  });
 
   // Select a market (GLOBAL / US / PK / CRYPTO / ...).
   //   GLOBAL ? show the global markets overview (all indices).

@@ -43,6 +43,91 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Search** — Sub-page navigation: `Destination.subroute` (previously emitted by
+  the registry but ignored by the shell) is now honored. Added a `pendingSubroute`
+  channel + `useSubroute(tab, handler)` hook so keep-alive screens react to
+  `economics.calendar`, `journal.<tab>`, `discovery.<tab>`, `alerts.<view>`, and
+  `settings.<section>`; the shell also routes `tab:'settings'` to the Settings
+  modal (it previously switched to a tab that rendered nothing). Registered ~40
+  sub-pages in the registry (grouped under their parent, rendered indented in the
+  palette's "Go to"), added an Economics "Calendar" section with indicator focus
+  highlighting, and removed the superseded `search/settings.ts`. New:
+  `src/hooks/use-subroute.ts`, `getPageEntries()`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+- **Charts** — Drawing toolbar rendered the same `MousePointer2` glyph for every
+  tool, so the Lines/Shapes/Analysis grids were unreadable at a glance. Added a
+  `TOOL_ICON` name→lucide map in `chart-widget.tsx` (unknown names fall back to
+  the pointer, so a future tool never renders blank) and wired each button to its
+  own glyph, with the active tool tinted `primary` for contrast. Also split the
+  two colliding registry icons: `ray` now uses `move-diagonal` and `arrow` keeps
+  `arrow-up-right`.
+  no doc change — UI-only change, drawing contracts and tool registry shape unchanged.
+
+- **Connectors** — Hardening pass on the custom REST connector after review.
+  Fixed a silent URL bug: `new URL(path, base)` treats a leading `/` as
+  root-relative, so a base like `https://api.example.com/v1` + `/quote`
+  produced `…/quote` and **dropped the `/v1` prefix** — a very common API shape
+  that would have 404'd with no explanation. Added `joinPaths()`, which joins
+  the base pathname explicitly, and preserved any query string the operator put
+  on the base URL (a common spot for a query-param key). Added `validateHeaders`
+  so CRLF injection / empty header names fail with a clear config error instead
+  of Node's opaque `ERR_INVALID_CHAR`. Anchored the connector registry on
+  `globalThis` (same reason `lib/db.ts` anchors Prisma) so dev HMR cannot leave
+  a second empty registry behind. Verified end-to-end against the live Binance
+  API with a `/api/v3` base: multi-symbol pulls, records, and agent reads all
+  correct. 9 new tests.
+  docs updated: `docs/ARCHITECTURE.md`
+
+- **Connectors** — Completed the connector loop end-to-end. Fixed a dishonest
+  count: `ingestRecords` always returned `rejected: 0` even when `mapResponse`
+  silently dropped rows, so an import could report success while losing records.
+  Mapping now reports `extracted` / `rejectedRequired` / `rejectedIdentity` /
+  `deduped` (`mapResponseDetailed` in `mapping.ts`) and every extracted row is
+  accounted for. The Data Sources panel gained a **Datasets** browser with
+  **Pull** (fetch through the connector and ingest), per-dataset parameter
+  inputs, a records table showing provenance, delete-dataset, and a **Sample
+  test value** field in the wizard (draft tests previously failed with "Missing
+  required parameter" because no value was ever supplied). Pull errors now
+  return 400 with the real message for a misconfigured connector instead of an
+  opaque 502; connector fetch errors are classified (`invalid_config` /
+  `blocked` / `timeout` / `too_large`) rather than all reported as `network`.
+  New `DELETE /api/datasets?id=…`. 6 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`
+
+- **Agent** — The research agent can now read operator-connected datasets via
+  three read-only tools (`src/lib/agent/dataset-tools.ts`): `list_datasets`,
+  `describe_dataset`, `query_dataset`. They are spread into `TOOLS`, so the
+  existing tool loop picks them up with no loop change; the fundamentals and
+  risk agent prompts were updated to use them. Every tool result states
+  provenance (`CUSTOM` vs. canonical scraper data) so the LLM never invents a
+  source. Added `queryRecords` / `datasetSummaries` / `findDatasetByName` to
+  `connectors/store.ts`; filters are exact-match on mapped field names
+  (case-insensitive), JS-evaluated because SQLite cannot query inside the JSON
+  `values` column. 15 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md`
+
+- **Connectors** — Introduced the Universal Data Connector Layer
+  (`src/lib/connectors/`): a capability-addressed connector tier that sits
+  *after* the existing scraper chain and before route-level demo fallbacks.
+  Added hardened outbound security (`security.ts`: canonical IP
+  classification, DNS validation + pinned lookup, `redirect: manual`, streamed
+  5 MB cap, ≤10s timeout), AES-256-GCM credential encryption (`secrets.ts`,
+  local auto-generated key vs. `CONNECTOR_SECRET_KEY` on hosted), a declarative
+  `custom-rest.ts` connector (GET + percent-encoded `{{param}}` substitution),
+  mapping/`recordPath`/`recordKey` dedup (`mapping.ts`), the crypto fetcher
+  migrated as the Phase-2 proof (`providers/crypto.ts`, legacy facade retained),
+  and server-side capability resolution (`GET /api/data/[capability]`).
+  New JDDS models: `DataConnector`, `CustomDataset`, `CustomDatasetField`,
+  `CustomDatasetRecord`, `ConnectorMapping` — custom data never writes to
+  `Asset`/`Price`/`Candles`. New routes: `api/data-sources`,
+  `api/data-sources/test`, `api/datasets`. DataHub gained an optional
+  provenance envelope + `CUSTOM` tag and a `capabilityTopic` helper (no internal
+  redesign). New Settings → Data Sources wizard (`data-sources-panel.tsx`).
+  Deferred: webhooks, POST bodies, pagination, OAuth, `~` dataset search, agent
+  `query_dataset`, AI connector generation.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`,
+  `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`, `README.md`
+
 - **Search** — The palette is now full navigation, not just search. The bottom
   group is generated from `getAllPages()` so every registered page is reachable
   (adding a `registerPage` entry adds a nav row automatically); it is labeled

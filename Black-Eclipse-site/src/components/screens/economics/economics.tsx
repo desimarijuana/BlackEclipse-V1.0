@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Globe, LineChart, Activity } from 'lucide-react';
+import { Globe, LineChart, Activity, CalendarDays } from 'lucide-react';
 import { TabBar } from '@/components/ui/tab-bar';
 import { ECON_SOURCES } from '@/lib/economics/sources';
+import { useSubroute } from '@/hooks/use-subroute';
 import { EconPanel } from './panel';
 import { SnapshotView } from './snapshot';
 import { CalendarView } from './calendar';
@@ -21,7 +22,22 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
 ];
 
 export function EconomicsScreen() {
-  const [section, setSection] = useState<'overview' | 'explorer'>('overview');
+  const [section, setSection] = useState<'overview' | 'calendar' | 'explorer'>('overview');
+  // Indicator focus dispatched by global search (e.g. 'NFP'), applied to the
+  // calendar section. Cleared when the user changes sections away from it.
+  const [calendarFocus, setCalendarFocus] = useState<string | undefined>(undefined);
+
+  // Global search: 'economics.calendar' (+ optional indicator focus).
+  useSubroute('economics', (req) => {
+    if (req.subroute === 'calendar') {
+      setSection('calendar');
+      setCalendarFocus(req.focus);
+    } else if (req.subroute === 'explorer') {
+      setSection('explorer');
+    } else if (req.subroute === 'overview') {
+      setSection('overview');
+    }
+  });
 
   return (
     <div className="w-full px-4 md:px-8 py-8 h-full overflow-y-auto pb-20">
@@ -45,10 +61,14 @@ export function EconomicsScreen() {
         <TabBar
           items={[
             { id: 'overview', label: 'Overview', icon: Activity },
+            { id: 'calendar', label: 'Calendar', icon: CalendarDays },
             { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
           ]}
           activeId={section}
-          onChange={(id) => setSection(id as typeof section)}
+          onChange={(id) => {
+            setSection(id as typeof section);
+            if (id !== 'calendar') setCalendarFocus(undefined);
+          }}
         />
 
         {section === 'overview' && (
@@ -77,6 +97,16 @@ export function EconomicsScreen() {
               <CalendarView />
             </section>
           </div>
+        )}
+
+        {section === 'calendar' && (
+          <section>
+            <SectionHead
+              title="Economic calendar"
+              desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
+            />
+            <CalendarView focus={calendarFocus} />
+          </section>
         )}
 
         {section === 'explorer' && (
