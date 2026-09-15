@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Briefcase, Car, Coins, FileJson, FileSpreadsheet, Flame, Gem, GraduationCap,
+  Briefcase, Car, ChartPie, Coins, FileJson, FileSpreadsheet, Flame, Gem, GraduationCap,
   Heart, Home, Landmark, PiggyBank, Plane, PencilLine, Plus, Rocket, Shield,
   Sprout, Target, Trash2, TrendingUp, Upload,
 } from 'lucide-react';
@@ -220,7 +220,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
       {/* Header + toolbar */}
       <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-border/10 pb-4">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-          <Briefcase className="text-primary" size={30} />
+          <ChartPie className="text-primary" size={30} />
         </div>
         <div>
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>

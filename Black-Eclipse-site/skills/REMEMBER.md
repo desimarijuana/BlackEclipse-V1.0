@@ -10,7 +10,7 @@
 
 - **BlackEclipse** is an open-source, agentic AI investment research platform with a Bloomberg-inspired terminal UI.
 - Runs **zero-configuration**: JDDS seeds itself + `jdds.db` ships as a committed seed snapshot; free RSS for news; optional user API keys.
-- Single-page terminal UI. Tabs (`AppTab` in `src/components/layout/sidebar.tsx`): ChatBot, Command Center, Market Workspace, Market Screener, Portfolio, Journal, Market News, Market Bubbles, Economics, Price Alerts, Settings, plus an embedded Chart tab. Tabs are keep-alive (mount once, then hide).
+- Single-page terminal UI. Tabs (`AppTab` in `src/components/layout/sidebar.tsx`): ChatBot, Command Center, Chart Workspace (tab id `market-workspace`), Market Screener, Portfolio, Journal, Market News, Market Bubbles, Economics, Price Alerts, Settings, plus an embedded Chart tab. Tabs are keep-alive (mount once, then hide).
 - Dark theme, glassmorphic, green-on-black, dense financial UI (frosted-glass classes — see the `black-eclipse-ui` skill).
 
 ## Current Priorities

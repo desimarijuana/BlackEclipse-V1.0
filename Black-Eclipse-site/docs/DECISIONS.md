@@ -102,6 +102,70 @@ state live in the Zustand command store. `calc.ts`/`commands.ts` add an offline
 calculator and parameterized-command autocomplete. See
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The command center".
 
+## ADR-010 — Universal Data Connector Layer (2026)
+**Decision:** Add a capability-addressed connector tier under
+`src/lib/connectors/` that sits **after** the existing scraper chain and before
+route-level demo fallbacks. Consumers ask for a *capability* (`PRICE`), never a
+provider; a deterministic resolver picks the connector. Built-in connectors
+outrank operator-configured ones; there is **no** automatic cross-provider
+fallback (that would change provider semantics and needs its own ADR). Custom
+API data lands in dedicated `CustomDataset*` tables and can never write to
+`Asset`/`Price`/`Candles`; canonical writes stay an explicit, deferred operator
+action.
+**Why:** Operators need to bring their own data API without a rewrite per
+provider, while ADR-004's `scraper → user API → demo` precedence and the
+"never fabricate, never overwrite provenance" rules stay intact. The documented
+"user API" tier had **no generic implementation** before this — this ADR adds
+it rather than migrating an existing one.
+**Impact:** `DataSource` gained `CUSTOM` and topics may return a provenance
+envelope (`{ data, source }`); DataHub internals are unchanged otherwise.
+Connector credentials use AES-256-GCM with an auto-generated local key
+(`.connector-key`, gitignored) or `CONNECTOR_SECRET_KEY` on hosted deploys.
+Custom connectors are GET-only and go through a hardened outbound path
+(DNS-validated + pinned lookup, no redirects, 5 MB streamed cap, ≤10s timeout).
+**Agent access (added later):** read-only `list_datasets` / `describe_dataset` /
+`query_dataset` tools in `src/lib/agent/dataset-tools.ts`, spread into `TOOLS`;
+every result states provenance. **Scheduled refresh + multi-value pull (added
+later):** a dataset parameter may be a comma-separated list expanded into one
+request per value, capped at `MAX_VALUES_PER_PULL = 25` with the overflow
+reported; `refreshEnabled` datasets re-pull on the `dataset_refresh` cron, which
+yields to the scraper's whole-market jobs rather than competing for the
+synchronous SQLite write path. **Provider catalog (added later):** the Data
+Sources screen shows a browsable catalog grouped by purpose (AI, economics,
+market, crypto, custom); economics entries are derived from `ECON_SOURCES` so it
+cannot drift, status is computed from the real environment, and the UI never
+claims to have saved a key it cannot save (env-gated providers route to the
+screen that sets them). Deferred: webhooks, POST bodies, pagination
+(beyond value lists), OAuth, `~` dataset search, AI connector generation. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The Universal Data Connector Layer".
+
+## ADR-011 — Investor Eye is a separate event/intelligence tier, reused not forked (2026)
+**Decision:** Investor Eye ("God's Eye") is built as a new **event + world-state
+tier** under `src/lib/investor-eye/`, **not** as another connector capability and
+**not** as a second market/portfolio/news stack. It:
+1. registers its own `EventSource` adapters (GDELT, USGS) instead of forking the
+   existing `DataConnector` contract, but reuses its hardened `safeGet` transport;
+2. persists only **additive** JDDS models (`Country`, `GeopoliticalEvent`,
+   `EventEntity`, `SourceRun`) — **no graph database**, no Redis, no microservice;
+3. visualizes through a provider-agnostic `MapLayer` abstraction rendered by
+   ECharts (already a dependency), so the visualization can be swapped later
+   without touching the data layer;
+4. sources market observations from the **existing** `/api/indices` path
+   (`IndexQuote` + the yfinance bridge) and portfolio exposure from the
+   **existing** `use-portfolio-engine`, never duplicating them;
+5. keeps the query path fully deterministic (keyword + gazetteer NL search, no
+   LLM), matching ADR-009.
+**Why:** The repository is a single-page, SQLite-backed SPA with no geo/map
+infrastructure and no geopolitical-event model. Building the smallest robust
+foundation that reuses existing services avoids the duplicate-architecture and
+over-build traps the specification explicitly warns against.
+**Impact:** A new `investor-eye` tab; `country-fill`/`scatter`/`effect-scatter`/
+`lines`/`heatmap` layer types (extensible via `registerLayer()`); honest
+provenance (`LIVE`/`CACHED`/`HISTORICAL`/`UNAVAILABLE`). A failed source is
+`UNAVAILABLE`, never a fake zero; the page and map still load on partial source
+failure. Optional authenticated sources (e.g. ACLED) are supported but never
+required. See [`investor-eye-architecture.md`](./investor-eye-architecture.md).
+
 ---
 
 ## Decisions implied by the code (not yet formal ADRs)
@@ -117,5 +181,6 @@ to an ADR if it gets challenged.
   friendly by design; a `POST /api/cron/run` endpoint exists for hosted setups).
 - **Synchronous-write discipline.** Bulk writers yield and sleep by design
   because better-sqlite3 blocks the event loop.
-- **Separate market-workspace engine.** The Market Workspace tab has its own
-  panel engine rather than reusing the widget workspace.
+- **Separate market-workspace engine.** The Chart Workspace tab (tab id
+  `market-workspace`) has its own panel engine rather than reusing the widget
+  workspace.

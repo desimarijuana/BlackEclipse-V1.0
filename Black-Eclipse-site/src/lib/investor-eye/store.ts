@@ -1,0 +1,187 @@
+// ── Investor Eye — client state ──────────────────────────────────────────────
+// One Zustand store for all Investor Eye UI state (selection, layers, timeline,
+// filters, search, portfolio overlay). Data fetching stays in DataHub topics;
+// this store holds only view state and is persisted to localStorage — matching
+// the repo's existing store convention.
+
+'use client';
+
+import { create } from 'zustand';
+import { ALL_LAYER_IDS, type LayerId } from './layers';
+import type { MapLayerType, NormalizedEvent } from './types';
+
+export const TIME_RANGES = [
+  { id: '1h', label: '1H', hours: 1 },
+  { id: '6h', label: '6H', hours: 6 },
+  { id: '24h', label: '24H', hours: 24 },
+  { id: '7d', label: '7D', hours: 168 },
+  { id: '30d', label: '30D', hours: 720 },
+] as const;
+export type TimeRangeId = (typeof TIME_RANGES)[number]['id'];
+
+/** Phase 2 layers are registered but off by default (Phase 1 enables 2). */
+export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
+  events: true,
+  markets: true,
+  conflict: false,
+  trade: false,
+  energy: false,
+  economy: false,
+  weather: false,
+  companies: false,
+  risk: false,
+  portfolio: false,
+};
+
+export interface SelectedMarket {
+  marketId: string;
+  iso2?: string;
+  name: string;
+  symbol: string;
+  price: number;
+  changePct: number;
+  currency?: string;
+}
+
+interface InvestorEyeStore {
+  selectedCountry: string | null;
+  selectedEvent: NormalizedEvent | null;
+  selectedMarket: SelectedMarket | null;
+
+  activeLayers: LayerId[];
+  timeRange: TimeRangeId;
+
+  /** Economic metric for the economy layer. */
+  economicMetric: string;
+  searchQuery: string;
+  portfolioOverlay: boolean;
+
+  /** Countries highlighted by a natural-language search (ISO2). */
+  highlightedCountries: string[];
+  highlightNote: string | null;
+
+  setSelectedCountry: (iso2: string | null) => void;
+  setSelectedEvent: (event: NormalizedEvent | null) => void;
+  setSelectedMarket: (market: SelectedMarket | null) => void;
+  clearSelection: () => void;
+
+  toggleLayer: (id: LayerId) => void;
+  setLayers: (ids: LayerId[]) => void;
+  setTimeRange: (id: TimeRangeId) => void;
+  setEconomicMetric: (id: string) => void;
+  setSearchQuery: (q: string) => void;
+  setPortfolioOverlay: (on: boolean) => void;
+  applyHighlights: (countries: string[], note: string | null) => void;
+  clearHighlights: () => void;
+}
+
+const STORAGE_KEY = 'be_investor_eye_v1';
+
+interface Persisted {
+  activeLayers: LayerId[];
+  timeRange: TimeRangeId;
+  economicMetric: string;
+  portfolioOverlay: boolean;
+}
+
+function loadPersisted(): Partial<Persisted> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<Persisted>;
+    // Reconcile with the canonical layer list: drop retired ids. A saved list
+    // that survives reconciliation wins; otherwise fall back to the defaults
+    // (so a brand-new layer is never silently lost, and an empty save is
+    // indistinguishable from "never customized").
+    const known = new Set<string>(ALL_LAYER_IDS);
+    const saved = Array.isArray(parsed.activeLayers)
+      ? parsed.activeLayers.filter((id): id is LayerId => known.has(id))
+      : [];
+    const allIds = Object.keys(DEFAULT_LAYERS) as LayerId[];
+    return {
+      activeLayers: saved.length > 0 ? allIds.filter((id) => saved.includes(id)) : undefined,
+      timeRange: TIME_RANGES.some((r) => r.id === parsed.timeRange) ? (parsed.timeRange as TimeRangeId) : '24h',
+      economicMetric: parsed.economicMetric ?? 'inflation',
+      portfolioOverlay: parsed.portfolioOverlay ?? false,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function persist(state: InvestorEyeStore) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        activeLayers: state.activeLayers,
+        timeRange: state.timeRange,
+        economicMetric: state.economicMetric,
+        portfolioOverlay: state.portfolioOverlay,
+      } satisfies Persisted),
+    );
+  } catch {
+    /* quota / private mode — in-memory only */
+  }
+}
+
+const defaultActive = (Object.keys(DEFAULT_LAYERS) as LayerId[]).filter((id) => DEFAULT_LAYERS[id]);
+
+export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
+  const persisted = loadPersisted();
+  return {
+    selectedCountry: null,
+    selectedEvent: null,
+    selectedMarket: null,
+    activeLayers: persisted.activeLayers ?? defaultActive,
+    timeRange: persisted.timeRange ?? '24h',
+    economicMetric: persisted.economicMetric ?? 'inflation',
+    searchQuery: '',
+    portfolioOverlay: persisted.portfolioOverlay ?? false,
+    highlightedCountries: [],
+    highlightNote: null,
+
+    setSelectedCountry: (iso2) => set({ selectedCountry: iso2 }),
+    setSelectedEvent: (event) => set({ selectedEvent: event }),
+    setSelectedMarket: (market) =>
+      set({ selectedMarket: market, selectedCountry: market?.iso2 ?? get().selectedCountry }),
+    clearSelection: () => set({ selectedCountry: null, selectedEvent: null, selectedMarket: null }),
+
+    toggleLayer: (id) => {
+      const current = get().activeLayers;
+      const next = current.includes(id) ? current.filter((l) => l !== id) : [...current, id];
+      set({ activeLayers: next });
+      persist(get());
+    },
+    setLayers: (ids) => {
+      set({ activeLayers: ids });
+      persist(get());
+    },
+    setTimeRange: (id) => {
+      set({ timeRange: id });
+      persist(get());
+    },
+    setEconomicMetric: (id) => {
+      set({ economicMetric: id });
+      persist(get());
+    },
+    setSearchQuery: (q) => set({ searchQuery: q }),
+    setPortfolioOverlay: (on) => {
+      set({ portfolioOverlay: on });
+      persist(get());
+    },
+    applyHighlights: (countries, note) => set({ highlightedCountries: countries, highlightNote: note }),
+    clearHighlights: () => set({ highlightedCountries: [], highlightNote: null }),
+  };
+});
+
+export function timeRangeHours(id: TimeRangeId): number {
+  return TIME_RANGES.find((r) => r.id === id)?.hours ?? 24;
+}
+
+/** Phase 1 layer ids (used to label the controller honestly). */
+export const PHASE1_LAYERS: LayerId[] = ['events', 'markets'];
+
+export type { LayerId, MapLayerType };

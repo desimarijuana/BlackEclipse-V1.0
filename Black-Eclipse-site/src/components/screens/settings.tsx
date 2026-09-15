@@ -18,6 +18,8 @@ import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { ProviderList } from "./provider-list";
+import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -56,6 +58,8 @@ interface IntegrationStatus {
   tradingEconomics: boolean;
   akshare: boolean;
   database: boolean;
+  /** Env var → is it set. Drives honest per-provider key status. */
+  envFlags: Record<string, boolean>;
 }
 
 interface MarketInfo {
@@ -85,11 +89,11 @@ export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "news", "connectors", "integrations", "data", "alerts",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
-  auto: "Auto (env) / Mock",
-  openai: "OpenAI",
+  auto: "Auto (env)",
+  openai: "OpenAI-compatible endpoint",
   ollama: "Ollama (local)",
   anthropic: "Anthropic",
-  mock: "Mock (built-in)",
+  mock: "Mock (offline)",
 };
 
 // ─── Small building blocks ──────────────────────────────────────────────
@@ -333,7 +337,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     { id: "agent", label: "AI Agent", desc: "Provider & model", icon: Bot },
     { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
     { id: "news", label: "News Feeds", desc: "RSS sources", icon: Newspaper },
-    { id: "connectors", label: "Data Sources", desc: "Your own APIs", icon: Boxes },
+    { id: "connectors", label: "Data Sources", desc: "Bring your own API", icon: Boxes },
     { id: "integrations", label: "Integrations", desc: "Service status", icon: ShieldCheck },
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: Activity },
     { id: "data", label: "Data", desc: "Local storage", icon: Database },
@@ -485,33 +489,68 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                   eyebrow="Intelligence"
                   icon={Bot}
                   title="AI Agent Provider"
-                  description="Choose which model powers the chat and research agents that drive your market analysis."
+                  description="Pick a provider, paste its key, and the chat and research agents use it immediately."
                 />
+
+                {/* One provider picker (not a dropdown AND a list). Clicking a
+                    preset fills the base URL + model below; the key is the only
+                    thing left for the operator. */}
+                <div className="grid gap-2 sm:grid-cols-2 mb-4">
+                  {LLM_PRESETS.map((preset) => {
+                    const active = presetForBaseUrl(llm.baseUrl)?.id === preset.id;
+                    const envSet = preset.envVar ? Boolean(integrations?.envFlags?.[preset.envVar]) : false;
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() =>
+                          setLlm((p) => ({ ...p, baseUrl: preset.baseUrl, model: preset.model }))
+                        }
+                        className={cn(
+                          "text-left rounded-xl border px-3.5 py-3 transition-all cursor-pointer",
+                          active
+                            ? "border-primary/45 bg-primary/10 shadow-sm shadow-primary/10"
+                            : "border-border/20 glass-card-subtle hover:border-border/40 hover:bg-accent/30"
+                        )}
+                      >
+                        <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                          {preset.name}
+                          {preset.recommended && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border border-primary/30 bg-primary/10 text-primary">
+                              RECOMMENDED
+                            </span>
+                          )}
+                          {active && <Check className="w-3 h-3 text-primary" />}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{preset.description}</p>
+                        <p className="text-[9px] font-mono mt-1.5 flex items-center gap-1.5">
+                          {preset.keyless ? (
+                            <span className="text-emerald-400/90">no key needed</span>
+                          ) : envSet ? (
+                            <span className="text-emerald-400/90">key set via {preset.envVar}</span>
+                          ) : (
+                            <span className="text-amber-400/90">needs {preset.envVar}</span>
+                          )}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <Panel className="p-5 md:p-6 space-y-5">
                   <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
                     <Cpu className="text-primary w-4 h-4 shrink-0" />
                     <p className="text-[11px] text-foreground/80 leading-relaxed">
-                      {PROVIDER_LABELS[llm.provider]} —{" "}
+                      Active: <span className="font-semibold">{presetForBaseUrl(llm.baseUrl)?.name ?? "Custom endpoint"}</span>
+                      {" · "}
                       <span className="font-mono text-primary">{llm.model}</span>
+                      {" · "}
+                      <span className="text-muted-foreground">{PROVIDER_LABELS[llm.provider]}</span>
+                      {llm.hasApiKey && <span className="text-emerald-400/90"> · key stored</span>}
                     </p>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Provider">
-                      <Select value={llm.provider} onValueChange={(v) => setLlm((p) => ({ ...p, provider: v as LLMProviderName }))}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto (env) / Mock</SelectItem>
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                          <SelectItem value="ollama">Ollama (local)</SelectItem>
-                          <SelectItem value="anthropic">Anthropic</SelectItem>
-                          <SelectItem value="mock">Mock (built-in)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Model">
+                    <Field label="Model" hint="The exact model id this provider expects.">
                       <Input
                         value={llm.model}
                         onChange={(e) => setLlm((p) => ({ ...p, model: e.target.value }))}
@@ -519,9 +558,23 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                         className="font-mono"
                       />
                     </Field>
+                    <Field label="Mode" hint="Auto follows environment variables.">
+                      <Select value={llm.provider} onValueChange={(v) => setLlm((p) => ({ ...p, provider: v as LLMProviderName }))}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto (env)</SelectItem>
+                          <SelectItem value="openai">Use this endpoint</SelectItem>
+                          <SelectItem value="ollama">Ollama (local)</SelectItem>
+                          <SelectItem value="anthropic">Anthropic</SelectItem>
+                          <SelectItem value="mock">Mock (offline)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
                   </div>
 
-                  <Field label="Base URL" hint="Endpoint used for OpenAI-compatible APIs.">
+                  <Field label="Base URL" hint="Any OpenAI-compatible endpoint.">
                     <div className="relative">
                       <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5" />
                       <Input
@@ -533,7 +586,14 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     </div>
                   </Field>
 
-                  <Field label="API Key" hint="Keys are stored in the local JDDS database, never in the frontend bundle.">
+                  <Field
+                    label="API Key"
+                    hint={
+                      isLocalBaseUrl(llm.baseUrl)
+                        ? "Not needed — local endpoints ignore the key."
+                        : "Stored in local JDDS. Never sent to the frontend bundle."
+                    }
+                  >
                     <div className="relative">
                       <KeyRound className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5" />
                       <Input
@@ -543,8 +603,8 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                         placeholder={
                           llm.hasApiKey
                             ? "Key stored — leave blank to keep it"
-                            : llm.provider === "mock"
-                            ? "Not required for mock"
+                            : isLocalBaseUrl(llm.baseUrl)
+                            ? "Not required for local endpoints"
                             : "sk-..."
                         }
                         className="pl-8 pr-9 font-mono"
@@ -581,8 +641,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                   <div className="space-y-2.5">
                     {markets.map((m) => {
                       const active = selectedMarkets.includes(m.id);
-                      return (
-                        <button
+                      return (                        <button
                           key={m.id}
                           onClick={() =>
                             setSelectedMarkets((prev) =>
@@ -632,6 +691,10 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     })}
                   </div>
                 )}
+
+                <div className="mt-4">
+                  <ProviderList categories={["market", "crypto"]} />
+                </div>
               </div>
             )}
 
@@ -674,7 +737,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
             )}
 
             {section === "connectors" && <DataSourcesPanel />}
-
             {section === "integrations" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
@@ -686,12 +748,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                 <Panel className="divide-y divide-border/10">
                   {[
                     { label: "AI Model", ok: integrations?.llm.configured, detail: integrations ? `${integrations.llm.provider} · ${integrations.llm.model}` : "—" },
-                    { label: "Yahoo Finance", ok: integrations?.yahoo, detail: integrations?.yahoo ? "Enabled" : "Disabled" },
-                    { label: "FRED (Economics)", ok: integrations?.fred, detail: integrations?.fred ? "API key set" : "Set FRED_API_KEY to enable" },
-                    { label: "BEA (Economics)", ok: integrations?.bea, detail: integrations?.bea ? "API key set" : "Set BEA_API_KEY to enable" },
-                    { label: "BLS (Economics)", ok: integrations?.bls, detail: integrations?.bls ? "API key set" : "Optional — public limits apply" },
-                    { label: "Trading Economics", ok: integrations?.tradingEconomics, detail: integrations?.tradingEconomics ? "API key set" : "Set TRADING_ECONOMICS_API_KEY to enable" },
-                    { label: "AkShare (China)", ok: integrations?.akshare, detail: integrations?.akshare ? "API key set" : "Set AKSHARE_API_KEY to enable" },
                     { label: "Database (JDDS)", ok: integrations?.database, detail: "Connected" },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors">
@@ -703,6 +759,14 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     </div>
                   ))}
                 </Panel>
+
+                {/* Every economics/macro source, with real key status derived from
+                    ECON_SOURCES. Replaces the hand-written rows that drifted from
+                    the fetch layer (they listed finnhub/binance/coingecko which
+                    nothing consumes). */}
+                <div className="mt-4">
+                  <ProviderList categories={["economics"]} collapsible searchable />
+                </div>
               </div>
             )}
 

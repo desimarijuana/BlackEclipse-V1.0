@@ -3,7 +3,7 @@
 // ── Portfolio screen — fund manager ⇄ per-fund workspace ─────────────────────
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Briefcase } from 'lucide-react';
+import { ChartPie } from 'lucide-react';
 import { loadFunds, saveFunds } from './fund-store';
 import { FundManager } from './fund-manager';
 import { FundWorkspace } from './fund-workspace';
@@ -55,4 +55,4 @@ export function PortfolioScreen() {
   );
 }
 
-export { Briefcase as PortfolioTabIcon };
+export { ChartPie as PortfolioTabIcon };

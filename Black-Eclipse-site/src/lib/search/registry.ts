@@ -160,10 +160,11 @@ export function getAllActions(): SearchAction[] {
 // ── Default registrations ────────────────────────────────────────────────────
 // Pages.
 registerPage({ id: 'page-dashboard', kind: 'page', title: 'Command Center', aliases: ['dashboard', 'command center', 'home', 'overview', 'workspace'], keywords: ['dashboard', 'command center', 'home', 'overview', 'workspace', 'widgets'], icon: 'dashboard', tab: 'dashboard', rankBoost: 1.15 });
-registerPage({ id: 'page-market-workspace', kind: 'page', title: 'Market Workspace', aliases: ['market workspace', 'multi chart', 'charts', 'terminal', 'workspace', 'trading terminal', 'grid'], keywords: ['market workspace', 'multi chart', 'charts', 'terminal', 'grid', 'layout', 'linked charts'], icon: 'dashboard', tab: 'market-workspace', rankBoost: 1.2 });
+registerPage({ id: 'page-market-workspace', kind: 'page', title: 'Chart Workspace', aliases: ['chart workspace', 'market workspace', 'multi chart', 'charts', 'terminal', 'workspace', 'trading terminal', 'grid'], keywords: ['chart workspace', 'market workspace', 'multi chart', 'charts', 'terminal', 'grid', 'layout', 'linked charts'], icon: 'candlestick', tab: 'market-workspace', rankBoost: 1.2 });
+registerPage({ id: 'page-investor-eye', kind: 'page', title: 'Investor Eye', aliases: ['investor eye', 'gods eye', 'god\'s eye', 'world map', 'geopolitical', 'geopolitics', 'global state', 'world state', 'events map'], keywords: ['investor eye', 'gods eye', 'world', 'map', 'geopolitical', 'events', 'global', 'geopolitics', 'intelligence'], icon: 'globe', tab: 'investor-eye', rankBoost: 1.25 });
 registerPage({ id: 'page-chat', kind: 'page', title: 'ChatBot', aliases: ['chat', 'ai', 'assistant', 'ask ai'], keywords: ['chatbot', 'chat', 'conversation', 'ai'], icon: 'bot', tab: 'chat' });
-registerPage({ id: 'page-screener', kind: 'page', title: 'Market Screener', aliases: ['screener', 'discovery', 'stocks', 'discover', 'screen'], keywords: ['screener', 'market', 'stocks', 'discovery'], icon: 'chart', tab: 'discovery' });
-registerPage({ id: 'page-portfolio', kind: 'page', title: 'Portfolio', aliases: ['my portfolio', 'holdings', 'watchlist', 'positions'], keywords: ['portfolio', 'holdings', 'watchlist', 'positions'], icon: 'briefcase', tab: 'portfolio', rankBoost: 1.1 });
+registerPage({ id: 'page-screener', kind: 'page', title: 'Market Screener', aliases: ['screener', 'discovery', 'stocks', 'discover', 'screen'], keywords: ['screener', 'market', 'stocks', 'discovery'], icon: 'screen', tab: 'discovery' });
+registerPage({ id: 'page-portfolio', kind: 'page', title: 'Portfolio', aliases: ['my portfolio', 'holdings', 'watchlist', 'positions'], keywords: ['portfolio', 'holdings', 'watchlist', 'positions'], icon: 'pie', tab: 'portfolio', rankBoost: 1.1 });
 registerPage({ id: 'page-journal', kind: 'page', title: 'Trading Journal', aliases: ['journal', 'trading journal', 'my trades', 'trade log'], keywords: ['journal', 'trading', 'trades', 'log'], icon: 'book', tab: 'journal', rankBoost: 1.1 });
 registerPage({ id: 'page-news', kind: 'page', title: 'Market News', aliases: ['news', 'bulletin', 'headlines'], keywords: ['news', 'market news', 'headlines'], icon: 'news', tab: 'news' });
 registerPage({ id: 'page-heatmap', kind: 'page', title: 'Market Bubbles', aliases: ['heatmap', 'bubbles', 'market map', 'treemap'], keywords: ['heatmap', 'bubbles', 'treemap'], icon: 'orbit', tab: 'heatmap' });
@@ -193,14 +194,14 @@ registerPage({ id: 'sub-journal-reviews', kind: 'page', title: 'Reviews', aliase
 registerPage({ id: 'sub-journal-insights', kind: 'page', title: 'Insights', aliases: ['journal insights'], keywords: ['journal', 'insights'], icon: 'book', tab: 'journal', subroute: 'journal.insights', group: 'journal', child: true });
 
 // Screener — asset-class tabs.
-registerPage({ id: 'sub-disc-markets', kind: 'page', title: 'Markets', aliases: ['screener markets', 'global markets'], keywords: ['screener', 'markets', 'indices'], icon: 'chart', tab: 'discovery', subroute: 'discovery.markets', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-stocks', kind: 'page', title: 'Stocks', aliases: ['screener stocks'], keywords: ['screener', 'stocks', 'equities'], icon: 'chart', tab: 'discovery', subroute: 'discovery.stocks', group: 'discovery', child: true, rankBoost: 1.1 });
-registerPage({ id: 'sub-disc-etfs', kind: 'page', title: 'ETFs', aliases: ['screener etfs'], keywords: ['screener', 'etf', 'funds'], icon: 'chart', tab: 'discovery', subroute: 'discovery.etfs', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-funds', kind: 'page', title: 'Funds', aliases: ['screener funds', 'mutual funds'], keywords: ['screener', 'funds'], icon: 'chart', tab: 'discovery', subroute: 'discovery.funds', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-dividends', kind: 'page', title: 'Dividend Stocks', aliases: ['dividends', 'dividend stocks', 'yield'], keywords: ['screener', 'dividend', 'yield'], icon: 'chart', tab: 'discovery', subroute: 'discovery.dividend_stocks', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-crypto', kind: 'page', title: 'Crypto', aliases: ['screener crypto', 'cryptocurrencies'], keywords: ['screener', 'crypto', 'coins'], icon: 'chart', tab: 'discovery', subroute: 'discovery.crypto', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-forex', kind: 'page', title: 'Forex', aliases: ['screener forex', 'currencies', 'fx'], keywords: ['screener', 'forex', 'fx', 'currencies'], icon: 'chart', tab: 'discovery', subroute: 'discovery.forex', group: 'discovery', child: true });
-registerPage({ id: 'sub-disc-commodities', kind: 'page', title: 'Commodities', aliases: ['screener commodities', 'metals', 'energy'], keywords: ['screener', 'commodities', 'metals', 'energy'], icon: 'chart', tab: 'discovery', subroute: 'discovery.commodities', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-markets', kind: 'page', title: 'Markets', aliases: ['screener markets', 'global markets'], keywords: ['screener', 'markets', 'indices'], icon: 'screen', tab: 'discovery', subroute: 'discovery.markets', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-stocks', kind: 'page', title: 'Stocks', aliases: ['screener stocks'], keywords: ['screener', 'stocks', 'equities'], icon: 'screen', tab: 'discovery', subroute: 'discovery.stocks', group: 'discovery', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-disc-etfs', kind: 'page', title: 'ETFs', aliases: ['screener etfs'], keywords: ['screener', 'etf', 'funds'], icon: 'screen', tab: 'discovery', subroute: 'discovery.etfs', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-funds', kind: 'page', title: 'Funds', aliases: ['screener funds', 'mutual funds'], keywords: ['screener', 'funds'], icon: 'screen', tab: 'discovery', subroute: 'discovery.funds', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-dividends', kind: 'page', title: 'Dividend Stocks', aliases: ['dividends', 'dividend stocks', 'yield'], keywords: ['screener', 'dividend', 'yield'], icon: 'screen', tab: 'discovery', subroute: 'discovery.dividend_stocks', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-crypto', kind: 'page', title: 'Crypto', aliases: ['screener crypto', 'cryptocurrencies'], keywords: ['screener', 'crypto', 'coins'], icon: 'screen', tab: 'discovery', subroute: 'discovery.crypto', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-forex', kind: 'page', title: 'Forex', aliases: ['screener forex', 'currencies', 'fx'], keywords: ['screener', 'forex', 'fx', 'currencies'], icon: 'screen', tab: 'discovery', subroute: 'discovery.forex', group: 'discovery', child: true });
+registerPage({ id: 'sub-disc-commodities', kind: 'page', title: 'Commodities', aliases: ['screener commodities', 'metals', 'energy'], keywords: ['screener', 'commodities', 'metals', 'energy'], icon: 'screen', tab: 'discovery', subroute: 'discovery.commodities', group: 'discovery', child: true });
 
 // Alerts — view tabs.
 registerPage({ id: 'sub-alerts-watches', kind: 'page', title: 'Live Watches', aliases: ['live watches', 'my alerts'], keywords: ['alerts', 'watches'], icon: 'bell', tab: 'alerts', subroute: 'alerts.watches', group: 'alerts', child: true, rankBoost: 1.05 });
@@ -292,7 +293,7 @@ registerAction({
   verb: 'open',
   title: 'Open Portfolio',
   keywords: ['open portfolio', 'my portfolio', 'portfolio'],
-  icon: 'briefcase',
+  icon: 'pie',
   run: () => ({ tab: 'portfolio' }),
 });
 registerAction({
@@ -300,7 +301,7 @@ registerAction({
   verb: 'open',
   title: 'Open Market Screener',
   keywords: ['open screener', 'market screener', 'screener', 'discovery'],
-  icon: 'chart',
+  icon: 'screen',
   run: () => ({ tab: 'discovery' }),
 });
 registerAction({
@@ -338,10 +339,18 @@ registerAction({
 registerAction({
   id: 'act-open-market-workspace',
   verb: 'open',
-  title: 'Open Market Workspace',
-  keywords: ['open market workspace', 'multi chart', 'trading terminal', 'charts', 'workspace'],
-  icon: 'dashboard',
+  title: 'Open Chart Workspace',
+  keywords: ['open chart workspace', 'open market workspace', 'multi chart', 'trading terminal', 'charts', 'workspace'],
+  icon: 'candlestick',
   run: () => ({ tab: 'market-workspace' }),
+});
+registerAction({
+  id: 'act-open-investor-eye',
+  verb: 'open',
+  title: "Open Investor Eye",
+  keywords: ['open investor eye', 'investor eye', 'gods eye', 'world map', 'geopolitical map', 'global events'],
+  icon: 'globe',
+  run: () => ({ tab: 'investor-eye' }),
 });
 
 // ── Parameterized commands ───────────────────────────────────────────────────
@@ -364,7 +373,7 @@ registerAction({
   verb: 'watch',
   title: 'Add to watchlist',
   keywords: ['watch', 'watchlist', 'add to watchlist', 'follow'],
-  icon: 'briefcase',
+  icon: 'pie',
   requiresArg: true,
   run: () => ({ tab: 'dashboard' }),
 });

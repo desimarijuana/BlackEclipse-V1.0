@@ -78,6 +78,9 @@ in [`../README.md`](../README.md) is authoritative; in short:
   agent. Without any of them, a built-in **mock** provider answers. Keys can also
   be set from the in-app Settings screen.
 - `BE_WARMUP=1` — opt into the dev boot warm-up so prices are pre-fetched.
+- `CONNECTOR_SECRET_KEY` — base64 32-byte key for encrypting operator
+  data-source credentials. **Required on hosted/serverless deploys.** Locally it
+  is optional: a gitignored `.connector-key` is generated on first use.
 - `NEXT_PUBLIC_LLM_CONFIGURED` — set by `instrumentation.ts`; tells the client
   whether a real LLM exists so it can pick the right provider.
 

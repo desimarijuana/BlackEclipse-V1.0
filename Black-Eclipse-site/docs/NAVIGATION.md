@@ -43,6 +43,9 @@ Black-Eclipse-site/
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |
+| Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
+| Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) |
+| Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder) + `store.ts` `DEFAULT_LAYERS` |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |
 | Change news ingestion | `src/lib/news/ingest.ts`, `src/app/api/news/` |
 | Change economics/macro | `src/lib/economics/`, `src/components/screens/economics/` |
@@ -55,6 +58,9 @@ Black-Eclipse-site/
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
+| Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
+| Pull/ingest custom dataset records | `PUT /api/datasets` → `pullDataset` in `src/lib/connectors/refresh.ts` |
+| Scheduled connector refresh | `src/lib/connectors/refresh-scheduler.ts` (started in `src/instrumentation.ts`) |
 | Change the DB schema | `prisma/schema.prisma` → `prisma db push` |
 | Change the DB client | `src/lib/db.ts` |
 | Change boot behavior / start a worker | `src/instrumentation.ts` |
@@ -70,8 +76,10 @@ Black-Eclipse-site/
 | `alerts/` | Condition evaluator, feeds, notifier, alert monitor |
 | `aurora/` | Aurora palette store + theme |
 | `chart/` | Chart types, data hooks, indicators, drawings, structure, providers |
+| `connectors/` | Universal Data Connector Layer: provider catalog, capability resolver, custom REST connectors, SSRF/secret security, custom datasets, scheduled refresh |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
 | `economics/` | Macro fetching, sources, calendar, snapshot |
+| `investor-eye/` | World-state tier: event sources (GDELT/USGS), normalization/clustering, map layers, risk/exposure/transmission analytics, ingestion + cache |
 | `journal/` | Journal data access, trade math, analytics suite, CSV import |
 | `market-workspace/` | The market-panel workspace engine |
 | `news/` | Background RSS ingestion |
@@ -88,7 +96,9 @@ Black-Eclipse-site/
 `news`(+`status`,`alert`) · `economics`(+`snapshot`,`calendar`) ·
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
-`cron`(+`run`,`refresh-news`).
+`cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
+`data/[capability]` · `providers` · `investor-eye/*` (state, events, countries,
+markets, layers, economy, companies, portfolio, risk, analogues, query, health).
 
 ## Key contracts (read before changing)
 
@@ -97,9 +107,13 @@ Black-Eclipse-site/
 | Widget definition | `src/lib/workspace/widget-def.ts` |
 | Widget registry (dashboard) | `src/lib/dashboard/registry.tsx` |
 | DataHub topic/entry | `src/lib/workspace/data-hub.ts` |
+| Connector contract | `src/lib/connectors/types.ts` |
+| Investor Eye event-source contract | `src/lib/investor-eye/types.ts` (`EventSource`) |
+| Investor Eye map-layer contract | `src/lib/investor-eye/types.ts` (`MapLayer`) + `layers.ts` |
 | Workspace layout ops | `src/lib/workspace/ops.ts` |
 | Market workspace ops | `src/lib/market-workspace/ops.ts` |
 | Agent provider interface | `src/lib/agent/types.ts` |
+| Agent tool contract | `src/lib/agent/tools.ts` (`ToolDefinition`) |
 | Mutation guard | `src/lib/api-guard.ts` |
 | Tab ids | `AppTab` in `src/components/layout/sidebar.tsx` |
 
@@ -113,6 +127,8 @@ When a change touches one of these, update the listed doc in the same change:
 | `prisma/schema.prisma`, `src/lib/db.ts` | `ARCHITECTURE.md` (JDDS section), `DATA-FLOW.md` |
 | `src/lib/workspace/`, `src/lib/market-workspace/`, `src/lib/customize/` | `ARCHITECTURE.md` (workspaces), `DECISIONS.md` |
 | `src/lib/api-guard.ts`, auth/env behavior | `ARCHITECTURE.md`, `QUICKSTART.md` |
+| `src/lib/connectors/`, `src/app/api/data-sources/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer), `DATA-FLOW.md`, `DECISIONS.md` |
+| `src/lib/investor-eye/`, `src/components/investor-eye/`, `src/app/api/investor-eye/` | `ARCHITECTURE.md` (Investor Eye), `investor-eye-architecture.md`, `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |

@@ -19,6 +19,7 @@ const TAB_PLACEHOLDER: Record<string, string> = {
   news: 'Search news and headlines…',
   economics: 'Search indicators and events…',
   dashboard: 'Search widgets and commands…',
+  'investor-eye': 'Search the world map — "what is affecting oil?"…',
   'market-workspace': 'Search instruments to chart…',
   chart: 'Search an instrument to chart…',
   heatmap: 'Search a market or sector…',

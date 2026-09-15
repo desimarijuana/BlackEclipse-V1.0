@@ -43,6 +43,114 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Investor Eye** — New **Investor Eye** world-state surface (Phase 1 + 2): a
+  large interactive ECharts world map with a pluggable `MapLayer` system
+  (events, markets, conflict, energy, trade, weather, economy, companies,
+  portfolio, risk), a timeline (1H–30D), layer controller, country/event
+  intelligence panels, "What Changed" summary, and honest data-freshness
+  indicators. Backed by a new **additive** event tier `src/lib/investor-eye/`:
+  `EventSource` adapters (GDELT DOC 2.0 + USGS, both free/keyless, fetched
+  through the existing `connectors/security.safeGet`), pure normalization
+  (classification, clustering/dedup, internal data-quality confidence, grid
+  aggregation), a real country gazetteer, server SWR cache + persisted
+  last-known, an in-process ingestion cron, and 13 `/api/investor-eye/*` routes
+  (state, events, countries, markets, layers, economy, companies, portfolio,
+  risk, analogues, query, health). Markets reuse the existing `IndexQuote` +
+  yfinance path and portfolio exposure reuses `use-portfolio-engine` — no second
+  market/portfolio/news stack. Phase 2 analytics are deterministic (risk
+  decomposition, exposure, `OBSERVED|HISTORICAL|INFERRED` transmissions,
+  historical analogues, keyword+gazetteer NL map search — no LLM on the query
+  path). New JDDS models `Country`, `GeopoliticalEvent`, `EventEntity`,
+  `SourceRun`; vendored `public/geo/world.geo.json` (Natural Earth, via
+  `scripts/fetch-world-geo.mjs`); new `investor-eye` sidebar tab registered in
+  sidebar config, search registry, top-bar and the shell. A failed source is
+  `UNAVAILABLE`, never a fake zero. 106 new tests.
+  docs updated: `docs/investor-eye-architecture.md` (new), `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/DATA-FLOW.md`, `docs/DECISIONS.md`,
+  `skills/ARCHITECT.md`
+- **Build** — `scripts/doctor.js` now detects **schema drift** on an existing
+  `jdds.db` and self-heals with `prisma db push`. Previously it only pushed when
+  the DB file was *missing*, so an install carrying the old committed seed would
+  never receive models added since (the connector + Investor Eye tables) and
+  would 500 on every query against a missing table. Expected table names are
+  parsed from `schema.prisma`, so the check cannot itself go stale; a locked or
+  corrupt DB is left to the existing integrity guard.
+  no doc change — self-healing boot fix; no documented contract changed.
+
+- **Screener** — Fixed the broken glyphs on the Market Screener (the `□` boxes
+  in the "Global Markets Overview" row and in the table headers). Root cause was
+  a pre-existing encoding corruption, not a missing icon: commit `34d76fd`
+  (frosted-glass pass) re-encoded `market-overview.tsx` and turned 80 non-ASCII
+  characters — em dashes, middots, ellipses, en dashes — into `U+FFFD`
+  replacement characters baked into the source. Recovered the original
+  characters by matching each damaged line's ASCII skeleton against the last
+  clean revision (`c8ec9d3`) and restored them; also fixed one instance in
+  `src/app/globals.css`. Verified zero `U+FFFD` remains across all source files.
+  no doc change — character-encoding repair, no contract or architecture change.
+
+- **Connectors/UI** — De-duplicated and expanded the provider surface. The AI
+  Agent screen previously showed a generic "Provider" **dropdown and** a
+  provider **list** — the same choice twice, and the list's "Set up" button
+  navigated back to the screen you were already on. It is now a single
+  preset-grid picker: click a provider and it fills the base URL + model, leaving
+  only the key. Added `src/lib/agent/presets.ts` with **14 working
+  OpenAI-compatible presets** (OpenAI, Anthropic, Ollama, LM Studio, Groq,
+  DeepSeek, Mistral, Google Gemini, xAI, OpenRouter, Together, Perplexity,
+  Fireworks, Custom), and the catalog's AI entries are now **derived from that
+  list** so a new preset appears in both places with one edit. Also fixed a real
+  bug: `setLLMConfig` rejected any provider without a key, so **keyless local
+  servers (Ollama/LM Studio) could not be saved** — it now allows local base URLs
+  (`isLocalBaseUrl`) and stubs `"local"` since some clients require a non-empty
+  string. Added 12 market/crypto providers (Finnhub, Polygon, Alpha Vantage,
+  Twelve Data, Marketstack, CoinGecko, CoinMarketCap, Kraken, …) — **72 providers
+  total**, up from 53. Env-var key status is now a single list
+  (`CATALOG_ENV_VARS`) shared by `/api/providers` and `/api/settings`, so the two
+  cannot disagree. 21 new tests.
+  docs updated: `docs/ARCHITECTURE.md`
+
+- **Connectors/UI** — Moved the provider catalog OUT of Data Sources and into
+  the settings section that actually configures each provider, so APIs are no
+  longer dumped in one place: **AI Agent** shows AI & LLM, **Market Data** shows
+  Market Data + Crypto, **Integrations** shows all 44 Economics & Macro sources,
+  and **Data Sources** now shows only "Your own data" (the wizard). The new
+  `provider-list.tsx` renders a catalog slice in context with a module-level
+  fetch cache, so appearing in four sections still costs one request. The
+  Integrations section also dropped its hand-written rows (which listed
+  `finnhub`/`binance`/`coingecko` — nothing consumes those) in favour of the
+  derived list, leaving only AI Model + Database as genuine status rows.
+  Long lists (economics) are collapsible with a filter box. 543 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`
+
+- **Connectors/UI** — Added a browsable **provider catalog** to Settings → Data
+  Sources, grouped by what each provider is for (AI & LLM, Economics & Macro,
+  Market Data, Crypto, Your own data) instead of a flat connector list —
+  53 providers across 5 collapsible categories with per-category counts.
+  `src/lib/connectors/catalog.ts` builds it purely (`buildCatalog(env)`), and
+  **Economics entries are derived from `ECON_SOURCES`**, so the catalog cannot
+  drift from the fetch layer. Status is honest: `builtin`, `connected`,
+  `not_configured`, or `available`, computed from the real environment — of 44
+  economics sources only FRED is key-gated, and it shows `needs FRED_API_KEY`
+  until set. Buttons never claim to have saved a key: built-ins show a status
+  pill, Custom REST opens the wizard, and env-gated providers route to
+  Settings → AI Agent / Integrations (via the destination bus, since Settings is
+  a modal, not a tab). New `GET /api/providers`. 10 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+
+- **UI** — Navigation icon and label pass. Renamed the **Market Workspace** tab
+  to **Chart Workspace** (tab id and `src/lib/market-workspace/` folder unchanged)
+  so the label says what the screen is, and gave it the candlestick icon that the
+  screener was using. The screener now uses `ScanSearch` (magnifier over scan
+  lines) to read as "screen the market" instead of duplicating the chart glyph,
+  and Portfolio switched from `Briefcase` to `ChartPie` per request. Applied the
+  same choices to every surface that carried a stale icon: sidebar config, the
+  search registry (`page-market-workspace`, `page-screener`, `page-portfolio`,
+  the screener sub-pages, and the three open actions), the palette's `NAME_ICON`
+  map, and both page headers (Chart Workspace had no icon at all; Portfolio and
+  Screener used the old glyphs). All `open …` action labels and the page title
+  updated too; old labels kept as search aliases so muscle memory still resolves.
+  docs updated: `docs/OVERVIEW.md`, `docs/GLOSSARY.md`, `docs/ARCHITECTURE.md`,
+  `docs/DECISIONS.md`, `skills/ARCHITECT.md`, `skills/REMEMBER.md`
+
 - **Search** — Tests + docs for sub-page navigation. Added
   `search/subroute.test.ts` (channel semantics: tab scoping, focus pass-through,
   seq re-fire, scoped clear) and registry assertions that sub-pages carry a

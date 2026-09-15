@@ -8,7 +8,7 @@ import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace';
+export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye';
 
 export interface Conversation {
   id: string;

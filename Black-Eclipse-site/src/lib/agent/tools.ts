@@ -4,6 +4,7 @@
 
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
+import { DATASET_TOOLS } from "./dataset-tools";
 
 export interface ToolDefinition {
   name: string;
@@ -197,6 +198,9 @@ export const TOOLS: ToolDefinition[] = [
     },
     execute: (a) => searchWeb(String(a.query || "")),
   },
+  // Operator-connected datasets (Universal Data Connector Layer). Read-only;
+  // see `dataset-tools.ts`.
+  ...DATASET_TOOLS,
 ];
 
 export function getTool(name: string): ToolDefinition | undefined {

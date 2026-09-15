@@ -55,9 +55,10 @@ labeled, never presented as live.
 `sections → columns → widget cards`, with an optional side "rail" zone. Lives in
 `src/lib/workspace/`.
 
-**Market workspace** — a *separate* engine behind the Market Workspace tab, based
-on panels rather than widget cards. Lives in `src/lib/market-workspace/`. Not the
-same as the widget workspace.
+**Market workspace** — a *separate* engine behind the **Chart Workspace** tab,
+based on panels rather than widget cards. Lives in `src/lib/market-workspace/`.
+Not the same as the widget workspace. The label was renamed Chart Workspace while
+the folder and tab id (`market-workspace`) stayed put.
 
 **Rail** — the narrow side column of a widget workspace (used by the Command
 Center's market column). Cards drag freely between the centre and the rail.

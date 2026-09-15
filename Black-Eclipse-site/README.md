@@ -86,6 +86,7 @@ The app runs fully without environment variables. Copy `.env.example` to `.env.l
 |---|---|
 | `CRON_SECRET` | Enables server-to-server calls to mutating endpoints (`Authorization: Bearer <secret>`). **Set this when deploying publicly.** Without it, only same-origin browser requests and localhost calls can mutate state. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OLLAMA_BASE_URL` | Power the agentic chat/research. Without any of them, a built-in mock provider answers. Keys can also be set from the in-app Settings screen. |
+| `CONNECTOR_SECRET_KEY` | Base64 32-byte key used to encrypt operator data-source credentials at rest. **Required on hosted/serverless deploys** (an auto-generated local key would differ per instance). Locally it is optional — a gitignored `.connector-key` is generated on first use. |
 
 ## Deployment Notes
 

@@ -937,7 +937,7 @@ html:not(.dark) .command-glass {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
 
-/* Compact header variant � smaller blur radius and shadow. */
+/* Compact header variant - smaller blur radius and shadow. */
 .command-glass-bar {
   background: rgba(20, 20, 22, 0.55);
   backdrop-filter: blur(16px) saturate(1.3);

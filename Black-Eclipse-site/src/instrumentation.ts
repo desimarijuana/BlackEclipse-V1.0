@@ -88,5 +88,28 @@ export async function register() {
     } catch (err) {
       console.error("[startup] alert monitor start failed:", err);
     }
+
+    // Operator data-source refresh. Runs on its own cron and yields to the
+    // scraper's whole-market jobs (it skips a tick while they hold the write
+    // path), so custom datasets stay current without competing for SQLite.
+    try {
+      const { startDatasetRefresh } = await import("@/lib/connectors/refresh-scheduler");
+      await startDatasetRefresh();
+    } catch (err) {
+      console.error("[startup] dataset refresh start failed:", err);
+    }
+
+    // Investor Eye world-state ingestion (GDELT/USGS). Same discipline: one
+    // cron, boot grace, and it skips a tick while the scraper holds the write
+    // path. One refresh shortly after boot so the globe is not empty.
+    try {
+      const { startInvestorEyeIngest, runInvestorEyeIngest } = await import("@/lib/investor-eye/scheduler");
+      await startInvestorEyeIngest();
+      setTimeout(() => {
+        void runInvestorEyeIngest();
+      }, 30_000);
+    } catch (err) {
+      console.error("[startup] investor-eye ingest start failed:", err);
+    }
   }
 }

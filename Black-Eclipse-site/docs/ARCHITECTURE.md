@@ -88,13 +88,16 @@ routes are protected by `src/lib/api-guard.ts`:
 - `rateLimit` / `guardExpensiveMutation` — in-memory fixed-window per-IP limiter
   for expensive endpoints.
 - `checkOutboundUrl` / `filterSafeUrls` — SSRF allowlist for user-configurable
-  feed URLs.
+  feed URLs. **RSS feeds only.** Arbitrary operator APIs go through the stricter
+  connector path in `src/lib/connectors/security.ts` (DNS validation + pinning,
+  redirect blocking, size cap) — see "The Universal Data Connector Layer".
 
 Key route groups: `stocks`, `quote`, `price-history`, `markets` (+`global`),
 `indices`, `forex`, `commodities`, `heatmap`, `news` (+`status`, `alert`),
 `economics` (+`snapshot`, `calendar`), `search` (+`global`, `index`), `agent`
 (+`chat`, `research`, `activity`), `journal/*` (largest group), `alerts/*`,
 `scraper` (+`import`), `refresh`, `settings`, `cron` (+`run`, `refresh-news`),
+`data-sources` (+`test`), `datasets`, `data/[capability]`, `providers`,
 `asset-details`, `symbols`, `commodities`.
 
 ## Layer 4 — JDDS (the data vault)
@@ -114,6 +117,8 @@ The schema (`prisma/schema.prisma`) is organized in domains:
 | Scheduling & config | `CronJob`, `SystemConfig` |
 | Agentic research memory | `ResearchReport`, `AgentRun`, `ResearchFinding` |
 | Alerts | `PriceAlert`, `PriceAlertEvent`, `Candles` |
+| Data connectors | `DataConnector`, `CustomDataset`, `CustomDatasetField`, `CustomDatasetRecord`, `ConnectorMapping` |
+| Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `SourceRun` |
 | Trading journal | `JournalProfile`, `TradingAccount`, `Strategy`, `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`, `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`, `MarketContext`, `JournalEntry`, `Review` |
 
 Two design notes that matter:
@@ -136,6 +141,8 @@ All in-process, all started from `src/instrumentation.ts`:
 | News ingest | default 5 min | `src/lib/news/ingest.ts` |
 | Boot warm-up | once, prod-only by default | `src/lib/scraper/scheduler.ts` |
 | Alert monitor | polling loop | `src/lib/alerts/alertMonitor.ts` |
+| Dataset refresh | per-dataset, min 5 min | `src/lib/connectors/refresh-scheduler.ts` |
+| Investor Eye ingest | default 10 min | `src/lib/investor-eye/scheduler.ts` |
 
 They coordinate through mutex flags (`isRunning`, `syncBusy`, `warmUpBusy`) so
 two heavy SQLite write storms never run at once. This is not incidental — running
@@ -147,7 +154,7 @@ them concurrently is what used to freeze the API.
 |---|---|---|
 | Engine | `src/lib/workspace/` | `src/lib/market-workspace/` |
 | UI | `src/components/workspace/` | `src/components/market-workspace/` |
-| Powers | Command Center dashboard | Market Workspace tab |
+| Powers | Command Center dashboard | Chart Workspace tab |
 | Unit | widget card in a column | chart/market panel |
 | Shape | sections → columns → widgets, + rail zone | panels with presets/ops |
 | Persistence | `localStorage` via `use-workspace` | `localStorage` via `use-market-workspace` |
@@ -239,6 +246,187 @@ The owning screen consumes it with `useSubroute(tab, handler)`; both live in
 **Accessibility.** The input is an ARIA combobox driving a `role="listbox"`
 result list with `aria-activedescendant`; a polite live region announces result
 counts. Rows are memoized so selection changes don't re-render the whole list.
+
+## The Universal Data Connector Layer
+
+`src/lib/connectors/` is a capability-addressed layer that lets the operator
+bring their own REST API into BlackEclipse. It is **additive**: the scraper
+chain still runs first, and route-level demo fallbacks are untouched.
+
+```
+Scraper chain (existing)  →  Connector tier (new)  →  route-level demo (where it already exists)
+```
+
+**Provider ≠ capability.** Consumers ask for `PRICE`; the resolver
+(`resolver.ts`) picks a connector. Precedence is deterministic: built-ins
+(`kind: 'builtin'`, currently Binance crypto) outrank operator connectors, and
+ties break by id. There is **no automatic cross-provider fallback** — if the
+primary connector fails, the result is `UNAVAILABLE`. The resolver never
+fabricates demo data.
+
+| File | Owns |
+|---|---|
+| `types.ts` | `DataConnector`, `Capability`, `ConnectorResult`, `Provenance` |
+| `registry.ts` | id → connector map (anchored on `globalThis`, like `db.ts`) |
+| `resolver.ts` | capability → ordered connectors (built-in first) |
+| `runtime.ts` | `runCapability`, `syncCustomConnectors` |
+| `custom-rest.ts` | declarative REST connector (GET, `{{param}}` substitution) |
+| `draft.ts` | unsaved wizard-draft validation (shared by test + save) |
+| `security.ts` | SSRF/IP classification, pinned DNS, capped body, safe GET |
+| `secrets.ts` | AES-GCM credential encryption + key resolution |
+| `mapping.ts` | `recordPath`, field coercion, `recordKey` dedup |
+| `refresh.ts` | multi-value pull expansion + `PullSummary` |
+| `refresh-scheduler.ts` | the `dataset_refresh` cron |
+| `health.ts` | application-level health state (no Prisma enum) |
+| `store.ts` | JDDS persistence (connectors, datasets, records) |
+| `catalog.ts` | the browsable provider catalog (grouped, honest status) |
+| `builtins.ts` | built-in connector registration (avoids a barrel cycle) |
+| `providers/crypto.ts` | Phase-2 proof: the migrated crypto fetcher |
+
+**Security.** Every outbound connector request goes through `safeGet`:
+https-only, WHATWG-canonicalized, DNS resolved and validated **then pinned at
+connect** (rebinding-safe; TLS/SNI preserved), `redirect: manual`, a streamed
+5 MB cap, and a ≤10s timeout. Never `res.text()` on an untrusted response.
+
+**Secrets.** Credentials are AES-256-GCM encrypted before they touch JDDS.
+Single-node installs auto-generate `.connector-key` (gitignored); hosted
+deployments must set `CONNECTOR_SECRET_KEY` because an instance-local file would
+differ per instance. The browser sees only `hasSecret: boolean` after saving.
+
+**Data integrity.** Custom records live in `CustomDataset` /
+`CustomDatasetField` / `CustomDatasetRecord`. `(datasetId, recordKey)` is
+unique, so re-imports upsert. `Asset`/`Price`/`Candles` are **never** written by
+this layer — see ADR-010.
+
+**Honest import accounting.** `ingestRecords` returns
+`{ written, extracted, rejected, rejectedRequired, rejectedIdentity, deduped }`
+so the UI reports "Imported 8 of 10 records · 2 rejected" instead of a blanket
+success. Every extracted row is accounted for as written, deduped, or rejected.
+A connector that needs parameters it did not receive returns **400**
+(`invalid_config`/`missing_param`), not an opaque 502.
+
+**Multi-value pulls.** A parameter value may be a comma-separated list
+(`BTC,ETH,SOL`); `refresh.ts` expands it into **one request per value**, capped
+at `MAX_VALUES_PER_PULL = 25` with the overflow count reported, never a silent
+truncation, and requests spaced 250ms apart. `pullDataset` returns a
+`PullSummary`; partial failure returns HTTP 207.
+
+**Scheduled refresh.** `refresh-scheduler.ts` runs a `dataset_refresh` cron
+(per-dataset due check, 90s boot grace). It reuses the scraper scheduler's
+discipline: a mutex, sequential runs, and it **skips a tick while `syncBusy()`
+holds the write path** — better-sqlite3 is synchronous. A failed dataset still
+advances `lastRefreshAt` so it cannot retry every tick.
+
+**Provider catalog.** `catalog.ts` is a map of what BlackEclipse can talk to,
+grouped by purpose (AI, economics, market, crypto, custom). Economics entries are
+**derived from `ECON_SOURCES`**, so the catalog cannot drift from the fetch
+layer. Status is computed from the real environment (`builtin` / `connected` /
+`not_configured` / `available`) and buttons never claim to have saved a key:
+env-gated providers route to the screen that actually sets it.
+
+**Providers live where they are configured.** Each settings section renders the
+slice it owns — AI Agent (a preset picker), Market Data (market + crypto),
+Integrations (economics), Data Sources (custom only) — rather than dumping all 72
+into one screen. Long lists are collapsible and filterable.
+
+**AI presets are one source of truth.** `src/lib/agent/presets.ts` declares every
+OpenAI-compatible provider (base URL + default model). The AI Agent picker and
+the catalog's AI entries are both derived from it, so adding a provider is one
+edit. Every preset speaks the protocol `OpenAICompatibleProvider` already sends,
+so "Use this" is a real choice. Local servers (Ollama, LM Studio) are marked
+`keyless` and `setLLMConfig` permits them without an API key (`isLocalBaseUrl`).
+
+**Key status has one list.** `CATALOG_ENV_VARS` is the single set of env vars the
+UI reports; `/api/providers` and `/api/settings` both read it. Status is computed
+from the real environment and buttons never claim to have saved a key.
+
+**Server-side resolution.** DataHub stays client-side. It may return a
+provenance envelope (`{ data, source }`) from a topic, and `capabilityTopic()`
+wraps `GET /api/data/[capability]`; the route decides the connector and reports
+provenance so widgets never invent a tag.
+
+**New routes:** `GET/POST/PATCH/DELETE /api/data-sources`,
+`POST /api/data-sources/test` (outbound → `guardExpensiveMutation`),
+`GET/POST/PUT/DELETE /api/datasets`, `GET /api/data/[capability]`,
+`GET /api/providers`.
+**UI:** Settings → **Data Sources** (`data-sources-panel.tsx`) — the provider
+catalog, the connector list, the add wizard (Configure → Authenticate → Test →
+Map & define dataset), and a **Datasets** browser with **Pull**, per-dataset
+parameter inputs, records with provenance, auto-refresh, and delete.
+
+**Agent access.** Read-only `list_datasets` / `describe_dataset` /
+`query_dataset` tools in `src/lib/agent/dataset-tools.ts`, spread into `TOOLS`;
+every result states provenance.
+
+**Deferred:** webhooks, POST/PUT bodies, pagination beyond value lists, OAuth,
+`~` dataset search, AI-generated connectors, multi-user credentials.
+
+## Investor Eye (the world-state surface)
+
+`investor-eye` is a sidebar tab (keep-alive, `next/dynamic`-split like every
+other screen) that renders a large interactive world and the intelligence
+underneath it. The long-term model is:
+
+```
+world events → geopolitical conditions → economic transmission → markets
+→ companies → securities → portfolios
+```
+
+**It is a new, additive tier — it does not replace or duplicate the scraper,
+news, portfolio, or market systems.** The full audit, Phase 1/2 scope, and the
+list of deliberate non-additions live in
+[`investor-eye-architecture.md`](./investor-eye-architecture.md). ADR-011 records
+the decision.
+
+### Layers (the stack)
+
+```
+SOURCE (GDELT, USGS, /api/indices, /api/economics + FRED CSV, JDDS Asset/Price)
+  ↓ src/lib/investor-eye/sources/*     fetch via the shared connectors `safeGet`
+RAW
+  ↓ classify.ts / cluster.ts / dedup.ts / confidence.ts   (pure, unit-tested)
+normalized + clustered events
+  ↓ state.ts        assemble, cache (SWR), persist, provenance, SourceRun rows
+JDDS (Country, GeopoliticalEvent, EventEntity, SourceRun) + in-memory cache
+  ↓ /api/investor-eye/*  → DataHub topics (provenance envelope) → Zustand store
+  ↓ layers.ts (pure builders) → MapLayer[] → <WorldMap> (ECharts)
+```
+
+| File | Owns |
+|---|---|
+| `types.ts` | `NormalizedEvent`, `EventSource`, `MapLayer`, `InvestorEyeState`, provenance |
+| `countries.ts` | canonical country gazetteer (ISO codes, region, centroid, aliases, market link) |
+| `classify.ts` | event type / severity / channels / commodities / sectors (pure) |
+| `cluster.ts` | dedup clustering + internal data-quality confidence (pure) |
+| `dedup.ts` | stable `dedupKey` for idempotent upserts |
+| `geo.ts` | grid aggregation so dense events never render raw |
+| `sources/` | `registry.ts` + `gdelt.ts` + `usgs.ts` (`EventSource` adapters) |
+| `state.ts` | `assembleState`, market observations, country summaries, `SourceRun` bookkeeping |
+| `phase2.ts` | real economic metrics (FRED CSV), companies (JDDS `Asset`), price history |
+| `analytics.ts` | risk decomposition, exposure, transmissions, analogues, NL `planQuery` |
+| `layers.ts` | pure `MapLayer` builders (events, markets, conflict, energy, trade, weather, economy, companies, portfolio) |
+| `map-echarts.ts` | the ONLY ECharts-aware module; layer → option + event bridge |
+| `app-geo.ts` | loads/registers `public/geo/world.geo.json` |
+| `cache.ts` / `scheduler.ts` | server SWR cache + persisted last-known; in-process ingestion cron |
+| `store.ts` / `topics.ts` | Zustand view state; DataHub topics |
+
+### Routes
+
+`GET /api/investor-eye/state` · `/events` · `/events/:id` · `/countries/:id` ·
+`/markets` · `/layers/:layer` (+ guarded `POST` rebuild) · `/economy` ·
+`/companies` · `POST /portfolio` · `/risk` · `/analogues` · `/query` · `/health`.
+
+### Honesty and failure rules (non-negotiable)
+
+- A source that fails is `UNAVAILABLE` — never a fabricated zero. A healthy
+  source observing zero events may honestly report `0`.
+- Provenance is computed server-side; the client never invents a tag.
+- `confidence` is internal data quality, never presented as certainty.
+- Observed facts are separated from **potential exposure** and **inferred**
+  relationships in every tooltip/panel (`OBSERVED | HISTORICAL | INFERRED |
+  AI-INTERPRETED`).
+- Partial failure does not break the page: the map renders from whatever the
+  remaining sources produced, and the status chip reports each source's state.
 
 ## Design system
 

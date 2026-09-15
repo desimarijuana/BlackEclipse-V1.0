@@ -7,6 +7,7 @@
 // news feeds, app preferences, and data hygiene.
 
 import { prisma } from "@/lib/db";
+import { isLocalBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
 
 // ─── Low-level key/value helpers ───────────────────────────────────────
 
@@ -43,6 +44,9 @@ export async function setConfigJSON(key: string, value: unknown): Promise<void> 
 
 // ─── LLM / Agent provider configuration ────────────────────────────────
 
+// `openai` is the default OpenAI-compatible family: any preset (Groq, Mistral,
+// DeepSeek, OpenRouter, …) is stored as `openai` plus its own baseUrl/model, so
+// the runtime needs no per-provider branch.
 export type LLMProviderName = "auto" | "openai" | "ollama" | "anthropic" | "mock";
 
 export interface LLMConfig {
@@ -101,8 +105,13 @@ export async function setLLMConfig(config: Partial<LLMConfig>): Promise<LLMConfi
     ...next,
     ...config,
   };
-  if (merged.provider !== "mock" && !merged.apiKey) {
-    throw new Error("An API key is required for a real LLM provider");
+  // A remote provider needs a key; a local one does not.
+  if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
+    throw new Error("An API key is required for a remote LLM provider");
+  }
+  if (merged.provider !== "mock" && !merged.apiKey && isLocalBaseUrl(merged.baseUrl)) {
+    // Local servers ignore the key but some clients require a non-empty string.
+    merged.apiKey = "local";
   }
   await setConfigJSON(LLM_KEY, merged);
   return merged;
@@ -263,10 +272,18 @@ export interface IntegrationStatus {
   tradingEconomics: boolean;
   akshare: boolean;
   database: boolean;
+  /**
+   * Raw "is this env var set" map for every provider key the catalog advertises.
+   * The UI uses it to show honest per-provider status without hard-coding a
+   * second list that would drift.
+   */
+  envFlags: Record<string, boolean>;
 }
 
 export async function getIntegrationsStatus(): Promise<IntegrationStatus> {
   const llm = await getLLMConfig();
+  const envFlags: Record<string, boolean> = {};
+  for (const key of CATALOG_ENV_VARS) envFlags[key] = Boolean(process.env[key]);
   return {
     llm: {
       provider: llm.provider,
@@ -280,5 +297,6 @@ export async function getIntegrationsStatus(): Promise<IntegrationStatus> {
     tradingEconomics: Boolean(process.env.TRADING_ECONOMICS_API_KEY),
     akshare: Boolean(process.env.AKSHARE_API_KEY),
     database: true,
+    envFlags,
   };
 }

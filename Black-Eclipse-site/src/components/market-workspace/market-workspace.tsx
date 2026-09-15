@@ -13,7 +13,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from 'lucide-react';
+import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMarketWorkspace, type MarketWorkspaceController } from '@/lib/market-workspace/use-market-workspace';
 import { useWorkspaces } from '@/lib/market-workspace/use-workspaces';
@@ -542,11 +542,16 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     >
       {!embedded && !fullPage && (
         <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border/10 pb-3">
-          <div className="min-w-0">
-            <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Market Workspace</h1>
-            <p className="text-[11px] text-muted-foreground">
-              {layout.panels.length} panels · {editMode ? 'customizing' : 'Ctrl+Enter full page · F chart fullscreen · Ctrl+K symbol search'}
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 shadow-sm shadow-primary/10">
+              <ChartCandlestick className="text-primary" size={18} />
+            </span>
+            <div className="min-w-0">
+              <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Chart Workspace</h1>
+              <p className="text-[11px] text-muted-foreground">
+                {layout.panels.length} panels · {editMode ? 'customizing' : 'Ctrl+Enter full page · F chart fullscreen · Ctrl+K symbol search'}
+              </p>
+            </div>
           </div>
           <div className="ml-auto">
             <PanelToolbar

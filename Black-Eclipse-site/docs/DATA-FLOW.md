@@ -49,6 +49,34 @@ The rule that follows from this: **screens never call a data provider.** If a
 screen needs a number, it either reads JDDS through an API route, or subscribes
 to a DataHub topic that wraps that route.
 
+## Operator data sources (the connector tier)
+
+Beyond the built-in scraper, the operator can connect their own REST API. That
+path is a **separate tier**, not a replacement for the scraper chain:
+
+```
+Widget → DataHub topic → GET /api/data/[capability] → resolver
+       → scraper | operator connector → real data | UNAVAILABLE
+       → DataHub → Widget     (route-level demo fallbacks stay in their routes)
+```
+
+`GET /api/data/[capability]` resolves capability → connector server-side and
+returns `{ ok, data, provenance, source, retrievedAt }`. DataHub passes
+`provenance` through (it does not infer a tag for connectors); `CUSTOM` means the
+row came from an operator data source.
+
+Custom API responses are mapped into **`CustomDatasetRecord`**, never into
+`Asset`/`Price`/`Candles`. `(datasetId, recordKey)` is unique, so re-importing
+the same response upserts. Imports report `written` / `extracted` / `rejected` /
+`deduped` rather than a bare success — a partially-imported response says so.
+
+A pull may be **multi-value**: a parameter like `symbol=BTC,ETH,SOL` becomes one
+request per value, capped at 25 with the overflow reported. Datasets with
+`refreshEnabled` are re-pulled in the background on their own cron, which yields
+to the scraper's whole-market jobs. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The Universal Data Connector Layer"
+and ADR-010.
+
 ## Ingestion — how data gets into JDDS
 
 Everything is an **upsert**, never a blind insert. Re-running an import updates
@@ -97,6 +125,24 @@ reads the DB instead of hitting feeds per request.
 `src/lib/economics/` fetches macro series, caches them in `MacroSeries` as JSON
 (`cacheKey` = source + params hash) so the Economics page loads from JDDS.
 
+### Investor Eye world state
+
+`src/lib/investor-eye/` is its own ingestion tier (ADR-011). Per cycle it runs
+each configured `EventSource` (GDELT, USGS) through the shared `safeGet`
+transport, normalizes records into `NormalizedEvent`s, clusters/dedupes them,
+then:
+
+- upserts into `GeopoliticalEvent` on the unique `dedupKey` (idempotent),
+- records one `SourceRun` per source (received/accepted/rejected + error),
+- assembles markets from the **existing** `IndexQuote` + yfinance path,
+- caches the assembled state (SWR, 3 min) and persists a last-known snapshot in
+  `SystemConfig`.
+
+A failing source is reported as `UNAVAILABLE` and the rest of the feed still
+serves. `/api/investor-eye/state` returns the assembled payload; the client
+reads it through DataHub topics. The world-state cron runs in-process from
+`instrumentation.ts` and skips a tick while the scraper holds the write path.
+
 ## Background schedules (what makes data "current")
 
 | Job | Default | Where | Notes |
@@ -106,6 +152,8 @@ reads the DB instead of hitting feeds per request.
 | News ingest | 5 min | `news/ingest.ts` | Idempotent, retention-pruned |
 | Boot warm-up | once | `scraper/scheduler.ts` | Production only unless `BE_WARMUP=1`; caps at 1000 rows/market |
 | Alert poll | per-watch | `alerts/alertMonitor.ts` | Evaluates condition trees |
+| Dataset refresh | per-dataset (≥5 min) | `connectors/refresh-scheduler.ts` | Operator connectors; skips while `syncBusy()` |
+| Investor Eye ingest | 10 min | `investor-eye/scheduler.ts` | GDELT/USGS → normalized events; skips while `syncBusy()` |
 
 ### Why markets are skipped
 
@@ -162,8 +210,11 @@ The product rule stands: **never present stale or simulated data as live.**
 ## Data shape contracts (do not break silently)
 
 - `/api/news` → `{ news, source: 'rss' | 'empty' | 'error', pagination }`
-- DataHub entry → `{ data, source: DataSource, updatedAt, error? }` where
-  `DataSource` is `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | UNAVAILABLE`
+- DataHub entry → `{ data, source: DataSource, updatedAt, error?, sourceId? }`
+  where `DataSource` is
+  `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | CUSTOM | UNAVAILABLE`
+- `/api/data/[capability]` →
+  `{ ok, capability, data, provenance, source, retrievedAt, error }`
 - Screener symbols are stored **uppercase**; normalize input with
   `.toUpperCase()` (SQLite via Prisma does not support `mode: "insensitive"`).
 

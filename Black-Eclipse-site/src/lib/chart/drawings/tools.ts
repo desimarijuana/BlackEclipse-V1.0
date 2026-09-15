@@ -14,7 +14,7 @@ function register(def: DrawingDefinition) {
 }
 
 register({ type: 'trendline', name: 'Trendline', description: 'Line between two points.', icon: 'trending-up', points: 2 });
-register({ type: 'ray', name: 'Ray', description: 'Line extending from a point.', icon: 'arrow-right', points: 2 });
+register({ type: 'ray', name: 'Ray', description: 'Line extending from a point.', icon: 'move-diagonal', points: 2 });
 register({ type: 'horizontal', name: 'Horizontal Line', description: 'Price level line.', icon: 'minus', points: 1 });
 register({ type: 'vertical', name: 'Vertical Line', description: 'Time level line.', icon: 'move-vertical', points: 1 });
 register({ type: 'rectangle', name: 'Rectangle', description: 'Box between two points.', icon: 'square', points: 2 });

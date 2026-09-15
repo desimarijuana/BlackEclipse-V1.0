@@ -45,6 +45,37 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
   fix("Database", "npx prisma db push");
 }
 
+// 4a. Schema drift — an existing jdds.db can predate models added since the
+//     committed seed snapshot (e.g. the connector + Investor Eye tables). A
+//     stale DB would boot but every query against a missing table would 500,
+//     so detect the drift and apply the additive schema. Expected table names
+//     are parsed from schema.prisma so this check never goes stale.
+{
+  const schemaPath = path.join(root, "prisma", "schema.prisma");
+  const dbExists = fs.existsSync(path.join(root, "jdds.db"));
+  if (dbExists && fs.existsSync(schemaPath)) {
+    try {
+      const Database = require(path.join(root, "node_modules", "better-sqlite3"));
+      const schema = fs.readFileSync(schemaPath, "utf8");
+      const expected = [...schema.matchAll(/^\s*model\s+(\w+)\s*\{/gm)].map((m) => m[1]);
+      const db = new Database(path.join(root, "jdds.db"), { readonly: true });
+      const present = new Set(
+        db.prepare("select name from sqlite_master where type = 'table'").all().map((r) => r.name)
+      );
+      db.close();
+      const missing = expected.filter((t) => !present.has(t));
+      if (missing.length > 0) {
+        console.log(`[setup] Database schema is stale — missing ${missing.length} table(s): ${missing.join(", ")}`);
+        fix("Database schema", "npx prisma db push");
+      }
+    } catch (err) {
+      // A locked/corrupt DB is handled by the integrity guard just below; a
+      // drift check that cannot read the DB must never block boot.
+      console.warn(`[setup] schema drift check skipped: ${err.message}`);
+    }
+  }
+}
+
 // 4b. Database integrity guard — hardens WAL/synchronous, detects corruption,
 //     and auto-repairs from a healthy rolling backup or the committed seed
 //     snapshot BEFORE the server starts (so no /api route can hit a corrupt DB).

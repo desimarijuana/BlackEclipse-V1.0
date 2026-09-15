@@ -58,3 +58,7 @@ jdds.db-*
 # vendored embedded Python (downloaded on-demand, never committed)
 /scripts/vendor/python/
 
+# Universal Data Connector Layer — locally auto-generated encryption key for
+# connector credentials. NEVER commit this: it decrypts stored API secrets.
+.connector-key
+

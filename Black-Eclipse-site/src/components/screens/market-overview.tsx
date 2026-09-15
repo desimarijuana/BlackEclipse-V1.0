@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   ArrowUpRight, ArrowDownRight, ArrowRight, ArrowUp, ArrowDown, Search,
-  Sparkles, Star, ChartCandlestick,
+  Sparkles, Star, ChartCandlestick, ScanSearch,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
   Info, Briefcase, Building2, Globe, RefreshCw, GripVertical, ArrowLeft,
   Eye
@@ -25,12 +25,12 @@ import { currencyCodeFor as currencyFor, formatPriceWithCurrency } from '@/lib/m
 import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 
 // Currency helpers come from @/lib/market-currency (shared with the API
-// routes and the chart panel) � dollar assets keep "$", everything else
+// routes and the chart panel) — dollar assets keep "$", everything else
 // shows its native ISO code ("PKR 327.43", "CNY 12.40", ...).
 const priceWithCurrency = (country: string, value: number) => formatPriceWithCurrency(country, value);
 
 // Commodities & forex are ALWAYS shown in US dollars ("$"), per spec.
-// Yahoo returns some contracts in US cents (USc/bu, USc/lb) � convert those
+// Yahoo returns some contracts in US cents (USc/bu, USc/lb) — convert those
 // to whole dollars so every price reads as USD. FX pairs are already quoted
 // in the pair's units (EURUSD = dollars per euro) so they pass through.
 const COMMODITY_USD_SCALE: Record<string, number> = {
@@ -228,7 +228,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [filterOptions, setFilterOptions] = useState<{ sectors: string[]; industries: string[]; types: string[]; countries: string[] }>({ sectors: [], industries: [], types: [], countries: [] });
 
   // Unified dynamic metrics states loaded from region-specific backend queries.
-  // Start EMPTY with the dashboard loader active � placeholder demo constants
+  // Start EMPTY with the dashboard loader active — placeholder demo constants
   // are never rendered as if they were data.
   const [indexData, setIndexData] = useState<IndexCard[]>([]);
   const [sectorPerformance, setSectorPerformance] = useState<SectorPerformance[]>([]);
@@ -236,7 +236,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [topLosers, setTopLosers] = useState<ShifterItem[]>([]);
 
   // Customizable ticker strip above the screener: what the user wants to see
-  // on top � market indices, top gainers/losers, or a custom symbol list.
+  // on top — market indices, top gainers/losers, or a custom symbol list.
   // Persisted in localStorage so the choice survives reloads.
   type StripMode = 'indices' | 'gainers' | 'losers' | 'custom';
   const STRIP_MODE_KEY = 'be_strip_mode';
@@ -267,9 +267,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   };
 
   // -- Section & table visibility (fully customizable dashboards) ----------
-  // Every major block � ticker strip, sectors, shifters, and each screener
+  // Every major block — ticker strip, sectors, shifters, and each screener
   // table (stocks / crypto / etfs / funds / dividends / forex / commodities)
-  // � can be hidden by the user. Persisted in localStorage.
+  // — can be hidden by the user. Persisted in localStorage.
   type SectionKey =
     | 'strip' | 'sectors' | 'shifters'
     | 'table_stocks' | 'table_crypto' | 'table_etfs' | 'table_funds'
@@ -344,7 +344,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return () => { cancelled = true; };
   }, [stripMode, customSymbols]);
 
-  // DB-backed autocomplete for the pin input � only real, priced symbols
+  // DB-backed autocomplete for the pin input — only real, priced symbols
   // from the database can be added, so typos never create dead cards.
   const [stripSuggestions, setStripSuggestions] = useState<{ symbol: string; name: string; marketId: string; currency: string; price: number }[]>([]);
   React.useEffect(() => {
@@ -376,7 +376,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   // Resolve the currency that BELONGS to an index card: prefer the currency
   // stamped by /api/indices; fall back to the selected market.
-  // (cardCurrency removed � cards now always carry a currency from the API.)
+  // (cardCurrency removed — cards now always carry a currency from the API.)
 
   // The cards actually rendered on the customizable strip.
   const stripCards: IndexCard[] = useMemo(() => {
@@ -489,7 +489,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   //   GLOBAL ? show the global markets overview (all indices).
   //   any country ? switch to that country's stock screener.
   const handleMarketSelect = (market: string) => {
-    // Market cards carry DB ids (e.g. "US"); the <select> uses "USA" � normalize.
+    // Market cards carry DB ids (e.g. "US"); the <select> uses "USA" — normalize.
     const normalized = market === 'US' ? 'USA' : market;
     setUserCountry(normalized);
     if (normalized === 'GLOBAL') {
@@ -562,7 +562,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   }, [screenerTab, userCountry]);
 
   // Live dashboard metrics (index quotes, sector performance, shifters) from
-  // /api/indices � refreshed whenever the selected market changes. Falls back
+  // /api/indices — refreshed whenever the selected market changes. Falls back
   // to the static demo data if the endpoint is unreachable.
   React.useEffect(() => {
     let cancelled = false;
@@ -583,7 +583,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     const load = async (allowRetry: boolean) => {
       try {
         // The Markets/GLOBAL overview still needs index cards + sectors +
-        // shifters � it just scopes the screener table to US by default.
+        // shifters — it just scopes the screener table to US by default.
         const res = await fetch(`/api/indices?market=${encodeURIComponent(qc)}`);
         const data = await res.json();
         if (cancelled || !data) return false;
@@ -776,7 +776,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // Automatic price backfill: whenever a region's screener is shown and its
   // prices are missing/stale (>15 min), pull live quotes for THE VISIBLE PAGE
   // from yfinance/TradingView so rows show fresh prices within seconds.
-  // (Passing symbols scopes /api/refresh to just this page � a full-market
+  // (Passing symbols scopes /api/refresh to just this page — a full-market
   // backfill here took minutes on big universes like US/CN and made country
   // switches feel frozen. Background schedulers cover the whole universe.)
   const [autoRefreshedMarket, setAutoRefreshedMarket] = useState<string | null>(null);
@@ -824,7 +824,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // Global markets overview: top stocks per market so the Markets tab shows
   // what is actually moving across world markets (not loader metadata).
   // Fully user-customizable: layout, countries, visible columns, rows per
-  // market � persisted in localStorage.
+  // market — persisted in localStorage.
   type GmLayout = 'compact' | 'comfortable' | 'focus';
   type GmColumns = { ticker: boolean; name: boolean; price: boolean; change: boolean; cap: boolean };
   type GmColumnKey = keyof GmColumns;
@@ -907,7 +907,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return next;
   };
 
-  // Drag & drop reordering of the market tables � custom pointer-based drag.
+  // Drag & drop reordering of the market tables — custom pointer-based drag.
   // 100% DOM-driven while dragging: the floating copy follows the cursor via
   // direct transforms, and the preview reorder moves real DOM nodes with FLIP
   // animations. ZERO React re-renders during the drag (state only changes on
@@ -924,7 +924,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   // Commit the CURRENT on-screen DOM order as the saved preference. The live
   // preview already moved the dragged card to exactly where the user dropped
-  // it � persisting what they see is always correct, in every direction.
+  // it — persisting what they see is always correct, in every direction.
   const commitGmDomOrder = (grid: HTMLElement) => {
     const order: string[] = [];
     grid.querySelectorAll<HTMLElement>('[data-gm-card]').forEach((el) => {
@@ -936,7 +936,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
   // DOM-level preview reorder: move the (hidden) dragged card's node to the
   // target's slot, then FLIP-animate every other card from its old position.
-  // No React state involved � the grid re-renders only on drop.
+  // No React state involved — the grid re-renders only on drop.
   const domPreviewReorder = (grid: HTMLElement, draggedId: string, targetId: string) => {
     const cards = [...grid.querySelectorAll<HTMLElement>('[data-gm-card]')];
     const draggedEl = cards.find(el => el.getAttribute('data-gm-id') === draggedId);
@@ -990,7 +990,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     if (!id) return;
 
     // The scroll container (the page's main scroller) for edge auto-scroll.
-    // Must actually be scrollable � an overflow-y:auto ancestor with no
+    // Must actually be scrollable — an overflow-y:auto ancestor with no
     // overflow (scrollHeight === clientHeight) is not the real scroller.
     const scroller = (() => {
       let el: HTMLElement | null = card;
@@ -1012,7 +1012,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     let started = false;
 
     // LIVE hit-test against the current on-screen card rects (NOT a drag-start
-    // snapshot � cards FLIP to new slots as the preview reorders, so stale
+    // snapshot — cards FLIP to new slots as the preview reorders, so stale
     // rects made placing into center/other rows fail). Padding covers the
     // small grid gaps so dropping between cards also works.
     const liveHitTest = (x: number, y: number): string | null => {
@@ -1073,7 +1073,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         floatEl.style.transform = `translate3d(${ev.clientX}px, ${ev.clientY}px, 0) translate(-50%, -50%) scale(1.02)`;
       }
       // Live preview: move the real DOM node + FLIP the others. Pure DOM work,
-      // zero React renders � this is what keeps the drag smooth.
+      // zero React renders — this is what keeps the drag smooth.
       const target = liveHitTest(ev.clientX, ev.clientY);
       if (target && gmLastTargetRef.current !== target) {
         gmLastTargetRef.current = target;
@@ -1096,7 +1096,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     };
     const onUp = (ev: MouseEvent) => {
       // The preview moved the (invisible) dragged card into its final slot.
-      // Commit the on-screen DOM order � exactly what the user sees.
+      // Commit the on-screen DOM order — exactly what the user sees.
       cleanup();
       if (!started) return;
       gmSuppressClick.current = true;
@@ -1134,8 +1134,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
 
-  // Demo fallback rows are placeholders � all prices/changes are zero (never
-  // present simulated values as market data). The UI renders them as "�".
+  // Demo fallback rows are placeholders — all prices/changes are zero (never
+  // present simulated values as market data). The UI renders them as "—".
   function getFallbackStocks(country: string): StockItem[] {
     const list = [
       { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology', industry: 'Consumer Electronics', country: 'USA', price: 0, changePercent: 0, volume: 'N/A', marketCap: 'N/A', peRatio: 'N/A', dividendYield: 'N/A', index: 'N/A', recommendation: 'N/A', exchange: 'NASDAQ', forwardPE: 'N/A', peg: 'N/A', ps: 'N/A', pb: 'N/A', evEbitda: 'N/A', grossMargin: 'N/A', operatingMargin: 'N/A', netProfitMargin: 'N/A', insiderOwnership: 'N/A', institutionalOwnership: 'N/A', shortFloat: 'N/A', rsi14: 'N/A', sma20: 'N/A', sma50: 'N/A', sma200: 'N/A' },
@@ -1239,7 +1239,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     return () => { cancelled = true; };
   }, [screenerTab, fundSearch, userCountry]);
 
-  // Forex states + fetch � live major currency pairs from /api/forex.
+  // Forex states + fetch — live major currency pairs from /api/forex.
   type ForexPair = { symbol: string; name: string; base: string; quote: string; price: number; changePct: number; found: boolean };
   const [forexPairs, setForexPairs] = useState<ForexPair[]>([]);
   const [forexSearch, setForexSearch] = useState('');
@@ -1250,7 +1250,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [loadingForex, setLoadingForex] = useState(false);
   React.useEffect(() => {
     if (screenerTab !== 'markets' && screenerTab !== 'forex') return;
-    // Already loaded � switching between the overview card and the dedicated
+    // Already loaded — switching between the overview card and the dedicated
     // table must be instant, not refetch the (slow) bridge.
     if (forexPairs.length > 0) { setLoadingTab(false); return; }
     let cancelled = false;
@@ -1302,7 +1302,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     });
   }, [forexPairs, forexSearch, forexChange, forexCurrency, forexSortField, forexSortOrder]);
 
-  // Commodities states + fetch � live major commodity futures from /api/commodities.
+  // Commodities states + fetch — live major commodity futures from /api/commodities.
   type CommodityItem = { symbol: string; name: string; unit: string; price: number; changePct: number; found: boolean };
   const [commodities, setCommodities] = useState<CommodityItem[]>([]);
   const [commoditySearch, setCommoditySearch] = useState('');
@@ -1311,7 +1311,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [loadingCommodities, setLoadingCommodities] = useState(false);
   React.useEffect(() => {
     if (screenerTab !== 'markets' && screenerTab !== 'commodities') return;
-    // Already loaded � switching between the overview card and the dedicated
+    // Already loaded — switching between the overview card and the dedicated
     // table must be instant, not refetch the (slow) bridge.
     if (commodities.length > 0) { setLoadingTab(false); return; }
     let cancelled = false;
@@ -1506,7 +1506,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           <div>
             <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
               <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-                <ChartCandlestick className="text-primary" size={30} />
+                <ScanSearch className="text-primary" size={30} />
               </span>
               Market Screener
             </h1>
@@ -1603,7 +1603,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             </button>
           </span>
         </div>
-        {/* Inline config panel � expands in flow so content below moves down
+        {/* Inline config panel — expands in flow so content below moves down
             instead of being covered by a floating popover. */}
         {stripConfigOpen && (
           <div className="mb-3 p-3 sm:p-4 rounded-xl bg-background border border-border shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up">
@@ -1652,7 +1652,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </div>
                 {stripSuggestions.length > 0 && (
                   <div className="mt-2">
-                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1">Matches from database � click to pin</p>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1">Matches from database — click to pin</p>
                     <div className="flex flex-col gap-1">
                       {stripSuggestions.map(s => (
                         <button
@@ -1669,7 +1669,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             <span className="text-[11px] text-muted-foreground truncate">{s.name}</span>
                           </span>
                           <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
-                            {s.price > 0 ? priceWithCurrency(s.marketId || s.currency, s.price) : '�'}
+                            {s.price > 0 ? priceWithCurrency(s.marketId || s.currency, s.price) : '—'}
                             <span className="ml-1.5 text-[9px] text-muted-foreground/70">{s.marketId}</span>
                           </span>
                         </button>
@@ -1692,7 +1692,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     ))}
                   </div>
                 )}
-                <p className="text-[9px] text-muted-foreground mt-2">Searches every market (US, PSX, India, crypto�). Pinned symbols stay fixed across all countries.</p>
+                <p className="text-[9px] text-muted-foreground mt-2">Searches every market (US, PSX, India, crypto…). Pinned symbols stay fixed across all countries.</p>
               </div>
             )}
           </div>
@@ -1729,7 +1729,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </div>
                     <div className="mt-2 flex items-baseline gap-1">
                       <span className="font-mono text-base font-bold text-foreground">
-                        {idxCard.price > 0 ? priceWithCurrency(idxCard.currency || userCountry, idxCard.price) : '�'}
+                        {idxCard.price > 0 ? priceWithCurrency(idxCard.currency || userCountry, idxCard.price) : '—'}
                       </span>
                     </div>
                     {stripMode === 'custom' && customQuotes[idxCard.symbol]?.found === false ? (
@@ -1756,7 +1756,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           ) : (
             <div className="col-span-full p-4 rounded-2xl glass-card-subtle border border-border/30 text-center text-xs text-muted-foreground">
               {stripMode === 'custom'
-                ? 'No pinned symbols yet � click Customize above and type any symbol from any market (e.g. AAPL, OGDC, BTC).'
+                ? 'No pinned symbols yet — click Customize above and type any symbol from any market (e.g. AAPL, OGDC, BTC).'
                 : 'Nothing to show for this market yet.'}
             </div>
           )}
@@ -1931,20 +1931,20 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               </div>
             )}
 
-            {/* DEMO badge � never present simulated data as live market data. */}
+            {/* DEMO badge — never present simulated data as live market data. */}
             {dataSource === 'demo' && (
               <div className="glass-card-subtle border border-amber-500/10 rounded-2xl p-3.5 flex items-center justify-between animate-fade-in text-amber-400">
                 <div className="flex items-center gap-3">
                   <Info className="w-4 h-4 text-amber-400 shrink-0" />
                   <div className="text-xs font-semibold">
-                    SIMULATED DATA � these are demo values, not live market prices. Import a universe or enable the scraper to load real data.
+                    SIMULATED DATA — these are demo values, not live market prices. Import a universe or enable the scraper to load real data.
                   </div>
                 </div>
                 <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
               </div>
             )}
         
-        {/* Tab Selection Row � market chip left, back button right */}
+        {/* Tab Selection Row — market chip left, back button right */}
         <div className="flex items-center justify-between border-b border-border/15 pb-2 mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-1.5 bg-accent/30 p-1.5 rounded-3xl overflow-x-auto max-w-full scrollbar-none flex-nowrap shrink-0 w-full md:w-auto">
             {screenerTab === 'crypto' ? (
@@ -2024,10 +2024,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           </div>
         </div>
 
-        {/* Hidden-sections manager � lists every table/section with a toggle */}
+        {/* Hidden-sections manager — lists every table/section with a toggle */}
         {sectionsOpen && (
           <div className="mb-3 p-3 sm:p-4 rounded-xl bg-background border border-border shadow-lg w-full animate-fade-in-up">
-            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-2">Tables &amp; sections � click to show/hide</p>
+            <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-2">Tables &amp; sections — click to show/hide</p>
             <div className="flex flex-wrap gap-1.5">
               {(Object.keys(SECTION_LABELS) as SectionKey[]).map(key => {
                 const hidden = hiddenSections.includes(key);
@@ -2527,8 +2527,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Cap</option>
                     <option value="Mega">Mega ($100B+)</option>
-                    <option value="Large">Large ($10B�$100B)</option>
-                    <option value="Mid">Mid ($2B�$10B)</option>
+                    <option value="Large">Large ($10B–$100B)</option>
+                    <option value="Mid">Mid ($2B–$10B)</option>
                     <option value="Small">Small (&lt;$2B)</option>
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
@@ -2645,8 +2645,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Cap</option>
                     <option value="Mega">Mega ($100B+)</option>
-                    <option value="Large">Large ($10B�$100B)</option>
-                    <option value="Mid">Mid ($2B�$10B)</option>
+                    <option value="Large">Large ($10B–$100B)</option>
+                    <option value="Mid">Mid ($2B–$10B)</option>
                     <option value="Small">Small (&lt;$2B)</option>
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
@@ -2869,7 +2869,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
 
 
-        {/* Global Markets overview � fully customizable: layout, countries, columns */}
+        {/* Global Markets overview — fully customizable: layout, countries, columns */}
         {/* Hybrid load indicator: skeletons cover first paint; this ASCII
             dot-grid bar shows live progress on top of existing data during
             loads/refreshes so users always see that data is coming in. */}
@@ -2915,8 +2915,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             groups.sort((a, b) => avgChange(b) - avgChange(a));
           }
           // Manual drag order wins over the automatic group ordering. The
-          // saved order spans ALL cards � country ids plus the special FOREX
-          // and COMMODITIES cards � so dragging any card persists. Hidden
+          // saved order spans ALL cards — country ids plus the special FOREX
+          // and COMMODITIES cards — so dragging any card persists. Hidden
           // cards (Forex/Commodities via section toggles) are dropped here.
           const cardOrder: string[] = [
             ...groups.map((g) => g.id),
@@ -2939,7 +2939,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <Globe className="text-primary w-4 h-4 shrink-0" />
                   <span className="text-xs font-bold text-foreground uppercase tracking-wider font-mono">Global Markets Overview</span>
                   <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
-                    {groups.length} markets � top {gmConfig.rows} by market cap � local currency
+                    {groups.length} markets · top {gmConfig.rows} by market cap · local currency
                   </span>
                 </span>
                 <button
@@ -2955,7 +2955,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 </button>
               </div>
 
-              {/* Inline config panel � expands in flow, pushes content down */}
+              {/* Inline config panel — expands in flow, pushes content down */}
               {gmConfigOpen && (
                 <div className="mb-3 p-3 sm:p-4 rounded-xl glass-card border border-white/10 dark:border-white/5 shadow-lg w-full max-w-full overflow-hidden animate-fade-in-up space-y-4">
                   <div className="flex items-center justify-between">
@@ -2969,7 +2969,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   </div>
                   {/* Layout */}
                   <div>
-                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Layout <span className="normal-case font-medium text-muted-foreground/60">� drag any table by its header to reorder</span></p>
+                    <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Layout <span className="normal-case font-medium text-muted-foreground/60">— drag any table by its header to reorder</span></p>
                     <div className="flex flex-wrap gap-1.5">
                       {([
                         ['compact', 'Compact (3 cols)'],
@@ -3004,7 +3004,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </div>
                   </div>
 
-                  {/* Columns � toggle visibility + reorder (left/right) */}
+                  {/* Columns — toggle visibility + reorder (left/right) */}
                   <div>
                     <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider mb-1.5">Columns <span className="normal-case font-medium text-muted-foreground/60">use drag to choose what shows first</span></p>
                     <div className="flex flex-wrap gap-1.5">
@@ -3093,7 +3093,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         {([
                           ['dense', 'Dense'],
                           ['showRank', '# Rank'],
-                          ['highlightExtremes', 'Highlight �'],
+                          ['highlightExtremes', 'Highlight ±'],
                         ] as [keyof GmConfig, string][]).map(([key, label]) => (
                           <button
                             key={String(key)}
@@ -3126,7 +3126,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </div>
                   </div>
 
-                  {/* Countries � visibility + ordering (what shows first) */}
+                  {/* Countries — visibility + ordering (what shows first) */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <p className="text-[9px] uppercase font-bold text-muted-foreground/70 tracking-wider">Countries <span className="normal-case font-medium text-muted-foreground/60">drag to order, first is default</span></p>
@@ -3216,7 +3216,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                 <div className="py-10 text-center text-muted-foreground text-xs">
                   {globalOverview.length === 0
                     ? 'No priced markets yet - open a country screener and refresh prices to populate the overview.'
-                    : 'All countries hidden � click Customize above and select the markets you want to see.'}
+                    : 'All countries hidden — click Customize above and select the markets you want to see.'}
                 </div>
               ) : (
                 <div className={`relative grid ${gridClass} gap-3`}>
@@ -3284,11 +3284,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                       {pair.symbol.replace('=X', '')}
                                     </td>
                                     <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
-                                      {pair.found ? formatUsdPrice(pair.symbol, pair.price) : '�'}
+                                      {pair.found ? formatUsdPrice(pair.symbol, pair.price) : '—'}
                                     </td>
                                     <td className={`${rowPad} pr-3.5 pl-2 text-right whitespace-nowrap`}>
                                       <span className={`inline-block rounded px-1.5 font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '�'}
+                                        {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '—'}
                                       </span>
                                     </td>
                                   </tr>
@@ -3326,7 +3326,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             >
                               <GripVertical size={14} className="text-muted-foreground/60 shrink-0" aria-hidden />
                               <span className="font-serif font-semibold text-sm text-foreground truncate">Commodities</span>
-                              <span className="text-[9px] text-muted-foreground font-mono truncate">Gold � Silver � Oil</span>
+                              <span className="text-[9px] text-muted-foreground font-mono truncate">Gold · Silver · Oil</span>
                             </span>
                             <button
                               onClick={() => handleTabChange('commodities')}
@@ -3363,11 +3363,11 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                       <span className="ml-1.5 text-[8px] font-mono text-muted-foreground/60 font-semibold">{c.unit}</span>
                                     </td>
                                     <td className={`${rowPad} px-2 text-right font-mono font-semibold text-foreground whitespace-nowrap`}>
-                                      {c.found ? formatUsdPrice(c.symbol, c.price) : '�'}
+                                      {c.found ? formatUsdPrice(c.symbol, c.price) : '—'}
                                     </td>
                                     <td className={`${rowPad} pr-3.5 pl-2 text-right whitespace-nowrap`}>
                                       <span className={`inline-block rounded px-1.5 font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '�'}
+                                        {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '—'}
                                       </span>
                                     </td>
                                   </tr>
@@ -3483,7 +3483,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                       if (cKey === 'ticker') return (
                                         <td key={cKey} className={`${rowPad} pl-3.5 pr-2 font-bold whitespace-nowrap ${isSelected ? 'text-foreground' : 'text-foreground/80'}`}>
                                           {gmConfig.showRank && <span className="text-muted-foreground/60 font-mono font-semibold mr-1">{idx + 1}.</span>}
-                                          {/* Always the raw ticker symbol � this is what
+                                          {/* Always the raw ticker symbol — this is what
                                               resolves on TradingView. Name lives in the
                                               tooltip + the Name column. */}
                                           <span className="font-mono" title={`${s.name} (${s.symbol})`}>{s.symbol}</span>
@@ -3522,7 +3522,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     </div>
                     );
                   })}
-                  {/* Floating copy of the dragged table � follows the cursor via
+                  {/* Floating copy of the dragged table — follows the cursor via
                       direct DOM transform (ref), zero re-renders. Rendered through
                       a portal to document.body and ALWAYS mounted: an ancestor
                       with backdrop-blur / transform would otherwise become the
@@ -3553,16 +3553,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                   <span className="font-serif font-semibold text-sm text-foreground truncate">Forex</span>
                                   <span className="text-[9px] text-muted-foreground font-mono truncate">Major Pairs</span>
                                 </span>
-                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving�</span>
+                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
                               </div>
                               <div className="px-3.5 py-2.5 space-y-1.5">
                                 {rows.map(pair => (
                                   <div key={pair.symbol} className="flex items-center justify-between gap-2 text-[11px]">
                                     <span className="font-mono font-bold text-foreground/80 truncate">{pair.symbol.replace('=X', '')}</span>
-                                    <span className="font-mono text-foreground/80">{pair.found ? formatUsdPrice(pair.symbol, pair.price) : '�'}</span>
+                                    <span className="font-mono text-foreground/80">{pair.found ? formatUsdPrice(pair.symbol, pair.price) : '—'}</span>
                                   </div>
                                 ))}
-                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{filteredForex.length} pairs � drop to place</div>
+                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{filteredForex.length} pairs · drop to place</div>
                               </div>
                             </>
                           );
@@ -3575,18 +3575,18 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 <span className="flex items-center gap-2 min-w-0">
                                   <GripVertical size={14} className="text-primary shrink-0" aria-hidden />
                                   <span className="font-serif font-semibold text-sm text-foreground truncate">Commodities</span>
-                                  <span className="text-[9px] text-muted-foreground font-mono truncate">Gold � Silver � Oil</span>
+                                  <span className="text-[9px] text-muted-foreground font-mono truncate">Gold · Silver · Oil</span>
                                 </span>
-                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving�</span>
+                                <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
                               </div>
                               <div className="px-3.5 py-2.5 space-y-1.5">
                                 {rows.map(c => (
                                   <div key={c.symbol} className="flex items-center justify-between gap-2 text-[11px]">
                                     <span className="font-mono font-bold text-foreground/80 truncate">{c.name}</span>
-                                    <span className="font-mono text-foreground/80">{c.found ? formatUsdPrice(c.symbol, c.price) : '�'}</span>
+                                    <span className="font-mono text-foreground/80">{c.found ? formatUsdPrice(c.symbol, c.price) : '—'}</span>
                                   </div>
                                 ))}
-                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{commodities.length} commodities � drop to place</div>
+                                <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">{commodities.length} commodities · drop to place</div>
                               </div>
                             </>
                           );
@@ -3600,7 +3600,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 <span className="font-serif font-semibold text-sm text-foreground truncate">{src.name || src.country}</span>
                                 <span className="text-[9px] text-muted-foreground font-mono truncate">{src.exchange}</span>
                               </span>
-                              <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving�</span>
+                              <span className="text-[9px] font-bold text-primary uppercase tracking-wider shrink-0">moving…</span>
                             </div>
                             <div className="px-3.5 py-2.5 space-y-1.5">
                               {src.stocks.slice(0, Math.min(3, gmConfig.rows)).map(s => (
@@ -3610,7 +3610,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 </div>
                               ))}
                               <div className="pt-1 text-[9px] font-mono text-muted-foreground/70">
-                                {src.stocks.length} rows � drop to place
+                                {src.stocks.length} rows · drop to place
                               </div>
                             </div>
                           </>
@@ -3680,13 +3680,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{pair.base}</td>
                           <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{pair.quote}</td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                            {pair.found ? formatUsdPrice(pair.symbol, pair.price) : '�'}
+                            {pair.found ? formatUsdPrice(pair.symbol, pair.price) : '—'}
                           </td>
                           <td className={cn(
                             "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
-                            {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '�'}
+                            {pair.found ? `${isPositive ? '+' : ''}${pair.changePct.toFixed(2)}%` : '—'}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
                             <Button
@@ -3748,13 +3748,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 font-mono text-foreground/75 whitespace-nowrap">{c.symbol}</td>
                           <td className="py-3 px-4 text-foreground/75 hidden sm:table-cell whitespace-nowrap font-mono">{c.unit}</td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                            {c.found ? formatUsdPrice(c.symbol, c.price) : '�'}
+                            {c.found ? formatUsdPrice(c.symbol, c.price) : '—'}
                           </td>
                           <td className={cn(
                             "py-1 px-2 border border-border/30 text-right font-mono font-bold whitespace-nowrap",
                             isPositive ? 'text-emerald-400' : 'text-rose-400'
                           )}>
-                            {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '�'}
+                            {c.found ? `${isPositive ? '+' : ''}${c.changePct.toFixed(2)}%` : '—'}
                           </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
                             <Button
@@ -3852,7 +3852,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                           <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
                             {stock.priceMissing || !stock.price || stock.price <= 0 ? (
                               <span className="inline-flex items-center gap-1.5">
-                                <span className="text-[9px] text-muted-foreground/60 animate-pulse">⠹ fetching�</span>
+                                <span className="text-[9px] text-muted-foreground/60 animate-pulse">⠹ fetchingâ ¹</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5">
@@ -4067,7 +4067,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                               <td className="py-3 px-4 text-right font-mono font-bold text-foreground whitespace-nowrap">
                                 {stock.priceMissing || !stock.price || stock.price <= 0 ? (
                                   <span className="inline-flex items-center gap-1.5">
-                                    <span className="text-[9px] text-muted-foreground/60 animate-pulse">⠹ fetching�</span>
+                                    <span className="text-[9px] text-muted-foreground/60 animate-pulse">⠹ fetchingâ ¹</span>
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5">
@@ -4219,7 +4219,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {apiEtfs.length === 0 && (
               <div className="glass-card-subtle border border-amber-500/10 rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
                 <Info className="w-4 h-4 shrink-0" />
-                <span className="text-xs font-semibold flex-1">SIMULATED DATA � no ETF universe loaded in JDDS; showing a curated demo list, not live prices.</span>
+                <span className="text-xs font-semibold flex-1">SIMULATED DATA — no ETF universe loaded in JDDS; showing a curated demo list, not live prices.</span>
                 <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
               </div>
             )}
@@ -4308,7 +4308,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             {apiFunds.length === 0 && (
               <div className="glass-card-subtle border border-amber-500/10 rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
                 <Info className="w-4 h-4 shrink-0" />
-                <span className="text-xs font-semibold flex-1">SIMULATED DATA � no fund universe loaded in JDDS; showing a curated demo list, not live NAVs.</span>
+                <span className="text-xs font-semibold flex-1">SIMULATED DATA — no fund universe loaded in JDDS; showing a curated demo list, not live NAVs.</span>
                 <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
               </div>
             )}
@@ -4411,10 +4411,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
         {screenerTab === 'dividend_stocks' && sectionVisible('table_dividend') && (
           <div>
-            {/* Dividend stocks are a curated static list � never live prices. */}
+            {/* Dividend stocks are a curated static list — never live prices. */}
             <div className="glass-card-subtle border border-amber-500/10 rounded-2xl p-3 flex items-center gap-3 text-amber-400 mb-3">
               <Info className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-semibold flex-1">SIMULATED DATA � dividend stock rows are a curated demo list, not live market prices.</span>
+              <span className="text-xs font-semibold flex-1">SIMULATED DATA — dividend stock rows are a curated demo list, not live market prices.</span>
               <span className="text-[9px] bg-amber-500/15 px-2 py-0.5 rounded font-mono font-bold">DEMO</span>
             </div>
             <div className="w-full overflow-x-auto custom-scrollbar glass-card-subtle border border-white/10 dark:border-white/5 rounded-2xl shadow-md">

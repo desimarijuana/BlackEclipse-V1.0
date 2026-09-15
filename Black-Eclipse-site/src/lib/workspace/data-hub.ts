@@ -11,20 +11,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** Data-source provenance tag (spec §38). */
-export type DataSource = 'LIVE' | 'CACHED' | 'HISTORICAL' | 'DEMO' | 'ESTIMATED' | 'UNAVAILABLE';
+export type DataSource = 'LIVE' | 'CACHED' | 'HISTORICAL' | 'DEMO' | 'ESTIMATED' | 'CUSTOM' | 'UNAVAILABLE';
 
 export interface HubEntry<T = unknown> {
   data: T | null;
   source: DataSource;
   updatedAt: number | null;
   error?: string;
+  /** Connector/provider that served the data (server-reported), if any. */
+  sourceId?: string;
 }
+
+/**
+ * A fetch may return raw data (provenance inferred as LIVE/CACHED) or an
+ * envelope that carries the SERVER's provenance. Custom connectors report
+ * `CUSTOM`/`HISTORICAL`; the hub never invents a tag for them.
+ */
+export interface TopicPayload<T = unknown> {
+  data: T | null;
+  source?: DataSource;
+  sourceId?: string;
+}
+
+export type TopicFetch<T = unknown> = () => Promise<T | TopicPayload<T> | null>;
 
 export interface HubTopic {
   /** Stable topic id (e.g. 'market:quote:AAPL'). */
   id: string;
   /** Fetch the topic's data. Return null to mark UNAVAILABLE. */
-  fetch: () => Promise<unknown>;
+  fetch: TopicFetch;
   /** Cache TTL in ms. */
   ttl: number;
   /** Refresh cadence in ms (0 = no auto-refresh). */
@@ -42,6 +57,28 @@ interface TopicState {
 }
 
 const DEFAULT_TTL = 60_000;
+
+const DATA_SOURCES: readonly DataSource[] = [
+  'LIVE', 'CACHED', 'HISTORICAL', 'DEMO', 'ESTIMATED', 'CUSTOM', 'UNAVAILABLE',
+];
+
+/**
+ * Distinguish a raw payload from a provenance envelope. A topic that wants to
+ * report server-side provenance returns `{ data, source }` where `source` is a
+ * recognised DataSource tag; everything else is treated as plain data and tagged
+ * LIVE/CACHED by the hub as before. Requiring a valid tag means an ordinary
+ * payload that happens to contain a `data` key is never accidentally unwrapped.
+ */
+function normalizePayload<T>(returned: T | TopicPayload<T> | null): TopicPayload<T> {
+  if (returned === null || returned === undefined) return { data: null };
+  if (typeof returned === 'object' && !Array.isArray(returned)) {
+    const candidate = returned as TopicPayload<T>;
+    if (typeof candidate.source === 'string' && DATA_SOURCES.includes(candidate.source)) {
+      return { data: candidate.data ?? null, source: candidate.source, sourceId: candidate.sourceId };
+    }
+  }
+  return { data: returned as T };
+}
 
 class DataHub {
   private topics = new Map<string, TopicState>();
@@ -93,12 +130,17 @@ class DataHub {
     if (!state || !topic || state.inFlight) return;
     state.inFlight = true;
     try {
-      const data = await topic.fetch();
+      const returned = await topic.fetch();
       const now = Date.now();
+      const envelope = normalizePayload(returned);
+      const inferred: DataSource =
+        envelope.source ??
+        (now - state.lastFetch < topic.ttl ? 'CACHED' : 'LIVE');
       state.entry = {
-        data,
-        source: data === null ? 'UNAVAILABLE' : now - state.lastFetch < topic.ttl ? 'CACHED' : 'LIVE',
+        data: envelope.data,
+        source: envelope.data === null ? 'UNAVAILABLE' : inferred,
         updatedAt: now,
+        sourceId: envelope.sourceId,
       };
       state.lastFetch = now;
       this.emit(id);
@@ -183,6 +225,42 @@ export function jsonTopic<T = unknown>(
       const res = await fetch(url);
       if (!res.ok) return null;
       return (await res.json()) as T;
+    },
+  };
+}
+
+interface CapabilityResponse<T> {
+  ok: boolean;
+  data: T | null;
+  provenance: DataSource;
+  source: string;
+}
+
+/**
+ * Convenience: build a topic over the server capability route
+ * (`GET /api/data/[capability]`). The route decides which connector serves the
+ * request and reports provenance; the hub passes that through unchanged.
+ */
+export function capabilityTopic<T = unknown>(
+  id: string,
+  capability: string,
+  params: Record<string, string> = {},
+  opts: { ttl?: number; interval?: number } = {},
+): HubTopic {
+  const query = new URLSearchParams(params).toString();
+  const url = `/api/data/${encodeURIComponent(capability.toLowerCase())}${query ? `?${query}` : ''}`;
+  return {
+    id,
+    ttl: opts.ttl ?? DEFAULT_TTL,
+    interval: opts.interval,
+    fetch: async (): Promise<TopicPayload<T> | null> => {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const body = (await res.json()) as CapabilityResponse<T>;
+      if (!body.ok || body.data === null) {
+        return { data: null, source: body.provenance ?? 'UNAVAILABLE' };
+      }
+      return { data: body.data, source: body.provenance, sourceId: body.source };
     },
   };
 }

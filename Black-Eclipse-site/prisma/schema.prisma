@@ -13,16 +13,16 @@ datasource db {
 
 // A market / exchange (e.g. US, Pakistan, India, China, Crypto).
 model Market {
-  id         String  @id
-  country    String  @unique // 'US', 'PK', 'IN', 'CN', 'CRYPTO', ...
-  exchange   String
-  timezone   String
-  openHour   Int
-  closeHour  Int
-  enabled    Boolean @default(true)
-  isCrypto   Boolean @default(false)
-  createdAt  DateTime @default(now())
-  assets     Asset[]
+  id        String   @id
+  country   String   @unique // 'US', 'PK', 'IN', 'CN', 'CRYPTO', ...
+  exchange  String
+  timezone  String
+  openHour  Int
+  closeHour Int
+  enabled   Boolean  @default(true)
+  isCrypto  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  assets    Asset[]
 }
 
 // A single tradable asset belonging to a market.
@@ -30,7 +30,7 @@ model Market {
 // asset per (market, symbol) — re-importing the same symbol updates in place
 // instead of creating a duplicate.
 model Asset {
-  id           String  @id @default(cuid())
+  id           String   @id @default(cuid())
   symbol       String
   name         String
   marketId     String
@@ -41,7 +41,7 @@ model Asset {
   // 'ETF', 'Mutual Fund', 'ADR', 'Preferred Stock', 'Warrant', ...).
   securityType String?
   assetClass   String?
-  isActive     Boolean @default(true)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
@@ -58,36 +58,36 @@ model Asset {
 // Latest price for an asset.
 // source: 'scraper' (live scrape) or 'csv' (imported historical/API data).
 model Price {
-  assetId    String   @id
-  price      Float
-  changePct  Float
-  marketCap  Float?
-  volume     Float?
-  peRatio    Float?
+  assetId           String   @id
+  price             Float
+  changePct         Float
+  marketCap         Float?
+  volume            Float?
+  peRatio           Float?
   // Richer fundamentals from yfinance (stocks).
-  forwardPE          Float?
-  dividendYield      Float? // percent, e.g. 2.5
-  dividendRate       Float?
-  eps                Float?
-  beta               Float?
-  dayHigh            Float?
-  dayLow             Float?
-  open               Float?
-  previousClose      Float?
-  fiftyTwoWeekHigh   Float?
-  fiftyTwoWeekLow    Float?
+  forwardPE         Float?
+  dividendYield     Float? // percent, e.g. 2.5
+  dividendRate      Float?
+  eps               Float?
+  beta              Float?
+  dayHigh           Float?
+  dayLow            Float?
+  open              Float?
+  previousClose     Float?
+  fiftyTwoWeekHigh  Float?
+  fiftyTwoWeekLow   Float?
   // Crypto-specific fields (crypto market only).
-  rank               Float?
-  fdv                Float?
-  circulatingSupply  Float?
-  totalSupply        Float?
-  maxSupply          Float?
-  ath                Float?
-  atl                Float?
-  athChangePct       Float?
-  atlChangePct       Float?
-  source     String   @default("scraper")
-  updatedAt  DateTime @updatedAt
+  rank              Float?
+  fdv               Float?
+  circulatingSupply Float?
+  totalSupply       Float?
+  maxSupply         Float?
+  ath               Float?
+  atl               Float?
+  athChangePct      Float?
+  atlChangePct      Float?
+  source            String   @default("scraper")
+  updatedAt         DateTime @updatedAt
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -101,14 +101,14 @@ model Price {
 // Cached index quotes per market, stored in JDDS so page loads never hit the
 // network. Refreshed in the background by the scheduler.
 model IndexQuote {
-  id          String   @id @default(cuid())
-  marketId    String
-  symbol      String
-  name        String
-  price       Float
-  change      Float
-  changePct   Float
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  marketId  String
+  symbol    String
+  name      String
+  price     Float
+  change    Float
+  changePct Float
+  updatedAt DateTime @updatedAt
 
   @@unique([marketId, symbol])
 }
@@ -140,12 +140,12 @@ model NewsItem {
 
 // Learned source reliability — powers self-healing source rotation.
 model SourceHealth {
-  id          String  @id @default(cuid())
-  source      String  // strategy id, e.g. 'http', 'browser', 'search', 'crypto'
-  market      String
-  symbol      String  // '*' for whole-market default
-  successCount Int    @default(0)
-  failCount    Int    @default(0)
+  id           String   @id @default(cuid())
+  source       String // strategy id, e.g. 'http', 'browser', 'search', 'crypto'
+  market       String
+  symbol       String // '*' for whole-market default
+  successCount Int      @default(0)
+  failCount    Int      @default(0)
   lastStatus   String
   lastError    String?
   updatedAt    DateTime @updatedAt
@@ -155,12 +155,12 @@ model SourceHealth {
 
 // User-configured cron jobs.
 model CronJob {
-  id              String   @id @default(cuid())
-  type            String   @unique // 'price_refresh', 'universe_sync'
-  intervalMinutes Int      @default(15)
+  id              String    @id @default(cuid())
+  type            String    @unique // 'price_refresh', 'universe_sync'
+  intervalMinutes Int       @default(15)
   lastRunAt       DateTime?
   nextRunAt       DateTime?
-  enabled         Boolean  @default(true)
+  enabled         Boolean   @default(true)
 }
 
 // Slow-moving macro-economic series cached from external providers so the
@@ -189,31 +189,31 @@ model SystemConfig {
 
 // A single research run triggered by a user query (e.g. "research PSX").
 model ResearchReport {
-  id          String   @id @default(cuid())
-  query       String // the user's original request
-  ticker      String? // primary symbol researched, if any
-  market      String? // 'US', 'PK', 'IN', 'CRYPTO', ...
-  status      String   @default("running") // running | done | failed
-  summary     String? // final synthesized answer
-  verdict     String? // e.g. 'bullish' | 'bearish' | 'neutral' | 'hold'
-  confidence  Float? // 0..1
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  runs        AgentRun[]
-  findings    ResearchFinding[]
+  id         String            @id @default(cuid())
+  query      String // the user's original request
+  ticker     String? // primary symbol researched, if any
+  market     String? // 'US', 'PK', 'IN', 'CRYPTO', ...
+  status     String            @default("running") // running | done | failed
+  summary    String? // final synthesized answer
+  verdict    String? // e.g. 'bullish' | 'bearish' | 'neutral' | 'hold'
+  confidence Float? // 0..1
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  runs       AgentRun[]
+  findings   ResearchFinding[]
 }
 
 // A log of one agent's work within a report (tool calls + outcomes).
 model AgentRun {
-  id          String   @id @default(cuid())
-  reportId    String
-  agent       String // 'orchestrator' | 'news' | 'fundamentals' | 'technical' | 'risk'
-  status      String   @default("running") // running | done | failed
-  toolCalls   Int      @default(0)
-  toolErrors  Int      @default(0)
-  output      String? // agent's raw output / notes
-  startedAt   DateTime @default(now())
-  finishedAt  DateTime?
+  id         String    @id @default(cuid())
+  reportId   String
+  agent      String // 'orchestrator' | 'news' | 'fundamentals' | 'technical' | 'risk'
+  status     String    @default("running") // running | done | failed
+  toolCalls  Int       @default(0)
+  toolErrors Int       @default(0)
+  output     String? // agent's raw output / notes
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
 
   report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 }
@@ -226,26 +226,26 @@ model AgentRun {
 
 // One alert rule (the watch).
 model PriceAlert {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   symbols     String // JSON string[]
-  market      String   @default("US")
-  universe    String   @default("CUSTOM") // CUSTOM | MARKET
+  market      String    @default("US")
+  universe    String    @default("CUSTOM") // CUSTOM | MARKET
   conditions  String // JSON condition tree (leaf | group)
-  logic       String   @default("AND") // AND | OR (top-level group)
-  timeframe   String   @default("1d") // 1m 5m 15m 1h 1d
-  dataSource  String   @default("Auto") // TradingView | yfinance | Auto
-  mode        String   @default("poll") // poll (websocket = FUTURE)
-  intervalSec Int      @default(60) // poll floor 30s
-  cooldownMin Int      @default(15)
-  actions     String   @default("{}") // JSON { toast?, channels?: string[] }
-  active      Boolean  @default(true)
-  status      String   @default("idle") // idle|warming|watching|triggered|error
+  logic       String    @default("AND") // AND | OR (top-level group)
+  timeframe   String    @default("1d") // 1m 5m 15m 1h 1d
+  dataSource  String    @default("Auto") // TradingView | yfinance | Auto
+  mode        String    @default("poll") // poll (websocket = FUTURE)
+  intervalSec Int       @default(60) // poll floor 30s
+  cooldownMin Int       @default(15)
+  actions     String    @default("{}") // JSON { toast?, channels?: string[] }
+  active      Boolean   @default(true)
+  status      String    @default("idle") // idle|warming|watching|triggered|error
   statusMsg   String?
   lastEvalAt  DateTime?
   lastFiredAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 // History — one row per fired alert. NOT cascade-deleted with the watch.
@@ -306,33 +306,33 @@ model ResearchFinding {
 // default. Kept separate from auth so the journal works today and can be
 // linked to a real User later.
 model JournalProfile {
-  id        String   @id @default(cuid())
-  name      String   @default("Trader")
-  currency  String   @default("USD")
+  id           String   @id @default(cuid())
+  name         String   @default("Trader")
+  currency     String   @default("USD")
   // Default risk per trade (fraction of account, e.g. 0.01 = 1%).
-  riskPerTrade Float  @default(0.01)
-  accountSize  Float  @default(10000)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  riskPerTrade Float    @default(0.01)
+  accountSize  Float    @default(10000)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  accounts  TradingAccount[]
+  accounts   TradingAccount[]
   strategies Strategy[]
-  setups    Setup[]
-  tags      Tag[]
-  days      JournalDay[]
-  trades    Trade[]
-  entries   JournalEntry[]
-  reviews   Review[]
+  setups     Setup[]
+  tags       Tag[]
+  days       JournalDay[]
+  trades     Trade[]
+  entries    JournalEntry[]
+  reviews    Review[]
 }
 
 // A trading account the journal tracks P&L against.
 model TradingAccount {
-  id        String   @id @default(cuid())
-  profileId String
-  name      String
-  currency  String   @default("USD")
-  initialBalance Float @default(0)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  profileId      String
+  name           String
+  currency       String   @default("USD")
+  initialBalance Float    @default(0)
+  createdAt      DateTime @default(now())
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   trades  Trade[]
@@ -343,20 +343,20 @@ model TradingAccount {
 // A trading strategy / playbook. Rules are stored as structured rows so the
 // analytics engine can score strategy compliance deterministically.
 model Strategy {
-  id        String   @id @default(cuid())
-  profileId String
-  name      String
-  description String?
-  markets   String // JSON string[] — markets this strategy trades
+  id           String   @id @default(cuid())
+  profileId    String
+  name         String
+  description  String?
+  markets      String // JSON string[] — markets this strategy trades
   confirmation String? // e.g. '15m'
-  entry     String? // e.g. '1m'
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  entry        String? // e.g. '1m'
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  rules    StrategyRule[]
-  trades   Trade[]
+  rules   StrategyRule[]
+  trades  Trade[]
 
   @@index([profileId])
 }
@@ -382,7 +382,7 @@ model Setup {
   createdAt DateTime @default(now())
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  trades   Trade[]
+  trades  Trade[]
 
   @@unique([profileId, name])
   @@index([profileId])
@@ -396,7 +396,7 @@ model Tag {
   createdAt DateTime @default(now())
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  trades   TradeTag[]
+  trades  TradeTag[]
 
   @@unique([profileId, name])
   @@index([profileId])
@@ -411,9 +411,9 @@ model JournalDay {
   updatedAt DateTime @updatedAt
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  review   DailyReview?
-  emotion  DailyEmotion?
-  trades   Trade[]
+  review  DailyReview?
+  emotion DailyEmotion?
+  trades  Trade[]
 
   @@unique([profileId, date])
   @@index([profileId, date])
@@ -421,20 +421,20 @@ model JournalDay {
 
 // Pre-market / post-market written review for a day.
 model DailyReview {
-  id        String   @id @default(cuid())
-  dayId     String
-  marketBias String? // 'Bullish' | 'Bearish' | 'Neutral' | ...
-  tradingPlan String? // rich text / markdown
-  marketsWatching String? // JSON string[]
-  keyLevels String? // rich text / structured
-  wentWell  String?
-  wentWrong String?
+  id               String   @id @default(cuid())
+  dayId            String
+  marketBias       String? // 'Bullish' | 'Bearish' | 'Neutral' | ...
+  tradingPlan      String? // rich text / markdown
+  marketsWatching  String? // JSON string[]
+  keyLevels        String? // rich text / structured
+  wentWell         String?
+  wentWrong        String?
   followedStrategy String?
-  biggestMistake String?
-  lesson    String?
-  tomorrow  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  biggestMistake   String?
+  lesson           String?
+  tomorrow         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   day JournalDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
 
@@ -443,14 +443,14 @@ model DailyReview {
 
 // Emotional state recorded for a day.
 model DailyEmotion {
-  id        String   @id @default(cuid())
-  dayId     String
-  state     String? // 'Calm' | 'Focused' | 'Nervous' | ...
-  confidence Int?    // 1-5
-  discipline Int?    // 1-5
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  dayId      String
+  state      String? // 'Calm' | 'Focused' | 'Nervous' | ...
+  confidence Int? // 1-5
+  discipline Int? // 1-5
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   day JournalDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
 
@@ -460,58 +460,58 @@ model DailyEmotion {
 // A single trade. Core fields are denormalized for fast analytics; the
 // execution log (TradeExecution) preserves the full history of changes.
 model Trade {
-  id        String   @id @default(cuid())
-  profileId String
-  accountId String?
-  dayId     String?
+  id         String  @id @default(cuid())
+  profileId  String
+  accountId  String?
+  dayId      String?
   strategyId String?
-  setupId   String?
+  setupId    String?
 
-  symbol    String
-  direction String // 'LONG' | 'SHORT'
-  entry     Float
-  exit      Float
-  stopLoss  Float?
+  symbol     String
+  direction  String // 'LONG' | 'SHORT'
+  entry      Float
+  exit       Float
+  stopLoss   Float?
   takeProfit Float?
-  quantity  Float
-  entryTime DateTime
-  exitTime  DateTime
+  quantity   Float
+  entryTime  DateTime
+  exitTime   DateTime
 
   // Optional structured context.
-  timeframe String? // '1m' | '5m' | '15m' | '1h' | '1d' | ...
-  session   String? // 'Asia' | 'London' | 'New York' | ...
+  timeframe    String? // '1m' | '5m' | '15m' | '1h' | '1d' | ...
+  session      String? // 'Asia' | 'London' | 'New York' | ...
   marketRegime String? // 'Trending' | 'Ranging' | ...
-  trend     String? // 'Bullish' | 'Bearish' | 'Neutral'
-  confluences Int?   // number of confluences
-  emotion   String? // 'Calm' | 'FOMO' | 'Revenge' | ...
-  confidence Int?    // 1-5
-  mistakes  String? // JSON string[]
-  notes     String?
-  status    String   @default("closed") // 'open' | 'closed'
+  trend        String? // 'Bullish' | 'Bearish' | 'Neutral'
+  confluences  Int? // number of confluences
+  emotion      String? // 'Calm' | 'FOMO' | 'Revenge' | ...
+  confidence   Int? // 1-5
+  mistakes     String? // JSON string[]
+  notes        String?
+  status       String  @default("closed") // 'open' | 'closed'
 
   // ── Auto-computed metrics (never user-entered) ────────────────────────
-  pnl       Float
-  pnlPct    Float
-  rMultiple Float
-  riskAmount Float?
+  pnl          Float
+  pnlPct       Float
+  rMultiple    Float
+  riskAmount   Float?
   rewardAmount Float?
-  actualRR  Float?
-  durationSec Int?
-  mfe       Float? // max favorable excursion (R)
-  mae       Float? // max adverse excursion (R)
+  actualRR     Float?
+  durationSec  Int?
+  mfe          Float? // max favorable excursion (R)
+  mae          Float? // max adverse excursion (R)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  profile  JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  account  TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  day      JournalDay? @relation(fields: [dayId], references: [id], onDelete: SetNull)
-  strategy Strategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
-  setup    Setup? @relation(fields: [setupId], references: [id], onDelete: SetNull)
-  executions TradeExecution[]
-  screenshots TradeScreenshot[]
-  annotations TradeAnnotation[]
-  tags      TradeTag[]
+  profile       JournalProfile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  account       TradingAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  day           JournalDay?       @relation(fields: [dayId], references: [id], onDelete: SetNull)
+  strategy      Strategy?         @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  setup         Setup?            @relation(fields: [setupId], references: [id], onDelete: SetNull)
+  executions    TradeExecution[]
+  screenshots   TradeScreenshot[]
+  annotations   TradeAnnotation[]
+  tags          TradeTag[]
   marketContext MarketContext?
 
   @@index([profileId, entryTime])
@@ -580,18 +580,18 @@ model TradeTag {
 
 // Market context auto-associated with a trade (decoupled from any provider).
 model MarketContext {
-  id        String   @id @default(cuid())
-  tradeId   String
-  trend     String?
-  vwap      String? // 'above' | 'below'
+  id               String   @id @default(cuid())
+  tradeId          String
+  trend            String?
+  vwap             String? // 'above' | 'below'
   ema50AboveEma200 Boolean?
-  adx       Float?
-  atr       Float?
-  regime    String?
-  volatility String? // 'low' | 'medium' | 'high'
-  session   String?
-  raw       String? // JSON provider payload
-  createdAt DateTime @default(now())
+  adx              Float?
+  atr              Float?
+  regime           String?
+  volatility       String? // 'low' | 'medium' | 'high'
+  session          String?
+  raw              String? // JSON provider payload
+  createdAt        DateTime @default(now())
 
   trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
 
@@ -614,21 +614,268 @@ model JournalEntry {
 
 // A review (weekly, monthly, or AI-generated trade review).
 model Review {
-  id        String   @id @default(cuid())
-  profileId String
-  kind      String // 'weekly' | 'monthly' | 'trade' | 'ai'
+  id          String    @id @default(cuid())
+  profileId   String
+  kind        String // 'weekly' | 'monthly' | 'trade' | 'ai'
   periodStart DateTime?
   periodEnd   DateTime?
-  tradeId   String?
-  title     String
-  body      String // markdown / rich text
-  verdict   String?
-  source    String   @default("manual") // 'manual' | 'ai'
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  tradeId     String?
+  title       String
+  body        String // markdown / rich text
+  verdict     String?
+  source      String    @default("manual") // 'manual' | 'ai'
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@index([profileId, kind])
   @@index([profileId, createdAt])
+}
+
+// --- Universal Data Connector Layer -----------------------------------
+// Operator-configured external REST data sources. Deliberately SEPARATE from
+// the canonical market tables (Asset/Price/Candles) � custom data must never
+// overwrite scraper-sourced rows. Structured values are stored as JSON strings
+// (Prisma + SQLite has no Json/enum type here); statuses are plain strings.
+
+// One operator-configured connector (a declarative REST endpoint).
+model DataConnector {
+  id              String  @id @default(cuid())
+  name            String
+  description     String?
+  baseUrl         String
+  path            String
+  capabilities    String // JSON: string[] of capabilities
+  params          String  @default("[]") // JSON: CustomParam[]
+  headers         String  @default("{}") // JSON: Record<string,string>
+  authScheme      String  @default("none") // 'none' | 'api_key' | 'bearer' | 'basic'
+  authHeader      String? // header name for api_key
+  authUsername    String? // username for basic
+  secretEncrypted String? // AES-GCM payload; never plaintext, never returned
+  enabled         Boolean @default(true)
+
+  // Health (application-level strings � no Prisma enum).
+  healthState    String    @default("UNAVAILABLE")
+  lastTested     DateTime?
+  lastSuccess    DateTime?
+  lastError      String?
+  lastHttpStatus Int?
+  lastLatencyMs  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  datasets CustomDataset[]
+  mappings ConnectorMapping[]
+
+  @@index([enabled])
+}
+
+// A custom dataset produced by a connector (or defined manually).
+model CustomDataset {
+  id          String   @id @default(cuid())
+  connectorId String?
+  name        String   @unique
+  description String?
+  recordPath  String   @default("$") // e.g. 'results[*]'
+  timestampField String?
+  // Default parameter values used by SCHEDULED pulls. A value may be a
+  // comma-separated list, which the runtime expands into one request per value
+  // (bounded — see connectors/refresh.ts). Manual pulls pass their own values.
+  pullParams  String   @default("{}") // JSON: Record<string,string>
+  refreshEnabled    Boolean   @default(false)
+  refreshIntervalMin Int      @default(60)
+  lastRefreshAt DateTime?
+  nextRefreshAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  connector   DataConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  fields      CustomDatasetField[]
+  records     CustomDatasetRecord[]
+
+  @@index([connectorId])
+  @@index([refreshEnabled])
+}
+
+// Field metadata for a custom dataset (type + source JSON path).
+model CustomDatasetField {
+  id          String  @id @default(cuid())
+  datasetId   String
+  name        String
+  fieldType   String // 'string' | 'number' | 'boolean' | 'datetime' | 'json'
+  sourcePath  String
+  required    Boolean @default(false)
+  identity    Boolean @default(false) // participates in recordKey
+  unit        String?
+  description String?
+  position    Int     @default(0)
+
+  dataset CustomDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([datasetId, name])
+  @@index([datasetId])
+}
+
+// A mapped record. `values` is a JSON string (never a Prisma Json column).
+// Deterministic identity: (datasetId, recordKey) is unique, so re-importing the
+// same response upserts instead of duplicating.
+model CustomDatasetRecord {
+  id          String   @id @default(cuid())
+  datasetId   String
+  recordKey   String
+  values      String // JSON: Record<string, unknown>
+  provenance  String   @default("CUSTOM") // 'CUSTOM' | 'LIVE' | 'HISTORICAL'
+  retrievedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dataset CustomDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([datasetId, recordKey])
+  @@index([datasetId])
+}
+
+// ─── Investor Eye — world-state intelligence ───────────────────────────
+// A financial/geopolitical "God's Eye": normalized events, country entities,
+// and the relationships between them. Additive to JDDS — no existing model is
+// altered. JSON is stored as strings and statuses as plain strings, matching
+// the DataConnector/CustomDataset convention (SQLite + Prisma has no Json/enum).
+// See docs/investor-eye-architecture.md and ADR-011.
+
+// A canonical country entity. Deliberately does NOT replace `Market.country`
+// or `Asset.country` (both plain strings); those are joined by ISO code.
+model Country {
+  id        String   @id @default(cuid())
+  iso2      String   @unique // 'US', 'PK', 'TW', ...
+  iso3      String?  @unique // 'USA', 'PAK', ...
+  name      String
+  // Name the Natural Earth GeoJSON feature uses, so a country entity can be
+  // matched to a map feature without a hand-maintained lookup table.
+  mapName   String?
+  region    String? // 'North America' | 'South Asia' | ...
+  // Approximate centroid [lon, lat] — used to anchor country-level events
+  // that carry no precise coordinates.
+  lon       Float?
+  lat       Float?
+  // Optional link into the existing market system (do NOT duplicate it).
+  marketId  String?
+  currency  String?
+  aliases   String   @default("[]") // JSON: string[] of alternate names
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events EventEntity[]
+
+  @@index([mapName])
+  @@index([region])
+  @@index([marketId])
+}
+
+// A normalized geopolitical / economic event. One row per CLUSTERED event —
+// not one per article. `dedupKey` is unique so re-ingestion is an idempotent
+// upsert; `sourceCount` grows as independent sources confirm the same event.
+model GeopoliticalEvent {
+  id          String   @id @default(cuid())
+  // Stable identity for dedup: hash of normalized (type + country + time
+  // bucket + title signature). Unique → upserts, never duplicates.
+  dedupKey    String   @unique
+
+  title       String
+  summary     String?
+  // conflict | military | protest | election | diplomatic | sanction | trade |
+  // tariff | cyber | energy | shipping | natural_disaster | monetary | fiscal |
+  // regulatory | other
+  eventType   String
+  // low | medium | high | critical
+  severity    String   @default("medium")
+  // JSON: string[] of economic channels this event could transmit through.
+  channels    String   @default("[]")
+  commodities String   @default("[]") // JSON: string[]
+  sectors     String   @default("[]") // JSON: string[]
+  securities  String   @default("[]") // JSON: string[]
+  // JSON: string[] — canonical country ISO2 codes for the event.
+  countries   String   @default("[]")
+  // Primary geographic anchor (denormalized for fast map queries).
+  lon         Float?
+  lat         Float?
+
+  // Data-quality confidence (NOT scientific certainty). 0..1.
+  confidence  Float    @default(0.5)
+  sourceCount Int      @default(1)
+  // JSON: SourceRef[] — { id, name, url, publishedAt }.
+  sources     String   @default("[]")
+  // Origin connector id ('gdelt', 'usgs', ...) — the primary source.
+  primarySource String
+
+  publishedAt DateTime
+  firstSeen   DateTime @default(now())
+  lastUpdated DateTime @updatedAt
+  status      String   @default("active") // active | archived
+
+  entities EventEntity[]
+
+  @@index([publishedAt])
+  @@index([eventType])
+  @@index([severity])
+  @@index([status])
+  @@index([primarySource])
+}
+
+// Event ↔ entity join. Keeps events queryable by country/actor/location/
+// commodity/etc. without packing a graph into one JSON column.
+model EventEntity {
+  id        String   @id @default(cuid())
+  eventId   String
+  // country | actor | location | commodity | sector | security | market
+  kind      String
+  // Canonical identifier for the entity (ISO2 for countries, else a slug).
+  entityId  String
+  name      String
+  // Optional exact position when the entity is a place (more precise than the
+  // event's country anchor).
+  lon       Float?
+  lat       Float?
+  createdAt DateTime @default(now())
+
+  event    GeopoliticalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  country  Country?          @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  countryId String?
+
+  @@index([eventId])
+  @@index([kind, entityId])
+  @@index([countryId])
+}
+
+// One row per ingestion run per source. Powers Data Health + observability.
+model SourceRun {
+  id              String   @id @default(cuid())
+  source          String // connector id: 'gdelt' | 'usgs' | ...
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  status          String   @default("running") // running | ok | error | empty
+  recordsReceived Int      @default(0)
+  recordsAccepted Int      @default(0)
+  recordsRejected Int      @default(0)
+  error           String?
+  latencyMs       Int?
+
+  @@index([source, startedAt])
+  @@index([status])
+}
+
+// A saved mapping from a dataset response onto a canonical concept. Recorded
+// for auditability; canonical writes are NOT performed automatically.
+model ConnectorMapping {
+  id          String   @id @default(cuid())
+  connectorId String
+  datasetId   String?
+  target      String // canonical concept, e.g. 'Price'
+  mapping     String // JSON: { sourcePath: targetField }
+  createdBy   String   @default("operator")
+  createdAt   DateTime @default(now())
+
+  connector DataConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([connectorId])
 }

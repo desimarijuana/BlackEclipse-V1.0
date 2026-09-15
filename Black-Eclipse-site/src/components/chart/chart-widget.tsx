@@ -7,7 +7,11 @@
 // preserves shared state (symbol, timeframe, chart type).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import {
+  Search, SearchX, RefreshCw, LineChart, X, PenTool, MousePointer2, Undo2, Redo2, Trash2, Lock, Eye, EyeOff, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Plus,
+  TrendingUp, TrendingDown, Minus, MoveVertical, Square, GitBranch, Type, ArrowUpRight, Ruler, MoveDiagonal, ArrowLeftRight, Spline, Waypoints, Pipette,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
 import { createChartProvider } from '@/lib/chart/providers';
@@ -1147,6 +1151,35 @@ const TOOL_GROUPS: Array<{ label: string; tools: DrawingToolMode[] }> = [
   { label: 'Analysis', tools: ['fibonacci', 'measure', 'long-position', 'short-position'] },
 ];
 
+/**
+ * Map each drawing tool's registry icon name to a lucide component. Kept local
+ * to the toolbar because it is the only consumer that renders those strings.
+ * Unknown names fall back to a generic glyph so a new tool never renders blank.
+ */
+const TOOL_ICON: Record<string, LucideIcon> = {
+  'trending-up': TrendingUp,
+  'trending-down': TrendingDown,
+  minus: Minus,
+  'move-vertical': MoveVertical,
+  square: Square,
+  'git-branch': GitBranch,
+  type: Type,
+  'arrow-up-right': ArrowUpRight,
+  ruler: Ruler,
+  'mouse-pointer': MousePointer2,
+  'move-diagonal': MoveDiagonal,
+  'arrow-left-right': ArrowLeftRight,
+  spline: Spline,
+  waypoints: Waypoints,
+  pipette: Pipette,
+};
+
+function toolIcon(t: DrawingToolMode): LucideIcon {
+  if (t === 'cursor') return MousePointer2;
+  const name = getAllDrawingDefs().find((d) => d.type === t)?.icon;
+  return (name && TOOL_ICON[name]) || MousePointer2;
+}
+
 function DrawingToolbar({
   tool, onTool, manager,
 }: {
@@ -1179,19 +1212,23 @@ function DrawingToolbar({
             <div key={group.label} className="mb-1">
               <div className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{group.label}</div>
               <div className="grid grid-cols-2 gap-1">
-                {group.tools.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => onTool(t)}
-                    className={cn(
-                      'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer',
-                      tool === t ? 'bg-primary/15 text-primary' : 'hover:bg-accent/40'
-                    )}
-                  >
-                    <MousePointer2 size={11} className="text-muted-foreground" />
-                    <span className="text-[10px] font-semibold text-foreground">{defName(t)}</span>
-                  </button>
-                ))}
+                {group.tools.map((t) => {
+                  const Icon = toolIcon(t);
+                  const active = tool === t;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => onTool(t)}
+                      className={cn(
+                        'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer',
+                        active ? 'bg-primary/15 text-primary' : 'hover:bg-accent/40'
+                      )}
+                    >
+                      <Icon size={11} className={cn('shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                      <span className="min-w-0 truncate text-[10px] font-semibold text-foreground">{defName(t)}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}

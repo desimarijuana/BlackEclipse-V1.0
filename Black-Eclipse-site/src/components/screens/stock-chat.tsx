@@ -54,7 +54,11 @@ const DashboardScreen = dynamic(() => import('./dashboard/dashboard-screen').the
 });
 const MarketWorkspaceScreen = dynamic(
   () => import('@/components/market-workspace/market-workspace').then((m) => m.MarketWorkspace),
-  { ssr: false, loading: () => <ScreenSkeleton /> },
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const InvestorEyeScreen = dynamic(
+  () => import('@/components/investor-eye/investor-eye').then((m) => m.InvestorEyeScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
@@ -557,6 +561,12 @@ function StockChatContent() {
               <div className="w-full px-3 md:px-5 py-4">
                 <MarketWorkspaceScreen />
               </div>
+            </div>
+          )}
+
+          {visited.has('investor-eye') && (
+            <div className={cn('w-full h-full', activeTab === 'investor-eye' ? '' : 'hidden')}>
+              <InvestorEyeScreen />
             </div>
           )}
 

@@ -56,7 +56,7 @@ User
 UI / Shell (StockChat terminal — ONE page, keep-alive tabs)
  ├── ChatBot tab        → src/components/screens/stock-chat.tsx → src/lib/agent/*
  ├── Command Center     → src/components/screens/dashboard/ → src/lib/workspace/ + src/lib/dashboard/
- ├── Market Workspace   → src/components/market-workspace/ → src/lib/market-workspace/
+ ├── Chart Workspace    → src/components/market-workspace/ → src/lib/market-workspace/
  ├── Market Screener    → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts)
  ├── Portfolio          → src/components/screens/portfolio/ → use-portfolio-engine.ts
  ├── Journal            → src/components/journal/ → src/lib/journal/
@@ -347,3 +347,43 @@ together. Ranking stays pure; personalization (visit history), pins, and collaps
 state live in the Zustand command store. `calc.ts`/`commands.ts` add offline
 calculation and parameterized-command autocomplete. See `docs/ARCHITECTURE.md`
 → "The command center".
+
+### ADR-010 — Universal Data Connector Layer (2026)
+**Decision:** A capability-addressed connector tier under `src/lib/connectors/`
+sits after the scraper chain and before route-level demo fallbacks. Consumers
+request a *capability* (`PRICE`), never a provider. Custom API data lands in
+dedicated `CustomDataset*` tables and can never write `Asset`/`Price`/`Candles`.
+**Reason:** Operators need to bring their own REST API without a rewrite per
+provider, while preserving ADR-004 precedence and the "never fabricate" rule.
+**Impact:** `DataSource` gained `CUSTOM`; topics may return a provenance
+envelope. Credentials are AES-256-GCM encrypted (`.connector-key` locally or
+`CONNECTOR_SECRET_KEY` hosted). No automatic cross-provider fallback.
+
+### ADR-011 — Investor Eye is a separate event/intelligence tier, reused not forked (2026)
+**Decision:** Investor Eye ("God's Eye") is built as a new **event + world-state
+tier** under `src/lib/investor-eye/`, **not** as another connector capability and
+**not** as a second market/portfolio/news stack. It:
+1. registers its own `EventSource` adapters (GDELT, USGS) instead of forking the
+   existing `DataConnector` contract, but reuses its hardened `safeGet` transport;
+2. persists only **additive** JDDS models (`Country`,
+   `GeopoliticalEvent`, `EventEntity`, `SourceRun`) — **no graph database**, no
+   Redis, no microservice;
+3. visualizes through a provider-agnostic `MapLayer` abstraction rendered by
+   ECharts (already a dependency), so the visualization can be swapped later
+   without touching the data layer;
+4. sources market observations from the **existing** `/api/indices` path
+   (`IndexQuote` + the yfinance bridge) and portfolio exposure from the
+   **existing** `use-portfolio-engine`, never duplicating them;
+5. keeps the query path fully deterministic (keyword + gazetteer NL search, no
+   LLM), matching ADR-009.
+**Reason:** The repository is a single-page, SQLite-backed SPA with no geo/map
+infrastructure and no geopolitical-event model. Building the smallest robust
+foundation that reuses existing services avoids the duplicate-architecture and
+over-build traps the spec explicitly warns against.
+**Impact:** A new `investor-eye` tab, `country-fill`/`scatter`/`effect-scatter`/
+`lines`/`heatmap` layer types (extensible via `registerLayer()`), and honest
+provenance (`LIVE`/`CACHED`/`HISTORICAL`/`UNAVAILABLE`). A failed source is
+`UNAVAILABLE`, never a fake zero; the map and page still load on partial source
+failure. Optional authenticated sources (e.g. ACLED) are supported but never
+required. See `docs/investor-eye-architecture.md` and `docs/ARCHITECTURE.md`
+→ "Investor Eye".

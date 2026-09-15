@@ -61,7 +61,7 @@ The sidebar (user-reorderable, F1–F12 bindable) ships with these tabs:
 |---|---|
 | ChatBot | Multi-agent research chat; research-worded questions hit the real research engine |
 | Command Center | A customizable widget dashboard (see the workspace concept below) |
-| Market Workspace | A customizable multi-panel market grid (independent layout engine) |
+| Chart Workspace | A customizable multi-panel chart/market grid (independent layout engine) |
 | Market Screener | The main stock screen across global markets |
 | Portfolio | Holdings, performance, allocation, transactions |
 | Journal | SQLite-backed trading journal with analytics |
@@ -80,7 +80,8 @@ they are not the same thing:
 - **`src/lib/workspace/`** — the *widget* workspace behind the **Command Center**
   dashboard. Sections → columns → widget cards, plus a "rail" side zone.
 - **`src/lib/market-workspace/`** — a separate *panel* workspace behind the
-  **Market Workspace** tab (chart panels and market panels).
+  **Chart Workspace** tab (chart panels and market panels). The folder and tab
+  id (`market-workspace`) keep the old name; only the user-facing label changed.
 
 The older `src/lib/customize/` kernel is **superseded**. Do not build on it.
 

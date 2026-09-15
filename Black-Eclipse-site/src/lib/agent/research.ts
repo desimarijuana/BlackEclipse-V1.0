@@ -83,6 +83,8 @@ and any catalysts or risks mentioned. Cite sources. Do NOT give a buy/sell recom
 Your job: gather fundamental data about the target company/asset.
 Use get_fundamentals, get_price, and search_web to find financial health, sector, industry,
 valuation context, and growth drivers.
+If the operator has connected custom datasets, you may call list_datasets and query_dataset
+to pull their data; always state the provenance returned by the tool.
 Target: ${ticker || "the subject of: " + query}${market ? ` (market: ${market})` : ""}
 Report back: sector/industry, business description, key financials you can find,
 and growth vectors. Note where data is missing. Do NOT give a buy/sell recommendation.`,
@@ -104,6 +106,8 @@ observations you can infer. Note that historical OHLC may be limited. Do NOT giv
 Your job: assess the risks of investing in the target.
 Use get_price, get_news, get_source_health, and search_web to identify risks:
 volatility, sector/regulatory risks, data reliability, concentration, and downside catalysts.
+If the operator has connected custom datasets, list_datasets/query_dataset can surface their
+data — describe it using the provenance the tool returns.
 Target: ${ticker || "the subject of: " + query}${market ? ` (market: ${market})` : ""}
 Report back a concise risk list with severity (low/medium/high). Do NOT give a buy/sell recommendation.`,
   },
