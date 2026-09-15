@@ -9,25 +9,43 @@ import {
   ChevronDown, ChevronRight, Copy, Download, Globe, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
-import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildRailSections } from '@/lib/dashboard/registry';
+import { useDashboards, isOnboarded, markOnboarded, seedMarketKeyFromLegacy } from '@/lib/dashboard/use-dashboards';
+import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
+import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
+import { MarketTabs } from './market-tabs';
 
 export function DashboardScreen() {
   const dashboards = useDashboards();
+  const markets = useMarketViews();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(true);
 
-  // Seed the default layout from the active dashboard's template, then append
-  // the Market rail sections. Centre + rail are ONE layout in ONE workspace, so
-  // the single Customize button drives both and cards drag between them.
+  const activeMarket = markets.activeId || 'US';
+
+  // Seed the default layout for the ACTIVE MARKET VIEW. Each market gets its
+  // own stored workspace (per dashboard) and its own starting widget set, so a
+  // FOREX tab opens with FX panels, a PSX tab with Pakistan's constituents, etc.
+  // The US tab keeps the persona template the user picked at onboarding.
   const defaultLayout = useMemo(() => {
     const t = getDashboardTemplate(dashboards.active?.templateId ?? 'trader');
-    const base = t ? t.build(DASHBOARD_WIDGET_IDS) : { version: 1 as const, sections: [] };
-    return { version: 1 as const, sections: [...base.sections, ...buildRailSections()] };
-  }, [dashboards.active?.templateId]);
+    const templateBase = t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;
+    return buildMarketViewLayout(activeMarket, DASHBOARD_WIDGET_IDS, templateBase);
+  }, [activeMarket, dashboards.active?.templateId]);
+
+  // Per-dashboard + per-market storage key. Market-aware widgets read the live
+  // active market, so switching tabs swaps data even before a layout is touched.
+  // Seed the US market key from the legacy (un-suffixed) layout BEFORE the
+  // workspace store is created on first render, so an existing user's centre
+  // arrangement survives the upgrade instead of reverting to the template.
+  const storageKey = useMemo(() => {
+    const baseKey = dashboards.active?.storageKey ?? 'be_ws_dashboard_none';
+    const key = `${baseKey}__m_${activeMarket}`;
+    seedMarketKeyFromLegacy(baseKey, key, activeMarket);
+    return key;
+  }, [dashboards.active?.storageKey, activeMarket]);
 
   // First-run onboarding.
   const [onboarded, setOnboarded] = useState<boolean>(() => isOnboarded());
@@ -156,10 +174,14 @@ export function DashboardScreen() {
         </div>
       </div>
 
+      {/* Market tabs — pick a country/market; each keeps its own widget layout. */}
+      <MarketTabs />
+
       {/* Reusable customizable workspace — centre + rail are ONE workspace.
           The single Customize button drives both and cards drag between them. */}
       <CustomizableWorkspace
-        storageKey={dashboards.active?.storageKey ?? 'be_ws_dashboard_none'}
+        key={storageKey}
+        storageKey={storageKey}
         defaultLayout={defaultLayout}
         widgets={DASHBOARD_WIDGETS}
         widgetIcon={widgetIcon}

@@ -69,6 +69,7 @@ import { useHydrateAuroraPalette, useAuroraPaletteStore } from '@/lib/aurora/sto
 // the DataHub ignores a duplicate registration, and the dashboard registry uses
 // identical ttl/interval values.
 registerTopic(jsonTopic('market:indices:US', '/api/indices?market=US', { ttl: 120_000, interval: 60_000 }));
+import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import type { Destination } from '@/lib/search/types';
@@ -514,7 +515,9 @@ function StockChatContent() {
           {visited.has('dashboard') && (
             <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8">
-                <DashboardScreen />
+                <MarketViewsProvider>
+                  <DashboardScreen />
+                </MarketViewsProvider>
               </div>
             </div>
           )}

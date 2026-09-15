@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useWatchlist } from './watchlist-store';
 import { useAggregatePortfolio } from './portfolio-store';
+import { useMarketIndices, useMarketGroup, useMarketSectors, marketViewName } from './market-views';
 
 const UP = 'text-emerald-400';
 const DOWN = 'text-rose-400';
@@ -115,18 +116,17 @@ interface QuoteRow { symbol: string; name: string; price: number; changePercent:
 // ── Markets ──────────────────────────────────────────────────────────────────
 
 export function MarketIndicesWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const rows = t.data?.indices ?? [];
+  const { market, rows } = useMarketIndices();
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Indices" hint="US" />
+      <WidgetHeader title="Market Indices" hint={marketViewName(market)} />
       {rows.length === 0 ? <EmptyNote>Loading indices…</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1">
           {rows.slice(0, 6).map(i => (
             <div key={i.symbol} className="flex items-center gap-2 text-xs py-0.5">
               <span className="font-mono font-bold text-foreground w-24 truncate shrink-0">{i.name}</span>
               <div className="min-w-0 flex-1">
-                <RealSparkline symbol={i.symbol} market="US" fluid width={160} height={30} />
+                <RealSparkline symbol={i.symbol} market={market} fluid width={160} height={30} />
               </div>
               <span className="flex items-center gap-2 shrink-0">
                 <span className="font-mono text-foreground">{fmt(i.price)}</span>
@@ -213,13 +213,12 @@ export function CommoditiesWidget() {
 }
 
 export function TopMoversWidget() {
-  const t = useTopic<{ groups: OverviewGroup[] }>('market:overview');
-  const stocks = useMemo(() => t.data?.groups?.find(g => g.id === 'US')?.stocks ?? [], [t.data]);
+  const { market, stocks } = useMarketGroup();
   const gainers = useMemo(() => [...stocks].filter(s => s.changePct > 0).sort((a, b) => b.changePct - a.changePct).slice(0, 5), [stocks]);
   const losers = useMemo(() => [...stocks].filter(s => s.changePct < 0).sort((a, b) => a.changePct - b.changePct).slice(0, 5), [stocks]);
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Top Movers" hint="US" />
+      <WidgetHeader title="Top Movers" hint={marketViewName(market)} />
       {stocks.length === 0 ? <EmptyNote>Loading movers…</EmptyNote> : (
         <div className="grid flex-1 grid-cols-2 gap-2">
           <div>
@@ -247,11 +246,11 @@ export function TopMoversWidget() {
 }
 
 export function SectorHeatmapWidget() {
-  const t = useTopic<{ sectors: { name: string; change: number }[] }>('market:indices:US');
-  const sectors = t.data?.sectors ?? [];
+  // Sector performance rides along on the same /api/indices payload — no extra fetch.
+  const { market, sectors } = useMarketSectors();
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Sector Heatmap" hint="S&P 500" />
+      <WidgetHeader title="Sector Heatmap" hint={marketViewName(market)} />
       {sectors.length === 0 ? <EmptyNote>Loading sectors…</EmptyNote> : (
         <div className="grid flex-1 grid-cols-2 gap-1.5 content-start">
           {sectors.map(s => (
@@ -803,13 +802,12 @@ export function GlobalMarketsWidget() {
 }
 
 export function MarketStatusWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const rows = t.data?.indices ?? [];
+  const { market, rows } = useMarketIndices();
   const up = rows.filter(i => i.changePercent > 0).length;
   const down = rows.filter(i => i.changePercent < 0).length;
   return (
     <div className="flex h-full flex-col p-4">
-      <WidgetHeader title="Market Status" hint="US" />
+      <WidgetHeader title="Market Status" hint={marketViewName(market)} />
       <div className="flex flex-1 flex-col justify-center gap-2">
         <div className="flex items-center gap-2">
           <span className={cn('h-2.5 w-2.5 rounded-full', up >= down ? 'bg-emerald-400' : 'bg-rose-400')} />

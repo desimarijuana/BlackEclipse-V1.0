@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
-import { newId, type WorkspaceSection } from '@/lib/workspace/types';
+import { newId, type WorkspaceLayout, type WorkspaceSection } from '@/lib/workspace/types';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
+
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
@@ -85,12 +86,12 @@ function def(id: string, category: WidgetDefinition['category'], label: string, 
 
 export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   // ── Markets ──
-  def('market-indices', 'markets', 'Market Indices', 'SPY, QQQ, DIA, IWM — major US indices.', 'line-chart', ['medium', 'large'], () => <MarketIndicesWidget />, ['market:indices:US']),
+  def('market-indices', 'markets', 'Market Indices', "The active market's headline index quotes.", 'line-chart', ['medium', 'large'], () => <MarketIndicesWidget />),
   def('forex-pairs', 'markets', 'Forex Pairs', 'EURUSD, GBPUSD, USDJPY and more.', 'droplets', ['medium', 'large'], () => <ForexPairsWidget />, ['market:forex']),
   def('crypto-markets', 'markets', 'Crypto Markets', 'BTC, ETH, BNB, SOL live prices.', 'coins', ['medium', 'large'], () => <CryptoMarketsWidget />, ['market:indices:CRYPTO']),
   def('commodities', 'markets', 'Commodities', 'Gold, Oil, Natural Gas, Copper.', 'flame', ['medium', 'large'], () => <CommoditiesWidget />, ['market:commodities']),
-  def('sector-heatmap', 'markets', 'Sector Heatmap', 'S&P 500 sector performance.', 'pie', ['medium', 'large'], () => <SectorHeatmapWidget />, ['market:indices:US']),
-  def('top-movers', 'markets', 'Top Movers', 'Biggest gainers and losers.', 'trending', ['medium', 'large'], () => <TopMoversWidget />, ['market:overview']),
+  def('sector-heatmap', 'markets', 'Sector Heatmap', "The active market's sector performance.", 'pie', ['medium', 'large'], () => <SectorHeatmapWidget />),
+  def('top-movers', 'markets', 'Top Movers', "The active market's biggest gainers and losers.", 'trending', ['medium', 'large'], () => <TopMoversWidget />),
   def('market-sentiment', 'markets', 'Market Sentiment', 'Fear & greed, bull/bear indicators.', 'activity', ['small', 'medium'], () => UnavailableStub('')),
   def('quote-strip', 'markets', 'Quote Strip', 'Configurable live quote list.', 'bar-chart', ['large', 'full'], () => UnavailableStub('')),
   def('crypto-ticker', 'markets', 'Crypto Ticker', 'Live Kraken/HyperLiquid ticker strip.', 'radio', ['large', 'full'], () => <CryptoQuoteStripWidget />),
@@ -140,7 +141,7 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Macro / Global ──
   def('global-markets', 'macro', 'Global Markets', 'World market overview.', 'globe', ['medium', 'large'], () => <GlobalMarketsWidget />, ['market:overview']),
-  def('market-status', 'macro', 'Market Status', 'Risk on/off, advancing/declining.', 'activity', ['small', 'medium'], () => <MarketStatusWidget />, ['market:indices:US']),
+  def('market-status', 'macro', 'Market Status', 'Risk on/off, advancing/declining.', 'activity', ['small', 'medium'], () => <MarketStatusWidget />),
 
   // ── AI ──
   def('agent-activity', 'ai', 'Agent Activity', 'Active agents and their tasks.', 'bot', ['medium', 'large'], () => <AgentActivityWidget />, ['agent:activity']),
@@ -162,10 +163,10 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('macro-snapshot', 'macro', 'Macro Snapshot', 'Central-bank rates and key prints.', 'gauge', ['medium', 'large'], () => <MacroSnapshotWidget />, ['econ:snapshot']),
 
   // ── Intelligence ──
-  def('market-regime', 'intelligence', 'Market Regime', 'Risk on/off, trending, range, volatility.', 'activity', ['medium', 'large'], () => <MarketRegimeWidget />, ['market:indices:US']),
-  def('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], () => <WhatChangedWidget />, ['market:indices:US']),
-  def('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], () => <OpportunityScannerWidget />, ['market:overview']),
-  def('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], () => <MarketDriversWidget />, ['market:indices:US']),
+  def('market-regime', 'intelligence', 'Market Regime', 'Risk on/off, trending, range, volatility.', 'activity', ['medium', 'large'], () => <MarketRegimeWidget />),
+  def('what-changed', 'intelligence', 'What Changed?', 'Session-over-session market changes.', 'trending', ['medium', 'large'], () => <WhatChangedWidget />),
+  def('opportunity-scanner', 'intelligence', 'Opportunity Scanner', 'Momentum and mean-reversion setups with why.', 'zap', ['medium', 'large'], () => <OpportunityScannerWidget />),
+  def('market-drivers', 'intelligence', 'Market Drivers', 'What is moving markets, ranked.', 'gauge', ['medium', 'large'], () => <MarketDriversWidget />),
 
   // ── Heatmap ──
   def('market-heatmap', 'markets', 'Market Heatmap', 'Country/index treemap — sized by market cap, coloured by % change.', 'layers', ['large', 'full'], (p) => <MarketHeatmapWidget placement={p} />),
@@ -205,6 +206,78 @@ export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS):
     zone: 'rail' as const,
     columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
   }));
+}
+
+/** Global venues whose "own market" is a different JDDS feed. */
+const GLOBAL_MARKET_FEED: Record<string, string> = {
+  FOREX: 'market:forex',
+  COMMODITIES: 'market:commodities',
+};
+
+/**
+ * Build the starting layout for a single market view. The market is threaded
+ * into every market-aware widget instance's config, so a FOREX tab opens with
+ * FX widgets, a PSX tab with the country's own stocks, and so on. The user can
+ * then freely rearrange each market's widgets — the layout is per-view.
+ */
+export function buildMarketViewLayout(
+  market: string,
+  baseWidgetIds: string[] = DASHBOARD_WIDGET_IDS,
+  templateBase?: WorkspaceLayout,
+): WorkspaceLayout {
+  const known = new Set(baseWidgetIds);
+  const widget = (widgetId: string): WidgetPlacement => ({ id: newId('wid'), widgetId, height: null, config: { market } });
+  const section = (widgetIds: string[]): WorkspaceSection => ({
+    id: newId('sec'),
+    zone: 'main',
+    columns: widgetIds
+      .filter(id => known.has(id))
+      .map(widgetId => ({ id: newId('col'), weight: 1, widgets: [widget(widgetId)] })),
+  });
+
+  // Global venues (forex / commodities) lead with their dedicated feed panels;
+  // country / equity markets lead with the country's own constituents, index
+  // quotes and movers. Heatmaps only exist for countries + crypto.
+  const isGlobal = Boolean(GLOBAL_MARKET_FEED[market]);
+  const heatmap = market === 'CRYPTO' || HEATMAP_MARKETS.some(m => m.id === market) ? ['market-heatmap'] : [];
+  const lead = market === 'FOREX'
+    ? ['forex-pairs', 'news-feed']
+    : market === 'COMMODITIES'
+      ? ['commodities', 'news-feed']
+      : market === 'CRYPTO'
+        ? ['crypto-markets', 'top-movers', 'news-feed']
+        : ['mp-country-watch', 'market-indices', 'top-movers', 'news-feed'];
+
+  const rail = isGlobal
+    ? ['mp-forex', 'mp-commodities', 'mp-snapshot', 'mp-hours']
+    : ['mp-indices', 'mp-country-watch', 'mp-movers', 'mp-snapshot', 'mp-hours'];
+  const railSections = buildRailSections(rail.filter(id => known.has(id)));
+
+  // The US market keeps the persona template the user picked at onboarding (so
+  // Investor / Quant / Crypto starting arrangements still apply); every other
+  // market opens with the country-focused layout above.
+  if (market === 'US' && templateBase && templateBase.sections.length > 0) {
+    return { version: 1, sections: [...stampMarket(templateBase, market).sections, ...railSections] };
+  }
+
+  return {
+    version: 1,
+    sections: [section(heatmap), section(lead), ...railSections].filter(s => s.columns.length > 0),
+  };
+}
+
+/** Stamp a market onto every placement's config so config-driven widgets agree. */
+function stampMarket(layout: WorkspaceLayout, market: string): WorkspaceLayout {
+  return {
+    version: 1,
+    sections: layout.sections.map(s => ({
+      ...s,
+      columns: s.columns.map(c => ({
+        ...c,
+        widgets: c.widgets.map(w => ({ ...w, config: { ...(w.config ?? {}), market } })),
+      })),
+    })),
+  };
 }
 
 function UnavailableStub(label: string) {

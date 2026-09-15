@@ -85,6 +85,24 @@ function isUnseeded(entry: DashboardEntry): boolean {
   try { return !localStorage.getItem(entry.storageKey); } catch { return true; }
 }
 
+/**
+ * One-time migration for the per-market workspace keys. The Command Center now
+ * stores each market view's layout under a suffixed key
+ * (`<dashboardKey>__m_<MARKET>`); a pre-market dashboard's arrangement lives at
+ * the un-suffixed key. Copy it into the default (US) market key the first time
+ * so an existing user's centre arrangement survives the upgrade instead of
+ * silently reverting to the template. Idempotent — a market key that already
+ * exists is never overwritten.
+ */
+export function seedMarketKeyFromLegacy(baseKey: string, marketKey: string, market: string): void {
+  if (typeof window === 'undefined' || market !== 'US') return;
+  try {
+    if (localStorage.getItem(marketKey)) return;
+    const legacy = localStorage.getItem(baseKey);
+    if (legacy) localStorage.setItem(marketKey, legacy);
+  } catch { /* best effort */ }
+}
+
 function loadIndex(): DashboardEntry[] {
   if (typeof window === 'undefined') return [];
   try {

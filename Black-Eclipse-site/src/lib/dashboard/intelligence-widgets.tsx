@@ -6,14 +6,12 @@
 
 import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { useTopic } from '@/lib/workspace/data-hub';
+import { useMarketIndices, useMarketGroup } from './market-views';
 import {
   computeRegime, computeWhatChanged, scanOpportunities, computeDrivers,
   type Regime,
 } from './intelligence';
 
-interface IndexRow { name: string; symbol: string; price: number; change: number; changePercent: number; }
-interface OverviewGroup { id: string; country: string; name?: string; stocks: { symbol: string; name: string; price: number; changePct: number }[]; }
 
 function WidgetHeader({ title, hint }: { title: string; hint?: string }) {
   return (
@@ -45,8 +43,8 @@ const REGIME_TONE: Record<Regime, string> = {
 // ── Market Regime ────────────────────────────────────────────────────────────
 
 export function MarketRegimeWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const indices = useMemo(() => t.data?.indices ?? [], [t.data]);
+  const { rows } = useMarketIndices();
+  const indices = useMemo(() => rows, [rows]);
   const result = useMemo(() => computeRegime(indices), [indices]);
   const f = result.factors;
 
@@ -90,8 +88,8 @@ function FactorBar({ label, value }: { label: string; value: number }) {
 // ── What Changed ────────────────────────────────────────────────────────────
 
 export function WhatChangedWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const indices = useMemo(() => t.data?.indices ?? [], [t.data]);
+  const { rows } = useMarketIndices();
+  const indices = useMemo(() => rows, [rows]);
   // Deterministic "previous" = a slightly shifted snapshot (no persistence yet).
   const previous = useMemo(() => indices.map(i => ({ name: i.name, changePercent: i.changePercent - (i.changePercent > 0 ? 0.2 : -0.2) })), [indices]);
   const changes = useMemo(() => computeWhatChanged(indices, previous), [indices, previous]);
@@ -118,8 +116,7 @@ export function WhatChangedWidget() {
 // ── Opportunity Scanner ────────────────────────────────────────────────────
 
 export function OpportunityScannerWidget() {
-  const t = useTopic<{ groups: OverviewGroup[] }>('market:overview');
-  const stocks = useMemo(() => t.data?.groups?.find(g => g.id === 'US')?.stocks ?? [], [t.data]);
+  const { stocks } = useMarketGroup();
   const opps = useMemo(() => scanOpportunities(stocks), [stocks]);
 
   return (
@@ -151,8 +148,8 @@ export function OpportunityScannerWidget() {
 // ── Market Drivers ──────────────────────────────────────────────────────────
 
 export function MarketDriversWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const indices = useMemo(() => t.data?.indices ?? [], [t.data]);
+  const { rows } = useMarketIndices();
+  const indices = useMemo(() => rows, [rows]);
   const drivers = useMemo(() => computeDrivers(indices), [indices]);
 
   return (

@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
+import { MARKET_SEEDS } from '@/lib/scraper/markets';
+import { useActiveMarket, useMarketIndices, useMarketGroup, marketViewName } from './market-views';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 
 const UP = 'text-emerald-400';
@@ -23,7 +25,6 @@ const fmt = (n?: number | null, d = 2) => (n == null || !Number.isFinite(n) ? '�
 interface IndexRow { name: string; symbol: string; price: number; change: number; changePercent: number; }
 interface CommodityRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
 interface ForexRow { symbol: string; name: string; price: number; changePct: number; found: boolean; }
-interface OverviewGroup { id: string; country: string; name?: string; stocks: { symbol: string; name: string; price: number; changePct: number }[]; }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -33,12 +34,20 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Header showing which market the widget is currently rendering. */
+function MarketChip({ market }: { market: string }) {
+  return (
+    <span className="font-mono text-[9px] font-bold uppercase tracking-wide text-primary shrink-0">
+      {marketViewName(market)}
+    </span>
+  );
+}
+
 // ── Fear & Greed ─────────────────────────────────────────────────────────────
 function useFearGreed() {
-  const indices = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const overview = useTopic<{ groups: OverviewGroup[] }>('market:overview');
-  const rows = indices.data?.indices ?? [];
-  const stocks = overview.data?.groups?.find(g => g.id === 'US')?.stocks ?? [];
+  const { rows: indexRows } = useMarketIndices();
+  const { stocks } = useMarketGroup();
+  const rows = indexRows;
   const adv = stocks.filter(s => s.changePct > 0).length;
   const dec = stocks.filter(s => s.changePct < 0).length;
   const total = adv + dec || 1;
@@ -49,13 +58,17 @@ function useFearGreed() {
 
 function FearGreedWidget() {
   const fearGreed = useFearGreed();
+  const market = useActiveMarket();
   return (
     <div className="flex h-full flex-col p-3">
       <div className="flex items-center justify-between mb-2">
         <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           <Gauge size={11} className="text-primary" /> Fear &amp; Greed
         </span>
-        <span className="font-mono text-sm font-bold text-foreground">{fearGreed}</span>
+        <span className="flex items-center gap-2">
+          <MarketChip market={market} />
+          <span className="font-mono text-sm font-bold text-foreground">{fearGreed}</span>
+        </span>
       </div>
       <div className="h-2 rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 overflow-hidden">
         <div className="h-full bg-background/70" style={{ width: `${100 - fearGreed}%`, marginLeft: 'auto' }} />
@@ -69,19 +82,20 @@ function FearGreedWidget() {
 
 // ── Market Breadth ───────────────────────────────────────────────────────────
 function MarketBreadthWidget() {
-  const overview = useTopic<{ groups: OverviewGroup[] }>('market:overview');
-  const stocks = overview.data?.groups?.find(g => g.id === 'US')?.stocks ?? [];
+  const { market, stocks, group } = useMarketGroup();
   const adv = stocks.filter(s => s.changePct > 0).length;
   const dec = stocks.filter(s => s.changePct < 0).length;
+  const label = group?.exchange || marketViewName(market);
   const rows = [
-    { label: 'NYSE', adv, dec },
-    { label: 'NASDAQ', adv, dec },
-    { label: 'S&P 500', adv, dec },
+    { label, adv, dec },
   ];
   return (
     <div className="flex h-full flex-col p-3">
-      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-        <Activity size={11} className="text-primary" /> Market Breadth
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <Activity size={11} className="text-primary" /> Market Breadth
+        </span>
+        <MarketChip market={market} />
       </span>
       <div className="flex flex-col gap-1.5">
         {rows.map(m => {
@@ -106,13 +120,15 @@ function MarketBreadthWidget() {
 
 // ── Top Movers ───────────────────────────────────────────────────────────────
 function TopMoversPanelWidget() {
-  const overview = useTopic<{ groups: OverviewGroup[] }>('market:overview');
-  const stocks = overview.data?.groups?.find(g => g.id === 'US')?.stocks ?? [];
+  const { market, stocks } = useMarketGroup();
   const gainers = [...stocks].filter(s => s.changePct > 0).sort((a, b) => b.changePct - a.changePct).slice(0, 5);
   const losers = [...stocks].filter(s => s.changePct < 0).sort((a, b) => a.changePct - b.changePct).slice(0, 5);
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Top Movers</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Top Movers</SectionTitle>
+        <MarketChip market={market} />
+      </span>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 mb-1"><TrendingUp size={10} /> Gainers</span>
@@ -139,17 +155,22 @@ function TopMoversPanelWidget() {
 
 // ── Global Snapshot ──────────────────────────────────────────────────────────
 function GlobalSnapshotWidget() {
-  const indices = useTopic<{ indices: IndexRow[] }>('market:indices:US');
+  const { market, rows: idx } = useMarketIndices();
   const commodities = useTopic<{ commodities: CommodityRow[] }>('market:commodities');
   const forex = useTopic<{ pairs: ForexRow[] }>('market:forex');
-  const idx = indices.data?.indices ?? [];
   const com = commodities.data?.commodities ?? [];
   const fx = forex.data?.pairs ?? [];
   const find = (name: string) => idx.find(i => i.name.toLowerCase().includes(name.toLowerCase()));
   const gold = com.find(c => c.name.toLowerCase().includes('gold'));
   const oil = com.find(c => c.name.toLowerCase().includes('crude'));
   const dxy = fx.find(f => f.symbol === 'DXY=X');
+  // Lead with the active market's own headline index (its first row), then the
+  // cross-asset macro anchors so the panel always reflects the chosen country.
+  const headline = idx[0];
   const rows = [
+    headline
+      ? { label: headline.name, value: headline.price, change: headline.changePercent }
+      : { label: marketViewName(market), value: undefined, change: undefined },
     { label: 'VIX', value: find('vix')?.price, change: find('vix')?.changePercent },
     { label: 'US 10Y', value: find('10y')?.price, change: find('10y')?.changePercent },
     { label: 'DXY', value: dxy?.price, change: dxy?.changePct },
@@ -159,7 +180,10 @@ function GlobalSnapshotWidget() {
   ];
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Global Snapshot</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Global Snapshot</SectionTitle>
+        <MarketChip market={market} />
+      </span>
       <div className="flex flex-col gap-1">
         {rows.map(s => (
           <div key={s.label} className="flex items-center justify-between text-[10px]">
@@ -184,6 +208,29 @@ const EXCHANGES = [
   { label: 'NSE', tz: 'Asia/Kolkata', open: 9, close: 15 },
 ];
 
+/** Resolve a market's exchange/session row (from the scrape seeds) for display. */
+function marketExchange(market: string, label?: string): { label: string; tz: string; open: number; close: number; crypto?: boolean } | null {
+  const seed = MARKET_SEEDS.find(s => s.id === market);
+  if (!seed && !label) return null;
+  return {
+    label: seed?.exchange || label || marketViewName(market),
+    tz: seed?.timezone ?? EXTRA_TZ[market] ?? 'UTC',
+    open: seed?.openHour ?? 9,
+    close: seed?.closeHour ?? 17,
+    crypto: seed?.isCrypto,
+  };
+}
+
+const EXTRA_TZ: Record<string, string> = {
+  FOREX: 'UTC', COMMODITIES: 'UTC', CN: 'Asia/Shanghai', TW: 'Asia/Taipei',
+  HK: 'Asia/Hong_Kong', JP: 'Asia/Tokyo', KR: 'Asia/Seoul', SG: 'Asia/Singapore',
+  MY: 'Asia/Kuala_Lumpur', AU: 'Australia/Sydney', UK: 'Europe/London',
+  DE: 'Europe/Berlin', FR: 'Europe/Paris', NL: 'Europe/Amsterdam', CA: 'America/Toronto',
+  BR: 'America/Sao_Paulo', MX: 'America/Mexico_City', SA: 'Asia/Riyadh', AE: 'Asia/Dubai',
+  ZA: 'Africa/Johannesburg', EG: 'Africa/Cairo', NG: 'Africa/Lagos', RU: 'Europe/Moscow',
+  TR: 'Europe/Istanbul', ID: 'Asia/Jakarta', TH: 'Asia/Bangkok', VN: 'Asia/Ho_Chi_Minh',
+};
+
 function marketStatus(tz: string, openHour: number, closeHour: number): 'open' | 'closed' | 'pre' {
   try {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false, weekday: 'short' }).formatToParts(new Date());
@@ -200,12 +247,21 @@ function marketStatus(tz: string, openHour: number, closeHour: number): 'open' |
 }
 
 function MarketHoursWidget() {
+  const { market, group } = useMarketGroup();
+  // Show the active market's own exchange first (when we know its session).
+  const active = marketExchange(market, group?.exchange);
+  const list = active && !EXCHANGES.some(ex => ex.label === active.label)
+    ? [active, ...EXCHANGES]
+    : EXCHANGES;
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Market Hours</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Market Hours</SectionTitle>
+        <MarketChip market={market} />
+      </span>
       <div className="flex flex-col gap-1">
-        {EXCHANGES.map(ex => {
-          const st = marketStatus(ex.tz, ex.open, ex.close);
+        {list.map(ex => {
+          const st = ('crypto' in ex && ex.crypto) ? 'open' : marketStatus(ex.tz, ex.open, ex.close);
           return (
             <div key={ex.label} className="flex items-center justify-between text-[10px]">
               <span className="text-muted-foreground">{ex.label}</span>
@@ -221,13 +277,15 @@ function MarketHoursWidget() {
   );
 }
 
-// ── Live market widgets (self-contained) ─────────────────────────────────────
+// ── Live market widgets (self-contained, follow the active market tab) ───────
 function LiveIndicesWidget() {
-  const t = useTopic<{ indices: IndexRow[] }>('market:indices:US');
-  const rows = t.data?.indices ?? [];
+  const { market, rows } = useMarketIndices();
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Market Indices</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Market Indices</SectionTitle>
+        <MarketChip market={market} />
+      </span>
       <div className="flex flex-1 flex-col gap-1">
         {rows.slice(0, 8).map(i => (
           <div key={i.symbol} className="flex items-center justify-between text-[10px] py-0.5">
@@ -249,7 +307,10 @@ function LiveForexWidget() {
   const rows = t.data?.pairs ?? [];
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Forex</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Forex</SectionTitle>
+        <MarketChip market="FOREX" />
+      </span>
       <div className="flex flex-1 flex-col gap-1">
         {rows.slice(0, 8).map(p => (
           <div key={p.symbol} className="flex items-center justify-between text-[10px] py-0.5">
@@ -271,7 +332,10 @@ function LiveCryptoWidget() {
   const rows = t.data?.indices ?? [];
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Crypto</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Crypto</SectionTitle>
+        <MarketChip market="CRYPTO" />
+      </span>
       <div className="flex flex-1 flex-col gap-1">
         {rows.slice(0, 8).map(i => (
           <div key={i.symbol} className="flex items-center justify-between text-[10px] py-0.5">
@@ -293,11 +357,14 @@ function LiveCommoditiesWidget() {
   const rows = t.data?.commodities ?? [];
   return (
     <div className="flex h-full flex-col p-3">
-      <SectionTitle>Commodities</SectionTitle>
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>Commodities</SectionTitle>
+        <MarketChip market="COMMODITIES" />
+      </span>
       <div className="flex flex-1 flex-col gap-1">
         {rows.slice(0, 8).map(c => (
           <div key={c.symbol} className="flex items-center justify-between text-[10px] py-0.5">
-            <span className="font-mono font-bold text-foreground">{c.name}</span>
+            <span className="font-mono font-bold text-foreground truncate">{c.name}</span>
             <span className="flex items-center gap-2">
               <span className="font-mono text-foreground">{fmt(c.price)}</span>
               <span className={cn('font-mono w-12 text-right', tone(c.changePct))}>{c.changePct > 0 ? '+' : ''}{fmt(c.changePct)}%</span>
@@ -306,6 +373,41 @@ function LiveCommoditiesWidget() {
         ))}
         {rows.length === 0 && <p className="text-[10px] text-muted-foreground/60 italic py-4 text-center">Loading commodities…</p>}
       </div>
+    </div>
+  );
+}
+
+// ── Country Watch — the active market's own top constituents ─────────────────
+function CountryWatchWidget() {
+  const { market, stocks, group } = useMarketGroup();
+  return (
+    <div className="flex h-full flex-col p-3">
+      <span className="mb-2 flex items-center justify-between gap-2">
+        <SectionTitle>{marketViewName(market)} Top Stocks</SectionTitle>
+        <MarketChip market={market} />
+      </span>
+      {stocks.length === 0 ? (
+        <p className="py-4 text-center text-[10px] italic text-muted-foreground/60">
+          No priced constituents for {marketViewName(market)} in JDDS yet.
+        </p>
+      ) : (
+        <div className="flex flex-1 flex-col gap-1 overflow-y-auto scrollbar-hide">
+          {stocks.slice(0, 8).map(s => (
+            <div key={s.symbol} className="flex items-center justify-between gap-2 text-[10px] py-0.5">
+              <span className="font-mono font-bold text-foreground truncate">{s.symbol}</span>
+              <span className="flex items-center gap-2 shrink-0">
+                <span className="font-mono text-foreground">{fmt(s.price)}</span>
+                <span className={cn('w-12 text-right font-mono', tone(s.changePct))}>
+                  {s.changePct > 0 ? '+' : ''}{fmt(s.changePct)}%
+                </span>
+              </span>
+            </div>
+          ))}
+          {group?.indexName && (
+            <p className="mt-1 text-[9px] uppercase tracking-widest text-muted-foreground/60">{group.indexName}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -331,4 +433,5 @@ export const MARKET_RAIL_WIDGETS: WidgetDefinition[] = [
   { id: 'mp-forex', category: 'markets', label: 'Forex', desc: 'Major FX pairs, live.', icon: 'arrow-up-down', sizes: ['small', 'medium'], render: () => <LiveForexWidget /> },
   { id: 'mp-crypto', category: 'markets', label: 'Crypto', desc: 'BTC, ETH, SOL and more, live.', icon: 'coins', sizes: ['small', 'medium'], render: () => <LiveCryptoWidget /> },
   { id: 'mp-commodities', category: 'markets', label: 'Commodities', desc: 'Gold, Oil, Gas, Copper, live.', icon: 'flame', sizes: ['small', 'medium'], render: () => <LiveCommoditiesWidget /> },
+  { id: 'mp-country-watch', category: 'markets', label: 'Country Watch', desc: "The active market's own top constituents.", icon: 'table', sizes: ['medium', 'large'], render: () => <CountryWatchWidget /> },
 ];
