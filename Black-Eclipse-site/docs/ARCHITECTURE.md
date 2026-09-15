@@ -212,13 +212,28 @@ destination), and copies symbols. Pins, visits, and collapse state live in the
 command store — the resolver stays pure.
 
 **Full navigation + scrolling.** The palette's bottom "Go to" group is
-**generated from `getAllPages()`** (not hand-listed), so every registered page
-is reachable — adding a `registerPage` entry automatically adds a nav row. The
-group is collapsible (shared `collapsedGroups` key `'nav'`) and is part of the
-same flat keyboard list. Navigation keys: ↑/↓ (wrap), PageUp/PageDown (jump
-`PAGE_SIZE`), Home/End, Enter to run. A bottom gradient fades in only while the
-list can still scroll (`canScrollDown`, tracked via scroll + ResizeObserver), so
-overflow is visible without a permanent shadow.
+**generated from `getPageEntries()`** (not hand-listed), so every registered page
+is reachable — adding a `registerPage` entry automatically adds a nav row.
+Sub-pages (`group` = a parent tab, `child: true`) nest under their parent and
+render indented. The group is collapsible (shared `collapsedGroups` key `'nav'`)
+and is part of the same flat keyboard list. Navigation keys: ↑/↓ (wrap),
+PageUp/PageDown (jump `PAGE_SIZE`), Home/End, Enter to run. A bottom gradient
+fades in only while the list can still scroll (`canScrollDown`, tracked via
+scroll + ResizeObserver), so overflow is visible without a permanent shadow.
+
+**Sub-route routing (sub-pages).** A `Destination.subroute` is how the palette
+targets an internal view (`economics.calendar`, `journal.analytics`,
+`discovery.crypto`, `alerts.create`, `settings.aurora`). The shell's `apply()`
+publishes it to `useCommandStore.requestSubroute(tab, subroute, focus)` — a
+*channel*, not a single slot, so two screens never steal each other's request.
+The owning screen consumes it with `useSubroute(tab, handler)`; both live in
+`src/hooks/use-subroute.ts`. Two invariants:
+- **Subscribe, don't read once.** Screens are keep-alive (`display:none`), so a
+  tab revisit does not remount — a mount-time prop would silently never fire
+  again. `useSubroute` subscribes and clears the request once applied.
+- **`settings` is a modal, not a tab.** `tab: 'settings'` is routed to the
+  Settings dialog (keyed by section), because no tab screen exists for it —
+  switching to it would render nothing.
 
 **Accessibility.** The input is an ARIA combobox driving a `role="listbox"`
 result list with `aria-activedescendant`; a polite live region announces result
