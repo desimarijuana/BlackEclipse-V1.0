@@ -152,24 +152,13 @@ Deterministic market intelligence lives in `src/lib/dashboard/intelligence.ts`
 
 All consume the same DataHub topics (`market:indices:US`, `market:overview`) as the other widgets — no extra fetches.
 
-## Paper broker (trading widgets)
+## Trading widgets (NOT IMPLEMENTED)
 
-The paper broker (`src/lib/dashboard/paper-broker.ts`) is a deterministic simulated
-broker persisted to localStorage — positions, orders, margin, P&L, fills. It is
-the default broker until real broker adapters (Alpaca/Zerodha/KTrade/Questrade/IG)
-are wired with credentials. Paper fills are REAL simulated executions, clearly
-labeled — never fabricated market data.
-
-Trading widgets (`src/lib/dashboard/trading-widgets.tsx`) consume the
-`broker:account` DataHub topic:
-- **Quick Trade** — place market orders (BUY/SELL).
-- **Open Positions** — live positions with unrealized P&L.
-- **Working Orders** — pending orders, click × to cancel.
-- **Margin Usage** — available/used margin, usage %.
-- **Today P&L** — aggregate P&L.
-
-The broker adapter interface (`src/lib/broker/types.ts`) will unify real brokers
-behind one interface; the paper broker implements the same shape.
+There is **no broker integration** — no paper broker, no broker adapter, no
+`trading-widgets.tsx`. Every `trading`-category widget (Quick Trade, Open
+Positions, Working Orders, Margin Usage, Today P&L) renders the shared
+`UnavailableStub` in `src/lib/dashboard/registry.tsx`. Do NOT fabricate fills or
+positions; wiring a real broker adapter is a prerequisite.
 
 ## Interaction model (all supported)
 

@@ -93,6 +93,22 @@ The site must be **simple, fast, and light**. Check every change against this:
 - [ ] Run `npm run test` (Vitest) and `npx tsc --noEmit` — both must pass.
 - [ ] Verify the affected screens render correctly (run the dev server).
 
+## Documentation Review (see DOCS.md)
+
+Docs live in `docs/`. The obligation is **proportional** — a doc update is
+required only when the change alters architecture, a data shape, a contract, or
+setup steps.
+
+- [ ] Did the change alter architecture, a data shape/contract, or setup? If so, update the owning doc (map it via `docs/NAVIGATION.md`).
+- [ ] Did the change add/move a top-level folder or major module? Update `docs/NAVIGATION.md`.
+- [ ] Did the change make an architectural decision? Add an ADR to `ARCHITECT.md` and mirror it in `docs/DECISIONS.md`.
+- [ ] Is any doc now wrong? Mark it `status: Stale` (never delete) instead of leaving a confident lie.
+- [ ] Did `last-verified` get bumped **only** for docs actually re-read against the code?
+- [ ] **Was an entry appended to `docs/CHANGELOG.md`?** Required for *every*
+  change, including ones needing no doc update.
+- [ ] Does the final report state `docs updated: <file(s)>` or `no doc change — <reason>`?
+- [ ] If docs were not needed, is the reason genuine (bug fix / refactor / style), not laziness?
+
 ---
 
 ## Final Review Output

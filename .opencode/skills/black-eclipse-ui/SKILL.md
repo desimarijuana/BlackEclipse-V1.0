@@ -113,6 +113,7 @@ Apply this to every chart tooltip: `eclipse-provider.ts`, `tradingview-chart.tsx
 | `.glass-card-subtle` | Small tiles, table headers, control strips, chips, stat tiles    |
 | `.glass-drawer`      | Large side drawers/panels that must read as REAL frost over the dark page — lower opacity + higher blur (widget library, config panel, workspace drawers) |
 | `.glass-button`      | Frosted button/toolbar control — translucent tint + blur, no border (workspace toolbar, dashboard header buttons) |
+| `.tab-bar-subtle`    | Restrained tab strip (control-strip tier) — used via `<TabBar variant="subtle" />` for dense/toolbar-adjacent tab rows |
 
 > Drawers that should show the page through them blurred (e.g. the workspace
 > "Add Widget" palette) use **`.glass-drawer`**, not the near-opaque
@@ -125,7 +126,9 @@ Apply this to every chart tooltip: `eclipse-provider.ts`, `tradingview-chart.tsx
 Use the `TabBar` component (`src/components/ui/tab-bar.tsx`) for ALL tab bars —
 it already applies the frosted `.tab-bar-glass` recipe. Do not hand-roll tab
 buttons. It supports icons, badges, a `leading`/`trailing` slot, and a per-item
-`active` override for sub-tabs.
+`active` override for sub-tabs. Pass `variant="subtle"` for the lighter
+`.tab-bar-subtle` control-strip tier when the row should read as chrome rather
+than a hero card (dense/toolbar-adjacent tabs, e.g. Command Center market tabs).
 
 ## Rules
 

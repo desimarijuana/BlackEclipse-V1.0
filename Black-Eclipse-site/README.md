@@ -103,6 +103,24 @@ BlackEclipse ships open (no accounts) so anyone can clone and run it. Mutating A
 
 Expensive endpoints additionally rate-limit per IP. Outbound feed URLs are validated against an SSRF allowlist (public http(s) hosts only). Stored LLM keys never leave the server — the settings API reports only whether a key exists.
 
+## Documentation
+
+New to the codebase? Start with [`docs/OVERVIEW.md`](docs/OVERVIEW.md), then
+follow the reading order in [`docs/README.md`](docs/README.md):
+
+| Doc | Answers |
+|---|---|
+| [`docs/OVERVIEW.md`](docs/OVERVIEW.md) | What is this, and what is the mental model? |
+| [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | How do I run it? |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | What are the layers? |
+| [`docs/DATA-FLOW.md`](docs/DATA-FLOW.md) | Where does data come from? |
+| [`docs/NAVIGATION.md`](docs/NAVIGATION.md) | Which file do I open to change X? |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why is it built this way? |
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | What does this word mean? |
+
+Documentation rules and maintenance obligations are in
+[`skills/DOCS.md`](skills/DOCS.md).
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

@@ -10,6 +10,9 @@ Thanks for your interest in contributing! Here's how to get started.
 
 No API keys or database are required — the app runs on demo data.
 
+New to the codebase? Read [`docs/OVERVIEW.md`](docs/OVERVIEW.md) first, then use
+[`docs/NAVIGATION.md`](docs/NAVIGATION.md) to find the file you want.
+
 ## Code Style
 
 - TypeScript, strict mode
@@ -23,7 +26,8 @@ No API keys or database are required — the app runs on demo data.
 1. Ensure your code builds: `npm run build`
 2. Update the README if your change affects usage
 3. Add tests for new logic where practical
-4. Your PR will be reviewed
+4. If your change alters architecture, a data shape/contract, or setup steps, update the owning doc in [`docs/`](docs/) — see [`skills/DOCS.md`](skills/DOCS.md)
+5. Your PR will be reviewed
 
 ## Reporting Issues
 
