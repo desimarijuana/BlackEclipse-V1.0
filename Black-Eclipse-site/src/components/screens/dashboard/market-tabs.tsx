@@ -2,12 +2,9 @@
 
 // ── LayoutTabs — the named-workspace selector row ────────────────────────────
 // Each tab is a NAMED LAYOUT the user creates ("US", "Crypto", "My Tech Sheet",
-// …). Clicking a tab swaps in that layout's own persisted widgets. The user adds
-// a layout by naming it, and double-clicks a tab to rename it.
-//
-// A layout also carries a DEFAULT MARKET that powers widgets set to "follow the
-// tab"; it's chosen with the compact market selector at the end of the row (not
-// as part of Add). Any individual widget can still be pinned to its own market.
+// …). Clicking a tab swaps in that layout's own persisted widgets. The Add flow
+// only asks for a NAME — it never asks the user to pick a country. Double-click
+// a tab to rename it.
 //
 // Uses the shared frosted-glass <TabBar> so it matches every other tab strip.
 
@@ -15,17 +12,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Globe, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabBar, type TabItem } from '@/components/ui/tab-bar';
-import { MARKET_OPTIONS, marketViewName, useMarketViews } from '@/lib/dashboard/market-views';
+import { useMarketViews } from '@/lib/dashboard/market-views';
 
 export function MarketTabs() {
-  const { views, activeId, active, setActiveId, create, remove, rename, setMarket } = useMarketViews();
+  const { views, activeId, active, setActiveId, create, remove, rename } = useMarketViews();
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const addRef = useRef<HTMLDivElement>(null);
-
-  const activeMarket = active?.market ?? 'US';
+  // A new layout inherits the active layout's data context (no country picker).
+  const inheritMarket = active?.market ?? 'US';
 
   // Close the add popover on outside click / Esc.
   useEffect(() => {
@@ -43,7 +40,7 @@ export function MarketTabs() {
   }, [adding]);
 
   const commitAdd = () => {
-    create(draftName || 'New layout', activeMarket);
+    create(draftName || 'New layout', inheritMarket);
     setAdding(false);
     setDraftName('');
   };
@@ -97,22 +94,6 @@ export function MarketTabs() {
       )}
       trailing={(
         <div className="flex shrink-0 items-center gap-1.5">
-          {/* Data source for widgets set to "follow the tab" */}
-          <span className="relative inline-flex items-center" title="Default market for widgets that follow this layout">
-            <select
-              value={activeMarket}
-              onChange={e => setMarket(activeId, e.target.value)}
-              className="cursor-pointer appearance-none rounded-2xl border border-border/30 bg-background/60 py-2 pl-2.5 pr-6 text-[10px] font-bold uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:text-foreground focus:ring-1 focus:ring-primary"
-            >
-              {MARKET_OPTIONS.map(o => (
-                <option key={o.id} value={o.id} className="bg-[#121212] text-foreground normal-case">
-                  {o.name === o.full ? o.name : `${o.name} — ${o.full}`}
-                </option>
-              ))}
-            </select>
-            <svg className="pointer-events-none absolute right-2 text-muted-foreground" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-          </span>
-
           {/* Add a named layout */}
           <div className="relative" ref={addRef}>
             <button
@@ -145,9 +126,6 @@ export function MarketTabs() {
                   placeholder="Name it anything (e.g. My Tech Sheet)…"
                   className="w-full rounded-xl border border-border/30 bg-background/60 px-2.5 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary"
                 />
-                <p className="mt-1.5 px-0.5 text-[9px] text-muted-foreground/70">
-                  Starts from the current {marketViewName(activeMarket)} data. You can rename it later by double-clicking the tab.
-                </p>
                 <button
                   type="button"
                   onClick={commitAdd}
