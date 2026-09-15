@@ -43,6 +43,14 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Search** — Tests + docs for sub-page navigation. Added
+  `search/subroute.test.ts` (channel semantics: tab scoping, focus pass-through,
+  seq re-fire, scoped clear) and registry assertions that sub-pages carry a
+  `subroute`, nest under their parent `group`, and that only children are marked
+  `child`. Documented the subroute channel and its two invariants in
+  `docs/ARCHITECTURE.md`, and the "add a palette sub-page" recipe in
+  `docs/NAVIGATION.md`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
 - **Search** — Sub-page navigation: `Destination.subroute` (previously emitted by
   the registry but ignored by the shell) is now honored. Added a `pendingSubroute`
   channel + `useSubroute(tab, handler)` hook so keep-alive screens react to
