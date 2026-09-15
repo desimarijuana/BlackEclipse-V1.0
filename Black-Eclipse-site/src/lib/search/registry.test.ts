@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveQuery } from './resolver';
-import { getAllActions, getAllPages, getInstrumentByAlias, getPage } from './registry';
+import { getAllActions, getAllPages, getInstrumentByAlias, getPage, getPageEntries } from './registry';
 
 describe('registry', () => {
   it('resolves symbol aliases to the same canonical entity', () => {
@@ -40,6 +40,27 @@ describe('registry', () => {
     for (const tab of ['chat', 'dashboard', 'discovery', 'portfolio', 'journal', 'news', 'heatmap', 'economics', 'alerts', 'settings', 'market-workspace']) {
       expect(tabs.has(tab as never)).toBe(true);
     }
+  });
+
+  it('registers sub-pages that carry a subroute and nest under a parent group', () => {
+    const entries = getPageEntries();
+    const subs = entries.filter((p) => p.child);
+    // Sub-pages exist for the tabs that previously had unreachable views.
+    expect(subs.length).toBeGreaterThanOrEqual(30);
+    expect(subs.every((p) => Boolean(p.destination.subroute))).toBe(true);
+    // A sub-page's group is its parent tab, so the palette can nest it.
+    expect(subs.every((p) => p.group === p.destination.tab)).toBe(true);
+    const subroutes = new Set(subs.map((p) => p.destination.subroute));
+    for (const r of ['economics.calendar', 'journal.analytics', 'discovery.crypto', 'alerts.create', 'settings.aurora']) {
+      expect(subroutes.has(r)).toBe(true);
+    }
+  });
+
+  it('marks only sub-pages as children', () => {
+    const entries = getPageEntries();
+    const parents = entries.filter((p) => !p.child);
+    expect(parents.every((p) => p.destination.subroute === undefined)).toBe(true);
+    expect(parents.every((p) => p.group === 'app')).toBe(true);
   });
 
   it('returns undefined for unknown symbols', () => {
