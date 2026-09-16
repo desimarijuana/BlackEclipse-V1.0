@@ -826,6 +826,40 @@ from `countries.ts` entirely, so Red Sea shipping events had nowhere to plot.
 
 ---
 
+## 5i. Phase 11 — the analyst, where the question is asked
+
+The 7 read-only Investor Eye agent tools (`agent/investor-eye-tools.ts`) already
+existed and were already registered in the shared tool set — but the only way to
+reach them was the chat, so a user had to leave the event and re-describe it. The
+dossier now has an **Analyst** section that runs the world analyst against the
+selected event.
+
+**What makes it grounded rather than generative.** `event-record.ts` renders the
+event as a factual briefing and the model is additionally allowed to call the
+read-only tools. Three deliberate choices:
+
+1. **Absent fields are omitted, not placeholder-ed.** Printing `Location: —`
+   invites the model to fill the gap; omitting the line does not.
+2. **Location precision is always stated** (`country capital (policy event)`),
+   so the model cannot imply more accuracy than we have.
+3. **Text-derived exposure is labelled `(derived)`**, keeping observation and
+   inference separable — the same distinction the UI makes.
+
+The system prompt repeats the platform's honesty rules: label inferred exposure
+as *potential*, quote provenance, and never invent an event, number, headline or
+source.
+
+**Offline-honest.** `POST /api/investor-eye/explain` returns **503** when no LLM
+is configured, and the panel renders "No AI provider is configured" — verified in
+the browser. It never fakes an answer.
+
+**Why the prompt builder is its own module:** the route handler should be thin,
+and the shape of what the model receives is a correctness concern. If actors,
+provenance or the precision line silently disappeared in a refactor, the analyst
+would start guessing — so it is pure and unit-tested (6 tests).
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

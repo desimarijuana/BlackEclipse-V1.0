@@ -25,6 +25,7 @@ import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
 import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-eye/types';
 import { AnaloguesPanel } from './analogues-panel';
 import { ReactionPanel } from './reaction-panel';
+import { ExplainPanel } from './explain-panel';
 import { cn } from '@/lib/utils';
 
 interface EventPanelProps {
@@ -71,6 +72,9 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
 
         {/* What the market actually did after this event (real stored closes). */}
         <ReactionPanel eventId={event.id ?? event.dedupKey} symbol={event.securities[0]} />
+
+        {/* The AI analyst, where the question is asked. Grounded in this record. */}
+        <ExplainPanel eventId={event.id ?? event.dedupKey} />
 
         <Entities eventId={event.id} />
         <Evidence sources={event.sources} sourceCount={event.sourceCount} />

@@ -43,6 +43,30 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — "Explain this event": the AI analyst, where the question is
+  asked.
+  - The 7 read-only Investor Eye agent tools already existed but were reachable
+    only from the chat, so a user had to leave the event and re-describe it. The
+    dossier now has an **Analyst** section that runs the world analyst against
+    THIS event's structured record.
+  - **Grounded, not generative.** `event-record.ts` renders the event as a
+    compact briefing (headline, type, location AND its precision, coordinates,
+    countries, actors with readable type codes, CAMEO/Goldstein, text-derived
+    channels/commodities/sectors marked as derived, relevance, confidence labelled
+    "NOT certainty", sources, description) and the model may also call the
+    read-only tools. Absent fields are omitted rather than printed as
+    placeholders, which would invite the model to fill the gap.
+  - `POST /api/investor-eye/explain` is guarded and rate-limited (12 per 5 min)
+    as it drives LLM calls. With no provider configured it returns **503**, and
+    the panel says so — it never pretends to work offline (verified: HTTP 503 →
+    "No AI provider is configured").
+  - The route handler is thin; the prompt-building logic is pure and unit-tested
+    (6 tests), because the SHAPE of what the model receives is a correctness
+    concern — if actors or provenance silently vanished, the analyst would start
+    guessing.
+  - Verified: 927 tests pass, eslint clean, zero console errors in Chrome.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Investor Eye** — Where things are plotted is now right, and honest about it.
   - **Policy events were landing in Kansas.** `CountryDef.lon/lat` is a country's
     GEOGRAPHIC CENTROID, so "the Fed raises rates" plotted at the USA centre, and

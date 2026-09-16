@@ -64,6 +64,7 @@ Black-Eclipse-site/
 | Surface real article headlines on events | `src/lib/investor-eye/enrich.ts` (news-corpus URL join, ~1% hit rate) and `article-meta.ts` / `article-meta-fetch.ts` (reads `og:title` from the linked page — the effective path); route `src/app/api/investor-eye/article/route.ts` |
 | Make provider-synthesized event titles readable | `formatEventTitle` in `src/lib/investor-eye/format.ts` (used by the dossier header + live feed) |
 | Work on the event detail dossier | `src/components/investor-eye/event-panel.tsx` (What happened / Actors / Where & when / Detail / Observed / exposure / reaction / Sources / Timeline) |
+| Work on "Explain this event" (AI analyst) | `src/lib/investor-eye/event-record.ts` (prompt + honesty rules), `explain-panel.tsx`, `src/app/api/investor-eye/explain/route.ts` |
 | Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
 | Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |
