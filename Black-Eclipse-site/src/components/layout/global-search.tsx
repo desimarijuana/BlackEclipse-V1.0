@@ -42,7 +42,7 @@ import { detectParamCommand, paramCandidates } from '@/lib/search/commands';
 import { createQuickAlert } from '@/lib/alerts/quick-alert';
 import { addToWatchlist } from '@/lib/dashboard/watchlist-store';
 import { universeCount } from '@/lib/search/universe';
-import { getPageEntries } from '@/lib/search/registry';
+import { getPage } from '@/lib/search/registry';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
@@ -72,17 +72,24 @@ function nameIcon(name?: string): LucideIcon {
   return (name && NAME_ICON[name]) || Sparkles;
 }
 
-/** Human-readable parent-tab name for a sub-page's group id. */
-const PARENT_LABEL: Record<string, string> = {
-  economics: 'Economics',
-  journal: 'Journal',
-  discovery: 'Screener',
-  alerts: 'Alerts',
-  settings: 'Settings',
-};
-
-/** Display order of sub-page groups in the Pages list. */
-const GROUP_ORDER = ['economics', 'journal', 'discovery', 'alerts', 'settings'];
+/**
+ * Top-level pages shown in the palette's Pages list, in sidebar order
+ * (ChatBot → … → Price Alerts). Deliberately excludes `settings` (a modal) and
+ * the retired `chart` tab.
+ */
+const TOP_LEVEL_PAGE_IDS = [
+  'page-chat',
+  'page-dashboard',
+  'page-investor-eye',
+  'page-market-workspace',
+  'page-screener',
+  'page-portfolio',
+  'page-journal',
+  'page-news',
+  'page-heatmap',
+  'page-economics',
+  'page-alerts',
+];
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {
   security: ChartCandlestick,
@@ -136,7 +143,6 @@ interface QuickAction {
 type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
   | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
-  | { type: 'calc'; id: string; title: string; subtitle: string; onCopy: () => void }
   | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void };
 
 interface Section {
@@ -171,8 +177,6 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  // Inline error for a failed parameterized command (e.g. alert creation).
-  const [paramError, setParamError] = useState<string | null>(null);
   // Whether the results list can still scroll down (drives the bottom fade).
   const [canScrollDown, setCanScrollDown] = useState(false);
 
@@ -211,12 +215,6 @@ export function GlobalSearch() {
     return () => clearTimeout(t);
   }, [store.query]);
 
-  // Clear a stale command error as soon as the user edits the query.
-  useEffect(() => {
-    if (paramError) setParamError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.query]);
-
   // Resolve against the debounced query; re-resolves when the universe,
   // calendar, or server-side entities finish loading. Recency personalizes the
   // ranking from the user's own visit history (kept off the resolver's hot path).
@@ -238,70 +236,31 @@ export function GlobalSearch() {
   // A bare scope prefix (e.g. ">") — no terms yet, so nudge with scope hints
   // instead of the generic empty state.
   const bareScope = !showHelp && !showRecents && !!resolved && activeScope.scope !== 'all' && !resolved.parsed.text.trim();
-  // Inline calculator/conversion, evaluated only on the all-scope path.
-  const calc: CalcResult | null = useMemo(
-    () => (showRecents || showHelp ? null : evaluateCalc(store.query)),
-    [store.query, showRecents, showHelp],
-  );
-  // Parameterized command + its argument autocomplete (e.g. "alert aapl").
-  const paramCmd = useMemo(
-    () => (showRecents || showHelp ? null : detectParamCommand(store.query)),
-    [store.query, showRecents, showHelp],
-  );
-  const paramArgs = useMemo(
-    () => (paramCmd ? paramCandidates(paramCmd.arg) : []),
-    [paramCmd],
-  );
   // Pages-group collapse (shares the store's collapsedGroups list).
   const navCollapsed = store.collapsedGroups.includes('nav');
 
-  // Sub-pages only — top-level tabs are NOT listed (they live in the sidebar
-  // and still resolve through search). Generated from the registry so
-  // registering a sub-page adds a row automatically. Labels are qualified by
-  // parent tab because several share a name ('Calendar', 'Overview', 'Markets').
-  const navPages: (QuickAction & { parent: string })[] = useMemo(
+  // The Pages list = the app's top-level tabs only, in sidebar order. Typing
+  // still searches everything (instruments, indicators, markets, actions);
+  // this list is purely the page launcher.
+  const navPages: QuickAction[] = useMemo(
     () =>
-      getPageEntries()
-        .filter((p) => p.child)
+      TOP_LEVEL_PAGE_IDS.map((id) => getPage(id))
+        .filter((p): p is SearchEntity => Boolean(p))
         .map((p) => ({
           id: `nav-${p.id}`,
-          label: `${PARENT_LABEL[p.group] ?? p.group} · ${p.title}`,
+          label: p.title,
           icon: nameIcon(p.icon),
-          parent: p.group,
           run: () => {
             store.dispatch(p.destination);
             useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
           },
-        }))
-        // Group by parent tab in a deliberate order, alphabetical within group.
-        .sort(
-          (a, b) =>
-            (GROUP_ORDER.indexOf(a.parent) - GROUP_ORDER.indexOf(b.parent)) ||
-            a.label.localeCompare(b.label),
-        ),
+        })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
-  // Pinned commands shown above the navigation list.
-  const pinnedCommands: QuickAction[] = useMemo(() => [
-    {
-      id: 'qa-new-chat',
-      label: 'Start new chat',
-      icon: Plus,
-      run: () => {
-        store.dispatch({ tab: 'chat', params: { action: 'new-chat' } });
-        useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-      },
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], []);
-
-  // Flat navigable list = commands then every page (order matches render).
-  const quickActions: QuickAction[] = useMemo(
-    () => [...pinnedCommands, ...navPages],
-    [pinnedCommands, navPages],
-  );
+  // Flat navigable list = the page launcher (order matches render).
+  const quickActions: QuickAction[] = navPages;
 
   // Build sections + a flat navigable row list (collapsed groups are skipped).
   const { sections, flatRows, hasAiRow } = useMemo(() => {
@@ -373,90 +332,6 @@ export function GlobalSearch() {
       }
     } else {
       if (aiRow) built.push({ key: 'ai', label: 'Ask AI', count: 1, collapsed: false, rows: [aiRow] });
-      if (calc) {
-        const calcRow: Row = {
-          type: 'calc',
-          id: 'calc-result',
-          title: calc.display,
-          subtitle: calc.kind === 'conversion' ? 'Indicative conversion · click to copy' : 'Calculation · click to copy',
-          onCopy: () => {
-            void navigator.clipboard?.writeText(calc.display);
-            useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-          },
-        };
-        built.push({ key: 'calc', label: 'Calculator', count: 1, collapsed: false, rows: [calcRow] });
-      }
-      // Parameterized command with inline argument autocomplete. Selecting an
-      // argument RUNS the command (create alert / add watchlist) and navigates
-      // to where the result is visible.
-      if (paramCmd) {
-        const runParam = (symbol: string) => {
-          const sym = symbol.trim().toUpperCase();
-          if (!sym) return;
-          if (paramCmd.verb === 'alert' || paramCmd.verb === 'alerts') {
-            void createQuickAlert(sym).then((r) => {
-              if (!r.ok) {
-                // Keep the palette open so the failure is visible; the alert
-                // genuinely does not exist, so we never claim it does.
-                setParamError(`Could not create alert for ${sym}: ${r.error ?? 'unknown error'}`);
-                return;
-              }
-              store.recordRecent(`${paramCmd.verb} ${sym}`);
-              store.dispatch({ tab: 'alerts' });
-              useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-            });
-            return;
-          }
-          if (paramCmd.verb === 'watch') {
-            addToWatchlist(sym);
-            store.dispatch({ tab: 'dashboard' });
-          } else {
-            store.dispatch({ tab: 'chart', params: { symbol: sym } });
-          }
-          store.recordRecent(`${paramCmd.verb} ${sym}`);
-          useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
-        };
-
-        const label = paramCmd.arg
-          ? paramCmd.template.replace('{arg}', paramCmd.arg.toUpperCase())
-          : paramCmd.template.replace('{arg}', '…');
-        const cmdRow: Row = {
-          type: 'action',
-          id: `param-${paramCmd.verb}`,
-          label,
-          icon: paramCmd.verb === 'chart' ? ChartCandlestick : paramCmd.verb === 'watch' ? ChartPie : Bell,
-          // With a resolved arg, Enter runs it immediately; otherwise the first
-          // candidate is used.
-          onSelect: () => {
-            const sym = paramCmd.arg || paramArgs[0]?.value;
-            if (sym) runParam(sym);
-          },
-        };
-        const argRows = paramArgs.map<Row>((c) => ({
-          type: 'result',
-          id: `arg-${c.value}`,
-          title: c.label,
-          subtitle: c.subtitle,
-          kind: 'security',
-          entity: {
-            id: `arg-${c.value}`,
-            kind: 'security',
-            title: c.subtitle,
-            symbol: c.value,
-            keywords: [],
-            destination: { tab: 'chart', params: { symbol: c.value } },
-            subtitle: c.subtitle,
-          },
-          onSelect: () => runParam(c.value),
-        }));
-        built.push({
-          key: 'param',
-          label: `${paramCmd.verb} — pick an instrument`,
-          count: 1 + argRows.length,
-          collapsed: store.collapsedGroups.includes('param'),
-          rows: [cmdRow, ...argRows],
-        });
-      }
       if (resolved && resolved.items.length > 0) {
         const byKind = new Map<EntityKind, Row[]>();
         resolved.items.forEach((it) => {
@@ -534,7 +409,7 @@ export function GlobalSearch() {
 
     return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, calc, paramCmd, paramArgs, navCollapsed]);
+  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, navCollapsed]);
   // Track whether more content exists below the fold so the fade can show/hide.
   // Re-measured when the flat list changes (query, collapse, pins, …).
   useEffect(() => {
@@ -586,10 +461,8 @@ export function GlobalSearch() {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const row = flatRows[clamp(store.selectedIndex)];
-      if (row) {
-        if (row.type === 'calc') row.onCopy();
-        else row.onSelect();
-      } else {
+      if (row) row.onSelect();
+      else {
         store.runPrimary();
       }
     }
@@ -645,11 +518,6 @@ export function GlobalSearch() {
         {/* Results — wrapped so a bottom fade signals more below the fold. */}
         <div className="relative">
         <div ref={resultsRef} id="command-results" role="listbox" aria-label="Search results" className="max-h-[min(70dvh,400px)] sm:max-h-[min(50dvh,400px)] overflow-y-auto py-2">
-          {paramError && (
-            <div className="mx-3 mb-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-              {paramError}
-            </div>
-          )}
           {showHelp && <SyntaxHelp onPick={(p) => store.setQuery(p)} />}
 
           {bareScope && (
@@ -674,7 +542,7 @@ export function GlobalSearch() {
             </div>
           )}
 
-          {!showRecents && !showHelp && !bareScope && !calc && !paramCmd && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
+          {!showRecents && !showHelp && !bareScope && resolved && resolved.items.length === 0 && !hasAiRow && !store.universeLoading && (
             <div className="px-4 py-10 text-center">
               <div className="text-sm text-foreground font-medium mb-1">No results for “{store.query}”</div>
               {resolved.suggestion ? (
@@ -815,11 +683,9 @@ export function GlobalSearch() {
 
         {/* Screen-reader result announcement (visual footer stays terse). */}
         <div className="sr-only" role="status" aria-live="polite">
-          {calc
-            ? `Calculator result ${calc.display}`
-            : resolved && !showRecents
-              ? `${resolved.items.length} result${resolved.items.length === 1 ? '' : 's'} for ${store.query}`
-              : ''}
+          {resolved && !showRecents
+            ? `${resolved.items.length} result${resolved.items.length === 1 ? '' : 's'} for ${store.query}`
+            : ''}
         </div>
       </DialogContent>
     </Dialog>
@@ -894,18 +760,11 @@ const RowButton = memo(function RowButton({
   onTogglePin: (pin: { id: string; title: string; symbol?: string; kind: string; tab: string; params?: Record<string, string>; subtitle?: string }) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const isCalc = row.type === 'calc';
   const Icon =
-    row.type === 'action'
-      ? row.icon
-      : row.type === 'recent'
-        ? Search
-        : isCalc
-          ? Calculator
-          : KIND_ICON[row.kind] ?? Search;
+    row.type === 'action' ? row.icon : row.type === 'recent' ? Search : KIND_ICON[row.kind] ?? Search;
   const label = row.type === 'action' ? row.label : row.type === 'recent' ? row.text : row.title;
-  const subtitle = row.type === 'result' || row.type === 'calc' ? row.subtitle : null;
-  const onSelect = row.type === 'calc' ? row.onCopy : row.onSelect;
+  const subtitle = row.type === 'result' ? row.subtitle : null;
+  const onSelect = row.onSelect;
 
   const copySymbol = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1000,8 +859,7 @@ const RowButton = memo(function RowButton({
           <X size={13} />
         </button>
       )}
-      {selected && row.type !== 'recent' && !isCalc && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
-      {isCalc && <Calculator size={13} className="shrink-0 text-muted-foreground/50" />}
+      {selected && row.type !== 'recent' && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
     </div>
   );
 });
