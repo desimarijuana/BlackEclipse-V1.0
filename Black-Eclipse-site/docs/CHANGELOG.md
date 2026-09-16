@@ -43,6 +43,13 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-15
 
+- **Search** — The palette's bottom group is now simply the app's 11 top-level
+  tabs in sidebar order (ChatBot → Price Alerts, including Investor Eye), not a
+  32-item sub-page dump. Removed the inline calculator, parameterized command
+  rows, and their wiring (`calc.ts`, `commands.ts`, quick-alert and watchlist
+  side effects). Typing still searches instruments, indicators, markets and
+  actions via the resolver, so this only changed the pinned list.
+  no doc change — palette presentation only; resolver/search contracts unchanged.
 - **Investor Eye** — New **Investor Eye** world-state surface (Phase 1 + 2): a
   large interactive ECharts world map with a pluggable `MapLayer` system
   (events, markets, conflict, energy, trade, weather, economy, companies,
