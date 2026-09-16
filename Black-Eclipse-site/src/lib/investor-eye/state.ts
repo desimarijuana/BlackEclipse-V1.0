@@ -332,6 +332,25 @@ export function formatUtc(iso: string): string {
  * first assembly's promise; a caller for a DIFFERENT window starts its own
  * (windows are genuinely different payloads).
  */
+/**
+ * Assemble (or serve) the world state for a window.
+ *
+ * TRUE stale-while-revalidate. A cold assembly measures ~15–18s (GDELT bulk +
+ * news + USGS + markets), and the previous implementation AWAITED it even when a
+ * perfectly good previous state existed — so the first paint of the map was
+ * "DATA UNAVAILABLE" for the whole build, then flipped to LIVE. That is the
+ * flapping this function exists to prevent.
+ *
+ * Order of preference:
+ *   1. a fresh cache entry            → return it (milliseconds)
+ *   2. a stale cache entry            → return it NOW, rebuild in the background
+ *   3. the persisted last-known state → return it NOW, rebuild in the background
+ *   4. nothing at all                 → await the build (genuine first run)
+ *
+ * Any state served by 2/3 is labelled CACHED and flagged `refreshing`, so the UI
+ * can say "last known" honestly instead of pretending it is live. The rebuild
+ * populates the cache, and the client's next poll picks it up.
+ */
 export async function assembleState(options: AssembleOptions = {}): Promise<InvestorEyeState> {
   const hours = options.hours ?? WINDOW_HOURS_DEFAULT;
 
@@ -340,9 +359,40 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
     if (cached) return cached;
   }
 
-  // Join an assembly already running for this window instead of starting a
-  // second one (this is what makes the fan-out of routes cheap).
+  // Something is already building this window. Join it only when we have
+  // nothing better to show; otherwise serve stale immediately below.
   const inflight = getInflight(hours);
+  const stale = getCachedState(hours);
+
+  const startBackground = () => {
+    if (getInflight(hours)) return;
+    const promise = runAssembly(hours, options);
+    setInflight(hours, promise);
+    promise
+      .catch((err) => console.error('[investor-eye] background rebuild failed:', err))
+      .finally(() => clearInflight(hours));
+  };
+
+  if (stale) {
+    startBackground();
+    return { ...stale, refreshing: true, status: { ...stale.status, provenance: 'CACHED' } };
+  }
+
+  if (!inflight) {
+    // No in-memory cache at all. Seed from the persisted snapshot so a cold
+    // start / restart is instant rather than a 17s blank map.
+    const persisted = await loadPersistedState();
+    if (persisted) {
+      startBackground();
+      return {
+        ...persisted,
+        windowHours: hours,
+        refreshing: true,
+        status: { ...persisted.status, provenance: 'CACHED' },
+      };
+    }
+  }
+
   if (inflight) return inflight;
 
   const promise = runAssembly(hours, options);

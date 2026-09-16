@@ -9,11 +9,11 @@
 // business logic lives in `lib/investor-eye/`; this component only wires.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Globe2, Search, RefreshCw, X, Loader2 } from 'lucide-react';
+import { Globe2, Search, RefreshCw, X, Loader2, Maximize2 } from 'lucide-react';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
-import { timeRangeHours, useInvestorEyeStore } from '@/lib/investor-eye/store';
+import { TIME_RANGES, timeRangeHours, useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { cn } from '@/lib/utils';
 import type {
@@ -23,6 +23,7 @@ import { WorldMap } from './world-map';
 import { LayerController } from './layer-controller';
 import { Timeline } from './timeline';
 import { DataStatusChip } from './data-status';
+import { DotGrid } from '@/components/ui/ascii-loader';
 import { WhatChanged } from './what-changed';
 import { CountryPanel } from './country-panel';
 import { EventPanel } from './event-panel';
@@ -31,6 +32,8 @@ import { RiskPanel } from './risk-panel';
 import { PortfolioPanel } from './portfolio-panel';
 import { TransmissionsPanel } from './transmissions-panel';
 import { GraphPanel } from './graph-panel';
+import { FullPageMap } from './full-page-map';
+import { LiveFeed } from './live-feed';
 
 export function InvestorEyeScreen() {
   const selectedCountry = useInvestorEyeStore((s) => s.selectedCountry);
@@ -42,6 +45,7 @@ export function InvestorEyeScreen() {
   const economicMetric = useInvestorEyeStore((s) => s.economicMetric);
   const portfolioOverlay = useInvestorEyeStore((s) => s.portfolioOverlay);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
+  const fullPage = useInvestorEyeStore((s) => s.fullPage);
   const highlightedCountries = useInvestorEyeStore((s) => s.highlightedCountries);
   const highlightNote = useInvestorEyeStore((s) => s.highlightNote);
 
@@ -53,6 +57,7 @@ export function InvestorEyeScreen() {
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const setTimeRange = useInvestorEyeStore((s) => s.setTimeRange);
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
+  const setFullPage = useInvestorEyeStore((s) => s.setFullPage);
   const setEconomicMetric = useInvestorEyeStore((s) => s.setEconomicMetric);
   const setPortfolioOverlay = useInvestorEyeStore((s) => s.setPortfolioOverlay);
   const applyHighlights = useInvestorEyeStore((s) => s.applyHighlights);
@@ -62,6 +67,17 @@ export function InvestorEyeScreen() {
   const stateTopicId = useMemo(() => registerStateTopic(hours), [hours]);
   const stateEntry = useTopic<InvestorEyeState>(stateTopicId);
   const state = stateEntry.data;
+  // A cold assembly takes ~15s. Distinguish "still loading" from "genuinely no
+  // data": the hub's initial entry is `{data:null, source:'UNAVAILABLE'}`, so
+  // `data === null` alone would flash UNAVAILABLE on every mount. `updatedAt` is
+  // set only once a fetch has settled, so it is the honest "we tried" signal.
+  const settled = stateEntry.updatedAt !== null;
+  const loading = !state && !settled;
+  const unavailable = !state && settled;
+  // Pulled out before the guards so the banner text is readable without TS
+  // narrowing `state` to `never` inside the `unavailable` branch.
+  const lastKnownAt = state?.lastKnownAt ?? null;
+  const staleGeneratedAt = state?.refreshing ? state.generatedAt : null;
 
   // Phase 2 inputs — only fetched when their layer is enabled.
   const needEconomy = activeLayers.includes('economy');
@@ -194,14 +210,32 @@ export function InvestorEyeScreen() {
     }
   }, [searchValue, activeLayers, applyHighlights]);
 
-  // Escape clears the current selection anywhere on the screen.
+  // Escape clears the current selection anywhere on the screen. In full-page
+  // mode the overlay owns Escape (it exits first), so this stands down.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearSelection();
+      if (e.key === 'Escape' && !useInvestorEyeStore.getState().fullPage) clearSelection();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [clearSelection]);
+
+
+  if (fullPage) {
+    return (
+      <FullPageMap
+        layers={layers}
+        highlightPoints={highlightPoints}
+        availableLayers={availableLayers}
+        onSelectCountry={handleSelectCountry}
+        eventCount={state?.events.length ?? 0}
+        marketCount={state?.markets.length ?? 0}
+        dataUnavailable={unavailable}
+        lastKnownAt={state?.lastKnownAt ?? undefined}
+        onExit={() => setFullPage(false)}
+      />
+    );
+  }
 
 
   return (
@@ -227,7 +261,8 @@ export function InvestorEyeScreen() {
 
         <div className="flex items-center gap-2">
           {state && <DataStatusChip status={state.status} />}
-          {/* Map presentation: flat vs 3D globe (globe lazy-loads echarts-gl). */}
+          {/* Map presentation: flat vs 3D globe (globe lazy-loads echarts-gl).
+              Colour-coded so the active projection is legible at a glance. */}
           <div className="glass-button flex items-center gap-0.5 rounded-lg p-0.5">
             {(['2d', 'globe'] as const).map((m) => (
               <button
@@ -236,13 +271,23 @@ export function InvestorEyeScreen() {
                 title={m === '2d' ? 'Flat map' : '3D globe'}
                 className={cn(
                   'rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
-                  mapMode === m ? 'bg-primary/20 text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  mapMode === m
+                    ? m === '2d' ? 'bg-sky-500/25 text-sky-200' : 'bg-violet-500/25 text-violet-200'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {m === '2d' ? 'MAP' : 'GLOBE'}
               </button>
             ))}
           </div>
+          {/* Immersive map-only mode. */}
+          <button
+            onClick={() => setFullPage(true)}
+            className="glass-button flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Full-page map (map only)"
+          >
+            <Maximize2 size={12} /> <span className="hidden sm:inline">Full page</span>
+          </button>
           <div className="relative">
             <button
               onClick={() => setSearchOpen((v) => !v)}
@@ -294,47 +339,71 @@ export function InvestorEyeScreen() {
         </div>
       )}
 
-      {/* ── THE MAP — the hero, full width, tall ─────────────────────────── */}
-      <div className="relative mt-2 h-[52vh] min-h-[320px] w-full shrink-0 overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card md:h-[58vh]">
-        {stateEntry.source === 'UNAVAILABLE' && (
-          <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2">
-            <div className="glass-card-subtle rounded-lg border border-red-500/20 px-3 py-1 text-[10px] text-foreground">
-              DATA UNAVAILABLE{state?.lastKnownAt ? ` · LAST KNOWN ${state.lastKnownAt.slice(11, 16)} UTC` : ''}
+      {/* ── HERO: the map plus a live intelligence rail ──────────────────── */}
+      {/* The rail is why a click "tells you what it is about": the selection
+          panel sits BESIDE the map, not below the fold, so clicking a pin
+          immediately shows its intelligence without scrolling. */}
+      <div className="mt-2 grid min-h-0 shrink-0 grid-cols-1 items-stretch gap-2 lg:h-[58vh] lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="relative h-[52vh] min-h-[320px] w-full overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card lg:h-full lg:min-h-0">
+          {loading && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/40">
+              <DotGrid size={44} />
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Loading world state
+                </span>
+                <span className="font-mono text-[9px] text-muted-foreground/60">
+                  {TIME_RANGES.find((r) => r.id === timeRange)?.label ?? ''} window · events, markets, sources
+                </span>
+              </div>
             </div>
+          )}
+          {unavailable && (
+            <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2">
+              <div className="glass-card-subtle rounded-lg border border-red-500/20 px-3 py-1 text-[10px] text-foreground">
+                DATA UNAVAILABLE{lastKnownAt ? ` · LAST KNOWN ${lastKnownAt.slice(11, 16)} UTC` : ''}
+              </div>
+            </div>
+          )}
+          {!loading && !unavailable && staleGeneratedAt && (
+            <div className="pointer-events-none absolute left-1/2 top-2 z-20 -translate-x-1/2">
+              <div className="glass-card-subtle rounded-lg border border-sky-500/20 px-3 py-1 text-[10px] text-sky-200">
+                LAST KNOWN {staleGeneratedAt.slice(11, 16)} UTC · REFRESHING
+              </div>
+            </div>
+          )}
+          <WorldMap
+            className="absolute inset-0"
+            layers={layers}
+            highlightPoints={highlightPoints}
+            onSelectCountry={handleSelectCountry}
+            mode={mapMode}
+            onModeUnavailable={() => setMapMode('2d')}
+          />
+          {/* Map is the hero; a subtle frame label keeps provenance in view. */}
+          <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
+            NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
           </div>
-        )}
-        <WorldMap
-          className="absolute inset-0"
-          layers={layers}
-          highlightPoints={highlightPoints}
-          onSelectCountry={handleSelectCountry}
-          mode={mapMode}
-          onModeUnavailable={() => setMapMode('2d')}
-        />
-        {/* Map is the hero; a subtle frame label keeps provenance in view. */}
-        <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
-          NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
+          {/* Immersive map-only affordance, on the map surface itself. */}
+          <button
+            onClick={() => setFullPage(true)}
+            className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg border border-white/10 glass-card-subtle px-2 py-1 text-[9px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Full-page map only"
+          >
+            <Maximize2 size={11} /> Map only
+          </button>
+          {/* Live counts, so the map has an at-a-glance figure. */}
+          {state && (
+            <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">
+              {state.events.length} events · {state.markets.length} markets
+            </div>
+          )}
         </div>
-        {/* Live event count, so the map has an at-a-glance figure. */}
-        {state && (
-          <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">
-            {state.events.length} events · {state.markets.length} markets
-          </div>
-        )}
-      </div>
 
-      {/* Controls sit directly under the map, still above the fold. */}
-      <div className="mt-2 shrink-0 space-y-2">
-        <LayerController active={activeLayers} onToggle={toggleLayer} available={availableLayers} />
-        <Timeline value={timeRange} onChange={setTimeRange} events={state?.events ?? []} windowHours={hours} />
-      </div>
-
-      {/* ── DETAIL — scrolls below the map ───────────────────────────────── */}
-      <div className="mt-2 grid shrink-0 grid-cols-1 gap-2 lg:grid-cols-3">
-        {/* Selection takes the first column when there is one. */}
-        <div className="space-y-2 lg:col-span-1">
+        {/* Right rail: selection intelligence, then the live stream. */}
+        <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
           {selectedCompany ? (
-            <PanelShell onClose={() => setSelectedCompany(null)}>
+            <PanelShell className="h-[420px] shrink-0 lg:h-[46%]">
               <CompanyPanel
                 company={selectedCompany}
                 onClose={() => setSelectedCompany(null)}
@@ -342,7 +411,7 @@ export function InvestorEyeScreen() {
               />
             </PanelShell>
           ) : selectedCountry ? (
-            <PanelShell onClose={() => setSelectedCountry(null)}>
+            <PanelShell className="h-[420px] shrink-0 lg:h-[46%]">
               <CountryPanel
                 iso2={selectedCountry}
                 name={countryByIso2(selectedCountry)?.name ?? selectedCountry}
@@ -352,7 +421,7 @@ export function InvestorEyeScreen() {
               />
             </PanelShell>
           ) : liveEvent ? (
-            <PanelShell onClose={() => setSelectedEvent(null)}>
+            <PanelShell className="h-[460px] shrink-0 lg:h-[52%]">
               <EventPanel
                 event={liveEvent}
                 onClose={() => setSelectedEvent(null)}
@@ -360,10 +429,19 @@ export function InvestorEyeScreen() {
               />
             </PanelShell>
           ) : selectedMarket ? (
-            <PanelShell onClose={() => setSelectedMarket(null)}>
+            <PanelShell className="shrink-0">
               <div className="px-4 py-3">
-                <div className="text-sm font-semibold text-foreground">
-                  {selectedMarket.name} — {selectedMarket.symbol}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-semibold text-foreground">
+                    {selectedMarket.name} — {selectedMarket.symbol}
+                  </div>
+                  <button
+                    onClick={() => setSelectedMarket(null)}
+                    className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+                    aria-label="Close market panel"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
                 <div className="mt-2 flex items-baseline gap-2">
                   <span className="text-lg font-semibold text-foreground">
@@ -388,49 +466,59 @@ export function InvestorEyeScreen() {
                 )}
               </div>
             </PanelShell>
-          ) : (
-            <div className="glass-card rounded-xl border border-white/10 px-3 py-4 text-[11px] text-muted-foreground">
-              <div className="mb-1 font-semibold text-foreground">Explore the world</div>
-              Click a country, an event pin or a market dot on the map — its intelligence appears here.
-            </div>
-          )}
-        </div>
+          ) : null}
 
-        {/* Then the standing panels: change summary, risk, transmission, graph. */}
-        <div className="space-y-2 lg:col-span-1">
-          {state && <WhatChanged events={state.events} markets={state.markets} windowHours={hours} />}
-          <RiskPanel />
-          {needEconomy && (
-            <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2">
-              <div className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Economic Metric</div>
-              <select
-                value={economicMetric}
-                onChange={(e) => setEconomicMetric(e.target.value)}
-                className="w-full rounded-lg border border-border/40 bg-background/60 px-2 py-1.5 text-[11px] text-foreground outline-none focus:border-primary/40"
-              >
-                {ECONOMIC_METRIC_OPTIONS.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <LiveFeed
+            className="min-h-[240px] flex-1 lg:min-h-0"
+            events={state?.events ?? []}
+            onSelect={handleSelectEvent}
+            loading={loading}
+            selectedKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : undefined}
+          />
         </div>
+      </div>
 
-        <div className="space-y-2 lg:col-span-1">
-          <TransmissionsPanel />
-          {activeLayers.includes('portfolio') && (
-            <label className="glass-card flex cursor-pointer items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-[10px]">
-              <span className="text-muted-foreground">Portfolio overlay</span>
-              <input
-                type="checkbox"
-                checked={portfolioOverlay}
-                onChange={(e) => setPortfolioOverlay(e.target.checked)}
-                className="h-3.5 w-3.5 accent-[color:var(--primary)]"
-              />
-            </label>
-          )}
-          {needPortfolio && <PortfolioPanel onExposureReady={setPortfolioExposure} />}
-        </div>
+      {/* Controls sit directly under the map, still above the fold. */}
+      <div className="mt-2 shrink-0 space-y-2">
+        <LayerController active={activeLayers} onToggle={toggleLayer} available={availableLayers} />
+        <Timeline value={timeRange} onChange={setTimeRange} events={state?.events ?? []} windowHours={hours} />
+      </div>
+
+      {/* ── DETAIL — the standing analysis panels ────────────────────────── */}
+      {/* CSS multi-column "masonry": a 3-track grid reserves the height of its
+          TALLEST child in every track, which left a large dead gap under the
+          short panels. Columns pack independently, so each panel sits directly
+          beneath the previous one. `break-inside-avoid` keeps panels intact. */}
+      <div className="mt-2 shrink-0 lg:columns-3 lg:gap-2 [&>*]:mb-2 [&>*]:break-inside-avoid">
+        {needEconomy && (
+          <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2">
+            <div className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Economic Metric</div>
+            <select
+              value={economicMetric}
+              onChange={(e) => setEconomicMetric(e.target.value)}
+              className="w-full rounded-lg border border-border/40 bg-background/60 px-2 py-1.5 text-[11px] text-foreground outline-none focus:border-primary/40"
+            >
+              {ECONOMIC_METRIC_OPTIONS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {state && <WhatChanged events={state.events} markets={state.markets} windowHours={hours} />}
+        <RiskPanel />
+        <TransmissionsPanel />
+        {activeLayers.includes('portfolio') && (
+          <label className="glass-card flex cursor-pointer items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-[10px]">
+            <span className="text-muted-foreground">Portfolio overlay</span>
+            <input
+              type="checkbox"
+              checked={portfolioOverlay}
+              onChange={(e) => setPortfolioOverlay(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[color:var(--primary)]"
+            />
+          </label>
+        )}
+        {needPortfolio && <PortfolioPanel onExposureReady={setPortfolioExposure} />}
       </div>
 
       {/* The graph wants width, so it gets its own full-width row. */}
@@ -449,17 +537,17 @@ export function InvestorEyeScreen() {
   );
 }
 
-/** Frosted frame for a selection panel, so the three columns line up. */
-function PanelShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+/**
+ * Frosted frame for a selection panel.
+ *
+ * Deliberately renders NO close button: every panel inside (Event, Country,
+ * Company) already owns one in its header, and the inline market card below has
+ * its own. A button here produced TWO overlapping crosses in the corner.
+ * `children` is responsible for its own dismiss affordance.
+ */
+function PanelShell({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="relative max-h-[420px] overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card">
-      <button
-        onClick={onClose}
-        className="absolute right-2 top-2 z-10 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-        aria-label="Close panel"
-      >
-        <X size={13} />
-      </button>
+    <div className={cn('relative overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card', className ?? 'max-h-[420px]')}>
       {children}
     </div>
   );

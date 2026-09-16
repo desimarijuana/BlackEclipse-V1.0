@@ -39,16 +39,12 @@ const CATEGORY_COLORED = new Set<string>(['conflict', 'weather', 'energy', 'port
 export const WORLD_MAP_NAME = 'blackeclipse-world';
 
 /**
- * A 16×16 solid dark PNG, as a data URI, used as the echarts-gl globe surface.
- *
- * Why not a real world texture: a photographic map would be the brightest thing
- * on screen and fight the event pins for attention (and would need a binary
- * asset). echarts-gl's own default is exactly that — it rendered a white sphere
- * and hid the data. This is generated inline so there is no asset to ship and
- * the sphere matches the 2D land fill (#141416).
+ * Note on the 3D globe surface: `echarts-gl`'s `globe` component has no `map`
+ * property — it takes a raster `baseTexture`. Rather than ship a binary asset
+ * or a flat fill, the texture is drawn at runtime from the same world GeoJSON
+ * the 2D map uses (`app-geo.worldGlobeTexture`) and passed in via
+ * `MapOptionOptions.globeTexture`.
  */
-const GLOBE_TEXTURE =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mMQEREjCTGMahjVMHw1AAD2kj4BiarPfQAAAABJRU5ErkJggg==';
 
 const GLASS_TOOLTIP = {
   backgroundColor: 'rgba(18,18,20,0.5)',
@@ -69,10 +65,27 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Unwrap the `LayerDatum` from an ECharts callback payload.
+ *
+ * ECharts hands tooltip/click callbacks its OWN wrapper object
+ * (`{ name, value, severity, _datum }`), never the `LayerDatum` itself. Reading
+ * `params.data.data` (as an earlier version did) is always `undefined`, which
+ * crashed `eventTooltip` on every hover with
+ * "Cannot read properties of undefined (reading 'eventType')".
+ *
+ * Exported so the contract is unit-tested — the crash was invisible to tsc
+ * because the payload is typed as `unknown` at the ECharts boundary.
+ */
+export function unwrapDatum<T extends LayerDatum>(params: { data?: T & { _datum?: T } } | undefined): T | undefined {
+  const raw = params?.data;
+  return raw?._datum ?? raw;
+}
+
 /** Build the tooltip HTML from a layer's structured `TooltipContent`. */
 function tooltipFormatter(layer: MapLayer) {
   return (params: { data?: LayerDatum }): string => {
-    const datum = params.data;
+    const datum = unwrapDatum(params);
     if (!datum || !layer.tooltip) return '';
     const content = layer.tooltip(datum);
     const rows = content.rows
@@ -133,6 +146,12 @@ export interface MapOptionOptions {
   highlightPoints?: Array<{ iso2: string; name: string; lon: number; lat: number }>;
   /** Presentation mode. Defaults to the flat map. */
   mode?: MapMode;
+  /**
+   * Globe-only: the equirectangular world texture drawn from the same GeoJSON.
+   * Produced asynchronously (`worldGlobeTexture()`), so it is passed in rather
+   * than imported here.
+   */
+  globeTexture?: string;
 }
 
 /** Convert ISO2 → the ECharts map feature name is handled via `nameMap`. */
@@ -251,7 +270,10 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
           }),
       data: data.map((d) => ({
         name: d.label ?? d.id,
-        value: [d.lon, d.lat, d.value ?? 1],
+        // `scatter3D` reads a THIRD array element as ALTITUDE. Passing `value`
+        // there (as a 2D scatter legitimately does) lifted the points off the
+        // globe into radiating spikes. 3D series get exactly [lon, lat].
+        value: isGlobe ? [d.lon, d.lat] : [d.lon, d.lat, d.value ?? 1],
         severity: d.severity,
         _datum: d,
       })),
@@ -291,18 +313,22 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
         globe: {
           /**
            * echarts-gl has NO `map` property — it takes a surface TEXTURE. Its
-           * default is a bright world-map image, which rendered as a washed-out
-           * white sphere that drowned the event pins. `GLOBE_TEXTURE` is a tiny
-           * solid dark PNG (matching the 2D land fill) so the sphere reads as a
-           * dark planet and the pins stay the brightest thing on screen.
+           * built-in default is a bright photographic world image that drowns
+           * the pins; a solid dark texture (the previous approach) made the
+           * sphere invisible on the dark page. `baseTexture` is therefore drawn
+           * at runtime from the SAME GeoJSON the 2D map uses (see
+           * `app-geo.worldGlobeTexture`) — dark ocean, lighter land, faint
+           * graticule — so the globe is unmistakably a planet. Callers pass it
+           * in because it is produced asynchronously.
            */
-          baseTexture: GLOBE_TEXTURE,
+          baseTexture: options.globeTexture,
           globeRadius: 82,
-          shading: 'color' as const,
+          // `lambert` keeps the land/shadows legible; `color` ignored the texture.
+          shading: 'lambert' as const,
           color: '#141416',
           light: {
-            ambient: { intensity: 0.9 },
-            main: { intensity: 0.35, shadow: false },
+            ambient: { intensity: 0.95 },
+            main: { intensity: 0.45, shadow: false },
           },
           atmosphere: { show: false },
           viewControl: {
@@ -354,7 +380,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
                   }),
               data: highlightPoints.map((h) => ({
                 name: h.name,
-                value: [h.lon, h.lat, 1],
+                // Same altitude rule as above: no third element on the globe.
+                value: isGlobe ? [h.lon, h.lat] : [h.lon, h.lat, 1],
               })),
             },
           ]
@@ -378,10 +405,10 @@ export function bindLayerEvents(
 ): void {
   chart.off('click');
   chart.on('click', (params: unknown) => {
-    const p = params as { seriesId?: string; data?: { _datum?: LayerDatum }; name?: string; componentType?: string };
+    const p = params as { seriesId?: string; data?: LayerDatum & { _datum?: LayerDatum }; name?: string; componentType?: string };
     if (p.seriesId) {
       const layer = layers.find((l) => l.id === p.seriesId);
-      const datum = p.data?._datum;
+      const datum = unwrapDatum(p);
       if (layer && datum) {
         layer.onClick?.(datum);
         if (layer.id === 'events') handlers.onEventClick?.(datum, layer);

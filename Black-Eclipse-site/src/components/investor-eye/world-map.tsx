@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { TopLoader } from '@/components/ui/top-loader';
-import { ensureWorldMapRegistered, iso2ForFeatureName, type GeoFeature } from '@/lib/investor-eye/app-geo';
+import { ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture, type GeoFeature } from '@/lib/investor-eye/app-geo';
 import { bindLayerEvents, buildMapOption, type MapMode } from '@/lib/investor-eye/map-echarts';
 import type { MapLayer } from '@/lib/investor-eye/types';
 
@@ -64,6 +64,8 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const geoReadyRef = useRef(false);
+  /** Equirectangular world texture for the 3D globe (drawn once, then reused). */
+  const globeTextureRef = useRef<string | undefined>(undefined);
 
   const handleCountryClick = useMemo(
     () => (name: string) => {
@@ -73,15 +75,30 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     [],
   );
 
-  // Load globe support when (and only when) it is requested.
+  // Load globe support when (and only when) it is requested. The surface
+  // texture is drawn from the same GeoJSON as the 2D map, so it is awaited here
+  // and passed into the option builder rather than imported there.
   useEffect(() => {
     if (mode !== 'globe' || glReady) return;
     let cancelled = false;
-    void ensureGlobeSupport().then((ok) => {
+    void (async () => {
+      const ok = await ensureGlobeSupport();
       if (cancelled) return;
-      if (ok) setGlReady(true);
-      else onModeUnavailable?.();
-    });
+      if (!ok) {
+        onModeUnavailable?.();
+        return;
+      }
+      try {
+        const tex = await worldGlobeTexture();
+        if (cancelled) return;
+        globeTextureRef.current = tex;
+      } catch (err) {
+        // A texture failure must not blank the globe — echarts-gl falls back to
+        // its own default surface, which is at least visible.
+        console.warn('[investor-eye] globe texture failed, using default surface:', err);
+      }
+      if (!cancelled) setGlReady(true);
+    })();
     return () => { cancelled = true; };
   }, [mode, glReady, onModeUnavailable]);
 
@@ -107,7 +124,7 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
         const chart = echarts.init(ref.current, undefined, { renderer: 'canvas' });
         chartRef.current = chart;
         bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick });
-        chart.setOption(buildMapOption({ layers: layersRef.current, highlightPoints, mode }));
+        chart.setOption(buildMapOption({ layers: layersRef.current, highlightPoints, mode, globeTexture: globeTextureRef.current }));
         setStatus('ready');
 
         const ro = new ResizeObserver(() => chart.resize());
@@ -141,7 +158,7 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     // Only the series change here, so `replaceMerge: ['series']` is always valid
     // regardless of which base component (geo or globe) is active.
     chart.setOption(
-      buildMapOption({ layers, highlightPoints, mode }),
+      buildMapOption({ layers, highlightPoints, mode, globeTexture: globeTextureRef.current }),
       { replaceMerge: ['series'] } as never,
     );
   }, [layers, highlightPoints, mode, glReady, handleCountryClick]);

@@ -371,4 +371,10 @@ export interface InvestorEyeState {
   /** Present when the event feed itself could not be produced. */
   eventsUnavailable?: boolean;
   lastKnownAt?: string | null;
+  /**
+   * True when this payload is a stale snapshot served immediately while a
+   * rebuild runs in the background (stale-while-revalidate). The UI shows it as
+   * cached/last-known rather than live, which is why it is explicit.
+   */
+  refreshing?: boolean;
 }

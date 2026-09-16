@@ -56,6 +56,12 @@ interface InvestorEyeStore {
   timeRange: TimeRangeId;
   /** Flat map or 3D globe (globe is lazy-loaded; falls back to `2d`). */
   mapMode: MapMode;
+  /**
+   * Immersive full-page mode: the world fills the viewport and only a minimal
+   * control strip remains. View state, not a preference — deliberately NOT
+   * persisted, so reopening the app never traps the user in full screen.
+   */
+  fullPage: boolean;
 
   /** Economic metric for the economy layer. */
   economicMetric: string;
@@ -76,6 +82,7 @@ interface InvestorEyeStore {
   setLayers: (ids: LayerId[]) => void;
   setTimeRange: (id: TimeRangeId) => void;
   setMapMode: (mode: MapMode) => void;
+  setFullPage: (on: boolean) => void;
   setEconomicMetric: (id: string) => void;
   setSearchQuery: (q: string) => void;
   setPortfolioOverlay: (on: boolean) => void;
@@ -150,6 +157,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     activeLayers: persisted.activeLayers ?? defaultActive,
     timeRange: persisted.timeRange ?? '24h',
     mapMode: persisted.mapMode ?? '2d',
+    fullPage: false,
     economicMetric: persisted.economicMetric ?? 'inflation',
     searchQuery: '',
     portfolioOverlay: persisted.portfolioOverlay ?? false,
@@ -184,6 +192,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
       set({ mapMode: mode });
       persist(get());
     },
+    setFullPage: (on) => set({ fullPage: on }),
     setEconomicMetric: (id) => {
       set({ economicMetric: id });
       persist(get());

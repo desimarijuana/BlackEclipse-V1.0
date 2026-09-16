@@ -47,7 +47,11 @@ Black-Eclipse-site/
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |
 | Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
 | Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) |
-| Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder) + `store.ts` `DEFAULT_LAYERS` |
+| Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder + `LAYER_META` colour/group/symbol) + `store.ts` `DEFAULT_LAYERS` |
+| Change Investor Eye colours / layer groups / legend | `src/lib/investor-eye/layers.ts` (`LAYER_GROUPS`, `LayerMeta`, `SEVERITY_COLORS`) — consumed by the controller, timeline, map adapter and full-page dock |
+| Work on the full-page "map only" mode | `src/components/investor-eye/full-page-map.tsx` (+ `store.fullPage`); reuses `WorldMap`/`EventPanel`, portaled to body |
+| Work on the live event stream / conflict feed | `src/components/investor-eye/live-feed.tsx`; conflict RSS wires in `DEFAULT_NEWS_FEEDS` (`src/lib/settings.ts`) |
+| Change the 3D globe surface or the 2D map geometry | `src/lib/investor-eye/app-geo.ts` (`worldGlobeTexture()` draws the globe texture from `public/geo/world.geo.json`; `ensureWorldMapRegistered()` for 2D) |
 | Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
 | Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |

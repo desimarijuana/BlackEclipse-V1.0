@@ -194,6 +194,16 @@ export const DEFAULT_NEWS_FEEDS: NewsFeed[] = [
   { id: "gn-central-banks", url: "https://news.google.com/rss/search?q=federal+reserve+OR+interest+rate+decision+OR+central+bank&hl=en", source: "Google News", category: "CENTRAL BANKS", region: "GLOBAL", tier: 2, enabled: true },
   { id: "gn-trade", url: "https://news.google.com/rss/search?q=tariffs+OR+trade+war+OR+trade+deal&hl=en", source: "Google News", category: "TRADE", region: "GLOBAL", tier: 2, enabled: true },
   { id: "gn-war", url: "https://news.google.com/rss/search?q=war+OR+conflict+OR+military+operation&hl=en", source: "Google News", category: "WAR", region: "GLOBAL", tier: 2, enabled: true },
+  // ─── Tier 2 — Conflict watch (Investor Eye) ──────────────────────────
+  // Dedicated conflict wires. The general GEOPOLITICS feeds carry conflict
+  // stories mixed with diplomacy and trade; these are scoped to active conflict
+  // so the Investor Eye "Conflict" lens is dense and current rather than relying
+  // on GDELT's CAMEO coding alone.
+  { id: "gn-conflict-now", url: "https://news.google.com/rss/search?q=(airstrike+OR+shelling+OR+offensive+OR+ceasefire+OR+militants)+when:2d&hl=en", source: "Google News", category: "WAR", region: "GLOBAL", tier: 1, enabled: true },
+  { id: "gn-conflict-mideast", url: "https://news.google.com/rss/search?q=(Gaza+OR+Lebanon+OR+Red+Sea+OR+Yemen+OR+Syria+OR+Iran)+conflict+when:3d&hl=en", source: "Google News", category: "WAR", region: "MENA", tier: 1, enabled: true },
+  { id: "gn-conflict-ukraine", url: "https://news.google.com/rss/search?q=(Ukraine+OR+Russia)+strike+OR+front+line+OR+drone+when:3d&hl=en", source: "Google News", category: "WAR", region: "EU", tier: 1, enabled: true },
+  { id: "gn-conflict-shipping", url: "https://news.google.com/rss/search?q=(shipping+OR+tanker+OR+port+OR+strait)+attack+OR+blockade+OR+disruption+when:3d&hl=en", source: "Google News", category: "WAR", region: "GLOBAL", tier: 1, enabled: true },
+  { id: "gn-conflict-coup", url: "https://news.google.com/rss/search?q=(coup+OR+martial+law+OR+unrest+OR+armed+group)+when:3d&hl=en", source: "Google News", category: "WAR", region: "GLOBAL", tier: 1, enabled: true },
   { id: "gn-politics", url: "https://news.google.com/rss/search?q=politics+OR+election+OR+government&hl=en", source: "Google News", category: "POLITICS", region: "GLOBAL", tier: 2, enabled: true },
   { id: "gn-defense", url: "https://news.google.com/rss/search?q=defense+OR+defence+spending+OR+military+contracts&hl=en", source: "Google News", category: "DEFENSE", region: "GLOBAL", tier: 2, enabled: true },
   { id: "gn-ai", url: "https://news.google.com/rss/search?q=artificial+intelligence+OR+AI+OR+machine+learning&hl=en", source: "Google News", category: "AI", region: "GLOBAL", tier: 2, enabled: true },

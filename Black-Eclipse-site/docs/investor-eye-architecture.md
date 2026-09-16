@@ -1,14 +1,16 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-16
 ---
 
 # Investor Eye — Architecture & Audit
 
 **Who this is for:** anyone implementing or extending Investor Eye (the
 financial/geopolitical world-state surface). Read §1–2 for the audit, §3 for the
-design, §4 for the Phase 1 build order, and §5 for Phase 2.
+design, §4 for the Phase 1 build order, §5 for Phase 2, and §5b–5d for the
+later presentation/quality passes (globe, colour-coded layers, full-page mode,
+and the runtime bugs fixed after them).
 
 > This document is Phase 0's output. The repository is authoritative: where the
 > implementation spec and the code disagreed, the code won and this record notes
@@ -389,6 +391,150 @@ Optional enrichment must never block the primary response. The candle backfill
 took ~170s across 30 markets and, awaited inside `assembleState`, blocked the
 first world-state fetch — the map rendered "0 events / DATA UNAVAILABLE" while
 the request was still running. It is now fire-and-forget.
+
+## 5c. Phase 5 — colour-coded layers, full-page map mode
+
+Two presentation upgrades; no data-contract change.
+
+### Colour-coded layers (`layers.ts`, `layer-controller.tsx`)
+
+`LAYER_META` is still the single source of truth for the controller, and each
+entry now also carries `group`, `color`, `symbol` and `hint`. `LAYER_GROUPS`
+(Events · Hazards · Energy & Trade · Economy · Markets) gives the controller its
+grouped strips and `groupedLayerIds()` its ordering, so a new layer appears
+colour-coded with no controller edit.
+
+**Where the colour comes from:** the adapter (`map-echarts.ts`) reads
+`layerColor(layer.id)` from the same registry, so the chip and the pin can never
+drift. Two deliberate rules:
+
+- `CATEGORY_COLORED` (`conflict`, `weather`, `energy`, `portfolio`) tints points
+  by *category* — those layers exist precisely to be told apart.
+- `events`, `markets` and `companies` keep severity/sign colouring: `events`
+  mixes categories, and for markets a red/green point is real information
+  (severity, direction), not a category.
+
+Marker `symbol` is passed to ECharts where the series supports it, and repeated
+in the legend, so categories are distinguishable **without colour alone**
+(spec §8 / §34). `timeline.tsx` follows the same principle: each window has a
+hue (cool = short, warm = long) and the severity palette is exported from
+`layers.ts` (`SEVERITY_COLORS`, `SEVERITY_ORDER`) so tick colours and legend
+agree by construction.
+
+### Full-page map mode (`full-page-map.tsx`)
+
+An immersive view of the **same** surface: `WorldMap` fills the viewport, a top
+strip keeps identity + honesty (event/market counts, DATA UNAVAILABLE · last
+known), and a bottom dock keeps the colour-coded layer chips, the time window
+and the selected event. It reuses `MapLayer[]`, the store and `EventPanel` — it
+is a *view*, not a route.
+
+Operational rules it follows:
+
+- Portaled to `document.body` (a transformed/animated ancestor would scope the
+  frosted glass and trap `position: fixed`).
+- `document.body` scroll is locked while open; Esc exits. The screen-level Esc
+  handler stands down when `fullPage` is on (the overlay owns Escape first).
+- `store.fullPage` is **not** persisted: a persisted full-screen flag would trap
+  a returning user in it. Only `mapMode`/`timeRange`/layers persist.
+
+## 5d. Phase 6 — the four bugs that shipped, and their real causes
+
+Diagnosed by loading the running page in Chrome and reading the pixels — every
+one of these looked fine in the source.
+
+### 1. The globe was a blank sphere
+
+`echarts-gl`'s `globe` component has **no `map` property**; it takes a raster
+`baseTexture`. Its built-in default is a bright photographic world image (drowns
+the pins), so the first attempt substituted a 16×16 **solid dark** PNG — a dark
+sphere on a dark page. It was rendering perfectly and was invisible; the pins at
+its edge are what made it look like "a ring of dots".
+
+The `geo3D`/`map3D` alternatives were considered and rejected as a rewrite.
+Instead `app-geo.ts` now **draws the texture from the same GeoJSON the 2D map
+uses** (`worldGlobeTexture()` → 2048×1024 equirectangular canvas → data URL):
+dark ocean, lighter land, cyan coastlines, faint graticule. No asset to ship.
+
+Two secondary bugs surfaced while building it:
+
+- **Nesting off by one.** `Polygon.coordinates` is `ring[]` (one polygon) but
+  `MultiPolygon.coordinates` is `polygon[]`. Returning "rings" for both meant a
+  MultiPolygon's rings were treated as polygons, so **nothing drew** — the globe
+  showed only the graticule. `geometryPolygons()` normalizes both.
+- **`scatter3D` reads a third coordinate as altitude.** Sharing the 2D
+  `[lon, lat, value]` data shape lifted every pin into a radiating spike out of
+  the sphere. 3D series now emit exactly `[lon, lat]`; 2D keeps the third slot.
+
+### 2. Clicking a category pin did nothing
+
+`filterEventsLayer()` builds `conflict`, `weather` **and** `energy`, and it only
+ever set `tooltip`. `buildTradeLayer` was the same. The generic `events` layer
+had an `onClick`, so the bug only showed on the category layers — precisely the
+pins a user clicks to ask "what is this?". All four now take `onSelect`, wired
+through `buildAllLayers`. (`layers.test.ts` asserts it, since a missing optional
+`onClick` is invisible to the type checker.)
+
+### 3. "DATA UNAVAILABLE" flapping
+
+Measured: `/api/investor-eye/state` took **15–18s** on a cold assembly (GDELT
+bulk + news + USGS + markets ×6 runs) and it *awaited* that even when a good
+previous state existed. Compounding it, the client equated `data === null` with
+unavailable — which is also true *before the first fetch resolves*. Result: the
+map painted "DATA UNAVAILABLE" on every visit, then flipped to LIVE.
+
+- `assembleState()` is now genuine **stale-while-revalidate**: fresh cache →
+  return it; stale cache → return it **now** and rebuild in the background;
+  persisted last-known (cold start) → return it now and rebuild; only a genuine
+  first run awaits the build. Stale serves are tagged `CACHED` +
+  `refreshing: true` so the UI never calls them live.
+- The screen distinguishes three states: `LOADING WORLD STATE…`,
+  `LAST KNOWN HH:MM UTC · REFRESHING`, `DATA UNAVAILABLE`. The "we tried" signal
+  is `HubEntry.updatedAt !== null`, not `data === null`.
+
+### 4. The layout put the answer below the fold
+
+Clicking a pin *did* select it — into a panel stacked under the map, off-screen.
+Fixed by restructuring the hero into a **map + 360px right rail**: the selection
+panel renders beside the map, and beneath it a new `LiveFeed` gives the
+always-on "what is happening" stream (lenses: Conflict · All · Energy · Trade ·
+Hazards, with counts). The map and rail share one bounded height
+(`lg:h-[58vh]` + `lg:h-full`), so the rail can no longer overflow the viewport.
+The empty "Explore the world" card is gone.
+
+### Conflict news
+
+GDELT's CAMEO coding under-represents ongoing conflict relative to diplomacy, so
+five conflict-scoped RSS wires were added to `DEFAULT_NEWS_FEEDS` (tier 1,
+category `WAR`): active-conflict language, MENA, Ukraine, shipping attacks, and
+coups/unrest. No new source adapter — the existing `sources/news.ts` reads them
+from `NewsItem` like any other feed.
+
+### 5. Hovering any pin crashed the map
+
+`tooltipFormatter` handed ECharts' own wrapper object (`{name, value, severity,
+_datum}`) to `layer.tooltip()`. Every `eventTooltip` then read
+`undefined.eventType`. The **click** path had always unwrapped `_datum`; the
+tooltip path never did — an asymmetry that went unnoticed because a tooltip
+failure only shows up on hover.
+
+`unwrapDatum()` (`map-echarts.ts`) is now the single unwrap used by both, and
+`eventTooltip` has a defensive guard (a malformed datum returns a minimal
+tooltip rather than throwing). **This class of bug is invisible to `tsc`** — the
+ECharts callback payload is `unknown` at the boundary — so
+`map-echarts.test.ts` exercises the real formatter with wrapped payloads. It
+also pins the globe data shape (`[lon, lat]`, never the 2D third slot).
+
+### 6. Loading states and the masonry row
+
+- The hero shows a centred dot-grid loader while the first world-state fetch is
+  in flight (the rail's LiveFeed shows its own), instead of a blank map for the
+  ~15s cold assembly.
+- The analysis row is **CSS multi-column masonry**, not a grid. A 3-track grid
+  reserves the tallest child's height in *every* track, so the short "What
+  Changed" card left a large dead gap. Columns pack independently.
+
+---
 
 ## 6. Conflicts with the spec, and how they were resolved
 

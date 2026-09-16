@@ -89,11 +89,21 @@ const SEVERITY_COLOR: Record<EventSeverity, string> = {
   low: '#38bdf8',
 };
 
+/** Severity palette + order, exported so legends and rails stay in sync. */
+export const SEVERITY_COLORS = SEVERITY_COLOR;
+export const SEVERITY_ORDER: EventSeverity[] = ['low', 'medium', 'high', 'critical'];
+
 export function severityColor(severity: EventSeverity): string {
   return SEVERITY_COLOR[severity] ?? SEVERITY_COLOR.low;
 }
 
 function eventTooltip(event: NormalizedEvent): TooltipContent {
+  // Defensive: a tooltip must never throw and take the whole map down with it.
+  // The map is the primary interface, so a malformed datum degrades to a
+  // minimal tooltip instead of a React error boundary.
+  if (!event || typeof event !== 'object' || typeof event.eventType !== 'string') {
+    return { title: 'Event', rows: [{ label: 'Detail', value: 'unavailable' }] };
+  }
   const rows: Array<{ label: string; value: string }> = [
     { label: 'Type', value: event.eventType.replace(/_/g, ' ') },
     { label: 'Severity', value: event.severity },
@@ -219,21 +229,27 @@ export function buildMarketsLayer(
 // ── Phase 2 layer builders ───────────────────────────────────────────────────
 
 /** Conflict layer — conflict/military/protest events with severity fill. */
-export function buildConflictLayer(events: NormalizedEvent[]): MapLayer {
-  return filterEventsLayer('conflict', 'Conflict', events, ['conflict', 'military', 'protest']);
+export function buildConflictLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return filterEventsLayer('conflict', 'Conflict', events, ['conflict', 'military', 'protest'], onSelect);
 }
 
 /** Weather layer — natural-disaster events (USGS earthquakes). */
-export function buildWeatherLayer(events: NormalizedEvent[]): MapLayer {
-  return filterEventsLayer('weather', 'Weather & Natural Events', events, ['natural_disaster']);
+export function buildWeatherLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return filterEventsLayer('weather', 'Weather & Natural Events', events, ['natural_disaster'], onSelect);
 }
 
 /** Energy layer — energy events highlighted, energy commodities emphasised. */
-export function buildEnergyLayer(events: NormalizedEvent[]): MapLayer {
-  return filterEventsLayer('energy', 'Energy', events, ['energy']);
+export function buildEnergyLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return filterEventsLayer('energy', 'Energy', events, ['energy'], onSelect);
 }
 
-function filterEventsLayer(id: string, name: string, events: NormalizedEvent[], types: string[]): MapLayer {
+function filterEventsLayer(
+  id: string,
+  name: string,
+  events: NormalizedEvent[],
+  types: string[],
+  onSelect?: (e: NormalizedEvent) => void,
+): MapLayer {
   const subset = events.filter((e) => types.includes(e.eventType) && typeof e.lon === 'number');
   const data: LayerDatum[] = subset.map((e) => ({
     id: `evt-${e.id ?? e.dedupKey}`,
@@ -252,6 +268,9 @@ function filterEventsLayer(id: string, name: string, events: NormalizedEvent[], 
     zIndex: 25,
     data: () => data,
     tooltip: (datum) => eventTooltip(datum.data as NormalizedEvent),
+    // Without this the pin only showed a tooltip and a click did nothing — the
+    // category layers are exactly the ones users click to ask "what is this?".
+    onClick: (datum) => onSelect?.(datum.data as NormalizedEvent),
   };
 }
 
@@ -260,7 +279,11 @@ function filterEventsLayer(id: string, name: string, events: NormalizedEvent[], 
  * partner among events. Only emitted when the SAME event names both endpoints,
  * so a line is an observed co-mention, never an inferred trade route.
  */
-export function buildTradeLayer(events: NormalizedEvent[], countries: CountrySummary[]): MapLayer {
+export function buildTradeLayer(
+  events: NormalizedEvent[],
+  countries: CountrySummary[],
+  onSelect?: (e: NormalizedEvent) => void,
+): MapLayer {
   const byIso = new Map(countries.map((c) => [c.iso2, c]));
   const lines: LayerDatum[] = [];
   for (const e of events) {
@@ -293,6 +316,10 @@ export function buildTradeLayer(events: NormalizedEvent[], countries: CountrySum
     tooltip: (datum) => {
       const d = datum.data as { event: NormalizedEvent };
       return eventTooltip(d.event);
+    },
+    onClick: (datum) => {
+      const d = datum.data as { event: NormalizedEvent };
+      onSelect?.(d.event);
     },
   };
 }
@@ -461,10 +488,10 @@ export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
     buildCountryEventFill(state.countries, 'density', 'Event Density', false),
     buildEventsLayer(state.events, inputs.onSelectEvent),
     buildMarketsLayer(state.markets, state.countries, inputs.onSelectMarket),
-    buildConflictLayer(state.events),
-    buildEnergyLayer(state.events),
-    buildWeatherLayer(state.events),
-    buildTradeLayer(state.events, state.countries),
+    buildConflictLayer(state.events, inputs.onSelectEvent),
+    buildEnergyLayer(state.events, inputs.onSelectEvent),
+    buildWeatherLayer(state.events, inputs.onSelectEvent),
+    buildTradeLayer(state.events, state.countries, inputs.onSelectEvent),
   ];
   if (inputs.economicValues) {
     layers.push(buildEconomyLayer(inputs.economicValues.values, inputs.economicValues.metricLabel));

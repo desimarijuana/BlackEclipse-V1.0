@@ -43,6 +43,107 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — Removed the doubled close button on selection panels.
+  `PanelShell` drew its own "×" while the Event/Country/Company panels already
+  render one in their header, so the corner showed TWO overlapping crosses.
+  `PanelShell` is now a pure frosted frame (documented as owning no dismiss
+  affordance); the inline market card gained the close button it was relying on
+  the shell for. Verified in Chrome: exactly one close button, still dismisses.
+  no doc change — pure presentational fix, contracts unchanged.
+
+- **Investor Eye** — Fixed the tooltip crash, added a loading state, and closed
+  the dead gap in the analysis row.
+  - **Crash on every map hover.** `tooltipFormatter` passed ECharts' own wrapper
+    (`{name, value, severity, _datum}`) straight to `layer.tooltip()`, so
+    `eventTooltip` read `undefined.eventType` — "Cannot read properties of
+    undefined (reading 'eventType')". The click path already unwrapped `_datum`;
+    the tooltip never did. Extracted `unwrapDatum()` (`map-echarts.ts`) and used
+    it in both, plus a defensive guard in `eventTooltip` so a malformed datum
+    degrades to a minimal tooltip instead of taking the map down. The bug was
+    invisible to `tsc` (the payload is `unknown` at the ECharts boundary), so
+    `map-echarts.test.ts` now drives the real formatter with wrapped payloads —
+    8 tests, including the globe `[lon, lat]` altitude shape.
+  - **Loading state.** The map now shows a centred dot-grid loader
+    ("Loading world state · 24H window") over the canvas while the first
+    world-state fetch is in flight, and the Live Event Stream shows its own
+    loader. Previously the hero was simply blank for the ~15s cold assembly.
+  - **Dead gap removed.** The analysis row was a 3-track grid, which reserves
+    the height of its TALLEST child in every track — so the short
+    "What Changed" column left ~300px of empty space. Replaced with CSS
+    multi-column masonry (`lg:columns-3` + `break-inside-avoid`), so each panel
+    packs directly under the previous one.
+  - Verified in Chrome: hovering an event pin renders the tooltip, clicking it
+    opens the Observed/tooltip detail panel, clicking a **conflict** pin works,
+    zero console errors. `npm run test` 774 passed, `tsc` + eslint clean.
+  docs updated: `docs/investor-eye-architecture.md`
+
+- **Investor Eye** — Fixed the reported breakage (invisible globe, dead clicks,
+  DATA UNAVAILABLE flapping, broken lower layout) and added conflict news.
+  Diagnosed by loading the real page in Chrome, not by inspection:
+  - **Globe was a blank sphere.** `echarts-gl`'s `globe` takes a raster
+    `baseTexture`, not a `map`; the previous fix replaced the default bright
+    texture with a 16×16 *solid dark* PNG — dark sphere on a dark page, so it
+    read as floating dots. It now draws a real equirectangular world texture at
+    runtime from the SAME GeoJSON the 2D map uses (`app-geo.worldGlobeTexture`:
+    dark ocean `#0b1220`, lighter land `#2b3442`, cyan coastlines, graticule).
+    Two bugs found while building it: `geometryRings` returned rings for a
+    Polygon but polygons for a MultiPolygon (off by one nesting level, so
+    nothing drew), and `scatter3D` reads a third coordinate as ALTITUDE — the
+    2D-style `[lon, lat, value]` lifted pins into radiating spikes. 3D series
+    now send exactly `[lon, lat]`.
+  - **Clicking conflict/weather/energy pins did nothing.** `filterEventsLayer`
+    (which builds all three category layers) set only a tooltip, never an
+    `onClick`, so the category pins — the ones users click to ask "what is
+    this?" — were inert. `buildTradeLayer` had the same gap. All now take an
+    `onSelect` and `buildAllLayers` wires it.
+  - **"DATA UNAVAILABLE" flapping.** `/api/investor-eye/state` awaited a cold
+    assembly (~15–18s measured) even when a good previous state existed, and the
+    client equated `data === null` with unavailable — including while the first
+    fetch was still in flight. `assembleState` is now true stale-while-revalidate
+    (fresh → stale + background rebuild → persisted last-known + rebuild → await
+    only when there is genuinely nothing), labelled `CACHED` with a `refreshing`
+    flag. The screen distinguishes LOADING / LAST KNOWN · REFRESHING /
+    UNAVAILABLE. Confirmed in-browser: no flapping, banner reads
+    "LAST KNOWN HH:MM UTC · REFRESHING".
+  - **Lower layout rebuilt.** The selection panel used to render BELOW the fold,
+    which is why a click appeared to "do nothing". The hero is now a map +
+    360px right rail holding the selection panel and a new **Live Event Stream**
+    (`live-feed.tsx`: time, type badge, severity dot, countries, source link,
+    click-to-select, lens tabs with counts); "Explore the world" is gone. The
+    map and rail share one bounded height so the rail no longer overflows.
+  - **Conflict news.** Added five conflict-scoped wires (`gn-conflict-now`,
+    `-mideast`, `-ukraine`, `-shipping`, `-coup`, tier 1, category `WAR`) so the
+    Conflict lens is dense rather than relying on GDELT's CAMEO coding alone;
+    the existing news adapter turns them into events unchanged.
+  - 3 new tests (category-layer onClick wiring, trade-line selection, legend/
+    registry consistency). Verified: `npm run test` 766 passed,
+    `npx tsc --noEmit` clean, eslint clean, zero console errors in Chrome.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
+- **Investor Eye** — Full-page "map only" mode + a colour-coded layer system.
+  - **Full-page mode** (`full-page-map.tsx`): an immersive presentation of the
+    *same* surface — the world fills the viewport, with a top strip (identity,
+    event/market counts, DATA UNAVAILABLE state, MAP/GLOBE, Esc-to-exit) and a
+    bottom dock (colour-coded layer chips + time window + the selected event as a
+    floating drawer). Reuses `MapLayer[]`, the store and `EventPanel`; it is a
+    view, not a second screen. Portaled to `document.body`, page scroll locked,
+    and `fullPage` is view state only — deliberately not persisted, so reopening
+    never traps the user in full screen. Reachable from the header and from a
+    "Map only" affordance on the map surface.
+  - **Colour-coded tabs / layers**: `LAYER_META` now carries a group, accent
+    colour, marker shape and one-line hint per layer, with a `LAYER_GROUPS`
+    registry (Events · Hazards · Energy & Trade · Economy · Markets). The layer
+    controller renders grouped, colour-coded chips plus a marker-shape legend;
+    the timeline colours each time window by length and adds a severity rail
+    legend. Point layers pass their registry symbol to ECharts, and
+    `conflict`/`weather`/`energy`/`portfolio` are tinted by category instead of
+    the old sign-based colouring — so categories no longer rely on colour alone
+    (spec §8 / §34). `timeline.tsx` and the controller were rewritten.
+  - 3 new registry tests; `.glass-card`/`-subtle`/`-drawer`/`-button` used
+    throughout (no raw blur). Verified: `npm run test` 763 passed,
+    `npx tsc --noEmit` clean, eslint clean.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Charts** — Fixed indices never rendering on charts (S&P 500, Dow, FTSE 100,
   Nifty 50, KSE 100, DAX and the rest). Four separate defects, all fixed:
   - **Wrong ticker.** The search registry registered indices under bare

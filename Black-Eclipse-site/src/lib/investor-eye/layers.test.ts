@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, LAYER_META, ALL_LAYER_IDS } from './layers';
+import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
 import type { CountrySummary, InvestorEyeState, MarketObservation, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -57,6 +57,36 @@ describe('layer registry', () => {
     expect(LAYER_META.events.phase).toBe(1);
     expect(LAYER_META.markets.phase).toBe(1);
     expect(LAYER_META.trade.phase).toBe(2);
+  });
+
+  it('colour-codes every layer from a declared group', () => {
+    const groupIds = new Set(LAYER_GROUPS.map((g) => g.id));
+    for (const id of ALL_LAYER_IDS) {
+      const meta = LAYER_META[id];
+      expect(groupIds.has(meta.group)).toBe(true);
+      // Every layer resolves to a real hex accent (its own or its group's).
+      expect(layerColor(id)).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(meta.hint.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('groups layers without losing any, and shares a palette with the legend', () => {
+    const grouped = groupedLayerIds().flatMap((g) => g.ids);
+    expect(new Set(grouped)).toEqual(new Set(ALL_LAYER_IDS));
+    // Distinct colours within a group; severity symbols are not all the same.
+    for (const { group, ids } of groupedLayerIds()) {
+      expect(group.color).toMatch(/^#[0-9a-f]{6}$/i);
+      const colors = ids.map((id) => LAYER_META[id].color);
+      expect(new Set(colors).size).toBe(colors.length);
+    }
+    expect(SEVERITY_ORDER.map((s) => SEVERITY_COLORS[s]).filter(Boolean)).toHaveLength(4);
+  });
+
+  it('assigns a marker shape to point layers and none to fills', () => {
+    expect(LAYER_META.conflict.symbol).toBeDefined();
+    expect(LAYER_META.weather.symbol).toBe('triangle');
+    expect(LAYER_META.economy.symbol).toBeUndefined();
+    expect(LAYER_META.risk.symbol).toBeUndefined();
   });
 });
 
@@ -127,6 +157,56 @@ describe('buildTradeLayer', () => {
   it('ignores non-trade events and single-country events', () => {
     expect(buildTradeLayer([event({ eventType: 'election', countries: ['US', 'CN'] })], countries).data()).toHaveLength(0);
     expect(buildTradeLayer([event({ eventType: 'trade', countries: ['US'] })], countries).data()).toHaveLength(0);
+  });
+
+  it('selects the underlying event when a line is clicked', () => {
+    const picked: NormalizedEvent[] = [];
+    const layer = buildTradeLayer(
+      [event({ id: 't1', eventType: 'trade', countries: ['US', 'CN'] })],
+      countries,
+      (e) => picked.push(e),
+    );
+    layer.onClick!(layer.data()[0]);
+    expect(picked[0]?.id).toBe('t1');
+  });
+});
+
+describe('category event layers', () => {
+  // Regression: the category layers (conflict/weather/energy) rendered a tooltip
+  // but had no onClick, so clicking a pin did nothing — which is exactly the
+  // "tell me what this is" interaction users reach for first.
+  it('conflict, energy and weather select their event on click', () => {
+    const events = [
+      event({ id: 'c1', eventType: 'conflict', lon: 10, lat: 20 }),
+      event({ id: 'e1', eventType: 'energy', lon: 11, lat: 21 }),
+      event({ id: 'w1', eventType: 'natural_disaster', lon: 12, lat: 22 }),
+    ];
+    const cases = [
+      { layer: buildConflictLayer(events, (e) => picked.push(e)), id: 'c1' },
+      { layer: buildEnergyLayer(events, (e) => picked.push(e)), id: 'e1' },
+      { layer: buildWeatherLayer(events, (e) => picked.push(e)), id: 'w1' },
+    ];
+    const picked: NormalizedEvent[] = [];
+    for (const c of cases) {
+      expect(c.layer.data()).toHaveLength(1);
+      expect(c.layer.onClick).toBeDefined();
+      c.layer.onClick!(c.layer.data()[0]);
+    }
+    expect(picked.map((e) => e.id)).toEqual(['c1', 'e1', 'w1']);
+  });
+
+  it('buildAllLayers wires selection into every event layer', () => {
+    const picked: NormalizedEvent[] = [];
+    const layers = buildAllLayers({
+      state: state([event({ id: 'x1', eventType: 'conflict', lon: 1, lat: 2 })]),
+      onSelectEvent: (e) => picked.push(e),
+    });
+    for (const id of ['events', 'conflict', 'energy', 'weather']) {
+      const layer = layers.find((l) => l.id === id);
+      expect(layer?.onClick).toBeDefined();
+      if (layer && layer.data().length > 0) layer.onClick!(layer.data()[0]);
+    }
+    expect(picked.length).toBeGreaterThan(0);
   });
 });
 
