@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
+import { searchIndices, resolveIndex } from "@/lib/indices";
+import { fetchPsxIndexQuote } from "@/lib/scraper/fetchers/psx-index";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +20,12 @@ type SuggestionRow = {
 // symbols that actually exist (with their real market + price). Uses raw SQL
 // because SQLite LIKE is case-insensitive while Prisma `contains` is not.
 //
-// Also unions in market indices from the IndexQuote table (S&P 500, Nifty 50,
-// FTSE 100, …) so the chart autocomplete can find them — indices live in a
-// separate table and are NEVER assets, so they were previously unsearchable.
+// Three sources are unioned, because an instrument can live in any of them:
+//   1. `Asset` — the JDDS universe (equities, crypto, ETFs, …).
+//   2. `IndexQuote` — index levels already fetched into JDDS.
+//   3. The index REGISTRY (`@/lib/indices`) — indices a provider can chart even
+//      before they have an IndexQuote row (e.g. the PSX benchmarks), so the
+//      autocomplete can always find "Nifty 50" or "KSE 100".
 async function searchSymbols(q: string): Promise<SuggestionRow[]> {
   const like = `%${q}%`;
   const exact = q;
@@ -65,6 +70,16 @@ async function searchSymbols(q: string): Promise<SuggestionRow[]> {
       marketId: r.marketId,
       currency: MARKET_CURRENCY[r.marketId] || "$",
       price: r.price,
+      isIndex: true,
+    })),
+    // Registry indices not already present from IndexQuote. These carry the
+    // canonical chart symbol, so picking one charts the right instrument.
+    ...searchIndices(q).map((def) => ({
+      symbol: def.symbol,
+      name: def.name,
+      marketId: def.market,
+      currency: def.currency,
+      price: 0,
       isIndex: true,
     })),
   ];
@@ -114,13 +129,14 @@ export async function GET(request: Request) {
   // --- Resolve pinned symbols path ---
   const raw = searchParams.get("symbols") || "";
   const marketScope = (searchParams.get("market") || "").trim().toUpperCase() || null;
-  // JDDS stores bare symbols (RELIANCE, not RELIANCE.NS) — strip exchange
-  // suffixes so user-typed variants like "AAPL.US" or "OGDC.PSX" resolve.
+  // Keep the ORIGINAL symbols: exchange-suffix stripping would corrupt dot-carrying
+  // index tickers (000001.SS → 000001, which is a different instrument). The
+  // stripped variant is computed per-symbol only for the Asset lookup below.
   const symbols = [
     ...new Set(
       raw
         .split(",")
-        .map((s) => s.trim().toUpperCase().replace(/\.(PSX|NS|BO|SS|SZ|BJ|TW|T|HK|KS|KQ|SI|KL|AX|L|DE|PA|AS|TO|SA|AE|JO|CA|NG|ME|IS|JK|BK|VN|US)$/, ""))
+        .map((s) => s.trim().toUpperCase())
         .filter(Boolean)
     ),
   ].slice(0, 20);
@@ -129,20 +145,65 @@ export async function GET(request: Request) {
     return NextResponse.json({ quotes: [] });
   }
 
+  // JDDS stores bare symbols (RELIANCE, not RELIANCE.NS) — strip exchange
+  // suffixes so user-typed variants like "AAPL.US" or "OGDC.PSX" resolve.
+  const assetKey = (s: string) =>
+    s.replace(/\.(PSX|NS|BO|SS|SZ|BJ|TW|T|HK|KS|KQ|SI|KL|AX|L|DE|PA|AS|TO|SA|AE|JO|CA|NG|ME|IS|JK|BK|VN|US)$/, "");
+
   try {
-    const rows = await prisma.asset.findMany({
-      where: {
-        symbol: { in: symbols },
-        isActive: true,
-        ...(marketScope ? { marketId: marketScope } : {}),
-      },
-      select: {
-        symbol: true,
-        name: true,
-        marketId: true,
-        price: { select: { price: true, changePct: true, source: true, updatedAt: true } },
-      },
-    });
+    const looksLikeIndex = (s: string) => Boolean(resolveIndex(s)) || s.startsWith("^");
+    const indexSymbols = symbols.filter(looksLikeIndex);
+    const assetSymbols = symbols.filter((s) => !looksLikeIndex(s));
+
+    const [rows, indexRows] = await Promise.all([
+      assetSymbols.length
+        ? prisma.asset.findMany({
+            where: {
+              symbol: { in: assetSymbols.map(assetKey) },
+              isActive: true,
+              ...(marketScope ? { marketId: marketScope } : {}),
+            },
+            select: {
+              symbol: true,
+              name: true,
+              marketId: true,
+              price: { select: { price: true, changePct: true, source: true, updatedAt: true } },
+            },
+          })
+        : Promise.resolve([]),
+      // Indices live in IndexQuote, keyed by their CANONICAL ticker and by any
+      // alias a caller may pass (`SPX`, `DJI`, `KSE100`). Look up both so a
+      // legacy alias still resolves to the stored index row.
+      indexSymbols.length
+        ? prisma.indexQuote.findMany({
+            where: {
+              symbol: {
+                in: indexSymbols.flatMap((s) => {
+                  const def = resolveIndex(s);
+                  return def ? [def.symbol, ...def.aliases.map(a => a.toUpperCase())] : [s];
+                }),
+              },
+            },
+            select: { symbol: true, name: true, marketId: true, price: true, changePct: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    // The IndexQuote row for a requested alias may be stored under the canonical
+    // ticker — map every requested symbol to whichever row matched.
+    const indexByCanonical = new Map<string, (typeof indexRows)[number]>();
+    for (const r of indexRows) indexByCanonical.set(r.symbol.toUpperCase(), r);
+    const findIndex = (s: string) => {
+      const def = resolveIndex(s);
+      const candidates = def
+        ? [def.symbol.toUpperCase(), ...def.aliases.map(a => a.toUpperCase()), s]
+        : [s];
+      for (const c of candidates) {
+        const row = indexByCanonical.get(c);
+        if (row) return row;
+      }
+      return undefined;
+    };
 
     // Deterministic winner per symbol: prefer priced rows; among those,
     // prefer US listings as the tiebreak for cross-market symbols (AAPL
@@ -156,8 +217,52 @@ export async function GET(request: Request) {
       if (!prev || rank(r) > rank(prev)) bySymbol.set(key, r);
     }
 
+    // PSX benchmarks have no IndexQuote row (Yahoo dropped them), so ask the
+    // exchange directly for their latest level rather than reporting "not found".
+    const psxSymbols = indexSymbols.filter((s) => resolveIndex(s)?.provider === "psx");
+    const psxQuotes = new Map<string, { price: number; changePct: number }>();
+    await Promise.all(
+      psxSymbols.map(async (s) => {
+        const q = await fetchPsxIndexQuote(s);
+        if (q) psxQuotes.set(s, { price: q.price, changePct: q.changePct });
+      })
+    );
+
     const quotes = symbols.map((sym) => {
-      const r = bySymbol.get(sym);
+      // Indices first — they are not Asset rows, so the asset map can never
+      // resolve them. Report the requested `sym` back so the caller's key matches.
+      if (looksLikeIndex(sym)) {
+        const idx = findIndex(sym);
+        const def = resolveIndex(sym);
+        const currency = def?.currency || (idx ? MARKET_CURRENCY[idx.marketId] : undefined) || "$";
+        // Prefer the stored IndexQuote row; fall back to the live PSX quote.
+        const psx = psxQuotes.get(sym) ?? (def?.provider === "psx" ? psxQuotes.get(def.symbol) : undefined);
+        const price = idx && idx.price > 0 ? idx.price : psx?.price ?? 0;
+        if (price > 0) {
+          return {
+            symbol: sym,
+            name: idx?.name ?? def?.name ?? sym,
+            price,
+            changePercent: idx && idx.price > 0 ? idx.changePct : psx?.changePct ?? 0,
+            currency,
+            marketId: idx?.marketId ?? def?.market,
+            source: idx && idx.price > 0 ? "index" : "psx",
+            updatedAt: idx?.updatedAt,
+            found: true,
+          };
+        }
+        return {
+          symbol: sym,
+          name: def?.name ?? sym,
+          price: 0,
+          changePercent: 0,
+          currency,
+          marketId: def?.market,
+          found: false,
+        };
+      }
+
+      const r = bySymbol.get(assetKey(sym));
       if (!r || !r.price || r.price.price <= 0) {
         return { symbol: sym, name: sym, price: 0, changePercent: 0, currency: "$", found: false };
       }

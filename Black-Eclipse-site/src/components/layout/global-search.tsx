@@ -117,18 +117,40 @@ const KIND_LABEL: Record<EntityKind, string> = {
   user: 'Your data',
 };
 
-const SECTION_ORDER: EntityKind[] = [
+/**
+ * Section a row belongs to. `security` (JDDS assets) and `instrument` (curated
+ * registry entries, e.g. indices) both render as "Instruments", so they MUST
+ * share one section — otherwise the grouping splits them and the second section
+ * re-sorts by nothing, burying a high-scoring index under low-scoring ETFs that
+ * merely matched the same words. Rows keep the resolver's score order inside.
+ */
+function sectionKeyOf(kind: EntityKind): string {
+  return kind === 'security' || kind === 'instrument' ? 'instruments' : kind;
+}
+
+const SECTION_ORDER: string[] = [
   'action',
   'page',
   'indicator',
   'event',
-  'security',
-  'instrument',
+  'instruments',
   'report',
   'agent',
   'doc',
   'user',
 ];
+
+const SECTION_LABEL: Record<string, string> = {
+  action: 'Commands',
+  page: 'Navigation',
+  indicator: 'Economic Indicators',
+  event: 'Economic Indicators',
+  instruments: 'Instruments',
+  report: 'Reports',
+  agent: 'Agents',
+  doc: 'Docs',
+  user: 'Your data',
+};
 
 /** Rows moved per PageUp/PageDown in the results list. */
 const PAGE_SIZE = 6;
@@ -333,10 +355,13 @@ export function GlobalSearch() {
     } else {
       if (aiRow) built.push({ key: 'ai', label: 'Ask AI', count: 1, collapsed: false, rows: [aiRow] });
       if (resolved && resolved.items.length > 0) {
-        const byKind = new Map<EntityKind, Row[]>();
+        // Group by SECTION key (not raw kind) so `security` + `instrument` land
+        // in one "Instruments" list that preserves the resolver's score order.
+        const byKind = new Map<string, Row[]>();
         resolved.items.forEach((it) => {
           const kind = it.entity.kind;
-          const list = byKind.get(kind) ?? [];
+          const key = sectionKeyOf(kind);
+          const list = byKind.get(key) ?? [];
           const dest = it.entity.destination;
           list.push({
             type: 'result',
@@ -355,15 +380,15 @@ export function GlobalSearch() {
               }
             },
           });
-          byKind.set(kind, list);
+          byKind.set(key, list);
         });
-        for (const kind of SECTION_ORDER.filter((k) => byKind.has(k))) {
-          const rows = byKind.get(kind)!;
+        for (const key of SECTION_ORDER.filter((k) => byKind.has(k))) {
+          const rows = byKind.get(key)!;
           built.push({
-            key: kind,
-            label: KIND_LABEL[kind],
+            key,
+            label: SECTION_LABEL[key],
             count: rows.length,
-            collapsed: store.collapsedGroups.includes(kind),
+            collapsed: store.collapsedGroups.includes(key),
             rows,
           });
         }
@@ -615,13 +640,6 @@ export function GlobalSearch() {
           {!showHelp && (
             <>
               <div className="mx-4 my-2 border-t border-dashed border-border/60" />
-              <div className="px-2 flex flex-col gap-px">
-                {pinnedCommands.map((qa) => {
-                  const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
-                  const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
-                  return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
-                })}
-              </div>
               <div className="flex items-center justify-between px-4 pt-2 pb-1.5">
                 <button
                   onClick={() => store.toggleGroup('nav')}

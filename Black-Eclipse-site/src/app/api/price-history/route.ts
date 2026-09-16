@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { yahooSymbol } from "@/lib/scraper/fetchers/yfinance";
+import { fetchPsxIndexChart } from "@/lib/scraper/fetchers/psx-index";
+import { resolveIndex } from "@/lib/indices";
 
 export const dynamic = "force-dynamic";
 
@@ -39,25 +41,23 @@ async function loadPersistedHistory(key: string): Promise<unknown | null> {
 
 function startBackgroundRefresh(key: string, symbol: string, market: string, range: string, interval: string) {
   if (historyInFlight.has(key)) return;
+  const def = resolveIndex(symbol);
+  const currency = def?.currency || MARKET_CURRENCY[market] || "$";
   const p = (async () => {
     try {
+      if (def?.provider === "psx") {
+        const bars = await fetchPsxIndexChart(symbol);
+        if (bars.length >= 2) {
+          const payload = buildPayload(symbol, currency, bars, interval, { ticker: symbol, source: "psx" });
+          historyCache.set(key, { t: Date.now(), payload });
+          void persistHistory(key, payload);
+        }
+        return;
+      }
       for (const ticker of tickerCandidates(symbol, market)) {
         const chart = await fetchYahooChart(ticker, range, interval);
         if (chart) {
-          const points = chart.bars.map((b) => b.close);
-          const payload = {
-            symbol, ticker,
-            currency: MARKET_CURRENCY[market] || "$",
-            points,
-            series: chart.bars,
-            interval,
-            perf: {
-              week: perfOver(chart.bars, 5),
-              month: perfOver(chart.bars, 21),
-              quarter: perfOver(chart.bars, 63),
-            },
-            source: "yfinance",
-          };
+          const payload = buildPayload(symbol, currency, chart.bars, interval, { ticker, source: "yfinance" });
           historyCache.set(key, { t: Date.now(), payload });
           void persistHistory(key, payload);
           return;
@@ -70,12 +70,66 @@ function startBackgroundRefresh(key: string, symbol: string, market: string, ran
   historyInFlight.set(key, p);
 }
 
+/** Assemble the wire payload shared by every history source. */
+function buildPayload(
+  symbol: string,
+  currency: string,
+  bars: Bar[],
+  interval: string,
+  extra: { ticker: string; source: "yfinance" | "psx" },
+) {
+  return {
+    symbol,
+    ticker: extra.ticker,
+    currency,
+    points: bars.map((b) => b.close),
+    series: bars,
+    interval,
+    perf: {
+      week: perfOver(bars, 5),
+      month: perfOver(bars, 21),
+      quarter: perfOver(bars, 63),
+    },
+    source: extra.source,
+  };
+}
+
+/**
+ * Serve a PSX benchmark (KSE-100 / KSE-30 / KMI-30) from the exchange's own
+ * historical endpoint. Yahoo dropped these, so this is the only real source;
+ * when it has nothing we return an empty series (an honest UNAVAILABLE) rather
+ * than a fabricated line.
+ */
+async function respondWithPsxIndex(symbol: string, currency: string, interval: string) {
+  const key = cacheKey(symbol, "PK", "6mo", interval);
+  const cached = historyCache.get(key);
+  if (cached && Date.now() - cached.t < HISTORY_TTL_MS) {
+    return NextResponse.json(cached.payload);
+  }
+
+  const bars = await fetchPsxIndexChart(symbol);
+  if (bars.length >= 2) {
+    const payload = buildPayload(symbol, currency, bars, interval, { ticker: symbol, source: "psx" });
+    historyCache.set(key, { t: Date.now(), payload });
+    void persistHistory(key, payload);
+    return NextResponse.json(payload);
+  }
+
+  const persisted = await loadPersistedHistory(key);
+  if (persisted) return NextResponse.json(persisted);
+
+  return NextResponse.json({ symbol, points: [], series: [], source: "none" });
+}
+
 // GET /api/price-history?symbol=OGDC&market=PK
 //
 // Returns a REAL daily OHLCV series (default 3 months) for the stock detail
 // charts, plus derived performance stats (1W / 1M / 3M % change).
 //
 // Resolution order:
+//   0. Index registry — a known index alias (`SPX` → `^GSPC`) resolves to its
+//      real provider. Yahoo-backed indices fetch normally; the PSX benchmarks
+//      (Yahoo dropped ^KSE100) go to the exchange's historical endpoint.
 //   1. Yahoo chart HTTP API (direct fetch with a browser UA — no Python).
 //      The installed yfinance lib (1.5.1) 404s on PSX tickers, but the raw
 //      chart endpoint serves them under the .KA (Karachi) suffix, so PK gets
@@ -85,7 +139,7 @@ function startBackgroundRefresh(key: string, symbol: string, market: string, ran
 // Response: {
 //   symbol, currency, points: number[], series: { date, open, high, low, close, volume }[],
 //   perf: { week?: number, month?: number, quarter?: number },
-//   source: "yfinance" | "snapshot"
+//   source: "yfinance" | "psx" | "snapshot"
 // }
 
 interface Bar {
@@ -97,10 +151,24 @@ interface Bar {
   close: number;
   volume: number | null;
 }
-
 // Candidate Yahoo tickers to try, in order, for one symbol+market.
+//
+// Index aliases resolve FIRST: the registry (and the UI) may hand us a bare
+// TradingView-style id (`SPX`, `DJI`, `NIFTY`) that Yahoo has no instrument for.
+// Mapping it to its real ticker (`^GSPC`, `^DJI`, `^NSEI`) is the difference
+// between a chart and "Symbol not found". PSX indices are excluded here because
+// Yahoo dropped them — they are served by `fetchPsxIndexChart` instead.
 function tickerCandidates(symbol: string, market: string): string[] {
-  const candidates = [yahooSymbol(symbol, market)];
+  const idx = resolveIndex(symbol);
+  const candidates: string[] = [];
+  if (idx && idx.provider === 'yahoo') {
+    candidates.push(idx.symbol);
+    // Also try the raw input when it differs (e.g. an explicit ^GSPC stays first).
+    if (!candidates.includes(symbol)) candidates.push(symbol);
+    return candidates;
+  }
+
+  candidates.push(yahooSymbol(symbol, market));
   if (market === "PK") {
     // Yahoo serves PSX under the KAR exchange (.KA); the .PSX suffix 404s.
     const bare = symbol.replace(/\.PSX$/i, "");
@@ -181,7 +249,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ points: [], series: [], source: "none" });
   }
 
-  const currency = MARKET_CURRENCY[market] || "$";
+  // A resolved index knows its own home market + currency, so a bare `^FTSE`
+  // charts with GBP (not the caller's default US/$) and the PSX benchmarks are
+  // routed to their own provider.
+  const def = resolveIndex(symbol);
+  // `^KSE100` etc. — Yahoo has no PSX index; use the exchange endpoint.
+  if (def?.provider === "psx") {
+    return respondWithPsxIndex(symbol, def.currency, interval);
+  }
+  const currency = def?.currency || MARKET_CURRENCY[market] || "$";
   const key = cacheKey(symbol, market, range, interval);
 
   // 0) SWR: fresh cache serves instantly; stale cache serves + background refresh.
@@ -198,21 +274,10 @@ export async function GET(request: Request) {
   for (const ticker of tickerCandidates(symbol, market)) {
     const chart = await fetchYahooChart(ticker, range, interval);
     if (chart) {
-      const points = chart.bars.map((b) => b.close);
-      const payload = {
-        symbol,
+      const payload = buildPayload(symbol, currency, chart.bars, interval, {
         ticker,
-        currency,
-        points,
-        series: chart.bars,
-        interval,
-        perf: {
-          week: perfOver(chart.bars, 5),
-          month: perfOver(chart.bars, 21),
-          quarter: perfOver(chart.bars, 63),
-        },
         source: "yfinance",
-      };
+      });
       historyCache.set(key, { t: Date.now(), payload });
       void persistHistory(key, payload);
       return NextResponse.json(payload);

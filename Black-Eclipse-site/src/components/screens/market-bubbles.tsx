@@ -1,51 +1,78 @@
 'use client';
 
+// ── Market Bubbles — turnover atlas ──────────────────────────────────────────
+// A fluid-physics bubble map of a market's most-traded instruments. Data comes
+// from the SAME real JDDS source as the Command Center heatmap (`/api/heatmap`),
+// which is what makes it trustworthy:
+//   • every tile is a priced row straight out of JDDS — there is no demo,
+//     random or per-market seed data anywhere in this file;
+//   • markets are the ones the heatmap knows about (HEATMAP_MARKETS), not a
+//     hardcoded country list;
+//   • the default sizing metric is real 24h traded value (turnover), and the
+//     Volume Analytics panel summarises the WHOLE market, not just the bubbles
+//     on screen.
+// An empty payload renders an explicit UNAVAILABLE state — we never invent a
+// market.
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
+import { VolumeAnalyticsPanel } from './volume-analytics';
+import {
+  HEATMAP_MARKETS, heatmapMeta, isNotionalVolume, turnoverFor,
+  type HeatmapPayload, type HeatmapStock, type VolumeSummary,
+} from '@/lib/heatmap';
 
 interface BubbleData {
   symbol: string;
   name: string;
   price: number;
   changePercent: number;
-  marketCap: string;
-  volume: string;
-  sector?: string;
-  rank?: number;
-  circulatingSupply?: string;
-  ath?: string;
+  /** Raw 24h volume: shares, or quote notional for crypto. */
+  volumeRaw: number;
+  /** Raw market cap (0 when unavailable). */
+  marketCapRaw: number;
+  /** Traded value in the market currency — the honest cross-instrument metric. */
+  turnover: number;
+  sector: string;
+  rank: number;
 }
 
-const DEMO_CRYPTOS: BubbleData[] = [
-  { symbol: 'BTC', name: 'Bitcoin', price: 67840, changePercent: 2.14, marketCap: '1.32T', volume: '42.1B', sector: 'Layer 1', rank: 1, circulatingSupply: '19.7M', ath: '$73,750' },
-  { symbol: 'ETH', name: 'Ethereum', price: 3500.2, changePercent: 2.41, marketCap: '420.1B', volume: '18.5B', sector: 'Layer 1', rank: 2, circulatingSupply: '120.1M', ath: '$4,878' },
-  { symbol: 'USDT', name: 'Tether', price: 1.0, changePercent: 0.01, marketCap: '112.3B', volume: '68.4B', sector: 'Stablecoin', rank: 3, circulatingSupply: '112.3B', ath: '$1.10' },
-  { symbol: 'BNB', name: 'BNB', price: 585.5, changePercent: 2.11, marketCap: '90.2B', volume: '2.3B', sector: 'Layer 1', rank: 4, circulatingSupply: '153.9M', ath: '$686' },
-  { symbol: 'SOL', name: 'Solana', price: 168.4, changePercent: 3.82, marketCap: '77.4B', volume: '4.1B', sector: 'Layer 1', rank: 5, circulatingSupply: '459.2M', ath: '$260' },
-  { symbol: 'XRP', name: 'XRP', price: 0.53, changePercent: -0.84, marketCap: '29.1B', volume: '1.4B', sector: 'Payments', rank: 6, circulatingSupply: '55.0B', ath: '$3.40' },
-  { symbol: 'USDC', name: 'USD Coin', price: 1.0, changePercent: 0.0, marketCap: '32.2B', volume: '7.2B', sector: 'Stablecoin', rank: 7, circulatingSupply: '32.2B', ath: '$1.17' },
-  { symbol: 'ADA', name: 'Cardano', price: 0.45, changePercent: -1.32, marketCap: '16.0B', volume: '0.4B', sector: 'Layer 1', rank: 8, circulatingSupply: '35.5B', ath: '$3.09' },
-  { symbol: 'DOGE', name: 'Dogecoin', price: 0.16, changePercent: 1.12, marketCap: '23.1B', volume: '1.8B', sector: 'Meme', rank: 9, circulatingSupply: '143.9B', ath: '$0.73' },
-  { symbol: 'AVAX', name: 'Avalanche', price: 35.6, changePercent: 2.8, marketCap: '13.9B', volume: '0.6B', sector: 'Layer 1', rank: 10, circulatingSupply: '391.2M', ath: '$146' },
-  { symbol: 'DOT', name: 'Polkadot', price: 6.9, changePercent: 0.42, marketCap: '9.8B', volume: '0.3B', sector: 'Layer 1', rank: 11, circulatingSupply: '1.4B', ath: '$55' },
-  { symbol: 'LINK', name: 'Chainlink', price: 14.2, changePercent: 1.9, marketCap: '8.4B', volume: '0.5B', sector: 'Oracle', rank: 12, circulatingSupply: '587M', ath: '$52' },
-  { symbol: 'TRX', name: 'TRON', price: 0.13, changePercent: -0.2, marketCap: '11.4B', volume: '0.4B', sector: 'Layer 1', rank: 13, circulatingSupply: '88.0B', ath: '$0.23' },
-  { symbol: 'MATIC', name: 'Polygon', price: 0.72, changePercent: 0.95, marketCap: '7.1B', volume: '0.4B', sector: 'Layer 2', rank: 14, circulatingSupply: '9.9B', ath: '$2.92' },
-  { symbol: 'LTC', name: 'Litecoin', price: 84.3, changePercent: -0.5, marketCap: '6.3B', volume: '0.5B', sector: 'Payments', rank: 15, circulatingSupply: '74.5M', ath: '$410' },
-];
+// ── Value formatting ─────────────────────────────────────────────────────────
+// Formats a RAW number for display. The old screen stored pre-formatted strings
+// like "1.2B" and re-parsed them with a unit-guessing helper, which silently
+// mis-scaled anything without a suffix. Real numbers flow through here instead.
 
-const DEMO_PSX: BubbleData[] = [
-  { symbol: 'LUCK', name: 'Lucky Cement', price: 1120.5, changePercent: 1.85, marketCap: '412.3B', volume: '12.4M', sector: 'Materials', rank: 1, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'HUBC', name: 'Hub Power Company', price: 128.4, changePercent: 0.92, marketCap: '148.2B', volume: '8.1M', sector: 'Utilities', rank: 2, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'ENGRO', name: 'Engro Corporation', price: 385.2, changePercent: -0.64, marketCap: '201.5B', volume: '5.3M', sector: 'Materials', rank: 3, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'FFC', name: 'Fauji Fertilizer', price: 342.8, changePercent: 1.12, marketCap: '435.1B', volume: '6.7M', sector: 'Materials', rank: 4, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'OGDC', name: 'Oil & Gas Development', price: 142.6, changePercent: 0.45, marketCap: '612.8B', volume: '9.2M', sector: 'Energy', rank: 5, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'SYS', name: 'Systems Limited', price: 645.9, changePercent: 2.34, marketCap: '190.4B', volume: '3.8M', sector: 'Technology', rank: 6, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'MCB', name: 'MCB Bank', price: 268.3, changePercent: 0.78, marketCap: '318.6B', volume: '4.5M', sector: 'Financials', rank: 7, circulatingSupply: 'N/A', ath: 'N/A' },
-  { symbol: 'MARI', name: 'Mari Petroleum', price: 2850.0, changePercent: -1.25, marketCap: '380.2B', volume: '1.9M', sector: 'Energy', rank: 8, circulatingSupply: 'N/A', ath: 'N/A' },
-];
+/** Compact count/value (1.2B, 945.0M, 12.3K). */
+function formatCompact(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toFixed(n < 10 ? 2 : 0);
+}
+
+/** Traded value with the market's currency prefix. */
+function formatTurnover(n: number, currency: string): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  const prefix = currency && currency !== '$' ? `${currency} ` : '$';
+  if (n >= 1e12) return `${prefix}${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `${prefix}${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${prefix}${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${prefix}${(n / 1e3).toFixed(1)}K`;
+  return `${prefix}${n.toFixed(2)}`;
+}
+
+/** Currency-prefixed price at a sensible precision. */
+function formatPrice(p: number, currency: string): string {
+  const prefix = currency && currency !== '$' ? `${currency} ` : '$';
+  if (!Number.isFinite(p)) return '—';
+  return p >= 1
+    ? `${prefix}${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `${prefix}${p.toFixed(4)}`;
+}
 
 class PhysicsBubble {
   x: number;
@@ -68,16 +95,17 @@ class PhysicsBubble {
     this.data = data;
   }
 
-  formatVolume(vol: string): string {
-    const raw = String(vol ?? '').toUpperCase();
-    if (/[TBMK]$/.test(raw)) return raw;
-    const n = parseFloat(raw);
-    if (isNaN(n)) return raw || '—';
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return raw;
+  /**
+   * The bubble's bottom label. Always the 24h TRADED VALUE (turnover) — the
+   * metric the screen is about. Shows "—" rather than a fake figure when the
+   * instrument has no volume, so an empty row is never mistaken for real data.
+   */
+  get volumeLabel(): string {
+    return formatTurnover(this.data.turnover, this.currency);
   }
+
+  /** Currency prefix, set once by the screen for the selected market. */
+  currency: string = '$';
 
   update(width: number, height: number, gravityType: 'single' | 'performers' | 'rank', speedMult: number) {
     if (this.radius < this.targetRadius) {
@@ -212,10 +240,10 @@ class PhysicsBubble {
       ctx.fillStyle = labelColor;
       ctx.fillText(pct, this.x, this.y + 2);
 
-      // 24h volume on the bottom line of the bubble
+      // 24h traded value on the bottom line of the bubble
       ctx.font = `600 ${Math.max(7, Math.min(10, this.radius * 0.2))}px monospace`;
       ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 14);
+      ctx.fillText(this.volumeLabel, this.x, this.y + 14);
     } else if (this.radius > 26) {
       ctx.font = `bold ${Math.max(9, Math.min(15, this.radius * 0.32))}px monospace`;
       ctx.fillText(this.data.symbol, this.x, this.y - 9);
@@ -225,17 +253,17 @@ class PhysicsBubble {
       ctx.fillStyle = labelColor;
       ctx.fillText(pct, this.x, this.y + 3);
 
-      // 24h volume on the bottom line of the bubble
+      // 24h traded value on the bottom line of the bubble
       ctx.font = `600 ${Math.max(7, Math.min(10, this.radius * 0.2))}px monospace`;
       ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 13);
+      ctx.fillText(this.volumeLabel, this.x, this.y + 13);
     } else if (this.radius > 13) {
       ctx.font = `bold ${Math.max(8, Math.min(11, this.radius * 0.45))}px monospace`;
       ctx.fillText(this.data.symbol, this.x, this.y - 4);
 
       ctx.font = `600 ${Math.max(6, Math.min(9, this.radius * 0.26))}px monospace`;
       ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(this.formatVolume(this.data.volume), this.x, this.y + 6);
+      ctx.fillText(this.volumeLabel, this.x, this.y + 6);
     } else {
       // Tiny bubbles — just the symbol
       ctx.font = `bold ${Math.max(6, Math.min(9, this.radius * 0.5))}px monospace`;
@@ -284,26 +312,24 @@ const BUBBLE_CURRENCY: Record<string, string> = {
 
 const bubbleCurrencyFor = (market: string) => BUBBLE_CURRENCY[market.toUpperCase()] || '$';
 
-interface MarketOption {
-  id: string;
-  label: string;
-  isCrypto: boolean;
-  pricedCount: number;
-}
-
 export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
-  // Top-N by volume — how many highest-volume assets to load per market.
-  const [topN, setTopN] = useState<number>(30);
-  // Goal of this screen: compare which stock moves the most volume — default to volume sizing.
-  const [sizeMetric, setSizeMetric] = useState<'marketCap' | 'volume' | 'change'>('volume');
+  // How many of the market's most-traded instruments to draw as bubbles.
+  // The server caps the heatmap payload at MAX_LIMIT (220).
+  const [topN, setTopN] = useState<number>(60);
+  // Goal of this screen: compare which instrument moves the most value —
+  // default to the real traded value (turnover), not a re-scaled proxy.
+  const [sizeMetric, setSizeMetric] = useState<'marketCap' | 'turnover' | 'change'>('turnover');
   const [gravityType, setGravityType] = useState<'single' | 'performers' | 'rank'>('single');
   const [loading, setLoading] = useState(false);
   const [rawList, setRawList] = useState<BubbleData[]>([]);
-  // Markets available in JDDS (loaded from /api/markets) + selected market.
-  const [markets, setMarkets] = useState<MarketOption[]>([]);
+  // Whole-market turnover profile (all priced instruments, not just the bubbles).
+  const [volumeSummary, setVolumeSummary] = useState<VolumeSummary | null>(null);
+  // True when the market genuinely has no priced instruments in JDDS.
+  const [unavailable, setUnavailable] = useState(false);
+  // Selected market id — the heatmap market list is the source of truth.
   const [selectedMarket, setSelectedMarket] = useState<string>('CRYPTO');
 
   // Advanced filters
@@ -320,8 +346,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   const [zoomScale, setZoomScale] = useState(1.4);
 
   // Table sorting state
-  const [sortField, setSortField] = useState<'rank' | 'symbol' | 'price' | 'changePercent' | 'marketCap' | 'volume'>('rank');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortField, setSortField] = useState<'rank' | 'symbol' | 'price' | 'changePercent' | 'marketCap' | 'turnover'>('turnover');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Table pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -341,99 +367,62 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const hasMovedRef = useRef<boolean>(false);
 
-  // Helper: robust parsing of metric strings to numbers
-  const parseVal = (val: unknown): number => {
-    if (typeof val === 'number') return val;
-    if (!val) return 0;
-    const str = String(val).toUpperCase().trim();
-    const mult = str.endsWith('T') ? 1e12 : str.endsWith('B') ? 1e9 : str.endsWith('M') ? 1e6 : str.endsWith('K') ? 1e3 : 1;
-    const num = parseFloat(str.replace(/[TBMK$,]/g, ''));
-    return isNaN(num) ? 0 : num * mult;
-  };
+  const currency = bubbleCurrencyFor(selectedMarket);
+  const marketLabel = heatmapMeta(selectedMarket).country;
 
-  // Load bubble data for the selected market from JDDS via /api/stocks.
-  // silent=true skips the TopLoader (background 20s poll over live bubbles).
+  // Load bubble data for the selected market from JDDS via /api/heatmap — the
+  // SAME route the Command Center heatmap uses. `volume=1` additionally returns
+  // a whole-market turnover summary over every priced instrument.
+  // silent=true skips the TopLoader (background poll over live bubbles).
   const loadMarketData = async (market: string, silent = false) => {
     if (!silent) setLoading(true);
-    const isCrypto = market.toUpperCase() === 'CRYPTO';
     try {
-      // For equities markets, only show stocks (not ETFs/funds/bonds). Markets
-      // without securityType metadata skip this filter server-side anyway.
-      const typeParam = isCrypto ? '' : '&type=Stock';
-      // Order by volume so the most-traded assets lead — that's the point of
-      // this screen. topN controls how many highest-volume assets are shown.
-      const res = await fetch(`/api/stocks?country=${encodeURIComponent(market)}${typeParam}&sort=volume&limit=${topN}`);
-      const data = await res.json();
-      const fallback = markets.find(m => m.id === market)?.isCrypto ? DEMO_CRYPTOS : DEMO_PSX;
-      if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
-        const mapped: BubbleData[] = (data.stocks as Array<Record<string, unknown>>)
-          .filter(s => typeof s.price === 'number' && (s.price as number) > 0)
-          .map(s => ({
-            symbol: String(s.symbol ?? ''),
-            name: String(s.name ?? ''),
-            price: (s.price as number) || 0,
-            changePercent: (s.changePercent as number) || 0,
-            marketCap: (s.marketCap as string) || 'N/A',
-            volume: (s.volume as string) || 'N/A',
-            sector: (s.sector as string) || 'Other',
-            rank: (s.rank as number) || 999,
-            circulatingSupply: (s.circulatingSupply as string) || 'N/A',
-            ath: (s.ath as string) || 'N/A',
-          }));
-        // If the market returned no priced stocks yet, fall back to demo data so bubbles still render.
-        if (mapped.length > 0) {
-          setRawList(mapped);
-        } else if (!silent || rawList.length === 0) {
-          setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
-        }
-      } else if (!silent || rawList.length === 0) {
-        setRawList(isCrypto ? DEMO_CRYPTOS : fallback);
+      const res = await fetch(
+        `/api/heatmap?market=${encodeURIComponent(market)}&limit=${topN}&volume=1`,
+      );
+      if (!res.ok) throw new Error(`heatmap HTTP ${res.status}`);
+      const data = (await res.json()) as HeatmapPayload;
+
+      // Flatten the sector-grouped payload into a bubble list. Rank by traded
+      // value so "rank 1" is the market's most-traded instrument.
+      const flat: HeatmapStock[] = (data.sectors ?? []).flatMap(s => s.stocks ?? []);
+      const mapped: BubbleData[] = flat
+        .filter(s => s.price > 0)
+        .map(s => ({
+          symbol: s.symbol,
+          name: s.name,
+          price: s.price,
+          changePercent: s.changePct,
+          volumeRaw: s.volume ?? 0,
+          marketCapRaw: s.rawMarketCap ?? s.marketCap ?? 0,
+          turnover: turnoverFor(s.volume ?? 0, s.price, market),
+          sector: s.sector || 'Other',
+          rank: 0,
+        }))
+        .sort((a, b) => b.turnover - a.turnover)
+        .map((b, i) => ({ ...b, rank: i + 1 }));
+
+      // A silent refresh must not blow away a live board on a transient failure.
+      if (mapped.length > 0 || !silent) {
+        setRawList(mapped);
+        setUnavailable(mapped.length === 0);
+        setVolumeSummary(data.volume ?? null);
       }
     } catch (e) {
-      // Transient failures (dev recompile, brief network drop) must not wipe
-      // live bubbles with demo data — only initial loads take the fallback.
+      // Never substitute invented data. On a silent poll keep the current board;
+      // on an initial load show the UNAVAILABLE state.
       if (silent) {
         console.warn('[bubbles] poll fetch failed, keeping current data', e);
       } else {
         console.error('Failed to load market bubble data', e);
-        setRawList(isCrypto ? DEMO_CRYPTOS : DEMO_PSX);
+        setRawList([]);
+        setVolumeSummary(null);
+        setUnavailable(true);
       }
     } finally {
       if (!silent) setLoading(false);
     }
   };
-
-  // Load which countries/markets exist in JDDS and populate the selector.
-  useEffect(() => {
-    let cancelled = false;
-    const loadMarkets = async () => {
-      try {
-        const res = await fetch('/api/markets');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!Array.isArray(data.markets)) return;
-        // Only offer markets that actually have priced data in JDDS; crypto first.
-        const usable = (data.markets as Array<Record<string, unknown>>)
-          .filter(m => m.enabled && (m.assetCount as number) > 0)
-          .map((m): MarketOption => ({
-            id: String(m.id),
-            label: m.isCrypto ? `Global Crypto (${m.pricedCount})` : `${m.country} — ${m.exchange} (${m.pricedCount})`,
-            isCrypto: !!m.isCrypto,
-            pricedCount: (m.pricedCount as number) ?? 0,
-          }))
-          .sort((a: MarketOption, b: MarketOption) =>
-            a.isCrypto === b.isCrypto ? b.pricedCount - a.pricedCount : a.isCrypto ? -1 : 1);
-        if (!cancelled && usable.length > 0) {
-          setMarkets(usable);
-          setSelectedMarket(prev => (usable.some((m: MarketOption) => m.id === prev) ? prev : usable[0].id));
-        }
-      } catch (e) {
-        console.error('Failed to load JDDS markets', e);
-      }
-    };
-    loadMarkets();
-    return () => { cancelled = true; };
-  }, []);
 
   // Switch market and reload data.
   const handleMarketChange = (market: string) => {
@@ -443,6 +432,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     setSelectedPerformance('All');
     setSelectedRankTier('All');
     setSelectedVolumeTier('All');
+    setRawList([]);
+    setVolumeSummary(null);
     loadMarketData(market);
   };
 
@@ -475,12 +466,14 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       if (selectedRankTier === 'mid' && (r <= 100 || r > 200)) return false;
       if (selectedRankTier === 'small' && r <= 200) return false;
 
-      // Volume Range filter
-      const volNum = parseVal(c.volume);
-      if (selectedVolumeTier === 'ultra' && volNum < 1e9) return false;
-      if (selectedVolumeTier === 'high' && (volNum < 1e8 || volNum >= 1e9)) return false;
-      if (selectedVolumeTier === 'medium' && (volNum < 1e7 || volNum >= 1e8)) return false;
-      if (selectedVolumeTier === 'low' && volNum >= 1e7) return false;
+      // Turnover Range filter — thresholds on traded value (market currency),
+      // so a "high volume" pick means the same thing whether the market quotes
+      // in USD, PKR or IDR.
+      const tv = c.turnover;
+      if (selectedVolumeTier === 'ultra' && tv < 1e9) return false;
+      if (selectedVolumeTier === 'high' && (tv < 1e8 || tv >= 1e9)) return false;
+      if (selectedVolumeTier === 'medium' && (tv < 1e7 || tv >= 1e8)) return false;
+      if (selectedVolumeTier === 'low' && tv >= 1e7) return false;
       
       return true;
     });
@@ -494,17 +487,19 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     const width = canvas.width / window.devicePixelRatio;
     const height = canvas.height / window.devicePixelRatio;
 
-    // Calculate dynamic scaling factors
-    const maxMC = Math.max(...cryptos.map(c => parseVal(c.marketCap)), 1);
-    const maxVol = Math.max(...cryptos.map(c => parseVal(c.volume)), 1);
+    // Scaling factors are computed on RAW numbers — no string re-parsing.
+    const maxMC = Math.max(...cryptos.map(c => c.marketCapRaw), 1);
+    const maxTurnover = Math.max(...cryptos.map(c => c.turnover), 1);
     const maxChange = Math.max(...cryptos.map(c => Math.abs(c.changePercent)), 1);
 
     const getTargetRadius = (c: BubbleData) => {
-      let relativeValue = 0.5;
+      // Default to the smallest bubble when the chosen metric is missing for
+      // this instrument, rather than pretending it sits in the middle.
+      let relativeValue = 0;
       if (sizeMetric === 'marketCap') {
-        relativeValue = parseVal(c.marketCap) / maxMC;
-      } else if (sizeMetric === 'volume') {
-        relativeValue = parseVal(c.volume) / maxVol;
+        relativeValue = c.marketCapRaw > 0 ? c.marketCapRaw / maxMC : 0;
+      } else if (sizeMetric === 'turnover') {
+        relativeValue = c.turnover > 0 ? c.turnover / maxTurnover : 0;
       } else {
         relativeValue = Math.abs(c.changePercent) / maxChange;
       }
@@ -525,26 +520,30 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       if (prev) {
         prev.data = c;
         prev.targetRadius = radius;
+        prev.currency = currency;
         updated.push(prev);
       } else {
         // Spawn scattered around center
         const x = width / 2 + (Math.random() - 0.5) * 160;
         const y = height / 2 + (Math.random() - 0.5) * 160;
-        updated.push(new PhysicsBubble(x, y, radius, c));
+        const b = new PhysicsBubble(x, y, radius, c);
+        b.currency = currency;
+        updated.push(b);
       }
     });
 
     bubblesRef.current = updated;
   };
 
-  // Sync physics objects when lists, metrics, or sizes change
+  // Sync physics objects when lists, metrics, sizes, or the market change
+  // (the market drives the currency prefix drawn on each bubble).
   useEffect(() => {
     if (rawList.length > 0) {
       syncBubbles(filteredAssets);
     }
     // syncBubbles is stable per-render and reads current state internally.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sizeMetric, rawList, filteredAssets, bubbleSizeMultiplier]);
+  }, [sizeMetric, rawList, filteredAssets, bubbleSizeMultiplier, currency]);
 
   // Init live poll — initial load shows the loader, refreshes are silent.
   useEffect(() => {
@@ -827,15 +826,26 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
       );
     }
     return list.sort((a, b) => {
-      let aVal: string | number = a[sortField] ?? 0;
-      let bVal: string | number = b[sortField] ?? 0;
-
-      if (sortField === 'marketCap' || sortField === 'volume') {
-        aVal = parseVal(aVal);
-        bVal = parseVal(bVal);
+      // Sort on RAW numbers. `marketCap`/`turnover` read the raw fields rather
+      // than the display strings, so the order matches the values shown.
+      let aVal: number;
+      let bVal: number;
+      if (sortField === 'marketCap') {
+        aVal = a.marketCapRaw;
+        bVal = b.marketCapRaw;
+      } else if (sortField === 'turnover') {
+        aVal = a.turnover;
+        bVal = b.turnover;
       } else if (sortField === 'rank') {
-        aVal = a.rank ?? 999;
-        bVal = b.rank ?? 999;
+        aVal = a.rank;
+        bVal = b.rank;
+      } else if (sortField === 'symbol') {
+        return sortOrder === 'asc'
+          ? a.symbol.localeCompare(b.symbol)
+          : b.symbol.localeCompare(a.symbol);
+      } else {
+        aVal = a[sortField];
+        bVal = b[sortField];
       }
 
       if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
@@ -878,46 +888,38 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
               Market Bubbles
             </h1>
             <p className="text-muted-foreground text-xs mt-1">
-              Interactive fluid-physics bubble catalog. Select a market, then customize sizing, scale, and filters.
+              Live turnover map from JDDS — every bubble is a real priced instrument, sized by 24h traded value.
             </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
-            {/* Market Selector — populated from markets loaded in JDDS */}
+            {/* Market Selector — the same market list the heatmaps use. */}
             <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
               <select
                 value={selectedMarket}
                 onChange={e => handleMarketChange(e.target.value)}
                 className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
-                title="Select country / market to load bubble data from JDDS"
+                title="Select the market to map"
               >
-                {markets.length > 0 ? (
-                  markets.map(m => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value="CRYPTO">Global Crypto</option>
-                    <option value="US">United States</option>
-                    <option value="PK">Pakistan (PSX)</option>
-                  </>
-                )}
+                {HEATMAP_MARKETS.map(m => (
+                  <option key={m.id} value={m.id}>{m.country} — {m.index}</option>
+                ))}
               </select>
             </div>
 
-            {/* Top N by volume selector — how many highest-volume assets to load */}
+            {/* How many of the market's most-traded instruments to draw */}
             <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Top:</span>
               <select
                 value={topN}
                 onChange={e => setTopN(Number(e.target.value))}
                 className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
-                title="Show the top N highest-volume assets for this market"
+                title="Draw the N most-traded instruments in this market"
               >
-                {[10, 15, 20, 30, 50, 75, 100].map(n => (
+                {[20, 40, 60, 100, 140, 220].map(n => (
                   <option key={n} value={n} className="bg-[#121212] text-foreground">
-                    Top {n} (Vol)
+                    Top {n} (by turnover)
                   </option>
                 ))}
               </select>
@@ -991,19 +993,19 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             </select>
           </div>
 
-          {/* Volume 24h Filter */}
+          {/* Traded-value (turnover) filter — the market-currency figure. */}
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground font-semibold">24h Vol:</span>
+            <span className="text-muted-foreground font-semibold">Traded value:</span>
             <select
               value={selectedVolumeTier}
               onChange={e => setSelectedVolumeTier(e.target.value)}
               className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-mono text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"
             >
-              <option value="All" className="bg-[#121212] text-foreground">All Volumes</option>
-              <option value="ultra" className="bg-[#121212] text-foreground">Ultra High (&gt; $1B)</option>
-              <option value="high" className="bg-[#121212] text-foreground">High ($100M - $1B)</option>
-              <option value="medium" className="bg-[#121212] text-foreground">Medium ($10M - $100M)</option>
-              <option value="low" className="bg-[#121212] text-foreground">Low (&lt; $10M)</option>
+              <option value="All" className="bg-[#121212] text-foreground">All Ranges</option>
+              <option value="ultra" className="bg-[#121212] text-foreground">Ultra High (&gt; 1B)</option>
+              <option value="high" className="bg-[#121212] text-foreground">High (100M – 1B)</option>
+              <option value="medium" className="bg-[#121212] text-foreground">Medium (10M – 100M)</option>
+              <option value="low" className="bg-[#121212] text-foreground">Low (&lt; 10M)</option>
             </select>
           </div>
         </div>
@@ -1031,13 +1033,14 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
               <span className="text-muted-foreground font-semibold">Size By:</span>
               <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
                 {[
-                  { key: 'marketCap', label: 'Mkt Cap' },
-                  { key: 'volume', label: 'Volume' },
-                  { key: 'change', label: '% Change' }
+                  { key: 'turnover', label: 'Traded value', hint: 'Size by 24h traded value (turnover) — comparable across instruments.' },
+                  { key: 'marketCap', label: 'Mkt Cap', hint: 'Size by market capitalisation where JDDS has it.' },
+                  { key: 'change', label: '% Change', hint: 'Size by absolute 24h percent change.' },
                 ].map(opt => (
                   <button
                     key={opt.key}
-                    onClick={() => setSizeMetric(opt.key as 'marketCap' | 'volume' | 'change')}
+                    onClick={() => setSizeMetric(opt.key as 'marketCap' | 'turnover' | 'change')}
+                    title={opt.hint}
                     className={`px-3 py-1 rounded-md text-[10px] font-mono cursor-pointer transition-all ${
                       sizeMetric === opt.key 
                         ? 'bg-accent text-foreground border border-border/30' 
@@ -1139,6 +1142,20 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             </div>
           )}
 
+          {/* No priced instruments for this market — say so instead of drawing a
+              board of invented bubbles. */}
+          {!loading && unavailable && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <Orbit className="text-muted-foreground/20 w-14 h-14" />
+              <p className="max-w-[36ch] text-xs italic text-amber-400/80">
+                No priced instruments for {marketLabel} in JDDS yet — nothing to measure.
+              </p>
+              <p className="text-[10px] text-muted-foreground/60">
+                Pick another market, or load this one from Settings › Market Data.
+              </p>
+            </div>
+          )}
+
           <canvas
             ref={canvasRef}
             onMouseDown={handlePointerDown}
@@ -1148,18 +1165,33 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             className="w-full h-full cursor-grab active:cursor-grabbing block"
           />
 
-          {/* Ambient center instruction */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 text-[9px] font-mono tracking-widest text-muted-foreground select-none uppercase">
-            Drag to throw • Click or use details table to query AI • Wheel to zoom
-          </div>
+          {/* Ambient center instruction — only over a live board. */}
+          {rawList.length > 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 text-[9px] font-mono tracking-widest text-muted-foreground select-none uppercase">
+              Drag to throw • Click or use details table to query AI • Wheel to zoom
+            </div>
+          )}
         </div>
 
-        {/* Detailed Crypto Statistics Table */}
+        {/* Volume Analytics — whole-market turnover, not just the bubbles drawn */}
+        {volumeSummary ? (
+          <VolumeAnalyticsPanel summary={volumeSummary} marketLabel={marketLabel} />
+        ) : (
+          !loading && rawList.length > 0 && (
+            <div className="glass-card border border-white/5 rounded-3xl p-5 shrink-0">
+              <p className="text-[11px] italic text-muted-foreground/70">
+                Volume Analytics unavailable — JDDS reports no traded volume for {marketLabel}.
+              </p>
+            </div>
+          )
+        )}
+
+        {/* Market Details Table */}
         <div className="glass-card border border-white/5 rounded-3xl p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between border-b border-white/5 pb-3">
             <h2 className="font-serif text-lg font-semibold text-foreground">Market Details Table</h2>
             <span className="text-[10px] text-muted-foreground font-mono bg-white/5 px-2.5 py-1 rounded-full">
-              Showing {filteredAndSortedList.length} assets
+              Showing {filteredAndSortedList.length} instruments
             </span>
           </div>
 
@@ -1199,8 +1231,13 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                       <th onClick={() => toggleSort('marketCap')} className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors text-right">
                         <div className="flex items-center justify-end gap-1.5">Market Cap <ArrowUpDown size={10} /></div>
                       </th>
-                      <th onClick={() => toggleSort('volume')} className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors text-right">
-                        <div className="flex items-center justify-end gap-1.5">24h Volume <ArrowUpDown size={10} /></div>
+                      <th onClick={() => toggleSort('turnover')} className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors text-right">
+                        <div className="flex items-center justify-end gap-1.5">24h Traded Value <ArrowUpDown size={10} /></div>
+                      </th>
+                      <th className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5" title="Raw reported volume: shares, or quote notional for crypto.">
+                          {isNotionalVolume(selectedMarket) ? 'Notional' : 'Shares'}
+                        </div>
                       </th>
                       <th className="py-3 px-4 text-center">AI Inquire</th>
                     </tr>
@@ -1211,16 +1248,20 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                         const isPositive = c.changePercent >= 0;
                         return (
                           <tr key={c.symbol} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group">
-                            <td className="py-3.5 px-4 text-muted-foreground/80">#{c.rank || 999}</td>
+                            <td className="py-3.5 px-4 text-muted-foreground/80">#{c.rank}</td>
                             <td className="py-3.5 px-4 font-bold text-primary tracking-wider">{c.symbol}</td>
                             <td className="py-3.5 px-4 text-muted-foreground font-sans truncate max-w-[150px]">{c.name}</td>
                             <td className="py-3.5 px-4 text-right font-semibold">
-                              {bubbleCurrencyFor(selectedMarket) === '$' ? '$' : `${bubbleCurrencyFor(selectedMarket)} `}{c.price >= 1 ? c.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : c.price.toFixed(4)}
+                              {formatPrice(c.price, currency)}
                             </td>
                             <td className={`py-3.5 px-4 text-right font-semibold ${isPositive ? 'text-primary' : 'text-rose-400'}`}>
-                              {isPositive ? '+' : ''}{c.changePercent.toFixed(2)}%                            </td>
-                            <td className="py-3.5 px-4 text-right">{c.marketCap}</td>
-                            <td className="py-3.5 px-4 text-right text-muted-foreground">{c.volume}</td>
+                              {isPositive ? '+' : ''}{c.changePercent.toFixed(2)}%
+                            </td>
+                            <td className="py-3.5 px-4 text-right text-muted-foreground">
+                              {c.marketCapRaw > 0 ? formatTurnover(c.marketCapRaw, currency) : '—'}
+                            </td>
+                            <td className="py-3.5 px-4 text-right font-semibold">{formatTurnover(c.turnover, currency)}</td>
+                            <td className="py-3.5 px-4 text-right text-muted-foreground">{formatCompact(c.volumeRaw)}</td>
                             <td className="py-1 px-4 text-center">
                               <button
                                 onClick={() => onAnalyzeTicker(c.symbol)}
@@ -1234,8 +1275,8 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-muted-foreground/60">
-                          No matching assets found
+                        <td colSpan={9} className="py-8 text-center text-muted-foreground/60">
+                          No matching instruments found
                         </td>
                       </tr>
                     )}
@@ -1254,12 +1295,12 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                       }}
                       className="bg-black/40 border border-white/10 rounded px-2.5 py-1 text-[11px] font-mono text-foreground focus:outline-none cursor-pointer"
                     >
-                      {[10, 25, 50, 100].map(size => (
+                      {[10, 25, 50, 100, 220].map(size => (
                         <option key={size} value={size} className="bg-[#121212] text-foreground">
                           {size}
                         </option>
                       ))}
-                      {![10, 25, 50, 100].includes(topN) && (
+                      {![10, 25, 50, 100, 220].includes(topN) && (
                         <option value={topN} className="bg-[#121212] text-foreground">
                           {topN}
                         </option>
@@ -1267,7 +1308,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
                     </select>
                     <span className="ml-2 text-[11px]">
                       Showing {Math.min(filteredAndSortedList.length, (currentPage - 1) * itemsPerPage + 1)}-
-                      {Math.min(filteredAndSortedList.length, currentPage * itemsPerPage)} of {filteredAndSortedList.length} assets
+                      {Math.min(filteredAndSortedList.length, currentPage * itemsPerPage)} of {filteredAndSortedList.length} instruments
                     </span>
                   </div>
 
@@ -1323,17 +1364,24 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
 
             <div className="space-y-1 text-xs">
               <p className="text-muted-foreground font-semibold truncate leading-tight">{hoveredData.name}</p>
+              <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60">{hoveredData.sector} · Rank #{hoveredData.rank}</p>
               <div className="flex justify-between mt-1 text-[11px]">
                 <span className="text-muted-foreground">Price:</span>
-                <span className="font-mono font-semibold">{bubbleCurrencyFor(selectedMarket) === '$' ? '$' : `${bubbleCurrencyFor(selectedMarket)} `}{hoveredData.price >= 1 ? hoveredData.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : hoveredData.price.toFixed(4)}</span>
+                <span className="font-mono font-semibold">{formatPrice(hoveredData.price, currency)}</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-muted-foreground">Traded value:</span>
+                <span className="font-mono font-semibold text-primary">{formatTurnover(hoveredData.turnover, currency)}</span>
               </div>
               <div className="flex justify-between text-[11px]">
                 <span className="text-muted-foreground">Mkt Cap:</span>
-                <span className="font-mono font-semibold">{hoveredData.marketCap}</span>
+                <span className="font-mono font-semibold">
+                  {hoveredData.marketCapRaw > 0 ? formatTurnover(hoveredData.marketCapRaw, currency) : '—'}
+                </span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">24h Vol:</span>
-                <span className="font-mono font-semibold">{hoveredData.volume}</span>
+                <span className="text-muted-foreground">24h {isNotionalVolume(selectedMarket) ? 'notional' : 'shares'}:</span>
+                <span className="font-mono font-semibold">{formatCompact(hoveredData.volumeRaw)}</span>
               </div>
             </div>
             

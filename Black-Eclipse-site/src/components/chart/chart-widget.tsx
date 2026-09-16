@@ -177,6 +177,23 @@ export function ChartWidget({
     else setInternal(next);
   };
 
+  // Reconcile the `symbol` / `market` props into internal state. The widget
+  // initialises `internal` once, so without this a host that passes only
+  // `symbol` (the chart tab, the search palette) would update its own state and
+  // see nothing change — the chart kept rendering whatever it mounted with.
+  // Only the uncontrolled path writes back, so a controlled `state=` host keeps
+  // sole ownership. A caller-supplied market wins over the home market.
+  useEffect(() => {
+    if (state) return; // controlled — the host owns the state
+    if (symbol == null && market == null) return;
+    setInternal((prev) => {
+      const nextSymbol = symbol != null ? symbol.toUpperCase() : prev.symbol;
+      const nextMarket = market != null ? market : prev.market;
+      if (nextSymbol === prev.symbol && nextMarket === prev.market) return prev;
+      return { ...prev, symbol: nextSymbol, market: nextMarket };
+    });
+  }, [symbol, market, state]);
+
   const { data, loading, error, refresh } = useChartData(
     chartState.symbol,
     chartState.market,

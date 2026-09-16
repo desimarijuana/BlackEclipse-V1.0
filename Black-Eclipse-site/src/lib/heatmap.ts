@@ -102,4 +102,194 @@ export interface HeatmapPayload {
   sectors: HeatmapSector[];
   /** True when no priced data was available for the market. */
   empty?: boolean;
+  /**
+   * Whole-market traded-volume analysis, computed over EVERY priced asset in
+   * the market (not just the `limit` tiles shown). Absent for feed markets
+   * (FOREX/COMMODITIES), where no real traded volume exists.
+   */
+  volume?: VolumeSummary;
+}
+
+// ── Traded-volume analysis ───────────────────────────────────────────────────
+// A "proper" volume measure has to be honest about units: JDDS stores crypto
+// volume as quote-currency NOTIONAL (Binance `quoteVolume`, already in USD) but
+// equity volume as a SHARE COUNT (TradingView / yfinance). Summing share counts
+// across differently-priced stocks is dimensionally meaningless, so for
+// share-based markets we derive TURNOVER (shares × price = traded value in the
+// market's own currency), which IS comparable across instruments. Crypto
+// turnover is the notional volume itself — multiplying it by price would double
+// count.
+
+/** True when the market's stored `volume` is already quote-currency notional. */
+export function isNotionalVolume(market: string): boolean {
+  return market === 'CRYPTO';
+}
+
+/**
+ * Traded value for one instrument, in the market's currency.
+ * Notional markets: volume is already value. Share markets: shares × price.
+ */
+export function turnoverFor(volume: number, price: number, market: string): number {
+  if (!(volume > 0)) return 0;
+  return isNotionalVolume(market) ? volume : volume * price;
+}
+
+/** How the market reports volume, so the UI can label the unit truthfully. */
+export type VolumeUnit = 'notional' | 'shares';
+
+/** One instrument's contribution to market turnover. */
+export interface VolumeContributor {
+  symbol: string;
+  name: string;
+  sector: string;
+  /** Raw stored volume (shares, or quote notional for crypto). */
+  volume: number;
+  price: number;
+  /** Traded value in the market currency (see `turnoverFor`). */
+  turnover: number;
+  /** Percent of the market's total turnover, 0–100. */
+  sharePct: number;
+  changePct: number;
+}
+
+/**
+ * A turnover band. Bands are defined by an instrument's CONTRIBUTION SHARE of
+ * market turnover rather than an absolute amount, so they stay meaningful
+ * across currencies (USD vs PKR vs IDR) and market sizes.
+ */
+export interface VolumeTier {
+  label: string;
+  /** Inclusive lower bound as a fraction of market turnover, e.g. 0.10 = 10%. */
+  minShare: number;
+  count: number;
+  turnover: number;
+  /** Percent of market turnover held by this band. */
+  sharePct: number;
+}
+
+export interface VolumeSummary {
+  unit: VolumeUnit;
+  /** Currency the turnover figures are expressed in. */
+  currency: string;
+  /** Priced instruments with volume > 0 that contributed. */
+  instruments: number;
+  /** Every priced instrument in the market (contributors + zero-volume rows). */
+  marketAssets: number;
+  /** Sum of raw stored volume (shares, or quote notional for crypto). */
+  totalVolume: number;
+  /** Sum of traded value in the market currency. */
+  turnover: number;
+  averageTurnover: number;
+  /** Median turnover — robust to a single dominant instrument. */
+  medianTurnover: number;
+  maxTurnover: number;
+  /** Leading instruments by turnover. */
+  top: VolumeContributor[];
+  /** Percent of market turnover held by the top 10 instruments. */
+  top10SharePct: number;
+  /**
+   * Herfindahl–Hirschman Index (0–10000) over instrument turnover shares.
+   * >2500 = highly concentrated, 1500–2500 = moderate, <1500 = competitive.
+   */
+  hhi: number;
+  tiers: VolumeTier[];
+}
+
+/** Minimal per-instrument input to `summarizeVolume`. */
+export interface VolumeInput {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  volume: number;
+  changePct: number;
+}
+
+const TIER_BANDS: Array<{ label: string; minShare: number }> = [
+  { label: 'Dominant (≥10%)', minShare: 0.10 },
+  { label: 'Major (2–10%)', minShare: 0.02 },
+  { label: 'Notable (0.5–2%)', minShare: 0.005 },
+  { label: 'Minor (<0.5%)', minShare: 0 },
+];
+
+/** How many contributors the summary carries. */
+export const VOLUME_TOP_N = 12;
+
+/**
+ * Aggregate a market's traded volume into a turnover profile. Pure so it can be
+ * unit-tested and shared by the API route and any client that already holds the
+ * rows. Returns null when no instrument has positive volume — callers render an
+ * UNAVAILABLE state rather than a zeroed-out panel that looks like real data.
+ */
+export function summarizeVolume(
+  rows: VolumeInput[],
+  market: string,
+  currency: string,
+): VolumeSummary | null {
+  const withVolume = rows.filter(r => r.volume > 0 && r.price > 0);
+  if (withVolume.length === 0) return null;
+
+  const contributors: VolumeContributor[] = withVolume.map(r => ({
+    symbol: r.symbol,
+    name: r.name,
+    sector: r.sector,
+    volume: r.volume,
+    price: r.price,
+    turnover: turnoverFor(r.volume, r.price, market),
+    sharePct: 0,
+    changePct: r.changePct,
+  }));
+
+  const totalVolume = contributors.reduce((a, c) => a + c.volume, 0);
+  const turnover = contributors.reduce((a, c) => a + c.turnover, 0);
+  if (!(turnover > 0)) return null;
+
+  for (const c of contributors) c.sharePct = (c.turnover / turnover) * 100;
+
+  const sorted = [...contributors].sort((a, b) => b.turnover - a.turnover);
+  const top = sorted.slice(0, VOLUME_TOP_N);
+
+  // Median on the full distribution (not the truncated top list).
+  const values = sorted.map(c => c.turnover).sort((a, b) => a - b);
+  const mid = Math.floor(values.length / 2);
+  const medianTurnover = values.length % 2 === 0
+    ? (values[mid - 1] + values[mid]) / 2
+    : values[mid];
+
+  const top10SharePct = sorted.slice(0, 10).reduce((a, c) => a + c.sharePct, 0);
+  // HHI in whole points: Σ(share%)². Shares are % so this lands in 0–10000.
+  const hhi = contributors.reduce((a, c) => a + c.sharePct * c.sharePct, 0);
+
+  const tiers: VolumeTier[] = TIER_BANDS.map((band, i) => {
+    // Bands are contiguous: [this.minShare, nextHigherBand.minShare).
+    const upper = i === 0 ? Infinity : TIER_BANDS[i - 1].minShare;
+    const members = contributors.filter(c => {
+      const f = c.turnover / turnover;
+      return f >= band.minShare && f < upper;
+    });
+    const bandTurnover = members.reduce((a, c) => a + c.turnover, 0);
+    return {
+      label: band.label,
+      minShare: band.minShare,
+      count: members.length,
+      turnover: bandTurnover,
+      sharePct: (bandTurnover / turnover) * 100,
+    };
+  });
+
+  return {
+    unit: isNotionalVolume(market) ? 'notional' : 'shares',
+    currency,
+    instruments: contributors.length,
+    marketAssets: rows.length,
+    totalVolume,
+    turnover,
+    averageTurnover: turnover / contributors.length,
+    medianTurnover,
+    maxTurnover: sorted[0]?.turnover ?? 0,
+    top,
+    top10SharePct,
+    hhi,
+    tiers,
+  };
 }

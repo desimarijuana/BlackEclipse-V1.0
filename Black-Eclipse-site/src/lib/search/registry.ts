@@ -9,6 +9,7 @@ import type {
   SearchAction,
   SearchEntity,
 } from './types';
+import { INDEX_DEFS } from '@/lib/indices';
 
 // ── Page (destination) registry ─────────────────────────────────────────────
 interface PageEntry {
@@ -256,11 +257,39 @@ registerInstrument({ id: 'com-brent', kind: 'instrument', title: 'Brent Crude Oi
 registerInstrument({ id: 'com-natgas', kind: 'instrument', title: 'Natural Gas', symbol: 'NG', assetClass: 'commodity', market: 'US', aliases: ['natural gas', 'natgas', 'ng'], keywords: ['natural gas', 'natgas', 'energy'], icon: 'chart', tab: 'chart', params: { symbol: 'NATGAS' }, rankBoost: 1.05 });
 registerInstrument({ id: 'com-copper', kind: 'instrument', title: 'Copper', symbol: 'HG', assetClass: 'commodity', market: 'US', aliases: ['copper', 'hg'], keywords: ['copper', 'industrial metal'], icon: 'chart', tab: 'chart', params: { symbol: 'COPPER' }, rankBoost: 1.05 });
 
-// Major indices.
-registerInstrument({ id: 'idx-spx', kind: 'instrument', title: 'S&P 500', symbol: 'SPX', assetClass: 'index', market: 'US', aliases: ['spx', 's&p 500', 's&p', 'sp500'], keywords: ['s&p 500', 'spx', 'index'], icon: 'chart', tab: 'chart', params: { symbol: 'SPX' }, rankBoost: 1.2 });
-registerInstrument({ id: 'idx-ndx', kind: 'instrument', title: 'Nasdaq 100', symbol: 'NDX', assetClass: 'index', market: 'US', aliases: ['nasdaq', 'ndx', 'nasdaq 100'], keywords: ['nasdaq', 'ndx', 'index'], icon: 'chart', tab: 'chart', params: { symbol: 'NDX' }, rankBoost: 1.15 });
-registerInstrument({ id: 'idx-dji', kind: 'instrument', title: 'Dow Jones Industrial Average', symbol: 'DJI', assetClass: 'index', market: 'US', aliases: ['dow', 'dji', 'dow jones'], keywords: ['dow', 'dji', 'index'], icon: 'chart', tab: 'chart', params: { symbol: 'DJI' }, rankBoost: 1.1 });
-registerInstrument({ id: 'idx-rut', kind: 'instrument', title: 'Russell 2000', symbol: 'RUT', assetClass: 'index', market: 'US', aliases: ['russell', 'rut', 'russell 2000'], keywords: ['russell', 'rut', 'small cap'], icon: 'chart', tab: 'chart', params: { symbol: 'RUT' }, rankBoost: 1.05 });
+// Major indices — GENERATED from the index registry (`@/lib/indices`) so the
+// palette can never drift from what the chart can actually fetch. The
+// destination carries the CANONICAL ticker (`^GSPC`, `^KSE100`), not the
+// TradingView-style alias: the old hand-written entries shipped `SPX`/`DJI`,
+// which Yahoo has no instrument for, so selecting one produced "Symbol not
+// found". Aliases/keywords come from the registry too, so "nifty", "ftse" and
+// "KSE 100" all resolve.
+//
+// Deliberately NO generic 'index'/'indices' keyword: those are substrings of
+// very short queries ("IN" matches "index"), so every index would flood the
+// results and push the real `market-IN` country entry out of the top slice.
+for (const def of INDEX_DEFS) {
+  const slug = def.symbol.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || def.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const aliasList = [def.symbol, ...def.aliases, ...(def.searchOnly ?? [])].map(a => a.toLowerCase());
+  registerInstrument({
+    id: `idx-${slug}`,
+    kind: 'instrument',
+    title: def.name,
+    symbol: def.symbol,
+    assetClass: 'index',
+    market: def.market,
+    aliases: aliasList,
+    keywords: [...new Set([def.name.toLowerCase(), ...aliasList])],
+    icon: 'chart',
+    tab: 'chart',
+    // Only the symbol is passed: `params.market` would also switch the Market
+    // Screener tab (see stock-chat's destination handler) as a side effect of
+    // opening a chart. The index's own market and currency come from the
+    // registry via `resolveIndex`, so the chart is correct without it.
+    params: { symbol: def.symbol },
+    rankBoost: 1.2,
+  });
+}
 
 // ── Actions (command palette) ────────────────────────────────────────────────
 registerAction({

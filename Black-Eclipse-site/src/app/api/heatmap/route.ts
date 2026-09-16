@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toMarketId, currencyFor } from "@/lib/markets";
-import { heatmapMeta, type HeatmapSector, type HeatmapStock } from "@/lib/heatmap";
+import {
+  heatmapMeta, summarizeVolume,
+  type HeatmapPayload, type HeatmapSector, type HeatmapStock, type VolumeInput,
+} from "@/lib/heatmap";
 
 export const dynamic = "force-dynamic";
 
@@ -132,7 +135,7 @@ async function buildFeedHeatmap(market: "FOREX" | "COMMODITIES", limit: number, 
 }
 
 /** Group priced instruments into sectors and compute cap-weighted changes. */
-function assemblePayload(market: string, meta: ReturnType<typeof heatmapMeta>, stocks: Priced[]) {
+function assemblePayload(market: string, meta: ReturnType<typeof heatmapMeta>, stocks: Priced[]): HeatmapPayload {
   // Compress tile sizes BEFORE grouping so the sector caps and the tile areas
   // agree, and so no single mega-cap swallows the board.
   const compressed = stocks.map(s => ({ ...s, size: compressSize(s.size, market) }));
@@ -194,6 +197,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const market = toMarketId((searchParams.get("market") || "US").toUpperCase());
   const limit = clampInt(searchParams.get("limit"), DEFAULT_LIMIT, 20, MAX_LIMIT);
+  // Whole-market turnover analysis is opt-in: it scans EVERY priced asset in
+  // the market (not just the tiles), which the dashboard heatmap doesn't need.
+  const withVolume = searchParams.get("volume") === "1";
   const meta = heatmapMeta(market);
 
   if (FEED_MARKETS.has(market)) {
@@ -263,7 +269,41 @@ export async function GET(request: Request) {
     }
 
     priced.sort((a, b) => b.size - a.size);
-    return NextResponse.json(assemblePayload(market, meta, priced.slice(0, limit)));
+    const payload = assemblePayload(market, meta, priced.slice(0, limit));
+
+    // Whole-market turnover profile over all priced instruments with volume.
+    // Runs only when requested, and uses a lean projection (no ordering work
+    // beyond what the summary needs).
+    if (withVolume) {
+      const volumeRows = await prisma.asset.findMany({
+        where: {
+          marketId: market,
+          isActive: true,
+          price: { isNot: null },
+          ...equityFilter,
+        },
+        select: {
+          symbol: true,
+          name: true,
+          sector: true,
+          price: { select: { price: true, volume: true, changePct: true } },
+        },
+      });
+      const inputs: VolumeInput[] = volumeRows
+        .filter(r => r.price && r.price.price > 0)
+        .map(r => ({
+          symbol: r.symbol,
+          name: r.name,
+          sector: r.sector ?? "Other",
+          price: r.price!.price,
+          volume: r.price!.volume ?? 0,
+          changePct: r.price!.changePct ?? 0,
+        }));
+      const summary = summarizeVolume(inputs, market, currencyFor(market));
+      if (summary) payload.volume = summary;
+    }
+
+    return NextResponse.json(payload);
   } catch (err) {
     console.error("[api/heatmap] GET error:", err);
     return NextResponse.json(
