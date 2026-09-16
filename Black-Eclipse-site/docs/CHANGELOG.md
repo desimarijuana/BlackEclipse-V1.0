@@ -43,6 +43,66 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — Situation recurrence and honest corroboration.
+  - **Situation timeline** (`situations.ts`, pure). A single event in isolation is
+    not intelligence: an explosion near Hormuz means something different when it
+    is the fourth incident there this week. Events are grouped into SITUATIONS by
+    type + country, and the dossier shows the count, span, peak severity, a
+    severity trend and whether it is escalating.
+    - **Bucketed by COUNTRY, not place string.** Measured on live data, bucketing
+      by raw place fragmented one situation four ways ("US", "United States",
+      "Washington", "Washington, D.C.") because providers disagree on
+      granularity.
+    - **And then labelled by country, not by the top place.** With country
+      bucketing the first working version labelled 147 US conflicts as
+      "Washington, D.C.", which implied they were all there. The label is now the
+      country (what the count actually covers), with the most-common place and
+      the number of distinct places offered as separate context — "140x conflict
+      in United States · across 61 places, most often Washington, D.C.".
+    - "Escalating" requires **3+ occurrences and a genuinely rising trend** (two
+      points is a comparison, not a trend) and is explicitly described as a
+      description of the trend so far, not a forecast.
+  - **Corroboration badge now counts distinct OUTLETS.** After the
+    article-identity fix one article can legitimately back several captured
+    sources, so a raw `sourceCount` overstated corroboration. The badge and the
+    Sources block now report distinct outlets and distinct article URLs, and say
+    "Multiple citations of the same article — one outlet" when that is the case.
+  - `GET /api/investor-eye/situations` reads the same stored feed the map uses, so
+    a situation can never disagree with the events on screen.
+  - 16 new `situations` tests, including the two regressions above.
+  - Verified: 952 tests pass, `tsc` + eslint clean, zero console errors in Chrome.
+    `jdds.db` NOT committed — no schema change.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
+- **Journal** — The journal was empty on every tab. Root cause: it is DB-backed
+  (unlike the localStorage portfolio demo), and although a seeder existed it had
+  never been run or wired into boot — the committed `jdds.db` held **0 `Trade`
+  rows** and two duplicate `JournalProfile` rows from a `getOrCreateProfile()`
+  race. Fixed by making seeding real and honest:
+  - **`src/lib/journal/demo.ts`** is now the single generator, invoked from boot
+    (`instrumentation.ts`) and from `scripts/seed-journal.ts` (now a thin
+    wrapper). It seeds ~90 days of deterministic trades so every tab has content.
+  - **Provenance, not mystery data.** Added `Trade.source` (`'manual' | 'demo'`)
+    and a journal banner that says how many rows are sample data, with a
+    one-click "Remove demo data" that deletes ONLY `source: 'demo'` rows. A
+    `SystemConfig` marker stops the seeder re-adding what was deliberately
+    cleared — verified across a server restart.
+  - **Fixed the profile race** so duplicates collapse to the oldest row instead of
+    accumulating (2 → 1 in the existing DB).
+  - **Coherent risk sizing.** Positions are now `riskTarget / stopDistance`
+    against the profile's `accountSize × riskPerTrade`, so risk per trade varies
+    gently (CV ≈ 0.10) instead of ~8× across symbols — without this the risk
+    analytics (risk consistency, the 1% rule, expectancy in R) were noise.
+  - **Mini calendar rebuilt** as a compact GitHub-style week grid: fixed 11×11
+    cells with signed R-intensity buckets. Previously the cell had no width class,
+    so `grid-cols-10` stretched each one to fill its column and the "squares"
+    became large rectangles. Intensity is now shared with the year heatmap via
+    `src/lib/journal/intensity.ts`.
+  - Verified in-browser: all eight journal tabs render real derived content (e.g.
+    "Best session: Asia +19.70R", "Behavioral leak: Revenge −4.03R", expectancy
+    +0.26R), calendar cells measure 11×11, zero console errors. 9 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/OVERVIEW.md`
+
 - **Investor Eye** — "Explain this event": the AI analyst, where the question is
   asked.
   - The 7 read-only Investor Eye agent tools already existed but were reachable

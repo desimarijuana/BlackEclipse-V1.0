@@ -43,6 +43,7 @@ Black-Eclipse-site/
 | Work on portfolio risk/correlation math | `src/lib/portfolio/matrix.ts` (date-aligned correlation + Euler risk decomposition), `src/lib/portfolio/risk.ts` |
 | Work on portfolio widgets | `src/components/screens/portfolio/widgets.tsx` (registry + renderers), `use-fund-data.ts` (data bundle) |
 | Work on the journal | `src/components/journal/`, `src/lib/journal/` |
+| Seed / clear journal demo data | `src/lib/journal/demo.ts` (generator + marker), `src/app/api/journal/demo/route.ts` (seed/clear), `scripts/seed-journal.ts` (CLI wrapper) |
 | Work on the dashboard widgets | `src/lib/dashboard/`, `src/components/screens/dashboard/` |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
@@ -65,6 +66,7 @@ Black-Eclipse-site/
 | Make provider-synthesized event titles readable | `formatEventTitle` in `src/lib/investor-eye/format.ts` (used by the dossier header + live feed) |
 | Work on the event detail dossier | `src/components/investor-eye/event-panel.tsx` (What happened / Actors / Where & when / Detail / Observed / exposure / reaction / Sources / Timeline) |
 | Work on "Explain this event" (AI analyst) | `src/lib/investor-eye/event-record.ts` (prompt + honesty rules), `explain-panel.tsx`, `src/app/api/investor-eye/explain/route.ts` |
+| Work on situation recurrence ("4th incident this week") | `src/lib/investor-eye/situations.ts` (pure grouping by type+country), `situation-panel.tsx`, `src/app/api/investor-eye/situations/route.ts` |
 | Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
 | Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |

@@ -26,6 +26,7 @@ import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-
 import { AnaloguesPanel } from './analogues-panel';
 import { ReactionPanel } from './reaction-panel';
 import { ExplainPanel } from './explain-panel';
+import { SituationPanel } from './situation-panel';
 import { cn } from '@/lib/utils';
 
 interface EventPanelProps {
@@ -47,6 +48,7 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
         <WhatHappened event={event} article={article} />
         {event.actors && event.actors.length > 0 && <Actors event={event} />}
         <WhereAndWhen event={event} onSelectCountry={onSelectCountry} />
+        <SituationPanel eventId={event.id ?? event.dedupKey} hours={168} />
         <TypeDetail event={event} />
         <Observed event={event} />
 
@@ -154,7 +156,7 @@ function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose:
           <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
             {event.eventType.replace(/_/g, ' ')} · {event.severity}
           </span>
-          <SourceBadge count={event.sourceCount} />
+          <SourceBadge count={event.sourceCount} outlets={event.sources.length > 0 ? new Set(event.sources.map((s) => s.name)).size : undefined} />
         </div>
         <div className="text-sm font-semibold leading-snug text-foreground">
           {headline ?? formatEventTitle(event.title, event.placeName)}
@@ -171,18 +173,30 @@ function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose:
   );
 }
 
-/** Corroboration badge — an honest read on how well-attested the event is. */
-function SourceBadge({ count }: { count: number }) {
-  const level = count >= 3 ? 'confirmed' : count === 2 ? 'corroborated' : 'single source';
+/**
+ * Corroboration badge. Uses the number of DISTINCT OUTLETS where we have them,
+ * because since the article-identity fix one article can back several captured
+ * sources — a raw count would overstate corroboration.
+ */
+function SourceBadge({ count, outlets }: { count: number; outlets?: number }) {
+  const n = outlets ?? count;
+  const level = n >= 3 ? 'confirmed' : n === 2 ? 'corroborated' : 'single source';
   const style =
-    count >= 3
+    n >= 3
       ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
-      : count === 2
+      : n === 2
         ? 'border-sky-500/25 bg-sky-500/10 text-sky-300'
         : 'border-border/40 text-muted-foreground';
   return (
-    <span className={cn('rounded-sm border px-1.5 py-0.5 text-[9px] font-mono', style)} title={`${count} independent source(s) reported this`}>
-      {level} · {count}
+    <span
+      className={cn('rounded-sm border px-1.5 py-0.5 text-[9px] font-mono', style)}
+      title={
+        outlets !== undefined && outlets !== count
+          ? `${outlets} distinct outlet(s) across ${count} captured source(s)`
+          : `${count} independent source(s) reported this`
+      }
+    >
+      {level} · {n}
     </span>
   );
 }
@@ -407,11 +421,20 @@ function Entities({ eventId }: { eventId?: string }) {
 // ── Evidence ─────────────────────────────────────────────────────────────────
 
 function Evidence({ sources, sourceCount }: { sources: SourceRef[]; sourceCount: number }) {
+  // Corroboration means INDEPENDENT outlets. After the article-identity fix one
+  // article can legitimately back several rows, so the honest measure is the
+  // number of distinct outlets, not the raw source count.
+  const outlets = [...new Set(sources.map((s) => s.name))];
+  const distinctUrls = new Set(sources.map((s) => s.url).filter(Boolean));
+  const hint =
+    outlets.length > 1
+      ? `${outlets.length} distinct outlets reported this.`
+      : sources.length > 1
+        ? 'Multiple citations of the same article — one outlet.'
+        : 'Single outlet. Not independently corroborated.';
+
   return (
-    <Block
-      title="Sources"
-      hint={sources.length > 1 ? 'Independent outlets that reported this event.' : undefined}
-    >
+    <Block title="Sources" hint={hint}>
       {sources.length === 0 ? (
         <div className="text-[10px] italic text-muted-foreground/70">No source list captured.</div>
       ) : (
@@ -440,9 +463,12 @@ function Evidence({ sources, sourceCount }: { sources: SourceRef[]; sourceCount:
           {sources.length > 12 && (
             <div className="text-[9px] text-muted-foreground/60">+{sources.length - 12} more sources</div>
           )}
+          {/* Provider counts vs what we actually captured — never let a large
+              number imply corroboration we did not verify. */}
           {sourceCount > sources.length && (
             <div className="text-[9px] text-muted-foreground/60">
-              The provider counted {sourceCount} sources; {sources.length} were individually captured.
+              The provider counted {sourceCount} sources; {sources.length} were individually captured
+              {distinctUrls.size > 0 ? ` (${distinctUrls.size} distinct article${distinctUrls.size === 1 ? '' : 's'})` : ''}.
             </div>
           )}
         </div>

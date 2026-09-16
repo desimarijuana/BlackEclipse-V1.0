@@ -860,6 +860,51 @@ would start guessing — so it is pure and unit-tested (6 tests).
 
 ---
 
+## 5j. Phase 12 — recurrence, and honest corroboration
+
+### A single event is not intelligence
+
+"Explosion near Hormuz" means something quite different when it is the fourth
+incident there this week. `situations.ts` groups the window's events into
+SITUATIONS by **type + country** and reports count, span, peak severity, a
+severity trend, and whether it is escalating.
+
+Two mistakes were made and fixed while building it, both caught by looking at
+live output rather than the unit tests:
+
+1. **Bucketing by raw place fragmented one situation four ways.** The same
+   conflict appeared as separate "situations" for `US`, `United States`,
+   `Washington` and `Washington, D.C.` — providers disagree on granularity, so a
+   place string is not a stable grouping key. Bucketing moved to **country**.
+2. **And that produced the opposite error.** Country bucketing then labelled 147
+   US conflicts as `Washington, D.C.` (the most common place), which implies they
+   all happened there. The label is now the **country** — what the count actually
+   covers — with the top place and the count of distinct places as *separate*
+   context:
+
+   > 140× conflict in United States · across 61 places, most often Washington, D.C.
+
+The lesson generalizes: **the label must describe the unit you counted, not the
+most interesting member of the set.**
+
+**"Escalating" is deliberately hard to earn:** 3+ occurrences *and* a genuinely
+rising severity trend. Two points is a comparison, not a trend. It is described
+in the UI as a description of the trend so far, never a forecast.
+
+### Corroboration after the article-identity fix
+
+The article-identity clustering (5f) means one article can legitimately back
+several captured sources, so the old badge — which used `sourceCount` — began to
+**overstate** corroboration: "confirmed · 15" could be one story cited fifteen
+times.
+
+The badge and the Sources block now count **distinct outlets** and distinct
+article URLs, and state which case applies ("Multiple citations of the same
+article — one outlet"). A number that had quietly become misleading is honest
+again.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |
