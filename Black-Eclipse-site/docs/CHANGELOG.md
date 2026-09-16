@@ -43,6 +43,53 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — Six capabilities: observed price reaction, event alerts,
+  place-level geocoding, saved views, keyboard navigation, source health.
+  - **Price reaction** (`lib/investor-eye/reaction.ts`, pure). Measures what the
+    relevant instrument ACTUALLY did after an event — close-to-close returns at
+    +1/+5/+20 sessions from real `Candles` rows, with the baseline date, the
+    trading days of post-event history, and an explicit reason when it can't be
+    measured. This is the observable counterpart to "potential exposure": the
+    exposure block says what COULD matter, this says what the market did. Never
+    predictive, never synthetic. `GET /api/investor-eye/reaction` +
+    `ReactionPanel` in the event panel. Verified live: an 2026-09-11 Alaska
+    quake returned `^GSPC +1=-0.483% +5=-0.535%`; events from today correctly
+    return "not yet measurable" instead of a fake zero. 11 tests.
+  - **Event alerts** (`lib/investor-eye/alert-rules.ts`, pure predicates).
+    "Tell me when…" over the world feed: event types, severity floor, confidence
+    /relevance floors, countries, commodities, keywords, and an optional
+    lat/lon/radius fence. `matchRule()` returns the REASONS a rule fired (never
+    a bare boolean), so an alert is always explainable. Persisted as
+    `SystemConfig` JSON — no schema change — through a guarded
+    POST/DELETE, with 5 preset rules. An empty rule refuses to match rather than
+    firing on everything. `AlertsPanel` wired into the detail row. 22 tests.
+  - **Place-level geocoding** (`lib/investor-eye/places.ts`, ~130 curated
+    places). News-derived events only had a country, so they plotted at the
+    COUNTRY CENTROID — "United States" pins landed in Kansas and made the map
+    read as wrong. A curated gazetteer of financial centres, major ports,
+    chokepoints (Hormuz/Suez/Malacca/Bab-el-Mandeb), and energy/industrial hubs
+    now anchors the event where the headline says it happened; the country hint
+    disambiguates, and matching is word-boundary so "china" never matches
+    inside another word. Chokepoints are weighted highest because they drive the
+    logistics story. 9 tests — which caught that `PA` and `PS` were missing from
+    the country gazetteer, so Panama Canal / Gaza events had nowhere to plot;
+    both added.
+  - **Saved views** (`saved-views.tsx` + store): snapshot layers + window +
+    projection + metric as a named posture ("Red Sea shipping watch") and
+    restore in one click. Re-saving a name replaces it; restoring reconciles
+    layer ids against the registry so a retired layer can't come back. View
+    state only, never data.
+  - **Keyboard navigation** (spec §34): `j`/`k` or ↓/↑ step through the
+    newest-first event feed and open each one — the map is usable without a
+    mouse. Ignored while typing or with a modifier held.
+  - **Source health** (spec §15): `SourceHealthPanel` renders the real
+    `SourceRun` accounting from `/api/investor-eye/health` — state, latency,
+    last run, accepted/received — with a throttle shown as its own state, never
+    folded into "error".
+  - Verified: `npm run test` 816 passed, `tsc` + eslint clean, zero console
+    errors in Chrome; reaction and alert APIs exercised against live data.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Investor Eye** — Removed the doubled close button on selection panels.
   `PanelShell` drew its own "×" while the Event/Country/Company panels already
   render one in their header, so the corner showed TWO overlapping crosses.

@@ -92,7 +92,10 @@ export const COUNTRIES: CountryDef[] = [
   { iso2: 'LB', iso3: 'LBN', name: 'Lebanon', region: 'Middle East', lon: 35.9, lat: 33.9, currency: 'LBP', aliases: ['beirut'] },
   { iso2: 'YE', iso3: 'YEM', name: 'Yemen', region: 'Middle East', lon: 47.6, lat: 15.6, currency: 'YER', aliases: ['sanaa', 'houthi', 'houthis', 'red sea'] },
   { iso2: 'SY', iso3: 'SYR', name: 'Syria', region: 'Middle East', lon: 39.0, lat: 34.8, currency: 'SYP', aliases: ['damascus', 'syrian'] },
+  { iso2: 'PS', iso3: 'PSE', name: 'Palestine', region: 'Middle East', lon: 34.3, lat: 31.9, currency: 'ILS', aliases: ['gaza', 'west bank', 'ramallah', 'palestinian'] },
   { iso2: 'EG', iso3: 'EGY', name: 'Egypt', region: 'Middle East', lon: 30.8, lat: 26.8, marketId: 'EG', currency: 'EGP', aliases: ['cairo', 'suez', 'egyptian'] },
+  // ── Central America & Caribbean ────────────────────────────────────────────
+  { iso2: 'PA', iso3: 'PAN', name: 'Panama', region: 'Central America', lon: -79.5, lat: 8.5, currency: 'PAB', aliases: ['panama canal', 'panamanian'] },
   // ── Africa ─────────────────────────────────────────────────────────────────
   { iso2: 'ZA', iso3: 'ZAF', name: 'South Africa', region: 'Africa', lon: 22.9, lat: -30.6, marketId: 'ZA', currency: 'ZAR', aliases: ['johannesburg', 'cape town'] },
   { iso2: 'NG', iso3: 'NGA', name: 'Nigeria', region: 'Africa', lon: 8.7, lat: 9.1, marketId: 'NG', currency: 'NGN', aliases: ['lagos', 'abuja', 'nigerian'] },

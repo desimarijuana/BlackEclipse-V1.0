@@ -72,6 +72,9 @@ interface InvestorEyeStore {
   highlightedCountries: string[];
   highlightNote: string | null;
 
+  /** Saved intelligence postures (persisted). */
+  views: SavedView[];
+
   setSelectedCountry: (iso2: string | null) => void;
   setSelectedEvent: (event: NormalizedEvent | null) => void;
   setSelectedMarket: (market: SelectedMarket | null) => void;
@@ -88,9 +91,18 @@ interface InvestorEyeStore {
   setPortfolioOverlay: (on: boolean) => void;
   applyHighlights: (countries: string[], note: string | null) => void;
   clearHighlights: () => void;
+
+  /** Snapshot the current view state as a named preset. */
+  saveView: (name: string) => SavedView | null;
+  /** Apply a saved preset. */
+  applyView: (id: string) => void;
+  deleteView: (id: string) => void;
 }
 
 const STORAGE_KEY = 'be_investor_eye_v1';
+
+/** Cap on saved postures — a palette, not a database. */
+export const MAX_VIEWS = 20;
 
 interface Persisted {
   activeLayers: LayerId[];
@@ -98,6 +110,24 @@ interface Persisted {
   economicMetric: string;
   portfolioOverlay: boolean;
   mapMode: MapMode;
+  /** Operator-saved intelligence postures (layer + window + metric presets). */
+  views?: SavedView[];
+}
+
+/**
+ * A saved "intelligence posture": the layer/window/metric combination a user
+ * wants to return to. Only view state — never data — so restoring one is
+ * instant and cannot resurrect stale observations.
+ */
+export interface SavedView {
+  id: string;
+  name: string;
+  activeLayers: LayerId[];
+  timeRange: TimeRangeId;
+  mapMode: MapMode;
+  economicMetric: string;
+  portfolioOverlay: boolean;
+  createdAt: string;
 }
 
 function loadPersisted(): Partial<Persisted> {
@@ -121,6 +151,9 @@ function loadPersisted(): Partial<Persisted> {
       economicMetric: parsed.economicMetric ?? 'inflation',
       portfolioOverlay: parsed.portfolioOverlay ?? false,
       mapMode: parsed.mapMode === 'globe' ? 'globe' : '2d',
+      views: Array.isArray(parsed.views)
+        ? parsed.views.filter((v): v is SavedView => Boolean(v && typeof v.name === 'string')).slice(0, MAX_VIEWS)
+        : undefined,
     };
   } catch {
     return {};
@@ -138,6 +171,7 @@ function persist(state: InvestorEyeStore) {
         economicMetric: state.economicMetric,
         portfolioOverlay: state.portfolioOverlay,
         mapMode: state.mapMode,
+        views: state.views,
       } satisfies Persisted),
     );
   } catch {
@@ -163,6 +197,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     portfolioOverlay: persisted.portfolioOverlay ?? false,
     highlightedCountries: [],
     highlightNote: null,
+    views: persisted.views ?? [],
 
     setSelectedCountry: (iso2) => set({ selectedCountry: iso2 }),
     setSelectedEvent: (event) => set({ selectedEvent: event }),
@@ -204,6 +239,47 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     },
     applyHighlights: (countries, note) => set({ highlightedCountries: countries, highlightNote: note }),
     clearHighlights: () => set({ highlightedCountries: [], highlightNote: null }),
+
+    saveView: (name) => {
+      const trimmed = name.trim().slice(0, 40);
+      if (!trimmed) return null;
+      const s = get();
+      const view: SavedView = {
+        id: `view-${Date.now().toString(36)}`,
+        name: trimmed,
+        activeLayers: [...s.activeLayers],
+        timeRange: s.timeRange,
+        mapMode: s.mapMode,
+        economicMetric: s.economicMetric,
+        portfolioOverlay: s.portfolioOverlay,
+        createdAt: new Date().toISOString(),
+      };
+      // Re-saving the same name replaces it, so the list stays a set of
+      // postures rather than accumulating duplicates.
+      const rest = s.views.filter((v) => v.name !== trimmed);
+      set({ views: [view, ...rest].slice(0, MAX_VIEWS) });
+      persist(get());
+      return view;
+    },
+    applyView: (id) => {
+      const view = get().views.find((v) => v.id === id);
+      if (!view) return;
+      // Reconcile layers against the canonical registry so a view saved before a
+      // layer existed/retired never restores a dead id.
+      const known = new Set<string>(ALL_LAYER_IDS);
+      set({
+        activeLayers: view.activeLayers.filter((l) => known.has(l)),
+        timeRange: view.timeRange,
+        mapMode: view.mapMode,
+        economicMetric: view.economicMetric,
+        portfolioOverlay: view.portfolioOverlay,
+      });
+      persist(get());
+    },
+    deleteView: (id) => {
+      set({ views: get().views.filter((v) => v.id !== id) });
+      persist(get());
+    },
   };
 });
 

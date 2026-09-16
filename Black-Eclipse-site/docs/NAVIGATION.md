@@ -52,6 +52,11 @@ Black-Eclipse-site/
 | Work on the full-page "map only" mode | `src/components/investor-eye/full-page-map.tsx` (+ `store.fullPage`); reuses `WorldMap`/`EventPanel`, portaled to body |
 | Work on the live event stream / conflict feed | `src/components/investor-eye/live-feed.tsx`; conflict RSS wires in `DEFAULT_NEWS_FEEDS` (`src/lib/settings.ts`) |
 | Change the 3D globe surface or the 2D map geometry | `src/lib/investor-eye/app-geo.ts` (`worldGlobeTexture()` draws the globe texture from `public/geo/world.geo.json`; `ensureWorldMapRegistered()` for 2D) |
+| Work on event→market price reaction | `src/lib/investor-eye/reaction.ts` (pure measurement) + `src/app/api/investor-eye/reaction/route.ts` + `reaction-panel.tsx` |
+| Add/edit event alert rules | `src/lib/investor-eye/alert-rules.ts` (predicates + presets) + `src/app/api/investor-eye/alerts/route.ts` + `alerts-panel.tsx` |
+| Fix where an event is plotted (city/port) | `src/lib/investor-eye/places.ts` (curated gazetteer + `resolvePlace()`); used by `sources/news.ts` |
+| Work on saved views | `src/components/investor-eye/saved-views.tsx` + `store.ts` (`saveView`/`applyView`) |
+| Work on data-source health | `src/app/api/investor-eye/health/route.ts` + `source-health-panel.tsx` (reads `SourceRun` rows) |
 | Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
 | Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |

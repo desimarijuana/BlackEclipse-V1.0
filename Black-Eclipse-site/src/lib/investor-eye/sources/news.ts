@@ -17,6 +17,7 @@
 import { prisma } from '@/lib/db';
 import { classifyChannels, classifyCommodities, classifySectors, classifySeverity, classifyType } from '../classify';
 import { extractCountries, countryByIso2, resolveCountry } from '../countries';
+import { resolvePlace } from '../places';
 import { dedupKeyFor } from '../dedup';
 import { confidenceOf } from '../cluster';
 import { scoreRelevance, selectRelevant, KEEP_THRESHOLD } from '../relevance';
@@ -85,6 +86,14 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
   }
   const primary = countries.length > 0 ? countryByIso2(countries[0]) : resolveCountry(text);
 
+  // Anchor: prefer a NAMED place (city/port/chokepoint/energy hub) over the
+  // country centroid. Plotting every US story at the geographic centre of the
+  // USA put pins in Kansas and made the map read as wrong; resolving the place
+  // the headline actually names fixes that. The country hint keeps a place name
+  // that occurs in several countries on the right one.
+  const place = resolvePlace(text, countries);
+  const anchor = place ?? primary;
+
   const channels = classifyChannels(text);
   const commodities = classifyCommodities(text);
   const sectors = classifySectors(text);
@@ -102,8 +111,8 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
     // news ingester already validated against the JDSS universe.
     securities: row.ticker ? [row.ticker] : [],
     countries,
-    lon: primary?.lon,
-    lat: primary?.lat,
+    lon: anchor?.lon,
+    lat: anchor?.lat,
     confidence: 0.5,
     sourceCount: 1,
     sources: [{

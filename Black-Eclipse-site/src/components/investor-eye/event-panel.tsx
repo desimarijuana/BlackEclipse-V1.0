@@ -9,6 +9,7 @@ import { severityColor } from '@/lib/investor-eye/layers';
 import { formatUtc } from '@/lib/investor-eye/format';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
 import { AnaloguesPanel } from './analogues-panel';
+import { ReactionPanel } from './reaction-panel';
 
 interface EventPanelProps {
   event: NormalizedEvent;
@@ -115,6 +116,9 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
           eventType={event.eventType}
           symbol={event.securities[0]}
         />
+
+        {/* What the market actually did after this event (real stored closes). */}
+        <ReactionPanel eventId={event.id ?? event.dedupKey} symbol={event.securities[0]} />
 
         <div className="rounded-lg border border-border/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground/80">
           Confidence is internal data quality (how well the event is corroborated and located), not a

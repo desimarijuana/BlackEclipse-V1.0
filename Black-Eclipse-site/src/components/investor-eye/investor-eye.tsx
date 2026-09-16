@@ -8,7 +8,7 @@
 // Data flow: DataHub topics → `MapLayer[]` (pure builders) → <WorldMap>. All
 // business logic lives in `lib/investor-eye/`; this component only wires.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Globe2, Search, RefreshCw, X, Loader2, Maximize2 } from 'lucide-react';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/lib/investor-eye/topics';
@@ -34,6 +34,9 @@ import { TransmissionsPanel } from './transmissions-panel';
 import { GraphPanel } from './graph-panel';
 import { FullPageMap } from './full-page-map';
 import { LiveFeed } from './live-feed';
+import { AlertsPanel } from './alerts-panel';
+import { SourceHealthPanel } from './source-health-panel';
+import { SavedViews } from './saved-views';
 
 export function InvestorEyeScreen() {
   const selectedCountry = useInvestorEyeStore((s) => s.selectedCountry);
@@ -67,6 +70,9 @@ export function InvestorEyeScreen() {
   const stateTopicId = useMemo(() => registerStateTopic(hours), [hours]);
   const stateEntry = useTopic<InvestorEyeState>(stateTopicId);
   const state = stateEntry.data;
+  // The keyboard-nav handler reads the latest state without re-subscribing.
+  const stateRef = useRef<InvestorEyeState | null>(null);
+  stateRef.current = state ?? null;
   // A cold assembly takes ~15s. Distinguish "still loading" from "genuinely no
   // data": the hub's initial entry is `{data:null, source:'UNAVAILABLE'}`, so
   // `data === null` alone would flash UNAVAILABLE on every mount. `updatedAt` is
@@ -220,6 +226,39 @@ export function InvestorEyeScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, [clearSelection]);
 
+  // Keyboard navigation over the event feed (spec §34): j/k or ↓/↑ step through
+  // the newest-first event list and open each one, so the map is usable without
+  // a mouse. Ignored while typing or when a modifier is held.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const typing = !!target && (
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      );
+      if (typing || useInvestorEyeStore.getState().fullPage) return;
+
+      const key = e.key.toLowerCase();
+      const dir = key === 'j' || key === 'arrowdown' ? 1 : key === 'k' || key === 'arrowup' ? -1 : 0;
+      if (dir === 0) return;
+
+      const events = (stateRef.current?.events ?? []);
+      if (events.length === 0) return;
+      e.preventDefault();
+
+      const ordered = [...events].sort(
+        (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt),
+      );
+      const current = useInvestorEyeStore.getState().selectedEvent;
+      const curKey = current ? (current.id ?? current.dedupKey) : null;
+      const idx = curKey ? ordered.findIndex((x) => (x.id ?? x.dedupKey) === curKey) : -1;
+      const next = idx < 0 ? (dir > 0 ? 0 : ordered.length - 1) : Math.min(ordered.length - 1, Math.max(0, idx + dir));
+      handleSelectEvent(ordered[next]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleSelectEvent]);
+
 
   if (fullPage) {
     return (
@@ -261,6 +300,7 @@ export function InvestorEyeScreen() {
 
         <div className="flex items-center gap-2">
           {state && <DataStatusChip status={state.status} />}
+          <SavedViews />
           {/* Map presentation: flat vs 3D globe (globe lazy-loads echarts-gl).
               Colour-coded so the active projection is legible at a glance. */}
           <div className="glass-button flex items-center gap-0.5 rounded-lg p-0.5">
@@ -505,6 +545,7 @@ export function InvestorEyeScreen() {
           </div>
         )}
         {state && <WhatChanged events={state.events} markets={state.markets} windowHours={hours} />}
+        <AlertsPanel />
         <RiskPanel />
         <TransmissionsPanel />
         {activeLayers.includes('portfolio') && (
@@ -519,6 +560,7 @@ export function InvestorEyeScreen() {
           </label>
         )}
         {needPortfolio && <PortfolioPanel onExposureReady={setPortfolioExposure} />}
+        <SourceHealthPanel />
       </div>
 
       {/* The graph wants width, so it gets its own full-width row. */}

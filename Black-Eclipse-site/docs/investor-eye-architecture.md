@@ -536,6 +536,85 @@ also pins the globe data shape (`[lon, lat]`, never the 2D third slot).
 
 ---
 
+## 5e. Phase 7 — from "an event map" to an intelligence system
+
+Phase 6 fixed what was broken. This adds the capabilities that make the surface
+answer *investor* questions rather than just plotting events.
+
+### Price reaction — the observable half of "exposure"
+
+`reaction.ts` measures what the relevant instrument actually did after an event:
+close-to-close returns at **+1/+5/+20 sessions** from the real `Candles` series,
+via `GET /api/investor-eye/reaction` and `ReactionPanel` in the event panel.
+
+The design point is the split of labour:
+
+| Block | Says | Nature |
+|---|---|---|
+| "Potential exposure" | what **could** matter (channels, commodities) | inferred from text |
+| "Market reaction" | what the market **did** | measured from closes |
+
+It is deliberately not a model. There is no coefficient, no forecast, and no
+synthetic fallback: when the history does not cover the window the panel says
+*why* ("history starts later", "not yet measurable") instead of rendering a dash
+that could be misread as "no move". The baseline is the last close on or before
+the event day, and a window longer than the available history is capped at the
+last real close and flagged via `daysAfter`.
+
+### Alert rules — "tell me when…", explainably
+
+`alert-rules.ts` defines rules as **pure predicates** over the normalized feed:
+event types, severity floor, confidence/relevance floors, countries,
+commodities, keywords, and an optional lat/lon/radius fence.
+
+Two decisions matter:
+
+1. **`matchRule()` returns reasons, not a boolean.** Every fired alert carries
+   the clauses that matched (`severity critical ≥ high`, `142 km from focus`), so
+   the UI never shows an unexplained badge.
+2. **An empty rule matches nothing.** A predicate with no clauses would fire on
+   every event and make the panel useless; refusing is the safe failure.
+
+Persistence is `SystemConfig` JSON (the existing operator-settings convention) —
+**no schema change** — and mutations go through `guardMutation`. `evaluateRules`
+runs over the same cached world state the map reads, so there is no second data
+path to keep consistent.
+
+### Place gazetteer — why pins were in Kansas
+
+GDELT and USGS carry precise coordinates. News-derived events had only a
+country, so `news.ts` fell back to the **country centroid** — which put
+"United States" stories in the middle of Kansas and made the map look wrong.
+
+`places.ts` is a curated gazetteer (financial centres, major ports,
+chokepoints, energy/industrial hubs) and `resolvePlace()` anchors the event
+where the headline says it happened. Deliberate constraints:
+
+- **Curated, not exhaustive.** A wrong-but-precise pin is worse than an honest
+  centroid, so only unambiguous, high-signal places are listed.
+- **Word-boundary matching**, so the alias list can contain short names without
+  false positives.
+- **Chokepoints weigh highest** (Hormuz, Suez, Malacca, Bab-el-Mandeb) — they
+  drive the logistics story more than any single city.
+- The country hint breaks ties, and the longest alias wins ("Strait of Hormuz"
+  over "Hormuz").
+
+The test suite asserts every place maps to a real country in the gazetteer —
+which caught that `PA` (Panama) and `PS` (Palestine) were missing entirely, so
+Panama Canal and Gaza events had nowhere to plot. Both were added.
+
+### Saved views, keyboard nav, source health
+
+- **Saved views** snapshot layers + window + projection + metric as a named
+  posture. View state only — restoring cannot resurrect a stale observation —
+  and layer ids are reconciled against the registry on restore.
+- **Keyboard nav** (§34): `j`/`k` or ↓/↑ step the newest-first event feed and
+  open each event, so the map works without a mouse.
+- **Source health** (§15): the real `SourceRun` accounting surfaced as a panel,
+  with a throttle shown as its own state rather than folded into "error".
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |
