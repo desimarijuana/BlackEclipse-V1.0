@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { ALL_LAYER_IDS, type LayerId } from './layers';
-import type { MapLayerType, NormalizedEvent } from './types';
+import type { CompanyPoint, MapLayerType, NormalizedEvent } from './types';
 
 export const TIME_RANGES = [
   { id: '1h', label: '1H', hours: 1 },
@@ -43,13 +43,19 @@ export interface SelectedMarket {
   currency?: string;
 }
 
+/** Presentation of the world visualization. */
+export type MapMode = '2d' | 'globe';
+
 interface InvestorEyeStore {
   selectedCountry: string | null;
   selectedEvent: NormalizedEvent | null;
   selectedMarket: SelectedMarket | null;
+  selectedCompany: CompanyPoint | null;
 
   activeLayers: LayerId[];
   timeRange: TimeRangeId;
+  /** Flat map or 3D globe (globe is lazy-loaded; falls back to `2d`). */
+  mapMode: MapMode;
 
   /** Economic metric for the economy layer. */
   economicMetric: string;
@@ -63,11 +69,13 @@ interface InvestorEyeStore {
   setSelectedCountry: (iso2: string | null) => void;
   setSelectedEvent: (event: NormalizedEvent | null) => void;
   setSelectedMarket: (market: SelectedMarket | null) => void;
+  setSelectedCompany: (company: CompanyPoint | null) => void;
   clearSelection: () => void;
 
   toggleLayer: (id: LayerId) => void;
   setLayers: (ids: LayerId[]) => void;
   setTimeRange: (id: TimeRangeId) => void;
+  setMapMode: (mode: MapMode) => void;
   setEconomicMetric: (id: string) => void;
   setSearchQuery: (q: string) => void;
   setPortfolioOverlay: (on: boolean) => void;
@@ -82,6 +90,7 @@ interface Persisted {
   timeRange: TimeRangeId;
   economicMetric: string;
   portfolioOverlay: boolean;
+  mapMode: MapMode;
 }
 
 function loadPersisted(): Partial<Persisted> {
@@ -104,6 +113,7 @@ function loadPersisted(): Partial<Persisted> {
       timeRange: TIME_RANGES.some((r) => r.id === parsed.timeRange) ? (parsed.timeRange as TimeRangeId) : '24h',
       economicMetric: parsed.economicMetric ?? 'inflation',
       portfolioOverlay: parsed.portfolioOverlay ?? false,
+      mapMode: parsed.mapMode === 'globe' ? 'globe' : '2d',
     };
   } catch {
     return {};
@@ -120,6 +130,7 @@ function persist(state: InvestorEyeStore) {
         timeRange: state.timeRange,
         economicMetric: state.economicMetric,
         portfolioOverlay: state.portfolioOverlay,
+        mapMode: state.mapMode,
       } satisfies Persisted),
     );
   } catch {
@@ -135,8 +146,10 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     selectedCountry: null,
     selectedEvent: null,
     selectedMarket: null,
+    selectedCompany: null,
     activeLayers: persisted.activeLayers ?? defaultActive,
     timeRange: persisted.timeRange ?? '24h',
+    mapMode: persisted.mapMode ?? '2d',
     economicMetric: persisted.economicMetric ?? 'inflation',
     searchQuery: '',
     portfolioOverlay: persisted.portfolioOverlay ?? false,
@@ -147,7 +160,11 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     setSelectedEvent: (event) => set({ selectedEvent: event }),
     setSelectedMarket: (market) =>
       set({ selectedMarket: market, selectedCountry: market?.iso2 ?? get().selectedCountry }),
-    clearSelection: () => set({ selectedCountry: null, selectedEvent: null, selectedMarket: null }),
+    // A company carries its HQ country, so select both — the panel can pivot.
+    setSelectedCompany: (company) =>
+      set({ selectedCompany: company, selectedCountry: company?.iso2 ?? get().selectedCountry }),
+    clearSelection: () =>
+      set({ selectedCountry: null, selectedEvent: null, selectedMarket: null, selectedCompany: null }),
 
     toggleLayer: (id) => {
       const current = get().activeLayers;
@@ -161,6 +178,10 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     },
     setTimeRange: (id) => {
       set({ timeRange: id });
+      persist(get());
+    },
+    setMapMode: (mode) => {
+      set({ mapMode: mode });
       persist(get());
     },
     setEconomicMetric: (id) => {

@@ -95,6 +95,14 @@ export interface NormalizedEvent {
   firstSeen?: string;
   lastUpdated?: string;
   status?: 'active' | 'archived';
+  /**
+   * 0..1 investor-relevance (see `relevance.ts`). Distinct from `confidence`:
+   * confidence is "how well corroborated", relevance is "does this matter to a
+   * portfolio". Optional because non-GDELT sources may not score it.
+   */
+  relevance?: number;
+  /** Why it scored that relevance (shown in the UI, never a bare number). */
+  relevanceReasons?: string[];
 }
 
 /** A connector's declared health/status, shown on the Data Health screen. */
@@ -105,12 +113,22 @@ export interface SourceStatus {
   capabilities: string[];
   /** Whether the source needs an operator credential to work. */
   requiresCredentials: boolean;
-  /** Honest state: available | configured | optional | unavailable. */
-  state: 'available' | 'configured' | 'optional' | 'unavailable';
+  /**
+   * Honest state:
+   *   available   healthy and producing data
+   *   configured  configured but has not run yet
+   *   optional    needs an operator credential (not a failure)
+   *   rate_limited throttled upstream — temporary, not broken
+   *   error       failed for another reason
+   *   unavailable never ran / no data
+   */
+  state: 'available' | 'configured' | 'optional' | 'rate_limited' | 'error' | 'unavailable';
   lastSuccess?: string;
   lastError?: string;
   latencyMs?: number;
   recordsLastRun?: number;
+  /** Seconds until a throttled source may be retried (rate_limited only). */
+  retryAfterSec?: number;
 }
 
 /** Structured result of one ingestion attempt, for observability. */
@@ -123,6 +141,8 @@ export interface SourceRunSummary {
   recordsAccepted: number;
   recordsRejected: number;
   error?: string;
+  /** Distinct outcome, so a throttle is never reported as a broken source. */
+  status?: 'ok' | 'empty' | 'rate_limited' | 'error';
   provenance: Provenance;
 }
 
@@ -165,6 +185,74 @@ export interface EventSource {
   fetch(query: SourceQuery): Promise<RawEvent[]>;
   /** Convert raw records into normalized events (may return []). */
   normalize(records: RawEvent[]): NormalizedEvent[];
+}
+
+// ── Relationship graph (spec §41) ────────────────────────────────────────────
+// A relational, typed, directed graph over entities. Deliberately NOT a graph
+// database (ADR-011): edges live in the `Relationship` table and are aggregated
+// into a render-ready node/link view by the pure `graph.ts` builder.
+
+/** Node kinds the graph understands. */
+export type GraphNodeKind =
+  | 'country'
+  | 'company'
+  | 'security'
+  | 'commodity'
+  | 'sector'
+  | 'market'
+  | 'event';
+
+/** How an edge was established — never present an inference as a fact. */
+export type RelationClass = 'OBSERVED' | 'HISTORICAL' | 'INFERRED' | 'AI-INTERPRETED';
+
+/** A directed edge between two entities, as stored. */
+export interface RelationshipEdge {
+  edgeKey: string;
+  fromKind: string;
+  fromId: string;
+  fromName: string;
+  toKind: string;
+  toId: string;
+  toName: string;
+  relation: string;
+  relationClass: RelationClass;
+  weight: number;
+  evidence: Array<{ eventId?: string; source?: string; url?: string; note?: string }>;
+  provenance: Provenance;
+  lastSeen?: string;
+}
+
+/** A render-ready graph node (identity + degree + kind). */
+export interface GraphNode {
+  id: string;
+  kind: string;
+  name: string;
+  /** Number of edges incident to this node (drives node size). */
+  degree: number;
+  /** Sum of incident edge weights (drives node emphasis). */
+  weight: number;
+  /** ISO2 when this node is a country (lets the graph offer a map pivot). */
+  iso2?: string;
+}
+
+/** A render-ready graph link, carrying the strongest class among its edges. */
+export interface GraphLink {
+  source: string;
+  target: string;
+  relation: string;
+  relationClass: RelationClass;
+  weight: number;
+  /** Distinct relations collapsed into this link. */
+  relations: string[];
+}
+
+export interface RelationshipGraph {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  /** Edge totals before any node limit was applied (honest truncation). */
+  totals: { edges: number; nodes: number; truncated: boolean };
+  generatedAt: string;
+  provenance: Provenance;
 }
 
 // ── Map layer contract ───────────────────────────────────────────────────────

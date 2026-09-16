@@ -325,6 +325,12 @@ export function createPinnedLookup(lookupAll: LookupAllFn = defaultLookupAll): L
 export interface CappedBody {
   text: string;
   bytes: number;
+  /**
+   * The exact received bytes. Present only when the caller requested `binary`
+   * — decoding binary payloads (e.g. a GDELT .zip) as UTF-8 replaces invalid
+   * sequences with U+FFFD and destroys the data irreversibly.
+   */
+  buffer?: Buffer;
 }
 
 /**
@@ -334,7 +340,8 @@ export interface CappedBody {
  */
 export async function readCappedBody(
   body: AsyncIterable<Uint8Array>,
-  maxBytes: number = DEFAULT_MAX_BYTES
+  maxBytes: number = DEFAULT_MAX_BYTES,
+  binary = false
 ): Promise<CappedBody> {
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -348,7 +355,10 @@ export async function readCappedBody(
     }
     chunks.push(buf);
   }
-  return { text: Buffer.concat(chunks).toString("utf8"), bytes };
+  const concat = Buffer.concat(chunks);
+  return binary
+    ? { text: "", bytes, buffer: concat }
+    : { text: concat.toString("utf8"), bytes };
 }
 
 // ── Safe GET ────────────────────────────────────────────────────────────────
@@ -358,12 +368,16 @@ export interface SafeGetOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxBytes?: number;
+  /** Preserve exact bytes (for binary payloads). `text` is then empty. */
+  binary?: boolean;
 }
 
 export interface SafeGetResult {
   status: number;
   contentType: string | null;
   text: string;
+  /** Exact bytes, when the request set `binary: true`. */
+  buffer?: Buffer;
   bytes: number;
   /** Final URL (redirects are never followed, so this equals the request URL). */
   url: string;
@@ -419,8 +433,8 @@ export async function safeGet(options: SafeGetOptions, deps: SafeGetDeps = {}): 
         reject(new OutboundError("redirect", `Redirect not followed (HTTP ${status})`));
         return;
       }
-      readCappedBody(res as unknown as AsyncIterable<Uint8Array>, maxBytes)
-        .then((body) => resolve({ status, contentType, text: body.text, bytes: body.bytes, url: options.url }))
+      readCappedBody(res as unknown as AsyncIterable<Uint8Array>, maxBytes, options.binary)
+        .then((body) => resolve({ status, contentType, text: body.text, buffer: body.buffer, bytes: body.bytes, url: options.url }))
         .catch(reject);
     });
     req.on("error", (err: NodeJS.ErrnoException) => {

@@ -802,6 +802,12 @@ model GeopoliticalEvent {
 
   // Data-quality confidence (NOT scientific certainty). 0..1.
   confidence  Float    @default(0.5)
+  // Investor relevance (see lib/investor-eye/relevance.ts). Distinct from
+  // confidence: relevance = "does this matter to a portfolio", confidence =
+  // "how well corroborated is it". 0..1.
+  relevance   Float    @default(0)
+  // JSON: string[] — why it scored that relevance (shown in the UI).
+  relevanceReasons String @default("[]")
   sourceCount Int      @default(1)
   // JSON: SourceRef[] — { id, name, url, publishedAt }.
   sources     String   @default("[]")
@@ -820,6 +826,8 @@ model GeopoliticalEvent {
   @@index([severity])
   @@index([status])
   @@index([primarySource])
+  // The feed is ranked by relevance, so it must be cheap to sort/filter on.
+  @@index([relevance])
 }
 
 // Event ↔ entity join. Keeps events queryable by country/actor/location/
@@ -845,6 +853,52 @@ model EventEntity {
   @@index([eventId])
   @@index([kind, entityId])
   @@index([countryId])
+}
+
+// A typed, directed edge between two Investor Eye entities (the knowledge /
+// relationship graph, spec §41). Relational — deliberately NOT a graph
+// database (ADR-011).
+//
+// Entities are identified by a `kind` + `entityId` pair so the graph can join
+// countries, companies, commodities, sectors, markets, events and securities
+// without a table per pairing. `relation` is the edge type; `relationClass`
+// records HOW the link was established so the UI never presents an inference
+// as a fact:
+//   OBSERVED       both endpoints appear in the same source record
+//   HISTORICAL     derived from real stored price history
+//   INFERRED       produced by an explicit, documented rule
+//   AI-INTERPRETED produced by the agent layer
+model Relationship {
+  id            String   @id @default(cuid())
+  // Deterministic identity so re-ingestion upserts instead of duplicating.
+  edgeKey       String   @unique
+
+  fromKind      String   // country | company | commodity | sector | market | event | security
+  fromId        String   // ISO2 for countries, symbol for companies/securities, slug otherwise
+  fromName      String
+  toKind        String
+  toId          String
+  toName        String
+
+  // e.g. 'mentions' | 'exposed_to' | 'trades_with' | 'part_of' | 'affected_by'
+  relation      String
+  relationClass String   @default("OBSERVED")
+
+  // 0..1 — strength/weight of the edge (co-mention count, exposure share, …).
+  weight        Float    @default(1)
+  // JSON: evidence refs ({ eventId?, source?, url?, note? }).
+  evidence      String   @default("[]")
+  // Optional provenance tag for the edge's data (LIVE | HISTORICAL | …).
+  provenance    String   @default("LIVE")
+
+  lastSeen      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([fromKind, fromId])
+  @@index([toKind, toId])
+  @@index([relation])
+  @@index([relationClass])
 }
 
 // One row per ingestion run per source. Powers Data Health + observability.

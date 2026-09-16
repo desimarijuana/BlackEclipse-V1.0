@@ -3,8 +3,27 @@ import { prisma } from "@/lib/db";
 import { loadPriorEventsOfType, loadPriceHistory } from "@/lib/investor-eye/phase2";
 import { buildAnalogues } from "@/lib/investor-eye/analytics";
 import { rowToEvent } from "@/lib/investor-eye/state";
+import { countryByIso2 } from "@/lib/investor-eye/countries";
+import { HISTORY_UNIVERSE } from "@/lib/investor-eye/history";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Pick the instrument whose history best represents an event, when the caller
+ * did not name one: the primary affected country's index, else the first
+ * symbol we actually track history for. Never guesses a ticker we have no
+ * candles for — the panel then honestly reports UNAVAILABLE.
+ */
+function resolveSymbol(countries: string[], requested?: string | null): string | undefined {
+  if (requested) return requested;
+  for (const iso2 of countries) {
+    const def = countryByIso2(iso2);
+    if (!def?.marketId) continue;
+    const hit = HISTORY_UNIVERSE.find((e) => e.market === def.marketId);
+    if (hit) return hit.symbol;
+  }
+  return undefined;
+}
 
 // GET /api/investor-eye/analogues?id=<eventId>&symbol=<asset>
 // Returns real historical context for an event: prior periods of the same event
@@ -34,9 +53,16 @@ export async function GET(request: Request) {
     }
 
     const priorEvents = await loadPriorEventsOfType(target.eventType, 36);
-    const series = symbol ? await loadPriceHistory(symbol, 365 * 3) : undefined;
-    const analogues = buildAnalogues(target, priorEvents, series, symbol ?? undefined);
-    return NextResponse.json({ available: true, analogues });
+    const resolved = resolveSymbol(target.countries, symbol);
+    const series = resolved ? await loadPriceHistory(resolved, 365 * 3) : undefined;
+    const analogues = buildAnalogues(target, priorEvents, series, resolved);
+    return NextResponse.json({
+      available: true,
+      analogues,
+      // Present so the UI can explain WHY a series is missing.
+      symbol: resolved ?? null,
+      countries: target.countries,
+    });
   } catch (err) {
     console.error("[api/investor-eye/analogues] error:", err);
     return NextResponse.json({ available: false, note: "Historical data unavailable." });

@@ -205,9 +205,15 @@ export async function updateCandleCache(
   for (const batch of chunk(symbols, MAX_CANDLE_CHUNK)) {
     try {
       const raw = await fetchYahooBatchRaw(batch, market, interval, period);
+      // The Python bridge emits `date` (a 'YYYY-MM-DD' string). `ts` is also
+      // accepted for forward-compat, but reading ONLY `ts` silently stamped
+      // every bar with `new Date()` — collapsing a whole series onto one
+      // timestamp so the composite-key upsert overwrote it down to a single
+      // row. That bug made candle indicators (and Investor Eye analogues)
+      // permanently "warming".
       const history = (raw.history || {}) as Record<
         string,
-        Array<{ ts?: string | number; open?: number; high?: number; low?: number; close?: number; volume?: number }>
+        Array<{ date?: string; ts?: string | number; open?: number; high?: number; low?: number; close?: number; volume?: number }>
       >;
       const rows: Array<{
         symbol: string; timeframe: string; ts: Date;
@@ -224,7 +230,12 @@ export async function updateCandleCache(
           // Zero/negative LTP must never enter the buffer.
           if (!(c > 0) || !(o > 0) || !(h > 0) || !(l > 0)) continue;
           if (!Number.isFinite(c) || !Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l)) continue;
-          const ts = r.ts ? new Date(r.ts) : new Date();
+          // Prefer the bar's own date. A missing/unparseable date is SKIPPED
+          // rather than defaulted to `now` — silently misdating history is worse
+          // than dropping one bar.
+          const rawDate = r.date ?? r.ts;
+          if (rawDate === undefined || rawDate === null || rawDate === "") continue;
+          const ts = new Date(rawDate);
           if (Number.isNaN(ts.getTime())) continue;
           rows.push({
             symbol: sym, timeframe, ts,

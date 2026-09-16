@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
 import { DATASET_TOOLS } from "./dataset-tools";
+import { INVESTOR_EYE_TOOLS } from "./investor-eye-tools";
 
 export interface ToolDefinition {
   name: string;
@@ -201,6 +202,9 @@ export const TOOLS: ToolDefinition[] = [
   // Operator-connected datasets (Universal Data Connector Layer). Read-only;
   // see `dataset-tools.ts`.
   ...DATASET_TOOLS,
+  // Investor Eye world-state retrieval (the AI Analyst). Read-only; queries the
+  // structured event/country/market/relationship data — see `investor-eye-tools.ts`.
+  ...INVESTOR_EYE_TOOLS,
 ];
 
 export function getTool(name: string): ToolDefinition | undefined {

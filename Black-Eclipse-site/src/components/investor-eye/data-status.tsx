@@ -19,16 +19,38 @@ function dot(provenance: string): string {
   }
 }
 
+/** Human label for a source's honest state. */
+function sourceState(s: DataStatus['sources'][number]): string {
+  switch (s.state) {
+    case 'rate_limited':
+      return `rate limited${s.retryAfterSec ? ` — retry in ${Math.ceil(s.retryAfterSec / 60)}m` : ''}`;
+    case 'error': return `error — ${s.lastError ?? 'unknown'}`;
+    case 'optional': return 'not configured (optional)';
+    case 'available': return s.lastSuccess ? 'ok' : 'idle';
+    default: return 'idle';
+  }
+}
+
 export function DataStatusChip({ status, className }: { status: DataStatus; className?: string }) {
   const live = status.provenance === 'LIVE';
+  const throttled = status.sources.filter((s) => s.state === 'rate_limited');
   return (
     <div
-      className={cn('inline-flex items-center gap-2 rounded-full border px-2.5 py-1', className, live ? 'border-emerald-500/20' : 'border-border/40')}
-      title={status.sources.map((s) => `${s.name}: ${s.lastError ? `error — ${s.lastError}` : s.lastSuccess ? 'ok' : 'idle'}`).join('\n')}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border px-2.5 py-1',
+        className,
+        live ? 'border-emerald-500/20' : throttled.length > 0 ? 'border-amber-500/25' : 'border-border/40',
+      )}
+      title={status.sources.map((s) => `${s.name}: ${sourceState(s)}`).join('\n')}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', dot(status.provenance), live && 'animate-pulse')} />
       <span className="text-[10px] font-mono font-bold tracking-wide text-foreground">{status.provenance}</span>
       <span className="text-[10px] font-mono text-muted-foreground">{status.label}</span>
+      {throttled.length > 0 && (
+        <span className="text-[10px] font-mono text-amber-400" title="Some sources are throttled — the feed may be thinner than usual">
+          {throttled.length} throttled
+        </span>
+      )}
     </div>
   );
 }

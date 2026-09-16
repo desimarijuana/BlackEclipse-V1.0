@@ -33,6 +33,7 @@
     "clsx": "^2.1.1",
     "duck-duck-scrape": "^2.2.7",
     "echarts": "^6.1.0",
+    "echarts-gl": "^2.1.0",
     "flexsearch": "^0.7.31",
     "immer": "^11.1.18",
     "jspdf": "^4.2.1",

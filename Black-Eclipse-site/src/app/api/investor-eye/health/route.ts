@@ -22,12 +22,21 @@ export async function GET() {
         }),
         { received: 0, accepted: 0, rejected: 0 },
       );
+      // A throttle is reported as its own state with a retry countdown, never
+      // folded into "error" (which would imply the integration is broken).
+      const state = last?.status === "rate_limited"
+        ? "rate_limited"
+        : last?.error
+          ? "error"
+          : last
+            ? "healthy"
+            : "idle";
       return {
         id: s.id,
         name: s.name,
         capabilities: s.capabilities,
         requiresCredentials: s.requiresCredentials,
-        state: last?.error ? "error" : last ? "healthy" : "idle",
+        state,
         lastRunAt: last?.finishedAt ?? null,
         lastError: last?.error ?? null,
         lastSuccessAt: lastOk?.finishedAt ?? null,

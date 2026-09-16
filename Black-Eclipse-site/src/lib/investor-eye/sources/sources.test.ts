@@ -1,57 +1,106 @@
 import { describe, it, expect } from 'vitest';
-import { parseGdeltDate, normalizeArticle } from './gdelt';
+import { inflateRawSync } from 'node:zlib';
+import { parseLastUpdate, normalizeExportRow, inflateZipEntry } from './gdelt';
 import { normalizeQuake, resolveQuakeCountry } from './usgs';
 
-describe('parseGdeltDate', () => {
-  it('parses the GDELT compact timestamp', () => {
-    expect(parseGdeltDate('20260915T164200Z')).toBe('2026-09-15T16:42:00.000Z');
+describe('parseLastUpdate', () => {
+  const body = [
+    '120506 18e18fecbbc5d43bd5e77993f20d9f1e http://data.gdeltproject.org/gdeltv2/20260916151500.export.CSV.zip',
+    '155776 78a951719270ab27c4b92a04cbe83e45 http://data.gdeltproject.org/gdeltv2/20260916151500.mentions.CSV.zip',
+    '7455364 19a88cbb8ab79b72d9c5a2c1fbd05772 http://data.gdeltproject.org/gdeltv2/20260916151500.gkg.csv.zip',
+  ].join('\n');
+
+  it('prefers the event export URL and upgrades it to https', () => {
+    // GDELT advertises http:// URLs; the transport is https-only, so the scheme
+    // must be upgraded rather than weakening safeGet. Its host serves TLS.
+    expect(parseLastUpdate(body)).toBe(
+      'https://data.gdeltproject.org/gdeltv2/20260916151500.export.CSV.zip',
+    );
   });
 
-  it('returns null for malformed input', () => {
-    expect(parseGdeltDate(undefined)).toBeNull();
-    expect(parseGdeltDate('not-a-date')).toBeNull();
+  it('returns null when the body has no URL', () => {
+    expect(parseLastUpdate('')).toBeNull();
+    expect(parseLastUpdate('garbage')).toBeNull();
   });
 });
 
-describe('normalizeArticle', () => {
-  it('builds a normalized event with classified fields and provenance', () => {
-    const event = normalizeArticle(
-      {
-        title: 'US imposes new sanctions on Russian banks',
-        seendate: '20260915T120000Z',
-        url: 'https://example.com/story',
-        domain: 'example.com',
-      },
-      'sanctions',
-      '2026-09-15T12:05:00.000Z',
-    );
+describe('inflateZipEntry', () => {
+  it('rejects a non-zip buffer clearly', () => {
+    expect(() => inflateZipEntry(Buffer.from('not a zip at all'), inflateRawSync)).toThrow(/zip/i);
+  });
+});
+
+describe('normalizeExportRow', () => {
+  // A 61-column GDELT 2.0 export row, built from the real field layout.
+  const row = (over: Record<number, string> = {}) => {
+    const f = new Array(61).fill('');
+    f[0] = '1234567890';
+    f[3] = '2026';
+    f[6] = 'UNITED STATES';
+    f[7] = 'USA';
+    f[16] = 'RUSSIA';
+    f[17] = 'RUS';
+    f[25] = '1';
+    f[26] = '172';
+    f[28] = '17';
+    f[29] = '4';
+    f[30] = '-9.0';
+    f[31] = '150';
+    f[32] = '42';
+    f[33] = '60';
+    f[34] = '-4.2';
+    f[52] = 'Moscow, Moscow, Russia';
+    f[53] = 'RS';
+    f[56] = '55.75';
+    f[57] = '37.61';
+    f[59] = '20260916151500';
+    f[60] = 'https://example.com/story';
+    for (const [i, v] of Object.entries(over)) f[Number(i)] = v;
+    return f;
+  };
+
+  it('decodes a CAMEO coercion event as a sanction with dyad countries', () => {
+    const event = normalizeExportRow(row(), '2026-09-16T15:20:00.000Z');
     expect(event).not.toBeNull();
-    expect(event!.eventType).toBe('sanction');
-    expect(event!.countries).toContain('US');
-    expect(event!.countries).toContain('RU');
+    expect(event!.eventType).toBe('sanction'); // root 17 = coerce
+    expect(event!.severity).toBe('critical');  // goldstein -9
+    expect(event!.countries).toContain('RU');   // action geo (FIPS RS -> RU)
+    expect(event!.countries).toContain('US');   // actor 1
+    expect(event!.lon).toBe(37.61);
+    expect(event!.lat).toBe(55.75);
     expect(event!.primarySource).toBe('gdelt');
-    expect(event!.sources[0].id).toBe('example.com');
+    expect(event!.sourceCount).toBe(42); // NumSources corroboration
     expect(event!.dedupKey).toHaveLength(40);
-    expect(event!.lon).toBeDefined();
   });
 
-  it('returns null when there is no title', () => {
-    expect(normalizeArticle({ url: 'https://x.com' }, 'x', '2026-09-15T12:00:00.000Z')).toBeNull();
+  it('classifies material conflict (quad 4) as conflict', () => {
+    const event = normalizeExportRow(row({ 26: '190', 28: '19', 29: '4' }), '2026-09-16T15:20:00.000Z')!;
+    expect(event.eventType).toBe('conflict');
   });
 
-  it('falls back to the source country when the title names none', () => {
-    const event = normalizeArticle(
-      { title: 'Leaders meet for a summit', seendate: '20260915T120000Z', sourcecountry: 'France' },
-      'politics',
-      '2026-09-15T12:05:00.000Z',
-    );
-    expect(event!.countries).toContain('FR');
+  it('maps cooperative codes without downgrading material conflict', () => {
+    // Root 04 (consult) with hostile goldstein still reads as diplomatic type,
+    // but severity reflects the real Goldstein value.
+    const event = normalizeExportRow(row({ 26: '040', 28: '04', 29: '1', 30: '-6.0' }), '2026-09-16T15:20:00.000Z')!;
+    expect(event.eventType).toBe('diplomatic');
+    expect(event.severity).toBe('high');
   });
 
-  it('never invents a timestamp', () => {
-    const retrievedAt = '2026-09-15T12:05:00.000Z';
-    const event = normalizeArticle({ title: 'Something happened' }, 'x', retrievedAt);
-    expect(event!.publishedAt).toBe(retrievedAt);
+  it('returns null without an id or event code', () => {
+    expect(normalizeExportRow(row({ 0: '' }), '2026-09-16T15:20:00.000Z')).toBeNull();
+    expect(normalizeExportRow(row({ 26: '' }), '2026-09-16T15:20:00.000Z')).toBeNull();
+  });
+
+  it('omits coordinates when the action geo is 0/0 (unknown)', () => {
+    const event = normalizeExportRow(row({ 56: '0', 57: '0' }), '2026-09-16T15:20:00.000Z')!;
+    expect(event.lon).toBeUndefined();
+    expect(event.lat).toBeUndefined();
+  });
+
+  it('never invents a timestamp when DATEADDED is malformed', () => {
+    const retrievedAt = '2026-09-16T15:20:00.000Z';
+    const event = normalizeExportRow(row({ 59: 'nonsense' }), retrievedAt)!;
+    expect(event.publishedAt).toBe(retrievedAt);
   });
 });
 

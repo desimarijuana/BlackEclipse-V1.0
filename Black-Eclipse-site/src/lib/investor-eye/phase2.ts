@@ -170,7 +170,9 @@ export async function loadPriceHistory(symbol: string, days = 365 * 2): Promise<
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   try {
     const candles = await prisma.candles.findMany({
-      where: { symbol, ts: { gte: since } },
+      // Pin the timeframe: the cache is keyed by (symbol, timeframe, ts), so an
+      // unfiltered read would interleave intraday and daily bars into one series.
+      where: { symbol, timeframe: '1d', ts: { gte: since } },
       orderBy: { ts: 'asc' },
       select: { ts: true, c: true },
       take: 5000,

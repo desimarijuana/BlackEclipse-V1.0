@@ -22,18 +22,66 @@ export const ALL_LAYER_IDS = [
 ] as const;
 export type LayerId = (typeof ALL_LAYER_IDS)[number];
 
-export const LAYER_META: Record<LayerId, { name: string; phase: 1 | 2 }> = {
-  events: { name: 'Events', phase: 1 },
-  markets: { name: 'Markets', phase: 1 },
-  conflict: { name: 'Conflict', phase: 2 },
-  trade: { name: 'Trade', phase: 2 },
-  energy: { name: 'Energy', phase: 2 },
-  economy: { name: 'Economy', phase: 2 },
-  weather: { name: 'Weather', phase: 2 },
-  companies: { name: 'Companies', phase: 2 },
-  risk: { name: 'Risk', phase: 2 },
-  portfolio: { name: 'Portfolio', phase: 2 },
+/**
+ * Intelligence groups. Layers are colour-coded by group so a dense controller
+ * strip (and the map legend) communicates "what is what" without reading every
+ * label. Groups describe the *kind of data* a layer draws — they are not a
+ * claim about the data's meaning.
+ */
+export const LAYER_GROUPS = [
+  { id: 'events', name: 'Events', color: '#38bdf8' },
+  { id: 'hazards', name: 'Hazards', color: '#22d3ee' },
+  { id: 'flows', name: 'Energy & Trade', color: '#fb923c' },
+  { id: 'economy', name: 'Economy', color: '#a78bfa' },
+  { id: 'markets', name: 'Markets', color: '#34d399' },
+] as const;
+
+export type LayerGroupId = (typeof LAYER_GROUPS)[number]['id'];
+
+/**
+ * Marker shape per layer, so event categories are distinguishable without
+ * relying on colour alone (spec §8 / §34). Rendered in the legend and passed to
+ * the map adapter where the series type supports it.
+ */
+export type LayerSymbol = 'circle' | 'diamond' | 'triangle' | 'square' | 'ring';
+
+export interface LayerMeta {
+  name: string;
+  phase: 1 | 2;
+  group: LayerGroupId;
+  /** Per-layer accent (falls back to the group colour when absent). */
+  color: string;
+  /** Only meaningful for point layers. */
+  symbol?: LayerSymbol;
+  /** One-line description of what the layer draws, shown in tooltips. */
+  hint: string;
+}
+
+export const LAYER_META: Record<LayerId, LayerMeta> = {
+  events: { name: 'Events', phase: 1, group: 'events', color: '#38bdf8', symbol: 'circle', hint: 'All geolocated world events' },
+  markets: { name: 'Markets', phase: 1, group: 'markets', color: '#34d399', symbol: 'circle', hint: 'Index observations by country' },
+  conflict: { name: 'Conflict', phase: 2, group: 'events', color: '#ef4444', symbol: 'circle', hint: 'Conflict, military and protest events' },
+  trade: { name: 'Trade', phase: 2, group: 'flows', color: '#eab308', symbol: 'square', hint: 'Trade, tariff and shipping co-mentions' },
+  energy: { name: 'Energy', phase: 2, group: 'flows', color: '#fb923c', symbol: 'diamond', hint: 'Energy and infrastructure events' },
+  economy: { name: 'Economy', phase: 2, group: 'economy', color: '#a78bfa', hint: 'Country metric fill (real series only)' },
+  weather: { name: 'Weather', phase: 2, group: 'hazards', color: '#22d3ee', symbol: 'triangle', hint: 'Natural disasters (USGS earthquakes)' },
+  companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', symbol: 'square', hint: 'Listed companies by HQ country' },
+  risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', hint: 'Event density per country' },
+  portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', symbol: 'ring', hint: 'Countries your holdings are exposed to' },
 };
+
+/** Accent for a layer: its own colour, else its group's. */
+export function layerColor(id: LayerId): string {
+  return LAYER_META[id]?.color ?? LAYER_GROUPS[0].color;
+}
+
+/** Stable group order for rendering the controller / legend. */
+export function groupedLayerIds(): Array<{ group: (typeof LAYER_GROUPS)[number]; ids: LayerId[] }> {
+  return LAYER_GROUPS.map((group) => ({
+    group,
+    ids: ALL_LAYER_IDS.filter((id) => LAYER_META[id].group === group.id),
+  })).filter((g) => g.ids.length > 0);
+}
 
 const SEVERITY_COLOR: Record<EventSeverity, string> = {
   critical: '#ef4444',
@@ -54,14 +102,18 @@ function eventTooltip(event: NormalizedEvent): TooltipContent {
   if (event.countries.length > 0) rows.push({ label: 'Countries', value: event.countries.join(', ') });
   rows.push({ label: 'First detected', value: formatUtc(event.publishedAt) });
   rows.push({ label: 'Sources', value: String(event.sourceCount) });
+  if (event.relevance !== undefined) {
+    rows.push({ label: 'Relevance', value: `${Math.round(event.relevance * 100)}%` });
+  }
   if (event.channels.length > 0) rows.push({ label: 'Affected channels', value: event.channels.join(', ') });
   if (event.commodities.length > 0) rows.push({ label: 'Commodities', value: event.commodities.join(', ') });
   // Separate what is observed from what is potential.
+  const why = event.relevanceReasons?.length ? `Why it matters: ${event.relevanceReasons.join(', ')}. ` : '';
   return {
     title: event.title,
     subtitle: event.summary,
     rows,
-    note: 'Event and entities are observed from source data. Channels and exposure are potential, not causal.',
+    note: `${why}Event and entities are observed from source data. Channels and exposure are potential, not causal.`,
   };
 }
 
@@ -314,7 +366,10 @@ export function buildCountryEventFill(
 }
 
 /** Companies layer — JDDS companies with a resolved country centroid. */
-export function buildCompaniesLayer(companies: CompanyPoint[]): MapLayer {
+export function buildCompaniesLayer(
+  companies: CompanyPoint[],
+  onSelect?: (c: CompanyPoint) => void,
+): MapLayer {
   const data: LayerDatum[] = companies
     .filter((c): c is CompanyPoint & { lon: number; lat: number } => c.lon != null && c.lat != null)
     .map((c) => ({
@@ -346,6 +401,7 @@ export function buildCompaniesLayer(companies: CompanyPoint[]): MapLayer {
         ],
       };
     },
+    onClick: (datum) => onSelect?.(datum.data as CompanyPoint),
   };
 }
 
@@ -397,6 +453,7 @@ export interface LayerInputs {
   portfolioExposure?: Array<{ iso2: string; weight: number }>;
   onSelectEvent?: (e: NormalizedEvent) => void;
   onSelectMarket?: (m: MarketObservation) => void;
+  onSelectCompany?: (c: CompanyPoint) => void;
 }
 
 export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
@@ -414,7 +471,7 @@ export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
     layers.push(buildEconomyLayer(inputs.economicValues.values, inputs.economicValues.metricLabel));
   }
   if (inputs.companies && inputs.companies.length > 0) {
-    layers.push(buildCompaniesLayer(inputs.companies));
+    layers.push(buildCompaniesLayer(inputs.companies, inputs.onSelectCompany));
   }
   if (inputs.portfolioExposure && inputs.portfolioExposure.length > 0) {
     layers.push(buildPortfolioLayer(inputs.portfolioExposure, state.countries));

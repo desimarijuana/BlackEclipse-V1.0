@@ -8,6 +8,7 @@ import { X } from 'lucide-react';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { formatUtc } from '@/lib/investor-eye/format';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
+import { AnaloguesPanel } from './analogues-panel';
 
 interface EventPanelProps {
   event: NormalizedEvent;
@@ -44,6 +45,9 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
           <Row label="First detected" value={formatUtc(event.publishedAt)} />
           <Row label="Last updated" value={event.lastUpdated ? formatUtc(event.lastUpdated) : '—'} />
           <Row label="Sources" value={String(event.sourceCount)} />
+          {event.relevance !== undefined && (
+            <Row label="Relevance" value={`${Math.round(event.relevance * 100)}%`} />
+          )}
           <Row label="Data confidence" value={event.confidence.toFixed(2)} />
           <Row label="Primary source" value={event.primarySource} />
           {event.countries.length > 0 && (
@@ -60,6 +64,18 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
             </div>
           )}
         </Block>
+
+        {event.relevanceReasons && event.relevanceReasons.length > 0 && (
+          <Block title="Why it matters">
+            <div className="flex flex-wrap gap-1">
+              {event.relevanceReasons.map((r) => (
+                <span key={r} className="glass-card-subtle rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  {r}
+                </span>
+              ))}
+            </div>
+          </Block>
+        )}
 
         {(event.channels.length > 0 || event.commodities.length > 0 || event.sectors.length > 0) && (
           <Block title="Potential exposure" hint="Derived from the event text — not a causal claim.">
@@ -93,6 +109,12 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
             </div>
           )}
         </Block>
+
+        <AnaloguesPanel
+          eventId={event.id ?? event.dedupKey}
+          eventType={event.eventType}
+          symbol={event.securities[0]}
+        />
 
         <div className="rounded-lg border border-border/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground/80">
           Confidence is internal data quality (how well the event is corroborated and located), not a

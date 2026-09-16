@@ -21,7 +21,8 @@ import { aggregatePoints, zoomForCount } from './geo';
 import { countryByIso2, COUNTRIES, resolveCountry } from './countries';
 import { SEVERITY_RANK } from './classify';
 import {
-  clearCache, getCachedState, isCacheFresh, loadPersistedState, persistState, setCachedState,
+  clearCache, clearInflight, getCachedState, getInflight, isAssembling, isCacheFresh,
+  loadPersistedState, persistState, setCachedState, setInflight,
 } from './cache';
 import type {
   CountrySummary, DataStatus, EventSeverity, InvestorEyeState, MarketObservation,
@@ -70,11 +71,9 @@ export interface AssembleOptions {
   maxRecordsPerSource?: number;
 }
 
-let assembling = false;
-
-export function isAssembling(): boolean {
-  return assembling;
-}
+// The in-flight guard lives in the shared cache module (anchored on
+// `globalThis`) so every route bundle sees the same one — see cache.ts.
+export { isAssembling };
 
 // ── Source runs ──────────────────────────────────────────────────────────────
 
@@ -85,7 +84,7 @@ async function recordRun(summary: SourceRunSummary): Promise<void> {
         source: summary.source,
         startedAt: new Date(summary.startedAt),
         finishedAt: new Date(summary.finishedAt),
-        status: summary.error ? 'error' : summary.recordsAccepted > 0 ? 'ok' : 'empty',
+        status: summary.status ?? (summary.error ? 'error' : summary.recordsAccepted > 0 ? 'ok' : 'empty'),
         recordsReceived: summary.recordsReceived,
         recordsAccepted: summary.recordsAccepted,
         recordsRejected: summary.recordsRejected,
@@ -120,6 +119,7 @@ async function runSource(
           source: source.id, startedAt, finishedAt: new Date().toISOString(),
           durationMs: Date.now() - started, recordsReceived: received,
           recordsAccepted: 0, recordsRejected: received, error: `normalize: ${message}`,
+          status: 'error',
           provenance: 'UNAVAILABLE',
         },
       };
@@ -131,17 +131,23 @@ async function runSource(
         source: source.id, startedAt, finishedAt: new Date().toISOString(),
         durationMs: Date.now() - started, recordsReceived: received,
         recordsAccepted: accepted, recordsRejected: received - accepted,
+        status: accepted > 0 ? 'ok' : 'empty',
         provenance: accepted > 0 ? 'LIVE' : 'UNAVAILABLE',
       },
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // A source may classify its own failures; currently only a genuine upstream
+    // throttle is treated as distinct from an error (so it is not reported as a
+    // broken integration).
+    const rateLimited = err instanceof Error && err.name === 'RateLimited';
     return {
       events: [],
       summary: {
         source: source.id, startedAt, finishedAt: new Date().toISOString(),
         durationMs: Date.now() - started, recordsReceived: 0,
         recordsAccepted: 0, recordsRejected: 0, error: message,
+        status: rateLimited ? 'rate_limited' : 'error',
         provenance: 'UNAVAILABLE',
       },
     };
@@ -260,12 +266,21 @@ function buildStatus(
   const registered = listSources();
   const sources: SourceStatus[] = registered.map((s) => {
     const run = runs.find((r) => r.source === s.id);
+    const state: SourceStatus['state'] = s.requiresCredentials
+      ? 'optional'
+      : !run
+        ? 'configured'
+        : run.status === 'rate_limited'
+          ? 'rate_limited'
+          : run.error
+            ? 'error'
+            : 'available';
     return {
       id: s.id,
       name: s.name,
       capabilities: [...s.capabilities],
       requiresCredentials: s.requiresCredentials,
-      state: s.requiresCredentials ? 'optional' : 'available',
+      state,
       lastSuccess: run && !run.error ? run.finishedAt : undefined,
       lastError: run?.error,
       latencyMs: run?.durationMs,
@@ -307,21 +322,40 @@ export function formatUtc(iso: string): string {
 // ── Assembly ─────────────────────────────────────────────────────────────────
 
 /**
- * Assemble the current world state. Cached; pass `force` to rebuild.
+ * Assemble the current world state. Cached per window; pass `force` to rebuild.
  * Always returns a usable state object — never throws.
+ *
+ * Concurrency (important): the cache and the in-flight promise live on
+ * `globalThis` (see cache.ts). Next evaluates each route in its own module
+ * instance, so without sharing, every endpoint would cold-run the full source
+ * ingestion on its own. Here a second caller for the SAME window awaits the
+ * first assembly's promise; a caller for a DIFFERENT window starts its own
+ * (windows are genuinely different payloads).
  */
 export async function assembleState(options: AssembleOptions = {}): Promise<InvestorEyeState> {
   const hours = options.hours ?? WINDOW_HOURS_DEFAULT;
 
-  if (!options.force && isCacheFresh()) {
-    const cached = getCachedState();
+  if (!options.force && isCacheFresh(hours)) {
+    const cached = getCachedState(hours);
     if (cached) return cached;
   }
 
-  if (assembling) {
-    return getCachedState() ?? (await loadPersistedState()) ?? emptyState(hours, 'UNAVAILABLE', null);
+  // Join an assembly already running for this window instead of starting a
+  // second one (this is what makes the fan-out of routes cheap).
+  const inflight = getInflight(hours);
+  if (inflight) return inflight;
+
+  const promise = runAssembly(hours, options);
+  setInflight(hours, promise);
+  try {
+    return await promise;
+  } finally {
+    clearInflight(hours);
   }
-  assembling = true;
+}
+
+/** The actual assembly. Only ever entered once per window at a time. */
+async function runAssembly(hours: number, options: AssembleOptions): Promise<InvestorEyeState> {
   try {
     registerBuiltinSources();
     const sources = configuredSources();
@@ -336,8 +370,11 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
     }
     await Promise.all(runs.map((r) => recordRun(r)));
 
+    // A rate-limited source is NOT a healthy one: it produced nothing and told
+    // us why. Only genuinely-successful runs count as "succeeded" here.
     const succeeded = runs.filter((r) => !r.error);
     const anyEventsReceived = runs.some((r) => r.recordsReceived > 0);
+    const allThrottled = runs.length > 0 && runs.every((r) => r.status === 'rate_limited');
 
     // Dedupe + cluster the merged feed (stable ordering → stable dedup keys).
     allEvents.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
@@ -355,17 +392,52 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
     const { markets, provenance: marketProvenance } = await buildMarketObservations();
     const countries = buildCountrySummaries(clustered, markets);
 
+    // Warm the candle cache for the index universe so historical analogues have
+    // real series to read (Phase 4.3).
+    //
+    // DELIBERATELY FIRE-AND-FORGET: a full backfill measured ~170s (30 markets
+    // × the Python bridge). Awaiting it here blocked the very first world-state
+    // response, so the map rendered "0 events / DATA UNAVAILABLE" while the
+    // request was still in flight. The map must never wait on optional history;
+    // it appears on the next cycle (or via POST /api/investor-eye/history).
+    void (async () => {
+      try {
+        const { historyStatus, backfillMarketHistory } = await import('./history');
+        const status = await historyStatus();
+        const thin = status.filter((s) => s.bars < 30);
+        if (thin.length < Math.ceil(status.length / 2)) return;
+        const result = await backfillMarketHistory({ symbols: thin.map((s) => s.symbol) });
+        if (result.written > 0) console.log(`[investor-eye] history backfill wrote ${result.written} bars`);
+      } catch (err) {
+        console.warn('[investor-eye] history backfill skipped:', err instanceof Error ? err.message : err);
+      }
+    })();
+
+    // Rebuild the relationship graph (spec §41). Best-effort — a graph failure
+    // must never break the world state. Company nodes come from the JDDS Asset
+    // universe via the Phase 2 builder.
+    try {
+      const { refreshGraph } = await import('./graph-data');
+      const { buildCompanies } = await import('./phase2');
+      const companies = await buildCompanies(120);
+      await refreshGraph({ events: clustered, countries, markets, companies });
+    } catch (err) {
+      console.warn('[investor-eye] graph rebuild skipped:', err instanceof Error ? err.message : err);
+    }
+
     // Provenance: events available if ANY source succeeded (even with zero
-    // observed events — zero can be a real observation). All sources failed and
-    // no data → UNAVAILABLE, with last-known from the cache.
+    // observed events — zero can be a real observation). A total throttle/failure
+    // with no data → UNAVAILABLE, with last-known from the cache. Note a
+    // throttled source must not be laundered into "healthy but quiet": if every
+    // source was throttled we have no basis for claiming the feed is empty.
     let eventsProvenance: Provenance;
     if (anyEventsReceived || clustered.length > 0) eventsProvenance = 'LIVE';
-    else if (succeeded.length > 0) eventsProvenance = 'LIVE'; // healthy but quiet
+    else if (succeeded.length > 0 && !allThrottled) eventsProvenance = 'LIVE'; // healthy but quiet
     else if (marketProvenance !== 'UNAVAILABLE') eventsProvenance = marketProvenance;
     else eventsProvenance = 'UNAVAILABLE';
 
     const updatedAt = new Date().toISOString();
-    const previous = getCachedState() ?? (await loadPersistedState());
+    const previous = getCachedState(hours) ?? (await loadPersistedState());
     const lastKnownAt = previous?.generatedAt ?? null;
 
     let state: InvestorEyeState = {
@@ -389,16 +461,16 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
         eventsUnavailable: true,
         lastKnownAt: previous.generatedAt,
       };
-      setCachedState(state);
+      setCachedState(state, hours);
       return state;
     }
 
-    setCachedState(state);
+    setCachedState(state, hours);
     if (eventsProvenance !== 'UNAVAILABLE') await persistState(state);
     return state;
   } catch (err) {
     console.error('[investor-eye] assembleState failed:', err);
-    const previous = getCachedState() ?? (await loadPersistedState());
+    const previous = getCachedState(hours) ?? (await loadPersistedState());
     if (previous) {
       return {
         ...previous,
@@ -407,8 +479,6 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
       };
     }
     return emptyState(hours, 'UNAVAILABLE', null);
-  } finally {
-    assembling = false;
   }
 }
 
@@ -451,6 +521,8 @@ export async function persistEvents(events: NormalizedEvent[]): Promise<{ writte
         lon: e.lon,
         lat: e.lat,
         confidence: e.confidence,
+        relevance: e.relevance ?? 0,
+        relevanceReasons: JSON.stringify(e.relevanceReasons ?? []),
         sourceCount: e.sourceCount,
         sources: JSON.stringify(e.sources),
         primarySource: e.primarySource,
@@ -489,7 +561,8 @@ export function rowToEvent(row: {
   id: string; dedupKey: string; title: string; summary: string | null;
   eventType: string; severity: string; channels: string; commodities: string;
   sectors: string; securities: string; countries: string; lon: number | null;
-  lat: number | null; confidence: number; sourceCount: number; sources: string;
+  lat: number | null; confidence: number; relevance?: number; relevanceReasons?: string;
+  sourceCount: number; sources: string;
   primarySource: string; publishedAt: Date; firstSeen: Date; lastUpdated: Date;
   status: string;
 }): NormalizedEvent {
@@ -513,6 +586,8 @@ export function rowToEvent(row: {
     lon: row.lon ?? undefined,
     lat: row.lat ?? undefined,
     confidence: row.confidence,
+    relevance: row.relevance ?? undefined,
+    relevanceReasons: parseJsonArray(row.relevanceReasons),
     sourceCount: row.sourceCount,
     sources,
     primarySource: row.primarySource,
@@ -539,7 +614,10 @@ export async function queryEvents(options: {
       ...(options.eventType ? { eventType: options.eventType } : {}),
       ...(options.severity ? { severity: options.severity } : {}),
     },
-    orderBy: { publishedAt: 'desc' },
+    // Rank by investor relevance, then recency. Relevance is what makes the
+    // feed useful (a well-corroborated local incident is still noise); recency
+    // breaks ties so the newest of equally-relevant events leads.
+    orderBy: [{ relevance: 'desc' }, { publishedAt: 'desc' }],
     take: options.limit ?? 800,
   });
   let events = rows.map(rowToEvent);
@@ -562,6 +640,7 @@ export async function recentSourceRuns(limit = 40): Promise<SourceRunSummary[]> 
     recordsAccepted: r.recordsAccepted,
     recordsRejected: r.recordsRejected,
     error: r.error ?? undefined,
+    status: r.status as SourceRunSummary['status'],
     provenance: r.status === 'ok' ? 'LIVE' : r.status === 'empty' ? 'LIVE' : 'UNAVAILABLE',
   }));
 }

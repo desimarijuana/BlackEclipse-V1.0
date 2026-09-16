@@ -59,4 +59,8 @@ registerTopic(jsonTopic(IE_COMPANIES_TOPIC, '/api/investor-eye/companies?limit=2
 export const IE_RISK_TOPIC = 'investor-eye:risk';
 registerTopic(jsonTopic(IE_RISK_TOPIC, '/api/investor-eye/risk?hours=24', { ttl: 5 * 60_000, interval: 0 }));
 
+/** Relationship graph topic (Phase 2). */
+export const IE_GRAPH_TOPIC = 'investor-eye:graph';
+registerTopic(jsonTopic(IE_GRAPH_TOPIC, '/api/investor-eye/graph?maxNodes=150', { ttl: 10 * 60_000, interval: 0 }));
+
 export type { HubTopic };

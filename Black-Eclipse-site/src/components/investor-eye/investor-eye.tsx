@@ -15,6 +15,7 @@ import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
 import { timeRangeHours, useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
+import { cn } from '@/lib/utils';
 import type {
   CompanyPoint, EconomicLayerData, InvestorEyeState, NormalizedEvent,
 } from '@/lib/investor-eye/types';
@@ -25,26 +26,33 @@ import { DataStatusChip } from './data-status';
 import { WhatChanged } from './what-changed';
 import { CountryPanel } from './country-panel';
 import { EventPanel } from './event-panel';
+import { CompanyPanel } from './company-panel';
 import { RiskPanel } from './risk-panel';
 import { PortfolioPanel } from './portfolio-panel';
+import { TransmissionsPanel } from './transmissions-panel';
+import { GraphPanel } from './graph-panel';
 
 export function InvestorEyeScreen() {
   const selectedCountry = useInvestorEyeStore((s) => s.selectedCountry);
   const selectedEvent = useInvestorEyeStore((s) => s.selectedEvent);
   const selectedMarket = useInvestorEyeStore((s) => s.selectedMarket);
+  const selectedCompany = useInvestorEyeStore((s) => s.selectedCompany);
   const activeLayers = useInvestorEyeStore((s) => s.activeLayers);
   const timeRange = useInvestorEyeStore((s) => s.timeRange);
   const economicMetric = useInvestorEyeStore((s) => s.economicMetric);
   const portfolioOverlay = useInvestorEyeStore((s) => s.portfolioOverlay);
+  const mapMode = useInvestorEyeStore((s) => s.mapMode);
   const highlightedCountries = useInvestorEyeStore((s) => s.highlightedCountries);
   const highlightNote = useInvestorEyeStore((s) => s.highlightNote);
 
   const setSelectedCountry = useInvestorEyeStore((s) => s.setSelectedCountry);
   const setSelectedEvent = useInvestorEyeStore((s) => s.setSelectedEvent);
   const setSelectedMarket = useInvestorEyeStore((s) => s.setSelectedMarket);
+  const setSelectedCompany = useInvestorEyeStore((s) => s.setSelectedCompany);
   const clearSelection = useInvestorEyeStore((s) => s.clearSelection);
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const setTimeRange = useInvestorEyeStore((s) => s.setTimeRange);
+  const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const setEconomicMetric = useInvestorEyeStore((s) => s.setEconomicMetric);
   const setPortfolioOverlay = useInvestorEyeStore((s) => s.setPortfolioOverlay);
   const applyHighlights = useInvestorEyeStore((s) => s.applyHighlights);
@@ -80,6 +88,29 @@ export function InvestorEyeScreen() {
     return state.events.find((e) => (e.id ?? e.dedupKey) === (selectedEvent.id ?? selectedEvent.dedupKey)) ?? selectedEvent;
   }, [selectedEvent, state]);
 
+  // Panel selection is exclusive: opening one context closes the others
+  // (otherwise a stale country/company panel would keep priority and a clicked
+  // event would never render). Declared before `layers`, which consumes them.
+  const handleSelectCountry = useCallback((iso2: string) => {
+    setSelectedCountry(iso2);
+    setSelectedMarket(null);
+    setSelectedEvent(null);
+    setSelectedCompany(null);
+  }, [setSelectedCountry, setSelectedMarket, setSelectedEvent, setSelectedCompany]);
+
+  const handleSelectEvent = useCallback((event: NormalizedEvent) => {
+    setSelectedEvent(event);
+    setSelectedCountry(null);
+    setSelectedCompany(null);
+    setSelectedMarket(null);
+  }, [setSelectedEvent, setSelectedCountry, setSelectedCompany, setSelectedMarket]);
+
+  const handleSelectCompany = useCallback((company: CompanyPoint) => {
+    setSelectedCompany(company);
+    setSelectedEvent(null);
+    setSelectedMarket(null);
+  }, [setSelectedCompany, setSelectedEvent, setSelectedMarket]);
+
   const layers = useMemo(() => {
     if (!state) return [];
     const economy = needEconomy && economyEntry.data?.values
@@ -90,8 +121,9 @@ export function InvestorEyeScreen() {
       economicValues: economy,
       companies: needCompanies ? companiesEntry.data?.companies : undefined,
       portfolioExposure: (portfolioOverlay || activeLayers.includes('portfolio')) ? portfolioExposure : undefined,
-      onSelectEvent: (e) => setSelectedEvent(e),
+      onSelectEvent: handleSelectEvent,
       onSelectMarket: (m) => setSelectedMarket({ ...m }),
+      onSelectCompany: handleSelectCompany,
     }).map((layer) => ({
       ...layer,
       // The store owns visibility; the layer builders own data/behavior.
@@ -99,7 +131,7 @@ export function InvestorEyeScreen() {
         // Event Density is the spatial component of the risk layer.
         || (layer.id === 'density' && activeLayers.includes('risk')),
     }));
-  }, [state, activeLayers, needEconomy, economyEntry.data, needCompanies, companiesEntry.data, portfolioOverlay, portfolioExposure, setSelectedEvent, setSelectedMarket]);
+  }, [state, activeLayers, needEconomy, economyEntry.data, needCompanies, companiesEntry.data, portfolioOverlay, portfolioExposure, handleSelectEvent, setSelectedMarket, handleSelectCompany]);
 
   const availableLayers = useMemo(() => {
     const set = new Set<string>(['events', 'markets']);
@@ -123,12 +155,6 @@ export function InvestorEyeScreen() {
         .map((c) => ({ iso2: c.iso2, name: c.name, lon: c.lon, lat: c.lat })),
     [highlightedCountries],
   );
-
-  const handleSelectCountry = useCallback((iso2: string) => {
-    setSelectedCountry(iso2);
-    setSelectedMarket(null);
-    setSelectedEvent(null);
-  }, [setSelectedCountry, setSelectedMarket, setSelectedEvent]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -177,10 +203,12 @@ export function InvestorEyeScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, [clearSelection]);
 
-  const panelOpen = Boolean(selectedCountry || liveEvent || selectedMarket);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-2 p-2 md:p-3">
+    // MAP-FIRST LAYOUT: the whole screen scrolls. The map is the hero at full
+    // width, with the layer/timeline controls directly beneath it, and all the
+    // detail panels stacked below the fold where they never squeeze the map.
+    <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto p-2 md:p-3">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -199,6 +227,22 @@ export function InvestorEyeScreen() {
 
         <div className="flex items-center gap-2">
           {state && <DataStatusChip status={state.status} />}
+          {/* Map presentation: flat vs 3D globe (globe lazy-loads echarts-gl). */}
+          <div className="glass-button flex items-center gap-0.5 rounded-lg p-0.5">
+            {(['2d', 'globe'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMapMode(m)}
+                title={m === '2d' ? 'Flat map' : '3D globe'}
+                className={cn(
+                  'rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
+                  mapMode === m ? 'bg-primary/20 text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {m === '2d' ? 'MAP' : 'GLOBE'}
+              </button>
+            ))}
+          </div>
           <div className="relative">
             <button
               onClick={() => setSearchOpen((v) => !v)}
@@ -250,157 +294,177 @@ export function InvestorEyeScreen() {
         </div>
       )}
 
-      {/* Map + side panel */}
-      <div className="relative flex min-h-0 flex-1 gap-2">
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card">
-          {stateEntry.source === 'UNAVAILABLE' && (
-            <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2">
-              <div className="glass-card-subtle rounded-lg border border-red-500/20 px-3 py-1 text-[10px] text-foreground">
-                DATA UNAVAILABLE{state?.lastKnownAt ? ` · LAST KNOWN ${state.lastKnownAt.slice(11, 16)} UTC` : ''}
-              </div>
+      {/* ── THE MAP — the hero, full width, tall ─────────────────────────── */}
+      <div className="relative mt-2 h-[52vh] min-h-[320px] w-full shrink-0 overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card md:h-[58vh]">
+        {stateEntry.source === 'UNAVAILABLE' && (
+          <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2">
+            <div className="glass-card-subtle rounded-lg border border-red-500/20 px-3 py-1 text-[10px] text-foreground">
+              DATA UNAVAILABLE{state?.lastKnownAt ? ` · LAST KNOWN ${state.lastKnownAt.slice(11, 16)} UTC` : ''}
             </div>
-          )}
-          <WorldMap
-            className="absolute inset-0"
-            layers={layers}
-            highlightPoints={highlightPoints}
-            onSelectCountry={handleSelectCountry}
-          />
-          {/* Map is the hero; a subtle frame label keeps provenance in view. */}
-          <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
-            NATURAL EARTH · BLACKECLIPSE
           </div>
+        )}
+        <WorldMap
+          className="absolute inset-0"
+          layers={layers}
+          highlightPoints={highlightPoints}
+          onSelectCountry={handleSelectCountry}
+          mode={mapMode}
+          onModeUnavailable={() => setMapMode('2d')}
+        />
+        {/* Map is the hero; a subtle frame label keeps provenance in view. */}
+        <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
+          NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
         </div>
+        {/* Live event count, so the map has an at-a-glance figure. */}
+        {state && (
+          <div className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-[9px] font-mono text-muted-foreground backdrop-blur-sm">
+            {state.events.length} events · {state.markets.length} markets
+          </div>
+        )}
+      </div>
 
-        <div className="hidden w-[320px] shrink-0 overflow-hidden lg:block">
-          <div className="h-full overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card">
-            {selectedCountry ? (
+      {/* Controls sit directly under the map, still above the fold. */}
+      <div className="mt-2 shrink-0 space-y-2">
+        <LayerController active={activeLayers} onToggle={toggleLayer} available={availableLayers} />
+        <Timeline value={timeRange} onChange={setTimeRange} events={state?.events ?? []} windowHours={hours} />
+      </div>
+
+      {/* ── DETAIL — scrolls below the map ───────────────────────────────── */}
+      <div className="mt-2 grid shrink-0 grid-cols-1 gap-2 lg:grid-cols-3">
+        {/* Selection takes the first column when there is one. */}
+        <div className="space-y-2 lg:col-span-1">
+          {selectedCompany ? (
+            <PanelShell onClose={() => setSelectedCompany(null)}>
+              <CompanyPanel
+                company={selectedCompany}
+                onClose={() => setSelectedCompany(null)}
+                onSelectCountry={(iso2) => { setSelectedCompany(null); handleSelectCountry(iso2); }}
+              />
+            </PanelShell>
+          ) : selectedCountry ? (
+            <PanelShell onClose={() => setSelectedCountry(null)}>
               <CountryPanel
                 iso2={selectedCountry}
                 name={countryByIso2(selectedCountry)?.name ?? selectedCountry}
                 hours={hours}
                 onClose={() => setSelectedCountry(null)}
-                onSelectEvent={(e) => setSelectedEvent(e)}
+                onSelectEvent={handleSelectEvent}
               />
-            ) : liveEvent ? (
+            </PanelShell>
+          ) : liveEvent ? (
+            <PanelShell onClose={() => setSelectedEvent(null)}>
               <EventPanel
                 event={liveEvent}
                 onClose={() => setSelectedEvent(null)}
-                onSelectCountry={(c) => setSelectedCountry(c)}
+                onSelectCountry={handleSelectCountry}
               />
-            ) : (
-              <SideStack
-                state={state}
-                windowHours={hours}
-                activeLayers={activeLayers}
-                economicMetric={economicMetric}
-                needEconomy={needEconomy}
-                needPortfolio={needPortfolio}
-                onEconomicMetric={setEconomicMetric}
-                onPortfolioOverlay={setPortfolioOverlay}
-                portfolioOverlay={portfolioOverlay}
-                onExposureReady={setPortfolioExposure}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom: layers + timeline */}
-      <LayerController active={activeLayers} onToggle={toggleLayer} available={availableLayers} />
-      <Timeline value={timeRange} onChange={setTimeRange} events={state?.events ?? []} windowHours={hours} />
-
-      {/* Mobile: bottom-sheet style panel */}
-      {panelOpen && (
-        <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 max-h-[65dvh] overflow-hidden rounded-t-2xl border-t border-white/10 glass-card-strong">
-          {selectedCountry ? (
-            <CountryPanel
-              iso2={selectedCountry}
-              name={countryByIso2(selectedCountry)?.name ?? selectedCountry}
-              hours={hours}
-              onClose={() => setSelectedCountry(null)}
-              onSelectEvent={(e) => setSelectedEvent(e)}
-            />
-          ) : liveEvent ? (
-            <EventPanel event={liveEvent} onClose={() => setSelectedEvent(null)} onSelectCountry={(c) => setSelectedCountry(c)} />
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SideStack({
-  state, windowHours, activeLayers, economicMetric, needEconomy, needPortfolio,
-  onEconomicMetric, onPortfolioOverlay, portfolioOverlay, onExposureReady,
-}: {
-  state: InvestorEyeState | null;
-  windowHours: number;
-  activeLayers: LayerId[];
-  economicMetric: string;
-  needEconomy: boolean;
-  needPortfolio: boolean;
-  onEconomicMetric: (id: string) => void;
-  onPortfolioOverlay: (on: boolean) => void;
-  portfolioOverlay: boolean;
-  onExposureReady: (rows: Array<{ iso2: string; weight: number }>) => void;
-}) {
-  return (
-    <div className="h-full space-y-2 overflow-y-auto px-3 py-3 scrollbar-hide">
-      {state ? (
-        <WhatChanged events={state.events} markets={state.markets} windowHours={windowHours} />
-      ) : (
-        <div className="glass-card rounded-xl border border-white/10 px-3 py-2.5 text-[10px] italic text-muted-foreground">
-          Loading world state…
-        </div>
-      )}
-
-      {needEconomy && (
-        <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2">
-          <div className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Economic Metric</div>
-          <select
-            value={economicMetric}
-            onChange={(e) => onEconomicMetric(e.target.value)}
-            className="w-full rounded-lg border border-border/40 bg-background/60 px-2 py-1.5 text-[11px] text-foreground outline-none focus:border-primary/40"
-          >
-            {ECONOMIC_METRIC_OPTIONS.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      <RiskPanel />
-
-      {activeLayers.includes('portfolio') && (
-        <label className="glass-card flex cursor-pointer items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-[10px]">
-          <span className="text-muted-foreground">Portfolio overlay</span>
-          <input
-            type="checkbox"
-            checked={portfolioOverlay}
-            onChange={(e) => onPortfolioOverlay(e.target.checked)}
-            className="h-3.5 w-3.5 accent-[color:var(--primary)]"
-          />
-        </label>
-      )}
-
-      {needPortfolio && <PortfolioPanel onExposureReady={onExposureReady} />}
-
-      <div className="rounded-lg border border-border/20 px-2.5 py-2 text-[9px] leading-relaxed text-muted-foreground/60">
-        Sources: GDELT · USGS · JDDS markets. Layers without data are disabled rather than faked.
-        {state && state.status.sources.length > 0 && (
-          <div className="mt-1 font-mono">
-            {state.status.sources.map((s) => (
-              <div key={s.id}>
-                {s.name}: {s.lastError ? 'error' : s.lastSuccess ? 'ok' : 'idle'}
+            </PanelShell>
+          ) : selectedMarket ? (
+            <PanelShell onClose={() => setSelectedMarket(null)}>
+              <div className="px-4 py-3">
+                <div className="text-sm font-semibold text-foreground">
+                  {selectedMarket.name} — {selectedMarket.symbol}
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-foreground">
+                    {selectedMarket.price.toFixed(2)}
+                    <span className="ml-1 text-[10px] text-muted-foreground">{selectedMarket.currency ?? ''}</span>
+                  </span>
+                  <span className={cn('text-xs font-mono', selectedMarket.changePct >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                    {selectedMarket.changePct >= 0 ? '+' : ''}{selectedMarket.changePct.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] text-muted-foreground">
+                  Index observation for {selectedMarket.iso2 ?? selectedMarket.marketId}, via the existing JDDS
+                  index path. Markets are observations only — not signals.
+                </div>
+                {selectedMarket.iso2 && (
+                  <button
+                    onClick={() => handleSelectCountry(selectedMarket.iso2 as string)}
+                    className="mt-2 rounded-lg border border-primary/30 bg-primary/15 px-2 py-1 text-[10px] font-semibold text-foreground cursor-pointer"
+                  >
+                    Open country intelligence
+                  </button>
+                )}
               </div>
-            ))}
-          </div>
-        )}
+            </PanelShell>
+          ) : (
+            <div className="glass-card rounded-xl border border-white/10 px-3 py-4 text-[11px] text-muted-foreground">
+              <div className="mb-1 font-semibold text-foreground">Explore the world</div>
+              Click a country, an event pin or a market dot on the map — its intelligence appears here.
+            </div>
+          )}
+        </div>
+
+        {/* Then the standing panels: change summary, risk, transmission, graph. */}
+        <div className="space-y-2 lg:col-span-1">
+          {state && <WhatChanged events={state.events} markets={state.markets} windowHours={hours} />}
+          <RiskPanel />
+          {needEconomy && (
+            <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2">
+              <div className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Economic Metric</div>
+              <select
+                value={economicMetric}
+                onChange={(e) => setEconomicMetric(e.target.value)}
+                className="w-full rounded-lg border border-border/40 bg-background/60 px-2 py-1.5 text-[11px] text-foreground outline-none focus:border-primary/40"
+              >
+                {ECONOMIC_METRIC_OPTIONS.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 lg:col-span-1">
+          <TransmissionsPanel />
+          {activeLayers.includes('portfolio') && (
+            <label className="glass-card flex cursor-pointer items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-[10px]">
+              <span className="text-muted-foreground">Portfolio overlay</span>
+              <input
+                type="checkbox"
+                checked={portfolioOverlay}
+                onChange={(e) => setPortfolioOverlay(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[color:var(--primary)]"
+              />
+            </label>
+          )}
+          {needPortfolio && <PortfolioPanel onExposureReady={setPortfolioExposure} />}
+        </div>
       </div>
+
+      {/* The graph wants width, so it gets its own full-width row. */}
+      <div className="mt-2 shrink-0">
+        <GraphPanel />
+      </div>
+
+      {/* Sources strip, kept honest and at the bottom of the scroll. */}
+      {state && state.status.sources.length > 0 && (
+        <div className="mt-2 shrink-0 rounded-lg border border-border/20 px-2.5 py-2 text-[9px] leading-relaxed text-muted-foreground/60">
+          Sources: {state.status.sources.map((s) => `${s.name} (${s.state === 'rate_limited' ? 'throttled' : s.lastError ? 'error' : s.lastSuccess ? 'ok' : 'idle'})`).join(' · ')}
+          {' — '}layers without data are disabled rather than faked.
+        </div>
+      )}
     </div>
   );
 }
+
+/** Frosted frame for a selection panel, so the three columns line up. */
+function PanelShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="relative max-h-[420px] overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card">
+      <button
+        onClick={onClose}
+        className="absolute right-2 top-2 z-10 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+        aria-label="Close panel"
+      >
+        <X size={13} />
+      </button>
+      {children}
+    </div>
+  );
+}
+
 
 const ECONOMIC_METRIC_OPTIONS = [
   { id: 'inflation', label: 'Inflation (YoY)' },
