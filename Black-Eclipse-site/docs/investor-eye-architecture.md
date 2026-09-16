@@ -690,6 +690,84 @@ generic globe.
 
 ---
 
+## 5g. Phase 9 — recovering the story, and the fan-out bug
+
+### Correction: the URL-join enrichment did almost nothing
+
+The previous phase added `enrich.ts`, joining GDELT source URLs to the ingested
+`NewsItem` corpus. It was reported as giving events "real headlines". Measured
+against the live DB it matched **27 of 2,524 GDELT events (1.1%)**.
+
+The number originally quoted (202 of 461) counted `news`-source events, which are
+articles and *always* had headlines. The enrichment contributed essentially
+nothing. The cause is structural, not a bug: the RSS corpus and GDELT's article
+set barely overlap — GDELT cites publishers the feeds don't carry.
+
+### The real fix: read the article's own metadata
+
+GDELT publishes no headline, only the URL. So we read the page:
+
+| Layer | File | Responsibility |
+|---|---|---|
+| Parsing | `article-meta.ts` | Pure HTML → `{title, description, titleSource}` |
+| Fetch + cache | `article-meta-fetch.ts` | Guarded `safeGet`, per-URL cache, source fallback |
+
+Three design decisions:
+
+1. **Lazy, not at ingestion.** Assembly already takes ~15s; fetching hundreds of
+   publisher pages inside it would make it minutes. The dossier requests one
+   event's metadata when it opens.
+2. **Cached per URL, permanently** (bucketed `SystemConfig` JSON). Any URL is
+   read at most once, ever — so the network cost is per-article, not per-view.
+3. **Honest failure.** A paywall, bot wall, timeout or non-HTML response yields
+   `available: false` with a *reason*. The panel keeps saying "no headline
+   available"; nothing is synthesized.
+
+Parsing details that matter: only `<head>` is searched (so a page quoting
+`og:title` in its body can't inject metadata), `og:` → `twitter:` → `<title>` →
+`<h1>` in that order, entities decoded, and bot-walls / consent screens /
+site-name-only titles rejected.
+
+### The fan-out bug
+
+Building the above surfaced something worse than the original clustering bug.
+
+**GDELT codes one row per actor dyad.** A single article becomes many events —
+`CHINA / AUSTRALIA`, `BEIJING / UNITED KINGDOM`, … — and one article produced
+**37 events**. Measured: **62.7% of events shared an article URL**.
+
+The signature gate from the previous phase correctly stopped *unrelated* stories
+fusing, but left this fragmentation in place: each dyad had a distinct
+GLOBALEVENTID, so nothing merged.
+
+The fix is a third identity regime, most-precise first:
+
+| Regime | Signal | Rule |
+|---|---|---|
+| 1 | **Article URL** | Same normalized URL + same type → same event. A URL is definitive identity; actors and titles are irrelevant. |
+| 2 | Provider signature | Exact match only (GDELT id / USGS feature id). |
+| 3 | Fuzzy | Title similarity + country, for articles with no URL. |
+
+Scoping by event type is deliberate: one article read as both a `sanction` and a
+`trade` event keeps both readings rather than silently dropping one.
+
+Measured: **461 → 338 events** in a 24h window, and corroboration became
+meaningful again — a rates story now shows Seeking Alpha + Investing.com + CNBC
+instead of one outlet repeated 30 times.
+
+The generalizable lesson: *when a provider gives you a document identity, that
+outranks its per-row event identity.* GDELT's row id identifies a coded action,
+not a story — the URL identifies the story.
+
+### Readable titles
+
+GDELT's synthesized `ACTOR1 / ACTOR2 — City, Country` rendered as code fragments.
+`formatEventTitle` restructures the same fields into a sentence (*"POLICE in
+Washington, District of Columbia, United States"*) without inventing anything,
+and leaves real headlines untouched — including one that merely contains a `/`.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

@@ -15,7 +15,7 @@ import { Radio } from 'lucide-react';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
 import { SEVERITY_COLORS } from '@/lib/investor-eye/layers';
-import { formatUtc } from '@/lib/investor-eye/format';
+import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
 import { cn } from '@/lib/utils';
 
 interface LiveFeedProps {
@@ -153,7 +153,11 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
                       <span className="font-mono text-[8px] text-muted-foreground/70">×{e.sourceCount}</span>
                     )}
                   </span>
-                  <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-foreground">{e.title}</span>
+                  <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-foreground">
+                    {/* Prefer a real headline; otherwise restructure the
+                        provider's synthesized actor string into a sentence. */}
+                    {e.headline ?? formatEventTitle(e.title, e.placeName)}
+                  </span>
                   <span className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted-foreground/70">
                     {e.countries.slice(0, 3).join(', ') || 'location unknown'}
                     {link && (

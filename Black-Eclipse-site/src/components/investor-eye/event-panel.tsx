@@ -16,11 +16,11 @@
 // dressing up its actor string as reporting.
 
 import { useEffect, useState } from 'react';
-import { X, ExternalLink, MapPin } from 'lucide-react';
+import { X, ExternalLink, MapPin, Loader2 } from 'lucide-react';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { actorTypeLabel } from '@/lib/investor-eye/cameo';
 import { countryByIso2, countryByIso3 } from '@/lib/investor-eye/countries';
-import { formatUtc } from '@/lib/investor-eye/format';
+import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
 import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-eye/types';
 import { AnaloguesPanel } from './analogues-panel';
 import { ReactionPanel } from './reaction-panel';
@@ -40,12 +40,16 @@ const GEO_METHOD_LABEL: Record<NonNullable<NormalizedEvent['geoMethod']>, string
 };
 
 export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps) {
+  // Recover a real headline once, at the panel level, so the header and the
+  // "What happened" block agree rather than one fetching independently.
+  const article = useArticleMeta(event);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <Header event={event} onClose={onClose} />
+      <Header event={event} onClose={onClose} headline={article.headline} />
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3 scrollbar-hide">
-        <WhatHappened event={event} />
+        <WhatHappened event={event} article={article} />
         {event.actors && event.actors.length > 0 && <Actors event={event} />}
         <WhereAndWhen event={event} onSelectCountry={onSelectCountry} />
         <TypeDetail event={event} />
@@ -95,7 +99,55 @@ export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps)
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-function Header({ event, onClose }: { event: NormalizedEvent; onClose: () => void }) {
+/**
+ * Lazily recover a real headline for an event whose provider publishes none.
+ *
+ * GDELT links the article but supplies no text, so this reads the article's Open
+ * Graph metadata on first open. Server-side cached, so the network cost is paid
+ * once per URL, ever. Resolves to `headline: undefined` when there is nothing
+ * usable — the UI then states that honestly instead of inventing text.
+ */
+function useArticleMeta(event: NormalizedEvent) {
+  const id = event.id ?? event.dedupKey;
+  const hasOwnText = Boolean(event.headline);
+  const hasSourceUrl = event.sources.some((s) => s.url);
+  const [state, setState] = useState<{
+    loading: boolean; headline?: string; description?: string; note?: string; siteName?: string;
+  }>({ loading: false });
+
+  useEffect(() => {
+    if (hasOwnText || !hasSourceUrl) {
+      setState({ loading: false });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true });
+    fetch(`/api/investor-eye/article?id=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json: ArticleResponse | null) => {
+        if (cancelled) return;
+        setState({
+          loading: false,
+          headline: json?.available ? json.headline : undefined,
+          description: json?.available ? json.description ?? undefined : undefined,
+          note: json?.available ? undefined : json?.note,
+          siteName: json?.siteName ?? undefined,
+        });
+      })
+      .catch(() => { if (!cancelled) setState({ loading: false }); });
+    return () => { cancelled = true; };
+  }, [id, hasOwnText, hasSourceUrl]);
+
+  return {
+    ...state,
+    headline: event.headline ?? state.headline,
+    description: event.description ?? state.description,
+    /** True when the text came from the article rather than the event record. */
+    fromArticle: !event.headline && Boolean(state.headline),
+  };
+}
+
+function Header({ event, onClose, headline }: { event: NormalizedEvent; onClose: () => void; headline?: string }) {
   return (
     <div className="flex items-start justify-between gap-2 border-b border-border/10 px-4 py-3">
       <div className="min-w-0">
@@ -107,7 +159,7 @@ function Header({ event, onClose }: { event: NormalizedEvent; onClose: () => voi
           <SourceBadge count={event.sourceCount} />
         </div>
         <div className="text-sm font-semibold leading-snug text-foreground">
-          {event.headline ?? event.title}
+          {headline ?? formatEventTitle(event.title, event.placeName)}
         </div>
       </div>
       <button
@@ -139,40 +191,72 @@ function SourceBadge({ count }: { count: number }) {
 
 // ── What happened ────────────────────────────────────────────────────────────
 
-function WhatHappened({ event }: { event: NormalizedEvent }) {
-  const hasText = Boolean(event.headline || event.description);
+type ArticleState = ReturnType<typeof useArticleMeta>;
 
-  // The event title is shown in the header; don't repeat it as the body.
-  const body = event.description && event.description !== event.headline ? event.description : undefined;
+function WhatHappened({ event, article }: { event: NormalizedEvent; article: ArticleState }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const { headline, description, loading, fromArticle, note, siteName } = article;
+
+  // Avoid printing the same sentence twice when a feed repeats title=summary.
+  const body = description && description !== headline ? description : undefined;
 
   return (
     <Block
       title="What happened"
-      hint={event.headline ? 'Headline as published by the reporting source.' : undefined}
+      hint={
+        event.headline ? 'Headline as published by the reporting source.'
+          : fromArticle ? `Headline read from the linked article${siteName ? ` (${siteName})` : ''}.`
+            : undefined
+      }
     >
-      {hasText ? (
+      {headline ? (
         <>
-          {body && <p className="text-[11px] leading-relaxed text-muted-foreground">{body}</p>}
-          {!body && event.headline && (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              The source published this as its headline.
-            </p>
-          )}
+          {body
+            ? <p className="text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+            : <p className="text-[11px] leading-relaxed text-muted-foreground">Reported under the headline above.</p>}
         </>
+      ) : loading ? (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+          <Loader2 size={11} className="animate-spin" /> Reading the linked article…
+        </div>
       ) : (
         <div className="space-y-1">
           <div className="text-[10px] italic text-muted-foreground/70">
             No article headline available for this event.
           </div>
           <div className="text-[10px] leading-relaxed text-muted-foreground/60">
-            {event.actors && event.actors.length > 0
-              ? 'This event comes from a structured feed that publishes coded events without headlines. The actors and codes above are its own record; open a source below for the reporting.'
-              : 'Open a source below to read the reporting.'}
+            {note
+              ?? (event.actors?.length
+                ? 'This event comes from a structured feed that publishes coded events without headlines. The actors and codes below are its own record.'
+                : 'Open a source below to read the reporting.')}
           </div>
+          {/* The raw provider string is available on request, but not primary —
+              it reads as a code fragment, not a sentence. */}
+          <button
+            onClick={() => setShowRaw((v) => !v)}
+            className="text-[9px] text-primary/80 hover:text-primary hover:underline cursor-pointer"
+          >
+            {showRaw ? 'hide the raw event record' : "show the source's raw event record"}
+          </button>
+          {showRaw && (
+            <div className="rounded-md border border-border/25 px-2 py-1 font-mono text-[9px] leading-relaxed text-muted-foreground">
+              {event.title}
+            </div>
+          )}
         </div>
       )}
     </Block>
   );
+}
+
+interface ArticleResponse {
+  available: boolean;
+  note?: string;
+  headline?: string;
+  description?: string | null;
+  titleSource?: string;
+  siteName?: string | null;
+  cached?: boolean;
 }
 
 // ── Actors ───────────────────────────────────────────────────────────────────

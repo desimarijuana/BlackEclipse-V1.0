@@ -11,6 +11,7 @@
 
 import type { NormalizedEvent, SourceRef } from './types';
 import { severityWeight } from './classify';
+import { articleKey } from './enrich';
 
 /** How close in time two records must be to join the same cluster. */
 export const CLUSTER_WINDOW_HOURS = 6;
@@ -86,21 +87,46 @@ function shareCountry(a: string[], b: string[]): boolean {
 /**
  * Should `candidate` merge into `existing`?
  *
- * Two regimes:
+ * Three regimes, most-precise first:
  *
- * 1. **Signature present** (a provider already identified the record, e.g. a
- *    GDELT GLOBALEVENTID). Merge ONLY when the signatures match exactly. Two
- *    distinct ids are two events — no title fuzziness may override that, because
- *    similarity is trivially available within a city.
+ * 1. **Same article URL.** GDELT codes ONE ROW PER ACTOR DYAD, so a single
+ *    article routinely becomes 30+ events ("CHINA / AUSTRALIA", "BEIJING / UK",
+ *    … all from one story). Measured: 62.7% of events shared an article, one
+ *    article produced 37. A URL is definitive identity — two records citing the
+ *    same article ARE the same event, whatever the actors or title say.
  *
- * 2. **No signature** (news articles). Conservative fuzzy merge: same type AND
- *    time proximity AND a real title-similarity floor. Requiring `sameCountry`
- *    alone is NOT enough — it was the bug.
+ * 2. **Different records with a provider signature.** A provider id (GDELT
+ *    GLOBALEVENTID, USGS feature id) is the identity: distinct ids are distinct
+ *    events, and no title similarity may override that. This is what stopped
+ *    unrelated same-city stories fusing.
+ *
+ * 3. **No identity at all** (ordinary articles). Conservative fuzzy merge.
  */
 export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEvent): boolean {
   if (existing.eventType !== candidate.eventType) return false;
 
-  // Regime 1: exact provider identity.
+  // 1. Same article → same event, regardless of anything else.
+  const aUrl = primaryArticleKey(existing);
+  const bUrl = primaryArticleKey(candidate);
+  if (aUrl && bUrl) {
+    if (aUrl === bUrl) return true;
+    // Two different articles may still describe one event; fall through to the
+    // signature/title rules rather than merging on type+country alone.
+    if (existing.clusterSignature || candidate.clusterSignature) {
+      return Boolean(
+        existing.clusterSignature &&
+        candidate.clusterSignature &&
+        existing.clusterSignature === candidate.clusterSignature,
+      );
+    }
+    if (hoursBetween(existing.publishedAt, candidate.publishedAt) > CLUSTER_WINDOW_HOURS) return false;
+    const urlSim = tokenSimilarity(significantTokens(existing.title), significantTokens(candidate.title));
+    return shareCountry(existing.countries, candidate.countries)
+      ? urlSim >= SAME_COUNTRY_SIMILARITY_THRESHOLD
+      : urlSim >= TITLE_SIMILARITY_THRESHOLD;
+  }
+
+  // 2. Provider identity.
   if (existing.clusterSignature || candidate.clusterSignature) {
     return Boolean(
       existing.clusterSignature &&
@@ -109,16 +135,21 @@ export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEv
     );
   }
 
+  // 3. Fuzzy (articles with no URL).
   if (hoursBetween(existing.publishedAt, candidate.publishedAt) > CLUSTER_WINDOW_HOURS) return false;
-
   const sim = tokenSimilarity(significantTokens(existing.title), significantTokens(candidate.title));
-  // Same story, different outlet phrasing.
   if (sim >= TITLE_SIMILARITY_THRESHOLD) return true;
-  // Same country AND substantial shared terms. The floor is deliberately above
-  // the old 0.15: at 0.15 an unrelated story from the same country cleared it.
   const sameCountry = shareCountry(existing.countries, candidate.countries);
-  if (sameCountry && sim >= SAME_COUNTRY_SIMILARITY_THRESHOLD) return true;
-  return false;
+  return sameCountry && sim >= SAME_COUNTRY_SIMILARITY_THRESHOLD;
+}
+
+/** Normalized key of an event's primary article URL, if it has one. */
+function primaryArticleKey(e: NormalizedEvent): string | null {
+  for (const s of e.sources) {
+    const key = articleKey(s.url);
+    if (key) return key;
+  }
+  return null;
 }
 
 function mergeSources(a: SourceRef[], b: SourceRef[]): SourceRef[] {

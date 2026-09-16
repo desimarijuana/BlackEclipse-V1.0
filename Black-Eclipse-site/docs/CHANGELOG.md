@@ -43,6 +43,94 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Portfolio** — Added three risk widgets to the fund workspace: **Portfolio
+  Heatmap** (treemap — area by position value, colour by day move on the shared
+  ±3% gradient, with fullscreen), **Correlation Matrix** (ECharts heatmap of
+  pairwise return correlation) and **Risk Matrix** (per-holding volatility, beta
+  to the portfolio, and each position's contribution to total risk). All three
+  register in `FUND_WIDGETS`, the icon map and the default layout.
+
+  Accuracy work the widgets depend on — the matrix is only meaningful if these
+  hold:
+  - **Date alignment, not position alignment.** Different markets have different
+    trading calendars, so `closes[i]` is not the same day across symbols;
+    correlating position *i* against position *i* silently compares different
+    calendar days. `src/lib/portfolio/matrix.ts` computes every statistic on the
+    **intersection of dates** for the pair concerned. Pairs with <20 shared
+    returns render `·`, never a plausible-looking `0.00`.
+  - **Correlation is currency-neutral.** Returns are ratios, so native-currency
+    closes give identical correlations to USD-converted ones — correct for a
+    mixed USD/PKR/INR book with no FX step (documented, including the limitation
+    that a currency's own move is a separate exposure).
+  - **Risk decomposed properly.** Euler decomposition over the same Σ used for
+    the matrix: σ_p=√(wᵀΣw), CTRᵢ=wᵢ(Σw)ᵢ/σ_p, shares sum to 100%. Variance is
+    clamped at 0 (pairwise-complete correlation isn't guaranteed PSD) so a
+    negative "risk" can never surface.
+  - **Fixed a real desync bug** in `use-price-histories`: it filtered `closes`
+    but mapped `dates` unfiltered, so any bar with a bad close shifted every
+    later date onto the wrong close.
+  - **Fixed market resolution.** `marketHintFor` defaulted everything unknown to
+    US, so an Indian or UK holding was requested without its exchange suffix and
+    returned no series at all. `/api/price-history` now treats the `market` param
+    as a hint and, on a miss, asks JDDS which markets list the symbol (one
+    indexed query) and retries with the real one.
+  - **Fixed currency handling.** `useLiveQuotes` discarded `/api/quote`'s real
+    `marketId` and re-derived a USD/PKR binary from a 16-symbol allowlist, so an
+    INR holding was valued 1:1 against the dollar. The engine now converts any
+    currency at its live `fxToUsd`, falls back to a documented approximation
+    table when a rate is missing, and flags the holding `fxMissing` so the UI can
+    call that USD value an estimate.
+
+  Verified against an independent Pearson implementation on real series (values
+  matched to 3dp) and in-browser on the seeded Core Growth fund: all three
+  widgets render, zero console errors. 39 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/OVERVIEW.md`,
+  `README.md`
+
+- **Investor Eye** — Article metadata recovery, readable titles, and a
+  correction to a claim in the entry below.
+
+  - **Correction.** The entry below says the news-corpus enrichment gave events
+    "real headlines" and cites 202 of 461. That number was the count of
+    `news`-source events, which are articles and always had headlines — the
+    enrichment itself contributed almost nothing. Measured against the live DB,
+    the normalized-URL join matched **27 of 2,524 GDELT events (1.1%)**: the RSS
+    corpus and GDELT's article set barely overlap. The claim was misleading and
+    is superseded by this entry.
+  - **The real fix: read the article.** `article-meta.ts` (pure parsing) +
+    `article-meta-fetch.ts` (guarded network + cache) fetch a source URL through
+    the shared `safeGet` and extract `og:title` / `og:description`, falling back
+    to `twitter:title`, `<title>` and `<h1>`. Only the `<head>` is searched so a
+    body quoting "og:title" can't masquerade as metadata; bot-walls, consent
+    screens and site-name-only titles are rejected. `GET /api/investor-eye/article`
+    is guarded (outbound I/O), tries up to 3 source URLs, and caches per URL in
+    bucketed `SystemConfig` JSON so **any URL is read at most once, ever**.
+    Lazy — fetched when the dossier opens, so the ~15s assembly is unchanged.
+    Verified live: a GDELT event recovered
+    *"Chinese Companies Used Crypto Exchange to Launder Iran's Black-Market Oil
+    Sales"* (The Epoch Times) with a description and actors.
+  - **Article-identity clustering (found while building the above).** GDELT codes
+    **one row per actor dyad**, so a SINGLE article becomes many events — one
+    produced **37**. Measured: **62.7% of events shared an article URL**. The
+    signature gate (below) correctly stopped unrelated stories fusing, but left
+    this fragmentation. Since two records citing the same article ARE the same
+    story, `shouldCluster` and `dedupKeyFor` now treat a normalized article URL as
+    definitive identity (scoped by event type, so one article read as both a
+    `sanction` and a `trade` keeps both). Events in a 24h window **461 → 338**,
+    and corroboration became real again (Seeking Alpha + Investing.com + CNBC on
+    one story). 40 cluster/dedup tests.
+  - **Readable titles** (`formatEventTitle`). GDELT's synthesized
+    `ACTOR1 / ACTOR2 — City, Country` read as code fragments
+    (`POLICE — Washington, District of Columbia, United States`). It is now
+    restructured into a sentence — *"POLICE in Washington, District of Columbia,
+    United States"* — from the same fields, inventing nothing. Applied in the
+    dossier header and the live feed; a real headline passes through untouched,
+    and a headline merely containing a "/" is not rewritten. 10 tests.
+  - `article-meta.test.ts` (17 tests) covers entity decoding, attribute-order
+    tolerance, body-meta rejection, bot-wall detection and suffix stripping.
+  - Verified: 906 tests pass, `tsc` + eslint clean, zero console errors in Chrome.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Investor Eye** — Event dossiers, real headlines, and the clustering bug that
   was corrupting events. Includes a schema change (see the DB note below).
   - **Clustering was fusing unrelated stories.** A real event in the DB had 16

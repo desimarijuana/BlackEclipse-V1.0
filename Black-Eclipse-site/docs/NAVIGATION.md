@@ -40,6 +40,8 @@ Black-Eclipse-site/
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
 | Work on portfolio | `src/components/screens/portfolio/`, `src/lib/portfolio/`, `src/hooks/use-portfolio-engine.ts` |
+| Work on portfolio risk/correlation math | `src/lib/portfolio/matrix.ts` (date-aligned correlation + Euler risk decomposition), `src/lib/portfolio/risk.ts` |
+| Work on portfolio widgets | `src/components/screens/portfolio/widgets.tsx` (registry + renderers), `use-fund-data.ts` (data bundle) |
 | Work on the journal | `src/components/journal/`, `src/lib/journal/` |
 | Work on the dashboard widgets | `src/lib/dashboard/`, `src/components/screens/dashboard/` |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
@@ -58,7 +60,8 @@ Black-Eclipse-site/
 | Work on saved views | `src/components/investor-eye/saved-views.tsx` + `store.ts` (`saveView`/`applyView`) |
 | Work on data-source health | `src/app/api/investor-eye/health/route.ts` + `source-health-panel.tsx` (reads `SourceRun` rows) |
 | Fix events merging into nonsense clusters | `src/lib/investor-eye/cluster.ts` (`shouldCluster` + `clusterSignature`) and `dedup.ts` (`dedupKeyFor`); never let synthesized title text score similarity |
-| Surface real article headlines on events | `src/lib/investor-eye/enrich.ts` (normalized URL join against `NewsItem`); wired in `state.ts` |
+| Surface real article headlines on events | `src/lib/investor-eye/enrich.ts` (news-corpus URL join, ~1% hit rate) and `article-meta.ts` / `article-meta-fetch.ts` (reads `og:title` from the linked page — the effective path); route `src/app/api/investor-eye/article/route.ts` |
+| Make provider-synthesized event titles readable | `formatEventTitle` in `src/lib/investor-eye/format.ts` (used by the dossier header + live feed) |
 | Work on the event detail dossier | `src/components/investor-eye/event-panel.tsx` (What happened / Actors / Where & when / Detail / Observed / exposure / reaction / Sources / Timeline) |
 | Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
 | Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |

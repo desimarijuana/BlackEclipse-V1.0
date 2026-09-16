@@ -119,6 +119,54 @@ describe('shouldCluster', () => {
     const unsigned = makeEvent({ title: 'Same story text' });
     expect(shouldCluster(signed, unsigned)).toBe(false);
   });
+
+  // ── Article identity: the fan-out bug ─────────────────────────────────────
+  // GDELT codes ONE ROW PER ACTOR DYAD, so a single article routinely becomes
+  // 30+ events. Measured: 62.7% of events shared an article; one produced 37.
+  it('merges events that cite the SAME article, whatever the actors say', () => {
+    const url = 'https://example.com/news/one-story/?utm_source=x';
+    const a = makeEvent({
+      title: 'CHINA / AUSTRALIA — Beijing, China',
+      countries: ['CN', 'AU'],
+      clusterSignature: 'gdelt:1',
+      sources: [{ id: 'example.com', name: 'example.com', url }],
+    });
+    const b = makeEvent({
+      title: 'BEIJING / UNITED KINGDOM — United Kingdom',
+      countries: ['CN', 'GB'],
+      clusterSignature: 'gdelt:2',
+      sources: [{ id: 'example.com', name: 'example.com', url: 'http://www.example.com/news/one-story' }],
+    });
+    // Different actors, different signatures — but one article, so one event.
+    expect(shouldCluster(a, b)).toBe(true);
+  });
+
+  it('does NOT merge two different articles that share a country', () => {
+    const a = makeEvent({
+      title: 'UNITED STATES / AUTHORITIES — Washington, United States',
+      countries: ['US'],
+      sources: [{ id: 'a.com', name: 'a.com', url: 'https://a.com/story-one' }],
+    });
+    const b = makeEvent({
+      title: 'INDUSTRY / COMPANIES — Washington, United States',
+      countries: ['US'],
+      sources: [{ id: 'b.com', name: 'b.com', url: 'https://b.com/story-two' }],
+    });
+    expect(shouldCluster(a, b)).toBe(false);
+  });
+
+  it('still merges different articles when the provider signature matches', () => {
+    const a = makeEvent({ clusterSignature: 'gdelt:7', sources: [{ id: 'a', name: 'A', url: 'https://a.com/x' }] });
+    const b = makeEvent({ clusterSignature: 'gdelt:7', sources: [{ id: 'b', name: 'B', url: 'https://b.com/y' }] });
+    expect(shouldCluster(a, b)).toBe(true);
+  });
+
+  it('keeps the same article apart across different event types', () => {
+    const url = 'https://example.com/news/one-story';
+    const a = makeEvent({ eventType: 'sanction', sources: [{ id: 'x', name: 'X', url }] });
+    const b = makeEvent({ eventType: 'trade', sources: [{ id: 'x', name: 'X', url }] });
+    expect(shouldCluster(a, b)).toBe(false);
+  });
 });
 
 describe('stripLocationSuffix', () => {
@@ -242,6 +290,26 @@ describe('dedupKeyFor', () => {
     const a = makeEvent();
     expect(dedupKeyFor(a)).toBe(dedupKeyFor(a));
     expect(dedupKeyFor(a)).not.toBe(dedupKeyFor(makeEvent({ countries: ['US'] })));
+  });
+
+  // ── Article identity in the key ───────────────────────────────────────────
+  it('gives same-article events the same key even with different signatures', () => {
+    const url = 'https://example.com/news/story/?ref=rss';
+    const a = makeEvent({ clusterSignature: 'gdelt:1', sources: [{ id: 'x', name: 'X', url }] });
+    const b = makeEvent({ clusterSignature: 'gdelt:2', sources: [{ id: 'x', name: 'X', url: 'http://www.example.com/news/story' }] });
+    expect(dedupKeyFor(a)).toBe(dedupKeyFor(b));
+  });
+
+  it('scopes the article key by event type', () => {
+    const url = 'https://example.com/news/story';
+    expect(dedupKeyFor(makeEvent({ eventType: 'sanction', sources: [{ id: 'x', name: 'X', url }] })))
+      .not.toBe(dedupKeyFor(makeEvent({ eventType: 'trade', sources: [{ id: 'x', name: 'X', url }] })));
+  });
+
+  it('falls back to the signature when no URL is present', () => {
+    const a = makeEvent({ clusterSignature: 'gdelt:5', sources: [] });
+    const b = makeEvent({ clusterSignature: 'gdelt:5', sources: [], title: 'different' });
+    expect(dedupKeyFor(a)).toBe(dedupKeyFor(b));
   });
 
   it('timeBucket groups within a window', () => {

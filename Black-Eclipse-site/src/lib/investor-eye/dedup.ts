@@ -5,6 +5,7 @@
 
 import crypto from 'node:crypto';
 import type { NormalizedEvent } from './types';
+import { articleKey } from './enrich';
 
 /** Bucket an ISO timestamp into CLUSTER_WINDOW-sized windows (default 6h). */
 export function timeBucket(iso: string, windowHours = 6): string {
@@ -41,13 +42,43 @@ function normalizeTitle(title: string): string {
  * Merging updates the cluster in place, so the key stays anchored on the
  * first/strongest record.
  */
-export function dedupKeyFor(event: Pick<NormalizedEvent, 'eventType' | 'countries' | 'publishedAt' | 'title' | 'clusterSignature'>): string {
+/**
+ * Hash an event's identity. Most-precise signal first:
+ *
+ * 1. **Article URL** — GDELT codes one row per actor dyad, so one article
+ *    routinely becomes 30+ events that ARE one story. The URL is definitive
+ *    identity. Scoped by event type so the same article surfacing as both a
+ *    `sanction` and a `trade` event keeps both readings.
+ * 2. **Provider signature** — GDELT GLOBALEVENTID / USGS feature id, for records
+ *    that link no article.
+ * 3. **Fuzzy** — type + country set + time bucket + normalized title, for
+ *    ordinary articles with no URL.
+ *
+ * Merging updates the cluster in place, so the key stays anchored on the
+ * first/strongest record.
+ */
+export function dedupKeyFor(
+  event: Pick<NormalizedEvent, 'eventType' | 'countries' | 'publishedAt' | 'title' | 'clusterSignature' | 'sources'>,
+): string {
+  const urlKey = primaryArticleKey(event.sources);
+  if (urlKey) {
+    return crypto.createHash('sha256').update(`url|${event.eventType}|${urlKey}`).digest('hex').slice(0, 40);
+  }
   if (event.clusterSignature) {
     return crypto.createHash('sha256').update(`sig|${event.clusterSignature}`).digest('hex').slice(0, 40);
   }
   const countries = [...event.countries].sort().join(',');
   const signature = [event.eventType, countries, timeBucket(event.publishedAt), normalizeTitle(event.title)].join('|');
   return crypto.createHash('sha256').update(signature).digest('hex').slice(0, 40);
+}
+
+/** Normalized key of an event's primary article URL, if any. */
+function primaryArticleKey(sources: NormalizedEvent['sources']): string | null {
+  for (const s of sources) {
+    const key = articleKey(s.url);
+    if (key) return key;
+  }
+  return null;
 }
 
 /**
