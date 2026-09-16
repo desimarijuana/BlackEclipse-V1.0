@@ -18,6 +18,7 @@ import { toMarketId, marketDisplayName, currencyFor } from '@/lib/markets';
 import { registerBuiltinSources, configuredSources, listSources } from './sources/registry';
 import { clusterEvents } from './cluster';
 import { collapseDuplicateKeys } from './dedup';
+import { reResolveEventLocation } from './geo-resolve';
 import { aggregatePoints, zoomForCount } from './geo';
 import { countryByIso2, COUNTRIES, resolveCountry } from './countries';
 import { SEVERITY_RANK } from './classify';
@@ -731,12 +732,37 @@ export async function queryEvents(options: {
     orderBy: [{ relevance: 'desc' }, { publishedAt: 'desc' }],
     take: options.limit ?? 800,
   });
-  let events = rows.map(rowToEvent);
+  let events = rows.map(rowToEvent).map(upgradeEventLocation);
   if (options.iso2) {
     const iso = options.iso2.toUpperCase();
     events = events.filter((e) => e.countries.includes(iso));
   }
   return events;
+}
+
+/**
+ * Re-derive an event's anchor with the CURRENT geo rules.
+ *
+ * Rows persisted before `capital` existed keep a stale centroid + `geoMethod`.
+ * Resolution is deterministic and cheap, so it is recomputed on read rather than
+ * migrated — this is what upgrades historical rows without touching the database.
+ */
+export function upgradeEventLocation(event: NormalizedEvent): NormalizedEvent {
+  const resolved = reResolveEventLocation(event);
+  if (
+    resolved.lon === event.lon &&
+    resolved.lat === event.lat &&
+    resolved.geoMethod === event.geoMethod
+  ) {
+    return event;
+  }
+  return {
+    ...event,
+    lon: resolved.lon ?? event.lon,
+    lat: resolved.lat ?? event.lat,
+    placeName: resolved.placeName ?? event.placeName,
+    geoMethod: resolved.geoMethod ?? event.geoMethod,
+  };
 }
 
 /** Recent source runs for the Data Health panel. */

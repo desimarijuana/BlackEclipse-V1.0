@@ -768,6 +768,64 @@ and leaves real headlines untouched — including one that merely contains a `/`
 
 ---
 
+## 5h. Phase 10 — where events are plotted
+
+### The Kansas problem
+
+`CountryDef.lon/lat` is a country's **geographic centroid**. That is a reasonable
+anchor for a country-wide event, but wrong for a policy event: "the Fed raises
+rates" plotted at the US centroid lands in Kansas, and "Brazil's central bank
+cuts rates" lands in the Amazon. In a 7-day window, **83% of news-derived events
+sat at a country centroid**.
+
+The insight is that *event type implies a location kind*:
+
+| Event is about… | Meaningful anchor | Why |
+|---|---|---|
+| a place (port, chokepoint, city) | that place | named in the text |
+| a physical incident (conflict, quake, storm) | its own coordinates | has a real location, usually NOT the capital |
+| a government / central bank / regulator | the **capital** | the story is reported *from* there |
+
+`geo-resolve.ts` encodes that as a preference order — named place → exact provider
+coordinate → capital (policy types only) → centroid — and returns a `geoMethod`
+alongside the coordinate so the UI can state its own precision.
+
+**Deliberately excluded from capital-anchoring:** `conflict`, `military`,
+`natural_disaster`, `energy`, `shipping`. Forcing a missile strike to a capital
+would be a regression, and the tests assert that.
+
+### Measured result
+
+| | Before | After |
+|---|---|---|
+| news events at country centroid | 83% | **34%** |
+| events with a `place` anchor | 11 | **44** |
+| events capital-anchored | 0 | **88** |
+
+### A guess must not look like a fix
+
+A centroid pin previously looked identical to an exact one. Now centroid points
+are hollow, dashed and slightly smaller, with a legend entry and a tooltip line
+("Location is the country centre only (shown hollow)"), and the dossier prints
+the method verbatim.
+
+### No migration needed
+
+`reResolveEventLocation` re-derives the anchor when an event is read, so
+historical rows pick up the capital rule on the next load. Resolution is
+deterministic and cheap, which is why it is recomputed rather than migrated — and
+an exact provider coordinate is never second-guessed. `jdds.db` therefore needed
+no new columns for this phase.
+
+### Gazetteer gaps found by probing real headlines
+
+Extending `places.ts` with ~120 entries (ports, rivers, commodity regions) was
+driven by running the resolver against actual headlines rather than guessing. That
+probe also caught three countries — **Djibouti, Somalia and Eritrea** — missing
+from `countries.ts` entirely, so Red Sea shipping events had nowhere to plot.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

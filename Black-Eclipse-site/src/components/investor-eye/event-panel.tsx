@@ -20,6 +20,7 @@ import { X, ExternalLink, MapPin, Loader2 } from 'lucide-react';
 import { severityColor } from '@/lib/investor-eye/layers';
 import { actorTypeLabel } from '@/lib/investor-eye/cameo';
 import { countryByIso2, countryByIso3 } from '@/lib/investor-eye/countries';
+import { GEO_METHOD_LABEL } from '@/lib/investor-eye/geo-resolve';
 import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
 import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-eye/types';
 import { AnaloguesPanel } from './analogues-panel';
@@ -31,13 +32,6 @@ interface EventPanelProps {
   onClose: () => void;
   onSelectCountry?: (iso2: string) => void;
 }
-
-/** How the coordinate was derived — so precision is never overstated. */
-const GEO_METHOD_LABEL: Record<NonNullable<NormalizedEvent['geoMethod']>, string> = {
-  provider: 'exact coordinates from source',
-  place: 'resolved from a named place',
-  centroid: 'country centre only',
-};
 
 export function EventPanel({ event, onClose, onSelectCountry }: EventPanelProps) {
   // Recover a real headline once, at the panel level, so the header and the

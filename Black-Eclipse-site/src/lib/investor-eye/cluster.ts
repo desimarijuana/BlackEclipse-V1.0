@@ -185,8 +185,10 @@ function mergeActors(
   return out;
 }
 
+// Precision order for a merge: an exact fix beats a capital beats a centroid.
+// `provider` and `place` are both exact, so they share the top rank.
 const GEO_RANK: Record<NonNullable<NormalizedEvent['geoMethod']>, number> = {
-  provider: 2, place: 1, centroid: 0,
+  provider: 3, place: 3, capital: 2, centroid: 1,
 };
 
 /** Keep the most precise geo provenance across a merge. */

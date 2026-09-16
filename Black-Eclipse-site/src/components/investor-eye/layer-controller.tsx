@@ -145,6 +145,15 @@ export function LayerController({ active, onToggle, available, showLegend = true
           <span className="text-[9px] text-muted-foreground/50">
             marker size = severity
           </span>
+          {/* Explain the hollow marker, so an approximate fix is never mistaken
+              for an exact position. */}
+          <span
+            className="inline-flex items-center gap-1 text-[9px] text-muted-foreground/70"
+            title="An event known only at country level is plotted at the country centre and drawn as a hollow ring."
+          >
+            <span className="inline-block h-2 w-2 rounded-full border border-dashed border-muted-foreground/70" />
+            country-centre only
+          </span>
         </div>
       )}
     </div>

@@ -10,6 +10,7 @@
 import { aggregatePoints, zoomForCount } from './geo';
 import { severityWeight } from './classify';
 import { formatUtc } from './format';
+import { GEO_METHOD_LABEL } from './geo-resolve';
 import type {
   CompanyPoint, CountrySummary, EventSeverity, InvestorEyeState, LayerDatum, MapLayer,
   MarketObservation, NormalizedEvent, TooltipContent,
@@ -114,15 +115,21 @@ function eventTooltip(event: NormalizedEvent): TooltipContent {
   if (event.relevance !== undefined) {
     rows.push({ label: 'Relevance', value: `${Math.round(event.relevance * 100)}%` });
   }
+  if (event.placeName) rows.push({ label: 'Location', value: event.placeName });
+  if (event.geoMethod) rows.push({ label: 'Precision', value: GEO_METHOD_LABEL[event.geoMethod] });
   if (event.channels.length > 0) rows.push({ label: 'Affected channels', value: event.channels.join(', ') });
   if (event.commodities.length > 0) rows.push({ label: 'Commodities', value: event.commodities.join(', ') });
   // Separate what is observed from what is potential.
   const why = event.relevanceReasons?.length ? `Why it matters: ${event.relevanceReasons.join(', ')}. ` : '';
+  // Explain an approximate marker, so a hollow ring is never read as an exact fix.
+  const geo = event.geoMethod === 'centroid'
+    ? 'Location is the country centre only (shown hollow) — not a confirmed position. '
+    : '';
   return {
     title: event.title,
     subtitle: event.summary,
     rows,
-    note: `${why}Event and entities are observed from source data. Channels and exposure are potential, not causal.`,
+    note: `${geo}${why}Event and entities are observed from source data. Channels and exposure are potential, not causal.`,
   };
 }
 
@@ -150,6 +157,9 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
       value: c.count,
       label: c.count > 1 ? `${c.count} events` : rep.title,
       severity: c.maxSeverity,
+      // A single event keeps its own precision; an aggregated cell is by
+      // definition approximate, so it is shown as such.
+      geoMethod: c.count > 1 ? 'centroid' : rep.geoMethod,
       data: { cluster: c, representative: rep },
     };
   });
@@ -258,6 +268,7 @@ function filterEventsLayer(
     value: severityWeight(e.severity),
     label: e.title,
     severity: e.severity,
+    geoMethod: e.geoMethod,
     data: e,
   }));
   return {

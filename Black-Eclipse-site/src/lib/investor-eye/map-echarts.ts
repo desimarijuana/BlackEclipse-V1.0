@@ -238,33 +238,58 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
             // markers rather than being z-fought by the sphere.
             itemStyle: {
               color: (raw: unknown) => {
-                const item = raw as { data?: { severity?: string } };
+                const item = raw as { data?: { severity?: string; approximate?: boolean } };
+                // An approximate (centroid) fix is drawn dimmer, so a guess never
+                // reads as an exact position.
                 if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
                 if (!item.data?.severity) return layerColor(layer.id);
                 return severityColor((item.data?.severity ?? 'low') as never);
               },
-              opacity: 0.95,
+              opacity: (raw: unknown) => {
+                const item = raw as { data?: { approximate?: boolean } };
+                return item.data?.approximate ? 0.55 : 0.95;
+              },
             },
           }
         : {
             symbolSize: (raw: unknown) => {
-              const item = raw as { data?: { value?: number; severity?: string } };
+              const item = raw as { data?: { value?: number; severity?: string; approximate?: boolean } };
               const sev = item.data?.severity ?? 'low';
-              return { critical: 13, high: 10, medium: 8, low: 6 }[sev] ?? 6;
+              const size = { critical: 13, high: 10, medium: 8, low: 6 }[sev] ?? 6;
+              // Approximate points render slightly smaller — a visual cue that
+              // the position is a country centre, not a confirmed location.
+              return item.data?.approximate ? Math.max(5, size - 2) : size;
             },
             itemStyle: {
               color: (raw: unknown) => {
-                const item = raw as { data?: { severity?: string } };
-                // Severity is a real observation; without one, fall back to the
-                // layer's own accent rather than inventing a sign.
+                const item = raw as { data?: { severity?: string; approximate?: boolean } };
+                // Hollow centre for approximate fixes: the fill is transparent
+                // and the accent moves to the border, so the marker reads as a
+                // ring rather than a solid dot.
+                if (item.data?.approximate) return 'rgba(0,0,0,0)';
                 if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
                 return item.data?.severity
                   ? severityColor(item.data.severity as never)
                   : layerColor(layer.id);
               },
-              borderColor: 'rgba(0,0,0,0.5)',
-              borderWidth: 0.5,
-              opacity: 0.85,
+              borderColor: (raw: unknown) => {
+                const item = raw as { data?: { severity?: string; approximate?: boolean } };
+                if (!item.data?.approximate) return 'rgba(0,0,0,0.5)';
+                // Match the ring to what the fill would have been.
+                if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
+                return item.data?.severity
+                  ? severityColor(item.data.severity as never)
+                  : layerColor(layer.id);
+              },
+              borderWidth: (raw: unknown) => {
+                const item = raw as { data?: { approximate?: boolean } };
+                return item.data?.approximate ? 1.5 : 0.5;
+              },
+              borderType: (raw: unknown) => {
+                const item = raw as { data?: { approximate?: boolean } };
+                return item.data?.approximate ? 'dashed' : 'solid';
+              },
+              opacity: 0.9,
             },
             emphasis: { scale: 1.4 },
           }),
@@ -275,6 +300,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
         // globe into radiating spikes. 3D series get exactly [lon, lat].
         value: isGlobe ? [d.lon, d.lat] : [d.lon, d.lat, d.value ?? 1],
         severity: d.severity,
+        /** Country-centroid anchors are shown as hollow/dashed markers. */
+        approximate: d.geoMethod === 'centroid',
         _datum: d,
       })),
       tooltip: layer.tooltip ? { formatter: tooltipFormatter(layer) } : undefined,

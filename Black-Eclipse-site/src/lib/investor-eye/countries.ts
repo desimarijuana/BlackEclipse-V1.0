@@ -102,6 +102,9 @@ export const COUNTRIES: CountryDef[] = [
   { iso2: 'KE', iso3: 'KEN', name: 'Kenya', region: 'Africa', lon: 38.0, lat: -0.02, currency: 'KES', aliases: ['nairobi'] },
   { iso2: 'GH', iso3: 'GHA', name: 'Ghana', region: 'Africa', lon: -1.0, lat: 7.9, currency: 'GHS', aliases: ['accra'] },
   { iso2: 'ET', iso3: 'ETH', name: 'Ethiopia', region: 'Africa', lon: 40.5, lat: 9.1, currency: 'ETB', aliases: ['addis ababa'] },
+  { iso2: 'DJ', iso3: 'DJI', name: 'Djibouti', region: 'Africa', lon: 42.6, lat: 11.8, currency: 'DJF', aliases: ['djibouti', 'doraleh'] },
+  { iso2: 'SO', iso3: 'SOM', name: 'Somalia', region: 'Africa', lon: 46.2, lat: 5.2, currency: 'SOS', aliases: ['mogadishu', 'somali', 'berbera'] },
+  { iso2: 'ER', iso3: 'ERI', name: 'Eritrea', region: 'Africa', lon: 39.8, lat: 15.2, currency: 'ERN', aliases: ['asmara', 'massawa'] },
   { iso2: 'DZ', iso3: 'DZA', name: 'Algeria', region: 'Africa', lon: 1.7, lat: 28.0, currency: 'DZD', aliases: ['algiers'] },
   { iso2: 'LY', iso3: 'LBY', name: 'Libya', region: 'Africa', lon: 17.2, lat: 26.3, currency: 'LYD', aliases: ['tripoli'] },
   { iso2: 'MA', iso3: 'MAR', name: 'Morocco', region: 'Africa', lon: -7.1, lat: 31.8, currency: 'MAD', aliases: ['rabat', 'casablanca'] },
@@ -137,6 +140,118 @@ export const COUNTRIES: CountryDef[] = [
   { iso2: 'KZ', iso3: 'KAZ', name: 'Kazakhstan', region: 'Central Asia', lon: 66.9, lat: 48.0, currency: 'KZT', aliases: ['astana', 'almaty'] },
   { iso2: 'UZ', iso3: 'UZB', name: 'Uzbekistan', region: 'Central Asia', lon: 64.6, lat: 41.4, currency: 'UZS', aliases: ['tashkent'] },
 ];
+
+// ── Capital anchors ──────────────────────────────────────────────────────────
+// `CountryDef.lon/lat` is the country's GEOGRAPHIC CENTROID, which is the right
+// anchor for a country-wide event but badly wrong for a POLICY event: "the Fed
+// raises rates" plotted at the USA centroid lands in Kansas, and "Brazil's
+// central bank cuts rates" lands in the Amazon.
+//
+// Policy, monetary and diplomatic news is reported FROM the capital, so that is
+// the meaningful anchor. This table supplies it without disturbing the centroid
+// (which map fills and country highlighting still rely on).
+//
+// Approximate city-centre coordinates — good to a few km, which is far finer
+// than the centroid it replaces.
+
+export interface CapitalAnchor {
+  iso2: string;
+  name: string;
+  lon: number;
+  lat: number;
+}
+
+export const CAPITALS: CapitalAnchor[] = [
+  { iso2: 'US', name: 'Washington, D.C.', lon: -77.04, lat: 38.91 },
+  { iso2: 'CA', name: 'Ottawa', lon: -75.70, lat: 45.42 },
+  { iso2: 'MX', name: 'Mexico City', lon: -99.13, lat: 19.43 },
+  { iso2: 'BR', name: 'Brasília', lon: -47.88, lat: -15.79 },
+  { iso2: 'AR', name: 'Buenos Aires', lon: -58.38, lat: -34.60 },
+  { iso2: 'CL', name: 'Santiago', lon: -70.65, lat: -33.46 },
+  { iso2: 'CO', name: 'Bogotá', lon: -74.07, lat: 4.71 },
+  { iso2: 'PE', name: 'Lima', lon: -77.04, lat: -12.05 },
+  { iso2: 'VE', name: 'Caracas', lon: -66.90, lat: 10.48 },
+  { iso2: 'GB', name: 'London', lon: -0.13, lat: 51.51 },
+  { iso2: 'DE', name: 'Berlin', lon: 13.40, lat: 52.52 },
+  { iso2: 'FR', name: 'Paris', lon: 2.35, lat: 48.86 },
+  { iso2: 'IT', name: 'Rome', lon: 12.50, lat: 41.90 },
+  { iso2: 'ES', name: 'Madrid', lon: -3.70, lat: 40.42 },
+  { iso2: 'NL', name: 'Amsterdam', lon: 4.90, lat: 52.37 },
+  { iso2: 'BE', name: 'Brussels', lon: 4.35, lat: 50.85 },
+  { iso2: 'CH', name: 'Bern', lon: 7.45, lat: 46.95 },
+  { iso2: 'SE', name: 'Stockholm', lon: 18.07, lat: 59.33 },
+  { iso2: 'NO', name: 'Oslo', lon: 10.75, lat: 59.91 },
+  { iso2: 'PL', name: 'Warsaw', lon: 21.01, lat: 52.23 },
+  { iso2: 'UA', name: 'Kyiv', lon: 30.52, lat: 50.45 },
+  { iso2: 'RU', name: 'Moscow', lon: 37.62, lat: 55.76 },
+  { iso2: 'TR', name: 'Ankara', lon: 32.86, lat: 39.93 },
+  { iso2: 'GR', name: 'Athens', lon: 23.73, lat: 37.98 },
+  { iso2: 'IE', name: 'Dublin', lon: -6.26, lat: 53.35 },
+  { iso2: 'PT', name: 'Lisbon', lon: -9.14, lat: 38.72 },
+  { iso2: 'CZ', name: 'Prague', lon: 14.42, lat: 50.08 },
+  { iso2: 'AT', name: 'Vienna', lon: 16.37, lat: 48.21 },
+  { iso2: 'HU', name: 'Budapest', lon: 19.04, lat: 47.50 },
+  { iso2: 'RO', name: 'Bucharest', lon: 26.10, lat: 44.43 },
+  { iso2: 'FI', name: 'Helsinki', lon: 24.94, lat: 60.17 },
+  { iso2: 'DK', name: 'Copenhagen', lon: 12.57, lat: 55.68 },
+  { iso2: 'SA', name: 'Riyadh', lon: 46.72, lat: 24.71 },
+  { iso2: 'AE', name: 'Abu Dhabi', lon: 54.37, lat: 24.45 },
+  { iso2: 'IL', name: 'Jerusalem', lon: 35.21, lat: 31.77 },
+  { iso2: 'IR', name: 'Tehran', lon: 51.39, lat: 35.69 },
+  { iso2: 'IQ', name: 'Baghdad', lon: 44.36, lat: 33.31 },
+  { iso2: 'QA', name: 'Doha', lon: 51.53, lat: 25.29 },
+  { iso2: 'KW', name: 'Kuwait City', lon: 47.98, lat: 29.38 },
+  { iso2: 'OM', name: 'Muscat', lon: 58.41, lat: 23.59 },
+  { iso2: 'JO', name: 'Amman', lon: 35.93, lat: 31.95 },
+  { iso2: 'LB', name: 'Beirut', lon: 35.50, lat: 33.89 },
+  { iso2: 'YE', name: 'Sanaa', lon: 44.21, lat: 15.37 },
+  { iso2: 'SY', name: 'Damascus', lon: 36.29, lat: 33.51 },
+  { iso2: 'PS', name: 'Ramallah', lon: 35.20, lat: 31.90 },
+  { iso2: 'EG', name: 'Cairo', lon: 31.24, lat: 30.04 },
+  { iso2: 'PA', name: 'Panama City', lon: -79.52, lat: 8.98 },
+  { iso2: 'ZA', name: 'Pretoria', lon: 28.19, lat: -25.75 },
+  { iso2: 'NG', name: 'Abuja', lon: 7.49, lat: 9.06 },
+  { iso2: 'KE', name: 'Nairobi', lon: 36.82, lat: -1.29 },
+  { iso2: 'GH', name: 'Accra', lon: -0.19, lat: 5.60 },
+  { iso2: 'ET', name: 'Addis Ababa', lon: 38.75, lat: 9.03 },
+  { iso2: 'DZ', name: 'Algiers', lon: 3.06, lat: 36.75 },
+  { iso2: 'LY', name: 'Tripoli', lon: 13.19, lat: 32.89 },
+  { iso2: 'MA', name: 'Rabat', lon: -6.83, lat: 34.02 },
+  { iso2: 'TZ', name: 'Dodoma', lon: 35.74, lat: -6.16 },
+  { iso2: 'CD', name: 'Kinshasa', lon: 15.31, lat: -4.32 },
+  { iso2: 'SD', name: 'Khartoum', lon: 32.53, lat: 15.55 },
+  { iso2: 'PK', name: 'Islamabad', lon: 73.06, lat: 33.69 },
+  { iso2: 'IN', name: 'New Delhi', lon: 77.21, lat: 28.61 },
+  { iso2: 'BD', name: 'Dhaka', lon: 90.41, lat: 23.81 },
+  { iso2: 'LK', name: 'Colombo', lon: 79.86, lat: 6.93 },
+  { iso2: 'AF', name: 'Kabul', lon: 69.18, lat: 34.53 },
+  { iso2: 'NP', name: 'Kathmandu', lon: 85.32, lat: 27.72 },
+  { iso2: 'CN', name: 'Beijing', lon: 116.41, lat: 39.90 },
+  { iso2: 'JP', name: 'Tokyo', lon: 139.69, lat: 35.69 },
+  { iso2: 'KR', name: 'Seoul', lon: 126.98, lat: 37.57 },
+  { iso2: 'KP', name: 'Pyongyang', lon: 125.75, lat: 39.03 },
+  { iso2: 'TW', name: 'Taipei', lon: 121.56, lat: 25.03 },
+  { iso2: 'HK', name: 'Hong Kong', lon: 114.17, lat: 22.32 },
+  { iso2: 'MN', name: 'Ulaanbaatar', lon: 106.92, lat: 47.89 },
+  { iso2: 'SG', name: 'Singapore', lon: 103.85, lat: 1.29 },
+  { iso2: 'MY', name: 'Kuala Lumpur', lon: 101.69, lat: 3.14 },
+  { iso2: 'ID', name: 'Jakarta', lon: 106.85, lat: -6.21 },
+  { iso2: 'TH', name: 'Bangkok', lon: 100.50, lat: 13.76 },
+  { iso2: 'VN', name: 'Hanoi', lon: 105.83, lat: 21.03 },
+  { iso2: 'PH', name: 'Manila', lon: 120.98, lat: 14.60 },
+  { iso2: 'AU', name: 'Canberra', lon: 149.13, lat: -35.28 },
+  { iso2: 'NZ', name: 'Wellington', lon: 174.78, lat: -41.29 },
+  { iso2: 'KZ', name: 'Astana', lon: 71.43, lat: 51.13 },
+  { iso2: 'UZ', name: 'Tashkent', lon: 69.24, lat: 41.30 },
+];
+
+const CAPITAL_BY_ISO2 = new Map(CAPITALS.map((c) => [c.iso2.toUpperCase(), c]));
+
+/** The capital anchor for a country, when we have one. */
+export function capitalByIso2(iso2: string | null | undefined): CapitalAnchor | undefined {
+  if (!iso2) return undefined;
+  return CAPITAL_BY_ISO2.get(iso2.trim().toUpperCase());
+}
 
 // ── Lookups ──────────────────────────────────────────────────────────────────
 

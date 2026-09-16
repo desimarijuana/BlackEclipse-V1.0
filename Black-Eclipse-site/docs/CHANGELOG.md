@@ -43,6 +43,41 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — Where things are plotted is now right, and honest about it.
+  - **Policy events were landing in Kansas.** `CountryDef.lon/lat` is a country's
+    GEOGRAPHIC CENTROID, so "the Fed raises rates" plotted at the USA centre, and
+    "Brazil's central bank cuts rates" landed in the Amazon. Policy, monetary and
+    diplomatic news is reported FROM the capital, so `geo-resolve.ts` now prefers,
+    in order: a named place → an exact provider coordinate → the CAPITAL (for
+    policy event types only) → the country centroid. A new `CAPITALS` table (81
+    entries) supplies the anchor without disturbing the centroid, which map fills
+    and country highlighting still rely on. `conflict`, `military`,
+    `natural_disaster`, `energy` and `shipping` are deliberately EXCLUDED — those
+    have a real physical location that is usually not the capital.
+  - **Measured on live data:** news-source country-centroid share fell **83% →
+    34%**; across all events, `place` anchors rose 11 → 44, `centroid` fell 76 →
+    67, and **88 events now correctly anchor to a capital**.
+  - **A guess no longer looks like a fix.** Country-centroid points are drawn as
+    hollow, dashed, slightly smaller markers, with a legend entry ("country-centre
+    only") and a tooltip line stating the location is not a confirmed position.
+    The dossier reports it too (`country capital (policy event)` etc.).
+  - **Existing rows are upgraded on read.** `reResolveEventLocation` re-derives
+    the anchor when an event is loaded, so historical rows pick up the capital
+    rule without a database migration — resolution is deterministic and cheap.
+    An exact provider coordinate is never second-guessed.
+  - **Gazetteer extended** with ~120 places that appear in real headlines: ports
+    (Alexandria, Aqaba, Mombasa, Djibouti, Port Harcourt, Novorossiysk,
+    Vancouver…), rivers that shape logistics (Danube, Rhine, Yangtze, Mississippi,
+    Paraná), and commodity regions (Antofagasta, Fort McMurray, Niger Delta,
+    Ordos, Sudbury). The gazetteer test caught that **Djibouti, Somalia and
+    Eritrea were missing from the country table entirely**, so Red Sea shipping
+    events had nowhere to plot; all three added.
+  - 15 new `geo-resolve` tests, incl. deliberate negative cases (a physical event
+    must NOT be forced to the capital; a provider fix must never be overridden).
+  - Verified: 921 tests pass, `tsc` + eslint clean, zero console errors in Chrome.
+    `jdds.db` NOT committed — no schema change (coordinates are derived on read).
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Portfolio** — Added three risk widgets to the fund workspace: **Portfolio
   Heatmap** (treemap — area by position value, colour by day move on the shared
   ±3% gradient, with fullscreen), **Correlation Matrix** (ECharts heatmap of

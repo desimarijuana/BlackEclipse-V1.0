@@ -17,7 +17,7 @@
 import { prisma } from '@/lib/db';
 import { classifyChannels, classifyCommodities, classifySectors, classifySeverity, classifyType } from '../classify';
 import { extractCountries, countryByIso2, resolveCountry } from '../countries';
-import { resolvePlace } from '../places';
+import { resolveEventLocation } from '../geo-resolve';
 import { dedupKeyFor } from '../dedup';
 import { confidenceOf } from '../cluster';
 import { scoreRelevance, selectRelevant, KEEP_THRESHOLD } from '../relevance';
@@ -86,13 +86,11 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
   }
   const primary = countries.length > 0 ? countryByIso2(countries[0]) : resolveCountry(text);
 
-  // Anchor: prefer a NAMED place (city/port/chokepoint/energy hub) over the
-  // country centroid. Plotting every US story at the geographic centre of the
-  // USA put pins in Kansas and made the map read as wrong; resolving the place
-  // the headline actually names fixes that. The country hint keeps a place name
-  // that occurs in several countries on the right one.
-  const place = resolvePlace(text, countries);
-  const anchor = place ?? primary;
+  // Anchor: a named place (city/port/chokepoint/energy hub) beats the country
+  // centroid; for POLICY events the capital beats the centroid (plotting "the
+  // Fed raised rates" at the US centroid put the pin in Kansas). See
+  // `resolveEventLocation` for the full preference order.
+  const location = resolveEventLocation(text, eventType, countries, primary);
 
   const channels = classifyChannels(text);
   const commodities = classifyCommodities(text);
@@ -106,9 +104,9 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
     // and can be surfaced verbatim — unlike GDELT, which has no headline.
     headline: headline.slice(0, 400),
     description: row.summary ? row.summary.slice(0, 800) : undefined,
-    placeName: place?.name,
+    placeName: location.placeName,
     // Say honestly how the point was determined.
-    geoMethod: place ? 'place' : primary ? 'centroid' : undefined,
+    geoMethod: location.geoMethod,
     eventType,
     severity: classifySeverity(text, eventType),
     channels,
@@ -118,8 +116,8 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
     // news ingester already validated against the JDSS universe.
     securities: row.ticker ? [row.ticker] : [],
     countries,
-    lon: anchor?.lon,
-    lat: anchor?.lat,
+    lon: location.lon,
+    lat: location.lat,
     confidence: 0.5,
     sourceCount: 1,
     sources: [{

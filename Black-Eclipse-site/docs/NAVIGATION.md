@@ -57,6 +57,7 @@ Black-Eclipse-site/
 | Work on event→market price reaction | `src/lib/investor-eye/reaction.ts` (pure measurement) + `src/app/api/investor-eye/reaction/route.ts` + `reaction-panel.tsx` |
 | Add/edit event alert rules | `src/lib/investor-eye/alert-rules.ts` (predicates + presets) + `src/app/api/investor-eye/alerts/route.ts` + `alerts-panel.tsx` |
 | Fix where an event is plotted (city/port) | `src/lib/investor-eye/places.ts` (curated gazetteer + `resolvePlace()`); used by `sources/news.ts` |
+| Fix where a POLICY event is plotted (capital vs centroid) | `src/lib/investor-eye/geo-resolve.ts` (`resolveEventLocation`, `reResolveEventLocation`) + `CAPITALS` in `countries.ts`; hollow markers are styled in `map-echarts.ts` |
 | Work on saved views | `src/components/investor-eye/saved-views.tsx` + `store.ts` (`saveView`/`applyView`) |
 | Work on data-source health | `src/app/api/investor-eye/health/route.ts` + `source-health-panel.tsx` (reads `SourceRun` rows) |
 | Fix events merging into nonsense clusters | `src/lib/investor-eye/cluster.ts` (`shouldCluster` + `clusterSignature`) and `dedup.ts` (`dedupKeyFor`); never let synthesized title text score similarity |

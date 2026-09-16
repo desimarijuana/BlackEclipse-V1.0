@@ -110,10 +110,11 @@ export interface NormalizedEvent {
   /**
    * How the coordinate was determined — so the UI never implies more precision
    * than we have. `provider` = the source gave exact coordinates (GDELT/USGS);
-   * `place` = resolved from a named place (gazetteer); `centroid` = only a
-   * country was known, so it plots at the country centre.
+   * `place` = resolved from a named place (gazetteer); `capital` = the country's
+   * capital, used for policy events where the centroid would be misleading;
+   * `centroid` = only a country was known, so it plots at the country centre.
    */
-  geoMethod?: 'provider' | 'place' | 'centroid';
+  geoMethod?: 'provider' | 'place' | 'capital' | 'centroid';
   eventType: EventType;
   severity: EventSeverity;
   /** Economic channels the event could transmit through (observed relevance). */
@@ -330,6 +331,12 @@ export interface LayerDatum {
   value?: number;
   label?: string;
   severity?: EventSeverity;
+  /**
+   * How precise this point's location is. A country-centroid point is drawn as a
+   * hollow marker so a user can tell "we know the country" from "we know the
+   * place" — otherwise a guess looks identical to an exact fix.
+   */
+  geoMethod?: 'provider' | 'place' | 'capital' | 'centroid';
   /** Arbitrary payload handed back to tooltip/onClick. */
   data?: unknown;
 }
