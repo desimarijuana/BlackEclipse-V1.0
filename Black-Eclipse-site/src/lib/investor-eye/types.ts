@@ -65,6 +65,15 @@ export interface EventEntityRef {
   lat?: number;
 }
 
+/** One actor in an event (a state, an organisation, a named group). */
+export interface EventActor {
+  name: string;
+  /** ISO3 country code of the actor, when the provider gives one. */
+  countryCode?: string;
+  /** Provider actor-type code (GDELT's 3-letter type, e.g. GOV/MIL/REB). */
+  typeCode?: string;
+}
+
 /**
  * A normalized, deduplicated event. One instance per real-world event, not per
  * article. `confidence` is internal data-quality confidence — it is never
@@ -76,6 +85,35 @@ export interface NormalizedEvent {
   dedupKey: string;
   title: string;
   summary?: string;
+  /**
+   * A real article headline, when one is available. GDELT's bulk export has
+   * none (only URLs), so this is populated by the news-corpus enrichment or left
+   * absent — NEVER synthesized from the actors, because a fabricated headline
+   * would read as reporting that does not exist.
+   */
+  headline?: string;
+  /** A real article description/summary, same provenance rules as `headline`. */
+  description?: string;
+  /**
+   * Named actors, when the provider supplies them (GDELT's Actor1/Actor2). This
+   * is the "who" of an event and is what makes a conflict readable — it was
+   * previously parsed and then thrown away.
+   */
+  actors?: EventActor[];
+  /**
+   * Provider-native classification, kept verbatim for transparency: GDELT's
+   * CAMEO root code and Goldstein intensity. Not interpreted — shown as-is.
+   */
+  providerCodes?: { cameoRoot?: string; goldstein?: number };
+  /** The place name the coordinates resolved to, when known. */
+  placeName?: string;
+  /**
+   * How the coordinate was determined — so the UI never implies more precision
+   * than we have. `provider` = the source gave exact coordinates (GDELT/USGS);
+   * `place` = resolved from a named place (gazetteer); `centroid` = only a
+   * country was known, so it plots at the country centre.
+   */
+  geoMethod?: 'provider' | 'place' | 'centroid';
   eventType: EventType;
   severity: EventSeverity;
   /** Economic channels the event could transmit through (observed relevance). */
@@ -103,6 +141,19 @@ export interface NormalizedEvent {
   relevance?: number;
   /** Why it scored that relevance (shown in the UI, never a bare number). */
   relevanceReasons?: string[];
+  /**
+   * A source-declared STABLE identity for this record, when the provider already
+   * has one (GDELT's GLOBALEVENTID).
+   *
+   * Clustering merges records it believes describe one real-world event, using
+   * fuzzy title similarity. That is safe for articles but WRONG for records the
+   * provider has already identified: two GDELT events with distinct ids are two
+   * events, even when their titles look alike (every GDELT title ends with the
+   * same "— City, Region, Country" tail, which made unrelated stories in one
+   * city look similar and fuse). When either side carries a signature, records
+   * merge ONLY on an exact signature match.
+   */
+  clusterSignature?: string;
 }
 
 /** A connector's declared health/status, shown on the Data Health screen. */

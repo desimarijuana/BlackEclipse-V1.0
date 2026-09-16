@@ -30,7 +30,7 @@ const GDELT_MAX_EVENTS = 400;
 import { resolveCountry } from '../countries';
 import { dedupKeyFor } from '../dedup';
 import { confidenceOf } from '../cluster';
-import type { EventSource, NormalizedEvent, RawEvent, SourceQuery, SourceRef } from '../types';
+import type { EventActor, EventSource, NormalizedEvent, RawEvent, SourceQuery, SourceRef } from '../types';
 
 export const GDELT_SOURCE_ID = 'gdelt';
 const GDELT_DOC_ENDPOINT = 'https://api.gdeltproject.org/api/v2/doc/doc';
@@ -159,9 +159,15 @@ export function normalizeExportRow(fields: string[], retrievedAt: string): Norma
 
   // A human-readable title from the actors + action location (GDELT has no
   // headline). Built only from real fields — never invented.
-  const actors = [actor1, actor2].filter(Boolean).join(' / ');
-  const title = [actors || 'Event', actionGeo ? `— ${actionGeo}` : ''].filter(Boolean).join(' ').slice(0, 240)
+  const actorLabel = [actor1, actor2].filter(Boolean).join(' / ');
+  const title = [actorLabel || 'Event', actionGeo ? `— ${actionGeo}` : ''].filter(Boolean).join(' ').slice(0, 240)
     || `GDELT event ${id}`;
+
+  // The structured "who": each actor with its own country and type code.
+  const actorList: EventActor[] = [
+    { name: actor1, countryCode: fields[COL.Actor1CountryCode]?.trim() || undefined, typeCode: fields[COL.Actor1Type1Code]?.trim() || undefined },
+    { name: actor2, countryCode: fields[COL.Actor2CountryCode]?.trim() || undefined, typeCode: fields[COL.Actor2Type1Code]?.trim() || undefined },
+  ].filter((a) => a.name);
 
   let host: string | undefined;
   if (url) {
@@ -176,6 +182,18 @@ export function normalizeExportRow(fields: string[], retrievedAt: string): Norma
     dedupKey: '',
     title,
     summary: actionGeo || undefined,
+    // The "who" — GDELT names the actors behind every coded action. This is the
+    // detail that makes a conflict intelligible, and it was being discarded.
+    ...(actorList.length > 0 ? { actors: actorList } : {}),
+    // Provider-native codes, shown verbatim for transparency (never interpreted
+    // as a forecast).
+    providerCodes: {
+      ...(fields[COL.EventRootCode] ? { cameoRoot: fields[COL.EventRootCode] } : {}),
+      ...(Number.isFinite(goldstein) ? { goldstein } : {}),
+    },
+    placeName: actionGeo || undefined,
+    // GDELT hands us exact action coordinates — the strongest geo provenance.
+    ...(hasCoords ? { geoMethod: 'provider' as const } : {}),
     eventType,
     severity,
     channels: classifyChannels(text),
@@ -190,6 +208,11 @@ export function normalizeExportRow(fields: string[], retrievedAt: string): Norma
     sourceCount: Math.max(1, sources),
     sources: [source],
     primarySource: GDELT_SOURCE_ID,
+    // GDELT assigns each event a GLOBALEVENTID. Two distinct ids are two
+    // events, so clustering must never fuzzy-merge them — without this, every
+    // event from one city shared the synthesized "— City, Region, Country"
+    // title tail and fused into nonsense clusters.
+    clusterSignature: `${GDELT_SOURCE_ID}:${id}`,
     publishedAt,
     firstSeen: retrievedAt,
     lastUpdated: retrievedAt,

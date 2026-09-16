@@ -107,6 +107,9 @@ export function normalizeQuake(feature: UsgsFeature, retrievedAt: string): Norma
     dedupKey: '',
     title,
     summary: place,
+    placeName: place,
+    // USGS reports an exact epicentre — the strongest geo provenance.
+    geoMethod: 'provider',
     eventType: 'natural_disaster',
     severity: classifySeverity(title, 'natural_disaster', mag),
     channels: classifyChannels(title),
@@ -127,6 +130,9 @@ export function normalizeQuake(feature: UsgsFeature, retrievedAt: string): Norma
       },
     ],
     primarySource: USGS_SOURCE_ID,
+    // A USGS feature id identifies one physical quake. It must never fuzzy-merge
+    // with news coverage of quakes, nor two distinct quakes near each other.
+    ...(feature.id ? { clusterSignature: `${USGS_SOURCE_ID}:${feature.id}` } : {}),
     publishedAt,
     firstSeen: retrievedAt,
     lastUpdated: retrievedAt,

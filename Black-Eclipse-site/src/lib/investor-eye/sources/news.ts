@@ -102,6 +102,13 @@ export function normalizeNewsRow(row: NewsRow, retrievedAt: string): NormalizedE
     dedupKey: '',
     title: headline.slice(0, 240),
     summary: row.summary ? row.summary.slice(0, 400) : undefined,
+    // The stored NewsItem row IS the article, so its headline/summary are real
+    // and can be surfaced verbatim — unlike GDELT, which has no headline.
+    headline: headline.slice(0, 400),
+    description: row.summary ? row.summary.slice(0, 800) : undefined,
+    placeName: place?.name,
+    // Say honestly how the point was determined.
+    geoMethod: place ? 'place' : primary ? 'centroid' : undefined,
     eventType,
     severity: classifySeverity(text, eventType),
     channels,

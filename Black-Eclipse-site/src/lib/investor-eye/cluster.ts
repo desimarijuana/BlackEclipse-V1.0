@@ -14,8 +14,15 @@ import { severityWeight } from './classify';
 
 /** How close in time two records must be to join the same cluster. */
 export const CLUSTER_WINDOW_HOURS = 6;
-/** Jaccard similarity of significant title tokens required to merge. */
+/** Jaccard similarity of significant title tokens required to merge outright. */
 const TITLE_SIMILARITY_THRESHOLD = 0.34;
+/**
+ * Similarity required when records merely share a country. Was effectively
+ * `0.15` via an `sameCountry && sim >= 0.15` shortcut, which fused unrelated
+ * same-country stories (see `stripLocationSuffix`). Kept just under the
+ * outright threshold because a shared country is weak corroboration.
+ */
+const SAME_COUNTRY_SIMILARITY_THRESHOLD = 0.3;
 
 const STOP_WORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'on', 'for', 'with', 'at',
@@ -25,8 +32,27 @@ const STOP_WORDS = new Set([
   'have', 'had', 'not', 'but', 'than', 'then', 'their', 'his', 'her', 'they',
 ]);
 
+/**
+ * Strip a trailing location suffix from a title before tokenizing.
+ *
+ * GDELT has no headline, so `gdelt.ts` synthesizes
+ * `ACTOR1 / ACTOR2 — City, Region, Country` (and `summary` is the same geo
+ * string). That tail is IDENTICAL for every event from a city, so leaving it in
+ * the token set gave unrelated stories a free similarity score — the direct
+ * cause of a "16 nearby events" cluster whose sources were a bicycle retailer,
+ * a construction PR and a celebrity lawsuit.
+ *
+ * The location is still authoritative as *location*; it just must not be used as
+ * *textual evidence* that two things are the same event.
+ */
+export function stripLocationSuffix(title: string): string {
+  // Split on the em/en dash or hyphen the title builder uses as a separator.
+  const idx = title.search(/\s+[—–]\s+|\s+-\s+/);
+  return idx > 0 ? title.slice(0, idx) : title;
+}
+
 export function significantTokens(title: string): Set<string> {
-  const tokens = title
+  const tokens = stripLocationSuffix(title)
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -58,19 +84,40 @@ function shareCountry(a: string[], b: string[]): boolean {
 }
 
 /**
- * Should `candidate` merge into `existing`? Conservative on purpose: a merge
- * requires the same type AND (shared country OR strong title similarity) AND
- * time proximity. Under-merging is safer than fusing two real events.
+ * Should `candidate` merge into `existing`?
+ *
+ * Two regimes:
+ *
+ * 1. **Signature present** (a provider already identified the record, e.g. a
+ *    GDELT GLOBALEVENTID). Merge ONLY when the signatures match exactly. Two
+ *    distinct ids are two events — no title fuzziness may override that, because
+ *    similarity is trivially available within a city.
+ *
+ * 2. **No signature** (news articles). Conservative fuzzy merge: same type AND
+ *    time proximity AND a real title-similarity floor. Requiring `sameCountry`
+ *    alone is NOT enough — it was the bug.
  */
 export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEvent): boolean {
   if (existing.eventType !== candidate.eventType) return false;
+
+  // Regime 1: exact provider identity.
+  if (existing.clusterSignature || candidate.clusterSignature) {
+    return Boolean(
+      existing.clusterSignature &&
+      candidate.clusterSignature &&
+      existing.clusterSignature === candidate.clusterSignature,
+    );
+  }
+
   if (hoursBetween(existing.publishedAt, candidate.publishedAt) > CLUSTER_WINDOW_HOURS) return false;
-  const sameCountry = shareCountry(existing.countries, candidate.countries);
+
   const sim = tokenSimilarity(significantTokens(existing.title), significantTokens(candidate.title));
-  if (sameCountry && sim >= 0.15) return true;
+  // Same story, different outlet phrasing.
   if (sim >= TITLE_SIMILARITY_THRESHOLD) return true;
-  // No location at all on either side, very similar titles.
-  if (!sameCountry && sim >= 0.5) return true;
+  // Same country AND substantial shared terms. The floor is deliberately above
+  // the old 0.15: at 0.15 an unrelated story from the same country cleared it.
+  const sameCountry = shareCountry(existing.countries, candidate.countries);
+  if (sameCountry && sim >= SAME_COUNTRY_SIMILARITY_THRESHOLD) return true;
   return false;
 }
 
@@ -88,6 +135,37 @@ function mergeSources(a: SourceRef[], b: SourceRef[]): SourceRef[] {
 
 function uniq<T>(arr: T[]): T[] {
   return [...new Set(arr)];
+}
+
+/** Union two actor lists by name, preserving the first-seen order. */
+function mergeActors(
+  a: NormalizedEvent['actors'],
+  b: NormalizedEvent['actors'],
+): NormalizedEvent['actors'] {
+  if (!a?.length && !b?.length) return undefined;
+  const out: NonNullable<NormalizedEvent['actors']> = [];
+  const seen = new Set<string>();
+  for (const actor of [...(a ?? []), ...(b ?? [])]) {
+    const key = actor.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(actor);
+  }
+  return out;
+}
+
+const GEO_RANK: Record<NonNullable<NormalizedEvent['geoMethod']>, number> = {
+  provider: 2, place: 1, centroid: 0,
+};
+
+/** Keep the most precise geo provenance across a merge. */
+function strongerGeo(
+  a: NormalizedEvent['geoMethod'],
+  b: NormalizedEvent['geoMethod'],
+): NormalizedEvent['geoMethod'] {
+  if (!a) return b;
+  if (!b) return a;
+  return GEO_RANK[a] >= GEO_RANK[b] ? a : b;
 }
 
 /** Merge `candidate` into `target` (mutating a copy), keeping the earliest time. */
@@ -112,6 +190,15 @@ export function mergeEvents(target: NormalizedEvent, candidate: NormalizedEvent)
     ...target,
     title,
     summary,
+    // A real headline is never discarded by a merge; the first one wins for
+    // determinism (the cluster's identity is anchored on the earliest record).
+    headline: target.headline ?? candidate.headline,
+    description: target.description ?? candidate.description,
+    actors: mergeActors(target.actors, candidate.actors),
+    providerCodes: target.providerCodes ?? candidate.providerCodes,
+    placeName: target.placeName ?? candidate.placeName,
+    // Prefer the strongest geo provenance present in the cluster.
+    geoMethod: strongerGeo(target.geoMethod, candidate.geoMethod),
     severity,
     countries: uniq([...target.countries, ...candidate.countries]),
     channels: uniq([...target.channels, ...candidate.channels]),
@@ -121,6 +208,13 @@ export function mergeEvents(target: NormalizedEvent, candidate: NormalizedEvent)
     sources,
     sourceCount: sources.length,
     publishedAt: earliest,
+    // A merged cluster only keeps a signature if BOTH sides agreed on it (which
+    // is the only way they merged); otherwise it is undefined so the cluster
+    // behaves as an article cluster from here on.
+    clusterSignature:
+      target.clusterSignature && target.clusterSignature === candidate.clusterSignature
+        ? target.clusterSignature
+        : undefined,
   };
 }
 

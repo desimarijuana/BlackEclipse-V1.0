@@ -9,7 +9,7 @@
 // business logic lives in `lib/investor-eye/`; this component only wires.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe2, Search, RefreshCw, X, Loader2, Maximize2 } from 'lucide-react';
+import { ScanEye, Search, RefreshCw, X, Loader2, Maximize2 } from 'lucide-react';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
@@ -286,7 +286,7 @@ export function InvestorEyeScreen() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15">
-            <Globe2 className="text-primary" size={18} />
+            <ScanEye className="text-primary" size={18} />
           </div>
           <div>
             <h1 className="font-serif text-base font-semibold leading-none tracking-tight text-foreground">

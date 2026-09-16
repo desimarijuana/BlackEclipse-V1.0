@@ -11,7 +11,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Minimize2, X, Globe2 } from 'lucide-react';
+import { Minimize2, X, ScanEye } from 'lucide-react';
 import { WorldMap } from './world-map';
 import { EventPanel } from './event-panel';
 import { LayerController } from './layer-controller';
@@ -80,7 +80,7 @@ export function FullPageMap({
       {/* ── Top strip: identity, mode, exit ─────────────────────────────── */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3">
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 glass-card-subtle px-2.5 py-1.5">
-          <Globe2 size={14} className="text-primary" />
+          <ScanEye size={14} className="text-primary" />
           <span className="text-[10px] font-bold uppercase tracking-widest text-foreground">
             Investor Eye
           </span>

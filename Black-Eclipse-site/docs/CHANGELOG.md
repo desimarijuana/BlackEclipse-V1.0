@@ -43,6 +43,48 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Investor Eye** — Event dossiers, real headlines, and the clustering bug that
+  was corrupting events. Includes a schema change (see the DB note below).
+  - **Clustering was fusing unrelated stories.** A real event in the DB had 16
+    "sources" including a bicycle-retailer article and a construction PR. Root
+    cause: `shouldCluster` merged on `sameCountry && similarity >= 0.15`, and
+    GDELT titles are synthesized as `ACTOR / ACTOR — City, Region, Country` — so
+    every event from one city shared that tail and cleared the threshold for
+    free. Three fixes: a new `clusterSignature` on the event contract (GDELT's
+    GLOBALEVENTID, USGS's feature id) that forces merge-on-exact-match only; the
+    location tail is stripped before tokenizing; the same-country floor moved to
+    0.3. Measured on real data: **max sources 16 → 3**. `dedupKeyFor` now uses
+    the signature too — without that, distinct signed events hashed identically
+    and persisted as duplicates (22 of 473). Plus a `collapseDuplicateKeys`
+    last-line-of-defence. 40 cluster/dedup tests.
+  - **Real headlines** (`enrich.ts`). GDELT's bulk export carries no headline at
+    all — only actor strings — which is why clicking a conflict showed a place
+    name and nothing else. Events are now enriched from the ALREADY-ingested
+    `NewsItem` corpus by normalized `host+path` key (raw URL matching recovered
+    0/500; normalization recovers a real fraction). **202 of 461 events now have
+    a genuine headline.** Never synthesized: an unmatched event says so.
+  - **The dossier** (`event-panel.tsx`, rebuilt). Eight sections, each labelled
+    with its own epistemic status: **What happened** (real headline/description,
+    or an explicit "no headline available from this structured feed") · **Actors**
+    (GDELT's Actor1/Actor2 with human-readable type codes — parsed and thrown
+    away before) · **Where & when** (place, coordinates, and HOW precise:
+    provider / named place / country centre) · **Detail** (per-type: magnitude,
+    actor dyad, commodities) · **Observed** · **Why it matters** · **Potential
+    exposure** · **Market reaction** · **Sources** · **Timeline** (source
+    timestamps, earliest first). The header carries a corroboration badge
+    (single source / corroborated / confirmed).
+  - **Persisted details**: `headline`, `description`, `actors`, `providerCodes`,
+    `placeName`, `geoMethod` columns on `GeopoliticalEvent`. `persistEvents` now
+    backfills the row `id` onto the in-memory events — without it the state had
+    no ids and the entity-links endpoint 404'd on every open.
+  - Also fixed: `assembleState` with `refresh=1` returned stale cache instead of
+    awaiting the rebuild, so the refresh button appeared to do nothing.
+  - **Icon**: Investor Eye now uses `ScanEye` (sidebar, command palette, screen
+    header, full-page map) instead of the generic `Earth`/`Globe`.
+  - Verified: 840 tests pass, `tsc` + eslint clean, zero console errors in
+    Chrome; dossier checked against live data.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+
 - **Investor Eye** — Six capabilities: observed price reaction, event alerts,
   place-level geocoding, saved views, keyboard navigation, source health.
   - **Price reaction** (`lib/investor-eye/reaction.ts`, pure). Measures what the

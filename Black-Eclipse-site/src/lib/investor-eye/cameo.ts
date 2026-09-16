@@ -207,3 +207,22 @@ export function dyadCountries(
   push(cameoActorToIso2(actor2));
   return out;
 }
+
+/**
+ * CAMEO actor type codes → plain labels. Shown next to an actor's name so
+ * "MIL" reads as "Military" rather than an opaque abbreviation. Codes the
+ * mapping does not know are displayed verbatim, never guessed at.
+ */
+const ACTOR_TYPE_LABEL: Record<string, string> = {
+  GOV: 'Government', MIL: 'Military', REB: 'Rebels', COP: 'Police',
+  JUD: 'Judiciary', LEG: 'Legislature', OPP: 'Opposition', PTY: 'Political party',
+  CVL: 'Civilian', MED: 'Media', EDU: 'Education', BUS: 'Business',
+  CRM: 'Criminal', IGO: 'Intl. organisation', NGO: 'NGO', REL: 'Religious',
+  UAF: 'Armed forces', UIS: 'Security forces', UNK: 'Unknown',
+};
+
+/** Human label for a CAMEO actor type code, or the raw code when unknown. */
+export function actorTypeLabel(code: string | undefined): string | undefined {
+  if (!code) return undefined;
+  return ACTOR_TYPE_LABEL[code.toUpperCase()] ?? code.toUpperCase();
+}

@@ -29,6 +29,7 @@ import {
   LayoutDashboard,
   Newspaper,
   Orbit,
+  ScanEye,
   Settings,
   Sparkles,
   type LucideIcon,
@@ -64,6 +65,8 @@ const NAME_ICON: Record<string, LucideIcon> = {
   news: Newspaper,
   orbit: Orbit,
   globe: Globe,
+  /** Investor Eye — a scanning eye, distinct from the generic globe glyph. */
+  eye: ScanEye,
   bell: Bell,
   settings: Settings,
 };

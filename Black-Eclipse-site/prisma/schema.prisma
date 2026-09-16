@@ -783,6 +783,20 @@ model GeopoliticalEvent {
 
   title       String
   summary     String?
+  // A REAL article headline / description, when the source provides one.
+  // GDELT has neither (only URLs), so these stay null rather than being
+  // synthesized — a fabricated headline would read as reporting that does not
+  // exist. Populated by news-corpus enrichment.
+  headline    String?
+  description String?
+  // JSON: EventActor[] — { name, countryCode?, typeCode? } from the provider.
+  actors      String   @default("[]")
+  // JSON: { cameoRoot?, goldstein? } — provider codes kept verbatim.
+  providerCodes String @default("{}")
+  // Place name the coordinates resolved to, plus HOW they were determined:
+  // provider | place | centroid. Lets the UI avoid implying false precision.
+  placeName   String?
+  geoMethod   String?
   // conflict | military | protest | election | diplomatic | sanction | trade |
   // tariff | cyber | energy | shipping | natural_disaster | monetary | fiscal |
   // regulatory | other

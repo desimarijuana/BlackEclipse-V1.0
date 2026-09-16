@@ -17,6 +17,7 @@ import { fetchYahooBatchQuote } from '@/lib/scraper/fetchers/yfinance';
 import { toMarketId, marketDisplayName, currencyFor } from '@/lib/markets';
 import { registerBuiltinSources, configuredSources, listSources } from './sources/registry';
 import { clusterEvents } from './cluster';
+import { collapseDuplicateKeys } from './dedup';
 import { aggregatePoints, zoomForCount } from './geo';
 import { countryByIso2, COUNTRIES, resolveCountry } from './countries';
 import { SEVERITY_RANK } from './classify';
@@ -359,8 +360,6 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
     if (cached) return cached;
   }
 
-  // Something is already building this window. Join it only when we have
-  // nothing better to show; otherwise serve stale immediately below.
   const inflight = getInflight(hours);
   const stale = getCachedState(hours);
 
@@ -372,6 +371,20 @@ export async function assembleState(options: AssembleOptions = {}): Promise<Inve
       .catch((err) => console.error('[investor-eye] background rebuild failed:', err))
       .finally(() => clearInflight(hours));
   };
+
+  // An explicit `refresh=1` is the caller ASKING to wait for a rebuild — the
+  // refresh button would otherwise appear to do nothing. `force` therefore
+  // bypasses the stale-serve paths and genuinely awaits the assembly.
+  if (options.force) {
+    if (inflight) return inflight;
+    const promise = runAssembly(hours, options);
+    setInflight(hours, promise);
+    try {
+      return await promise;
+    } finally {
+      clearInflight(hours);
+    }
+  }
 
   if (stale) {
     startBackground();
@@ -428,12 +441,29 @@ async function runAssembly(hours: number, options: AssembleOptions): Promise<Inv
 
     // Dedupe + cluster the merged feed (stable ordering → stable dedup keys).
     allEvents.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
-    const clustered = clusterEvents(allEvents).filter((e) => {
+    let clustered = clusterEvents(allEvents).filter((e) => {
       // Enforce the requested time window after clustering (a cluster's
       // earliest member can drift outside it).
       const ageHours = (Date.now() - Date.parse(e.publishedAt)) / 36e5;
       return ageHours <= hours + 1;
     });
+
+    // Defensive: clustering can leave two records that share a `dedupKey` (the
+    // key is also the DB unique constraint, so they would render as duplicate
+    // React children and one row would overwrite the other on upsert). Collapse
+    // them, keeping the higher-signal record.
+    clustered = collapseDuplicateKeys(clustered);
+
+    // Attach REAL headlines where the ingested news corpus already has the
+    // article. GDELT has no headline of its own, so without this a GDELT event
+    // can only show its actors. Best-effort: a miss leaves the field null.
+    try {
+      const { enrichEventsWithHeadlines, applyHeadlineEnrichment } = await import('./enrich');
+      const matches = await enrichEventsWithHeadlines(clustered);
+      clustered = applyHeadlineEnrichment(clustered, matches);
+    } catch (err) {
+      console.warn('[investor-eye] headline enrichment unavailable:', err instanceof Error ? err.message : err);
+    }
 
     // Persist clustered events (idempotent upsert on dedupKey).
     await persistEvents(clustered);
@@ -561,6 +591,12 @@ export async function persistEvents(events: NormalizedEvent[]): Promise<{ writte
       const data = {
         title: e.title,
         summary: e.summary,
+        headline: e.headline ?? null,
+        description: e.description ?? null,
+        actors: JSON.stringify(e.actors ?? []),
+        providerCodes: JSON.stringify(e.providerCodes ?? {}),
+        placeName: e.placeName ?? null,
+        geoMethod: e.geoMethod ?? null,
         eventType: e.eventType,
         severity: e.severity,
         channels: JSON.stringify(e.channels),
@@ -579,11 +615,17 @@ export async function persistEvents(events: NormalizedEvent[]): Promise<{ writte
         publishedAt: new Date(e.publishedAt),
         status: 'active',
       };
-      await prisma.geopoliticalEvent.upsert({
+      const row = await prisma.geopoliticalEvent.upsert({
         where: { dedupKey: e.dedupKey },
         update: data,
         create: { dedupKey: e.dedupKey, ...data },
+        select: { id: true },
       });
+      // Backfill the row id onto the in-memory event. Without this the state
+      // payload has no `id`, so anything keyed by it (the entity links endpoint,
+      // the detail route) would fall back to the dedupKey and 404 whenever the
+      // row was not persisted under that key.
+      e.id = row.id;
       written++;
     } catch (err) {
       // One bad row must not abort the batch.
@@ -609,6 +651,9 @@ function parseJsonArray(raw: string | null | undefined): string[] {
 /** Map a Prisma event row to the API/UI shape. Shared by the routes. */
 export function rowToEvent(row: {
   id: string; dedupKey: string; title: string; summary: string | null;
+  headline?: string | null; description?: string | null;
+  actors?: string | null; providerCodes?: string | null;
+  placeName?: string | null; geoMethod?: string | null;
   eventType: string; severity: string; channels: string; commodities: string;
   sectors: string; securities: string; countries: string; lon: number | null;
   lat: number | null; confidence: number; relevance?: number; relevanceReasons?: string;
@@ -621,11 +666,27 @@ export function rowToEvent(row: {
     const parsed = JSON.parse(row.sources);
     if (Array.isArray(parsed)) sources = parsed;
   } catch { /* leave empty */ }
+  let actors: NormalizedEvent['actors'];
+  try {
+    const parsed = JSON.parse(row.actors ?? '[]');
+    if (Array.isArray(parsed) && parsed.length > 0) actors = parsed;
+  } catch { /* leave undefined */ }
+  let providerCodes: NormalizedEvent['providerCodes'];
+  try {
+    const parsed = JSON.parse(row.providerCodes ?? '{}');
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) providerCodes = parsed;
+  } catch { /* leave undefined */ }
   return {
     id: row.id,
     dedupKey: row.dedupKey,
     title: row.title,
     summary: row.summary ?? undefined,
+    headline: row.headline ?? undefined,
+    description: row.description ?? undefined,
+    actors,
+    providerCodes,
+    placeName: row.placeName ?? undefined,
+    geoMethod: (row.geoMethod as NormalizedEvent['geoMethod']) ?? undefined,
     eventType: row.eventType as NormalizedEvent['eventType'],
     severity: row.severity as EventSeverity,
     channels: parseJsonArray(row.channels),

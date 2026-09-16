@@ -615,6 +615,81 @@ Panama Canal and Gaza events had nowhere to plot. Both were added.
 
 ---
 
+## 5f. Phase 8 — the clustering bug, and event dossiers
+
+### The bug: events were fusing unrelated stories
+
+A row in the database had **16 "sources"**, among them a bicycle-retailer article
+and a construction PR, attached to an International Criminal Court event.
+
+Root cause was a three-way interaction:
+
+1. GDELT has no headline, so `gdelt.ts` synthesizes
+   `ACTOR1 / ACTOR2 — City, Region, Country`. Every event from a city shares
+   that tail **verbatim**.
+2. `significantTokens` tokenized the whole title, so the shared tail appeared as
+   real textual evidence.
+3. `shouldCluster` merged on `sameCountry && similarity >= 0.15` — a floor the
+   manufactured tail cleared for free.
+
+The fix is layered, because any one alone is insufficient:
+
+| Layer | What it does |
+|---|---|
+| `clusterSignature` (contract) | A provider's own id (GDELT GLOBALEVENTID, USGS feature id) is the identity. When present, merge **only** on exact signature match — no title fuzziness may override it. |
+| `stripLocationSuffix` | Removes the synthesized geo tail before tokenizing. Location stays authoritative as *location*, never as *textual evidence*. |
+| `SAME_COUNTRY_SIMILARITY_THRESHOLD` | 0.15 → 0.3. A shared country is weak corroboration, not proof. |
+| `dedupKeyFor` uses the signature | Without this the layers above collide: distinct signed events still hashed to the same key and persisted as duplicates (**22 of 473**). |
+| `collapseDuplicateKeys` | Last line of defence — folds same-key records and unions their sources so no evidence is silently dropped. |
+
+Measured on live data: **max sources per event 16 → 3; duplicate ids 22 → 0.**
+The lesson generalizes: *never let synthesized text participate in a similarity
+score*, and *when a provider gives you an id, that id is the identity.*
+
+### Real headlines (`enrich.ts`)
+
+GDELT publishes no headline — only the article URL. So a GDELT event could show
+its actors but not what the story said. The repo already ingests ~70 RSS feeds
+into `NewsItem` with real headlines.
+
+Measured: matching raw URL strings recovered **0 of 500** events — feeds append
+tracking params, vary the `www.` prefix and add trailing slashes. Normalizing to
+`host + path` recovers 19, and with the full corpus loaded **202 of 461 events**
+now carry a genuine headline. One DB read, no network, no new feed.
+
+The rule holds: a miss leaves the field null. We never synthesize a headline
+from the actors, because a fabricated headline reads as reporting that does not
+exist.
+
+### The dossier
+
+`event-panel.tsx` answers, in order: **what** happened (headline/description, or
+an explicit statement that the structured feed publishes none), **who** (actors
+with readable type codes), **where/when** (place, coordinates, and the
+*resolution method* so precision is never overstated), **why it matters** and
+**what's exposed** (both labelled inferred), **what the market did** (measured),
+**where it came from** (every source), and **how the story developed**
+(timestamps, earliest first).
+
+The header carries a corroboration badge — single source / corroborated /
+confirmed — which only became meaningful once clustering stopped inflating
+`sourceCount`.
+
+Two supporting fixes this exposed:
+
+- **`persistEvents` now backfills the row `id`.** The state payload previously
+  carried no ids, so the entity-links endpoint 404'd on every panel open.
+- **`assembleState` with `refresh=1`** returned stale cache instead of awaiting
+  the rebuild, so the refresh button appeared inert.
+
+### Icon
+
+`ScanEye` replaces `Earth`/`Globe` across the sidebar, command palette, screen
+header and full-page map — the "surveillance/intelligence" reading rather than a
+generic globe.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

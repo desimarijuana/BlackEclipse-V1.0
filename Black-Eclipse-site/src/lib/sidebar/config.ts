@@ -10,7 +10,7 @@
 
 import {
   LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
-  BookOpen, Newspaper, Orbit, Globe, Bell, Earth, type LucideIcon,
+  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, type LucideIcon,
 } from 'lucide-react';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -26,7 +26,7 @@ export interface SidebarSectionDef {
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'chat', label: 'ChatBot', icon: Bot },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
-  { id: 'investor-eye', label: 'Investor Eye', icon: Earth },
+  { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye },
   { id: 'market-workspace', label: 'Chart Workspace', icon: ChartCandlestick },
   { id: 'discovery', label: 'Market Screener', icon: ScanSearch },
   { id: 'portfolio', label: 'Portfolio', icon: ChartPie },

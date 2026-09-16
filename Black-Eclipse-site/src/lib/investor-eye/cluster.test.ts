@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { clusterEvents, shouldCluster, mergeEvents, tokenSimilarity, significantTokens, confidenceOf } from './cluster';
-import { dedupKeyFor, timeBucket } from './dedup';
+import { clusterEvents, shouldCluster, mergeEvents, tokenSimilarity, significantTokens, confidenceOf, stripLocationSuffix } from './cluster';
+import { dedupKeyFor, timeBucket, collapseDuplicateKeys } from './dedup';
 import type { NormalizedEvent } from './types';
 
 function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -63,6 +63,73 @@ describe('shouldCluster', () => {
     const b = makeEvent({ title: 'Flooding in coastal towns', countries: ['PH'], eventType: 'election' });
     expect(shouldCluster(a, b)).toBe(false);
   });
+
+  // ── Regression: the "16 nearby events" bug ────────────────────────────────
+  // GDELT titles are synthesized as `ACTOR / ACTOR — City, Region, Country`, so
+  // every event from one city shared that tail. With the old
+  // `sameCountry && sim >= 0.15` shortcut, unrelated stories fused into one
+  // cluster (a bicycle-retailer article ended up a "source" of an ICC event).
+
+  it('does NOT fuse two unrelated events that only share a country', () => {
+    const a = makeEvent({
+      title: 'UNITED STATES / AUTHORITIES — Washington, District of Columbia, United States',
+      countries: ['US'],
+      eventType: 'conflict',
+    });
+    const b = makeEvent({
+      title: 'INDUSTRY / COMPANIES — Washington, District of Columbia, United States',
+      countries: ['US'],
+      eventType: 'conflict',
+    });
+    expect(shouldCluster(a, b)).toBe(false);
+  });
+
+  it('ignores the synthesized location tail when scoring similarity', () => {
+    // Stripping the tail leaves almost no shared tokens, so similarity is low.
+    const a = significantTokens('UNITED STATES / AUTHORITIES — Washington, District of Columbia, United States');
+    const b = significantTokens('INDUSTRY / COMPANIES — Washington, District of Columbia, United States');
+    expect(tokenSimilarity(a, b)).toBeLessThan(0.34);
+  });
+
+  it('never fuzzy-merges records carrying a provider signature', () => {
+    const a = makeEvent({
+      clusterSignature: 'gdelt:111',
+      title: 'A / B — Washington, United States',
+      countries: ['US'],
+      eventType: 'conflict',
+    });
+    const b = makeEvent({
+      clusterSignature: 'gdelt:222',
+      title: 'A / B — Washington, United States',
+      countries: ['US'],
+      eventType: 'conflict',
+    });
+    // Identical-looking titles, but two distinct GDELT ids → two events.
+    expect(shouldCluster(a, b)).toBe(false);
+  });
+
+  it('merges records that share the SAME provider signature', () => {
+    const a = makeEvent({ clusterSignature: 'gdelt:999', title: 'X — Anywhere' });
+    const b = makeEvent({ clusterSignature: 'gdelt:999', title: 'Completely different words here' });
+    expect(shouldCluster(a, b)).toBe(true);
+  });
+
+  it('never merges a signatured record with an unsigned one', () => {
+    const signed = makeEvent({ clusterSignature: 'gdelt:999', title: 'Same story text' });
+    const unsigned = makeEvent({ title: 'Same story text' });
+    expect(shouldCluster(signed, unsigned)).toBe(false);
+  });
+});
+
+describe('stripLocationSuffix', () => {
+  it('removes the GDELT location tail', () => {
+    expect(stripLocationSuffix('ACTOR ONE / ACTOR TWO — Washington, DC, United States'))
+      .toBe('ACTOR ONE / ACTOR TWO');
+    expect(stripLocationSuffix('Something happened - London, UK')).toBe('Something happened');
+  });
+  it('leaves a title without a suffix untouched', () => {
+    expect(stripLocationSuffix('Fed raises rates')).toBe('Fed raises rates');
+  });
 });
 
 describe('mergeEvents', () => {
@@ -109,6 +176,35 @@ describe('clusterEvents', () => {
     const second = clusterEvents(events).map((e) => e.dedupKey);
     expect(first).toEqual(second);
   });
+
+  // ── Regression: a city's worth of unrelated GDELT events must stay apart ──
+  it('keeps many same-city GDELT events as distinct events', () => {
+    const city = 'Washington, District of Columbia, United States';
+    const events = Array.from({ length: 12 }, (_, i) =>
+      makeEvent({
+        dedupKey: `g${i}`,
+        clusterSignature: `gdelt:${1000 + i}`,
+        eventType: 'conflict',
+        countries: ['US'],
+        title: `ORG ${i} / ORG ${i + 1} — ${city}`,
+        sources: [{ id: `s${i}`, name: `S${i}` }],
+      }),
+    );
+    const clustered = clusterEvents(events);
+    expect(clustered).toHaveLength(12);
+    for (const c of clustered) expect(c.sourceCount).toBe(1);
+  });
+
+  it('still collapses the SAME story reported by several outlets', () => {
+    const events = [
+      makeEvent({ dedupKey: 'a', title: 'Port workers strike over pay' }),
+      makeEvent({ dedupKey: 'b', title: 'Port workers strike over pay' }),
+      makeEvent({ dedupKey: 'c', title: 'Port workers strike over pay dispute' }),
+    ];
+    const clustered = clusterEvents(events);
+    expect(clustered).toHaveLength(1);
+    expect(clustered[0].sourceCount).toBe(3);
+  });
 });
 
 describe('dedupKeyFor', () => {
@@ -126,13 +222,63 @@ describe('dedupKeyFor', () => {
     );
   });
 
+  // Regression: two DISTINCT GDELT events can share type, country, time bucket
+  // and even title (titles are synthesized with a city tail). Without the
+  // signature in the key they hashed identically and persisted as duplicate
+  // rows — 22 duplicates in a 473-event window.
+  it('gives distinct provider-signed events distinct keys', () => {
+    const a = makeEvent({ clusterSignature: 'gdelt:111', title: 'A / B — Same City' });
+    const b = makeEvent({ clusterSignature: 'gdelt:222', title: 'A / B — Same City' });
+    expect(dedupKeyFor(a)).not.toBe(dedupKeyFor(b));
+  });
+
+  it('is stable for the same signature regardless of title/time', () => {
+    const a = makeEvent({ clusterSignature: 'gdelt:111', title: 'One phrasing' });
+    const b = makeEvent({ clusterSignature: 'gdelt:111', title: 'Totally different', publishedAt: '2026-09-16T04:00:00.000Z' });
+    expect(dedupKeyFor(a)).toBe(dedupKeyFor(b));
+  });
+
+  it('still uses the fuzzy signature when no provider id exists', () => {
+    const a = makeEvent();
+    expect(dedupKeyFor(a)).toBe(dedupKeyFor(a));
+    expect(dedupKeyFor(a)).not.toBe(dedupKeyFor(makeEvent({ countries: ['US'] })));
+  });
+
   it('timeBucket groups within a window', () => {
     expect(timeBucket('2026-09-15T10:00:00.000Z', 6)).toBe(timeBucket('2026-09-15T11:00:00.000Z', 6));
   });
 });
 
-describe('confidenceOf', () => {
-  it('is bounded 0..1', () => {
+describe('collapseDuplicateKeys', () => {
+  it('keeps one record per dedupKey and folds in the other sources', () => {
+    const a = makeEvent({ dedupKey: 'same', sources: [{ id: 'a', name: 'A' }], sourceCount: 1 });
+    const b = makeEvent({ dedupKey: 'same', sources: [{ id: 'b', name: 'B' }], sourceCount: 1, countries: ['US'] });
+    const out = collapseDuplicateKeys([a, b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].sources.map((s) => s.id).sort()).toEqual(['a', 'b']);
+    expect(out[0].sourceCount).toBe(2);
+    expect(out[0].countries).toContain('US');
+  });
+
+  it('prefers the better-attested record', () => {
+    const weak = makeEvent({ dedupKey: 'k', sourceCount: 1, title: 'Weak' });
+    const strong = makeEvent({ dedupKey: 'k', sourceCount: 5, title: 'Strong', sources: [{ id: 's', name: 'S' }] });
+    expect(collapseDuplicateKeys([weak, strong])[0].title).toBe('Strong');
+  });
+
+  it('keeps a headline found on either record', () => {
+    const noHeadline = makeEvent({ dedupKey: 'k' });
+    const withHeadline = makeEvent({ dedupKey: 'k', headline: 'Real headline' });
+    expect(collapseDuplicateKeys([noHeadline, withHeadline])[0].headline).toBe('Real headline');
+  });
+
+  it('leaves distinct keys untouched', () => {
+    const out = collapseDuplicateKeys([makeEvent({ dedupKey: 'a' }), makeEvent({ dedupKey: 'b' })]);
+    expect(out).toHaveLength(2);
+  });
+});
+
+describe('confidenceOf', () => {  it('is bounded 0..1', () => {
     expect(confidenceOf(makeEvent())).toBeGreaterThan(0);
     expect(confidenceOf(makeEvent())).toBeLessThanOrEqual(1);
   });
