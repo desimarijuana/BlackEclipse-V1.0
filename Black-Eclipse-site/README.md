@@ -11,7 +11,7 @@ An open-source, agentic AI investment research platform with a Bloomberg-inspire
 ## Features
 
 - **Market Screener** — equities across US, Pakistan, India, China and 20+ more markets with advanced filtering (sector, industry, cap, P/E, price, volume)
-- **Market Bubbles** — interactive physics-based bubble visualization per market (cap-weighted)
+- **Market Bubbles** — interactive physics-based turnover map per market, with a whole-market Volume Analytics panel (traded value, concentration, contribution bands)
 - **Global Markets overview** — top instruments by market for every loaded country
 - **My Portfolio** — holdings, performance charts, allocation, transaction log
 - **Market News** — sentiment-tagged financial news feed (configurable RSS sources)

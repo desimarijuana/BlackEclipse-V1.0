@@ -66,7 +66,7 @@ The sidebar (user-reorderable, F1–F12 bindable) ships with these tabs:
 | Portfolio | Holdings, performance, allocation, transactions |
 | Journal | SQLite-backed trading journal with analytics |
 | Market News | Sentiment-tagged RSS feed, ingested into JDDS |
-| Market Bubbles | Physics-based cap-weighted bubble visualization |
+| Market Bubbles | Physics-based turnover map — real JDDS instruments sized by 24h traded value, plus whole-market Volume Analytics |
 | Economics | Macro series + economic calendar |
 | Price Alerts | Condition-based alert watches with a server-side poll loop |
 

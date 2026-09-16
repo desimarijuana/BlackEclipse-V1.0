@@ -41,6 +41,166 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-16
+
+- **Charts** — Fixed indices never rendering on charts (S&P 500, Dow, FTSE 100,
+  Nifty 50, KSE 100, DAX and the rest). Four separate defects, all fixed:
+  - **Wrong ticker.** The search registry registered indices under bare
+    TradingView ids (`SPX`, `DJI`, `NDX`, `RUT`) and put those in the
+    destination, but the data path only understands YAHOO tickers — Yahoo has no
+    `SPX` instrument, so `/api/price-history` returned an empty series and the
+    chart showed "Symbol not found". Added `src/lib/indices.ts`, a single index
+    registry that maps both directions (`SPX` → `^GSPC`), and used it in
+    `/api/price-history` and `/api/quote`. The palette's index entries are now
+    GENERATED from it, so the two can never drift again.
+  - **Chart ignored later symbol changes.** `ChartWidget` initialised its state
+    from the `symbol` prop exactly once and never reconciled, so the chart tab
+    (which passes only `symbol`) kept rendering whatever it first mounted with.
+    Added a prop-sync effect, gated to the uncontrolled path so a controlled
+    `state=` host keeps sole ownership.
+  - **Dead source for PSX indices.** Yahoo delisted PSX (`^KSE100` 404s, as does
+    `.PSX`/`.KA` for the index), and `INDEX_UNIVERSE.PK` was deliberately emptied
+    — so KSE-100 had no data at all. Added `fetchers/psx-index.ts`, which reads
+    the exchange's own `dps.psx.com.pk/historical` endpoint (true OHLC, one
+    request per month, parallel) for KSE-100/30 and KMI-30, plus the `eod`
+    endpoint for their live quote so the chart footer is populated.
+  - **Palette ordering.** The command palette grouped results by entity kind, and
+    `security` (JDDS ETFs) + `instrument` (indices) are both labelled
+    "Instruments" — so the grouping split them into two same-named sections and
+    re-sorted the second one, burying a top-scoring index under ETFs that merely
+    matched the same words. Both now share one section key and keep the
+    resolver's score order.
+  - Indices also carry their own currency now (`^FTSE` charts in GBP, `^NSEI` in
+    INR), instead of inheriting the caller's default. Verified in-browser: each
+    of S&P 500 / Dow / FTSE / Nifty / KSE 100 / Nikkei / DAX loads real bars and
+    paints a candlestick chart with no console errors. 22 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+
+- **Investor Eye** — **Phase 4: made the feed actually useful, map-first layout,
+  3D globe.** The previous pass was a correct pipeline pointed at a nearly empty
+  input — 146 events, all USGS earthquakes, zero from GDELT — so the map showed
+  an earthquake feed while ~1,000 news items/day sat unused in JDDS.
+  - **GDELT was completely broken and is now fixed.** Root cause found by
+    measurement, not assumption: the DOC API took >13s per request (the shared
+    `safeGet` transport hard-caps at 10s) *and* returned 429 on short bursts, so
+    it produced **zero** events every run. Replaced with GDELT's **bulk 15-minute
+    Event export** (`data.gdeltproject.org`): ~120 KB, **2.2s**, not rate-limited,
+    and far richer — CAMEO codes, actor names/countries, Goldstein scores,
+    mention counts and exact action coordinates. Uses Node's built-in `zlib` (no
+    new dependency) and reads the ZIP central directory because GDELT sets the
+    data-descriptor flag. The DOC API is retained only as a best-effort fallback.
+    Result: **1,790 raw events → 400 after relevance filtering, 2.2s.**
+  - **`safeGet` gained an opt-in `binary: true`** so binary payloads survive the
+    transport (its default UTF-8 decode replaces invalid bytes with U+FFFD and
+    irreversibly corrupts a zip). Also fixed: `lastupdate.txt` advertises `http://`
+    URLs that the https-only transport (correctly) refuses; the scheme is now
+    upgraded rather than weakening security.
+  - **New `cameo.ts`** decodes CAMEO root codes to event types, the Goldstein
+    scale to severity, and — critically — **FIPS 10-4 to ISO2**. GDELT's action
+    country is FIPS, which *conflicts* with ISO for important countries (FIPS
+    `AS`=Australia, `CH`=China, `SZ`=Switzerland, `UK`=UK); using the codes
+    directly would have placed events in the wrong countries.
+  - **New `relevance.ts`** scores investor relevance from GDELT's structured
+    fields (material conflict, economic type/channel, state-to-state dyad,
+    actor type, Goldstein, reach) so the firehose becomes a feed. GDELT codes
+    everything — local crime, sport, university meetings — and without this the
+    map was noise ("POLICE / Arizona"). Now a typical file yields Ukraine/Russia
+    military, US–Iran, Arab League, sanctions and trade events instead.
+  - **New news-to-events source (`sources/news.ts`)**: converts the already-ingested
+    `NewsItem` rows into events — no new feed, no credentials, ~0.3s. **571 rows
+    to 158 real events** covering the Fed, oil, NATO/Russia, Ukraine refinery
+    strikes, Saudi–Houthi and India trade deals. `relevance` + `relevanceReasons`
+    are persisted and the feed is ranked by relevance.
+  - **Fixed a pre-existing bug that made `Candles` permanently empty.** The
+    Python bridge emits `date`, but `updateCandleCache` read `ts`, so every bar
+    was stamped `new Date()` and the composite-key upsert collapsed 955 bars to
+    11 rows. It now reads the real date and skips undated bars. With the new
+    `history.ts` backfill (reusing that existing path), **^GSPC now has 131 real
+    daily bars, BTC-USD 187, CL=F 131** (2026-03-16 to 2026-09-16), so historical
+    analogues finally have real series. The backfill is fire-and-forget: awaiting
+    30 markets took ~170s and blocked the first world-state response, which is
+    why the map initially rendered "0 events".
+  - **Layout is now map-first**: the world is a full-width hero (~55vh, 82% of
+    viewport width) with the layer/timeline controls directly beneath, and every
+    detail panel (selection, What Changed, risk, transmission, portfolio, graph)
+    stacked below the fold so nothing squeezes the map.
+  - **3D globe**: a MAP/GLOBE toggle lazy-loads `echarts-gl@2.1` (new dependency,
+    justified: it is the maintained ECharts globe). Globe mode uses `scatter3D`/
+    `lines3D` — plain `scatter` with `coordinateSystem: 'globe'` silently fell
+    back to index positioning and clumped pins in a corner — and a generated
+    inline dark PNG texture, because echarts-gl's globe has **no `map` property**
+    and its default bright texture rendered a white sphere that hid the data.
+    Any globe failure (chunk, WebGL) falls back to the flat map automatically.
+  - New routes: `GET/POST /api/investor-eye/history`.
+    docs updated: `docs/investor-eye-architecture.md`, `docs/ARCHITECTURE.md`,
+    `docs/CHANGELOG.md`
+
+- **Charts / Market Bubbles** — Rebuilt Market Bubbles on the same real JDDS data
+  the Command Center heatmap uses, and made it an actual volume-measuring tool.
+  The old screen pulled `/api/stocks` (max 100 assets) and, for ANY equity market
+  that returned nothing, silently substituted a hardcoded 8-symbol **Pakistani**
+  demo list — so most markets rendered invented data, which is what made it look
+  random. It now reads `/api/heatmap`, drops all demo/seed constants, and offers
+  every one of the 31 `HEATMAP_MARKETS` instead of a hardcoded country list.
+  - **Honest unit handling.** `Price.volume` is quote-currency notional for crypto
+    but a share count for equities, so summing it mixes units and multiplying it
+    by price double-counts. Added `turnoverFor` / `isNotionalVolume` in
+    `src/lib/heatmap.ts` to normalise both into **turnover** (traded value in the
+    market's currency) — the metric bubbles and the panel now size by default.
+  - **New Volume Analytics panel** (`src/components/screens/volume-analytics.tsx`):
+    traded value, instrument coverage, mean/median/largest, top-10 share, an HHI
+    concentration read, contribution bands, and ranked top contributors. Computed
+    server-side by `summarizeVolume()` over EVERY priced instrument in the market
+    (not just the ≤220 tiles) via the new opt-in `GET /api/heatmap?volume=1`, which
+    adds `HeatmapPayload.volume: VolumeSummary`.
+  - Verified live: CRYPTO 1,385/1,455 instruments, $187.4B turnover, HHI 2553
+    ("highly concentrated"); US 6,314 instruments. 16 unit tests pin the unit
+    semantics, banding, concentration and top-N truncation.
+  docs updated: `docs/ARCHITECTURE.md` (volume-unit contract), `docs/NAVIGATION.md`
+  (route/task rows), `docs/OVERVIEW.md`, `README.md`
+
+- **Investor Eye** — Completed Phase 2 (spec §63). Closed four real gaps left by
+  the previous pass and fixed three defects found while verifying in-browser:
+  - **2.8 Market transmission** was computed and served but never rendered —
+    added `TransmissionsPanel`, which draws each `Event → country → channel →
+    asset` chain and labels every hop `OBSERVED`/`INFERRED`, so an inference is
+    not read as a fact.
+  - **2.9 Historical analogues** had an API with no caller — added
+    `AnaloguesPanel` (inside the event panel) rendering real stored series,
+    sample size, date range, and an honest `UNAVAILABLE` when history is
+    missing, plus the non-prediction disclaimer verbatim.
+  - **2.10 Relationship graph** was missing entirely — added the additive
+    `Relationship` model (and `EventEntity` / `Country` rows are now actually
+    written during ingestion), a pure `graph.ts` builder (per-kind caps, honest
+    truncation, strongest-class preservation), `graph-data.ts` (edge derivation:
+    event co-mention and stored attributes → `OBSERVED`),
+    `GET /api/investor-eye/graph`, and a `GraphPanel` ECharts force layout whose
+    edge colour and tooltips encode `relationClass`. Relational, not a graph DB
+    (ADR-011).
+  - **2.11 AI Analyst** was missing — added seven read-only agent tools
+    (`src/lib/agent/investor-eye-tools.ts`, spread into `TOOLS`) plus a `world`
+    research agent, so the model answers from structured data with provenance
+    and never on the query path.
+  - **Fixed:** the assembled-state cache was module-level, and Next evaluates
+    each route in its own module instance, so `/state`, `/risk`, `/markets` and
+    `/layers` each cold-ran the full GDELT/USGS ingestion — `/risk?hours=24`
+    took 20–100s. The cache and its in-flight guard are now `globalThis`-anchored
+    and keyed by window, so a route fan-out triggers one ingestion per window
+    (measured ~6s once warm).
+  - **Fixed:** company pins on the map were dead — they now open a
+    `CompanyPanel` with profile + derived relationships.
+  - **Fixed:** panel selection was not exclusive, so clicking an event from the
+    country panel never rendered (the stale panel kept priority).
+  - 42 new tests (relationship-graph builder, cache semantics, agent tools).
+    docs updated: `docs/investor-eye-architecture.md`, `docs/ARCHITECTURE.md`,
+    `docs/NAVIGATION.md`, `docs/DECISIONS.md`
+
+- **Search** — Fixed a broken pre-existing working-tree change in
+  `global-search.tsx`: `pinnedCommands` was removed but its render block
+  remained, so the file did not typecheck (`tsc` reported a dangling reference).
+  Removed the orphaned block, preserving the surrounding WIP intent.
+  no doc change — restores a file to a compiling state; no contract changed.
+
 ## 2026-09-15
 
 - **Search** — The palette's bottom group is now simply the app's 11 top-level

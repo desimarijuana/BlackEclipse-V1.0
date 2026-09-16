@@ -37,6 +37,8 @@ Black-Eclipse-site/
 | Change the app shell / add a tab | `src/components/screens/stock-chat.tsx`, `src/components/layout/sidebar.tsx` |
 | Change sidebar defaults / shortcuts | `src/lib/sidebar/config.ts` |
 | Work on the screener | `src/components/screens/market-overview.tsx`, `use-screener-filters.ts`, `market-data.ts` |
+| Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
+| Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
 | Work on portfolio | `src/components/screens/portfolio/`, `src/lib/portfolio/`, `src/hooks/use-portfolio-engine.ts` |
 | Work on the journal | `src/components/journal/`, `src/lib/journal/` |
 | Work on the dashboard widgets | `src/lib/dashboard/`, `src/components/screens/dashboard/` |
@@ -46,13 +48,15 @@ Black-Eclipse-site/
 | Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
 | Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) |
 | Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder) + `store.ts` `DEFAULT_LAYERS` |
+| Work on the relationship graph | `src/lib/investor-eye/graph.ts` (pure builder) + `graph-data.ts` (edges/persistence) + `graph-panel.tsx` |
+| Add an AI Analyst tool (Investor Eye) | `src/lib/agent/investor-eye-tools.ts` (spread into `TOOLS`) |
 | Change scraping / scheduling | `src/lib/scraper/` (`scheduler.ts`, `price-scraper.ts`, `fetchers/`) |
 | Change news ingestion | `src/lib/news/ingest.ts`, `src/app/api/news/` |
 | Change economics/macro | `src/lib/economics/`, `src/components/screens/economics/` |
 | Change alerts | `src/lib/alerts/`, `src/app/api/alerts/`, `src/app/alerts/` |
 | Change the AI agent / research | `src/lib/agent/` (`registry.ts`, `loop.ts`, `research.ts`, `tools.ts`) |
 | Change the chart | `src/lib/chart/`, `src/components/chart/`, `src/components/screens/tradingview-chart.tsx` |
-| Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
+| Add/fix a chartable index | `src/lib/indices.ts` (registry + providers), `src/lib/scraper/fetchers/psx-index.ts` (non-Yahoo source); `HEATMAP_MARKETS` in `src/lib/heatmap.ts` for heatmap labels || Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
 | Add a palette sub-page / make a view reachable | `registerPage` in `src/lib/search/registry.ts` (`subroute`, `group`, `child`) + `useSubroute(<tab>, …)` in the screen; hook: `src/hooks/use-subroute.ts` |
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
@@ -98,7 +102,8 @@ Black-Eclipse-site/
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
 `data/[capability]` · `providers` · `investor-eye/*` (state, events, countries,
-markets, layers, economy, companies, portfolio, risk, analogues, query, health).
+markets, layers, economy, companies, portfolio, risk, analogues, query, graph,
+health).
 
 ## Key contracts (read before changing)
 
@@ -110,6 +115,8 @@ markets, layers, economy, companies, portfolio, risk, analogues, query, health).
 | Connector contract | `src/lib/connectors/types.ts` |
 | Investor Eye event-source contract | `src/lib/investor-eye/types.ts` (`EventSource`) |
 | Investor Eye map-layer contract | `src/lib/investor-eye/types.ts` (`MapLayer`) + `layers.ts` |
+| Investor Eye relationship-graph contract | `src/lib/investor-eye/types.ts` (`RelationshipEdge`/`GraphNode`/`GraphLink`) |
+| Investor Eye server cache | `src/lib/investor-eye/cache.ts` (globalThis-anchored, window-keyed) |
 | Workspace layout ops | `src/lib/workspace/ops.ts` |
 | Market workspace ops | `src/lib/market-workspace/ops.ts` |
 | Agent provider interface | `src/lib/agent/types.ts` |

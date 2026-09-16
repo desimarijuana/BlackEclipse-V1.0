@@ -182,7 +182,12 @@ existing `DataConnector`/`CustomDataset` convention.
 - **GeopoliticalEvent** — normalized event with `dedupKey` (unique, idempotent
   upsert), severity, type, categories, confidence, source provenance, JSON
   arrays for channels/commodities/sectors/securities.
-- **EventEntity** — event ↔ entity join (kind: country/actor/location/...).
+- **EventEntity** — event ↔ entity join (kind: country/actor/location/...),
+  written during ingestion so events are queryable by entity.
+- **Relationship** — the typed, directed relationship graph edge (spec §41):
+  `fromKind/fromId` → `toKind/toId`, `relation`, `relationClass`, `weight`,
+  `evidence`. Unique `edgeKey` makes re-ingestion an idempotent upsert.
+  **Relational, not a graph database** (ADR-011).
 - **SourceRun** — one row per ingestion run per source (observability + Data
   Health): started/finished, received/accepted/rejected, error.
 
@@ -267,40 +272,123 @@ architecture.
 
 ---
 
-## 5. Phase 2 plan (implemented in this change, following spec §63)
+## 5. Phase 2 (implemented, following spec §63)
 
 The deterministic foundation is extended — **no AI is required for any of it**:
 
-1. **Conflict** — GDELT conflict/military/protest queries + severity fill.
-2. **Economy** — `ECON_SOURCES`/snapshot → country `country-fill` heatmap with a
-   metric selector.
-3. **Energy** — commodity/energy event filter + energy-exposed country fill.
-4. **Trade** — GDELT trade/tariff/shipping events → `lines` layer.
-5. **Weather / natural events** — USGS earthquakes (`symbol`/`scatter`), already
-   ingested in Phase 1 as a source; surfaced as its own layer here.
-6. **Companies** — sector-exposed companies from the JDDS `Asset` universe.
-7. **Portfolio overlay** — via `use-portfolio-engine`; exposure graph
-   (country/sector weights) — presented as exposure, never advice.
-8. **Market transmission** — `Event → channel → asset observation` with each
-   link classified `OBSERVED | HISTORICAL | INFERRED | AI-INTERPRETED`.
-9. **Historical analogues** — actual past market behaviour from `Price`/
-   `Candles` where available; always shows sample size + date range.
-10. **Relationship graph** — `Relationship` model (additive) + `GlobalState`.
-11. **AI Analyst** — deferred to the existing agent layer; the structured
-    `/api/investor-eye/state` + event/country endpoints are the retrieval
-    surface it will call. No hallucinated answers: AI is opt-in and queries data.
-12. **Natural-language map search** — deterministic intent → layer/filter
-    commands (no LLM on the path), consistent with ADR-009.
+| # | Item | Status |
+|---|---|---|
+| 2.1 | **Conflict** — conflict/military/protest events → layer | ✅ |
+| 2.2 | **Economy** — real FRED CSV metrics → country-fill heatmap + metric selector | ✅ |
+| 2.3 | **Energy** — energy events → layer | ✅ |
+| 2.4 | **Trade** — trade/tariff/shipping events → `lines` layer | ✅ |
+| 2.5 | **Weather / natural events** — USGS earthquakes → layer | ✅ |
+| 2.6 | **Companies** — JDDS `Asset` universe → layer + company panel on click | ✅ |
+| 2.7 | **Portfolio overlay** — reuses `use-portfolio-engine`; exposure graph | ✅ |
+| 2.8 | **Market transmission** — `Event → country → channel → asset`, classified | ✅ |
+| 2.9 | **Historical analogues** — real stored series + sample size + date range | ✅ |
+| 2.10 | **Relationship graph** — `Relationship` model + pure builder + ECharts graph | ✅ |
+| 2.11 | **AI Analyst** — 7 read-only agent tools (+ a `world` research agent) | ✅ |
+| 2.12 | **Natural-language map search** — deterministic intent → layer/filter | ✅ |
+
+### How each Phase 2 piece is wired
+
+- **2.7/2.8/2.9** — `analytics.ts` computes exposure, transmissions and
+  analogues. Transmissions render in the `TransmissionsPanel` (fed by
+  `/api/investor-eye/risk`); analogues render in the `AnaloguesPanel` inside the
+  event panel (fed by `/api/investor-eye/analogues`). Both were previously
+  computed but never displayed.
+- **2.10** — `graph-data.ts` derives edges from events (co-mention → OBSERVED),
+  stored entity attributes (company→sector, company→country, country→market →
+  OBSERVED) and persists them plus `EventEntity` rows during ingestion.
+  `graph.ts` aggregates edges into bounded nodes/links (per-kind caps keep the
+  geopolitical structure readable). `GET /api/investor-eye/graph` serves it;
+  `GraphPanel` renders it with an ECharts force layout where edge colour and
+  every tooltip encode `relationClass`.
+- **2.11** — `agent/investor-eye-tools.ts` adds read-only tools
+  (`get_world_events`, `get_country_intelligence`, `get_world_markets`,
+  `get_event_detail`, `get_relationships`, `get_portfolio_exposure`,
+  `get_risk_state`) spread into `TOOLS`, plus a `world` research agent. Every
+  result states provenance and labels inferred links, so the model cites
+  structured data instead of hallucinating.
 
 ### Definition of Done — Phase 2
 
-Multiple layers; events connected to countries/entities; economic data
-integrated; energy + trade visualized; companies/securities connected; portfolio
-exposure visualized; event→channel→market relationship exists (classified);
-historical observations explorable; provenance visible; system performant;
-all sources optional/fault-tolerant; reusable by other modules.
+Met per spec §65: multiple intelligence layers; events connected to
+countries/entities; economic data integrated; energy + trade visualized;
+companies/securities connected; portfolio exposure visualized; an
+event→channel→market relationship exists and is classified; historical
+observations are explorable; provenance is visible; the system stays
+performant; all sources remain optional/fault-tolerant; the tier is reusable by
+other modules.
+
+### Performance note (shared, per-window cache)
+
+The assembled state cache and the in-flight assembly guard are **anchored on
+`globalThis` and keyed by time window** (`cache.ts`). Next evaluates each route
+handler in its own module instance, so a module-level `let` gave every endpoint
+a separate cache — `/state`, `/risk`, `/markets`, `/layers` each cold-ran the
+full source ingestion. Sharing one cache/guard means a fan-out of routes
+triggers exactly one ingestion per window. Measured: `/risk?hours=24` fell from
+20–100s to ~6s after the fix.
 
 ---
+
+## 5b. Phase 4 — feed quality, map-first layout, 3D globe
+
+Phase 1/2 built a correct pipeline. This phase fixed what it was pointed at.
+
+### The feed problem (measured)
+
+| | Before | After |
+|---|---|---|
+| GDELT events | **0, every run** | ~400/file, 2.2s |
+| Event types | `natural_disaster` only | conflict, sanction, trade, military, protest, monetary, energy, diplomatic |
+| Sources contributing | USGS only | GDELT + USGS + the existing `NewsItem` rows |
+| `Candles` rows | 0 | 976 (^GSPC 131 bars, BTC-USD 187) |
+
+**Why GDELT returned nothing:** the DOC API took >13s per request while the
+shared `safeGet` transport hard-caps timeouts at 10s, and it also returned HTTP
+429 on short bursts — two independent failures. It now reads GDELT's **bulk
+15-minute Event export**, which is ~120 KB, ~2.2s, not rate-limited, and carries
+CAMEO codes, actor names/countries, Goldstein scores, mention counts and exact
+coordinates. The DOC API remains a best-effort fallback only.
+
+### New modules
+
+| File | Owns |
+|---|---|
+| `cameo.ts` | CAMEO root code → event type, Goldstein → severity, **FIPS 10-4 → ISO2** |
+| `relevance.ts` | investor-relevance scoring (0..1) + reasons, and the display threshold |
+| `sources/news.ts` | turns existing `NewsItem` rows into events (no new feed/credentials) |
+| `history.ts` | candle backfill + coverage, via the existing alerts yfinance path |
+
+**FIPS is not ISO.** GDELT's `ActionGeo_CountryCode` is FIPS 10-4, which
+conflicts with ISO for important countries (FIPS `AS`=Australia, `CH`=China,
+`SZ`=Switzerland, `UK`=UK). Using the codes directly would place events in the
+wrong countries, so `cameo.ts` maps them explicitly.
+
+**Relevance, not just confidence.** `confidence` = how well corroborated;
+`relevance` = does this matter to a portfolio. GDELT machine-codes everything
+including local crime and sport, so without a relevance gate the map is noise.
+Both are stored and the feed is ranked by relevance.
+
+### Layout & globe
+
+- **Map-first**: full-width hero (~55vh / ~82% viewport width), layer + timeline
+  controls beneath, all detail panels stacked below the fold.
+- **MAP / GLOBE toggle**: `echarts-gl` is lazy-loaded; globe mode uses
+  `scatter3D`/`lines3D` (a 2D `scatter` with `coordinateSystem: 'globe'` silently
+  falls back to index positioning) and a generated inline dark texture
+  (echarts-gl's globe has no `map` property; its default texture is a bright
+  image that hides the data). Failure falls back to the flat map.
+
+### Performance rule learned here
+
+Optional enrichment must never block the primary response. The candle backfill
+took ~170s across 30 markets and, awaited inside `assembleState`, blocked the
+first world-state fetch — the map rendered "0 events / DATA UNAVAILABLE" while
+the request was still running. It is now fire-and-forget.
 
 ## 6. Conflicts with the spec, and how they were resolved
 

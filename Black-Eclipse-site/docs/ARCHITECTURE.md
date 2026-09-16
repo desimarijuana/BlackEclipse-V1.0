@@ -118,7 +118,7 @@ The schema (`prisma/schema.prisma`) is organized in domains:
 | Agentic research memory | `ResearchReport`, `AgentRun`, `ResearchFinding` |
 | Alerts | `PriceAlert`, `PriceAlertEvent`, `Candles` |
 | Data connectors | `DataConnector`, `CustomDataset`, `CustomDatasetField`, `CustomDatasetRecord`, `ConnectorMapping` |
-| Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `SourceRun` |
+| Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `Relationship`, `SourceRun` |
 | Trading journal | `JournalProfile`, `TradingAccount`, `Strategy`, `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`, `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`, `MarketContext`, `JournalEntry`, `Review` |
 
 Two design notes that matter:
@@ -129,6 +129,49 @@ Two design notes that matter:
 - **Auth-ready, not auth-ful.** The journal carries an optional owner concept so
   a `User` relation can be added later without a rewrite. There are no accounts
   today — the app is a guest app.
+
+### Indices are tickers, not `Asset` rows
+
+Indices are addressed by their **Yahoo ticker** (`^GSPC`, `^NSEI`, `^FTSE`,
+`000001.SS`), not by the bare TradingView ids (`SPX`, `DJI`, `NIFTY`) — Yahoo has
+no `SPX` instrument, so a bare alias silently produces an empty series. They also
+are not in `Asset`; only `IndexQuote` holds their latest level. `src/lib/indices.ts`
+is therefore the single source of truth: `resolveIndex()` maps any alias to the
+canonical ticker (case- and caret-insensitive), and `searchIndices()` powers
+autocomplete. Aliases that collide with real listed instruments (`DAX`, `STI`,
+`SSE`) are `searchOnly` — they surface in search but never resolve implicitly, so
+charting `DAX` still means the ETF.
+
+Most indices come from the Yahoo chart endpoint. Yahoo **delisted PSX**, so the
+Pakistan benchmarks are `provider: 'psx'` and served by
+`src/lib/scraper/fetchers/psx-index.ts` from the exchange's own endpoints
+(`dps.psx.com.pk/historical` for daily OHLC, `/timeseries/eod/<sym>` for the
+latest quote).
+
+### `Price.volume` is not one unit — turnover is the comparable metric
+
+`Price.volume` means different things depending on how the market was ingested:
+
+| Source | What `volume` holds |
+|---|---|
+| Binance (`connectors/providers/crypto.ts`) | quote-currency **notional** (`quoteVolume`, already in USD) |
+| TradingView / yfinance (equities) | **share count** |
+
+Summing share counts across differently-priced stocks is dimensionally
+meaningless, and multiplying a notional by price double-counts. So the volume
+tooling (`src/lib/heatmap.ts`) normalises both into **turnover** — traded value
+in the market's own currency:
+
+- notional markets (crypto): `turnover = volume` (no price multiply)
+- share markets (everything else): `turnover = volume × price`
+
+`isNotionalVolume(market)` / `turnoverFor(volume, price, market)` are the single
+source of truth; `summarizeVolume()` builds the whole-market profile (total,
+mean/median, top contributors, concentration HHI, contribution bands). Bands are
+each instrument's **share of market turnover**, not an absolute amount, so they
+stay meaningful across USD/PKR/IDR. `GET /api/heatmap?volume=1` serves this as
+`HeatmapPayload.volume`, scanned over EVERY priced instrument (not just the
+tiles). Feed markets (FOREX/COMMODITIES) have no real traded volume and omit it.
 
 ## Background workers
 
@@ -404,6 +447,12 @@ JDDS (Country, GeopoliticalEvent, EventEntity, SourceRun) + in-memory cache
 | `state.ts` | `assembleState`, market observations, country summaries, `SourceRun` bookkeeping |
 | `phase2.ts` | real economic metrics (FRED CSV), companies (JDDS `Asset`), price history |
 | `analytics.ts` | risk decomposition, exposure, transmissions, analogues, NL `planQuery` |
+| `graph.ts` | pure edge → nodes/links aggregation (per-kind caps, honest truncation) |
+| `graph-data.ts` | derives + persists `Relationship` / `EventEntity` / `Country`; `queryEdges` |
+| `cameo.ts` | CAMEO root code → event type, Goldstein → severity, **FIPS 10-4 → ISO2** |
+| `relevance.ts` | investor-relevance score (0..1) + reasons; the feed's display threshold |
+| `sources/news.ts` | turns existing `NewsItem` rows into events (no new feed/credentials) |
+| `history.ts` | candle backfill + coverage, reusing the alerts yfinance path |
 | `layers.ts` | pure `MapLayer` builders (events, markets, conflict, energy, trade, weather, economy, companies, portfolio) |
 | `map-echarts.ts` | the ONLY ECharts-aware module; layer → option + event bridge |
 | `app-geo.ts` | loads/registers `public/geo/world.geo.json` |
@@ -414,7 +463,36 @@ JDDS (Country, GeopoliticalEvent, EventEntity, SourceRun) + in-memory cache
 
 `GET /api/investor-eye/state` · `/events` · `/events/:id` · `/countries/:id` ·
 `/markets` · `/layers/:layer` (+ guarded `POST` rebuild) · `/economy` ·
-`/companies` · `POST /portfolio` · `/risk` · `/analogues` · `/query` · `/health`.
+`/companies` · `POST /portfolio` · `/risk` · `/analogues` · `/query` ·
+`/graph` · `/history` (+ guarded `POST` backfill) · `/health`.
+
+**Feed sources.** GDELT is read from its **bulk 15-minute Event export**
+(`data.gdeltproject.org`) — fast, complete and not rate-limited — decoded with
+Node's built-in `zlib` via `safeGet({ binary: true })`. The DOC API is only a
+best-effort fallback: it was measured at >13s/request (the transport caps at
+10s) and 429s on bursts. `sources/news.ts` additionally converts the
+already-ingested `NewsItem` rows into events, so macro/market coverage costs no
+extra feed. GDELT's FIPS country codes are mapped to ISO2 in `cameo.ts` — they
+conflict with ISO for several important countries.
+
+**Optional work never blocks the map.** The candle-history backfill (~170s
+across 30 markets) is fire-and-forget inside `assembleState`; awaiting it
+blocked the first world-state response and made the map show "0 events".
+
+**Shared, per-window cache.** The assembled-state cache and its in-flight
+assembly guard live in `cache.ts` **anchored on `globalThis` and keyed by time
+window**. Next evaluates each route handler in its own module instance, so a
+module-level `let` gave every endpoint a separate cache — `/state`, `/risk`,
+`/markets` and `/layers` each cold-ran the full source ingestion. One shared
+cache/guard means a route fan-out triggers exactly one ingestion per window.
+Do not "simplify" this back to module-level state.
+
+**Agent access (the AI Analyst).** `src/lib/agent/investor-eye-tools.ts` adds
+seven read-only tools (`get_world_events`, `get_country_intelligence`,
+`get_world_markets`, `get_event_detail`, `get_relationships`,
+`get_portfolio_exposure`, `get_risk_state`) spread into `TOOLS`, plus a `world`
+research agent in `research.ts`. Every result states provenance and labels
+`INFERRED` links, so the model cites structured data instead of inventing it.
 
 ### Honesty and failure rules (non-negotiable)
 

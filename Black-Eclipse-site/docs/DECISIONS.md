@@ -146,7 +146,9 @@ tier** under `src/lib/investor-eye/`, **not** as another connector capability an
 1. registers its own `EventSource` adapters (GDELT, USGS) instead of forking the
    existing `DataConnector` contract, but reuses its hardened `safeGet` transport;
 2. persists only **additive** JDDS models (`Country`, `GeopoliticalEvent`,
-   `EventEntity`, `SourceRun`) — **no graph database**, no Redis, no microservice;
+   `EventEntity`, `Relationship`, `SourceRun`) — **no graph database**, no
+   Redis, no microservice. The relationship graph (spec §41) is a relational
+   `Relationship` edge table aggregated into nodes/links by a pure builder;
 3. visualizes through a provider-agnostic `MapLayer` abstraction rendered by
    ECharts (already a dependency), so the visualization can be swapped later
    without touching the data layer;
@@ -154,7 +156,11 @@ tier** under `src/lib/investor-eye/`, **not** as another connector capability an
    (`IndexQuote` + the yfinance bridge) and portfolio exposure from the
    **existing** `use-portfolio-engine`, never duplicating them;
 5. keeps the query path fully deterministic (keyword + gazetteer NL search, no
-   LLM), matching ADR-009.
+   LLM), matching ADR-009. AI is a separate, opt-in **AI Analyst** layer of
+   read-only agent tools that query the structured data — never on the query
+   path and never the source of a fact.
+6. shares ONE globalThis-anchored, per-window cache across route bundles, so a
+   fan-out of endpoints triggers a single source ingestion rather than one each.
 **Why:** The repository is a single-page, SQLite-backed SPA with no geo/map
 infrastructure and no geopolitical-event model. Building the smallest robust
 foundation that reuses existing services avoids the duplicate-architecture and
