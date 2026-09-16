@@ -8,7 +8,7 @@
 // tint ≤0.55, `appendTo: 'body'`, standard `backdrop-filter` only).
 
 import type { EChartsOption } from 'echarts';
-import { LAYER_META, severityColor, type LayerId, type LayerSymbol } from './layers';
+import { LAYER_META, layerColor, severityColor, type LayerId, type LayerSymbol } from './layers';
 import type { MapLayer, LayerDatum } from './types';
 
 /** Legend symbol → ECharts symbol name. Keeps shapes readable on the dark map. */
@@ -25,6 +25,15 @@ function symbolForLayer(layerId: string): string | undefined {
   const meta = LAYER_META[layerId as LayerId];
   return meta?.symbol ? ECHARTS_SYMBOL[meta.symbol] : undefined;
 }
+
+/**
+ * Layers whose points ARE the category (spec §8). These are tinted with the
+ * layer's own accent so `conflict` / `weather` / `energy` read as distinct
+ * categories; severity still drives marker size, and the tooltip still states it.
+ * Layers that mix categories (`events`) or encode a direction of change
+ * (`markets`, `companies`) keep severity/sign colouring instead.
+ */
+const CATEGORY_COLORED = new Set<string>(['conflict', 'weather', 'energy', 'portfolio']);
 
 /** World map registration name — must match the GeoJSON `name` in app/geo.ts. */
 export const WORLD_MAP_NAME = 'blackeclipse-world';
@@ -188,12 +197,15 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     const seriesType = isGlobe
       ? 'scatter3D'
       : (isEffect ? 'effectScatter' : 'scatter');
+    // Shapes come from the layer registry so the legend and the map agree.
+    const symbol = symbolForLayer(layer.id);
     series.push({
       id: layer.id,
       name: layer.name,
       type: seriesType,
       coordinateSystem: coordSystem,
       z: layer.zIndex,
+      ...(symbol && !isGlobe ? { symbol } : {}),
       // Only animate when there is a small, curated set of points. `scatter3D`
       // has no ripple effect, so globe mode never animates.
       ...(isEffect && !isGlobe
@@ -208,6 +220,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
             itemStyle: {
               color: (raw: unknown) => {
                 const item = raw as { data?: { severity?: string } };
+                if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
+                if (!item.data?.severity) return layerColor(layer.id);
                 return severityColor((item.data?.severity ?? 'low') as never);
               },
               opacity: 0.95,
@@ -221,9 +235,13 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
             },
             itemStyle: {
               color: (raw: unknown) => {
-                const item = raw as { data?: { severity?: string; value?: number } };
-                if (item.data?.severity) return severityColor(item.data.severity as never);
-                return (item.data?.value ?? 0) >= 0 ? '#22c55e' : '#ef4444';
+                const item = raw as { data?: { severity?: string } };
+                // Severity is a real observation; without one, fall back to the
+                // layer's own accent rather than inventing a sign.
+                if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
+                return item.data?.severity
+                  ? severityColor(item.data.severity as never)
+                  : layerColor(layer.id);
               },
               borderColor: 'rgba(0,0,0,0.5)',
               borderWidth: 0.5,
@@ -255,7 +273,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       z: layer.zIndex,
       // 2D lines support a flowing effect; lines3D does not.
       ...(isGlobe ? {} : { effect: { show: data.length <= 60, period: 4, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 } }),
-      lineStyle: { color: '#60a5fa', width: 1, opacity: 0.5, curveness: 0.2 },
+      lineStyle: { color: layerColor(layer.id), width: 1, opacity: 0.5, curveness: 0.2 },
       data: data.map((d) => {
         const payload = d.data as { from: [number, number]; to: [number, number] };
         return { coords: [payload.from, payload.to], _datum: d };

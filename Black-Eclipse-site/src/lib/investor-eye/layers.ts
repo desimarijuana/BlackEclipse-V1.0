@@ -44,7 +44,6 @@ export type LayerGroupId = (typeof LAYER_GROUPS)[number]['id'];
  * the map adapter where the series type supports it.
  */
 export type LayerSymbol = 'circle' | 'diamond' | 'triangle' | 'square' | 'ring';
-
 export interface LayerMeta {
   name: string;
   phase: 1 | 2;
@@ -71,8 +70,8 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
 };
 
 /** Accent for a layer: its own colour, else its group's. */
-export function layerColor(id: LayerId): string {
-  return LAYER_META[id]?.color ?? LAYER_GROUPS[0].color;
+export function layerColor(id: string): string {
+  return LAYER_META[id as LayerId]?.color ?? LAYER_GROUPS[0].color;
 }
 
 /** Stable group order for rendering the controller / legend. */
