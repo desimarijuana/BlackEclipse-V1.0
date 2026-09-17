@@ -1,19 +1,20 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-09-16
+last-verified: 2026-09-17
 ---
 
 # Investor Eye — Architecture & Audit
 
 **Who this is for:** anyone implementing or extending Investor Eye (the
 financial/geopolitical world-state surface). Read §1–2 for the audit, §3 for the
-design, §4 for the Phase 1 build order, §5 for Phase 2, and §5b–5l for the
+design, §4 for the Phase 1 build order, §5 for Phase 2, and §5b–5m for the
 later presentation/quality passes (globe, colour-coded layers, full-page mode,
 the runtime bugs fixed after them, price reaction/alerts/gazetteer, event
 dossiers, clustering recovery, event plotting, the AI analyst, recurrence,
-data-source governance + NASA FIRMS, and finally the layer/pin corrections that
-surfaced data already in the database).
+data-source governance + NASA FIRMS, the layer/pin corrections that surfaced data
+already in the database, and finally the globe's visual system + the two bugs
+that fixing it exposed).
 
 > This document is Phase 0's output. The repository is authoritative: where the
 > implementation spec and the code disagreed, the code won and this record notes
@@ -1071,6 +1072,70 @@ failure was silent: the map showed 374 fires that existed nowhere in the databas
 and every payload event had no `id`. A fresh process persisted correctly
 (374 rows written). **Restart the dev server after `prisma generate`**; the
 per-row catch is correct for resilience but hides a total-write failure.
+
+---
+
+## 5m. Phase 15 — the globe gets a look, and two bugs it exposed
+
+The globe worked but read as a flat, bland sphere. Making it *look* like a
+financial intelligence planet surfaced two real defects.
+
+### The visual system
+
+| Element | Before | After |
+|---|---|---|
+| Ocean | flat `#0b1220` | near-black vertical gradient (`#01030a` → `#04101f`) |
+| Land | mid-tone `#2b3442` | dark slate `#0d1726`→`#122136` |
+| Coastline | 1px cyan stroke | blurred shadow pass UNDER the land, leaving a halo that hugs the coast |
+| City light | none | deterministic stipple on land only |
+| Stars | none | canvas starfield: 3 depth tiers + two nebula washes |
+| Globe rim | none | `atmosphere` cyan rim glow |
+| Pins (globe) | single flat dot | **two halo passes + a white-hot core** |
+| Pins (2D) | 6–13px flat, 0.5px border | 8–18px, dark contrast ring, severity-sized glow |
+| Trade routes | hairline | wide translucent glow pass under a bright pass |
+
+Two decisions carry most of the look:
+
+1. **The texture does the work, not the lighting.** `echarts-gl` lights the globe
+   as a surface (`shading: 'lambert'`), so flat fills come out muddy. A dark
+   texture + LOW ambient (`0.35`, down from `1.1`) is what keeps the planet
+   near-black with only the coastline and pins glowing. A high ambient washed the
+   whole sphere into a bright blue ball — the first attempt did exactly that.
+2. **A glow needs a white-hot core.** The first pin attempt used one colour for
+   both core and halo, which rendered as dark-centred **donuts**. A real light
+   source is a bright point inside a coloured halo, so the core is the accent
+   lightened 72% toward white (`lighten()`) and the halo keeps the severity
+   colour. Two halo radii (tight + wide) give the falloff a single halo cannot.
+
+Also deliberate: `autoRotate` is **off**. The pins are click targets, and a
+moving target is a broken interaction.
+
+### Bug 1 — a map-local loader was covering the entire app
+
+`WorldMap` rendered `TopLoader` as its loading state. `TopLoader` *portals to
+`document.body`* at `z-[45]`, so whenever the map was still initialising the
+overlay covered the whole application at a stuck `95%` — sidebar and all. It is
+now a scoped inline loader inside the map box, and globe initialisation has a
+20 s ceiling that falls back to the flat map rather than spinning forever.
+
+This was invisible in the original implementation because the flat map loads
+instantly; it only appeared once the globe path could take seconds.
+
+### Bug 2 — a removed import left a `ReferenceError`
+
+While replacing the loader the `TopLoader` import was dropped but one usage
+remained, so `WorldMap` threw `ReferenceError: TopLoader is not defined` inside a
+`useMemo`. React's error boundary then left the previous frame on screen, which
+is why the page showed a frozen loader rather than an error. The globe-specific
+test now asserts the halo contract so a future edit cannot silently remove it.
+
+### FIRMS flakiness
+
+Measured: the 24h global CSV is ~1.6 MB and normally lands in ~3 s, but the
+shared transport caps timeouts at 10 s and the feed occasionally exceeds it,
+which silently emptied the hazard layer for a whole cycle. `firmsSource.fetch`
+now does one bounded retry, and only for a *transient* transport error (a 4xx/5xx
+is not retried — the request itself would be wrong).
 
 ---
 

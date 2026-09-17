@@ -17,6 +17,7 @@ import { TopLoader } from '@/components/ui/top-loader';
 import { useCommandStore } from '@/lib/search/store';
 import { useSubroute } from '@/hooks/use-subroute';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { useListNavigation } from '@/hooks/use-list-navigation';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
@@ -1455,6 +1456,30 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const rootRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   const shortcutsEnabled = !embedded && !selectedAnalysisStock && !loadingApi;
+  const tableNavEnabled = shortcutsEnabled && !loadingTab && (screenerTab === 'stocks' || screenerTab === 'crypto');
+  const tableIds = tableNavEnabled ? filteredStocks.map((s) => s.symbol) : [];
+  const tablePageCount = Math.max(1, Math.ceil(totalStocks / limit));
+  const tableNav = useListNavigation({
+    ids: tableIds,
+    rootRef,
+    enabled: tableNavEnabled,
+    shortcutPrefix: 'screener.list',
+    onOpen: (symbol) => {
+      if (screenerTab === 'crypto') {
+        setExpandedSymbol((prev) => (prev === symbol ? null : symbol));
+        return;
+      }
+      const stock = filteredStocks.find((s) => s.symbol === symbol);
+      if (stock) handleSymbolClick(stock.symbol, stock.name, stock);
+    },
+    onEscape: () => setSelectedAnalysisStock(null),
+    pagination: {
+      onPrevious: () => setCurrentPage((prev) => Math.max(prev - 1, 1)),
+      onNext: () => setCurrentPage((prev) => Math.min(prev + 1, tablePageCount)),
+      canPrevious: currentPage > 1,
+      canNext: currentPage < tablePageCount,
+    },
+  });
   usePageShortcuts(rootRef, [
     { id: 'screener.search', label: 'Search current screener', keys: 'S', run: () => searchRef.current?.focus(), enabled: shortcutsEnabled && (screenerTab !== 'forex' || sectionVisible('table_forex')) },
     { id: 'screener.filters', label: 'Toggle advanced filters', keys: 'Shift+F', run: () => setShowAdvancedFilters((v) => !v), enabled: shortcutsEnabled && ['stocks', 'crypto', 'etfs', 'funds', 'dividend_stocks'].includes(screenerTab) },
@@ -3845,8 +3870,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                       return (
                         <tr
                           key={stock.symbol}
+                          {...tableNav.rowAttributes(stock.symbol)}
                           onClick={(e) => handleSymbolClick(stock.symbol, stock.name, stock, e)}
-                          className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                          className={cn("border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer group", tableNav.isSelected(stock.symbol) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
                         >
                           <td
                             onClick={(e) => {
@@ -4052,8 +4078,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                         return (
                           <React.Fragment key={stock.symbol}>
                             <tr 
+                              {...tableNav.rowAttributes(stock.symbol)}
                               onClick={() => setExpandedSymbol(isExpanded ? null : stock.symbol)}
-                              className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                              className={cn("border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer group", tableNav.isSelected(stock.symbol) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
                             >
                               <td className="py-3 px-4 text-muted-foreground text-center font-mono">
                                 #{stock.rank || 999}

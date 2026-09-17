@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { useListNavigation } from '@/hooks/use-list-navigation';
 import { Plus, Trash2, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
@@ -169,6 +170,17 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const startAdding = () => { setAdding(true); setForm(emptyForm()); };
+  const tradeIds = useMemo(() => filtered.map((t) => t.id), [filtered]);
+  const listNav = useListNavigation({
+    ids: adding ? [] : tradeIds,
+    rootRef,
+    enabled: !adding && !detailTrade,
+    shortcutPrefix: 'trades.list',
+    onOpen: (id) => {
+      const trade = filtered.find((t) => t.id === id);
+      if (trade) setDetailTrade(trade);
+    },
+  });
   usePageShortcuts(rootRef, [
     { id: 'trades.new', label: 'Add trade', keys: 'Shift+N', run: startAdding, enabled: !adding && !detailTrade },
     { id: 'trades.search', label: 'Search trades', keys: 'S', run: () => searchRef.current?.focus(), enabled: !detailTrade },
@@ -345,7 +357,12 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
               </thead>
               <tbody>
                 {filtered.map((t) => (
-                  <tr key={t.id} onClick={() => setDetailTrade(t)} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] cursor-pointer">
+                  <tr
+                    key={t.id}
+                    {...listNav.rowAttributes(t.id)}
+                    onClick={() => setDetailTrade(t)}
+                    className={cn('border-b border-white/5 last:border-0 hover:bg-white/[0.03] cursor-pointer', listNav.isSelected(t.id) && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
+                  >
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{t.exitTime.slice(0, 10)}</td>
                     <td className="px-3 py-2 font-bold text-foreground">{t.symbol}</td>
                     <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>

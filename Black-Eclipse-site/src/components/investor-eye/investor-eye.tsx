@@ -35,6 +35,7 @@ import { PortfolioPanel } from './portfolio-panel';
 import { TransmissionsPanel } from './transmissions-panel';
 import { GraphPanel } from './graph-panel';
 import { FullPageMap } from './full-page-map';
+import { MapViewControls } from './map-view-controls';
 import { LiveFeed } from './live-feed';
 import { AlertsPanel } from './alerts-panel';
 import { SourceHealthPanel } from './source-health-panel';
@@ -52,6 +53,7 @@ export function InvestorEyeScreen() {
   const economicMetric = useInvestorEyeStore((s) => s.economicMetric);
   const portfolioOverlay = useInvestorEyeStore((s) => s.portfolioOverlay);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
+  const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const fullPage = useInvestorEyeStore((s) => s.fullPage);
   const highlightedCountries = useInvestorEyeStore((s) => s.highlightedCountries);
   const highlightNote = useInvestorEyeStore((s) => s.highlightNote);
@@ -317,25 +319,7 @@ export function InvestorEyeScreen() {
         <div className="flex items-center gap-2">
           {state && <DataStatusChip status={state.status} />}
           <SavedViews />
-          {/* Map presentation: flat vs 3D globe (globe lazy-loads echarts-gl).
-              Colour-coded so the active projection is legible at a glance. */}
-          <div className="glass-button flex items-center gap-0.5 rounded-lg p-0.5">
-            {(['2d', 'globe'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMapMode(m)}
-                title={m === '2d' ? 'Flat map' : '3D globe'}
-                className={cn(
-                  'rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
-                  mapMode === m
-                    ? m === '2d' ? 'bg-sky-500/25 text-sky-200' : 'bg-violet-500/25 text-violet-200'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {m === '2d' ? 'MAP' : 'GLOBE'}
-              </button>
-            ))}
-          </div>
+          <MapViewControls />
           {/* Immersive map-only mode. */}
           <button
             onClick={() => setFullPage(true)}
@@ -435,11 +419,12 @@ export function InvestorEyeScreen() {
             highlightPoints={highlightPoints}
             onSelectCountry={handleSelectCountry}
             mode={mapMode}
+            skin={mapSkin}
             onModeUnavailable={() => setMapMode('2d')}
           />
           {/* Map is the hero; a subtle frame label keeps provenance in view. */}
           <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
-            NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
+            NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}{mapSkin === 'black' ? ' · BLACK' : ' · GLOW'}
           </div>
           {/* Immersive map-only affordance, on the map surface itself. */}
           <button

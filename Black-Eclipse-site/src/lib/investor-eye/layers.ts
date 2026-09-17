@@ -43,8 +43,93 @@ export type LayerGroupId = (typeof LAYER_GROUPS)[number]['id'];
  * Marker shape per layer, so event categories are distinguishable without
  * relying on colour alone (spec §8 / §34). Rendered in the legend and passed to
  * the map adapter where the series type supports it.
+ *
+ * Beyond the primitive shapes, a layer may carry an SVG `path://` glyph. That is
+ * what lets a conflict render as a blast, an earthquake as seismic rings and a
+ * fire as a flame, instead of every layer being the same dot. ECharts' symbol
+ * helper supports `path://` in the 2D renderer AND echarts-gl's sprite builder
+ * uses the same helper, so one glyph serves both projections.
  */
-export type LayerSymbol = 'circle' | 'diamond' | 'triangle' | 'square' | 'ring';
+export type LayerSymbol =
+  | 'circle' | 'diamond' | 'triangle' | 'square' | 'ring'
+  | 'path://';
+
+/**
+ * A 100x100 viewBox is the convention ECharts' symbol helper expects.
+ *
+ * Glyph design rules:
+ *   - drawn as a solid silhouette, because the map tints the whole path,
+ *   - visually distinct at 8–18px, so no fine detail,
+ *   - recognisable in silhouette (a flame, a blast, a wave) rather than by
+ *     internal line-work that disappears when scaled down.
+ */
+export const SYMBOL_PATHS = {
+  /** Blast: an 8-point starburst with a jagged core — conflict/attack. */
+  blast: 'path://M50,4 L58,32 L78,14 L72,42 L96,38 L76,58 L96,66 L70,70 L80,94 L56,78 L50,96 L44,78 L20,94 L30,70 L4,66 L24,58 L4,38 L28,42 L22,14 L42,32 Z',
+  /**
+   * Seismic rings: concentric HOLLOW rings radiating from a centre.
+   *
+   * Two rules make this work, and both bit us:
+   *   1. Each circle is TWO 180° arcs, not one near-full arc. A single
+   *      `A r,r 0 1,1 x,y` back to a point 0.1px away renders as a lumpy
+   *      circle that lands off-centre.
+   *   2. Alternating rings are wound in OPPOSITE directions. A canvas/SVG fill
+   *      uses the nonzero winding rule, so drawing every ring the same way
+   *      fills the disc solid — the earthquake layer shipped as a plain dot,
+   *      indistinguishable from the catch-all event marker.
+   */
+  seismic:
+    'path://M86,50 A36,36 0 1,1 14,50 A36,36 0 1,1 86,50 Z ' +
+    'M74,50 A24,24 0 1,0 26,50 A24,24 0 1,0 74,50 Z ' +
+    'M68,50 A18,18 0 1,1 32,50 A18,18 0 1,1 68,50 Z ' +
+    'M58,50 A8,8 0 1,0 42,50 A8,8 0 1,0 58,50 Z',
+  /** Flame: a tapered teardrop with a notch — fire. */
+  flame: 'path://M50,4 C64,26 82,38 82,58 C82,76 68,92 50,92 C32,92 18,76 18,58 C18,42 30,34 38,20 C40,32 46,38 50,26 C52,20 51,12 50,4 Z',
+  /** Wave + hull: a ship riding two swells — shipping. */
+  wave: 'path://M50,16 L78,20 L84,34 L74,34 L72,54 L28,54 L26,34 L16,34 L22,20 Z M8,66 C22,56 34,76 48,66 C62,56 74,76 88,66 L92,80 C74,92 58,72 48,80 C38,88 22,72 4,80 Z',
+  /** Opposed arrows: exchange — trade. Two separated arrows, never overlapping. */
+  exchange: 'path://M6,16 L46,16 L46,6 L74,26 L46,46 L46,36 L6,36 Z M94,64 L54,64 L54,54 L26,74 L54,94 L54,84 L94,84 Z',
+  /** Bolt in a droplet — energy. */
+  bolt: 'path://M50,4 L88,50 L66,50 L74,96 L26,44 L48,44 Z',
+  /** Hexagonal ingot — commodities. */
+  ingot: 'path://M28,22 L72,22 L92,50 L72,78 L28,78 L8,50 Z',
+  /** Upward bars with a trend arrow — markets. */
+  market: 'path://M10,90 L10,60 L24,60 L24,90 Z M30,90 L30,44 L44,44 L44,90 Z M50,90 L50,28 L64,28 L64,90 Z M74,34 L88,18 L94,24 L80,40 Z',
+  /** Office block with a pinnacle — companies. */
+  company: 'path://M18,92 L18,26 L50,10 L50,92 Z M58,92 L58,38 L86,50 L86,92 Z M28,38 L38,38 L38,48 L28,48 Z M28,58 L38,58 L38,68 L28,68 Z',
+  /**
+   * Open ring — portfolio exposure.
+   *
+   * Same construction as `seismic`: two 180° arcs per circle (a single
+   * near-full arc renders off-centre), with the hole wound the opposite way so
+   * the nonzero fill rule punches it out.
+   */
+  portfolio:
+    'path://M90,50 A40,40 0 1,1 10,50 A40,40 0 1,1 90,50 Z ' +
+    'M72,50 A22,22 0 1,0 28,50 A22,22 0 1,0 72,50 Z',
+  /**
+   * Warning triangle — risk.
+   *
+   * The centre triangle is listed in the OPPOSITE vertex order to the outer one
+   * so the nonzero fill rule punches it out. Listed the same way round (as it
+   * was) the triangle renders solid and reads as a plain shape.
+   */
+  risk: 'path://M50,8 L96,88 L4,88 Z M50,36 L36,68 L64,68 Z',
+  /**
+   * A small solid dot — the generic "everything" marker.
+   *
+   * Deliberately the LEAST distinctive glyph: the `events` layer is a catch-all
+   * over every geolocated event, so it must read as background texture. A large
+   * shape here (a diamond was the first choice) visually buries the meaningful
+   * category glyphs drawn on top of it.
+   *
+   * Built from two 180° arcs — a single near-full arc lands off-centre.
+   */
+  event: 'path://M78,50 A28,28 0 1,1 22,50 A28,28 0 1,1 78,50 Z',
+} as const;
+
+export type SymbolGlyphName = keyof typeof SYMBOL_PATHS;
+
 export interface LayerMeta {
   name: string;
   phase: 1 | 2;
@@ -53,29 +138,53 @@ export interface LayerMeta {
   color: string;
   /** Only meaningful for point layers. */
   symbol?: LayerSymbol;
+  /**
+   * The category glyph. Preferred over `symbol` wherever it is set — this is
+   * what makes each domain visually its own thing.
+   */
+  glyph?: SymbolGlyphName;
   /** One-line description of what the layer draws, shown in tooltips. */
   hint: string;
 }
 
 export const LAYER_META: Record<LayerId, LayerMeta> = {
-  events: { name: 'Events', phase: 1, group: 'events', color: '#38bdf8', symbol: 'circle', hint: 'All geolocated world events' },
-  markets: { name: 'Markets', phase: 1, group: 'markets', color: '#34d399', symbol: 'circle', hint: 'Index observations by country' },
-  conflict: { name: 'Conflict', phase: 2, group: 'events', color: '#ef4444', symbol: 'circle', hint: 'Conflict, military and protest events' },
-  shipping: { name: 'Shipping', phase: 2, group: 'flows', color: '#0ea5e9', symbol: 'ring', hint: 'Shipping, ports, straits and supply-chain events' },
-  trade: { name: 'Trade', phase: 2, group: 'flows', color: '#eab308', symbol: 'square', hint: 'Trade, tariff and sanction co-mentions' },
-  energy: { name: 'Energy', phase: 2, group: 'flows', color: '#fb923c', symbol: 'diamond', hint: 'Oil, gas and power events' },
-  commodities: { name: 'Commodities', phase: 2, group: 'economy', color: '#f59e0b', symbol: 'triangle', hint: 'Events naming a traded commodity' },
+  events: { name: 'Events', phase: 1, group: 'events', color: '#38bdf8', glyph: 'event', hint: 'All geolocated world events' },
+  markets: { name: 'Markets', phase: 1, group: 'markets', color: '#34d399', glyph: 'market', hint: 'Index observations by country' },
+  conflict: { name: 'Conflict', phase: 2, group: 'events', color: '#ef4444', glyph: 'blast', hint: 'Conflict, military and protest events' },
+  shipping: { name: 'Shipping', phase: 2, group: 'flows', color: '#0ea5e9', glyph: 'wave', hint: 'Shipping, ports, straits and supply-chain events' },
+  trade: { name: 'Trade', phase: 2, group: 'flows', color: '#eab308', glyph: 'exchange', hint: 'Trade, tariff and sanction co-mentions' },
+  energy: { name: 'Energy', phase: 2, group: 'flows', color: '#fb923c', glyph: 'bolt', hint: 'Oil, gas and power events' },
+  commodities: { name: 'Commodities', phase: 2, group: 'economy', color: '#f59e0b', glyph: 'ingot', hint: 'Events naming a traded commodity' },
   economy: { name: 'Economy', phase: 2, group: 'economy', color: '#a78bfa', hint: 'Country metric fill (real series only)' },
-  weather: { name: 'Earthquakes', phase: 2, group: 'hazards', color: '#22d3ee', symbol: 'triangle', hint: 'USGS seismic events' },
-  fires: { name: 'Fires', phase: 2, group: 'hazards', color: '#f97316', symbol: 'diamond', hint: 'NASA FIRMS satellite fire clusters' },
-  companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', symbol: 'square', hint: 'Listed companies by HQ country' },
-  risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', hint: 'Event density per country' },
-  portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', symbol: 'ring', hint: 'Countries your holdings are exposed to' },
+  weather: { name: 'Earthquakes', phase: 2, group: 'hazards', color: '#22d3ee', glyph: 'seismic', hint: 'USGS seismic events' },
+  fires: { name: 'Fires', phase: 2, group: 'hazards', color: '#f97316', glyph: 'flame', hint: 'NASA FIRMS satellite fire clusters' },
+  companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', glyph: 'company', hint: 'Listed companies by HQ country' },
+  risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', glyph: 'risk', hint: 'Event density per country' },
+  portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', glyph: 'portfolio', hint: 'Countries your holdings are exposed to' },
 };
 
 /** Accent for a layer: its own colour, else its group's. */
 export function layerColor(id: string): string {
   return LAYER_META[id as LayerId]?.color ?? LAYER_GROUPS[0].color;
+}
+
+/**
+ * The ECharts `symbol` value for a layer.
+ *
+ * A `glyph` wins over the primitive `symbol`: the whole point of the glyph set
+ * is that a conflict reads as a blast and a fire as a flame. Falls back to the
+ * primitive shape, then to a circle.
+ */
+export function layerSymbol(id: string): string {
+  const meta = LAYER_META[id as LayerId];
+  if (!meta) return 'circle';
+  if (meta.glyph) return SYMBOL_PATHS[meta.glyph];
+  return meta.symbol && meta.symbol !== 'path://' ? meta.symbol : 'circle';
+}
+
+/** The inline glyph name for a layer, for rendering the legend. */
+export function layerGlyph(id: string): SymbolGlyphName | undefined {
+  return LAYER_META[id as LayerId]?.glyph;
 }
 
 /** Stable group order for rendering the controller / legend. */
@@ -172,7 +281,11 @@ export function buildEventsLayer(events: NormalizedEvent[], onSelect?: (e: Norma
     name: 'Events',
     enabled: true,
     type: 'effect-scatter',
-    zIndex: 30,
+    // BELOW the category layers (zIndex 25). `events` is a catch-all over every
+    // geolocated event, so it must read as background texture; when it sat at 30
+    // its dot was drawn ON TOP of the conflict/fire/energy glyphs and buried the
+    // very shapes that say what each event is.
+    zIndex: 15,
     data: () => data,
     tooltip: (datum) => {
       const payload = datum.data as { cluster: typeof clusters[number]; representative: NormalizedEvent };

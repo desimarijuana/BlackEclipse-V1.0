@@ -8,6 +8,7 @@ import { TabBar } from '@/components/ui/tab-bar';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { useListNavigation } from '@/hooks/use-list-navigation';
 
 export interface NewsItem {
   id: string;
@@ -587,6 +588,23 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const filterRef = useRef<HTMLSelectElement>(null);
+  const newsIds = useMemo(() => newsList.map((n) => n.id), [newsList]);
+  const listNav = useListNavigation({
+    ids: fullPage ? newsIds : [],
+    rootRef,
+    enabled: fullPage && !loading && !selectedNews,
+    shortcutPrefix: 'news.list',
+    onOpen: (id) => {
+      const item = newsList.find((n) => n.id === id);
+      if (item) openNews(item);
+    },
+    pagination: {
+      onPrevious: () => handlePageChange(page - 1),
+      onNext: () => handlePageChange(page + 1),
+      canPrevious: page > 1,
+      canNext: page < totalPages,
+    },
+  });
   usePageShortcuts(rootRef, [
     { id: 'news.search', label: 'Search news', keys: 'S', run: () => searchRef.current?.focus(), enabled: fullPage && !loading },
     { id: 'news.filters', label: 'Focus news filters', keys: 'Shift+F', run: () => filterRef.current?.focus(), enabled: fullPage && !loading },
@@ -1074,10 +1092,11 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 role="button"
                 tabIndex={0}
                 aria-label={item.headline}
-                onKeyDown={(e) => { if (e.key === 'Enter' && (e.target as HTMLElement).getAttribute('role') === 'button') openNews(item); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && listNav.selectedId === null && (e.target as HTMLElement).getAttribute('role') === 'button') { e.preventDefault(); openNews(item); } }}
                 key={item.id}
+                {...listNav.rowAttributes(item.id)}
                 onClick={() => openNews(item)}
-                className={`rounded-2xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${dens.card} ${borderStyle} ${bgGradient}`}
+                className={`rounded-2xl border hover:shadow-lg transition-all duration-300 flex flex-col justify-between relative overflow-hidden text-left shadow-sm group cursor-pointer hover:scale-[1.005] focus:outline-none ${listNav.isSelected(item.id) ? 'ring-2 ring-primary/60 ring-offset-1 ring-offset-background' : ''} ${dens.card} ${borderStyle} ${bgGradient}`}
               >
                 {/* Ambient glow badge based on sentiment */}
                 {cards.glow && (

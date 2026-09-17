@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
+import { backTarget, recordVisit } from './navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
@@ -107,6 +108,9 @@ function StockChatContent() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [navHistory, setNavHistory] = useState<AppTab[]>(['chat']);
+  const navHistoryRef = useRef(navHistory);
+  navHistoryRef.current = navHistory;
   // Section requested by a `settings.<section>` palette subroute.
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
 
@@ -152,6 +156,10 @@ function StockChatContent() {
   const [visited, setVisited] = useState<Set<AppTab>>(() => new Set(['chat']));
   useEffect(() => {
     setVisited(prev => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
+
+  useEffect(() => {
+    setNavHistory((prev) => recordVisit(prev, activeTab));
   }, [activeTab]);
 
   // Deep-link boot: /?symbol=AAPL opens that symbol's chart tab directly.
@@ -496,8 +504,20 @@ function StockChatContent() {
   };
 
   const chatRootRef = useRef<HTMLDivElement>(null);
+  const appRootRef = useRef<HTMLDivElement>(null);
+  const handleBack = () => {
+    if (settingsOpen || mobileMenuOpen) return;
+    const target = backTarget(navHistoryRef.current);
+    if (!target) return;
+    navHistoryRef.current = target.history;
+    setNavHistory(target.history);
+    setActiveTab(target.tab);
+  };
   usePageShortcuts(chatRootRef, [
     { id: 'chat.new', label: 'New chat', keys: 'Shift+N', run: handleNewChat, enabled: activeTab === 'chat' && !settingsOpen && !mobileMenuOpen },
+  ]);
+  usePageShortcuts(appRootRef, [
+    { id: 'nav.back', label: 'Back', keys: 'Alt+ArrowLeft', run: handleBack, enabled: navHistory.length > 1 && !settingsOpen && !mobileMenuOpen },
   ]);
 
   const handleChartTicker = (symbol?: string) => {
@@ -516,7 +536,7 @@ function StockChatContent() {
 
   return (
     <TooltipProvider delay={0}>
-    <div className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
+    <div ref={appRootRef} className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
       {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
       <div
         className="absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden"

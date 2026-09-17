@@ -428,6 +428,24 @@ export function ChartWidget({
     } else if (matchesShortcut(e, 'mod+z') && drawingManager.canUndo()) {
       e.preventDefault();
       drawingManager.undo();
+    } else if (matchesShortcut(e, 'v')) {
+      e.preventDefault();
+      toggleVolume();
+    } else if (matchesShortcut(e, '0')) {
+      e.preventDefault();
+      resetZoom();
+    } else if (matchesShortcut(e, '=') || (e.key === '+' && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+      e.preventDefault();
+      zoomIn();
+    } else if (matchesShortcut(e, '-') || (e.key === '_' && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+      e.preventDefault();
+      zoomOut();
+    } else if (matchesShortcut(e, 'alt+arrowleft')) {
+      e.preventDefault();
+      panLeft();
+    } else if (matchesShortcut(e, 'alt+arrowright')) {
+      e.preventDefault();
+      panRight();
     }
   };
 

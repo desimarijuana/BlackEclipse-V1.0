@@ -69,7 +69,81 @@ export function iso2ForFeatureName(features: GeoFeature[], name: string): string
 const TEXTURE_W = 2048;
 const TEXTURE_H = 1024;
 
-let texturePromise: Promise<string> | null = null;
+/** Surface palettes. `MapSkin` lives in the store; kept structural here so this
+ *  module stays free of UI-state imports. */
+export type GlobeSkin = 'black' | 'glow';
+
+interface GlobePalette {
+  ocean: Array<[number, string]>;
+  band: Array<[number, string]>;
+  graticule: string;
+  /** Two-pass coastline bloom drawn UNDER the land. */
+  bloom: { color: string; blur: number; width: number } | null;
+  land: Array<[number, string]>;
+  coastline: string;
+  coastlineWidth: number;
+  /** Deterministic city-light stipple; null disables it. */
+  stipple: { count: number; minAlpha: number; maxAlpha: number } | null;
+}
+
+/**
+ * BLUE is the point of the `glow` palette.
+ *
+ * WHY THE TEXTURE CARRIES THE LOOK: `echarts-gl`'s globe is lit as a surface
+ * (`shading: 'lambert'`), so flat fills come out muddy. The visual weight
+ * therefore lives in the texture: a deep blue ocean, land that is clearly
+ * lighter and blue-lit, and bright cyan coastlines with a real bloom. The
+ * emission layer + starfield are added by the map adapter, not here.
+ *
+ * `black` is the first-draft terminal surface: near-black ocean, opaque grey
+ * land, hairline borders, no bloom and no stipple.
+ */
+const GLOBE_PALETTES: Record<GlobeSkin, GlobePalette> = {
+  glow: {
+    ocean: [
+      [0, '#061530'],
+      [0.35, '#0a2450'],
+      [0.5, '#0c2d63'],
+      [0.65, '#0a2450'],
+      [1, '#061530'],
+    ],
+    band: [
+      [0, 'rgba(96,165,250,0.20)'],
+      [0.6, 'rgba(96,165,250,0.07)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+    graticule: 'rgba(125,211,252,0.10)',
+    bloom: { color: 'rgba(56,189,248,0.85)', blur: 22, width: 3 },
+    land: [
+      [0, '#1b4a86'],
+      [0.5, '#2a67b4'],
+      [1, '#1b4a86'],
+    ],
+    coastline: 'rgba(186,240,255,0.95)',
+    coastlineWidth: 1.3,
+    stipple: { count: 2600, minAlpha: 0.06, maxAlpha: 0.22 },
+  },
+  black: {
+    ocean: [
+      [0, '#050506'],
+      [0.5, '#08080a'],
+      [1, '#050506'],
+    ],
+    band: [[0, 'rgba(255,255,255,0)'], [1, 'rgba(0,0,0,0)']],
+    graticule: 'rgba(255,255,255,0.04)',
+    bloom: null,
+    land: [
+      [0, '#141416'],
+      [0.5, '#191a1d'],
+      [1, '#141416'],
+    ],
+    coastline: 'rgba(255,255,255,0.24)',
+    coastlineWidth: 0.8,
+    stipple: null,
+  },
+};
+
+const texturePromises = new Map<GlobeSkin, Promise<string>>();
 
 /** Draw one ring/polygon path from a ring of [lon, lat] pairs. */
 function traceRing(ctx: CanvasRenderingContext2D, ring: ArrayLike<number>, x: (n: number) => number, y: (n: number) => number): void {
@@ -104,12 +178,20 @@ function geometryPolygons(geometry: unknown): number[][][][] {
 }
 
 /**
- * Render the world as a dark equirectangular texture for the 3D globe.
+ * Render the world as a glowing equirectangular texture for the 3D globe.
  * Resolves to a data URL. Rejects only if a 2D canvas is unavailable (SSR).
+ *
+ * WHY THE TEXTURE CARRIES THE LOOK: `echarts-gl`'s globe is lit as a surface
+ * (`shading: 'lambert'`), so flat fills come out muddy and dark. The visual
+ * weight therefore has to live in the texture: a deep-ocean gradient, land that
+ * is clearly lighter, and bright cyan coastlines with a real bloom. The
+ * atmosphere + starfield are added by the map layer, not here.
  */
-export function buildGlobeTexture(features: GeoFeature[]): Promise<string> {
-  if (texturePromise) return texturePromise;
-  texturePromise = new Promise<string>((resolve, reject) => {
+export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glow'): Promise<string> {
+  const cached = texturePromises.get(skin);
+  if (cached) return cached;
+  const promise = new Promise<string>((resolve, reject) => {
+    const palette = GLOBE_PALETTES[skin];
     if (typeof document === 'undefined') {
       reject(new Error('no document'));
       return;
@@ -123,10 +205,23 @@ export function buildGlobeTexture(features: GeoFeature[]): Promise<string> {
       return;
     }
 
-    // Ocean: very dark, but not pure black — a pure-black ocean on a black page
-    // is what made the sphere invisible before. `#0b1220` reads as water and
-    // separates cleanly from the lighter land fill.
-    ctx.fillStyle = '#0b1220';
+    // ── Ocean ───────────────────────────────────────────────────────────────
+    // The `glow` palette is a DEEP BLUE gradient: blue enough that the planet
+    // unmistakably reads as blue, dark enough that the pale-blue continents and
+    // the cyan coastline still separate from it. `black` is near-black flat.
+    const ocean = ctx.createLinearGradient(0, 0, 0, TEXTURE_H);
+    for (const [stop, color] of palette.ocean) ocean.addColorStop(stop, color);
+    ctx.fillStyle = ocean;
+    ctx.fillRect(0, 0, TEXTURE_W, TEXTURE_H);
+
+    // A soft equatorial light band, so the lit side of the sphere has a gradient
+    // to travel along rather than a flat tone.
+    const band = ctx.createRadialGradient(
+      TEXTURE_W / 2, TEXTURE_H / 2, TEXTURE_H * 0.1,
+      TEXTURE_W / 2, TEXTURE_H / 2, TEXTURE_H * 0.75,
+    );
+    for (const [stop, color] of palette.band) band.addColorStop(stop, color);
+    ctx.fillStyle = band;
     ctx.fillRect(0, 0, TEXTURE_W, TEXTURE_H);
 
     // Equirectangular projection with a tiny inset so the ±180 seam is not clipped.
@@ -134,35 +229,95 @@ export function buildGlobeTexture(features: GeoFeature[]): Promise<string> {
     const y = (lat: number) => ((90 - lat) / 180) * TEXTURE_H;
 
     ctx.lineJoin = 'round';
-    // Landmasses: one path per feature so borders land crisply on top. The fill
-    // is deliberately much lighter than the ocean so the continents (and their
-    // shape) are unmistakable at a glance — the whole point of the globe.
-    for (const f of features) {
-      for (const polygon of geometryPolygons(f.geometry)) {
-        ctx.beginPath();
-        for (const ring of polygon) traceRing(ctx, ring as unknown as ArrayLike<number>, x, y);
-        ctx.fillStyle = '#2b3442';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(125,211,252,0.55)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    }
 
-    // A faint graticule so rotation is legible even over open ocean.
-    ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+    // ── Graticule: drawn UNDER the land so it never cuts across a continent ──
+    ctx.strokeStyle = palette.graticule;
     ctx.lineWidth = 1;
-    for (let lon = -180; lon <= 180; lon += 30) {
+    for (let lon = -180; lon <= 180; lon += 20) {
       ctx.beginPath();
       ctx.moveTo(x(lon), 0);
       ctx.lineTo(x(lon), TEXTURE_H);
       ctx.stroke();
     }
-    for (let lat = -60; lat <= 60; lat += 30) {
+    for (let lat = -80; lat <= 80; lat += 20) {
       ctx.beginPath();
       ctx.moveTo(0, y(lat));
       ctx.lineTo(TEXTURE_W, y(lat));
       ctx.stroke();
+    }
+
+    // ── Coastline bloom (glow skin only) ────────────────────────────────────
+    // Drawn in its own pass, BELOW the land fill, with a wide blur. The land
+    // then covers the inner half of the bloom, leaving a halo that hugs the
+    // coast exactly — a real glow rather than a stroke.
+    if (palette.bloom) {
+      ctx.save();
+      ctx.shadowColor = palette.bloom.color;
+      ctx.shadowBlur = palette.bloom.blur;
+      ctx.strokeStyle = palette.bloom.color;
+      ctx.lineWidth = palette.bloom.width;
+      for (const f of features) {
+        for (const polygon of geometryPolygons(f.geometry)) {
+          ctx.beginPath();
+          for (const ring of polygon) traceRing(ctx, ring as unknown as ArrayLike<number>, x, y);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // ── Land ────────────────────────────────────────────────────────────────
+    // Blue-lit rather than grey, so the continent is clearly part of the same
+    // blue planet as the ocean. The vertical gradient keeps a large interior
+    // from reading as a flat slab.
+    const land = ctx.createLinearGradient(0, 0, 0, TEXTURE_H);
+    for (const [stop, color] of palette.land) land.addColorStop(stop, color);
+    for (const f of features) {
+      for (const polygon of geometryPolygons(f.geometry)) {
+        ctx.beginPath();
+        for (const ring of polygon) traceRing(ctx, ring as unknown as ArrayLike<number>, x, y);
+        ctx.fillStyle = land;
+        ctx.fill();
+        // A crisp bright coastline on top of the bloom — this is the single
+        // strongest "this is a lit planet" cue in the whole texture.
+        ctx.strokeStyle = palette.coastline;
+        ctx.lineWidth = palette.coastlineWidth;
+        ctx.stroke();
+      }
+    }
+
+    // ── City-light stipple on land (glow skin only) ─────────────────────────
+    // A faint deterministic speckle gives the continents texture at close zoom,
+    // so a zoomed globe is not a flat colour field.
+    const stipple = palette.stipple;
+    if (stipple) {
+      let seed = 1337;
+      const rand = () => {
+        // xorshift32 — deterministic, so the texture is identical every session.
+        seed ^= seed << 13; seed |= 0;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5; seed |= 0;
+        return ((seed >>> 0) % 100000) / 100000;
+      };
+      ctx.save();
+      const allPolys: number[][][][] = [];
+      for (const f of features) for (const p of geometryPolygons(f.geometry)) allPolys.push(p);
+      for (let i = 0; i < stipple.count; i++) {
+        const lon = rand() * 360 - 180;
+        const lat = rand() * 150 - 75;
+        const px = x(lon);
+        const py = y(lat);
+        // Only stipple points that are actually on land.
+        let onLand = false;
+        for (const polygon of allPolys) {
+          if (pointInPolygon(px, py, polygon[0], x, y)) { onLand = true; break; }
+        }
+        if (!onLand) continue;
+        const alpha = stipple.minAlpha + rand() * (stipple.maxAlpha - stipple.minAlpha);
+        ctx.fillStyle = `rgba(186,230,253,${alpha})`;
+        ctx.fillRect(px, py, 1.4, 1.4);
+      }
+      ctx.restore();
     }
 
     try {
@@ -171,11 +326,124 @@ export function buildGlobeTexture(features: GeoFeature[]): Promise<string> {
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
-  return texturePromise;
+  texturePromises.set(skin, promise);
+  return promise;
+}
+
+/**
+ * Point-in-polygon in TEXTURE space (not lon/lat), used only to decide whether a
+ * stipple point lands on a continent. Ray casting; holes are ignored, which is
+ * harmless for a 1px decorative speckle.
+ */
+function pointInPolygon(
+  px: number,
+  py: number,
+  ring: number[][],
+  x: (n: number) => number,
+  y: (n: number) => number,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = x(ring[i][0]);
+    const yi = y(ring[i][1]);
+    const xj = x(ring[j][0]);
+    const yj = y(ring[j][1]);
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** The globe texture for the already-registered world geometry. */
-export async function worldGlobeTexture(): Promise<string> {
+export async function worldGlobeTexture(skin: GlobeSkin = 'glow'): Promise<string> {
   const features = await ensureWorldMapRegistered();
-  return buildGlobeTexture(features);
+  return buildGlobeTexture(features, skin);
+}
+
+// ── Globe emission (coastline glow) ──────────────────────────────────────────
+// The globe supports `layers` with `{ type: 'blend', blendTo: 'emission' }`,
+// whose shader adds the texture additively:
+//
+//   gl_FragColor.rgb += texel.rgb * texel.a * intensity
+//
+// That is a genuine glow — light emitted from the surface — and it is the right
+// tool for an aura. It replaces the `atmosphere` component, which paints
+// `glowColor * pow(1 - dot(normal, viewDir), glowPower)` and therefore peaks
+// EXACTLY on the silhouette: a hard ring, no matter how `glowPower` is tuned.
+//
+// The emission texture is coastlines only, on a transparent field, so the glow
+// traces the continents and leaves the ocean dark.
+
+const GLOW_W = 2048;
+const GLOW_H = 1024;
+
+let glowPromise: Promise<string> | null = null;
+
+/** Draw a coastlines-only emission map (transparent everywhere else). */
+export function buildGlobeGlowTexture(features: GeoFeature[]): Promise<string> {
+  if (glowPromise) return glowPromise;
+  glowPromise = new Promise<string>((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new Error('no document'));
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = GLOW_W;
+    canvas.height = GLOW_H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('no 2d context'));
+      return;
+    }
+    // Deliberately NOT filled — the emission layer's alpha decides where light
+    // is added, so a transparent field means "glow only where we draw".
+    const x = (lon: number) => ((lon + 180) / 360) * GLOW_W;
+    const y = (lat: number) => ((90 - lat) / 180) * GLOW_H;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // Two passes: a soft halo, then a tight bright core. Because this is ADDED
+    // to the globe's lit colour, the halo reads as light bleeding off the
+    // coastline rather than as a stroke drawn on top of it.
+    //
+    // Alpha and width here set the STRENGTH of the aura, and additive light
+    // compounds fast: a wide opaque stroke turns the whole hemisphere into a
+    // glowing blob. Measured on screen, ~0.28 peak alpha with an 5px stroke
+    // gives a coastline that glows without washing out the land.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56,189,248,0.28)';
+    ctx.lineWidth = 5;
+    ctx.shadowColor = 'rgba(56,189,248,0.55)';
+    ctx.shadowBlur = 12;
+    for (const f of features) {
+      for (const polygon of geometryPolygons(f.geometry)) {
+        ctx.beginPath();
+        for (const ring of polygon) traceRing(ctx, ring as unknown as ArrayLike<number>, x, y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(186,230,253,0.55)';
+    ctx.lineWidth = 1.1;
+    for (const f of features) {
+      for (const polygon of geometryPolygons(f.geometry)) {
+        ctx.beginPath();
+        for (const ring of polygon) traceRing(ctx, ring as unknown as ArrayLike<number>, x, y);
+        ctx.stroke();
+      }
+    }
+
+    try {
+      resolve(canvas.toDataURL('image/png'));
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+  return glowPromise;
+}
+
+/** The emission texture for the already-registered world geometry. */
+export async function worldGlobeGlowTexture(): Promise<string> {
+  const features = await ensureWorldMapRegistered();
+  return buildGlobeGlowTexture(features);
 }

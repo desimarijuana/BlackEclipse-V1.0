@@ -66,6 +66,10 @@ export const FIRE_MIN_DETECTIONS = 10;
 /** Cap on emitted clusters (matches the per-source discipline used elsewhere). */
 const FIRMS_MAX_CLUSTERS = 400;
 
+/** Bounded retry for a transient fetch failure (see `firmsSource.fetch`). */
+const FIRMS_ATTEMPTS = 2;
+const FIRMS_RETRY_DELAY_MS = 800;
+
 function feedForHours(hours: number): string {
   if (hours <= 24) return FEEDS['24h'];
   if (hours <= 48) return FEEDS['48h'];
@@ -381,21 +385,42 @@ export const firmsSource: EventSource = {
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
     const url = feedForHours(query.hours);
-    // The multi-day globals exceed the transport's 5 MB default; the 10 s hard
-    // timeout ceiling still applies, so a slow download fails this source only.
-    const res = await safeGet({ url, timeoutMs: query.timeoutMs ?? 10_000, maxBytes: FIRMS_MAX_BYTES });
-    if (res.status < 200 || res.status >= 300) {
-      throw new OutboundError('network', `FIRMS HTTP ${res.status}`);
+    // MEASURED FLAKINESS: the 24h global CSV is ~1.6 MB and normally lands in
+    // ~3 s, but the shared transport hard-caps timeouts at 10 s (`MAX_TIMEOUT_MS`)
+    // and the feed occasionally exceeds that, which silently empties the hazard
+    // layer for a whole 10-minute cycle. One bounded retry turns that from a
+    // recurring gap into a rare one; a persistent failure still degrades to
+    // "this source only", never the whole feed.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < FIRMS_ATTEMPTS; attempt++) {
+      try {
+        // The multi-day globals exceed the transport's 5 MB default, so a larger
+        // cap is passed; the transport's own ceiling still applies.
+        const res = await safeGet({ url, timeoutMs: query.timeoutMs ?? 10_000, maxBytes: FIRMS_MAX_BYTES });
+        if (res.status < 200 || res.status >= 300) {
+          throw new OutboundError('network', `FIRMS HTTP ${res.status}`);
+        }
+        if (!res.text || res.text.length < 64) {
+          throw new OutboundError('network', 'FIRMS returned an empty body');
+        }
+        return [{
+          sourceId: FIRMS_SOURCE_ID,
+          sourceName: 'NASA FIRMS',
+          raw: { csv: res.text },
+          retrievedAt: new Date().toISOString(),
+        }];
+      } catch (err) {
+        lastError = err;
+        // Only retry a transient transport problem. A 4xx/5xx from FIRMS means
+        // the request itself is wrong and a retry would just waste the cycle.
+        const transient = err instanceof OutboundError && (err.code === 'timeout' || err.code === 'network');
+        if (!transient || attempt === FIRMS_ATTEMPTS - 1) break;
+        await new Promise((r) => setTimeout(r, FIRMS_RETRY_DELAY_MS));
+      }
     }
-    if (!res.text || res.text.length < 64) {
-      throw new OutboundError('network', 'FIRMS returned an empty body');
-    }
-    return [{
-      sourceId: FIRMS_SOURCE_ID,
-      sourceName: 'NASA FIRMS',
-      raw: { csv: res.text },
-      retrievedAt: new Date().toISOString(),
-    }];
+    throw lastError instanceof Error
+      ? lastError
+      : new OutboundError('network', 'FIRMS fetch failed');
   },
 
   normalize(records: RawEvent[]): NormalizedEvent[] {

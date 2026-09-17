@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-09-16
+last-verified: 2026-09-17
 ---
 
 # Architecture
@@ -57,12 +57,29 @@ Handlers reuse existing UI actions; creation shortcuts open forms rather than
 submit financial mutations. Browser/OS-reserved function keys cannot be
 guaranteed by a web app and remain user-reassignable in Sidebar settings.
 
+Three other keyboard affordances build on the same dispatcher rather than adding
+listeners:
+
+- **Executable palette commands** (`src/lib/search/commands.ts`, rendered by
+  `global-search.tsx`). `Ctrl+K` runs real actions — quick alert, watchlist add,
+  chart, fund open/export, Journal, Settings sections — reusing existing helpers
+  such as `createQuickAlert`. Side effects live on an `ExecutableCommand.run`
+  field, never on registry actions, because the resolver calls `action.run()` on
+  every keystroke.
+- **List navigation** (`src/hooks/use-list-navigation.ts`). Roving selection for
+  news, screener tables, alerts, journal trades and the Investor Eye feed. It
+  tracks selection by stable id, not index, so sorting or a refresh cannot move
+  the selection. Screens opt in with their existing root scope.
+- **Sub-tabs and history.** `Alt+1..9`/`Alt+0` select sub-tabs (Journal,
+  Economics). Because there is no router, `src/components/screens/navigation-history.ts`
+  keeps a capped in-memory stack of visited tabs that `Alt+←` walks back through.
+
 ## Layer 1 — Screens & components
 
 ```
 src/components/
   screens/        full-page views + their data/hook modules
-  layout/         sidebar, top-bar, global-search, agentation
+  layout/         sidebar, top-bar, price-ribbon, global-search, agentation
   chat/           chat-specific pieces
   ui/             reusable primitives (button, card, dialog, tab-bar, …)
   chart/          the ECharts/TradingView chart widget
@@ -367,6 +384,18 @@ The owning screen consumes it with `useSubroute(tab, handler)`; both live in
 result list with `aria-activedescendant`; a polite live region announces result
 counts. Rows are memoized so selection changes don't re-render the whole list.
 
+**Header price ribbon.** `src/components/layout/price-ribbon.tsx` is the live
+ticker strip mounted in `top-bar.tsx` beside the search trigger. It is a **thin
+view over existing DataHub topics** — `market:indices:US`, `market:indices:CRYPTO`,
+`market:commodities`, `market:forex` — so it adds no polling, no second cache,
+and no new API surface. Rows are curated (`RIBBON_ORDER`) and a symbol the
+upstream doesn't return is omitted rather than shown with a placeholder. Clicking
+a quote dispatches a `{ tab: 'chart', params: { symbol } }` destination on the
+command bus. The marquee (`.price-ribbon` / `.price-ribbon-track` in `globals.css`)
+renders two copies of the list and translates `-50%` for a seamless loop; the
+blurred glass wrapper stays untransformed so the backdrop blur isn't scoped to a
+transformed ancestor, and motion is disabled under `prefers-reduced-motion`.
+
 ## The Universal Data Connector Layer
 
 `src/lib/connectors/` is a capability-addressed layer that lets the operator
@@ -540,7 +569,8 @@ registered adapter cannot exist without one — see *Data governance* below.
 | `history.ts` | candle backfill + coverage, reusing the alerts yfinance path |
 | `layers.ts` | pure `MapLayer` builders (events, markets, conflict, shipping, trade, energy, commodities, weather, fires, economy, companies, portfolio) |
 | `map-echarts.ts` | the ONLY ECharts-aware module; layer → option + event bridge |
-| `app-geo.ts` | loads/registers `public/geo/world.geo.json` |
+| `app-geo.ts` | loads/registers `public/geo/world.geo.json`; **draws the glowing globe texture** (gradient ocean, dark land, coastline bloom, city stipple) |
+| `starfield.tsx` | the canvas starfield + nebula backdrop behind the map (deterministic, drawn once) |
 | `cache.ts` / `scheduler.ts` | server SWR cache + persisted last-known; in-process ingestion cron |
 | `store.ts` / `topics.ts` | Zustand view state; DataHub topics |
 

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Globe, LineChart, Activity, CalendarDays } from 'lucide-react';
 import { TabBar } from '@/components/ui/tab-bar';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { useSubroute } from '@/hooks/use-subroute';
 import { EconPanel } from './panel';
@@ -21,11 +22,33 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Decision indicators', ids: ['real-rate', 'yield-curve', 'breakeven', 'credit-spread', 'money-supply', 'leading-indicators', 'pmi', 'consumer-confidence', 'housing', 'fed-balance-sheet', 'dollar', 'liquidity'] },
 ];
 
+const SECTIONS: Array<{ id: 'overview' | 'calendar' | 'explorer'; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
+  { id: 'overview', label: 'Overview', icon: Activity },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
+];
+
 export function EconomicsScreen() {
   const [section, setSection] = useState<'overview' | 'calendar' | 'explorer'>('overview');
   // Indicator focus dispatched by global search (e.g. 'NFP'), applied to the
   // calendar section. Cleared when the user changes sections away from it.
   const [calendarFocus, setCalendarFocus] = useState<string | undefined>(undefined);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const selectSection = (id: 'overview' | 'calendar' | 'explorer') => {
+    setSection(id);
+    if (id !== 'calendar') setCalendarFocus(undefined);
+  };
+
+  usePageShortcuts(rootRef, [
+    ...SECTIONS.map((s, i) => ({
+      id: `economics.section.${s.id}`,
+      label: s.label,
+      keys: `Alt+${i + 1}`,
+      run: () => selectSection(s.id),
+    })),
+    { id: 'economics.section.last', label: SECTIONS[SECTIONS.length - 1].label, keys: 'Alt+0', run: () => selectSection(SECTIONS[SECTIONS.length - 1].id) },
+  ]);
 
   // Global search: 'economics.calendar' (+ optional indicator focus).
   useSubroute('economics', (req) => {
@@ -40,7 +63,7 @@ export function EconomicsScreen() {
   });
 
   return (
-    <div className="w-full px-4 md:px-8 py-8 h-full overflow-y-auto pb-20">
+    <div ref={rootRef} data-keyboard-scope="Economics" className="w-full px-4 md:px-8 py-8 h-full overflow-y-auto pb-20">
       <div className="animate-fade-in-up flex flex-col gap-6">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section>
@@ -59,15 +82,10 @@ export function EconomicsScreen() {
 
         {/* ── Section tabs ─────────────────────────────────────── */}
         <TabBar
-          items={[
-            { id: 'overview', label: 'Overview', icon: Activity },
-            { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-            { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
-          ]}
+          items={SECTIONS.map((s) => ({ id: s.id, label: s.label, icon: s.icon }))}
           activeId={section}
           onChange={(id) => {
-            setSection(id as typeof section);
-            if (id !== 'calendar') setCalendarFocus(undefined);
+            selectSection(id as typeof section);
           }}
         />
 

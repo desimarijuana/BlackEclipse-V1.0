@@ -10,13 +10,15 @@
 // state, and its source links are the ones the sources actually reported. Rows
 // are clickable and select the event on the map (spec §13).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Radio } from 'lucide-react';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
 import { SEVERITY_COLORS } from '@/lib/investor-eye/layers';
 import { formatClock, formatEventTitle } from '@/lib/investor-eye/format';
 import { useDisplayTimeZone } from '@/lib/timezone';
+import { useListNavigation } from '@/hooks/use-list-navigation';
+import { useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 
 interface LiveFeedProps {
@@ -62,6 +64,8 @@ const TYPE_LABEL: Record<string, string> = {
 export function LiveFeed({ events, onSelect, selectedKey, loading = false, className }: LiveFeedProps) {
   const tz = useDisplayTimeZone();
   const [filter, setFilter] = useState<FilterId>('conflict');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const clearSelection = useInvestorEyeStore((s) => s.clearSelection);
 
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
 
@@ -81,8 +85,35 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
     return out;
   }, [events]);
 
+  const rowKeys = useMemo(() => rows.map((e) => e.id ?? e.dedupKey), [rows]);
+  const selectRef = useRef(onSelect);
+  useEffect(() => {
+    selectRef.current = onSelect;
+  });
+  const listNav = useListNavigation({
+    ids: rowKeys,
+    rootRef,
+    enabled: !loading,
+    shortcutPrefix: 'investor-eye.feed',
+    onOpen: (key) => {
+      const event = rows.find((e) => (e.id ?? e.dedupKey) === key);
+      if (event) onSelect(event);
+    },
+    onSelectionChange: (key) => {
+      const event = rows.find((e) => (e.id ?? e.dedupKey) === key);
+      if (event) selectRef.current(event);
+    },
+    onEscape: () => clearSelection(),
+  });
+
+  useEffect(() => {
+    listNav.select(selectedKey ?? null);
+    // Only mirror the external map selection; local roving happens on keypress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
+
   return (
-    <div className={cn('flex min-h-0 flex-col rounded-2xl border border-white/10 dark:border-white/5 glass-card', className)}>
+    <div ref={rootRef} className={cn('flex min-h-0 flex-col rounded-2xl border border-white/10 dark:border-white/5 glass-card', className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border/10 px-3 py-2">
         <div className="flex items-center gap-1.5">
           <Radio size={12} className="text-emerald-400" />
@@ -135,10 +166,12 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
               <button
                 key={key}
                 type="button"
+                {...listNav.rowAttributes(key)}
                 onClick={() => onSelect(e)}
                 className={cn(
                   'flex w-full items-start gap-2 border-b border-border/5 px-3 py-1.5 text-left transition-colors cursor-pointer',
                   selected ? 'bg-primary/10' : 'hover:bg-accent/30',
+                  listNav.isSelected(key) && 'ring-1 ring-inset ring-primary/40',
                 )}
               >
                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: sev }} />

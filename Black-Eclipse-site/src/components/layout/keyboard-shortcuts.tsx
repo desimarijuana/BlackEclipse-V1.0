@@ -77,7 +77,7 @@ export function KeyboardShortcuts() {
 
   return (
     <Dialog open={helpOpen && !searchOpen} onOpenChange={setHelpOpen}>
-      <DialogContent className="glass-card-strong rounded-xl sm:max-w-2xl max-h-[85dvh] overflow-hidden">
+      <DialogContent className="glass-card-strong grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] rounded-xl sm:max-w-2xl max-h-[85dvh] overflow-hidden">
         <DialogTitle className="pr-8">Keyboard shortcuts</DialogTitle>
         <DialogDescription>
           Page shortcuts use the visible scope; focused nested scopes take priority. Shortcuts pause while typing or behind dialogs.
@@ -89,7 +89,7 @@ export function KeyboardShortcuts() {
           onChange={(event) => setQuery(event.target.value)}
           className="w-full rounded-md border border-border bg-background/60 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-        <div className="min-h-0 overflow-y-auto space-y-5" tabIndex={0} aria-label="Shortcut results">
+        <div className="min-h-0 overflow-y-auto overscroll-contain pr-2 space-y-5" tabIndex={0} aria-label="Shortcut results">
           {groups.length === 0 && <p className="text-muted-foreground" role="status">No matching shortcuts.</p>}
           {groups.map((group) => (
             <section key={group.id} aria-label={group.label}>

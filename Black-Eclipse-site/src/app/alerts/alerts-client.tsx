@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { usePageShortcuts } from "@/hooks/use-page-shortcuts";
+import { useListNavigation } from "@/hooks/use-list-navigation";
 import {
   Bell, Plus, Save, Trash2, Pencil, FlaskConical, X,
   CircleDot, History, Check, Zap, PencilLine, Inbox,
@@ -209,7 +210,30 @@ export function AlertsClient() {
   };
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const startCreating = () => { setEditing(null); setView("create"); };
+  const watchIds = useMemo(() => alerts.map((a) => a.id), [alerts]);
+  const historyIds = useMemo(() => events.map((e) => e.id), [events]);
+  const watchesNav = useListNavigation({
+    ids: view === "watches" ? watchIds : [],
+    rootRef: listRef,
+    enabled: view === "watches",
+    shortcutPrefix: "alerts.watches",
+    onOpen: (id) => {
+      const alert = alerts.find((a) => a.id === id);
+      if (alert) edit(alert);
+    },
+  });
+  const historyNav = useListNavigation({
+    ids: view === "history" ? historyIds : [],
+    rootRef: listRef,
+    enabled: view === "history",
+    shortcutPrefix: "alerts.history",
+    onOpen: (id) => {
+      const event = events.find((e) => e.id === id);
+      if (event) notify(`${event.symbol} · ${event.detail}`);
+    },
+  });
   usePageShortcuts(rootRef, [
     { id: "alerts.new", label: "Create alert", keys: "Shift+N", run: startCreating, enabled: view !== "create" },
     { id: "alerts.refresh", label: "Refresh alerts", keys: "R", run: () => { void loadAll(); void loadLive(); }, enabled: view !== "create" },
@@ -295,7 +319,16 @@ export function AlertsClient() {
 
       {/* ─── CONTENT ────────────────────────────────────────────────────── */}
       {view === "watches" && (
-        <WatchTable alerts={alerts} onEdit={edit} onToggle={toggleActive} onTest={testFire} onDelete={remove} />
+        <WatchTable
+          alerts={alerts}
+          onEdit={edit}
+          onToggle={toggleActive}
+          onTest={testFire}
+          onDelete={remove}
+          tableRef={listRef}
+          rowAttributes={watchesNav.rowAttributes}
+          isSelected={watchesNav.isSelected}
+        />
       )}
       {view === "create" && (
         <AlertBuilder
@@ -309,19 +342,30 @@ export function AlertsClient() {
           onCancel={() => { setEditing(null); setView("watches"); }}
         />
       )}
-      {view === "history" && <HistoryTable events={events} notices={notices} />}
+      {view === "history" && (
+        <HistoryTable
+          events={events}
+          notices={notices}
+          tableRef={listRef}
+          rowAttributes={historyNav.rowAttributes}
+          isSelected={historyNav.isSelected}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Live watches table ─────────────────────────────────────────────────
 
-function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
+function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete, tableRef, rowAttributes, isSelected }: {
   alerts: AlertRow[];
   onEdit: (a: AlertRow) => void;
   onTest: (a: AlertRow) => void;
   onToggle: (a: AlertRow) => void;
   onDelete: (a: AlertRow) => void;
+  tableRef: React.RefObject<HTMLDivElement | null>;
+  rowAttributes: (id: string) => { 'data-list-id': string };
+  isSelected: (id: string) => boolean;
 }) {
   if (alerts.length === 0) {
     return (
@@ -333,7 +377,7 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
     );
   }
   return (
-    <div className={cn(PANEL, "overflow-x-auto")}>
+    <div ref={tableRef} className={cn(PANEL, "overflow-x-auto")}>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border/20">
@@ -346,7 +390,11 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
         </thead>
         <tbody>
           {alerts.map((a) => (
-            <tr key={a.id} className="border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors">
+            <tr
+              key={a.id}
+              {...rowAttributes(a.id)}
+              className={cn("border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors", isSelected(a.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
+            >
               <td className="px-5 py-3.5">
                 <span className="font-serif font-semibold text-sm">{a.name}</span>
                 <div className="text-[10px] text-muted-foreground mt-0.5">{a.market} · {a.timeframe} · every {a.intervalSec}s</div>
@@ -382,8 +430,7 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
                   <Button size="sm" variant="ghost" onClick={() => onTest(a)} title="Test delivery" className="cursor-pointer h-8 w-8 p-0"><FlaskConical size={13} /></Button>
                   <Button size="sm" variant="ghost" onClick={() => onDelete(a)} title="Delete (keeps history)" className="cursor-pointer h-8 w-8 p-0 hover:text-rose-400"><Trash2 size={13} /></Button>
                 </div>
-              </td>
-            </tr>
+              </td>            </tr>
           ))}
         </tbody>
       </table>
@@ -393,7 +440,13 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete }: {
 
 // ─── History table ──────────────────────────────────────────────────────
 
-function HistoryTable({ events, notices }: { events: EventRow[]; notices: NoticeRow[] }) {
+function HistoryTable({ events, notices, tableRef, rowAttributes, isSelected }: {
+  events: EventRow[];
+  notices: NoticeRow[];
+  tableRef: React.RefObject<HTMLDivElement | null>;
+  rowAttributes: (id: string) => { 'data-list-id': string };
+  isSelected: (id: string) => boolean;
+}) {
   return (
     <div className="space-y-6">
       {notices.length > 0 && (
@@ -412,7 +465,7 @@ function HistoryTable({ events, notices }: { events: EventRow[]; notices: Notice
         </div>
       )}
 
-      <div className={cn(PANEL, "overflow-x-auto")}>
+      <div ref={tableRef} className={cn(PANEL, "overflow-x-auto")}>
         <div className="px-5 py-3.5 border-b border-border/20">
           <h3 className="text-md font-serif font-semibold flex items-center gap-2">
             <History className="w-4 h-4 text-primary" /> Alert History
@@ -432,7 +485,11 @@ function HistoryTable({ events, notices }: { events: EventRow[]; notices: Notice
             </thead>
             <tbody>
               {events.map((e) => (
-                <tr key={e.id} className="border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors">
+                <tr
+                  key={e.id}
+                  {...rowAttributes(e.id)}
+                  className={cn("border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors", isSelected(e.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
+                >
                   <td className="px-5 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{new Date(e.firedAt).toLocaleString()}</td>
                   <td className="px-5 py-2.5 font-mono text-xs">{e.symbol}</td>
                   <td className="px-5 py-2.5 text-xs">{e.detail}</td>

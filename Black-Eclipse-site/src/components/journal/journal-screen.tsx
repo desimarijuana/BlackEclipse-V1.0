@@ -80,8 +80,20 @@ export function JournalScreen() {
   }, [load]);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const selectTab = useCallback((index: number) => {
+    const target = TABS[index];
+    if (target) setTab(target.id);
+  }, []);
   usePageShortcuts(rootRef, [
     { id: 'journal.refresh', label: 'Refresh journal', keys: 'R', run: refresh, enabled: !loading && !dailyOpen },
+    ...TABS.slice(0, 9).map((t, i) => ({
+      id: `journal.tab.${t.id}`,
+      label: t.label,
+      keys: `Alt+${i + 1}`,
+      run: () => setTab(t.id),
+      enabled: !dailyOpen,
+    })),
+    { id: 'journal.tab.last', label: TABS[TABS.length - 1].label, keys: 'Alt+0', run: () => selectTab(TABS.length - 1), enabled: !dailyOpen },
   ]);
 
   return (

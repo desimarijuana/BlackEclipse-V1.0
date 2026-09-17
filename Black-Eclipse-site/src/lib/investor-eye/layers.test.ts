@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, buildFiresLayer, buildShippingLayer, buildCommoditiesLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
+import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, buildFiresLayer, buildShippingLayer, buildCommoditiesLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, layerSymbol, SYMBOL_PATHS, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
 import type { CountrySummary, InvestorEyeState, MarketObservation, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -82,12 +82,13 @@ describe('layer registry', () => {
     expect(SEVERITY_ORDER.map((s) => SEVERITY_COLORS[s]).filter(Boolean)).toHaveLength(4);
   });
 
-  it('assigns a marker shape to point layers and none to fills', () => {
-    expect(LAYER_META.conflict.symbol).toBeDefined();
-    expect(LAYER_META.weather.symbol).toBe('triangle');
-    expect(LAYER_META.fires.symbol).toBe('diamond');
+  it('assigns a marker glyph to point layers and none to fills', () => {
+    expect(LAYER_META.conflict.glyph).toBe('blast');
+    expect(LAYER_META.weather.glyph).toBe('seismic');
+    expect(LAYER_META.fires.glyph).toBe('flame');
+    // Fills paint regions; a point glyph would be meaningless on them.
+    expect(LAYER_META.economy.glyph).toBeUndefined();
     expect(LAYER_META.economy.symbol).toBeUndefined();
-    expect(LAYER_META.risk.symbol).toBeUndefined();
   });
 });
 
@@ -126,7 +127,7 @@ describe('domain layers match type OR channel', () => {
 
   it('registers shipping and commodities as real, coloured layers', () => {
     expect(LAYER_META.shipping.group).toBe('flows');
-    expect(LAYER_META.commodities.symbol).toBe('triangle');
+    expect(LAYER_META.commodities.glyph).toBe('ingot');
     expect(layerColor('shipping')).toMatch(/^#[0-9a-f]{6}$/i);
     expect(layerColor('commodities')).toMatch(/^#[0-9a-f]{6}$/i);
   });
@@ -147,6 +148,105 @@ describe('channel-driven trade lines', () => {
   it('ignores a multi-country event with no trade signal at all', () => {
     const e = event({ id: 't3', eventType: 'election', channels: [], countries: ['US', 'CN'] });
     expect(buildTradeLayer([e], countries).data()).toHaveLength(0);
+  });
+});
+
+describe('category glyphs', () => {
+  // Every domain layer renders its own silhouette, so a conflict, a fire and an
+  // earthquake are told apart by SHAPE, not only by colour.
+  it('gives every point layer a distinct category glyph', () => {
+    const pointLayers = ['events', 'markets', 'conflict', 'shipping', 'trade', 'energy', 'commodities', 'weather', 'fires', 'companies', 'risk', 'portfolio'] as const;
+    const glyphs = pointLayers.map((id) => LAYER_META[id].glyph);
+    for (const g of glyphs) expect(g, 'a point layer is missing its glyph').toBeDefined();
+    // Distinctness is the entire point: two layers sharing a glyph defeats it.
+    expect(new Set(glyphs).size).toBe(glyphs.length);
+  });
+
+  it('emits a path:// symbol for a glyph layer, and the primitive otherwise', () => {
+    expect(layerSymbol('conflict')).toBe(SYMBOL_PATHS.blast);
+    expect(layerSymbol('weather')).toBe(SYMBOL_PATHS.seismic);
+    expect(layerSymbol('fires')).toBe(SYMBOL_PATHS.flame);
+    // A layer with no glyph falls back to its primitive, then to a circle.
+    expect(layerSymbol('nope')).toBe('circle');
+  });
+
+  it('declares every glyph as valid SVG path data', () => {
+    for (const [name, path] of Object.entries(SYMBOL_PATHS)) {
+      expect(path, `${name} must be a path:// symbol`).toMatch(/^path:\/\//);
+      // The body must start with a move command, or ECharts' parser draws nothing.
+      expect(path.replace('path://', '').trim(), `${name} must start with M`).toMatch(/^M/);
+    }
+  });
+
+  it('keeps the catch-all events layer visually subordinate', () => {
+    // `events` overlays every geolocated event, so its marker must not be a big
+    // shape that buries the meaningful category glyphs underneath it.
+    expect(LAYER_META.events.glyph).toBe('event');
+    expect(SYMBOL_PATHS.event).toBe(SYMBOL_PATHS.event);
+    // A dot, not a diamond/star: the path describes a circle.
+    expect(SYMBOL_PATHS.event.includes('A')).toBe(true);
+  });
+
+  it('draws every cut-out with the opposite winding to its outer shape', () => {
+    // A canvas fill uses the NONZERO winding rule. A subpath that is supposed to
+    // be a HOLE must run the other way round, or the hole fills in and the glyph
+    // collapses to a solid blob — which is exactly how the earthquake layer
+    // shipped as a plain dot, the portfolio ring as a disc, and the risk
+    // triangle as a solid wedge.
+    function signedArea(points: string): number {
+      const nums = points.match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i + 1 < nums.length; i += 2) pts.push([nums[i], nums[i + 1]]);
+      let area = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        area += x1 * y2 - x2 * y1;
+      }
+      return area / 2;
+    }
+    function subpaths(path: string): string[] {
+      return path.replace('path://', '').split(/(?=M)/).filter((s) => s.trim().startsWith('M'));
+    }
+    /** True when a ring of `M…L…Z` points winds the opposite way to the first. */
+    function hasOppositeWinding(path: string): boolean {
+      const parts = subpaths(path).filter((s) => !s.includes('A'));
+      if (parts.length !== 2) return false;
+      // Opposite signs ⇒ opposite winding ⇒ the centre is punched out.
+      return Math.sign(signedArea(parts[0])) !== Math.sign(signedArea(parts[1]));
+    }
+
+    // `risk` is the one polygonal glyph with a real hole; the glyphs with two
+    // subpaths that are NOT holes (a ship's hull + swell, two exchange arrows,
+    // two office blocks) deliberately wind the same way, since each subpath is
+    // its own solid shape.
+    expect(hasOppositeWinding(SYMBOL_PATHS.risk), 'risk renders solid').toBe(true);
+    expect(subpaths(SYMBOL_PATHS.risk)).toHaveLength(2);
+
+    // ECharts' arc syntax spells the direction out: sweep-flag 1 is clockwise,
+    // 0 is counter-clockwise. A ring glyph must contain BOTH directions, or the
+    // hole fills in and it renders as a solid disc. `seismic` alternates ring by
+    // ring and `portfolio` has one hole, so both must show both sweeps.
+    for (const name of ['seismic', 'portfolio'] as const) {
+      const body = SYMBOL_PATHS[name];
+      expect(body, `${name} has no clockwise arc`).toMatch(/A\d+,\d+ 0 1,1/);
+      expect(body, `${name} has no counter-clockwise arc`).toMatch(/A\d+,\d+ 0 1,0/);
+      // Every circle is a PAIR of 180° arcs. A single near-full arc (the form
+      // that shipped off-centre and lumpy) has no `A` returning to its start
+      // point, so a ring with an odd arc count is the bug.
+      const arcs = body.match(/A\d+,\d+/g) ?? [];
+      expect(arcs.length % 2, `${name} has an odd arc count`).toBe(0);
+    }
+  });
+
+  it('keeps the catch-all events layer BEHIND the category glyphs', () => {
+    // The events layer draws a dot for every geolocated event. When its zIndex
+    // was above the domain layers the dot was painted over the conflict/fire/
+    // energy glyphs, which is what made every pin look the same on the map.
+    expect(LAYER_META.events.glyph).toBeDefined();
+    const eventsZ = buildEventsLayer([event({ id: 'z1' })]).zIndex;
+    const domainZ = buildConflictLayer([event({ id: 'z2', eventType: 'conflict' })]).zIndex;
+    expect(eventsZ).toBeLessThan(domainZ);
   });
 });
 

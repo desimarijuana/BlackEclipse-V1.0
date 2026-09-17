@@ -15,6 +15,7 @@ import { Minimize2, X, ScanEye } from 'lucide-react';
 import { WorldMap } from './world-map';
 import { EventPanel } from './event-panel';
 import { LayerController } from './layer-controller';
+import { MapViewControls } from './map-view-controls';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { TIME_RANGES, useInvestorEyeStore, type TimeRangeId } from '@/lib/investor-eye/store';
 import { formatClock } from '@/lib/investor-eye/format';
@@ -42,6 +43,7 @@ export function FullPageMap({
   const activeLayers = useInvestorEyeStore((s) => s.activeLayers);
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
+  const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const tz = useDisplayTimeZone();
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const timeRange = useInvestorEyeStore((s) => s.timeRange);
@@ -77,6 +79,7 @@ export function FullPageMap({
         highlightPoints={highlightPoints}
         onSelectCountry={onSelectCountry}
         mode={mapMode}
+        skin={mapSkin}
         onModeUnavailable={() => setMapMode('2d')}
       />
 
@@ -98,24 +101,7 @@ export function FullPageMap({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-1.5">
-          {/* MAP / GLOBE — colour-coded so the active presentation is obvious. */}
-          <div className="glass-button flex items-center gap-0.5 rounded-lg p-0.5">
-            {(['2d', 'globe'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMapMode(m)}
-                title={m === '2d' ? 'Flat map' : '3D globe'}
-                className={cn(
-                  'rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
-                  mapMode === m
-                    ? m === '2d' ? 'bg-sky-500/25 text-sky-200' : 'bg-violet-500/25 text-violet-200'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {m === '2d' ? 'MAP' : 'GLOBE'}
-              </button>
-            ))}
-          </div>
+          <MapViewControls />
           <button
             onClick={onExit}
             className="glass-button flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { ChartNoAxesCombined, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,51 +101,100 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
   );
 }
 
-function CandlePreview({ colors }: { colors: CandleColors }) {
+function PreviewFrame({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <svg viewBox="0 0 240 120" role="img" aria-label="Candlestick preview" className="w-full h-auto">
-      {[[20, 45, 75, true], [60, 30, 85, true], [100, 50, 70, false], [140, 25, 90, true], [180, 55, 65, false], [220, 35, 80, true]].map(([x, top, bottom, isUp], i) => (
-        <g key={i}>
-          <line x1={Number(x)} y1={Number(top) - 12} x2={Number(x)} y2={Number(top)} stroke={isUp ? colors.up : colors.down} />
-          <line x1={Number(x)} y1={Number(bottom)} x2={Number(x)} y2={Math.min(110, Number(bottom) + 12)} stroke={isUp ? colors.up : colors.down} />
-          <rect x={Number(x) - 8} y={Number(top)} width={16} height={Number(bottom) - Number(top)} fill={isUp ? colors.up : colors.down} />
-        </g>
-      ))}
-    </svg>
+    <figure className="glass-card-subtle h-[124px] overflow-hidden rounded-lg border border-border/20 px-3 py-2">
+      <figcaption className="mb-1 text-[10px] tracking-wide text-muted-foreground">Illustrative preview · not financial data</figcaption>
+      <svg viewBox="0 0 600 90" preserveAspectRatio="none" role="img" aria-label={label} className="h-[90px] w-full text-muted-foreground">
+        {children}
+      </svg>
+    </figure>
+  );
+}
+
+function PreviewGrid() {
+  return (
+    <g fill="none" stroke="currentColor" strokeWidth="0.5">
+      {[18, 38, 58].map((y) => <path key={y} d={`M8 ${y}H592`} opacity="0.12" vectorEffect="non-scaling-stroke" />)}
+      {[104, 202, 300, 398, 496].map((x) => <path key={x} d={`M${x} 8V82`} opacity="0.08" vectorEffect="non-scaling-stroke" />)}
+      <path d="M8 82H592" opacity="0.25" vectorEffect="non-scaling-stroke" />
+    </g>
+  );
+}
+
+function CandlePreview({ colors }: { colors: CandleColors }) {
+  const closes = [51, 46, 49, 40, 35, 39, 39, 32, 27, 31, 36, 29, 24, 26, 20, 24, 24, 18, 22, 16, 21, 25, 19, 14];
+  return (
+    <PreviewFrame label="Candlestick preview">
+      <PreviewGrid />
+      {closes.map((close, i) => {
+        const open = i === 0 ? 57 : closes[i - 1];
+        const color = close < open ? colors.up : close > open ? colors.down : colors.neutral;
+        const x = 20 + i * 24;
+        const volume = 4 + Math.abs(close - open);
+        return (
+          <g key={i}>
+            <line x1={x} y1={Math.min(open, close) - 4} x2={x} y2={Math.max(open, close) + 4} stroke={color} strokeWidth="0.8" strokeOpacity="0.8" vectorEffect="non-scaling-stroke" />
+            <rect x={x - 2.5} y={Math.min(open, close)} width={5} height={Math.max(1, Math.abs(close - open))} fill={color} fillOpacity="0.85" />
+            <rect x={x - 2.5} y={81 - volume} width={5} height={volume} fill={color} fillOpacity="0.22" />
+          </g>
+        );
+      })}
+    </PreviewFrame>
   );
 }
 
 function LinePreview({ colors }: { colors: LineColors }) {
+  const id = useId();
+  const path = "M8 55L32 53L56 56L80 47L104 49L128 43L152 45L176 36L200 39L224 32L248 36L272 30L296 33L320 24L344 27L368 22L392 25L416 19L440 24L464 18L488 21L512 14L536 18L560 12L592 15";
   return (
-    <svg viewBox="0 0 240 120" role="img" aria-label="Line chart preview" className="w-full h-auto">
-      <path d="M20 95L65 70L110 80L155 40L200 55L225 20" fill="none" stroke={colors.primary} strokeWidth="3" />
-      <path d="M20 95L65 80L110 92L155 65L200 80L225 55" fill="none" stroke={colors.series[0]} strokeWidth="2" />
-      <path d="M20 100L65 90L110 100L155 85L200 98L225 85" fill="none" stroke={colors.series[1]} strokeWidth="2" strokeDasharray="4 4" />
-    </svg>
+    <PreviewFrame label="Line chart preview">
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={colors.primary} stopOpacity="0.12" />
+          <stop offset="100%" stopColor={colors.primary} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <PreviewGrid />
+      <path d={`${path}L592 63H8Z`} fill={`url(#${id})`} />
+      <path d={path} fill="none" stroke={colors.primary} strokeWidth="1.25" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {colors.series.map((color, i) => (
+        <path key={i} d={`M${8 + i * 98} 75h12l8 -4l8 2h12`} fill="none" stroke={color} strokeWidth="1" strokeOpacity="0.8" vectorEffect="non-scaling-stroke">
+          <title>{`Series ${i + 1}`}</title>
+        </path>
+      ))}
+    </PreviewFrame>
   );
 }
 
 function HeatmapPreview({ colors }: { colors: HeatmapColors }) {
-  const cells = [
-    [colors.down, colors.mid, colors.up, colors.mid],
-    [colors.mid, colors.up, colors.up, colors.down],
-    [colors.down, colors.up, colors.mid, colors.up],
-    [colors.mid, colors.down, colors.mid, colors.up],
+  const groups = [
+    { color: colors.down, x: 8, width: 192, split: 112 },
+    { color: colors.mid, x: 202, width: 192, split: 80 },
+    { color: colors.up, x: 396, width: 196, split: 118 },
   ];
   return (
-    <svg viewBox="0 0 120 120" role="img" aria-label="Heatmap preview" className="w-full h-auto">
-      {cells.flatMap((row, y) => row.map((color, x) => (
-        <rect key={`${x}-${y}`} x={x * 30} y={y * 30} width={28} height={28} rx={4} fill={color} />
-      )))}
-    </svg>
+    <PreviewFrame label="Heatmap preview">
+      {groups.map(({ color, x, width, split }, i) => (
+        <g key={i} fill={color}>
+          <rect x={x} y={8} width={split} height={48} fillOpacity="0.5" />
+          <rect x={x + split + 2} y={8} width={width - split - 2} height={27} fillOpacity="0.35" />
+          <rect x={x + split + 2} y={37} width={width - split - 2} height={19} fillOpacity="0.22" />
+          <rect x={x} y={63} width={width} height={3} fillOpacity="0.6" />
+        </g>
+      ))}
+      <g fill="currentColor" fontSize="9" opacity="0.7">
+        <text x="8" y="81">Negative</text>
+        <text x="298" y="81" textAnchor="middle">Midpoint</text>
+        <text x="592" y="81" textAnchor="end">Positive</text>
+      </g>
+    </PreviewFrame>
   );
 }
 
 export function ChartSettingsPanel() {
   const palette = useChartPalette();
   const { setSection, setSeriesColor, setPalette, resetSection, storageAvailable } = useChartPaletteStore();
-  const [revision, setRevision] = useState(0);
-  const touch = () => setRevision((value) => value + 1);
 
   const matchesCandles = (colors: CandleColors) => JSON.stringify(palette.candles) === JSON.stringify(colors);
   const matchesLines = (colors: LineColors) => JSON.stringify(palette.lines) === JSON.stringify(colors);
@@ -163,7 +212,7 @@ export function ChartSettingsPanel() {
       <div className="glass-card rounded-2xl border border-border/20 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium">Candlesticks & volume</h3>
-          <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("candles"); touch(); }}><RotateCcw />Reset section</Button>
+          <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("candles"); }}><RotateCcw />Reset section</Button>
         </div>
         <p className="text-xs text-muted-foreground">Used by the native Eclipse chart candles, volume bars, trade replay, win/loss charts, and calendar heatmaps.</p>
         <CandlePreview colors={palette.candles} />
@@ -172,13 +221,13 @@ export function ChartSettingsPanel() {
           <ColorPicker label="Down / negative" value={palette.candles.down} onChange={(value) => setSection("candles", { ...palette.candles, down: value })} />
           <ColorPicker label="Neutral" value={palette.candles.neutral} onChange={(value) => setSection("candles", { ...palette.candles, neutral: value })} />
         </div>
-        <CandleSwatches presetColors={CANDLE_PRESETS} onApply={(colors) => { setSection("candles", colors); touch(); }} isActive={matchesCandles} />
+        <CandleSwatches presetColors={CANDLE_PRESETS} onApply={(colors) => { setSection("candles", colors); }} isActive={matchesCandles} />
       </div>
 
       <div className="glass-card rounded-2xl border border-border/20 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium">Line & area charts</h3>
-          <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("lines"); touch(); }}><RotateCcw />Reset section</Button>
+          <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("lines"); }}><RotateCcw />Reset section</Button>
         </div>
         <p className="text-xs text-muted-foreground">Primary line and the six-color categorical palette for multi-series charts, economic series, benchmarks, indicators, and allocation bars.</p>
         <LinePreview colors={palette.lines} />
@@ -193,13 +242,13 @@ export function ChartSettingsPanel() {
             <ColorPicker key={index + 3} label={`Series ${index + 4}`} value={color} onChange={(value) => setSeriesColor(index + 3, value)} />
           ))}
         </div>
-        <LineSwatches presetColors={LINE_PRESETS} onApply={(colors) => { setSection("lines", colors); touch(); }} isActive={matchesLines} />
+        <LineSwatches presetColors={LINE_PRESETS} onApply={(colors) => { setSection("lines", colors); }} isActive={matchesLines} />
       </div>
 
       <div className="glass-card rounded-2xl border border-border/20 p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium">Heatmaps & treemaps</h3>
-            <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("heatmap"); touch(); }}><RotateCcw />Reset section</Button>
+            <Button variant="ghost" size="sm" className="rounded-xl cursor-pointer" onClick={() => { resetSection("heatmap"); }}><RotateCcw />Reset section</Button>
           </div>
           <p className="text-xs text-muted-foreground">Diverging gradient for market and portfolio treemaps, correlation matrix, and calendar intensity tiles.</p>
           <HeatmapPreview colors={palette.heatmap} />
@@ -208,14 +257,14 @@ export function ChartSettingsPanel() {
             <ColorPicker label="Midpoint" value={palette.heatmap.mid} onChange={(value) => setSection("heatmap", { ...palette.heatmap, mid: value })} />
             <ColorPicker label="Negative end" value={palette.heatmap.down} onChange={(value) => setSection("heatmap", { ...palette.heatmap, down: value })} />
           </div>
-          <HeatmapSwatches presetColors={HEATMAP_PRESETS} onApply={(colors) => { setSection("heatmap", colors); touch(); }} isActive={matchesHeatmap} />
+          <HeatmapSwatches presetColors={HEATMAP_PRESETS} onApply={(colors) => { setSection("heatmap", colors); }} isActive={matchesHeatmap} />
       </div>
 
       <div className="glass-card rounded-2xl border border-border/20 p-5 space-y-4">
         <h3 className="text-sm font-medium">All chart colors</h3>
         <p className="text-xs text-muted-foreground">Apply a coordinated look across every chart section at once.</p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => { setPalette({ candles: CANDLE_PRESETS[0].colors, lines: LINE_PRESETS[0].colors, heatmap: HEATMAP_PRESETS[0].colors }); touch(); }}>
+          <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => { setPalette({ candles: CANDLE_PRESETS[0].colors, lines: LINE_PRESETS[0].colors, heatmap: HEATMAP_PRESETS[0].colors }); }}>
             <RotateCcw />Reset everything
           </Button>
         </div>

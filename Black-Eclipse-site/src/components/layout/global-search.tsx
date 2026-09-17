@@ -38,10 +38,19 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useCommandStore, visitRecencyScore } from '@/lib/search/store';
 import { resolveQuery } from '@/lib/search/resolver';
-import { evaluateCalc, type CalcResult } from '@/lib/search/calc';
-import { detectParamCommand, paramCandidates } from '@/lib/search/commands';
-import { createQuickAlert } from '@/lib/alerts/quick-alert';
-import { addToWatchlist } from '@/lib/dashboard/watchlist-store';
+import {
+  buildPaletteCommands,
+  detectParamCommand,
+  exportAllFundsCommand,
+  fundExportCommands,
+  fundOpenCommands,
+  paramCommandFor,
+  rankCommands,
+  type ExecutableCommand,
+} from '@/lib/search/commands';
+import { loadFunds, exportFundJson, exportAllFundsJson } from '@/components/screens/portfolio/fund-store';
+import { getUserEntities } from '@/lib/search/user';
+import { loadSidebarConfig } from '@/lib/sidebar/config';
 import { universeCount } from '@/lib/search/universe';
 import { getPage } from '@/lib/search/registry';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
@@ -168,7 +177,8 @@ interface QuickAction {
 type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
   | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
-  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void };
+  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void }
+  | { type: 'command'; id: string; title: string; subtitle: string; icon: LucideIcon; shortcut?: string; onSelect: () => void };
 
 interface Section {
   key: string;
@@ -286,6 +296,52 @@ export function GlobalSearch() {
 
   // Flat navigable list = the page launcher (order matches render).
   const quickActions: QuickAction[] = navPages;
+
+  // Executable commands: static palette commands (journal, today's events,
+  // Settings sections) plus live fund open/export rows. Rebuilt only while the
+  // palette is open so we never read localStorage on every keystroke.
+  const commands: ExecutableCommand[] = useMemo(() => {
+    if (!store.open) return [];
+    const cfg = loadSidebarConfig();
+    const funds = getUserEntities().map((e) => ({
+      id: String(e.destination.params?.fund ?? e.id),
+      name: e.title,
+    }));
+    const exportFund = (fundId: string) => {
+      const fund = loadFunds().funds.find((f) => f.id === fundId);
+      if (fund) exportFundJson(fund);
+    };
+    const exportAll = exportAllFundsCommand(funds, () => exportAllFundsJson(loadFunds().funds));
+    return [
+      ...buildPaletteCommands(cfg),
+      ...fundOpenCommands(funds, cfg),
+      ...fundExportCommands(funds, exportFund, cfg),
+      ...(exportAll ? [exportAll] : []),
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.open]);
+
+  // Commands matching the current query, and the parameterized command for a
+  // typed verb ("alert AAPL"). The param command's `run` performs the real side
+  // effect — the registry action no longer does, because the resolver calls
+  // `run` on every keystroke while previewing.
+  const commandMatches = useMemo(
+    () => (store.open && debouncedQuery.trim() ? rankCommands(commands, debouncedQuery) : []),
+    [commands, debouncedQuery, store.open],
+  );
+
+  const runCommand = (cmd: ExecutableCommand) => {
+    void cmd.run?.();
+    if (cmd.destination) store.dispatch(cmd.destination);
+    useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
+  };
+
+  const paramCommand = useMemo(() => {
+    if (!debouncedQuery.trim()) return null;
+    const detected = detectParamCommand(debouncedQuery);
+    if (!detected) return null;
+    return paramCommandFor(detected, loadSidebarConfig());
+  }, [debouncedQuery]);
 
   // Build sections + a flat navigable row list (collapsed groups are skipped).
   const { sections, flatRows, hasAiRow } = useMemo(() => {
@@ -414,6 +470,37 @@ export function GlobalSearch() {
       }
     }
 
+    // Executable commands. While typing, the top match is the parameterized
+    // command for the typed verb (its `run` performs the real side effect);
+    // with an empty query, the static/fund/Settings commands are the launcher.
+    if (!showHelp) {
+      const typed = debouncedQuery.trim();
+      const merged = typed
+        ? [...(paramCommand ? [paramCommand] : []), ...commandMatches]
+        : commands;
+      const seen = new Set<string>();
+      const commandRows: Row[] = merged
+        .filter((cmd) => (seen.has(cmd.id) ? false : (seen.add(cmd.id), true)))
+        .map((cmd) => ({
+          type: 'command' as const,
+          id: cmd.id,
+          title: cmd.title,
+          subtitle: cmd.subtitle,
+          icon: nameIcon(cmd.icon),
+          shortcut: cmd.shortcut,
+          onSelect: () => runCommand(cmd),
+        }));
+      if (commandRows.length > 0) {
+        built.push({
+          key: 'command',
+          label: 'Commands',
+          count: commandRows.length,
+          collapsed: store.collapsedGroups.includes('command'),
+          rows: commandRows,
+        });
+      }
+    }
+
     // Assign flat indices in render order, skipping collapsed groups. Collapsed
     // sections stay in the list (header only) so the toggle remains clickable.
     const sections: Section[] = built.map((s) => {
@@ -437,7 +524,7 @@ export function GlobalSearch() {
 
     return { sections, flatRows: flat, hasAiRow: !!aiRow };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, navCollapsed]);
+  }, [debouncedQuery, store.recents, store.pins, store.collapsedGroups, store.universeReady, resolved, showRecents, quickActions, showHelp, navCollapsed, commands, commandMatches, paramCommand]);
   // Track whether more content exists below the fold so the fade can show/hide.
   // Re-measured when the flat list changes (query, collapse, pins, …).
   useEffect(() => {
@@ -782,9 +869,15 @@ const RowButton = memo(function RowButton({
 }) {
   const [copied, setCopied] = useState(false);
   const Icon =
-    row.type === 'action' ? row.icon : row.type === 'recent' ? Search : KIND_ICON[row.kind] ?? Search;
-  const label = row.type === 'action' ? row.label : row.type === 'recent' ? row.text : row.title;
-  const subtitle = row.type === 'result' ? row.subtitle : null;
+    row.type === 'action' || row.type === 'command'
+      ? row.icon
+      : row.type === 'recent'
+        ? Search
+        : KIND_ICON[row.kind] ?? Search;
+  const label =
+    row.type === 'action' ? row.label : row.type === 'recent' ? row.text : row.title;
+  const subtitle = row.type === 'result' || row.type === 'command' ? row.subtitle : null;
+  const shortcut = row.type === 'command' ? row.shortcut : undefined;
   const onSelect = row.onSelect;
 
   const copySymbol = (e: React.MouseEvent) => {
@@ -879,6 +972,11 @@ const RowButton = memo(function RowButton({
         >
           <X size={13} />
         </button>
+      )}
+      {shortcut && (
+        <kbd className="shrink-0 rounded-md border border-border/60 bg-accent/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/70">
+          {shortcut}
+        </kbd>
       )}
       {selected && row.type !== 'recent' && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
     </div>

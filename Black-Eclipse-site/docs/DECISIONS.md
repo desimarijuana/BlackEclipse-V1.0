@@ -1,7 +1,7 @@
 ---
 title: Decisions (ADR log)
 status: Current
-last-verified: 2026-09-16
+last-verified: 2026-09-17
 ---
 
 # Decisions — Architecture Decision Record
@@ -220,6 +220,26 @@ inferred from the key existing. Adding a provider is one entry in `PROVIDER_KEYS
 Secrets must never be logged and never returned; `SystemConfig` plaintext storage
 is explicitly not used for them. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 (operator credentials) and [`investor-eye-architecture.md`](./investor-eye-architecture.md) §5l.
+
+---
+
+## ADR-014 — Map-local loading states must never portal to the body (2026)
+**Decision:** A loading/empty overlay that belongs to a *region* of the app
+renders inside that region. `TopLoader` (the app-wide transition loader) is
+reserved for whole-screen loads and must never be used inside a card, panel, or
+widget. `WorldMap`'s loading state is now a scoped inline overlay, and globe
+initialisation has a hard 20 s ceiling that falls back to the flat map.
+**Why:** `TopLoader` portals to `document.body` at `z-[45]`, so using it for a
+component-level state silently promoted a map-local spinner to a full-app
+blocker. The symptom was severe and confusing — the entire application, sidebar
+included, sat on a frozen `95%` overlay — and it only appeared once the globe
+path could take seconds to initialise. A component must not be able to assert
+global UI state as a side effect of its own data loading.
+**Impact:** The rule applies to any future region-scoped loader. The related
+lesson is that this was invisible to `tsc` and to the flat map, so the globe
+contract is now covered by a test (`map-echarts.test.ts`: the halo series must
+exist, must be `silent`, and the core must be lightened toward white — the
+dark-donut regression). See [`investor-eye-architecture.md`](./investor-eye-architecture.md) §5m.
 
 ---
 

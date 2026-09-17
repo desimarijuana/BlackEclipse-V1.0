@@ -49,6 +49,18 @@ export interface SelectedMarket {
 /** Presentation of the world visualization. */
 export type MapMode = '2d' | 'globe';
 
+/**
+ * Surface skin. `black` is the first-draft flat terminal look; `glow` is the
+ * blue "lit planet" look (translucent blue continents, cyan coastlines, globe
+ * bloom, starfield showing through). A pure view preference.
+ */
+export type MapSkin = 'black' | 'glow';
+
+export const MAP_SKINS: Array<{ id: MapSkin; label: string; hint: string }> = [
+  { id: 'black', label: 'BLACK', hint: 'Flat terminal surface — no glow' },
+  { id: 'glow', label: 'GLOW', hint: 'Blue lit planet — coastlines, bloom, stars' },
+];
+
 interface InvestorEyeStore {
   selectedCountry: string | null;
   selectedEvent: NormalizedEvent | null;
@@ -59,6 +71,8 @@ interface InvestorEyeStore {
   timeRange: TimeRangeId;
   /** Flat map or 3D globe (globe is lazy-loaded; falls back to `2d`). */
   mapMode: MapMode;
+  /** Blue "lit planet" surface vs the plain black terminal surface. */
+  mapSkin: MapSkin;
   /**
    * Immersive full-page mode: the world fills the viewport and only a minimal
    * control strip remains. View state, not a preference — deliberately NOT
@@ -88,6 +102,7 @@ interface InvestorEyeStore {
   setLayers: (ids: LayerId[]) => void;
   setTimeRange: (id: TimeRangeId) => void;
   setMapMode: (mode: MapMode) => void;
+  setMapSkin: (skin: MapSkin) => void;
   setFullPage: (on: boolean) => void;
   setEconomicMetric: (id: string) => void;
   setSearchQuery: (q: string) => void;
@@ -113,6 +128,7 @@ interface Persisted {
   economicMetric: string;
   portfolioOverlay: boolean;
   mapMode: MapMode;
+  mapSkin: MapSkin;
   /** Operator-saved intelligence postures (layer + window + metric presets). */
   views?: SavedView[];
 }
@@ -128,6 +144,7 @@ export interface SavedView {
   activeLayers: LayerId[];
   timeRange: TimeRangeId;
   mapMode: MapMode;
+  mapSkin: MapSkin;
   economicMetric: string;
   portfolioOverlay: boolean;
   createdAt: string;
@@ -154,6 +171,7 @@ function loadPersisted(): Partial<Persisted> {
       economicMetric: parsed.economicMetric ?? 'inflation',
       portfolioOverlay: parsed.portfolioOverlay ?? false,
       mapMode: parsed.mapMode === 'globe' ? 'globe' : '2d',
+      mapSkin: parsed.mapSkin === 'black' ? 'black' : 'glow',
       views: Array.isArray(parsed.views)
         ? parsed.views.filter((v): v is SavedView => Boolean(v && typeof v.name === 'string')).slice(0, MAX_VIEWS)
         : undefined,
@@ -174,6 +192,7 @@ function persist(state: InvestorEyeStore) {
         economicMetric: state.economicMetric,
         portfolioOverlay: state.portfolioOverlay,
         mapMode: state.mapMode,
+        mapSkin: state.mapSkin,
         views: state.views,
       } satisfies Persisted),
     );
@@ -194,6 +213,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     activeLayers: persisted.activeLayers ?? defaultActive,
     timeRange: persisted.timeRange ?? '24h',
     mapMode: persisted.mapMode ?? '2d',
+    mapSkin: persisted.mapSkin ?? 'glow',
     fullPage: false,
     economicMetric: persisted.economicMetric ?? 'inflation',
     searchQuery: '',
@@ -230,6 +250,10 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
       set({ mapMode: mode });
       persist(get());
     },
+    setMapSkin: (skin) => {
+      set({ mapSkin: skin });
+      persist(get());
+    },
     setFullPage: (on) => set({ fullPage: on }),
     setEconomicMetric: (id) => {
       set({ economicMetric: id });
@@ -253,6 +277,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         activeLayers: [...s.activeLayers],
         timeRange: s.timeRange,
         mapMode: s.mapMode,
+        mapSkin: s.mapSkin,
         economicMetric: s.economicMetric,
         portfolioOverlay: s.portfolioOverlay,
         createdAt: new Date().toISOString(),
@@ -274,6 +299,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         activeLayers: view.activeLayers.filter((l) => known.has(l)),
         timeRange: view.timeRange,
         mapMode: view.mapMode,
+        mapSkin: view.mapSkin ?? 'glow',
         economicMetric: view.economicMetric,
         portfolioOverlay: view.portfolioOverlay,
       });

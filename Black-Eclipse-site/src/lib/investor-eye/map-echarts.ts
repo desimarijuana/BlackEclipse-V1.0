@@ -8,11 +8,11 @@
 // tint ≤0.55, `appendTo: 'body'`, standard `backdrop-filter` only).
 
 import type { EChartsOption } from 'echarts';
-import { LAYER_META, layerColor, severityColor, type LayerId, type LayerSymbol } from './layers';
+import { LAYER_META, layerColor, layerSymbol, severityColor, type LayerId, type LayerSymbol } from './layers';
 import type { MapLayer, LayerDatum } from './types';
 
 /** Legend symbol → ECharts symbol name. Keeps shapes readable on the dark map. */
-const ECHARTS_SYMBOL: Record<LayerSymbol, string> = {
+const ECHARTS_SYMBOL: Record<Exclude<LayerSymbol, 'path://'>, string> = {
   circle: 'circle',
   diamond: 'diamond',
   triangle: 'triangle',
@@ -20,10 +20,20 @@ const ECHARTS_SYMBOL: Record<LayerSymbol, string> = {
   ring: 'circle',
 };
 
-/** Marker shape for a series, from the canonical layer registry. */
+/**
+ * Marker symbol for a layer, from the canonical registry.
+ *
+ * `layerSymbol` resolves the category GLYPH (`path://…`) first, so a conflict
+ * renders as a blast and an earthquake as seismic rings rather than every layer
+ * sharing a dot. Both renderers consume the same value: ECharts resolves
+ * `path://` in canvas, and echarts-gl's sprite builder calls the same
+ * `createSymbol` helper, so one glyph serves the 2D map and the globe.
+ */
 function symbolForLayer(layerId: string): string | undefined {
   const meta = LAYER_META[layerId as LayerId];
-  return meta?.symbol ? ECHARTS_SYMBOL[meta.symbol] : undefined;
+  if (!meta) return undefined;
+  if (meta.glyph) return layerSymbol(layerId);
+  return meta.symbol && meta.symbol !== 'path://' ? ECHARTS_SYMBOL[meta.symbol] : undefined;
 }
 
 /**
@@ -125,30 +135,94 @@ const PIN_SIZE: Record<string, number> = { critical: 18, high: 14, medium: 11, l
 /** Glow radius per severity — the visual weight carries the urgency. */
 const PIN_GLOW: Record<string, number> = { critical: 26, high: 17, medium: 10, low: 5 };
 
-const BASE_GEO = {
-  map: WORLD_MAP_NAME,
-  roam: true,
-  zoom: 1.15,
-  silent: false,
-  itemStyle: {
-    areaColor: '#141416',
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 0.5,
-  },
-  emphasis: {
-    label: { show: false },
-    itemStyle: { areaColor: '#1f2937', borderColor: 'rgba(255,255,255,0.25)' },
-  },
-  select: {
-    label: { show: false },
-    itemStyle: { areaColor: '#1e3a5f', borderColor: '#60a5fa' },
-  },
-  // The map is the hero: no competing labels until a country is hovered.
-  label: { show: false },
-};
+/**
+ * Globe marker sizing.
+ *
+ * `scatter3D` resolves `symbolSize` through `getItemVisual`, so a per-item
+ * callback WOULD work — but the glyph is the information carrier here, and a
+ * blob-sized shape erases its own silhouette. So the globe uses one tight size
+ * where the glyph is legible, and severity is carried by COLOUR plus the faint
+ * critical ring rather than by scale.
+ */
+const GLOBE_CORE_SIZE = 17;
+const GLOBE_HALO_SIZE = 24;
+const GLOBE_HALO_OPACITY = 0.22;
 
-/** Map presentation: 2D projection or a rotatable 3D globe. */
+/**
+ * Map presentation: 2D projection or a rotatable 3D globe.
+ *
+ * `black` is the original flat terminal look — a solid near-black landmass with
+ * hairline borders and no glow. `glow` is the blue "lit planet" look: a
+ * translucent blue continent over the starfield, a cyan coastline, and a real
+ * bloom on the globe. The surface is a pure VIEW preference, so switching it
+ * never rebuilds the data or re-fetches anything.
+ */
 export type MapMode = '2d' | 'globe';
+export type MapSkin = 'black' | 'glow';
+
+const GEO_BY_SKIN = {
+  black: {
+    itemStyle: {
+      // The first-draft terminal fill: opaque, flat, no glow.
+      areaColor: '#141416',
+      borderColor: 'rgba(255,255,255,0.10)',
+      borderWidth: 0.5,
+      shadowColor: 'rgba(0,0,0,0)',
+      shadowBlur: 0,
+    },
+    emphasis: {
+      label: { show: false },
+      itemStyle: { areaColor: '#1f2937', borderColor: 'rgba(255,255,255,0.25)', borderWidth: 1, shadowBlur: 0 },
+    },
+    select: {
+      label: { show: false },
+      itemStyle: { areaColor: '#1e3a5f', borderColor: '#60a5fa' },
+    },
+  },
+  glow: {
+    itemStyle: {
+      // BLUE, and translucent. The blue is the "lit planet" cue; the alpha lets
+      // the animated starfield read through the continents, which is what makes
+      // the flat map feel like the same surface as the globe.
+      areaColor: 'rgba(23,52,94,0.66)',
+      borderColor: 'rgba(125,232,255,0.72)',
+      borderWidth: 0.8,
+      shadowColor: 'rgba(56,189,248,0.65)',
+      shadowBlur: 8,
+    },
+    emphasis: {
+      label: { show: false },
+      itemStyle: {
+        areaColor: 'rgba(41,86,140,0.82)',
+        borderColor: 'rgba(186,246,255,0.98)',
+        borderWidth: 1.3,
+        shadowColor: 'rgba(56,189,248,0.95)',
+        shadowBlur: 16,
+      },
+    },
+    select: {
+      label: { show: false },
+      itemStyle: { areaColor: 'rgba(45,96,160,0.9)', borderColor: '#8be9ff' },
+    },
+  },
+} as const;
+
+/**
+ * The 2D base map, per skin (see `MapSkin`).
+ *
+ * The map is the hero: no competing labels until a country is hovered, and
+ * hover/select brighten rather than recolour so the glow language holds.
+ */
+function baseGeo(skin: MapSkin) {
+  return {
+    map: WORLD_MAP_NAME,
+    roam: true,
+    zoom: 1.15,
+    silent: false,
+    ...GEO_BY_SKIN[skin],
+    label: { show: false },
+  };
+}
 
 export interface MapOptionOptions {
   layers: MapLayer[];
@@ -160,17 +234,30 @@ export interface MapOptionOptions {
   /** Presentation mode. Defaults to the flat map. */
   mode?: MapMode;
   /**
+   * Surface skin. `black` is the flat terminal look, `glow` the blue lit planet.
+   * Defaults to `glow`.
+   */
+  skin?: MapSkin;
+  /**
    * Globe-only: the equirectangular world texture drawn from the same GeoJSON.
    * Produced asynchronously (`worldGlobeTexture()`), so it is passed in rather
    * than imported here.
    */
   globeTexture?: string;
+  /**
+   * Globe-only: the coastlines-only EMISSION map (`worldGlobeGlowTexture()`).
+   * Added as an additive light layer, so the globe's aura comes from the surface
+   * instead of an atmosphere shell (which can only ever draw a ring).
+   */
+  globeGlowTexture?: string;
 }
 
 /** Convert ISO2 → the ECharts map feature name is handled via `nameMap`. */
 export function buildMapOption(options: MapOptionOptions): EChartsOption {
   const { layers } = options;
   const mode: MapMode = options.mode ?? '2d';
+  const skin: MapSkin = options.skin ?? 'glow';
+  const isGlow = skin === 'glow';
   const enabled = layers.filter((l) => l.enabled).sort((a, b) => a.zIndex - b.zIndex);
 
   const series: EChartsOption['series'] = [];
@@ -231,40 +318,74 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       : (isEffect ? 'effectScatter' : 'scatter');
     // Shapes come from the layer registry so the legend and the map agree.
     const symbol = symbolForLayer(layer.id);
+
+    // On the globe, each point layer is drawn TWICE: a wide, low-opacity halo
+    // pass underneath, then the solid core. Overlapping halos composite into a
+    // real bloom (the look in the reference design), which `shadowBlur` cannot
+    // deliver on a WebGL surface — echarts-gl has no canvas shadow for 3D
+    // symbols. The halo is silent so it never steals a hover or a click from
+    // the core.
+    const colorOf = (raw: unknown, fallbackLayerId: string): string => {
+      const item = raw as { data?: { severity?: string } };
+      if (CATEGORY_COLORED.has(fallbackLayerId)) return layerColor(fallbackLayerId);
+      if (!item.data?.severity) return layerColor(fallbackLayerId);
+      return severityColor((item.data?.severity ?? 'low') as never);
+    };
+
+    if (isGlobe) {
+      // NO halo discs on the globe. A halo is a second, larger copy of the same
+      // glyph behind the core; with category glyphs that reads as a fuzzy blob
+      // that erases the very shape carrying the information. The glow comes from
+      // the globe's post-process bloom instead, which lights the glyph without
+      // covering it. Only the highest-severity pins get a faint ring, purely to
+      // flag them among their neighbours.
+      series.push({
+        id: `${layer.id}__critical_ring`,
+        name: layer.name,
+        type: 'scatter3D',
+        coordinateSystem: coordSystem,
+        z: layer.zIndex - 0.5,
+        symbolSize: GLOBE_HALO_SIZE,
+        symbol: 'circle',
+        silent: true,
+        itemStyle: { color: (raw: unknown) => colorOf(raw, layer.id), opacity: GLOBE_HALO_OPACITY },
+        data: data
+          .filter((d) => d.severity === 'critical')
+          .map((d) => ({ name: d.label ?? d.id, value: [d.lon, d.lat], severity: d.severity })),
+        tooltip: { show: false },
+      } as never);
+    }
+
     series.push({
       id: layer.id,
       name: layer.name,
       type: seriesType,
       coordinateSystem: coordSystem,
       z: layer.zIndex,
-      ...(symbol && !isGlobe ? { symbol } : {}),
+      // The category GLYPH, in BOTH projections. echarts-gl resolves `path://`
+      // through the same `createSymbol` helper as the 2D renderer, so one glyph
+      // definition serves the flat map and the globe.
+      ...(symbol ? { symbol } : {}),
       // Only animate when there is a small, curated set of points. `scatter3D`
       // has no ripple effect, so globe mode never animates.
       ...(isEffect && !isGlobe
         ? { showEffectOn: 'render', rippleEffect: { brushType: 'stroke', scale: 3, period: 5 } }
         : {}),
-      // `scatter3D` uses `symbolSize` as a NUMBER (2D series accept a callback).
-      //
-      // GLOBE CAUTION: echarts-gl reads item properties through
-      // `getItemVisual`, which does NOT call callbacks. A function for
-      // `itemStyle.opacity` (or `color`) evaluates to NaN there, and the point
-      // builder then writes size 0 — invisible pins, with NO console error. So
-      // the globe branch uses only scalar styles; the per-item "approximate"
-      // cue is expressed via a scalar dimming on the whole series instead, which
-      // is why `_datum.geoMethod` is still attached (the tooltip and the 2D
-      // series use it, and the halo below distinguishes centroid points).
       ...(isGlobe
         ? {
-            symbolSize: 10,
+            symbolSize: GLOBE_CORE_SIZE,
             itemStyle: {
-              color: (raw: unknown) => {
-                const item = raw as { data?: { severity?: string } };
-                if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
-                if (!item.data?.severity) return layerColor(layer.id);
-                return severityColor((item.data?.severity ?? 'low') as never);
-              },
+              // A callback is safe here: it is resolved by ECharts' visual
+              // pipeline before echarts-gl reads the item (verified — the globe
+              // renders per-severity colour). Only `opacity`/`symbolSize` must
+              // stay scalar, because echarts-gl reads those directly.
+              // The glyph keeps its CATEGORY colour: the shape already says what
+              // it is, and a whitened glyph loses the colour coding. The globe's
+              // bloom supplies the light.
+              color: (raw: unknown) => colorOf(raw, layer.id),
               opacity: 1,
             },
+            emphasis: { itemStyle: { opacity: 1 } },
           }
         : {
             symbolSize: (raw: unknown) => {
@@ -342,6 +463,28 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
   for (const layer of enabled) {
     if (layer.type !== 'lines') continue;
     const data = layer.data();
+    const lineData = data.map((d) => {
+      const payload = d.data as { from: [number, number]; to: [number, number] };
+      return { coords: [payload.from, payload.to], _datum: d };
+    });
+
+    // On the globe, draw a wide translucent pass under the thin bright pass —
+    // the same two-pass bloom trick the points use, so routes read as glowing
+    // arcs rather than faint hairlines.
+    if (isGlobe) {
+      series.push({
+        id: `${layer.id}__glow`,
+        name: layer.name,
+        type: 'lines3D',
+        coordinateSystem: coordSystem,
+        z: layer.zIndex - 0.5,
+        silent: true,
+        lineStyle: { color: layerColor(layer.id), width: 4, opacity: 0.16 },
+        data: lineData,
+        tooltip: { show: false },
+      } as never);
+    }
+
     series.push({
       id: layer.id,
       name: layer.name,
@@ -352,11 +495,13 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
       z: layer.zIndex,
       // 2D lines support a flowing effect; lines3D does not.
       ...(isGlobe ? {} : { effect: { show: data.length <= 60, period: 4, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 } }),
-      lineStyle: { color: layerColor(layer.id), width: 1, opacity: 0.5, curveness: 0.2 },
-      data: data.map((d) => {
-        const payload = d.data as { from: [number, number]; to: [number, number] };
-        return { coords: [payload.from, payload.to], _datum: d };
-      }),
+      lineStyle: {
+        color: layerColor(layer.id),
+        width: isGlobe ? 1.4 : 1,
+        opacity: isGlobe ? 0.75 : 0.5,
+        curveness: 0.2,
+      },
+      data: lineData,
       tooltip: layer.tooltip ? { formatter: tooltipFormatter(layer) } : undefined,
     } as never);
   }
@@ -374,33 +519,83 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
            * the pins; a solid dark texture (the previous approach) made the
            * sphere invisible on the dark page. `baseTexture` is therefore drawn
            * at runtime from the SAME GeoJSON the 2D map uses (see
-           * `app-geo.worldGlobeTexture`) — dark ocean, lighter land, faint
-           * graticule — so the globe is unmistakably a planet. Callers pass it
-           * in because it is produced asynchronously.
+           * `app-geo.worldGlobeTexture`) — deep-ocean gradient, lighter land and
+           * a cyan coastline bloom — so the globe reads as a lit planet.
+           * Callers pass it in because it is produced asynchronously.
            */
           baseTexture: options.globeTexture,
-          globeRadius: 82,
+          globeRadius: 86,
           // `lambert` keeps the land/shadows legible; `color` ignored the texture.
           shading: 'lambert' as const,
-          color: '#141416',
-          light: {
-            ambient: { intensity: 0.95 },
-            main: { intensity: 0.45, shadow: false },
-          },
+          // The sphere's untextured base. The texture supplies every visible
+          // surface detail, so this only matters behind it.
+          color: isGlow ? '#0b2f66' : '#03060e',
+          // `black` keeps the planet near-black with a glowing rim, so its ambient
+          // stays LOW (a high ambient washes the dark texture into a bright blue
+          // ball) and the directional light does the shaping. `glow` WANTS the
+          // blue surface lit, so it lifts the ambient and drops the shadowing.
+          light: isGlow
+            ? {
+                ambient: { intensity: 0.62 },
+                main: { intensity: 0.7, shadow: false, alpha: 35, beta: 150 },
+              }
+            : {
+                ambient: { intensity: 0.35 },
+                main: { intensity: 0.55, shadow: true, alpha: 35, beta: 150 },
+              },
+          // ATMOSPHERE OFF ON PURPOSE. echarts-gl's atmosphere paints
+          // `glowColor * pow(1 - dot(normal, viewDir), glowPower)`, which peaks
+          // EXACTLY on the silhouette — a hard cyan ring hugging the sphere.
+          // `glowPower` only changes the ring's thickness, never the fact that
+          // it is a ring. The aura is instead an EMISSION LAYER (see `layers`),
+          // whose shader adds light from the surface itself.
           atmosphere: { show: false },
+          /**
+           * The glow. `blendTo: 'emission'` runs the layer through
+           * `gl_FragColor.rgb += texel.rgb * texel.a * intensity` — additive
+           * light, so the coastline genuinely emits rather than being stroked.
+           * `emissiveTexture` is a coastlines-only map drawn from the same
+           * GeoJSON, so the ocean stays dark and the glow traces the land.
+           *
+           * `black` disables the layer entirely: an aura over a flat terminal
+           * planet defeats the point of the plain skin.
+           */
+          layers: isGlow && options.globeGlowTexture
+            ? [{
+                type: 'blend' as const,
+                blendTo: 'emission' as const,
+                texture: options.globeGlowTexture,
+                // Additive light compounds, so this stays modest — the texture's
+                // own alpha does most of the shaping.
+                intensity: 0.85,
+              }]
+            : [],
+          postEffect: {
+            enable: isGlow,
+            bloom: {
+              enable: isGlow,
+              bloomIntensity: 0.26,
+              bloomRadius: 0.5,
+              bloomThreshold: 0.25,
+            },
+            SSAO: { enable: false },
+          },
           viewControl: {
+            // Auto-rotation is deliberately OFF: the pins are click targets, and
+            // a moving target is a broken interaction. Dragging rotates freely.
             autoRotate: false,
-            // Draggable + zoomable, matching the flat map's `roam`.
             rotateSensitivity: 4,
             zoomSensitivity: 2,
             panSensitivity: 0,
-            distance: 190,
+            distance: 200,
+            minDistance: 120,
+            maxDistance: 400,
           },
         },
       }
     : {
         geo: {
-          ...BASE_GEO,
+          ...baseGeo(skin),
           selectedMode: false,
         },
       };

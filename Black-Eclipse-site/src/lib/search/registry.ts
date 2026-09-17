@@ -158,6 +158,11 @@ export function getAllActions(): SearchAction[] {
   return [...actions.values()];
 }
 
+/** Look up a registered action by its canonical id. */
+export function getAction(id: string): SearchAction | undefined {
+  return actions.get(id);
+}
+
 // ── Default registrations ────────────────────────────────────────────────────
 // Pages.
 registerPage({ id: 'page-dashboard', kind: 'page', title: 'Command Center', aliases: ['dashboard', 'command center', 'home', 'overview', 'workspace'], keywords: ['dashboard', 'command center', 'home', 'overview', 'workspace', 'widgets'], icon: 'dashboard', tab: 'dashboard', rankBoost: 1.15 });

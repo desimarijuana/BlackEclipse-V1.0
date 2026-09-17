@@ -41,6 +41,101 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-17
+
+- **UI** — Added a **live price ribbon** to the app header beside the global
+  search trigger. It is a thin view over the existing DataHub topics
+  (`market:indices:US`/`CRYPTO`, `market:commodities`, `market:forex`) — no new
+  API, polling, or cache. Missing symbols are omitted rather than placeholder-
+  priced; clicking a quote dispatches a chart destination on the command bus.
+  Marquee styles live in `globals.css` (untransformed glass wrapper + two-copy
+  `-50%` track, disabled under `prefers-reduced-motion`).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+- **Command Center** — Added an **Investor Eye** widget to the dashboard widget
+  catalog, so the normalized world-state event feed is available on the Command
+  Center without switching to the Investor Eye screen. It is a thin view over the
+  SAME DataHub state topics the full screen consumes (`investor-eye:state:<hours>`)
+  — no second cache and no fabricated data; a failed/unavailable topic renders
+  `UNAVAILABLE`. Configurable `range` (1H…30D) + `lens` (all/conflict/energy/trade/
+  hazards). Registered at the end of `DASHBOARD_WIDGETS` because the persona
+  templates address widgets by array index.
+  docs updated: `docs/CHANGELOG.md`; skill `.opencode/skills/black-eclipse-workspace/SKILL.md`
+- **Command Center** — Fixed the Investor Eye widget reading as broken while the
+  first world-state assembly runs: the header status chip showed a red
+  `UNAVAILABLE` dot during the (up to ~15s) cold build even though the body said
+  "Loading world state…". The chip now shows a neutral `LOADING` state until the
+  topic settles, and only then reports LIVE/CACHED/UNAVAILABLE.
+  no doc change — presentation-state fix, contracts unchanged.
+- **Investor Eye** — The globe gets a real visual system, and fixing it exposed two
+  bugs that were blocking the whole screen.
+  - **Look.** The globe was a flat, washed-out blue sphere. The surface texture now
+    carries the design: near-black gradient ocean, dark land, a blurred coastline
+    bloom, and a deterministic city-light stipple. Added a canvas starfield (three
+    depth tiers + two nebula washes), a cyan `atmosphere` rim, and much lower
+    ambient lighting — a high ambient was what turned the planet into a bright blue
+    ball. Pins on the globe are now drawn **three times** (wide faint halo, tight
+    coloured halo, white-hot core); the first attempt used one colour for core and
+    halo and rendered as dark-centred donuts. 2D pins got a dark contrast ring and
+    a severity-sized glow; trade routes got a translucent glow pass. Auto-rotation
+    is deliberately off — the pins are click targets.
+  - **Bug: a map-local loader covered the entire app.** `WorldMap` used
+    `TopLoader`, which portals to `document.body` at `z-[45]`, so a still-loading
+    map froze the whole application on a `95%` overlay (sidebar included). It is
+    now scoped to the map box, with a 20 s globe-init ceiling that falls back to
+    the flat map. Recorded as ADR-014.
+  - **Bug: `ReferenceError: TopLoader is not defined`.** Replacing the loader left
+    one stale reference inside a `useMemo`; the error boundary then left the frozen
+    frame on screen instead of surfacing an error.
+  - **FIRMS reliability.** The 24h global CSV occasionally exceeded the transport's
+    10 s cap, silently emptying the hazard layer for a whole cycle. Added one
+    bounded retry, for transient transport errors only.
+  - **Verified live:** all 4 sources healthy, 794 events / 21 markets, and the
+    Shipping/Energy/Commodities layers toggling correctly.
+  docs updated: `docs/investor-eye-architecture.md` (§5m), `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-014)
+
+
+- **Charts** — Replaced oversized Settings previews with fixed-height illustrative candles/volume, a restrained area line, and an ordered three-color treemap; all configured colors remain visible without changing widgets, palettes, or data. Removed redundant preview revision state.
+  no doc change — visual-only Settings refinement, contracts unchanged.
+
+- **Keyboard** — Fixed a real shortcut conflict: the Agentation visual-feedback
+  toolbar registered a `document`-level handler that unconditionally claimed plain
+  `L`, `P`, `H`, `C`, `X` and `S`, so `Shift+L` (focus layouts / grid menu),
+  `Shift+C` (compact rows) and screen `S` (local search) never reached the app.
+  It is now opt-in via `NEXT_PUBLIC_AGENTATION=1`. The widget library and widget
+  config drawers now close with Escape, which they previously ignored while still
+  blocking page shortcuts. Verified in Chrome against a running dev server: 20/20
+  keyboard checks pass (function keys for every screen, `Ctrl+/` help, `Shift+E`,
+  `Shift+W`, `Shift+N`, `Shift+L`, `S` local search, Escape layering).
+  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
+- **Keyboard** — Faster workflows, and the shortcut help panel now scrolls.
+  - **Scroll fix.** The `Ctrl+/` help panel could list more shortcuts than fit,
+    but the results region had no working scroll area (a grid child without
+    `minmax(0,1fr)` cannot shrink), so lower entries were unreachable. The dialog
+    is now an explicit grid with a `minmax(0,1fr)` scroll row; verified overflow
+    scrolls in Chrome.
+  - **Action palette.** `Ctrl+K` now *does* things, not just navigate. Real
+    commands: set a price alert for a symbol, add a symbol to the watchlist,
+    open a chart, open the Journal or Journal Calendar, show today's economic
+    events, open/export a specific fund, export all portfolios, and jump to any
+    Settings section. Every command reuses an existing handler — the previously
+    dead `createQuickAlert` / `addToWatchlist` / param-command path is now wired,
+    and results state their target. No delete/reset command exists by design.
+  - **List navigation.** New shared `useListNavigation` hook (stable-ID selection,
+    never index) wires `↑/↓` + `J/K`, `Home/End`, `Enter`, `Escape`, and `[`/`]`
+    into news, screener stocks/crypto, alerts, journal trades, and the Investor
+    Eye feed. Typing is never hijacked and only the visible screen responds.
+  - **Chart keys.** Focused charts gain `V` volume, `0` reset zoom, `=`/`+`/`-`
+    zoom, and `Alt+←/→` pan. Timeframe/indicator/compare pickers were skipped:
+    their open-state is internal to toolbar menus, so there is no handler to call.
+  - **Sub-tabs and back.** `Alt+1..Alt+8` select Journal sub-tabs, `Alt+1..3` the
+    Economics modes (with `Alt+0` for the last), and `Alt+←` steps back through a
+    bounded 20-entry screen history — the app has no router, so this is its only
+    back affordance. History is in-memory and shell-tab only.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/OVERVIEW.md`
+  (keyboard-ownership section), `docs/QUICKSTART.md`.
+
 ## 2026-09-16
 
 - **Chart Workspace** — Removed the green box that appeared around the whole page

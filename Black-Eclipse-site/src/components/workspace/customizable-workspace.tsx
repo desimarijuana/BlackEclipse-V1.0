@@ -14,7 +14,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
+import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
 import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
 import { dataHub, useRefreshAll } from '@/lib/workspace/data-hub';
@@ -90,6 +91,19 @@ export function CustomizableWorkspace({
     { id: 'workspace-refresh', label: 'Refresh workspace widgets', keys: 'r', run: refreshAll, enabled: shortcutsEnabled },
     { id: 'workspace-compact', label: 'Toggle compact rows', keys: 'shift+c', run: () => setCompact(v => !v), enabled: shortcutsEnabled },
   ]);
+
+  useEffect(() => {
+    if (!libraryOpen && !configPlacement) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !isKeyboardEventAvailable(event)) return;
+      if (useKeyboardShortcutsStore.getState().helpOpen) return;
+      event.preventDefault();
+      if (configPlacement) setConfigPlacement(null);
+      else setLibraryOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [libraryOpen, configPlacement]);
 
   // Timestamp of the last add-commit. The trailing click of a double-click
   // lands on the palette backdrop (which becomes interactive the instant the

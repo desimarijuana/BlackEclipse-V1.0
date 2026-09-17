@@ -120,14 +120,21 @@ customization surface / second workspace for a side column.
 
 ## Widget catalog (Command Center)
 
-The dashboard registry (`src/lib/dashboard/registry.tsx`) ships a 36-widget
+The dashboard registry (`src/lib/dashboard/registry.tsx`) ships the full widget
 catalog across categories: Markets, Research, Portfolio, Trading, Tools,
-Geopolitics. Real data widgets live in `src/lib/dashboard/widgets.tsx` and
-consume DataHub topics (indices, forex, crypto, commodities, movers, news,
+Geopolitics, Intelligence. Real data widgets live in `src/lib/dashboard/widgets.tsx`
+and consume DataHub topics (indices, forex, crypto, commodities, movers, news,
 economic calendar, quotes). Widgets needing external/broker integrations
 (Quick Trade, Open Positions, Live TV, Geopolitics, etc.) render a clear
 `UNAVAILABLE` state — never fabricate data. Add a widget by registering a
 `WidgetDefinition` in the registry and (optionally) a renderer in `widgets.tsx`.
+
+The **Investor Eye** widget (`src/lib/dashboard/investor-eye-widget.tsx`) is a
+thin view over the same Investor Eye DataHub state topics the full screen uses
+(`investor-eye:state:<hours>`), with `range` + `lens` config fields. Register new
+widgets at the END of `DASHBOARD_WIDGETS` — the persona templates
+(`src/lib/dashboard/templates.ts`) address widgets by array index, so inserting
+mid-list silently repoints every template.
 
 ## Chart widgets
 

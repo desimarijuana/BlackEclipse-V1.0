@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Sparkles, Menu, Search, Command } from 'lucide-react';
 import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
+import { PriceRibbon } from '@/components/layout/price-ribbon';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -68,11 +69,12 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
          </div>
        </div>
 
-       {/* Right-aligned, medium frosted-glass search bar */}
-       <div className="flex-1 flex justify-end min-w-0 px-2">
+       {/* Right-aligned live price ribbon + frosted-glass search bar */}
+       <div className="flex-1 flex items-center justify-end gap-2 md:gap-3 min-w-0 px-2">
+          <PriceRibbon className="max-w-[38vw] shrink-0" />
           <button
             onClick={() => useCommandStore.getState().setOpen(true)}
-            className="command-glass-bar group flex w-full max-w-md items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
+            className="command-glass-bar group flex flex-1 min-w-0 max-w-md items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
             title="Search & command center (⌘K)"
           >
             <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />

@@ -78,6 +78,9 @@ in [`../README.md`](../README.md) is authoritative; in short:
   agent. Without any of them, a built-in **mock** provider answers. Keys can also
   be set from the in-app Settings screen.
 - `BE_WARMUP=1` — opt into the dev boot warm-up so prices are pre-fetched.
+- `NEXT_PUBLIC_AGENTATION=1` — opt into the Agentation visual-feedback toolbar.
+  It is **off by default because it claims global single-letter keys** (`L`, `P`,
+  `H`, `C`, `X`, `S`), which would shadow the app's own keyboard shortcuts.
 - `CONNECTOR_SECRET_KEY` — base64 32-byte key for encrypting operator
   data-source credentials. **Required on hosted/serverless deploys.** Locally it
   is optional: a gitignored `.connector-key` is generated on first use.

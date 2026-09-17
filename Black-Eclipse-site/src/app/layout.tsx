@@ -17,7 +17,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
       <body suppressHydrationWarning>
         <GlobalLoader />
         {children}
-        <AgentationToolbar />
+        {process.env.NEXT_PUBLIC_AGENTATION === '1' && <AgentationToolbar />}
         <GlobalSearch />
         <KeyboardShortcuts />
       </body>

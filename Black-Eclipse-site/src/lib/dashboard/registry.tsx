@@ -10,7 +10,7 @@ import {
   Activity, BarChart3, Bell, Briefcase, CalendarDays, CandlestickChart,
   Globe, LayoutDashboard, Newspaper, PieChart, TrendingUp, Wallet,
   LineChart, Coins, Droplets, Flame, Radio, FileText, Bot, Scissors,
-  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap,
+  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye,
 } from 'lucide-react';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -41,6 +41,9 @@ import {
   MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
 } from './intelligence-widgets';
 import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './ai-widgets';
+import {
+  InvestorEyeWidget, INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD,
+} from './investor-eye-widget';
 import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
@@ -76,7 +79,7 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   droplets: Droplets, flame: Flame, radio: Radio, 'file-text': FileText,
   bot: Bot, scissors: Scissors, 'sticky-note': StickyNote, landmark: Landmark,
   ship: Ship, gauge: Gauge, table: Table2, layers: Layers, heart: HeartPulse,
-  brain: Brain, zap: Zap,
+  brain: Brain, zap: Zap, 'scan-eye': ScanEye,
 };
 export function widgetIcon(name: string) {
   return ICONS[name] ?? marketPanelIcon(name) ?? LayoutDashboard;
@@ -202,6 +205,12 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
 
   // ── Market rail (default right-hand column; draggable to the centre too) ──
   ...MARKET_RAIL_WIDGETS,
+
+  // ── Intelligence: Investor Eye ──
+  // Appended LAST so the index-based persona templates (templates.ts) keep
+  // pointing at the same widgets. Reuses the full Investor Eye state topics.
+  def('investor-eye', 'intelligence', 'Investor Eye', 'Live normalized world events — conflict, energy, trade and hazards.', 'scan-eye', ['medium', 'large'], (p) => <InvestorEyeWidget placement={p} />, ['investor-eye:state:24'],
+    [INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD], { range: '24h', lens: 'all' }),
 ];
 
 /** Widget ids that ship in the default Market rail (kept for the migration). */

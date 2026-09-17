@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-16
+last-verified: 2026-09-17
 ---
 
 # Navigation — Where Things Live
@@ -57,7 +57,9 @@ Black-Eclipse-site/
 | Change Investor Eye colours / layer groups / legend | `src/lib/investor-eye/layers.ts` (`LAYER_GROUPS`, `LayerMeta`, `SEVERITY_COLORS`) — consumed by the controller, timeline, map adapter and full-page dock |
 | Work on the full-page "map only" mode | `src/components/investor-eye/full-page-map.tsx` (+ `store.fullPage`); reuses `WorldMap`/`EventPanel`, portaled to body |
 | Work on the live event stream / conflict feed | `src/components/investor-eye/live-feed.tsx`; conflict RSS wires in `DEFAULT_NEWS_FEEDS` (`src/lib/settings.ts`) |
-| Change the 3D globe surface or the 2D map geometry | `src/lib/investor-eye/app-geo.ts` (`worldGlobeTexture()` draws the globe texture from `public/geo/world.geo.json`; `ensureWorldMapRegistered()` for 2D) |
+| Change the 3D globe surface or the 2D map geometry | `src/lib/investor-eye/app-geo.ts` (`worldGlobeTexture()` draws the glowing globe texture from `public/geo/world.geo.json`; `ensureWorldMapRegistered()` for 2D) |
+| Change the map look (globe rim, pin glow, halos, starfield) | `src/lib/investor-eye/map-echarts.ts` (`PIN_SIZE`/`PIN_GLOW`, `GLOBE_CORE_SIZE`/`GLOBE_HALO_SIZE`/`GLOBE_HALO_FAR`, `lighten()`, atmosphere/light) + `src/components/investor-eye/starfield.tsx` |
+| Debug a stuck full-screen loader on a map tab | `src/components/investor-eye/world-map.tsx` — its loader must stay SCOPED; `TopLoader` portals to `document.body` and will cover the whole app |
 | Work on event→market price reaction | `src/lib/investor-eye/reaction.ts` (pure measurement) + `src/app/api/investor-eye/reaction/route.ts` + `reaction-panel.tsx` |
 | Add/edit event alert rules | `src/lib/investor-eye/alert-rules.ts` (predicates + presets) + `src/app/api/investor-eye/alerts/route.ts` + `alerts-panel.tsx` |
 | Fix where an event is plotted (city/port) | `src/lib/investor-eye/places.ts` (curated gazetteer + `resolvePlace()`); used by `sources/news.ts` |
@@ -79,6 +81,7 @@ Black-Eclipse-site/
 | Change the AI agent / research | `src/lib/agent/` (`registry.ts`, `loop.ts`, `research.ts`, `tools.ts`) |
 | Change the chart | `src/lib/chart/`, `src/components/chart/`, `src/components/screens/tradingview-chart.tsx` |
 | Add/fix a chartable index | `src/lib/indices.ts` (registry + providers), `src/lib/scraper/fetchers/psx-index.ts` (non-Yahoo source); `HEATMAP_MARKETS` in `src/lib/heatmap.ts` for heatmap labels || Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
+| Change the header price ribbon | `src/components/layout/price-ribbon.tsx` (curated `RIBBON_ORDER` + the four DataHub topics it reads); marquee styles `.price-ribbon`/`.price-ribbon-track` in `src/app/globals.css` |
 | Add a palette sub-page / make a view reachable | `registerPage` in `src/lib/search/registry.ts` (`subroute`, `group`, `child`) + `useSubroute(<tab>, …)` in the screen; hook: `src/hooks/use-subroute.ts` |
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |

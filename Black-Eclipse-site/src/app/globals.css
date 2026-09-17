@@ -286,6 +286,36 @@ html:not(.dark) .ws-glass {
   animation: fadeIn 0.4s ease-out backwards;
 }
 
+/* Header price ribbon — a seamless, continuously scrolling quote marquee.
+   The track holds two identical copies of the quote list and translates -50%,
+   so the loop restarts with no visible jump. The blurred glass surface is the
+   parent (`.price-ribbon`), NOT the translated track: a transform on an
+   ancestor would scope the backdrop-filter to an empty box and kill the frost
+   (see hard rule #3). Edge fade via a mask so quotes dissolve into the glass
+   instead of clipping hard at the border. */
+@keyframes priceRibbonScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.price-ribbon {
+  mask-image: linear-gradient(to right, transparent 0, rgba(0, 0, 0, 1) 16px, rgba(0, 0, 0, 1) calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, rgba(0, 0, 0, 1) 16px, rgba(0, 0, 0, 1) calc(100% - 16px), transparent 100%);
+}
+
+.price-ribbon-track {
+  width: max-content;
+  animation: priceRibbonScroll 42s linear infinite;
+}
+
+.price-ribbon:hover .price-ribbon-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-ribbon-track { animation: none; }
+}
+
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none !important;

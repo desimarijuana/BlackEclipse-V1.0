@@ -10,7 +10,8 @@
 // distinguishable without relying on colour alone (spec §8 / §34).
 
 import {
-  ALL_LAYER_IDS, LAYER_META, groupedLayerIds, type LayerId, type LayerSymbol,
+  ALL_LAYER_IDS, LAYER_META, SYMBOL_PATHS, groupedLayerIds,
+  type LayerId, type LayerSymbol, type SymbolGlyphName,
 } from '@/lib/investor-eye/layers';
 import { cn } from '@/lib/utils';
 
@@ -24,8 +25,45 @@ interface LayerControllerProps {
   className?: string;
 }
 
-/** Marker shape rendered as a small inline glyph (no icon font needed). */
-export function SymbolGlyph({ symbol, color, size = 8 }: { symbol?: LayerSymbol; color: string; size?: number }) {
+/** Extract the `d` attribute from a `path://…` glyph definition. */
+function pathData(path: string): string {
+  return path.replace(/^path:\/\//, '');
+}
+
+/**
+ * The legend marker for a layer.
+ *
+ * It renders the layer's ACTUAL glyph — the same `path://` the map draws — so
+ * the legend cannot drift from the map. The earlier version switched on a small
+ * set of primitive names and silently fell through to a plain dot for every
+ * category glyph, which made the legend lie about what each layer looked like.
+ */
+export function SymbolGlyph({
+  glyph,
+  symbol,
+  color,
+  size = 9,
+}: {
+  glyph?: SymbolGlyphName;
+  symbol?: LayerSymbol;
+  color: string;
+  size?: number;
+}) {
+  // A category glyph wins, matching `layerSymbol()` in the registry.
+  if (glyph) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 100 100"
+        aria-hidden="true"
+        className="inline-block shrink-0"
+        style={{ fill: color }}
+      >
+        <path d={pathData(SYMBOL_PATHS[glyph])} />
+      </svg>
+    );
+  }
   const s = { width: size, height: size } as React.CSSProperties;
   switch (symbol) {
     case 'diamond':
@@ -106,15 +144,11 @@ export function LayerController({ active, onToggle, available, showLegend = true
                       : undefined
                   }
                 >
-                  <span
-                    className={cn(
-                      'inline-block h-2.5 w-2.5 rounded-[3px] border',
-                      on ? '' : 'bg-transparent',
-                    )}
-                    style={{
-                      borderColor: meta.color,
-                      backgroundColor: on ? meta.color : 'transparent',
-                    }}
+                  <SymbolGlyph
+                    glyph={meta.glyph}
+                    symbol={meta.symbol}
+                    color={on ? meta.color : 'currentColor'}
+                    size={11}
                   />
                   {meta.name}
                   {meta.phase === 2 && (
@@ -134,10 +168,10 @@ export function LayerController({ active, onToggle, available, showLegend = true
           <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/70">Legend</span>
           {(Object.keys(LAYER_META) as LayerId[]).map((id) => {
             const meta = LAYER_META[id];
-            if (!meta.symbol) return null;
+            if (!meta.symbol && !meta.glyph) return null;
             return (
               <span key={id} className="inline-flex items-center gap-1 text-[9px] text-muted-foreground">
-                <SymbolGlyph symbol={meta.symbol} color={meta.color} />
+                <SymbolGlyph glyph={meta.glyph} symbol={meta.symbol} color={meta.color} />
                 {meta.name}
               </span>
             );

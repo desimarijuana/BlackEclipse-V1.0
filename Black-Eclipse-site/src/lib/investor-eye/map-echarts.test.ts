@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildMapOption, unwrapDatum } from './map-echarts';
-import { buildConflictLayer, buildEventsLayer, severityColor } from './layers';
+import { buildConflictLayer, buildEventsLayer, severityColor, SYMBOL_PATHS } from './layers';
 import type { LayerDatum, MapLayer, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -98,6 +98,108 @@ describe('buildMapOption globe data shape', () => {
     };
     expect(valueOf('globe')).toHaveLength(2);
     expect(valueOf('2d')).toHaveLength(3);
+  });
+});
+
+describe('buildMapOption globe glow', () => {
+  function seriesFor(mode: '2d' | 'globe') {
+    const layer = buildEventsLayer([event({ id: 'g2', lon: 12, lat: 34 })]);
+    const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode });
+    return opt.series as unknown as Array<{
+      id: string; type: string; symbol?: string; silent?: boolean;
+      itemStyle?: { color?: unknown; opacity?: number };
+    }>;
+  }
+
+  it('does NOT draw a halo disc over the globe glyphs', () => {
+    // A halo is a larger copy of the same shape behind the core. Once glyphs
+    // carry the meaning, that reads as a fuzzy blob erasing the icon — the halo
+    // discs were removed in favour of the globe's post-process bloom.
+    const globe = seriesFor('globe');
+    expect(globe.some((s) => s.id === 'events__halo')).toBe(false);
+    expect(globe.some((s) => s.id === 'events__halo_far')).toBe(false);
+  });
+
+  it('rings only the critical pins, and silently', () => {
+    const layer = buildEventsLayer([
+      event({ id: 'c', severity: 'critical', lon: 1, lat: 1 }),
+      event({ id: 'l', severity: 'low', lon: 2, lat: 2 }),
+    ]);
+    const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode: 'globe' });
+    const series = opt.series as unknown as Array<{ id: string; silent?: boolean; data: unknown[] }>;
+    const ring = series.find((s) => s.id === 'events__critical_ring');
+    expect(ring).toBeDefined();
+    // One critical event in, one ring out — a low-severity pin gets none.
+    expect(ring!.data).toHaveLength(1);
+    // Silent, or it would steal the click from the pin underneath.
+    expect(ring!.silent).toBe(true);
+  });
+
+  it('sends the category glyph as the symbol in BOTH projections', () => {
+    // The glyph is what makes a conflict look like a blast. It must survive the
+    // projection switch — echarts-gl resolves `path://` via the same helper.
+    const layer = buildConflictLayer([event({ id: 'c1', lon: 5, lat: 5 })], () => {});
+    for (const mode of ['2d', 'globe'] as const) {
+      const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode });
+      const series = opt.series as unknown as Array<{ id: string; symbol?: string }>;
+      const core = series.find((s) => s.id === 'conflict')!;
+      expect(core.symbol, `${mode} lost the glyph`).toBe(SYMBOL_PATHS.blast);
+    }
+  });
+
+  it('keeps the ring styling scalar so echarts-gl cannot read a NaN size', () => {
+    // echarts-gl reads itemStyle through getItemVisual, which does not invoke
+    // callbacks for opacity — a function there yields invisible pins silently.
+    const layer = buildEventsLayer([event({ id: 'c', severity: 'critical', lon: 1, lat: 1 })]);
+    const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode: 'globe' });
+    const series = opt.series as unknown as Array<{ id: string; itemStyle?: { opacity?: number } }>;
+    const ring = series.find((s) => s.id === 'events__critical_ring')!;
+    expect(typeof ring.itemStyle?.opacity).toBe('number');
+  });
+});
+
+describe('map skin', () => {
+  function geoFor(skin?: 'black' | 'glow') {
+    const layer = buildEventsLayer([event({ id: 's1', lon: 10, lat: 10 })]);
+    const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode: '2d', skin });
+    return (opt as unknown as { geo: { itemStyle: { areaColor: string; borderColor: string; shadowBlur: number } } }).geo;
+  }
+
+  it('defaults to the blue lit-planet surface', () => {
+    const geo = geoFor();
+    // The glow surface is TRANSLUCENT blue, so the starfield reads through the
+    // continents — that is what makes the flat map the same object as the globe.
+    expect(geo.itemStyle.areaColor).toMatch(/^rgba\(/);
+    expect(geo.itemStyle.areaColor).not.toBe('rgba(0,0,0,0)');
+    expect(geo.itemStyle.borderColor).toContain('125,232,255');
+    expect(geo.itemStyle.shadowBlur).toBeGreaterThan(0);
+  });
+
+  it('renders the plain terminal surface for the black skin', () => {
+    const geo = geoFor('black');
+    expect(geo.itemStyle.areaColor).toBe('#141416');
+    // No bloom: the flat skin is deliberately glow-free.
+    expect(geo.itemStyle.shadowBlur).toBe(0);
+  });
+
+  it('turns the globe aura and bloom off for the black skin', () => {
+    const layer = buildEventsLayer([event({ id: 'g1', lon: 1, lat: 1 })]);
+    const globeFor = (skin: 'black' | 'glow') => {
+      const opt = buildMapOption({
+        layers: [{ ...layer, enabled: true }],
+        mode: 'globe',
+        skin,
+        globeGlowTexture: 'data:image/png;base64,AAAA',
+      });
+      return (opt as unknown as {
+        globe: { layers: unknown[]; postEffect: { enable: boolean } };
+      }).globe;
+    };
+    expect(globeFor('glow').postEffect.enable).toBe(true);
+    expect(globeFor('glow').layers).toHaveLength(1);
+    // The plain planet must not emit a coastline aura or run a post-process.
+    expect(globeFor('black').postEffect.enable).toBe(false);
+    expect(globeFor('black').layers).toHaveLength(0);
   });
 });
 
