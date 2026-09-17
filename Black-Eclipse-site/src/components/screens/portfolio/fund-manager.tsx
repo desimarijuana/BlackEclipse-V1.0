@@ -10,6 +10,8 @@ import {
   Sprout, Target, Trash2, TrendingUp, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { useChartPalette } from '@/lib/chart-palette-store';
 import { fmtK, fmtPct, fmtUsd } from '@/lib/portfolio-analysis';
 import { computePortfolioStats, type PortfolioStats, type LiveAssetInput } from '@/hooks/use-portfolio-engine';
 import { usePriceHistories } from '@/hooks/use-price-histories';
@@ -31,10 +33,10 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
 
 type Sentiment = 'profitable' | 'losing' | 'flat' | 'empty';
 
-const BENCHES: Array<{ symbol: string; name: string; market: string; color: string }> = [
-  { symbol: 'SPY', name: 'S&P 500', market: 'GLOB', color: '#94a3b8' },
-  { symbol: 'QQQ', name: 'Nasdaq 100', market: 'GLOB', color: '#64748b' },
-  { symbol: 'BTC-USD', name: 'Bitcoin', market: 'CRYPTO', color: '#fbbf24' },
+const BENCHES: Array<{ symbol: string; name: string; market: string }> = [
+  { symbol: 'SPY', name: 'S&P 500', market: 'GLOB' },
+  { symbol: 'QQQ', name: 'Nasdaq 100', market: 'GLOB' },
+  { symbol: 'BTC-USD', name: 'Bitcoin', market: 'CRYPTO' },
 ];
 
 function fundSentiment(s: PortfolioStats | undefined, pricesReady: boolean): Sentiment {
@@ -78,6 +80,7 @@ interface FundManagerProps {
 }
 
 export function FundManager({ onOpenFund }: FundManagerProps) {
+  const palette = useChartPalette();
   const [funds, setFunds] = useState<Fund[] | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [dialog, setDialog] = useState<
@@ -152,10 +155,10 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
     }
     for (const b of BENCHES) {
       const r = computeRiskMetrics([{ symbol: b.symbol, weight: 1 }], benchHist.closes, benchHist.dates, []);
-      if (r.nav.length >= 2) out.push({ name: b.name, color: b.color, nav: r.nav, dates: r.navDates, dashed: true });
+      if (r.nav.length >= 2) out.push({ name: b.name, color: palette.lines.series[BENCHES.indexOf(b) % palette.lines.series.length], nav: r.nav, dates: r.navDates, dashed: true });
     }
     return out;
-  }, [funds, statsByFund, histories, benchHist]);
+  }, [funds, statsByFund, histories, benchHist, palette.lines.series]);
 
   const chartRef = useEChart(() => {
     if (series.length === 0) return null;
@@ -206,6 +209,11 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
   };
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'funds.new', label: 'Create fund', keys: 'Shift+N', run: () => setDialog({ kind: 'create' }), enabled: funds !== null && dialog === null },
+  ]);
+
   if (funds === null) {
     return (
       <div className="flex flex-col items-center gap-3 py-24 animate-fade-in">
@@ -216,7 +224,7 @@ export function FundManager({ onOpenFund }: FundManagerProps) {
   }
 
   return (
-    <div className="animate-fade-in-up w-full">
+    <div ref={rootRef} data-keyboard-scope="Fund manager" className="animate-fade-in-up w-full">
       {/* Header + toolbar */}
       <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-border/10 pb-4">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">

@@ -18,6 +18,8 @@
 import { useEffect, useState } from 'react';
 import { Layers, Loader2, TrendingUp } from 'lucide-react';
 import { severityColor } from '@/lib/investor-eye/layers';
+import { timeInZone } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import type { EventSeverity } from '@/lib/investor-eye/types';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +63,7 @@ function humanSpan(hours: number): string {
 }
 
 export function SituationPanel({ eventId, hours }: { eventId: string; hours: number }) {
+  const tz = useDisplayTimeZone();
   const [data, setData] = useState<SituationsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -154,7 +157,7 @@ export function SituationPanel({ eventId, hours }: { eventId: string; hours: num
               <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: severityColor(o.severity) }} />
               <span className="min-w-0 flex-1 truncate text-[9px] text-muted-foreground">{o.title}</span>
               <span className="shrink-0 font-mono text-[9px] text-muted-foreground/60">
-                {o.publishedAt.slice(11, 16)}Z
+                {timeInZone(o.publishedAt, tz)}
               </span>
             </div>
           ))}

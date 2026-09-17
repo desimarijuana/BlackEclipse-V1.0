@@ -167,6 +167,22 @@ describe('shouldCluster', () => {
     const b = makeEvent({ eventType: 'trade', sources: [{ id: 'x', name: 'X', url }] });
     expect(shouldCluster(a, b)).toBe(false);
   });
+
+  it('never fuses two different provider-stated categories', () => {
+    // Both are `natural_disaster`, and their titles/signatures differ, but the
+    // real guard is the category: an earthquake is not a fire.
+    const quake = makeEvent({
+      eventType: 'natural_disaster', category: 'earthquake',
+      title: 'M 5.2 earthquake', clusterSignature: 'usgs:q1',
+      sources: [{ id: 'usgs', name: 'USGS' }],
+    });
+    const fire = makeEvent({
+      eventType: 'natural_disaster', category: 'fire',
+      title: 'M 5.2 earthquake', clusterSignature: 'firms:f1',
+      sources: [{ id: 'firms', name: 'FIRMS' }],
+    });
+    expect(shouldCluster(quake, fire)).toBe(false);
+  });
 });
 
 describe('stripLocationSuffix', () => {

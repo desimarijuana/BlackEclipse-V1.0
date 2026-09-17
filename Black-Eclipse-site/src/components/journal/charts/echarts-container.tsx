@@ -9,7 +9,7 @@ import React from 'react';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
-import { cssVarToHex } from '@/lib/chart-colors';
+import { getChartPalette } from '@/lib/chart-palette-store';
 import { cn } from '@/lib/utils';
 
 export interface EChartsContainerProps {
@@ -26,7 +26,7 @@ export interface EChartsContainerProps {
 
 /** Shared axis/grid styling matching the terminal's frosted look. */
 export function journalBaseOption(): EChartsOption {
-  const primary = cssVarToHex('--primary', '#7aff78');
+  const palette = getChartPalette();
   return {
     ...baseChartOption(),
     grid: { left: 8, right: 8, top: 20, bottom: 0, containLabel: true },
@@ -44,7 +44,7 @@ export function journalBaseOption(): EChartsOption {
       axisTick: { show: false },
       axisLabel: { color: '#7a7a7a', fontSize: 10, fontFamily: 'monospace' },
     },
-    color: [primary, '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#2dd4bf', '#fb7185', '#f97316'],
+    color: [palette.lines.primary, ...palette.lines.series],
   } as EChartsOption;
 }
 

@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-16
 ---
 
 # Data Flow
@@ -128,15 +128,26 @@ reads the DB instead of hitting feeds per request.
 ### Investor Eye world state
 
 `src/lib/investor-eye/` is its own ingestion tier (ADR-011). Per cycle it runs
-each configured `EventSource` (GDELT, USGS) through the shared `safeGet`
-transport, normalizes records into `NormalizedEvent`s, clusters/dedupes them,
-then:
+each configured `EventSource` (GDELT, USGS, the stored RSS corpus, NASA FIRMS)
+through the shared `safeGet` transport, normalizes records into
+`NormalizedEvent`s, clusters/dedupes them, then:
 
 - upserts into `GeopoliticalEvent` on the unique `dedupKey` (idempotent),
 - records one `SourceRun` per source (received/accepted/rejected + error),
 - assembles markets from the **existing** `IndexQuote` + yfinance path,
 - caches the assembled state (SWR, 3 min) and persists a last-known snapshot in
   `SystemConfig`.
+
+FIRMS is the one source that aggregates *before* the event model: ~25,600 raw
+single-pixel detections become ≤400 grid clusters (real detection count + summed
+FRP), because the raw row count must never reach the database or the browser. A
+fire cluster's country comes from `admin-boundaries.ts` (point-in-polygon against
+the shipped Natural Earth GeoJSON), not a centroid guess.
+
+Governance metadata (licence, commercial-use, attribution, rate limit) lives
+alongside in `source-catalog.ts`; `/api/investor-eye/health` joins it onto the
+`SourceRun` accounting for the Data Sources panel, and a test enforces that every
+registered source has an entry.
 
 A failing source is reported as `UNAVAILABLE` and the rest of the feed still
 serves. `/api/investor-eye/state` returns the assembled payload; the client
@@ -153,7 +164,7 @@ reads it through DataHub topics. The world-state cron runs in-process from
 | Boot warm-up | once | `scraper/scheduler.ts` | Production only unless `BE_WARMUP=1`; caps at 1000 rows/market |
 | Alert poll | per-watch | `alerts/alertMonitor.ts` | Evaluates condition trees |
 | Dataset refresh | per-dataset (≥5 min) | `connectors/refresh-scheduler.ts` | Operator connectors; skips while `syncBusy()` |
-| Investor Eye ingest | 10 min | `investor-eye/scheduler.ts` | GDELT/USGS → normalized events; skips while `syncBusy()` |
+| Investor Eye ingest | 10 min | `investor-eye/scheduler.ts` | GDELT/USGS/FIRMS/news → normalized events; skips while `syncBusy()` |
 
 ### Why markets are skipped
 

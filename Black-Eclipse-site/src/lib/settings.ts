@@ -245,12 +245,19 @@ export interface AppPreferences {
   theme: "dark" | "light";
   defaultMarket: string;
   refreshMs: number;
+  /**
+   * IANA timezone for displaying timestamps (e.g. 'UTC', 'Europe/London',
+   * 'Asia/Karachi'). Empty/absent means "follow the browser". Every formatted
+   * time prints its zone, so the value is never ambiguous.
+   */
+  timeZone?: string;
 }
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   theme: "dark",
   defaultMarket: "US",
   refreshMs: 15000,
+  timeZone: "UTC",
 };
 
 const PREFS_KEY = "app_preferences";

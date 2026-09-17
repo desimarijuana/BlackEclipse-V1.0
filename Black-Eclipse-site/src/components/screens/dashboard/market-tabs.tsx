@@ -8,7 +8,8 @@
 //
 // Uses the shared frosted-glass <TabBar> so it matches every other tab strip.
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { Globe, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabBar, type TabItem } from '@/components/ui/tab-bar';
@@ -20,6 +21,12 @@ export function MarketTabs() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  usePageShortcuts(rootRef, [
+    { id: 'layout-new', label: 'New layout', keys: 'shift+n', run: () => setCreating(true), enabled: !creating && !editingId },
+    { id: 'layout-switch', label: 'Focus layout tabs', keys: 'shift+l', run: () => rootRef.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.focus(), enabled: !creating && !editingId },
+  ]);
   // A new layout inherits the active layout's data context (no country picker).
   const inheritMarket = active?.market ?? 'US';
   const nextName = `Layout ${views.length + 1}`;
@@ -60,7 +67,7 @@ export function MarketTabs() {
   }));
 
   return (
-    <>
+    <div ref={rootRef} data-keyboard-scope="Command Center layouts">
       <TabBar
         variant="subtle"
         className="mb-3"
@@ -82,7 +89,7 @@ export function MarketTabs() {
               'inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-white/15 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
               'dark:border-white/10 bg-accent/30 text-muted-foreground hover:border-primary/40 hover:text-primary',
             )}
-            title="Add a new layout"
+            title="Add a new layout (Shift+N); focus layouts (Shift+L)"
           >
             <LayoutGrid size={12} /> New layout
           </button>
@@ -96,6 +103,6 @@ export function MarketTabs() {
           onCreate={(name, templateId) => { create(name, inheritMarket, templateId); setCreating(false); }}
         />
       )}
-    </>
+    </div>
   );
 }

@@ -6,6 +6,7 @@
 // queryable object rendered as a distinct visual on the main pane.
 
 import type { MarketStructureResult } from '@/lib/chart/types';
+import { getChartPalette } from '@/lib/chart-palette-store';
 
 /** Which structure layers are enabled. */
 export interface StructureLayers {
@@ -30,18 +31,14 @@ export const DEFAULT_STRUCTURE_LAYERS: StructureLayers = {
   openingRanges: false,
 };
 
-const UP = '#7aff78';
-const DOWN = '#ff3e3e';
-const BLUE = '#60a5fa';
-const AMBER = '#fbbf24';
-const PINK = '#f472b6';
-
 /** Build all mark overlays for the enabled structure layers. */
 export function structureToMarks(result: MarketStructureResult, layers: StructureLayers): {
   markLine: unknown[];
   markArea: unknown[];
   markPoint: unknown[];
 } {
+  const { candles, lines } = getChartPalette(); const UP = candles.up; const DOWN = candles.down; const neutral = candles.neutral; const [BLUE, AMBER, , PINK] = lines.series;
+  
   const markLine: unknown[] = [];
   const markArea: unknown[] = [];
   const markPoint: unknown[] = [];
@@ -118,13 +115,13 @@ export function structureToMarks(result: MarketStructureResult, layers: Structur
     for (const s of result.sessions) {
       markLine.push({
         yAxis: s.high,
-        lineStyle: { color: 'rgba(160,160,160,0.5)', width: 1, type: 'dashed' },
-        label: { show: true, position: 'end', color: 'rgba(160,160,160,0.7)', fontSize: 8, fontFamily: 'monospace', formatter: 'S-H' },
+        lineStyle: { color: neutral + '80', width: 1, type: 'dashed' },
+        label: { show: true, position: 'end', color: neutral + 'b3', fontSize: 8, fontFamily: 'monospace', formatter: 'S-H' },
       });
       markLine.push({
         yAxis: s.low,
-        lineStyle: { color: 'rgba(160,160,160,0.5)', width: 1, type: 'dashed' },
-        label: { show: true, position: 'end', color: 'rgba(160,160,160,0.7)', fontSize: 8, fontFamily: 'monospace', formatter: 'S-L' },
+        lineStyle: { color: neutral + '80', width: 1, type: 'dashed' },
+        label: { show: true, position: 'end', color: neutral + 'b3', fontSize: 8, fontFamily: 'monospace', formatter: 'S-L' },
       });
     }
   }
@@ -134,7 +131,7 @@ export function structureToMarks(result: MarketStructureResult, layers: Structur
       markArea.push([
         {
           xAxis: r.rangeIndex, yAxis: r.high,
-          itemStyle: { color: 'rgba(251,191,36,0.10)', borderColor: AMBER, borderWidth: 1 },
+          itemStyle: { color: AMBER + '1a', borderColor: AMBER, borderWidth: 1 },
           label: { show: true, position: 'insideTop', color: AMBER, fontSize: 8, fontFamily: 'monospace', formatter: 'OR' },
         },
         { xAxis: r.rangeIndex + 3, yAxis: r.low },

@@ -15,6 +15,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { canHandleKeyboardEvent, isKeyboardScopeVisible, matchesShortcut } from '@/lib/keyboard';
+import { chartIdentity, dataManager } from '@/lib/chart/subscription-manager';
 import { useMarketWorkspace, type MarketWorkspaceController } from '@/lib/market-workspace/use-market-workspace';
 import { useWorkspaces } from '@/lib/market-workspace/use-workspaces';
 import { getWorkspacePreset } from '@/lib/market-workspace/presets';
@@ -57,6 +60,9 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   const workspace = useMarketWorkspace({ storageKey, defaultLayout: workspaces.defaultLayout });
 
   const { layout, editMode, activePanelId, focusedPanelId, fullPage, ops } = workspace;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fullPageRef = useRef<HTMLDivElement>(null);
+  const focusedRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState({ w: 100, h: 100 });
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -227,39 +233,76 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     return () => { document.body.style.overflow = prev; };
   }, [fullPage, focusedPanelId]);
 
+  useEffect(() => {
+    const overlay = focusedPanelId ? focusedRef.current : fullPage ? fullPageRef.current : null;
+    if (!overlay) return;
+    const previous = document.activeElement as HTMLElement | null;
+    overlay.focus({ preventScroll: true });
+    const observer = new MutationObserver(() => {
+      if (isKeyboardScopeVisible(rootRef.current)) return;
+      ops.setFocusedPanel(null);
+      ops.setFullPage(false);
+    });
+    for (let node: HTMLElement | null = rootRef.current; node; node = node.parentElement) {
+      observer.observe(node, { attributes: true, attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden', 'data-closed'] });
+    }
+    return () => {
+      observer.disconnect();
+      if (previous && isKeyboardScopeVisible(previous)) previous.focus({ preventScroll: true });
+    };
+  }, [focusedPanelId, fullPage, ops]);
+
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
+  const fullscreenPanel = () => {
+    const owner = document.activeElement?.closest<HTMLElement>('[data-market-panel-id]');
+    const id = owner?.dataset.marketPanelId ?? activePanelId ?? layout.panels.find(p => p.type === 'chart')?.id;
+    if (id && layout.panels.some(p => p.id === id)) { ops.setActivePanel(id); ops.setFocusedPanel(id); }
+  };
+  const openToolbarMenu = (title: string) => {
+    const button = rootRef.current?.querySelector<HTMLButtonElement>(`button[title="${title}"]`);
+    button?.focus();
+    button?.click();
+  };
+  const refreshCharts = () => {
+    const refreshed = new Set<string>();
+    for (const panel of layout.panels) {
+      if (panel.type !== 'chart' || !panel.chart) continue;
+      const { symbol, market, timeframe } = panel.chart;
+      const identity = chartIdentity(symbol, market, timeframe);
+      if (refreshed.has(identity)) continue;
+      refreshed.add(identity);
+      dataManager.refreshBars(symbol, market, timeframe);
+    }
+  };
+
+  usePageShortcuts(rootRef, [
+    { id: 'chart-workspace-save', label: 'Save chart workspace', keys: 'ctrl+s', run: saveNow, enabled: !!workspaces.active && !workspace.corrupt },
+    { id: 'chart-workspace-full-page', label: 'Toggle full page', keys: 'ctrl+enter', run: () => { ops.setFullPage(!fullPage); if (fullPage) onRequestExitFullPage?.(); }, enabled: !focusedPanelId },
+    { id: 'chart-workspace-fullscreen', label: 'Fullscreen active chart', keys: 'f', run: fullscreenPanel, enabled: !focusedPanelId && layout.panels.length > 0 },
+    { id: 'chart-workspace-customize', label: 'Customize chart workspace', keys: 'shift+e', run: () => ops.setEditMode(!editMode), enabled: !fullPage && !focusedPanelId },
+    { id: 'chart-workspace-add', label: 'Open add panel menu', keys: 'shift+w', run: () => openToolbarMenu('Add a panel'), enabled: !embedded && !fullPage && !focusedPanelId },
+    { id: 'chart-workspace-layout', label: 'Open grid layout menu', keys: 'shift+l', run: () => openToolbarMenu('Grid layout'), enabled: !embedded && !fullPage && !focusedPanelId },
+    { id: 'chart-workspace-refresh', label: 'Refresh workspace charts', keys: 'r', run: refreshCharts },
+  ]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      const mod = e.ctrlKey || e.metaKey;
-
-      if (e.key === 'Escape') {
-        if (focusedPanelId) { ops.setFocusedPanel(null); return; }
-        if (fullPage) { ops.setFullPage(false); onRequestExitFullPage?.(); return; }
+      if (!canHandleKeyboardEvent(e, rootRef.current)) return;
+      if (matchesShortcut(e, 'escape')) {
+        if (focusedPanelId) { e.preventDefault(); ops.setFocusedPanel(null); return; }
+        if (fullPage) { e.preventDefault(); ops.setFullPage(false); onRequestExitFullPage?.(); }
       }
-      if (mod && e.key === 'Enter') { e.preventDefault(); ops.setFullPage(!fullPage); return; }
-      if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(); return; }
-      if (mod && e.key.toLowerCase() === 'k') {
+      if (matchesShortcut(e, 'delete') && activePanelId && editMode && !focusedPanelId && !fullPage) {
+        if (document.activeElement?.closest('[data-chart-keyboard-root]')) return;
+        const owner = document.activeElement?.closest<HTMLElement>('[data-market-panel-id]');
+        if (owner?.dataset.marketPanelId !== activePanelId || !rootRef.current?.contains(owner)) return;
         e.preventDefault();
-        void import('@/lib/search/store').then(({ useCommandStore }) => useCommandStore.getState().setOpen(true));
-        return;
-      }
-      if (!typing && e.key.toLowerCase() === 'f' && !mod) {
-        // Fullscreen the active panel (or the first chart).
-        const id = activePanelId ?? layout.panels.find(p => p.type === 'chart')?.id;
-        if (id) { ops.setActivePanel(id); ops.setFocusedPanel(id); }
-      }
-      // Delete removes the active panel, but only while customizing — so a stray
-      // Delete during normal trading never destroys a chart (a drawing deletion
-      // inside a chart still works independently).
-      if (!typing && e.key === 'Delete' && activePanelId && editMode) {
-        ops.removePanel(activePanelId);
+        if (confirm('Remove the active panel?')) ops.removePanel(activePanelId);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activePanelId, focusedPanelId, fullPage, editMode, layout.panels, ops, saveNow, onRequestExitFullPage]);
+  }, [activePanelId, focusedPanelId, fullPage, editMode, ops, onRequestExitFullPage]);
 
   // ── Panel grid styles ──────────────────────────────────────────────────────
   // Normal mode: rows are exactly `layout.rows` tracks. When the panels fit on
@@ -327,7 +370,12 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
         activePanelId === panel.id && 'ring-1 ring-primary/50',
       )}
       style={panelStyle(panel, rectOverride)}
-      onMouseDown={() => ops.setActivePanel(panel.id)}
+      data-market-panel-id={panel.id}
+      tabIndex={0}
+      onPointerDownCapture={(e) => {
+        const interactive = (e.target as HTMLElement).closest('input, textarea, select, [contenteditable], button, a, [tabindex]');
+        if (e.button === 0 && interactive === e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+      }}
     >
       <div className="min-h-0 flex-1">
         <PanelContent
@@ -402,6 +450,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
     <div
       ref={gridRef}
       data-market-workspace
+      inert={!!focusedPanelId}
       className={cn('grid min-h-0', fullPage ? 'gap-1.5' : 'flex-1 gap-2.5')}
       style={fullPage ? fullPageGridStyle : gridStyle}
     >
@@ -448,9 +497,16 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   // in a glass-card (backdrop-filter creates a containing block), which would
   // otherwise trap `position: fixed` and keep the global nav visible on top.
   // While open, background scroll is locked so the charts own the whole screen.
+  //
+  // `outline-none`: this is a keyboard FOCUS SINK (focused programmatically below
+  // so the shortcut scope is active), not a control. Without it, the moment
+  // :focus-visible matches — any keyboard interaction such as Tab, Ctrl+Enter or
+  // F11 — the browser paints its default focus ring around the whole viewport,
+  // and because globals.css sets `outline-color` on `*` it renders BRAND GREEN.
+  // That was the green box around the page in full page/fullscreen mode.
   const fullPageOverlay = fullPage && typeof document !== 'undefined'
     ? createPortal(
-        <div className="fixed inset-0 z-[70] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background p-2">
+        <div ref={fullPageRef} tabIndex={-1} data-keyboard-scope="Chart workspace full page" className="fixed inset-0 z-[70] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background p-2 outline-none">
           <div className="pointer-events-none absolute right-3 top-3 z-[75] flex items-center gap-1.5">
             <button
               onClick={() => { ops.setFullPage(false); onRequestExitFullPage?.(); }}
@@ -469,9 +525,10 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
 
   // Single-chart fullscreen overlay. Portaled for the same containing-block
   // reason, and it renders the panel's chart optimised for the full viewport.
+  // `outline-none` for the same reason as the full-page overlay above.
   const focusedOverlay = focused && typeof document !== 'undefined'
     ? createPortal(
-        <div className="fixed inset-0 z-[80] flex flex-col bg-background/95 p-3 backdrop-blur-md">
+        <div ref={focusedRef} tabIndex={-1} data-keyboard-scope="Fullscreen chart" className="fixed inset-0 z-[80] flex flex-col bg-background/95 p-3 backdrop-blur-md outline-none">
           <div className="mb-2 flex items-center gap-2">
             <span className="font-serif text-sm font-semibold text-foreground">
               {focused.chart?.symbol ?? focused.symbol ?? focused.type} — fullscreen
@@ -535,9 +592,18 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
         // Fill the viewport (minus the top bar, page padding and the heading) so
         // a small number of charts stretch big, while extra rows still scroll.
         'relative flex flex-col',
-        fullPage ? '' : 'min-h-[calc(100dvh-190px)]',
+        fullPage ? 'min-h-px' : 'min-h-[calc(100dvh-190px)]',
+        // Focus sink for the shortcut scope — never show a focus ring on it.
+        'outline-none',
         className,
       )}
+      ref={rootRef}
+      tabIndex={-1}
+      onFocusCapture={(e) => {
+        const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-market-panel-id]');
+        if (panel?.dataset.marketPanelId) ops.setActivePanel(panel.dataset.marketPanelId);
+      }}
+      data-keyboard-scope="Chart workspace"
       data-market-workspace-root
     >
       {!embedded && !fullPage && (

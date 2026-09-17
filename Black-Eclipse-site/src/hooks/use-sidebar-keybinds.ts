@@ -1,35 +1,36 @@
-// ── useSidebarKeybinds ────────────────────────────────────────────────────
-// Global F1–F12 bindings that open a sidebar tab, driven by the user's
-// sidebar customization (Settings › Sidebar). Mirrors the modifier-aware
-// typing guard used by the command-center keybind hook.
-
 'use client';
 
-import { useEffect } from 'react';
-import { useSidebarConfigStore } from '@/lib/sidebar/store';
-import { shortcutTab } from '@/lib/sidebar/config';
+import { useEffect, useRef } from 'react';
+import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
+import { shortcutTab, type SidebarConfig } from '@/lib/sidebar/config';
+import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
+import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import type { AppTab } from '@/components/layout/sidebar';
 
+export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfig, onNavigate: (tab: AppTab) => void): boolean {
+  if (!/^F([1-9]|1[0-2])$/.test(event.key) || !matchesShortcut(event, event.key)) return false;
+  if (useKeyboardShortcutsStore.getState().helpOpen || !canHandleKeyboardEvent(event)) return false;
+  const tab = shortcutTab(config, event.key);
+  if (tab) {
+    event.preventDefault();
+    onNavigate(tab);
+    return true;
+  }
+  return false;
+}
+
 export function useSidebarKeybinds(onNavigate: (tab: AppTab) => void) {
-  const config = useSidebarConfigStore((s) => s.config);
+  useHydrateSidebarConfig();
+  const navigateRef = useRef(onNavigate);
+  useEffect(() => {
+    navigateRef.current = onNavigate;
+  });
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // F-keys have no modifier; ignore modified presses so browser/OS
-      // combinations (e.g. Alt+F4) pass through untouched.
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      const tab = shortcutTab(config, e.key);
-      if (!tab) return;
-
-      const target = e.target as HTMLElement | null;
-      if (target?.isContentEditable) return;
-
-      e.preventDefault();
-      onNavigate(tab);
+    const onKeyDown = (event: KeyboardEvent) => {
+      handleSidebarShortcut(event, useSidebarConfigStore.getState().config, navigateRef.current);
     };
-
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [config, onNavigate]);
+  }, []);
 }

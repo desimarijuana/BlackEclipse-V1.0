@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 
 export interface NewsItem {
   id: string;
@@ -152,7 +153,8 @@ const LINE_CLAMP_CLASS: Record<CardSettings['summaryLines'], string> = {
 
 
 
-function FilterSelect({ value, onChange, placeholder, options }: {
+function FilterSelect({ value, onChange, placeholder, options, selectRef }: {
+  selectRef?: React.Ref<HTMLSelectElement>;
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
@@ -161,6 +163,7 @@ function FilterSelect({ value, onChange, placeholder, options }: {
   return (
     <div className="relative h-9">
       <select
+        ref={selectRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={`h-9 appearance-none rounded-lg bg-accent/30 border pl-3 pr-8 text-[12px] font-mono cursor-pointer focus:outline-none focus:border-primary/60 transition-colors ${
@@ -581,6 +584,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     </Dialog>
   ) : null;
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filterRef = useRef<HTMLSelectElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'news.search', label: 'Search news', keys: 'S', run: () => searchRef.current?.focus(), enabled: fullPage && !loading },
+    { id: 'news.filters', label: 'Focus news filters', keys: 'Shift+F', run: () => filterRef.current?.focus(), enabled: fullPage && !loading },
+    { id: 'news.customize', label: 'Customize news cards', keys: 'Shift+C', run: () => setShowCustomize((v) => !v), enabled: fullPage && !loading },
+    { id: 'news.refresh', label: 'Refresh news', keys: 'R', run: handleRefresh, enabled: fullPage && !loading && !refreshing },
+  ]);
+
   if (loading) {
     const loadingBar = <TopLoader />;
 
@@ -651,7 +664,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
 
   if (fullPage) {
     return (
-      <div className="w-full flex flex-col gap-6 select-none">
+      <div ref={rootRef} data-keyboard-scope="Market news" className="w-full flex flex-col gap-6 select-none">
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 glass-card p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
@@ -661,6 +674,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
             <div className="relative flex-1 min-w-0 max-w-md">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
+                ref={searchRef}
                 value={pendingQ}
                 onChange={(e) => setPendingQ(e.target.value)}
                 placeholder="Search… try ticker:NVDA  sentiment:bearish  category:WAR"
@@ -719,6 +733,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
               <Bookmark size={12} fill={savedView ? 'currentColor' : 'none'} /> Saved{savedIds.size > 0 ? ` (${savedIds.size})` : ''}
             </button>
             <FilterSelect
+              selectRef={filterRef}
               value={filters.category}
               placeholder="Category"
               options={CATEGORIES}

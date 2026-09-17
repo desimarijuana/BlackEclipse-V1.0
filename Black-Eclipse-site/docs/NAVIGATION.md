@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-16
 ---
 
 # Navigation — Where Things Live
@@ -43,14 +43,17 @@ Black-Eclipse-site/
 | Work on portfolio risk/correlation math | `src/lib/portfolio/matrix.ts` (date-aligned correlation + Euler risk decomposition), `src/lib/portfolio/risk.ts` |
 | Work on portfolio widgets | `src/components/screens/portfolio/widgets.tsx` (registry + renderers), `use-fund-data.ts` (data bundle) |
 | Work on the journal | `src/components/journal/`, `src/lib/journal/` |
+| Journal date formatting | `src/lib/journal/dates.ts` — journal dates are UTC everywhere, so format month/day labels in UTC or they render a month off |
 | Seed / clear journal demo data | `src/lib/journal/demo.ts` (generator + marker), `src/app/api/journal/demo/route.ts` (seed/clear), `scripts/seed-journal.ts` (CLI wrapper) |
 | Work on the dashboard widgets | `src/lib/dashboard/`, `src/components/screens/dashboard/` |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |
 | Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
-| Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) |
-| Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder + `LAYER_META` colour/group/symbol) + `store.ts` `DEFAULT_LAYERS` |
+| Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) **and** a governance entry in `src/lib/investor-eye/source-catalog.ts` (a test fails without one) |
+| Declare a source's licence / attribution | `src/lib/investor-eye/source-catalog.ts` (surfaced by `/api/investor-eye/health` → `source-health-panel.tsx`) |
+| Resolve a coordinate to a country (no place text) | `src/lib/investor-eye/admin-boundaries.ts` (`countryAtPoint`/`boundaryAtPoint`, point-in-polygon over `public/geo/world.geo.json`); centroid fallback is in `sources/firms.ts` |
+| Add an Investor Eye map layer | `src/lib/investor-eye/layers.ts` (`MapLayer` builder + `LAYER_META` colour/group/symbol) + `store.ts` `DEFAULT_LAYERS`. Domain layers match event TYPE **or** economic CHANNEL (`buildDomainLayer`) — never type alone |
 | Change Investor Eye colours / layer groups / legend | `src/lib/investor-eye/layers.ts` (`LAYER_GROUPS`, `LayerMeta`, `SEVERITY_COLORS`) — consumed by the controller, timeline, map adapter and full-page dock |
 | Work on the full-page "map only" mode | `src/components/investor-eye/full-page-map.tsx` (+ `store.fullPage`); reuses `WorldMap`/`EventPanel`, portaled to body |
 | Work on the live event stream / conflict feed | `src/components/investor-eye/live-feed.tsx`; conflict RSS wires in `DEFAULT_NEWS_FEEDS` (`src/lib/settings.ts`) |
@@ -60,7 +63,7 @@ Black-Eclipse-site/
 | Fix where an event is plotted (city/port) | `src/lib/investor-eye/places.ts` (curated gazetteer + `resolvePlace()`); used by `sources/news.ts` |
 | Fix where a POLICY event is plotted (capital vs centroid) | `src/lib/investor-eye/geo-resolve.ts` (`resolveEventLocation`, `reResolveEventLocation`) + `CAPITALS` in `countries.ts`; hollow markers are styled in `map-echarts.ts` |
 | Work on saved views | `src/components/investor-eye/saved-views.tsx` + `store.ts` (`saveView`/`applyView`) |
-| Work on data-source health | `src/app/api/investor-eye/health/route.ts` + `source-health-panel.tsx` (reads `SourceRun` rows) |
+| Work on data-source health / governance | `src/app/api/investor-eye/health/route.ts` + `source-health-panel.tsx` (reads `SourceRun` rows, joins `source-catalog.ts`) |
 | Fix events merging into nonsense clusters | `src/lib/investor-eye/cluster.ts` (`shouldCluster` + `clusterSignature`) and `dedup.ts` (`dedupKeyFor`); never let synthesized title text score similarity |
 | Surface real article headlines on events | `src/lib/investor-eye/enrich.ts` (news-corpus URL join, ~1% hit rate) and `article-meta.ts` / `article-meta-fetch.ts` (reads `og:title` from the linked page — the effective path); route `src/app/api/investor-eye/article/route.ts` |
 | Make provider-synthesized event titles readable | `formatEventTitle` in `src/lib/investor-eye/format.ts` (used by the dossier header + live feed) |
@@ -82,6 +85,7 @@ Black-Eclipse-site/
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
+| Add/change a provider API key (the settings "API Keys" menu) | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) → `/api/provider-keys` → `src/components/screens/api-keys-panel.tsx`; section id `settings.api-keys` |
 | Pull/ingest custom dataset records | `PUT /api/datasets` → `pullDataset` in `src/lib/connectors/refresh.ts` |
 | Scheduled connector refresh | `src/lib/connectors/refresh-scheduler.ts` (started in `src/instrumentation.ts`) |
 | Change the DB schema | `prisma/schema.prisma` → `prisma db push` |
@@ -100,9 +104,10 @@ Black-Eclipse-site/
 | `aurora/` | Aurora palette store + theme |
 | `chart/` | Chart types, data hooks, indicators, drawings, structure, providers |
 | `connectors/` | Universal Data Connector Layer: provider catalog, capability resolver, custom REST connectors, SSRF/secret security, custom datasets, scheduled refresh |
+| `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
 | `economics/` | Macro fetching, sources, calendar, snapshot |
-| `investor-eye/` | World-state tier: event sources (GDELT/USGS), normalization/clustering, map layers, risk/exposure/transmission analytics, ingestion + cache |
+| `investor-eye/` | World-state tier: event sources (GDELT/USGS/FIRMS/news), normalization/clustering, map layers, source governance catalog, geographic boundary lookup, risk/exposure/transmission analytics, ingestion + cache |
 | `journal/` | Journal data access, trade math, analytics suite, CSV import |
 | `market-workspace/` | The market-panel workspace engine |
 | `news/` | Background RSS ingestion |
@@ -120,7 +125,7 @@ Black-Eclipse-site/
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
-`data/[capability]` · `providers` · `investor-eye/*` (state, events, countries,
+`data/[capability]` · `providers` · `provider-keys` · `investor-eye/*` (state, events, countries,
 markets, layers, economy, companies, portfolio, risk, analogues, query, graph,
 health).
 
@@ -133,6 +138,7 @@ health).
 | DataHub topic/entry | `src/lib/workspace/data-hub.ts` |
 | Connector contract | `src/lib/connectors/types.ts` |
 | Investor Eye event-source contract | `src/lib/investor-eye/types.ts` (`EventSource`) |
+| Investor Eye source-governance contract | `src/lib/investor-eye/source-catalog.ts` (`SourceCatalogEntry`) |
 | Investor Eye map-layer contract | `src/lib/investor-eye/types.ts` (`MapLayer`) + `layers.ts` |
 | Investor Eye relationship-graph contract | `src/lib/investor-eye/types.ts` (`RelationshipEdge`/`GraphNode`/`GraphLink`) |
 | Investor Eye server cache | `src/lib/investor-eye/cache.ts` (globalThis-anchored, window-keyed) |
@@ -153,7 +159,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `prisma/schema.prisma`, `src/lib/db.ts` | `ARCHITECTURE.md` (JDDS section), `DATA-FLOW.md` |
 | `src/lib/workspace/`, `src/lib/market-workspace/`, `src/lib/customize/` | `ARCHITECTURE.md` (workspaces), `DECISIONS.md` |
 | `src/lib/api-guard.ts`, auth/env behavior | `ARCHITECTURE.md`, `QUICKSTART.md` |
-| `src/lib/connectors/`, `src/app/api/data-sources/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer), `DATA-FLOW.md`, `DECISIONS.md` |
+| `src/lib/connectors/`, `src/lib/provider-keys.ts`, `src/app/api/data-sources/`, `src/app/api/provider-keys/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer + operator credentials), `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/investor-eye/`, `src/components/investor-eye/`, `src/app/api/investor-eye/` | `ARCHITECTURE.md` (Investor Eye), `investor-eye-architecture.md`, `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |

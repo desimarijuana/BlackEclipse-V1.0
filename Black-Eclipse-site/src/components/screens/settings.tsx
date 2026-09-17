@@ -14,10 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
 import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
+import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
+import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { ApiKeysPanel } from "./api-keys-panel";
 import { ProviderList } from "./provider-list";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 
@@ -81,12 +84,12 @@ const ALL_MARKETS = [
 ];
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-export type SectionId = "appearance" | "aurora" | "sidebar" | "agent" | "market" | "news" | "connectors" | "integrations" | "data" | "alerts";
+export type SectionId = "appearance" | "aurora" | "charts" | "sidebar" | "agent" | "market" | "news" | "api-keys" | "connectors" | "integrations" | "data" | "alerts";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "appearance", "aurora", "sidebar", "agent", "market",
-  "news", "connectors", "integrations", "data", "alerts",
+  "appearance", "aurora", "charts", "sidebar", "agent", "market",
+  "news", "api-keys", "connectors", "integrations", "data", "alerts",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
@@ -233,6 +236,17 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     setDisplayCurrency(code);
   };
 
+  // Display timezone (stored locally; every formatted time prints its zone).
+  const [timeZone, setTimeZone] = useState<string>("UTC");
+  useEffect(() => {
+    setTimeZone(getDisplayTimeZone());
+  }, []);
+  const applyTimeZone = (tz: string | null) => {
+    if (!tz || !isValidTimeZone(tz)) return;
+    setTimeZone(tz);
+    setDisplayTimeZone(tz);
+  };
+
   // Market data (loaded from JDDS)
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>(["US"]);
@@ -333,10 +347,12 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
   const NAV: { id: SectionId; label: string; desc: string; icon: React.ElementType }[] = [
     { id: "appearance", label: "Appearance", desc: "Theme & refresh", icon: Palette },
     { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles },
+    { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity },
     { id: "sidebar", label: "Sidebar", desc: "Menu & shortcuts", icon: PanelLeft },
     { id: "agent", label: "AI Agent", desc: "Provider & model", icon: Bot },
     { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
     { id: "news", label: "News Feeds", desc: "RSS sources", icon: Newspaper },
+    { id: "api-keys", label: "API Keys", desc: "Plug data in", icon: KeyRound },
     { id: "connectors", label: "Data Sources", desc: "Bring your own API", icon: Boxes },
     { id: "integrations", label: "Integrations", desc: "Service status", icon: ShieldCheck },
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: Activity },
@@ -396,6 +412,17 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto scrollbar-hide p-5 md:p-8">
           <div className="max-w-3xl mx-auto">
+            <div className="md:hidden mb-5">
+              <Label htmlFor="settings-section" className="text-xs text-muted-foreground mb-2">Settings section</Label>
+              <Select value={section} onValueChange={(value) => { if (value && SETTINGS_SECTIONS.includes(value as SectionId)) setSection(value as SectionId); }}>
+                <SelectTrigger id="settings-section" className="w-full">
+                  <SelectValue>{NAV.find((item) => item.id === section)?.label}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {NAV.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             {section === "appearance" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
@@ -475,11 +502,33 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       </SelectContent>
                     </Select>
                   </Field>
+                  <Field
+                    label="Display Timezone"
+                    hint="Timestamps across the app (including Investor Eye event times) render in this zone. The zone is always printed with the time."
+                  >
+                    <Select value={timeZone} onValueChange={applyTimeZone}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={browserTimeZone()}>
+                          Device timezone — {browserTimeZone()}
+                        </SelectItem>
+                        {DISPLAY_TIMEZONES.filter((t) => t.id !== browserTimeZone()).map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.label} — {t.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                 </Panel>
               </div>
             )}
 
             {section === "aurora" && <AuroraSettingsPanel />}
+
+            {section === "charts" && <ChartSettingsPanel />}
 
             {section === "sidebar" && <SidebarSettingsPanel />}
 
@@ -736,6 +785,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
               </div>
             )}
 
+            {section === "api-keys" && <ApiKeysPanel />}
             {section === "connectors" && <DataSourcesPanel />}
             {section === "integrations" && (
               <div className="animate-fade-in-up">
@@ -805,7 +855,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
         </div>
 
         {/* Save bar */}
-        <div className="shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3">
+        <div className={cn("shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3", section === "charts" && "hidden")}>
           {message ? (
             <span className="text-xs text-primary flex items-center gap-1.5">
               {saved && <Check className="w-3.5 h-3.5" />}

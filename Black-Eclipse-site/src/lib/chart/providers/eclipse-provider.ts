@@ -9,7 +9,7 @@
 
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
-import { brandUpDown, cssVarToHex } from '@/lib/chart-colors';
+import { getChartPalette, subscribeChartPalette } from '@/lib/chart-palette-store';
 import { calculateIndicator } from '@/lib/chart/indicators/registry';
 import type {
   ChartCompareSeries, ChartData, ChartDrawing, ChartIndicatorConfig, ChartProvider,
@@ -34,6 +34,7 @@ export class EclipseChartProvider implements ChartProvider {
   private chart: echarts.ECharts | null = null;
   private container: HTMLElement | null = null;
   private ro: ResizeObserver | null = null;
+  private unsubscribePalette: (() => void) | null = null;
 
   private state: ChartState;
   private data: ChartData | null = null;
@@ -104,10 +105,18 @@ export class EclipseChartProvider implements ChartProvider {
       const t = i != null ? this.barTimes[i] ?? null : null;
       if (!this.applyingExternal) this.crosshairCb(t);
     });
+    this.unsubscribePalette?.();
+    this.unsubscribePalette = subscribeChartPalette(() => {
+      this.recomputeIndicators();
+      this.render();
+    });
+    this.recomputeIndicators();
     this.render();
   }
 
   destroy(): void {
+    this.unsubscribePalette?.();
+    this.unsubscribePalette = null;
     this.ro?.disconnect();
     this.ro = null;
     this.chart?.dispose();
@@ -364,8 +373,8 @@ export class EclipseChartProvider implements ChartProvider {
       return `${b.date} ${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
     };
     const dates = bars.map(barLabel);
-    const { up, down } = brandUpDown();
-    const primary = cssVarToHex('--primary', up);
+    const { candles, lines } = getChartPalette();
+    const up = candles.up; const down = candles.down; const primary = lines.primary; const colors = lines.series;
     const type = this.state.chartType;
     const panes = this.buildPanes();
 
@@ -479,15 +488,16 @@ export class EclipseChartProvider implements ChartProvider {
         // so they share the main price axis (TradingView-style relative chart).
         const primaryBase = bars[0]?.close ?? 0;
         if (primaryBase > 0) {
-          for (const cmp of this.compareSeries) {
+          for (const [index, cmp] of this.compareSeries.entries()) {
+            const color = colors[index % colors.length];
             const base = cmp.values.find((v): v is number => v != null);
             if (base == null || base === 0) continue;
             const mapped = cmp.values.map((v) => (v == null ? null : +(primaryBase * (v / base)).toFixed(4)));
             series.push({
               name: cmp.symbol, type: 'line', xAxisIndex: gridIdx, yAxisIndex: gridIdx,
               data: mapped, showSymbol: false, connectNulls: true, z: 5,
-              lineStyle: { color: cmp.color, width: 1.4 },
-              itemStyle: { color: cmp.color },
+              lineStyle: { color, width: 1.4 },
+              itemStyle: { color },
             });
           }
         }
@@ -562,8 +572,8 @@ export class EclipseChartProvider implements ChartProvider {
       dataZoom: [
         { type: 'inside', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
         this.compact
-          ? { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 6, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.06)', handleSize: 0, showDetail: false }
-          : { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: 'rgba(122,255,120,0.08)', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
+          ? { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 6, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: primary + '0f', handleSize: 0, showDetail: false }
+          : { type: 'slider', xAxisIndex: dataZoomX, start: this.zoomStart, end: this.zoomEnd, height: 14, bottom: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.02)', fillerColor: primary + '14', handleStyle: { color: 'rgba(160,160,160,0.6)' } },
       ],
       series,
     } as EChartsOption;
@@ -654,7 +664,10 @@ export class EclipseChartProvider implements ChartProvider {
     return out;
   }
 
-  private indicatorSeries(result: IndicatorResult, xIdx: number, yIdx: number, up: string, down: string): echarts.SeriesOption[] {    return result.series.map((s) => {
+  private indicatorSeries(result: IndicatorResult, xIdx: number, yIdx: number, up: string, down: string): echarts.SeriesOption[] {
+    const colors = getChartPalette().lines.series;
+    return result.series.map((s, index) => {
+      const color = s.color ?? colors[index % colors.length];
       const base = { xAxisIndex: xIdx, yAxisIndex: yIdx, data: s.data, name: s.label };
       if (s.kind === 'bar') {
         return {
@@ -669,14 +682,14 @@ export class EclipseChartProvider implements ChartProvider {
         // Band: render as a stacked area between this series and its partner.
         return {
           ...base, type: 'line', showSymbol: false,
-          lineStyle: { color: s.color ?? '#60a5fa', width: 1 },
-          areaStyle: { color: 'rgba(96,165,250,0.08)' },
+          lineStyle: { color, width: 1 },
+          areaStyle: { color, opacity: 0.08 },
         } as echarts.SeriesOption;
       }
       return {
         ...base, type: 'line', showSymbol: false,
-        lineStyle: { color: s.color ?? '#60a5fa', width: 1.5 },
-        itemStyle: { color: s.color ?? '#60a5fa' },
+        lineStyle: { color, width: 1.5 },
+        itemStyle: { color },
       } as echarts.SeriesOption;
     });
   }

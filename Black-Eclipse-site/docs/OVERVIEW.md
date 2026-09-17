@@ -55,7 +55,21 @@ Three ideas carry most of the weight:
 
 ## What a new user actually sees
 
-The sidebar (user-reorderable, F1–F12 bindable) ships with these tabs:
+The sidebar is user-reorderable with configurable function-key navigation.
+Defaults follow its shipped order: F1 ChatBot, F2 Command Center, F3 Investor Eye,
+F4 Chart Workspace, F5 Market Screener, F6 Portfolio, F7 Journal, F8 Market News,
+F9 Market Bubbles, F10 Economics, and F12 Price Alerts. F11 remains browser
+fullscreen. Existing customized assignments are preserved; some keyboards need
+Fn, and browser/OS interception may require choosing a different key in Settings.
+
+Press **Ctrl+/ (Cmd+/ on Mac)** outside text fields and other dialogs for
+searchable shortcut help. Page groups appear as screens are visited. Common
+contextual actions include **Shift+E** customization, **Shift+W** widget/panel
+library, **Shift+N** creation/new layout, **S** local search and **R** refresh
+where those actions exist. Help marks the current scopes; hidden screens and
+text entry do not receive page commands.
+
+The sidebar ships with these tabs:
 
 | Tab | What it is |
 |---|---|
@@ -63,8 +77,8 @@ The sidebar (user-reorderable, F1–F12 bindable) ships with these tabs:
 | Command Center | A customizable widget dashboard (see the workspace concept below) |
 | Chart Workspace | A customizable multi-panel chart/market grid (independent layout engine) |
 | Market Screener | The main stock screen across global markets |
-| Portfolio | Holdings, performance, allocation, transactions |
-| Journal | SQLite-backed trading journal with analytics |
+| Portfolio | Holdings, performance, allocation, transactions — plus per-fund heatmap, correlation matrix and risk decomposition |
+| Journal | SQLite-backed trading journal with analytics (ships labelled demo trades you can remove) |
 | Market News | Sentiment-tagged RSS feed, ingested into JDDS |
 | Market Bubbles | Physics-based turnover map — real JDDS instruments sized by 24h traded value, plus whole-market Volume Analytics |
 | Economics | Macro series + economic calendar |

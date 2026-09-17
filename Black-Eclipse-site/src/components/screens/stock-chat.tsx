@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { TopBar } from '@/components/layout/top-bar';
@@ -494,6 +495,11 @@ function StockChatContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const chatRootRef = useRef<HTMLDivElement>(null);
+  usePageShortcuts(chatRootRef, [
+    { id: 'chat.new', label: 'New chat', keys: 'Shift+N', run: handleNewChat, enabled: activeTab === 'chat' && !settingsOpen && !mobileMenuOpen },
+  ]);
+
   const handleChartTicker = (symbol?: string) => {
     if (symbol) {
       setSelectedChartSymbol(symbol);
@@ -571,7 +577,7 @@ function StockChatContent() {
           )}
 
           {visited.has('chat') && (
-            <div className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
+            <div ref={chatRootRef} data-keyboard-scope="Chat" className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
               <div className="w-full h-full flex flex-col items-center justify-between p-4 md:p-6 relative min-w-0">
                 {messages.length === 0 ? (
                   <EmptyState

@@ -13,6 +13,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
+import { getChartPalette, useChartPalette } from '@/lib/chart-palette-store';
 import { useCommandStore } from '@/lib/search/store';
 import { createChartProvider } from '@/lib/chart/providers';
 import { useChartData } from '@/lib/chart/use-chart-data';
@@ -161,6 +163,7 @@ export function ChartWidget({
   tool: controlledTool, onToolChange,
   onCrosshair, onRange, crosshairTime, range, onProviderReady,
 }: ChartWidgetProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const providerRef = useRef<ChartProvider | null>(null);
   const livePriceRef = useRef<number | null>(null);
@@ -349,12 +352,12 @@ export function ChartWidget({
   };
 
   // ── Compare overlays ──────────────────────────────────────────────────────
-  const COMPARE_COLORS = ['#60a5fa', '#f59e0b', '#a78bfa', '#f472b6', '#34d399', '#22d3ee'];
   const addCompare = (sym: string, market: string) => {
     const symbol = sym.toUpperCase();
     const id = `${symbol}:${market || chartState.market}`;
     if (compareList.some((c) => c.id === id)) return;
-    const color = COMPARE_COLORS[compareList.length % COMPARE_COLORS.length];
+    const colors = getChartPalette().lines.series;
+    const color = colors[compareList.length % colors.length];
     setState({ ...chartState, compare: [...compareList, { id, symbol, market: market || chartState.market, color }] });
   };
   const removeCompare = (id: string) => {
@@ -405,23 +408,28 @@ export function ChartWidget({
   }, [chartState]);
 
   // Keyboard shortcuts: Escape cancels, Delete removes, Ctrl+Z undo, Ctrl+Shift+Z redo.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        drawingController.cancel();
-        setTool('cursor');
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        const sel = drawingManager.getSelected();
-        if (sel) drawingManager.delete(sel.id);
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) drawingManager.redo();
-        else drawingManager.undo();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [drawingManager, drawingController, setTool]);
+  const onDrawingKey = (e: KeyboardEvent) => {
+    const root = rootRef.current;
+    if (!root || !canHandleKeyboardEvent(e, root) || document.activeElement?.closest('[data-chart-keyboard-root]') !== root) return;
+    if (matchesShortcut(e, 'escape') && (drawingController.isInteracting() || drawingController.getTool() !== 'cursor')) {
+      e.preventDefault();
+      drawingController.cancel();
+      drawingController.pointerUp();
+      drawingController.setTool('cursor');
+      setTool('cursor');
+    } else if (matchesShortcut(e, 'delete') || matchesShortcut(e, 'backspace')) {
+      const sel = drawingManager.getSelected();
+      if (!sel || sel.locked) return;
+      e.preventDefault();
+      drawingManager.delete(sel.id);
+    } else if (matchesShortcut(e, 'mod+shift+z') && drawingManager.canRedo()) {
+      e.preventDefault();
+      drawingManager.redo();
+    } else if (matchesShortcut(e, 'mod+z') && drawingManager.canUndo()) {
+      e.preventDefault();
+      drawingManager.undo();
+    }
+  };
 
   const selectTool = (t: DrawingToolMode) => {
     drawingController.setTool(t);
@@ -455,7 +463,21 @@ export function ChartWidget({
   const emptyResult = notFound || (!!error && !loading);
 
   return (
-    <div className={cn('flex h-full min-h-0 w-full flex-col', compact ? 'gap-1' : 'gap-2', className)}>
+    <div
+      ref={rootRef}
+      tabIndex={0}
+      data-chart-keyboard-root
+      data-keyboard-scope={`${chartState.symbol} chart`}
+      aria-label={`${chartState.symbol} chart`}
+      onKeyDown={(e) => onDrawingKey(e.nativeEvent)}
+      onPointerDownCapture={(e) => {
+        const target = e.target as HTMLElement;
+        const interactive = target.closest('input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], button, a, [tabindex]');
+        if (e.button !== 0 || (interactive && interactive !== e.currentTarget)) return;
+        e.currentTarget.focus({ preventScroll: true });
+      }}
+      className={cn('flex h-full min-h-0 w-full flex-col focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary', compact ? 'gap-1' : 'gap-2', className)}
+    >
       {!hideToolbar && (
         <ChartToolbar
           state={chartState}
@@ -595,8 +617,9 @@ function PriceFooter({
   onRefresh: () => void;
   loading: boolean;
 }) {
+  const palette = useChartPalette();
   const up = (quote?.changePercent ?? 0) >= 0;
-  const color = up ? 'text-emerald-400' : 'text-rose-400';
+  const color = quote ? (up ? palette.candles.up : palette.candles.down) : palette.candles.neutral;
   const fmtPrice = (n: number) =>
     n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 6 : 2 });
   const updated = quote?.at ? new Date(quote.at).toLocaleTimeString('en-US', { hour12: false }) : null;
@@ -608,10 +631,10 @@ function PriceFooter({
       <span className="font-bold text-foreground">{symbol}</span>
       {quote ? (
         <>
-          <span className={cn('font-bold', color)}>
+          <span className="font-bold" style={{ color }}>
             {quote.currency}{fmtPrice(quote.price)}
           </span>
-          <span className={cn('font-semibold', color)}>
+          <span className="font-semibold" style={{ color }}>
             {up ? '+' : ''}{quote.changePercent.toFixed(2)}%
           </span>
         </>
@@ -635,7 +658,7 @@ function PriceFooter({
         {refreshMs > 0 ? (
           <>
             <span className={cn('relative flex h-1.5 w-1.5', loading && 'animate-pulse')}>
-              <span className={cn('h-1.5 w-1.5 rounded-full', up ? 'bg-emerald-400' : 'bg-rose-400')} />
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
             </span>
             <span title="Time until next refresh">
               refreshes in <span className="font-bold text-foreground">{secondsLeft}s</span>
@@ -1054,6 +1077,7 @@ function CompareMenu({
   onRemove: (id: string) => void;
   primarySymbol: string;
 }) {
+  const palette = useChartPalette();
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1091,12 +1115,14 @@ function CompareMenu({
           {compare.length === 0 && (
             <div className="px-2 py-1 text-[10px] text-muted-foreground/60 italic">No assets added</div>
           )}
-          {compare.map((c) => {
+          {compare.map((c, index) => {
             const chg = changeOf(c.id);
+            const seriesIndex = series.findIndex((s) => s.id === c.id);
+            const color = palette.lines.series[(seriesIndex < 0 ? index : seriesIndex) % palette.lines.series.length];
             return (
               <div key={c.id} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-accent/40">
                 <span className="flex items-center gap-2 min-w-0">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
                   <span className="truncate font-mono text-[11px] font-bold text-foreground">{c.symbol}</span>
                 </span>
                 <span className="flex items-center gap-1.5">

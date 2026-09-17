@@ -1,50 +1,37 @@
-// ── useCommandCenterKeybind ────────────────────────────────────────────────
-// Global ⌘K / Ctrl+K to toggle the command bar. Optionally allows a '/' shortcut
-// (ignored when focus is already inside an input, textarea, or select).
-
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { canHandleKeyboardEvent, isKeyboardEventAvailable, matchesShortcut } from '@/lib/keyboard';
+import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 
 interface Options {
   open: boolean;
   onToggle: () => void;
-  /** Also bind the '/' shortcut. */
   slashShortcut?: boolean;
 }
 
-export function useCommandCenterKeybind({ open, onToggle, slashShortcut = false }: Options) {
+export function useCommandCenterKeybind(options: Options) {
+  const optionsRef = useRef(options);
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
+    optionsRef.current = options;
+  });
 
-      // ⌘K / Ctrl+K — always.
-      if (mod && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isKeyboardEventAvailable(event) || useKeyboardShortcutsStore.getState().helpOpen) return;
+      const { open, onToggle, slashShortcut = false } = optionsRef.current;
+      if (open && (matchesShortcut(event, 'mod+k') || matchesShortcut(event, 'escape'))) {
+        event.preventDefault();
         onToggle();
         return;
       }
-
-      // Esc closes.
-      if (e.key === 'Escape' && open) {
+      if (!canHandleKeyboardEvent(event)) return;
+      if (matchesShortcut(event, 'mod+k') || (slashShortcut && !open && matchesShortcut(event, '/'))) {
+        event.preventDefault();
         onToggle();
-        return;
-      }
-
-      // '/' opens when not focused in a text field.
-      if (slashShortcut && e.key === '/' && !open) {
-        const t = e.target as HTMLElement | null;
-        const tag = t?.tagName?.toLowerCase();
-        const isEditable =
-          tag === 'input' || tag === 'textarea' || tag === 'select' || t?.isContentEditable;
-        if (!isEditable) {
-          e.preventDefault();
-          onToggle();
-        }
       }
     };
-
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onToggle, slashShortcut]);
+  }, []);
 }

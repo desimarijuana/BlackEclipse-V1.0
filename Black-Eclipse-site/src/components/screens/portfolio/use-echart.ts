@@ -11,24 +11,40 @@ import type { EChartsOption } from 'echarts';
 
 export function useEChart(getOption: () => EChartsOption | null, deps: unknown[]) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const getOptionRef = useRef(getOption);
-  getOptionRef.current = getOption;
+  const binding = useRef<{
+    el: HTMLDivElement;
+    chart: echarts.ECharts;
+    observer: ResizeObserver;
+    deps: unknown[] | null;
+  } | null>(null);
+
+  useEffect(() => () => {
+    binding.current?.observer.disconnect();
+    binding.current?.chart.dispose();
+    binding.current = null;
+  }, []);
 
   useEffect(() => {
     const el = ref.current;
+    if (binding.current && binding.current.el !== el) {
+      binding.current.observer.disconnect();
+      binding.current.chart.dispose();
+      binding.current = null;
+    }
     if (!el) return;
-    const chart = echarts.init(el);
-    const option = getOptionRef.current();
-    if (option) chart.setOption(option);
-
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-      chart.dispose();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+    if (!binding.current) {
+      const chart = echarts.init(el);
+      const observer = new ResizeObserver(() => chart.resize());
+      observer.observe(el);
+      binding.current = { el, chart, observer, deps: null };
+    }
+    const current = binding.current;
+    if (current.deps && current.deps.length === deps.length && deps.every((dep, i) => Object.is(dep, current.deps![i]))) return;
+    const option = getOption();
+    if (option) current.chart.setOption(option, { replaceMerge: ['series'] });
+    else current.chart.clear();
+    current.deps = [...deps];
+  });
 
   return ref;
 }

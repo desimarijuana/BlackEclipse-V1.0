@@ -4,7 +4,8 @@
 // Hosts the workspace kernel (WorkspaceCanvas) for the active dashboard, plus
 // the dashboard switcher, onboarding, widget library, and config panel.
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
   ChevronDown, ChevronRight, Copy, Download, Globe, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
@@ -63,8 +64,19 @@ export function DashboardScreen() {
     }
   };
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const createDashboard = () => {
+    setSwitcherOpen(false);
+    const name = prompt('New dashboard name');
+    if (name) dashboards.create(name, 'trader');
+  };
+
+  usePageShortcuts(rootRef, [
+    { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
+  ]);
+
   return (
-    <div className="animate-fade-in-up w-full">
+    <div ref={rootRef} data-keyboard-scope="Command Center" className="animate-fade-in-up w-full">
       {/* Header + toolbar — matches the standard page heading */}
       <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-border/10 pb-4">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
@@ -121,7 +133,8 @@ export function DashboardScreen() {
               </div>
               <div className="mt-1 border-t border-border/10 pt-1.5">
                 <button
-                  onClick={() => { setSwitcherOpen(false); const n = prompt('New dashboard name'); if (n) dashboards.create(n, 'trader'); }}
+                  onClick={createDashboard}
+                  title="New dashboard (Shift+D)"
                   className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-semibold text-primary hover:bg-primary/10 cursor-pointer"
                 >
                   <Plus size={13} /> New dashboard

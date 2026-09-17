@@ -111,6 +111,9 @@ export function normalizeQuake(feature: UsgsFeature, retrievedAt: string): Norma
     // USGS reports an exact epicentre — the strongest geo provenance.
     geoMethod: 'provider',
     eventType: 'natural_disaster',
+    // USGS reports one phenomenon only — this is a provider fact, not an
+    // inference. It lets the map separate earthquakes from fires (spec §21).
+    category: 'earthquake',
     severity: classifySeverity(title, 'natural_disaster', mag),
     channels: classifyChannels(title),
     commodities: classifyCommodities(title),

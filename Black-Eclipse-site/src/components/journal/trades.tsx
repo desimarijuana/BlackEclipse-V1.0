@@ -4,7 +4,8 @@
 // Adding a trade is a single inline form (no multi-page navigation). Derived
 // metrics (P&L, R, risk, duration) are computed server-side on save.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { Plus, Trash2, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
@@ -165,8 +166,17 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
 
   const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const startAdding = () => { setAdding(true); setForm(emptyForm()); };
+  usePageShortcuts(rootRef, [
+    { id: 'trades.new', label: 'Add trade', keys: 'Shift+N', run: startAdding, enabled: !adding && !detailTrade },
+    { id: 'trades.search', label: 'Search trades', keys: 'S', run: () => searchRef.current?.focus(), enabled: !detailTrade },
+    { id: 'trades.filter', label: 'Filter by symbol', keys: 'Shift+F', run: () => searchRef.current?.focus(), enabled: !detailTrade },
+  ]);
+
   return (
-    <div className="flex flex-col gap-5">
+    <div ref={rootRef} data-keyboard-scope="Journal trades" className="flex flex-col gap-5">
       {/* Header + Add button */}
       <div className="flex items-center justify-between">
         <div>
@@ -175,13 +185,14 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
         </div>
         <div className="flex items-center gap-2">
           <input
+            ref={searchRef}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter by symbol…"
             className="w-40 rounded-lg bg-background/60 border border-border/40 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none"
           />
           <button
-            onClick={() => { setAdding((v) => !v); setForm(emptyForm()); }}
+            onClick={() => { if (adding) setAdding(false); else startAdding(); }}
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
           >
             {adding ? <X size={13} /> : <Plus size={13} />} {adding ? 'Cancel' : 'Add Trade'}

@@ -488,6 +488,10 @@ model Trade {
   mistakes     String? // JSON string[]
   notes        String?
   status       String  @default("closed") // 'open' | 'closed'
+  // Provenance: 'manual' (user-entered or CSV-imported) vs 'demo' (seeded
+  // sample data). Demo rows are real records but clearly labelled, and can be
+  // removed without touching anything the user created.
+  source       String  @default("manual")
 
   // ── Auto-computed metrics (never user-entered) ────────────────────────
   pnl          Float
@@ -801,6 +805,10 @@ model GeopoliticalEvent {
   // tariff | cyber | energy | shipping | natural_disaster | monetary | fiscal |
   // regulatory | other
   eventType   String
+  // Provider sub-classification, when the type alone is too coarse. Currently
+  // the hazard sub-types: 'earthquake' (USGS) | 'fire' (FIRMS). Set only from a
+  // provider that states it — never inferred from text.
+  category    String?
   // low | medium | high | critical
   severity    String   @default("medium")
   // JSON: string[] of economic channels this event could transmit through.

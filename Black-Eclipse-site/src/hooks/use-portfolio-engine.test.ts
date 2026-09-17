@@ -122,5 +122,52 @@ describe("computePortfolioStats with JDDS assets", () => {
     const h = stats.holdings[0];
     expect(h.value).toBeCloseTo(18525, 2);
     expect(h.valueUsd).toBeCloseTo(18525 / 278, 2);
+    // …and the row is flagged so the UI can call that USD value an estimate.
+    expect(h.fxMissing).toBe(true);
+  });
+
+  it("uses a live FX rate for any non-USD currency, not just PKR", () => {
+    // An Indian holding must convert at the real rate. The old code only knew
+    // USD/PKR and would value this 1:1 against the dollar.
+    const stats = computePortfolioStats(
+      [tx({ symbol: "RELIANCE", quantity: 10, price: 1100 })],
+      [{ symbol: "RELIANCE", price: 1235.3, changePercent: 1.1, currency: "INR", fxToUsd: 1 / 87 }]
+    );
+    const h = stats.holdings[0];
+    expect(h.currency).toBe("INR");
+    expect(h.value).toBeCloseTo(12353, 2);
+    expect(h.valueUsd).toBeCloseTo(12353 / 87, 2);
+    expect(h.fxMissing).toBe(false);
+  });
+
+  it("does not flag USD positions as missing FX", () => {
+    const stats = computePortfolioStats(
+      [tx({ symbol: "AAPL", quantity: 1, price: 100 })],
+      [{ symbol: "AAPL", price: 110, changePercent: 0, currency: "USD" }]
+    );
+    expect(stats.holdings[0].fxMissing).toBe(false);
+    expect(stats.holdings[0].fxToUsd).toBe(1);
+  });
+
+  it("values a mixed USD + INR + PKR book in a common USD base", () => {
+    const stats = computePortfolioStats(
+      [
+        tx({ symbol: "AAPL", quantity: 1, price: 100 }),
+        tx({ symbol: "RELIANCE", quantity: 87, price: 1000 }),
+        tx({ symbol: "MEBL", quantity: 278, price: 100 }),
+      ],
+      [
+        { symbol: "AAPL", price: 100, changePercent: 0, currency: "USD", fxToUsd: 1 },
+        { symbol: "RELIANCE", price: 100, changePercent: 0, currency: "INR", fxToUsd: 1 / 87 },
+        { symbol: "MEBL", price: 100, changePercent: 0, currency: "PKR", fxToUsd: 1 / 278 },
+      ]
+    );
+    // Each converts to 100 USD, so the book is 300 USD with 3 equal weights.
+    expect(stats.totalValue).toBeCloseTo(300, 6);
+    expect(stats.holdings).toHaveLength(3);
+    for (const h of stats.holdings) {
+      expect(h.valueUsd).toBeCloseTo(100, 6);
+      expect(h.allocation).toBeCloseTo(100 / 3, 6);
+    }
   });
 });

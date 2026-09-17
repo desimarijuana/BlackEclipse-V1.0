@@ -104,6 +104,10 @@ function shareCountry(a: string[], b: string[]): boolean {
  */
 export function shouldCluster(existing: NormalizedEvent, candidate: NormalizedEvent): boolean {
   if (existing.eventType !== candidate.eventType) return false;
+  // A `category` is a provider-stated sub-type. `natural_disaster` covers both
+  // earthquakes and fires, and those are different physical events — two known,
+  // different categories must never fuse.
+  if (existing.category && candidate.category && existing.category !== candidate.category) return false;
 
   // 1. Same article → same event, regardless of anything else.
   const aUrl = primaryArticleKey(existing);
@@ -232,6 +236,9 @@ export function mergeEvents(target: NormalizedEvent, candidate: NormalizedEvent)
     placeName: target.placeName ?? candidate.placeName,
     // Prefer the strongest geo provenance present in the cluster.
     geoMethod: strongerGeo(target.geoMethod, candidate.geoMethod),
+    // A provider-stated category is never dropped by a merge; both sides agree
+    // on it (otherwise `shouldCluster` refused), so either value is correct.
+    category: target.category ?? candidate.category,
     severity,
     countries: uniq([...target.countries, ...candidate.countries]),
     channels: uniq([...target.channels, ...candidate.channels]),
@@ -288,6 +295,7 @@ export function clusterEvents(events: NormalizedEvent[]): NormalizedEvent[] {
 const SOURCE_QUALITY: Record<string, number> = {
   gdelt: 0.7,
   usgs: 0.95,
+  firms: 0.9,
   news: 0.6,
 };
 

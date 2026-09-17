@@ -6,6 +6,8 @@ import { Download, Loader2, Search, KeyRound, Sparkles, X } from 'lucide-react';
 import type { EconSource } from '@/lib/economics/sources';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { computeStats, sortByDate, type EconPoint } from '@/lib/economics/fetch';
+import { useChartPalette } from '@/lib/chart-palette-store';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 
 interface ResearchResult {
   reportId: string;
@@ -22,6 +24,7 @@ export interface PanelProps {
 const PAGE_SIZE = 25;
 
 export function EconPanel({ source }: PanelProps) {
+  const chartPalette = useChartPalette();
   const [params, setParams] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const c of source.controls) init[c.name] = c.defaultValue ?? '';
@@ -156,7 +159,6 @@ export function EconPanel({ source }: PanelProps) {
     }
 
     const dates = [...new Set([...windowed.values()].flatMap((g) => g.map((r) => r.date)))].sort();
-    const palette = ['#7aff78', '#4ade80', '#22c55e', '#16a34a', '#34d399', '#a3e635'];
     const seriesNames = [...windowed.keys()].slice(0, 6);
 
     // Rolling average overlay (computed on the level series, before transforms).
@@ -185,7 +187,6 @@ export function EconPanel({ source }: PanelProps) {
       seriesNames,
       dates,
       grouped: windowed,
-      palette,
       labelKey,
       rollingSeries,
       recessionBands,
@@ -198,7 +199,8 @@ export function EconPanel({ source }: PanelProps) {
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
-    const { seriesNames, dates, grouped, palette, rollingSeries, recessionBands, compareSeries } = chartDeps;
+    const { seriesNames, dates, grouped, rollingSeries, recessionBands, compareSeries } = chartDeps;
+    const palette = seriesNames.length === 1 ? [chartPalette.lines.primary] : chartPalette.lines.series;
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
       grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
@@ -278,7 +280,7 @@ export function EconPanel({ source }: PanelProps) {
       ] as echarts.SeriesOption[],
     };
     chartInstance.current.setOption(option, true);
-  }, [chartDeps, logScale]);
+  }, [chartDeps, logScale, chartPalette]);
 
   useEffect(() => {
     const el = chartRef.current;
@@ -416,8 +418,18 @@ export function EconPanel({ source }: PanelProps) {
     ? Object.values(params).filter(Boolean).join(' · ')
     : source.label;
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filterRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  const searchControl = source.controls.find((control) => !['select', 'date', 'range'].includes(control.type));
+  usePageShortcuts(rootRef, [
+    { id: `economics.${source.id}.refresh`, label: `Fetch ${source.label}`, keys: 'R', run: () => void fetchSeries(), enabled: !loading },
+    { id: `economics.${source.id}.search`, label: `Search ${source.label}`, keys: 'S', run: () => searchRef.current?.focus(), enabled: !!searchControl },
+    { id: `economics.${source.id}.filters`, label: `Focus ${source.label} parameters`, keys: 'Shift+F', run: () => filterRef.current?.focus(), enabled: source.controls.length > 0 },
+  ]);
+
   return (
-    <div className="flex flex-col gap-5 animate-fade-in-up">
+    <div ref={rootRef} data-keyboard-scope={`Economics: ${source.label}`} className="flex flex-col gap-5 animate-fade-in-up">
       {/* Source header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
@@ -441,6 +453,7 @@ export function EconPanel({ source }: PanelProps) {
               <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{control.label}</span>
               {control.type === 'select' ? (
                 <select
+                  ref={control === source.controls[0] ? (node) => { filterRef.current = node; } : undefined}
                   value={params[control.name] ?? ''}
                   onChange={(e) => setParam(control.name, e.target.value)}
                   className="h-9 appearance-none rounded-md bg-background border border-border/30 pl-3 pr-8 text-[13px] font-mono text-foreground cursor-pointer focus:outline-none focus:border-primary/60 transition-colors"
@@ -451,6 +464,7 @@ export function EconPanel({ source }: PanelProps) {
                 </select>
               ) : (
                 <input
+                  ref={(node) => { if (control === searchControl) searchRef.current = node; if (control === source.controls[0]) filterRef.current = node; }}
                   type={control.type === 'date' ? 'date' : control.type === 'range' ? 'number' : 'text'}
                   value={params[control.name] ?? ''}
                   onChange={(e) => setParams((prev) => ({ ...prev, [control.name]: e.target.value }))}

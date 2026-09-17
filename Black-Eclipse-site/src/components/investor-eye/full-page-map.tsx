@@ -17,6 +17,8 @@ import { EventPanel } from './event-panel';
 import { LayerController } from './layer-controller';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { TIME_RANGES, useInvestorEyeStore, type TimeRangeId } from '@/lib/investor-eye/store';
+import { formatClock } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import type { MapLayer } from '@/lib/investor-eye/types';
 import type { LayerId } from '@/lib/investor-eye/layers';
 import { cn } from '@/lib/utils';
@@ -40,6 +42,7 @@ export function FullPageMap({
   const activeLayers = useInvestorEyeStore((s) => s.activeLayers);
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
+  const tz = useDisplayTimeZone();
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const timeRange = useInvestorEyeStore((s) => s.timeRange);
   const setTimeRange = useInvestorEyeStore((s) => s.setTimeRange);
@@ -89,7 +92,7 @@ export function FullPageMap({
           </span>
           {dataUnavailable && (
             <span className="rounded-md border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] text-red-300">
-              DATA UNAVAILABLE{lastKnownAt ? ` · LAST ${lastKnownAt.slice(11, 16)}Z` : ''}
+              DATA UNAVAILABLE{lastKnownAt ? ` · LAST ${formatClock(lastKnownAt, tz)}` : ''}
             </span>
           )}
         </div>

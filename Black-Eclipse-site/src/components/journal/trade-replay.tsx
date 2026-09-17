@@ -8,6 +8,7 @@ import React, { useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
 import { useEChart } from '@/components/screens/portfolio/use-echart';
 import { fmtR } from './charts/echarts-container';
+import { useChartPalette } from '@/lib/chart-palette-store';
 
 export interface ReplayBar {
   date: string;
@@ -38,10 +39,8 @@ interface TradeReplayChartProps {
   height?: number;
 }
 
-const UP = '#7aff78';
-const DOWN = '#ff3e3e';
-
 export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayChartProps) {
+  const { up: UP, down: DOWN } = useChartPalette().candles;
   const option = useMemo<EChartsOption | null>(() => {
     if (series.length < 2) return null;
     const dates = series.map((b) => b.date);
@@ -117,7 +116,7 @@ export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayCha
         },
       ],
     } as EChartsOption;
-  }, [series, trade]);
+  }, [series, trade, UP, DOWN]);
 
   const ref = useEChart(() => option, [option]);
 

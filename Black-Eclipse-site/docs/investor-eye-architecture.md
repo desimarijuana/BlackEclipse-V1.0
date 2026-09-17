@@ -8,9 +8,12 @@ last-verified: 2026-09-16
 
 **Who this is for:** anyone implementing or extending Investor Eye (the
 financial/geopolitical world-state surface). Read §1–2 for the audit, §3 for the
-design, §4 for the Phase 1 build order, §5 for Phase 2, and §5b–5d for the
+design, §4 for the Phase 1 build order, §5 for Phase 2, and §5b–5l for the
 later presentation/quality passes (globe, colour-coded layers, full-page mode,
-and the runtime bugs fixed after them).
+the runtime bugs fixed after them, price reaction/alerts/gazetteer, event
+dossiers, clustering recovery, event plotting, the AI analyst, recurrence,
+data-source governance + NASA FIRMS, and finally the layer/pin corrections that
+surfaced data already in the database).
 
 > This document is Phase 0's output. The repository is authoritative: where the
 > implementation spec and the code disagreed, the code won and this record notes
@@ -121,7 +124,8 @@ additive later. **Investor Eye must not require accounts.**
 2. **Investor Eye data models** (only these; see §3.2):
    `Country`, `GeopoliticalEvent`, `EventEntity`, `SourceRun` (observability).
 3. **Source connector tier for events** — `src/lib/investor-eye/sources/` with a
-   registry + `GDELT` and `USGS` connectors, built **on `safeGet`**.
+   registry + `GDELT`, `USGS`, news-derived and `NASA FIRMS` connectors, built
+   **on `safeGet`**, each with a `source-catalog.ts` governance entry.
 4. **Normalizer + clusterer + confidence** — pure, unit-tested modules.
 5. **Ingestion orchestration** — server-side, cached, persisted, with an
    in-process cron in `instrumentation.ts` (same discipline as the others).
@@ -905,6 +909,171 @@ again.
 
 ---
 
+## 5k. Phase 13 — data governance, and NASA FIRMS
+
+Two additions the earlier phases deferred: the spec's licensing/attribution
+requirement (§6/§36) had no home at all, and the hazard layer had one source.
+
+### The source catalog — making licences a build-time invariant
+
+`source-catalog.ts` is a separate registry from the adapters, on purpose. An
+adapter answers *"how do I fetch and normalize this?"* — a question about code.
+The catalog answers *"am I allowed to use this, and what must I say about it?"* —
+a question about law. Fusing them would mean a licence question could only be
+answered by constructing a fetcher, and a new adapter could ship with nobody
+noticing it had never declared a licence.
+
+Each entry records `provider`, `license`, `licenseUrl`, `termsUrl`,
+`commercialUse`, `requiresApiKey`, `attributionRequired`, `attribution`,
+`rateLimit` and `dataFreshness`. "Public API" does not imply "free for
+commercial use", so nothing is inferred from a URL being reachable — each entry
+records what the provider actually states, with a link an operator can check.
+
+**The invariant is enforced by tests**, not by convention:
+`source-catalog.test.ts` asserts every *registered* source has a catalog entry
+and that the entry's `requiresApiKey` agrees with the adapter's
+`requiresCredentials`. Adding an adapter without declaring its licence fails CI.
+A second test asserts the reverse — no catalog entry without a registered
+adapter — so the catalog cannot document a fiction.
+
+The one deliberate exemption is `local: true` (the app's own RSS corpus): it is
+read from JDDS, not fetched from a third party, and its upstream feeds declare
+their own terms individually in `DEFAULT_NEWS_FEEDS`.
+
+`/api/investor-eye/health` now joins run accounting with governance metadata and
+returns the centralised `attributions` list; `SourceHealthPanel` renders the
+spec §19 table columns (source · category · auth · licence · updated · state)
+with a per-source detail expansion and an attribution footer. A source that can
+run without a declared licence is shown as an explicit **governance gap** rather
+than a blank cell that would read as "nothing required".
+
+### NASA FIRMS — the second hazard source
+
+`firms.ts` reads FIRMS' **keyless global archive CSV** (24h/48h/7d). The Area
+API was deliberately not used: it needs a free `MAP_KEY`, and Investor Eye must
+work with zero configuration.
+
+The design point is that **the raw feed is pixels, not fires**. A 24h global file
+carries ~25,000 single-pixel detections; one real wildfire produces dozens to
+hundreds of adjacent ones. So detections are snapped to a grid and merged at
+**ingestion** — never in the browser — into bounded clusters carrying the real
+detection count and summed Fire Radiative Power (FRP).
+
+Three details that are easy to get wrong, all caught by testing against live data:
+
+- **The clustering grid needs a `cos(lat)` correction.** A degree of longitude is
+  only ~19 km at 70°N versus ~55 km at the equator, so an uncorrected grid
+  fragments a polar fire into cells that each fall below the minimum detection
+  count and vanish. The cell must be *wider* in degrees near the poles.
+- **Empty CSV cells are not zero.** `Number('')` is `0`, so a missing coordinate
+  would become a real-looking detection on the equator, and a missing `acq_time`
+  would become midnight. Both are now rejected before coercion.
+- **A feed endpoint is not an article.** `dedupKeyFor` treats a source URL as
+  *article identity*. Stamping the FIRMS feed URL onto every cluster made all 400
+  collapse to one event. The cluster now carries no source URL; its identity is
+  the grid-cell signature.
+
+FRP thresholds are anchored to the published live distribution (median ≈ 231 MW,
+p90 ≈ 1054 MW, p99 ≈ 5175 MW) rather than picked to look dramatic — FRP is a
+measured physical quantity, so severity from it is an observation, not a model.
+
+### Exact country attribution (`admin-boundaries.ts`)
+
+FIRMS carries no place text, so a fire's country had to be derived from its
+coordinate. `resolveFireCountry` originally used the nearest gazetteer
+**centroid**, which is badly wrong for a large country: a fire in eastern Siberia
+is thousands of km from Russia's centroid. Measured on live data, centroid
+matching attributed **62 of 400** clusters (15%).
+
+`admin-boundaries.ts` runs a real **point-in-polygon** test against the *same*
+Natural Earth GeoJSON the map already ships — no new asset, no new dependency.
+That alone lifted the rate to 167/400. The remaining loss was a second, subtler
+bug: the boundary asset (173 features) is broader than the curated country
+gazetteer, so a proven hit in Mozambique or Angola was being discarded because
+`countryByIso2` had no entry. Using the boundary's own ISO2/name when the
+gazetteer misses took it to **397 of 400** — the three remaining are genuine
+ocean points, which deliberately stay unlabelled.
+
+### Hazard category, and splitting the layer
+
+`natural_disaster` covered both earthquakes and fires, so one layer showed both.
+A new provider-stated `category` field (`earthquake` / `fire`) separates them:
+
+- The `fires` layer is registered separately (spec §21 lists Fires and
+  Earthquakes independently), with its own colour and marker.
+- `shouldCluster` refuses to merge two *different* known categories, so an
+  earthquake can never fuse with a fire.
+- The split is **exclude-by-category**, not require-category: rows persisted
+  before the field existed carry no category, and they keep their original
+  `weather` layer rather than disappearing. No migration was needed — the same
+  "re-derive on read" reasoning as `reResolveEventLocation`.
+
+### Measured result
+
+| | Before | After |
+|---|---|---|
+| Hazard sources | 1 (USGS) | 2 (+ NASA FIRMS) |
+| Fire clusters (24h) | — | 400 (bounded from ~25,600 detections) |
+| Fire clusters with a country | 62/400 (15%) | **397/400** |
+| Sources with declared licence/attribution | 0 | 4/4 (enforced by test) |
+| FIRMS fetch / normalize | — | ~3.1 s / ~0.2 s |
+
+---
+
+## 5l. Phase 14 — showing the data that already existed
+
+Three problems were reported against the live UI. Two were presentation; one meant
+a large part of the feed was never drawn at all.
+
+### Layers matched type, but the signal lives in channels
+
+`classify.ts` assigns each event **one** type (the strongest signal) but **many**
+channels. The domain layers filtered on `eventType` alone, so an event typed
+`conflict` that carried the `Shipping & Logistics` channel was invisible to the
+Shipping layer — a Red Sea attack is exactly that shape.
+
+Measured on a live 24h window:
+
+| Domain | Typed | Carries the channel | Layer showed before |
+|---|---|---|---|
+| Shipping | 11 | 28 | 11 |
+| Energy | 29 | 46 | 29 |
+
+`buildDomainLayer` now matches **type OR channel**. A layer is a lens, not an
+exclusive bucket: the same event legitimately appears in Conflict and Shipping,
+because it genuinely is both. Trade lines follow the same rule.
+
+Two new layers were added because the extraction already existed and nothing drew
+it: `shipping` (its own layer rather than folded into Trade) and `commodities`
+(any event naming a traded commodity). `commodities` is deliberately the one layer
+with no type/channel scope — naming a commodity *is* the membership test.
+
+### Pins were unreadable
+
+The markers were 6–13px flat dots with a 0.5px border and `opacity: 0.9`. On a
+dark map that reads as noise rather than "something is happening here". Each pin
+now has:
+
+- a larger core sized by severity (8–18px, was 6–13),
+- a dark contrast ring, so overlapping pins never bleed into one blob,
+- a severity-sized coloured glow (5–26px), so a critical event looks heavier
+  before you hover it.
+
+The hollow/dashed convention for country-centroid anchors is unchanged — that cue
+still separates "we know the country" from "we know the place".
+
+### The stale-client trap (why events existed on the map but not in the DB)
+
+After the `category` column was added, the running dev server still held the
+Prisma client generated *before* it. Every FIRMS write threw, and `persistEvents`
+catches per-row errors by design (one bad row must not abort the batch) — so the
+failure was silent: the map showed 374 fires that existed nowhere in the database,
+and every payload event had no `id`. A fresh process persisted correctly
+(374 rows written). **Restart the dev server after `prisma generate`**; the
+per-row catch is correct for resilience but hides a total-write failure.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |
@@ -915,3 +1084,4 @@ again.
 | Company/securities/country entities | `Asset.country` is a string; no `Country` model | Added `Country`; linked existing `Asset`/markets by ISO code without altering them. |
 | Economic metrics for arbitrary countries | `ECON_SOURCES` exposes curated countries/indicators | Reuse it; show only what it can actually return, else `UNAVAILABLE`. |
 | ACLED conflict data | Requires account/API auth | **Optional** — not wired; GDELT covers Phase 2 conflict so nothing breaks without it. |
+| AIS / ADS-B / OpenStreetMap / CelesTrak / Natural Earth as live layers | Each is key-gated, restricted, or a bulk dataset with no sensible live cadence | **Not wired.** The adapter contract makes each one connector + normalizer + registry entry + catalog entry when a legally usable source is chosen. Natural Earth already ships as the map geometry (`public/geo/world.geo.json`). |

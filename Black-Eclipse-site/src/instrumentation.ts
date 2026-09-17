@@ -45,6 +45,32 @@ export async function register() {
       console.error("[startup] seedUniverse failed:", err);
     }
 
+    // Provider keys saved from Settings (encrypted in JDDS) are copied into the
+    // process environment so every existing consumer — which reads env vars
+    // directly — picks them up with no per-provider change. A REAL env var is
+    // never overwritten, so a deployment stays authoritative. Values are not
+    // logged; only the count.
+    try {
+      const { applyStoredKeysToEnv } = await import("@/lib/provider-keys");
+      const applied = await applyStoredKeysToEnv();
+      if (applied > 0) console.log(`[startup] applied ${applied} stored provider key(s)`);
+    } catch (err) {
+      console.error("[startup] provider-key apply failed:", err);
+    }
+
+    // Journal demo data — the journal is DB-backed, so without this a fresh
+    // install shows an empty journal on every tab. Seeding is one-time and
+    // conservative: it skips when any trade already exists and records a marker,
+    // so a user who clears the demo data never gets it back. Every seeded row is
+    // tagged source:'demo' and is removable from the Journal UI.
+    try {
+      const { seedJournalDemo } = await import("@/lib/journal/demo");
+      const res = await seedJournalDemo();
+      if (res.seeded) console.log(`[startup] seeded ${res.trades} demo journal trades`);
+    } catch (err) {
+      console.error("[startup] journal demo seed failed:", err);
+    }
+
     try {
       await startScheduler();
     } catch (err) {

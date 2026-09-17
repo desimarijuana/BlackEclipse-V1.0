@@ -6,7 +6,8 @@
 // passing it down to each sub-screen. Keeps the analytics fetch in one place
 // so sub-screens stay pure and fast.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, Sparkles } from 'lucide-react';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useSubroute } from '@/hooks/use-subroute';
@@ -20,6 +21,7 @@ import { JournalPlaybook } from './playbook';
 import { JournalReviews } from './reviews';
 import { JournalInsights } from './insights';
 import { DailyJournal } from './daily-journal';
+import { DemoDataBanner } from './demo-banner';
 
 export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'psychology' | 'playbook' | 'reviews' | 'insights';
 
@@ -77,8 +79,13 @@ export function JournalScreen() {
     void load();
   }, [load]);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'journal.refresh', label: 'Refresh journal', keys: 'R', run: refresh, enabled: !loading && !dailyOpen },
+  ]);
+
   return (
-    <div className="animate-fade-in-up w-full">
+    <div ref={rootRef} data-keyboard-scope="Trading journal" className="animate-fade-in-up w-full">
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
@@ -102,6 +109,8 @@ export function JournalScreen() {
           {error}
         </div>
       )}
+
+      <DemoDataBanner onChanged={refresh} />
 
       {loading && !analytics ? (
         <div className="rounded-3xl glass-card p-12 flex flex-col items-center gap-3">

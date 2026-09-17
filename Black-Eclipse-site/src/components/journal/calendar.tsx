@@ -2,13 +2,15 @@
 
 // ── Journal Calendar — proper month-grid calendar showing trades per day ─────
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
 import { TradeForm, emptyTradeForm, type TradeFormState } from './trade-form';
 import { CsvImport } from './csv-import';
 import type { TradeRecord } from '@/lib/journal/types';
+import { formatMonthLabel } from '@/lib/journal/dates';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 
 interface CalendarProps {
@@ -26,10 +28,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const monthLabel = useMemo(
-    () => new Date(Date.UTC(year, month, 1)).toLocaleString('en', { month: 'long', year: 'numeric' }),
-    [year, month],
-  );
+  const monthLabel = useMemo(() => formatMonthLabel(year, month), [year, month]);
 
   // Month summary stats.
   const monthStats = useMemo(() => {
@@ -99,8 +98,14 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
     }
   };
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const startAdding = () => { setAdding(true); setForm(emptyTradeForm()); };
+  usePageShortcuts(rootRef, [
+    { id: 'calendar.new', label: 'Add trade', keys: 'Shift+N', run: startAdding, enabled: !adding },
+  ]);
+
   return (
-    <div className="flex flex-col gap-5">
+    <div ref={rootRef} data-keyboard-scope="Trading calendar" className="flex flex-col gap-5">
       {/* Header + navigation */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -124,7 +129,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
           </div>
           <CsvImport onImported={onChanged} />
           <button
-            onClick={() => { setAdding((v) => !v); setForm(emptyTradeForm()); }}
+            onClick={() => { if (adding) setAdding(false); else startAdding(); }}
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
           >
             {adding ? <X size={13} /> : <Plus size={13} />} {adding ? 'Cancel' : 'Add Trade'}

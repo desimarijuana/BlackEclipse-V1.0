@@ -70,7 +70,45 @@ function startBackgroundRefresh(key: string, symbol: string, market: string, ran
   historyInFlight.set(key, p);
 }
 
-/** Assemble the wire payload shared by every history source. */
+/** Currency for a symbol: the index's own, else the resolved market's. */
+function currencyFor(def: ReturnType<typeof resolveIndex>, market: string): string {
+  return def?.currency || MARKET_CURRENCY[market] || "$";
+}
+
+// Other markets to retry when the hinted one has no series. Ordered by how
+// likely they are to hold a foreign listing; excludes PSX (needs .KA handling
+// this route already applies) and the pseudo-markets.
+const DISCOVERY_MARKETS = ["US", "IN", "UK", "JP", "DE", "FR", "NL", "CA", "AU", "KR", "TW", "HK", "CN", "SG", "CRYPTO"];
+
+/**
+ * Find the real markets that list `symbol`, from JDDS. One indexed query —
+ * far cheaper and more accurate than blind-probing Yahoo with every exchange
+ * suffix. Markets are returned in discovery order with the hint's match omitted.
+ */
+async function discoverMarkets(symbol: string, alreadyTried: string): Promise<string[]> {
+  try {
+    const rows = await prisma.asset.findMany({
+      where: { symbol, isActive: true, price: { isNot: null } },
+      select: { marketId: true, securityType: true },
+      take: 40,
+    });
+    if (rows.length === 0) return [];
+    const present = new Set(rows.map(r => r.marketId));
+    // Prefer rows that look like the primary listing (a plain "Stock").
+    const ranked = [...present].sort((a, b) => {
+      const rankOf = (m: string) => {
+        const r = rows.find(x => x.marketId === m);
+        return r?.securityType && /stock/i.test(r.securityType) ? 0 : 1;
+      };
+      return rankOf(a) - rankOf(b) || DISCOVERY_MARKETS.indexOf(a) - DISCOVERY_MARKETS.indexOf(b);
+    });
+    return ranked.filter(m => m !== alreadyTried).slice(0, 4);
+  } catch {
+    return [];
+  }
+}
+
+
 function buildPayload(
   symbol: string,
   currency: string,
@@ -257,8 +295,9 @@ export async function GET(request: Request) {
   if (def?.provider === "psx") {
     return respondWithPsxIndex(symbol, def.currency, interval);
   }
-  const currency = def?.currency || MARKET_CURRENCY[market] || "$";
-  const key = cacheKey(symbol, market, range, interval);
+
+  const preferred = def?.market || market;
+  const key = cacheKey(symbol, preferred, range, interval);
 
   // 0) SWR: fresh cache serves instantly; stale cache serves + background refresh.
   const cached = historyCache.get(key);
@@ -266,21 +305,39 @@ export async function GET(request: Request) {
     return NextResponse.json(cached.payload);
   }
   if (cached) {
-    startBackgroundRefresh(key, symbol, market, range, interval);
+    startBackgroundRefresh(key, symbol, preferred, range, interval);
     return NextResponse.json(cached.payload);
   }
 
-  // 1) Real series from the Yahoo chart API — try each ticker candidate.
-  for (const ticker of tickerCandidates(symbol, market)) {
+  // 1) Real series from the Yahoo chart API — try the hinted market's candidates.
+  for (const ticker of tickerCandidates(symbol, preferred)) {
     const chart = await fetchYahooChart(ticker, range, interval);
     if (chart) {
-      const payload = buildPayload(symbol, currency, chart.bars, interval, {
-        ticker,
-        source: "yfinance",
+      const payload = buildPayload(symbol, currencyFor(def, preferred), chart.bars, interval, {
+        ticker, source: "yfinance",
       });
       historyCache.set(key, { t: Date.now(), payload });
       void persistHistory(key, payload);
       return NextResponse.json(payload);
+    }
+  }
+
+  // 1a) The caller's `market` is a HINT, not a fact. Clients that don't know a
+  //     symbol's home market (the fund workspace before this fix) sent US for
+  //     everything, so an Indian holding was requested without its `.NS` suffix
+  //     and silently produced no series. Ask JDDS which markets list the symbol
+  //     — one cheap indexed lookup — and retry with the real one.
+  for (const m of await discoverMarkets(symbol, preferred)) {
+    for (const ticker of tickerCandidates(symbol, m)) {
+      const chart = await fetchYahooChart(ticker, range, interval);
+      if (chart) {
+        const payload = buildPayload(symbol, currencyFor(def, m), chart.bars, interval, {
+          ticker, source: "yfinance",
+        });
+        historyCache.set(key, { t: Date.now(), payload });
+        void persistHistory(key, payload);
+        return NextResponse.json(payload);
+      }
     }
   }
 
@@ -293,10 +350,16 @@ export async function GET(request: Request) {
   }
 
   // 2) Bridge unavailable / no history — fall back to the DB snapshot.
+  //    Search across markets too: the snapshot is keyed by (symbol, marketId)
+  //    and the caller's market may be the same wrong hint we corrected above.
   try {
-    const asset = await prisma.asset.findFirst({
-      where: { symbol, marketId: market, isActive: true },
-      select: { price: { select: { price: true, previousClose: true } } },
+    const byHint = await prisma.asset.findFirst({
+      where: { symbol, marketId: preferred, isActive: true },
+      select: { price: { select: { price: true, previousClose: true } }, marketId: true },
+    });
+    const asset = byHint ?? await prisma.asset.findFirst({
+      where: { symbol, isActive: true, price: { isNot: null } },
+      select: { price: { select: { price: true, previousClose: true } }, marketId: true },
     });
     if (asset?.price && asset.price.price > 0) {
       const last = asset.price.price;
@@ -304,7 +367,7 @@ export async function GET(request: Request) {
       const points = [prev, last];
       return NextResponse.json({
         symbol,
-        currency,
+        currency: currencyFor(def, asset.marketId || preferred),
         points,
         series: [
           {

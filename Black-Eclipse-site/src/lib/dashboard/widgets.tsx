@@ -9,6 +9,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useChartPalette } from '@/lib/chart-palette-store';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useWatchlist } from './watchlist-store';
 import { useAggregatePortfolio } from './portfolio-store';
@@ -57,6 +58,7 @@ function Unavailable({ label }: { label: string }) {
 /** Inline SVG area sparkline — line + soft gradient fill, green up / red down.
  *  `fluid` stretches it to fill its flex parent (viewBox scaled, stroke kept 1px). */
 export function Sparkline({ points, width = 96, height = 24, fluid = false, className }: { points: number[]; width?: number; height?: number; fluid?: boolean; className?: string }) {
+  const palette = useChartPalette();
   const gradientId = `spark-${useId().replace(/:/g, '')}`;
   const clean = points.filter(p => Number.isFinite(p) && p > 0);
   const svgProps = fluid
@@ -70,8 +72,8 @@ export function Sparkline({ points, width = 96, height = 24, fluid = false, clas
   const coords = clean.map((p, i) => [(i * step), (height - ((p - min) / range) * height)] as const);
   const line = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const area = `${line} L${width.toFixed(1)},${height} L0,${height} Z`;
-  const up = clean[clean.length - 1] >= clean[0];
-  const color = up ? '#34d399' : '#fb7185';
+  const change = clean[clean.length - 1] - clean[0];
+  const color = change > 0 ? palette.candles.up : change < 0 ? palette.candles.down : palette.candles.neutral;
   return (
     <svg
       {...svgProps}

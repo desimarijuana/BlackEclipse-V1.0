@@ -12,6 +12,7 @@ import type { EventSource } from '../types';
 import { gdeltSource } from './gdelt';
 import { usgsSource } from './usgs';
 import { newsSource } from './news';
+import { firmsSource } from './firms';
 
 const globalForSources = globalThis as unknown as {
   investorEyeSources: Map<string, EventSource> | undefined;
@@ -49,5 +50,7 @@ export function registerBuiltinSources(): void {
   // News-derived events: reuses the already-ingested `NewsItem` rows, so this
   // adds real macro/market coverage with no new feed or credentials.
   registerSource(newsSource);
+  // Satellite fire detections: keyless global CSV, aggregated into clusters.
+  registerSource(firmsSource);
   registered = true;
 }

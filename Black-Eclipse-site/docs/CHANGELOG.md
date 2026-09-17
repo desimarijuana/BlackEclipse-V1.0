@@ -43,6 +43,129 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-16
 
+- **Chart Workspace** — Removed the green box that appeared around the whole page
+  in full page / fullscreen mode. Root cause: `globals.css` sets
+  `outline-color` on `*` (via `@apply outline-ring/50`), and the full-page and
+  fullscreen overlays are keyboard FOCUS SINKS — they are programmatically
+  `.focus()`ed so their shortcut scope is active. The moment `:focus-visible`
+  matched (any keyboard interaction: Tab, Ctrl+Enter, or F11 as reported), the
+  browser painted its default focus ring around the `fixed inset-0` element in
+  that inherited colour. Added `outline-none` to both overlays and the workspace
+  root; verified no viewport-sized outline remains.
+  no doc change — bug fix, no contract or architecture change.
+
+- **Portfolio** — Repaired `fund-manager.tsx`, which had been corrupted by a bad
+  global `p`/`P` → `a` replacement (the file contained zero `p` characters, e.g.
+  `import` → `imaort`), breaking `/` and every API route with 500s. Reconstructed
+  from HEAD and re-applied the seven intentional edits layered underneath
+  (chart-palette benchmark colours, `usePageShortcuts` + `Shift+N` create-fund
+  shortcut, keyboard scope on the root), then fixed a real type error in that
+  work: `palette.series` → `palette.lines.series`. Diff vs HEAD is exactly the
+  15 insertions / 7 deletions of the intended change, with no corruption residue.
+  no doc change — corruption repair, intent preserved.
+
+- **Build** — `devIndicators: false` in `next.config.ts`. The Next.js dev-tools
+  indicator floats over the bottom-left corner and intercepts pointer events,
+  which blocked automated UI checks against the controls underneath it.
+  no doc change — dev-only tooling.
+
+- **Charts** — Palette is now sectioned per widget type (candles / lines / heatmap) so presets and edits no longer recolor everything at once. Settings → Charts shows a dedicated card per section with its own preview, swatch presets, and per-section reset; storage moves to `be_chart_palette_v2` (old v1 ignored). All consumers migrated to `palette.candles.*` / `palette.lines.*` / `palette.heatmap.*`.
+  docs updated: `docs/CHANGELOG.md` (contract change noted here; no separate doc page covers palette internals)
+
+- **Settings / Investor Eye** — A dedicated API-keys menu, working data layers, and
+  readable map pins. Three separate problems, all reported against the real UI.
+  - **API Keys menu.** Settings had no place to enter a credential — the connector
+    wizard only accepts an arbitrary REST endpoint. New `provider-keys.ts` + a
+    `settings.api-keys` section list all 24 credentials BlackEclipse can consume,
+    grouped by what they power (AI / Market / Crypto / Economics). Keys are
+    encrypted with the existing AES-256-GCM path and stored in `SystemConfig`;
+    the value is never returned to the browser (only a masked hint). "Test" makes
+    a real request and reports the real HTTP status — an invalid key returns 401,
+    verified live, rather than a success inferred from the key existing. A key set
+    by an environment variable is shown as authoritative and read-only, and
+    `applyStoredKeysToEnv()` copies stored keys into `process.env` at boot so
+    every existing consumer works unchanged. Removing a stored key only clears a
+    variable this process populated from the vault, so a deployment env var can
+    never be destroyed.
+  - **Layers were showing a fraction of the data.** `classify.ts` assigns ONE
+    event type but MANY channels, and the domain layers matched on type only, so
+    an event typed `conflict` carrying the Shipping channel was invisible to the
+    Shipping layer. Measured live in a 24h window: 11 shipping-typed vs 28 with
+    the Shipping channel, 29 vs 46 for energy. Layers now match type **or**
+    channel, and two new layers (`shipping`, `commodities`) plus channel-driven
+    trade lines surface the physical-economy signal that was already in the
+    database.
+  - **Pins.** The old markers were 6–13px flat dots with a thin border and read as
+    noise on the dark map. Pins are now larger (8–18px), carry a dark contrast
+    ring so neighbours never bleed together, and a severity-sized coloured glow so
+    urgency is visible before hovering.
+  - **Also fixed:** the dev server had a stale Prisma client from before the
+    `category` column existed, so FIRMS rows silently failed to persist while the
+    map still showed them. Restarting is the fix; `persistEvents` swallowing the
+    error is why it was invisible.
+  docs updated: `docs/investor-eye-architecture.md` (§5l), `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`, `docs/DECISIONS.md` (ADR-013)
+
+- **Workspace / Charts** — Add scoped workspace actions and chart focus ownership; prevent drawing keys from reaching other charts or deleting panels, guard typing and hidden screens, and confirm keyboard panel removal. no doc change — existing shortcut and workspace contracts reused.
+
+- **Charts** — Fix broken palette integration left by interrupted edits: undefined `UP`/`DOWN`/`primary`/`colors`/`palette`/`GRADIENT`/`cn` references in journal charts, economics panel, Monte Carlo, and heatmap widgets crashed the build when selecting colors. Journal charts, economics panel, Monte Carlo, and heatmap treemap now consume the shared chart palette with live update dependencies; typecheck clean, 1,078 tests pass. no doc change — internal repair of in-flight feature, contracts unchanged.
+
+- **UI** — Wire scoped screen shortcuts to existing creation forms, search, filters, customization and refresh; guard Investor Eye navigation against hidden screens, editing, dialogs and extra modifiers. no doc change — existing keyboard hook contract reused, no architecture or setup changes.
+
+- **Keyboard** — Ship configurable function-key defaults, Ctrl/Cmd+/ searchable help and shared exact-match, visible-scope dispatch to prevent hidden-screen and typing conflicts; preserve customized sidebar settings and reserve F11. Tests and typecheck pass; lint reports warnings only. docs updated: `docs/ARCHITECTURE.md`, `docs/OVERVIEW.md`.
+
+- **Charts** — Add eight palette presets (Black & white, Silver, Sunset, Arctic, Forest, Candy, Neon, Blue & orange) and preview swatches for more visual variety; monochrome uses charcoal instead of invisible black on dark charts. no doc change — presentation presets only, storage and chart contracts unchanged.
+
+- **Charts** — Native Eclipse charts subscribe to palette changes and resolve indicator, structure, and comparison colors at render time without resetting zoom or rewriting saved drawings; remove the permanent brand-color cache. no doc change — existing provider and state contracts unchanged.
+
+- **Investor Eye** — Data-source governance and NASA FIRMS. The spec's licensing
+  requirement had no home, and the hazard layer had a single source.
+  - **Source catalog.** New `source-catalog.ts` records licence, licence/terms
+    URL, commercial-use, API-key requirement, attribution, rate limit and
+    freshness per source. It is separate from the adapters on purpose — a licence
+    question should not require constructing a fetcher. Tests assert every
+    registered source has an entry (and vice versa) and that `requiresApiKey`
+    agrees with the adapter, so a source cannot ship without declaring its terms.
+  - **FIRMS connector.** Keyless global archive CSV (the Area API needs a
+    `MAP_KEY`, which would break zero-config). ~25,600 raw single-pixel
+    detections become ≤400 grid clusters at ingestion, carrying real detection
+    counts and summed FRP. Three bugs fixed while building it: the grid needs a
+    `cos(lat)` correction or polar fires fragment away; empty CSV cells must be
+    rejected before `Number()` turns them into 0; and a feed URL must not be
+    stamped as a source `url`, because `dedupKeyFor` treats source URLs as article
+    identity and all 400 clusters collapsed to one event.
+  - **Exact country attribution.** `admin-boundaries.ts` runs point-in-polygon
+    against the same Natural Earth GeoJSON the map already ships. Centroid
+    matching attributed 62/400 live fire clusters; point-in-polygon 167; using the
+    boundary asset's own ISO2 when the curated gazetteer lacks the country, 397.
+  - **Hazard split.** A provider-stated `category` (`earthquake`/`fire`)
+    separates the `fires` layer from `weather`, refuses to merge different
+    categories during clustering, and is exclude-based so pre-existing rows keep
+    their original layer with no migration.
+  - **Health UI.** `/api/investor-eye/health` joins governance onto `SourceRun`
+    accounting and returns attribution lines; `SourceHealthPanel` renders the
+    spec §19 columns and flags a runnable-but-undeclared source as a gap.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/ARCHITECTURE.md`,
+  `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md`
+
+- **Journal** — Calendar follow-ups. The contribution heatmap was too small and
+  the month grid only existed on the Calendar tab.
+  - **Heatmap is now big.** `MiniCalendar` gained a `fill` mode: the grid spans
+    the card, cells stay square via `aspect-ratio`, and a `maxCell` cap (30px)
+    stops a very wide card from producing ~50px squares that dominated the page.
+    Default widened to 39 weeks / nine months. Measured 30×30 cells across a
+    1316px grid (was 11px cells in a 595px half-width grid).
+  - **Month calendar now on the Overview too**, via a new `MonthCalendarCard`
+    (its own prev/next + month stats) so both tabs show year AND month views.
+  - **Fixed a timezone bug in the month label.** `toLocaleString` without a
+    `timeZone` formats in the browser's local zone, so `Date.UTC(2026, 8, 1)`
+    (Sept 1 UTC) rendered as **"August 2026"** west of Greenwich — the label sat
+    a month behind the grid it described. New `src/lib/journal/dates.ts`
+    (`formatMonthLabel` / `formatDayLabel` / `weekdayShort`) formats in UTC, and
+    the month card now opens on the most recent trade's month rather than the
+    local clock. 7 tests pin this across five timezones.
+  docs updated: `docs/NAVIGATION.md`
+
 - **Investor Eye** — Situation recurrence and honest corroboration.
   - **Situation timeline** (`situations.ts`, pure). A single event in isolation is
     not intelligence: an explosion near Hormuz means something different when it

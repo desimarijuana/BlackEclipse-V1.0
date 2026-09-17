@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { EquityCurveChart, DimensionBarChart, WinLossChart, DrawdownChart, DailyPerformanceChart, RDistributionChart, fmtR, fmtMoney } from './charts';
 import { MiniCalendar } from './mini-calendar';
+import { MonthCalendarCard } from './month-calendar-card';
 import { AiAnalysis } from './ai-analysis';
 
 interface OverviewProps {
@@ -75,12 +76,17 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
         </div>
       </div>
 
-      {/* Mini calendar + drawdown */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="rounded-2xl glass-card p-4">
-          <MiniCalendar days={analytics.days} onSelectDay={(d) => onOpenCalendar?.(d)} />
+      {/* Contribution heatmap — full width so the cells can be a readable size */}
+      <div className="rounded-2xl glass-card p-4">
+        <MiniCalendar days={analytics.days} onSelectDay={(d) => onOpenCalendar?.(d)} />
+      </div>
+
+      {/* Month calendar + drawdown */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="rounded-2xl glass-card xl:col-span-2">
+          <MonthCalendarCard trades={trades} onSelectDay={(d) => onOpenCalendar?.(d)} />
         </div>
-        <div className="rounded-2xl glass-card p-4 lg:col-span-2">
+        <div className="rounded-2xl glass-card p-4">
           <DrawdownChart equity={analytics.equity} height={200} />
         </div>
       </div>

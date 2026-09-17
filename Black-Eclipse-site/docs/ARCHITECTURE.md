@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-16
 ---
 
 # Architecture
@@ -34,6 +34,28 @@ whole routing story for the app: **one page**.
 Screen chunks are loaded with `next/dynamic` + `ssr: false` so first paint only
 compiles the chat shell. This is a deliberate memory/perf decision — do not
 convert these to static imports.
+
+### Keyboard ownership
+
+Function-key navigation shares the persisted sidebar configuration; it does not
+introduce a second router. Untouched legacy defaults migrate to assigned keys,
+while customized assignments and disabled sections are preserved. F11 remains
+unassigned by default because browsers use it for fullscreen.
+
+`src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
+roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens
+must never receive actions while hidden. Focused nested scopes take precedence;
+editable controls, composition, repeated presses, consumed events and blocking
+dialogs suppress page commands. Custom overlays must declare dialog semantics
+or `data-keyboard-overlay="true"` to participate in this guard. Chart drawing
+commands additionally require ownership by the focused chart.
+
+The root-mounted `src/components/layout/keyboard-shortcuts.tsx` exposes Ctrl/Cmd+/
+help using the sidebar settings and registered action metadata. Page groups
+reflect mounted screens, so visiting a screen registers its contextual commands.
+Handlers reuse existing UI actions; creation shortcuts open forms rather than
+submit financial mutations. Browser/OS-reserved function keys cannot be
+guaranteed by a web app and remain user-reassignable in Sidebar settings.
 
 ## Layer 1 — Screens & components
 
@@ -118,7 +140,7 @@ The schema (`prisma/schema.prisma`) is organized in domains:
 | Agentic research memory | `ResearchReport`, `AgentRun`, `ResearchFinding` |
 | Alerts | `PriceAlert`, `PriceAlertEvent`, `Candles` |
 | Data connectors | `DataConnector`, `CustomDataset`, `CustomDatasetField`, `CustomDatasetRecord`, `ConnectorMapping` |
-| Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `Relationship`, `SourceRun` |
+| Investor Eye | `Country`, `GeopoliticalEvent`, `EventEntity`, `Relationship`, `SourceRun` (`GeopoliticalEvent.category` distinguishes hazard sub-types via a nullable column — additive, no migration needed) |
 | Trading journal | `JournalProfile`, `TradingAccount`, `Strategy`, `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`, `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`, `MarketContext`, `JournalEntry`, `Review` |
 
 Two design notes that matter:
@@ -129,6 +151,28 @@ Two design notes that matter:
 - **Auth-ready, not auth-ful.** The journal carries an optional owner concept so
   a `User` relation can be added later without a rewrite. There are no accounts
   today — the app is a guest app.
+
+### Journal demo data is real rows, clearly labelled
+
+The journal is DB-backed, unlike the localStorage portfolio demo, so a fresh
+install would otherwise open on eight empty tabs. `src/lib/journal/demo.ts` seeds
+~90 days of deterministic sample trades at boot (`src/instrumentation.ts`) and
+from `scripts/seed-journal.ts`.
+
+Three invariants make shipping demo rows into a user's database safe:
+
+1. **`Trade.source`** (`'manual' | 'demo'`) marks provenance. The UI shows a
+   banner whenever demo rows are present, and "Remove demo data" deletes only
+   `source: 'demo'` rows — anything the user added is untouched.
+2. **One-time marker.** A `SystemConfig` key (`journal_demo_seeded_v1`) records
+   that seeding ran, so clearing the demo data does not bring it back on the next
+   boot. The seeder also refuses to run when ANY trade already exists.
+3. **Deterministic + internally coherent.** A seeded PRNG means identical data on
+   every install. Positions are sized as `riskTarget / stopDistance` against the
+   profile's own `accountSize × riskPerTrade`, so risk-per-trade varies gently
+   (CV ≈ 0.1) instead of by orders of magnitude — which is what makes the risk
+   analytics (risk consistency, the 1% rule, expectancy in R) meaningful rather
+   than noise.
 
 ### Indices are tickers, not `Asset` rows
 
@@ -172,6 +216,39 @@ each instrument's **share of market turnover**, not an absolute amount, so they
 stay meaningful across USD/PKR/IDR. `GET /api/heatmap?volume=1` serves this as
 `HeatmapPayload.volume`, scanned over EVERY priced instrument (not just the
 tiles). Feed markets (FOREX/COMMODITIES) have no real traded volume and omit it.
+
+### Portfolio analytics are date-aligned, not position-aligned
+
+`src/lib/portfolio/matrix.ts` owns the fund workspace's correlation and risk
+decomposition. Two invariants make its numbers trustworthy:
+
+1. **Date alignment.** Two markets have different trading calendars (NYSE vs PSX
+   vs crypto's 7-day week), so `closes[i]` is NOT the same day for two symbols.
+   Every statistic is computed on the **intersection of dates** for the pair it
+   concerns; comparing position *i* to position *i* would silently correlate
+   different calendar days, which is the classic way a correlation matrix lies.
+   Pairs with fewer than `MIN_OBSERVATIONS` (20) shared returns render as an
+   explicit `·`, never a plausible-looking `0.00`.
+
+2. **Returns are currency-neutral.** r = P_t/P_{t−1} − 1 is a ratio, so native and
+   USD-converted series of the same asset give identical returns. Correlations
+   are therefore computed on native-currency closes and are correct for a mixed
+   USD/PKR/INR book with no FX step. (A currency's own move is a separate
+   exposure and is not captured — the widget says so.)
+
+Risk is decomposed with the Euler method: `σ_p = √(wᵀΣw)`, `MCTRᵢ = (Σw)ᵢ/σ_p`,
+`CTRᵢ = wᵢ·MCTRᵢ`, and each holding's **share of total risk** is `CTRᵢ/σ_p` (sums
+to 100%). `Σ` is assembled as `corr_ij · σ_i · σ_j` so it agrees with what the
+correlation widget displays. Pairwise-complete correlation is not guaranteed
+positive-semidefinite, so variance is clamped at 0 and negative contributions are
+dropped rather than surfaced as negative risk.
+
+Mixed currency: `useLiveQuotes` keeps the **real** `marketId` and currency that
+`/api/quote` returns (it used to re-derive a USD/PKR binary from a hardcoded
+symbol allowlist, mislabelling an Indian holding as USD). `computePortfolioStats`
+converts any currency via a live `fxToUsd`, falling back to a documented
+approximation table and flagging the holding `fxMissing` so the UI can call that
+USD value an estimate.
 
 ## Background workers
 
@@ -424,7 +501,7 @@ the decision.
 ### Layers (the stack)
 
 ```
-SOURCE (GDELT, USGS, /api/indices, /api/economics + FRED CSV, JDDS Asset/Price)
+SOURCE (GDELT, USGS, NASA FIRMS, /api/indices, /api/economics + FRED CSV, JDDS Asset/Price)
   ↓ src/lib/investor-eye/sources/*     fetch via the shared connectors `safeGet`
 RAW
   ↓ classify.ts / cluster.ts / dedup.ts / confidence.ts   (pure, unit-tested)
@@ -435,15 +512,22 @@ JDDS (Country, GeopoliticalEvent, EventEntity, SourceRun) + in-memory cache
   ↓ layers.ts (pure builders) → MapLayer[] → <WorldMap> (ECharts)
 ```
 
+Every source also has a `source-catalog.ts` governance entry (licence,
+commercial-use, attribution, rate limit, freshness), and a test enforces that a
+registered adapter cannot exist without one — see *Data governance* below.
+
 | File | Owns |
 |---|---|
 | `types.ts` | `NormalizedEvent`, `EventSource`, `MapLayer`, `InvestorEyeState`, provenance |
 | `countries.ts` | canonical country gazetteer (ISO codes, region, centroid, aliases, market link) |
+| `admin-boundaries.ts` | point-in-polygon country lookup against the shipped Natural Earth GeoJSON (exact, cached) |
+| `source-catalog.ts` | source governance: licence, commercial use, attribution, rate limit, freshness |
+| `src/lib/provider-keys.ts` | the encrypted vault + registry for every operator credential (`/api/provider-keys`, settings → API Keys) |
 | `classify.ts` | event type / severity / channels / commodities / sectors (pure) |
 | `cluster.ts` | dedup clustering + internal data-quality confidence (pure) |
 | `dedup.ts` | stable `dedupKey` for idempotent upserts |
 | `geo.ts` | grid aggregation so dense events never render raw |
-| `sources/` | `registry.ts` + `gdelt.ts` + `usgs.ts` (`EventSource` adapters) |
+| `sources/` | `registry.ts` + `gdelt.ts` + `usgs.ts` + `news.ts` + `firms.ts` (`EventSource` adapters) |
 | `state.ts` | `assembleState`, market observations, country summaries, `SourceRun` bookkeeping |
 | `phase2.ts` | real economic metrics (FRED CSV), companies (JDDS `Asset`), price history |
 | `analytics.ts` | risk decomposition, exposure, transmissions, analogues, NL `planQuery` |
@@ -452,8 +536,9 @@ JDDS (Country, GeopoliticalEvent, EventEntity, SourceRun) + in-memory cache
 | `cameo.ts` | CAMEO root code → event type, Goldstein → severity, **FIPS 10-4 → ISO2** |
 | `relevance.ts` | investor-relevance score (0..1) + reasons; the feed's display threshold |
 | `sources/news.ts` | turns existing `NewsItem` rows into events (no new feed/credentials) |
+| `sources/firms.ts` | NASA FIRMS keyless fire CSV → grid-clustered detections (pixels, not fires) |
 | `history.ts` | candle backfill + coverage, reusing the alerts yfinance path |
-| `layers.ts` | pure `MapLayer` builders (events, markets, conflict, energy, trade, weather, economy, companies, portfolio) |
+| `layers.ts` | pure `MapLayer` builders (events, markets, conflict, shipping, trade, energy, commodities, weather, fires, economy, companies, portfolio) |
 | `map-echarts.ts` | the ONLY ECharts-aware module; layer → option + event bridge |
 | `app-geo.ts` | loads/registers `public/geo/world.geo.json` |
 | `cache.ts` / `scheduler.ts` | server SWR cache + persisted last-known; in-process ingestion cron |
@@ -472,12 +557,57 @@ Node's built-in `zlib` via `safeGet({ binary: true })`. The DOC API is only a
 best-effort fallback: it was measured at >13s/request (the transport caps at
 10s) and 429s on bursts. `sources/news.ts` additionally converts the
 already-ingested `NewsItem` rows into events, so macro/market coverage costs no
-extra feed. GDELT's FIPS country codes are mapped to ISO2 in `cameo.ts` — they
-conflict with ISO for several important countries.
+extra feed. `sources/firms.ts` reads NASA FIRMS' keyless global archive CSV
+(the Area API needs a `MAP_KEY`, which would break zero-config) and **aggregates
+at ingestion**: ~25,600 single-pixel detections become ≤400 grid clusters, each
+reporting its real detection count and summed FRP. GDELT's FIPS country codes
+are mapped to ISO2 in `cameo.ts` — they conflict with ISO for several important
+countries.
+
+**Data governance.** `source-catalog.ts` holds one entry per upstream source
+(licence, commercial-use, attribution, rate limit, freshness). It is deliberately
+separate from the adapters: a licence question should not require constructing a
+fetcher. A test asserts every registered adapter has an entry (and vice versa),
+so a new source cannot ship without declaring its licence.
+`/api/investor-eye/health` joins the catalogue onto the `SourceRun` accounting
+and returns the required attribution lines; `SourceHealthPanel` renders them and
+flags a runnable-but-undeclared source as a governance gap. "Public API" is never
+treated as "free for commercial use" — each entry records what the provider
+states, with a link.
+
+**Domain layers match type OR channel.** `classify.ts` assigns each event one
+type but many channels, so a `conflict` event can still carry the Shipping
+channel. Filtering on type alone drew a fraction of the real signal (measured:
+28 shipping-channel events vs 11 shipping-typed in a 24h window). `buildDomainLayer`
+therefore accepts either, and `shipping`/`commodities` are separate layers.
+
+**Exact country attribution.** `admin-boundaries.ts` does a real
+point-in-polygon test against the *same* Natural Earth GeoJSON the map ships
+(`public/geo/world.geo.json`), cached in-module. This is what makes a precise
+coordinate resolvable at all: the gazetteer's nearest-*centroid* match put only
+15% of live fire clusters in a country, point-in-polygon puts 97%. It also draws
+on the boundary asset's own ISO2/name when the curated gazetteer has no entry
+(the asset covers 173 features; the gazetteer fewer), so a proven hit is never
+discarded.
 
 **Optional work never blocks the map.** The candle-history backfill (~170s
 across 30 markets) is fire-and-forget inside `assembleState`; awaiting it
 blocked the first world-state response and made the map show "0 events".
+
+**Operator credentials (`provider-keys.ts`).** Every key the app can consume is
+declared once in `PROVIDER_KEYS` and surfaced in Settings → API Keys. Values are
+AES-256-GCM encrypted in `SystemConfig` (the existing `connectors/secrets` path)
+and never returned to the browser — the API reports only `stored`, `fromEnv` and
+a masked hint. `applyStoredKeysToEnv()` copies vault keys into `process.env` at
+boot, but a REAL env var always wins and is never overwritten; removal only
+clears variables this process itself populated. That keeps the existing env-based
+consumers working with no per-provider refactor while preserving deployment
+authority. "Test" performs a real request and reports the real status code.
+
+**Do not run `prisma generate` without restarting the dev server.** A client
+generated before a schema change silently fails every write to that table;
+`persistEvents` catches per-row errors by design, so the failure is invisible —
+the map shows events that exist nowhere in the database.
 
 **Shared, per-window cache.** The assembled-state cache and its in-flight
 assembly guard live in `cache.ts` **anchored on `globalThis` and keyed by time

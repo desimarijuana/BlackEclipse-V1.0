@@ -1,6 +1,43 @@
 import { useMemo } from 'react';
 import type { Transaction } from '@/lib/portfolio/types';
 
+/**
+ * Approximate USD per unit of currency, used ONLY when a live rate is missing
+ * (before `/api/forex` lands, or for a currency it doesn't carry). These are
+ * documented order-of-magnitude figures, not quoted rates — every holding that
+ * falls back is flagged `fxMissing` so the UI can say the USD value is an
+ * estimate. Without a table a PKR position would be valued 278× too high, which
+ * is a far worse lie than an approximate one.
+ */
+const FALLBACK_USD_PER_UNIT: Record<string, number> = {
+  USD: 1,
+  PKR: 1 / 278,
+  INR: 1 / 87,
+  EUR: 1.08,
+  GBP: 1.27,
+  JPY: 1 / 156,
+  CNY: 1 / 7.2,
+  HKD: 1 / 7.8,
+  KRW: 1 / 1380,
+  TWD: 1 / 32,
+  SGD: 1 / 1.35,
+  MYR: 1 / 4.7,
+  AUD: 0.66,
+  CAD: 0.72,
+  BRL: 1 / 5.4,
+  MXN: 1 / 18,
+  ZAR: 1 / 18,
+  TRY: 1 / 34,
+  AED: 1 / 3.67,
+  SAR: 1 / 3.75,
+  IDR: 1 / 16000,
+  THB: 1 / 34,
+  VND: 1 / 25000,
+  EGP: 1 / 48,
+  NGN: 1 / 1500,
+  RUB: 1 / 90,
+};
+
 export interface PortfolioStats {
   /** Total portfolio value expressed in the base (reporting) currency USD. */
   totalValue: number;
@@ -19,7 +56,8 @@ export interface PortfolioStats {
   holdings: Array<{
     symbol: string;
     name: string;
-    currency: 'USD' | 'PKR';
+    /** ISO currency code the instrument quotes in (USD, PKR, INR, …). */
+    currency: string;
     /** Native currency price. */
     currentPrice: number;
     /** Live FX rate: 1 unit of `currency` = fxToUsd USD. */
@@ -38,6 +76,8 @@ export interface PortfolioStats {
     dividendIncome: number;
     dividendIncomeUsd: number;
     dayPct: number;
+    /** True when a non-USD position had no FX rate and was converted 1:1. */
+    fxMissing: boolean;
   }>;
 }
 
@@ -45,7 +85,9 @@ export interface LiveAssetInput {
   symbol: string;
   price?: number;
   changePercent?: number;
-  currency?: 'USD' | 'PKR' | string;
+  /** ISO currency code; anything other than USD must carry `fxToUsd`. */
+  currency?: string;
+  /** 1 unit of `currency` = fxToUsd USD. Required for non-USD instruments. */
   fxToUsd?: number;
   name?: string;
 }
@@ -76,13 +118,18 @@ export function computePortfolioStats(
   let totalRealizedUsd = 0;
   let totalDividendUsd = 0;
   let dailyChangeValueUsd = 0;
-  const realizedBySymbol: Record<string, number> = {};
 
   for (const [symbol, txs] of grouped) {
     const sorted = [...txs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const live = liveMap.get(symbol);
-    const currency: 'USD' | 'PKR' = (live?.currency === 'PKR' ? 'PKR' : 'USD');
-    const fxToUsd = live?.fxToUsd ?? (currency === 'PKR' ? 1 / 278 : 1);
+    const currency: string = live?.currency || 'USD';
+    // USD converts 1:1. Any other currency prefers its live rate; when that is
+    // missing we fall back to a documented approximation and FLAG the row, so
+    // the UI can label the USD value as an estimate instead of implying a quote.
+    const liveRate = live?.fxToUsd && live.fxToUsd > 0 ? live.fxToUsd : undefined;
+    const fallbackRate = FALLBACK_USD_PER_UNIT[currency];
+    const fxMissing = currency !== 'USD' && liveRate === undefined;
+    const fxToUsd = currency === 'USD' ? 1 : (liveRate ?? fallbackRate ?? 1);
 
     // Dividends are pure income — additive to realized P/L, never affect lots.
     const dividendIncome = txs
@@ -162,6 +209,7 @@ export function computePortfolioStats(
     dividendIncome: dividendIncome,
     dividendIncomeUsd: dividendIncome * fxToUsd,
     dayPct,
+    fxMissing,
     });
   }
 

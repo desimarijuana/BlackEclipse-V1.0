@@ -150,10 +150,20 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
             );
             const data = await res.json();
             const series = Array.isArray(data.series) ? data.series : [];
-            const closes = series
-              .map((b: { close: number }) => Number(b.close))
-              .filter((c: number) => Number.isFinite(c) && c > 0);
-            const dates = series.map((b: { date: string }) => b.date);
+            // Filter date AND close TOGETHER. Filtering closes alone (as this
+            // used to) desynchronizes the two arrays the moment a bar has a
+            // non-finite or ≤0 close: every later date then labels the wrong
+            // close, so any date-aligned maths (correlation, covariance) would
+            // compare mismatched days. Pair them or drop the pair.
+            const closes: number[] = [];
+            const dates: string[] = [];
+            for (const b of series as Array<{ close?: unknown; date?: unknown }>) {
+              const c = Number(b?.close);
+              const d = typeof b?.date === 'string' ? b.date : '';
+              if (!d || !Number.isFinite(c) || c <= 0) continue;
+              closes.push(c);
+              dates.push(d);
+            }
             const cleaned = { closes, dates };
             if (closes.length >= 2) writeCache(sym, cleaned);
             return [sym, cleaned] as const;

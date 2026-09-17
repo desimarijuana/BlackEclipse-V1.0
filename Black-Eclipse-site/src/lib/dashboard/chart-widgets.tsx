@@ -8,7 +8,7 @@ import React, { useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { cn } from '@/lib/utils';
-import { cssVarToHex } from '@/lib/chart-colors';
+import { useChartPalette } from '@/lib/chart-palette-store';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
 import { usePortfolioPerformance, useFundComparison } from './portfolio-store';
 import { useMarketLeadSymbol } from './market-views';
@@ -93,7 +93,7 @@ function rsi(values: number[], period = 14): (number | null)[] {
 export function AssetChartWidget() {
   const t = useTopic<PriceHistory>('chart:asset:AAPL');
   const data = t.data;
-  const primary = useMemo(() => cssVarToHex('--primary', '#34d399'), []);
+  const { lines } = useChartPalette(); const primary = lines.primary; const series = lines.series;
   const ema20 = useMemo(() => (data?.points ? ema(data.points, 20) : []), [data?.points]);
   const ema50 = useMemo(() => (data?.points ? ema(data.points, 50) : []), [data?.points]);
   const rsi14 = useMemo(() => (data?.points ? rsi(data.points, 14) : []), [data?.points]);
@@ -107,13 +107,13 @@ export function AssetChartWidget() {
       xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
       yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
       series: [
-        { name: 'Close', type: 'line', data: data.points, showSymbol: false, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } },
-        { name: 'EMA 20', type: 'line', data: ema20, showSymbol: false, lineStyle: { width: 1, color: '#fbbf24' } },
-        { name: 'EMA 50', type: 'line', data: ema50, showSymbol: false, lineStyle: { width: 1, color: '#60a5fa' } },
+        { name: 'Close', type: 'line', data: data.points, showSymbol: false, itemStyle: { color: primary }, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } },
+        { name: 'EMA 20', type: 'line', data: ema20, showSymbol: false, itemStyle: { color: series[1] }, lineStyle: { width: 1, color: series[1] } },
+        { name: 'EMA 50', type: 'line', data: ema50, showSymbol: false, itemStyle: { color: series[0] }, lineStyle: { width: 1, color: series[0] } },
       ],
       legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 9 }, itemWidth: 12 },
     } as EChartsOption;
-  }, [data, dates, ema20, ema50, primary]);
+  }, [data, dates, ema20, ema50, primary, series]);
 
   const rsiRef = useEChart(() => {
     if (!data?.points || data.points.length < 2) return null;
@@ -122,9 +122,9 @@ export function AssetChartWidget() {
       grid: { left: 8, right: 8, top: 4, bottom: 0, containLabel: true },
       xAxis: { type: 'category', data: dates, axisLabel: { show: false }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
       yAxis: { type: 'value', min: 0, max: 100, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 8 } },
-      series: [{ name: 'RSI 14', type: 'line', data: rsi14, showSymbol: false, lineStyle: { width: 1, color: '#a78bfa' } }],
+      series: [{ name: 'RSI 14', type: 'line', data: rsi14, showSymbol: false, itemStyle: { color: series[2] }, lineStyle: { width: 1, color: series[2] } }],
     } as EChartsOption;
-  }, [data, dates, rsi14]);
+  }, [data, dates, rsi14, series]);
 
   return (
     <div className="flex h-full flex-col p-4">
@@ -144,7 +144,7 @@ export function AssetChartWidget() {
 export function EconomicDataChartWidget() {
   const t = useTopic<EconSeries>('econ:series:us-cpi');
   const data = t.data;
-  const primary = useMemo(() => cssVarToHex('--primary', '#34d399'), []);
+  const primary = useChartPalette().lines.primary;
   const dates = useMemo(() => data?.rows?.map(r => r.date) ?? [], [data?.rows]);
   const values = useMemo(() => data?.rows?.map(r => r.value) ?? [], [data?.rows]);
 
@@ -155,7 +155,7 @@ export function EconomicDataChartWidget() {
       grid: { left: 8, right: 8, top: 10, bottom: 0, containLabel: true },
       xAxis: { type: 'category', data: dates, axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
       yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
-      series: [{ name: data.seriesKey, type: 'line', data: values, showSymbol: false, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } }],
+      series: [{ name: data.seriesKey, type: 'line', data: values, showSymbol: false, itemStyle: { color: primary }, lineStyle: { width: 2, color: primary }, areaStyle: { color: primary, opacity: 0.08 } }],
     } as EChartsOption;
   }, [data, dates, values, primary]);
 
@@ -184,7 +184,7 @@ function readCompare(config: unknown): string[] {
 export function FundPerformanceChartWidget({ placement }: { placement?: WidgetPlacement }) {
   const compare = useMemo(() => readCompare(placement?.config?.compare), [placement?.config?.compare]);
   const perf = usePortfolioPerformance(compare);
-  const primary = useMemo(() => cssVarToHex('--primary', '#34d399'), []);
+  const primary = useChartPalette().lines.primary;
 
   const ref = useEChart(() => {
     if (!perf?.portfolio || perf.portfolio.length < 2) return null;

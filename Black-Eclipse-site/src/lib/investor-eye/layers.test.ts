@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
+import { buildAllLayers, buildEventsLayer, buildMarketsLayer, buildEconomyLayer, buildTradeLayer, buildConflictLayer, buildEnergyLayer, buildWeatherLayer, buildFiresLayer, buildShippingLayer, buildCommoditiesLayer, LAYER_META, LAYER_GROUPS, ALL_LAYER_IDS, groupedLayerIds, layerColor, SEVERITY_COLORS, SEVERITY_ORDER } from './layers';
 import type { CountrySummary, InvestorEyeState, MarketObservation, NormalizedEvent } from './types';
 
 function event(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
@@ -85,8 +85,93 @@ describe('layer registry', () => {
   it('assigns a marker shape to point layers and none to fills', () => {
     expect(LAYER_META.conflict.symbol).toBeDefined();
     expect(LAYER_META.weather.symbol).toBe('triangle');
+    expect(LAYER_META.fires.symbol).toBe('diamond');
     expect(LAYER_META.economy.symbol).toBeUndefined();
     expect(LAYER_META.risk.symbol).toBeUndefined();
+  });
+});
+
+describe('domain layers match type OR channel', () => {
+  // The regression that motivated this: an event is assigned ONE type but many
+  // channels, so a Red Sea attack typed `conflict` still carries the Shipping
+  // channel. Matching only on type drew a fraction of the real signal —
+  // measured live: 204 shipping-channel events vs 26 shipping-typed.
+
+  it('surfaces a conflict event in the shipping layer when it has the channel', () => {
+    const e = event({ id: 's1', eventType: 'conflict', channels: ['Shipping & Logistics'], lon: 43, lat: 12 });
+    expect(buildShippingLayer([e]).data()).toHaveLength(1);
+    // And it stays in the conflict layer — a layer is a lens, not an exclusive bucket.
+    expect(buildConflictLayer([e]).data()).toHaveLength(1);
+  });
+
+  it('picks up an energy-channel event typed something else', () => {
+    const e = event({ id: 'en1', eventType: 'monetary', channels: ['Energy'], lon: 50, lat: 26 });
+    expect(buildEnergyLayer([e]).data()).toHaveLength(1);
+  });
+
+  it('does not put an unrelated event in a domain layer', () => {
+    const e = event({ id: 'x1', eventType: 'election', channels: [], commodities: [], lon: 1, lat: 1 });
+    expect(buildShippingLayer([e]).data()).toHaveLength(0);
+    expect(buildEnergyLayer([e]).data()).toHaveLength(0);
+    expect(buildCommoditiesLayer([e]).data()).toHaveLength(0);
+  });
+
+  it('commodities layer is purely commodity-driven, regardless of type', () => {
+    const oil = event({ id: 'c1', eventType: 'conflict', commodities: ['Crude Oil'], lon: 2, lat: 2 });
+    const none = event({ id: 'c2', eventType: 'energy', commodities: [], lon: 3, lat: 3 });
+    const data = buildCommoditiesLayer([oil, none]).data();
+    expect(data).toHaveLength(1);
+    expect((data[0].data as NormalizedEvent).id).toBe('c1');
+  });
+
+  it('registers shipping and commodities as real, coloured layers', () => {
+    expect(LAYER_META.shipping.group).toBe('flows');
+    expect(LAYER_META.commodities.symbol).toBe('triangle');
+    expect(layerColor('shipping')).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(layerColor('commodities')).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it('builds the shipping and commodities layers by default', () => {
+    const ids = buildAllLayers({ state: state([event()]) }).map((l) => l.id);
+    expect(ids).toContain('shipping');
+    expect(ids).toContain('commodities');
+  });
+});
+
+describe('channel-driven trade lines', () => {
+  it('draws a line for a conflict event carrying the Trade channel', () => {
+    const e = event({ id: 't2', eventType: 'conflict', channels: ['Trade & Tariffs'], countries: ['US', 'CN'] });
+    expect(buildTradeLayer([e], countries).data()).toHaveLength(1);
+  });
+
+  it('ignores a multi-country event with no trade signal at all', () => {
+    const e = event({ id: 't3', eventType: 'election', channels: [], countries: ['US', 'CN'] });
+    expect(buildTradeLayer([e], countries).data()).toHaveLength(0);
+  });
+});
+
+describe('hazard layer split (earthquakes vs fires)', () => {
+  const quake = event({ id: 'q1', eventType: 'natural_disaster', category: 'earthquake', lon: 10, lat: 20 });
+  const fire = event({ id: 'f1', eventType: 'natural_disaster', category: 'fire', lon: 11, lat: 21 });
+  // A row persisted before `category` existed — it must not disappear.
+  const legacy = event({ id: 'l1', eventType: 'natural_disaster', lon: 12, lat: 22 });
+
+  it('puts earthquakes and fires in separate layers with no overlap', () => {
+    const weather = buildWeatherLayer([quake, fire, legacy]).data();
+    const fires = buildFiresLayer([quake, fire, legacy]).data();
+    expect(weather.map((d) => (d.data as NormalizedEvent).id)).toEqual(['q1', 'l1']);
+    expect(fires.map((d) => (d.data as NormalizedEvent).id)).toEqual(['f1']);
+  });
+
+  it('keeps a legacy uncategorised hazard in the earthquake layer', () => {
+    // No migration: an old row keeps its original layer rather than vanishing.
+    const weather = buildWeatherLayer([legacy]).data();
+    expect(weather).toHaveLength(1);
+  });
+
+  it('registers fires as a hazard layer with its own colour', () => {
+    expect(LAYER_META.fires.group).toBe('hazards');
+    expect(LAYER_META.fires.color).not.toBe(LAYER_META.weather.color);
   });
 });
 

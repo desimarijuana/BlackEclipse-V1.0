@@ -24,6 +24,7 @@ import {
   ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Scan, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
 import type { WidgetPlacement, WorkspaceSection } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
@@ -80,6 +81,7 @@ interface WorkspaceCanvasProps {
 
 export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, railClassName, railHeader, railCollapsed = false, onToggleRail }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
+  const rootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState('');
   const [activeWidth, setActiveWidth] = useState(360);
@@ -392,7 +394,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       onAddingEnd?.();
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { cleanup(); onAddingEnd?.(); }
+      if (matchesShortcut(e, 'escape') && canHandleKeyboardEvent(e, rootRef.current)) {
+        e.preventDefault();
+        cleanup();
+        onAddingEnd?.();
+      }
     }
     function onCtx(e: MouseEvent) {
       e.preventDefault(); cleanup(); onAddingEnd?.();
@@ -435,7 +441,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   // Escape OR contextmenu (right-click) cancels the click-grab.
   useEffect(() => {
     if (!grabbedId) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') cancelGrab(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (!matchesShortcut(e, 'escape') || !canHandleKeyboardEvent(e, rootRef.current)) return;
+      e.preventDefault();
+      cancelGrab();
+    };
     const onCtx = (e: MouseEvent) => { e.preventDefault(); cancelGrab(); };
     window.addEventListener('keydown', onKey);
     window.addEventListener('contextmenu', onCtx);
@@ -569,6 +579,7 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   return (
     <div
       className={cn('relative', className)}
+      ref={rootRef}
       data-workspace
       onClick={(e) => {
         // Single click places a library add-project (the classic

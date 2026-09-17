@@ -15,6 +15,7 @@
 // market.
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from 'lucide-react';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -864,6 +865,14 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
     return Math.max(1, Math.ceil(filteredAndSortedList.length / itemsPerPage));
   }, [filteredAndSortedList, itemsPerPage]);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filterRef = useRef<HTMLSelectElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'bubbles.search', label: 'Search assets', keys: 'S', run: () => searchRef.current?.focus() },
+    { id: 'bubbles.filters', label: 'Focus sector filter', keys: 'Shift+F', run: () => filterRef.current?.focus() },
+  ]);
+
   const toggleSort = (field: typeof sortField) => {
     if (sortField === field) {
       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -876,7 +885,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   return (
     <>
       {loading && <TopLoader />}
-      <div className="flex-1 w-full px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
+      <div ref={rootRef} data-keyboard-scope="Market bubbles" className="flex-1 w-full px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
         
         {/* Title Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/20 pb-4 shrink-0">
@@ -929,6 +938,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             <div className="relative w-64 shrink-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <input
+                ref={searchRef}
                 type="text"
                 placeholder="Search / Highlight Asset..."
                 value={searchQuery}
@@ -947,6 +957,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
             <Filter size={12} className="text-muted-foreground" />
             <span className="text-muted-foreground font-semibold">Sector:</span>
             <select
+              ref={filterRef}
               value={selectedSector}
               onChange={e => setSelectedSector(e.target.value)}
               className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-mono text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"

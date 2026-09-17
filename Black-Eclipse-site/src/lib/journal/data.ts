@@ -7,12 +7,57 @@ import { prisma } from "@/lib/db";
 import { computeTradeMath } from "./trade-math";
 import type { TradeRecord } from "./types";
 
-/** The single guest profile id. Creates it on first use. */
+/**
+ * The single guest profile id. Creates it on first use.
+ *
+ * Concurrent callers used to race here: two requests both saw no profile and
+ * both created one, leaving duplicate "Trader" rows (which is exactly what the
+ * committed DB ended up with). The lookup is now deterministic — always the
+ * OLDEST row — and creating is guarded so a duplicate is collapsed on sight.
+ */
 export async function getOrCreateProfile(): Promise<string> {
-  const existing = await prisma.journalProfile.findFirst();
-  if (existing) return existing.id;
+  const existing = await prisma.journalProfile.findFirst({
+    orderBy: { createdAt: "asc" },
+  });
+  if (existing) {
+    // Collapse any duplicates a previous race left behind. Cascades clean up
+    // their relations; since the survivor is the oldest, nothing the user
+    // created is lost.
+    const dupes = await prisma.journalProfile.findMany({
+      where: { id: { not: existing.id } },
+      select: { id: true },
+    });
+    if (dupes.length > 0) {
+      await prisma.journalProfile.deleteMany({ where: { id: { in: dupes.map(d => d.id) } } });
+    }
+    return existing.id;
+  }
   const created = await prisma.journalProfile.create({ data: {} });
   return created.id;
+}
+
+/** How many seeded demo trades exist for a profile. */
+export async function countDemoTrades(profileId: string): Promise<number> {
+  return prisma.trade.count({ where: { profileId, source: "demo" } });
+}
+
+/**
+ * Remove every seeded demo trade (and its strategies/setups/tags/reviews).
+ * Only touches `source: 'demo'` rows — anything the user entered is untouched.
+ */
+export async function clearDemoData(profileId: string): Promise<{ trades: number }> {
+  const trades = await prisma.trade.count({ where: { profileId, source: "demo" } });
+  if (trades === 0) return { trades: 0 };
+  // Trade relations cascade from the trade delete except the explicit joins.
+  await prisma.trade.deleteMany({ where: { profileId, source: "demo" } });
+  // Demo-created scaffolding hangs off the profile and is only ever created by
+  // the seeder; drop it so a re-seed starts clean.
+  await prisma.journalDay.deleteMany({ where: { profileId } });
+  await prisma.strategy.deleteMany({ where: { profileId } });
+  await prisma.setup.deleteMany({ where: { profileId } });
+  await prisma.tag.deleteMany({ where: { profileId } });
+  await prisma.review.deleteMany({ where: { profileId, source: "demo" } });
+  return { trades };
 }
 
 /** Map a Prisma trade (with relations) to the analytics TradeRecord. */
@@ -37,6 +82,7 @@ export function toTradeRecord(t: {
   mistakes: string | null;
   notes: string | null;
   status: string;
+  source?: string | null;
   strategyId: string | null;
   setupId: string | null;
   pnl: number;
@@ -73,6 +119,7 @@ export function toTradeRecord(t: {
     mistakes: t.mistakes,
     notes: t.notes,
     status: t.status as TradeRecord["status"],
+    source: (t.source === "demo" ? "demo" : "manual") as TradeRecord["source"],
     strategyId: t.strategyId,
     strategyName: t.strategy?.name,
     setupId: t.setupId,
@@ -129,6 +176,8 @@ export interface CreateTradeInput {
   strategyId?: string | null;
   setupId?: string | null;
   tagNames?: string[];
+  /** Provenance. Defaults to 'manual'; the demo seeder passes 'demo'. */
+  source?: "manual" | "demo";
 }
 
 /** Create a trade, computing all derived metrics and linking the day. */
@@ -174,6 +223,7 @@ export async function createTrade(profileId: string, input: CreateTradeInput) {
       notes: input.notes ?? null,
       strategyId: input.strategyId ?? null,
       setupId: input.setupId ?? null,
+      source: input.source ?? "manual",
       dayId: day.id,
       pnl: math.pnl,
       pnlPct: math.pnlPct,

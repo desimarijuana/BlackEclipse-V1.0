@@ -1,19 +1,133 @@
-// ── Investor Eye — formatting helpers (client-safe) ──────────────────────────
-// Kept free of server imports so client components can use them without pulling
-// Prisma (and `better-sqlite3`) into the browser bundle.
+// ── Investor Eye — time formatting ───────────────────────────────────────────
+// One place that turns an instant into what the operator sees, so a timestamp is
+// never rendered differently in two panels.
+//
+// WHY this module exists (two real bugs it fixes):
+//
+// 1. `formatUtc` returns a SHORT display string ("21:30 UTC"), but callers were
+//    doing `formatUtc(x).slice(11, 16)` — they were written expecting an ISO
+//    string. That slice is always empty, so source times in the dossier, the
+//    timeline and the live feed rendered BLANK. Slicing a formatted string was
+//    never the right call; use `formatClock`.
+//
+// 2. Everything was hard-coded to UTC. Operators reason in their own session
+//    timezone, so a fixed UTC clock made "when did this happen" need mental
+//    arithmetic. Every function here takes an explicit timezone, and the zone is
+//    ALWAYS printed with the time so an unlabelled clock is impossible.
+//
+// Server-safe: `Intl.DateTimeFormat` needs no DOM, so this is importable from
+// route handlers and components alike.
 
-/** ISO timestamp → 'HH:MM UTC'. */
-export function formatUtc(iso: string | null | undefined): string {
-  if (!iso) return '—';
+/** The zone used when the caller has no preference. */
+export const DEFAULT_TIMEZONE = 'UTC';
+
+/** A short zone label for a clock, e.g. 'UTC' | 'GMT+5' | 'EDT'. */
+export function zoneAbbrev(iso: string | null | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
+  const d = parse(iso);
+  if (!d) return timeZone === 'UTC' ? 'UTC' : timeZone;
   try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const hh = String(d.getUTCHours()).padStart(2, '0');
-    const mm = String(d.getUTCMinutes()).padStart(2, '0');
-    return `${hh}:${mm} UTC`;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'short',
+    }).formatToParts(d);
+    return parts.find((p) => p.type === 'timeZoneName')?.value ?? timeZone;
   } catch {
-    return iso;
+    return timeZone;
   }
+}
+
+function parse(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function safeZone(timeZone: string): string {
+  try {
+    // Throws for an invalid IANA name.
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return timeZone;
+  } catch {
+    return DEFAULT_TIMEZONE;
+  }
+}
+
+/** 'HH:MM' in the given zone (no label — use `formatClock` for display). */
+export function timeInZone(iso: string | null | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
+  const d = parse(iso);
+  if (!d) return '';
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: safeZone(timeZone),
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The canonical clock for an instant: 'HH:MM ZONE', e.g. '21:30 UTC' or
+ * '02:30 GMT+5'. The zone is always present, so a bare time is never shown.
+ */
+export function formatClock(iso: string | null | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
+  const t = timeInZone(iso, timeZone);
+  if (!t) return '—';
+  return `${t} ${zoneAbbrev(iso, safeZone(timeZone))}`;
+}
+
+/**
+ * Backwards-compatible UTC clock. Kept because it is used widely and its
+ * contract ('HH:MM UTC') is asserted by tests; prefer `formatClock` in new code.
+ */
+export function formatUtc(iso: string | null | undefined): string {
+  return formatClock(iso, 'UTC');
+}
+
+/** Full date + time with zone, for detail views: '16 Sep 21:30 UTC'. */
+export function formatDateTime(iso: string | null | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
+  const d = parse(iso);
+  if (!d) return '—';
+  const zone = safeZone(timeZone);
+  try {
+    const date = new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone, day: '2-digit', month: 'short',
+    }).format(d);
+    return `${date} ${formatClock(iso, zone)}`;
+  } catch {
+    return formatClock(iso, 'UTC');
+  }
+}
+
+/** A compact 'YYYY-MM-DD HH:MM' for chart axes and tooltips. */
+export function formatAxisTime(iso: string | null | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
+  const d = parse(iso);
+  if (!d) return '';
+  const zone = safeZone(timeZone);
+  try {
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(d);
+    return `${day} ${timeInZone(iso, zone)}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * A relative age ('4m ago', '2h ago') computed against a supplied `now`, so the
+ * result is deterministic in tests and never drifts with the wall clock.
+ */
+export function relativeAge(iso: string | null | undefined, now: number = Date.now()): string {
+  const d = parse(iso);
+  if (!d) return '—';
+  const sec = Math.max(0, Math.round((now - d.getTime()) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
 }
 
 /** Signed percentage, e.g. '+1.24%'. */
@@ -72,4 +186,3 @@ export function formatEventTitle(title: string, placeName?: string): string {
   const place = geoPart || (placeName ?? '').trim();
   return place ? `${actorText} in ${place}` : actorText;
 }
-

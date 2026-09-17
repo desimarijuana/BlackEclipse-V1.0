@@ -1,66 +1,287 @@
 'use client';
 
-// ── Mini Calendar — compact last-30-days performance strip for the Overview ──
+// ── Mini Calendar — compact GitHub-style last-N-weeks performance strip ──────
+// A week-column grid (7 rows Mon→Sun × N week columns) of small fixed-size
+// cells, matching the contribution-graph idiom. Cell colour encodes the day's
+// net R with SIGNED INTENSITY (darker = bigger move), so a +5R day reads
+// stronger than a +0.3R day instead of both being one flat green.
+//
+// Cells are a fixed 11px box (not stretched grid tracks) — the previous version
+// had no width class, so each cell stretched to fill its column and the
+// "squares" became large rectangles.
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { DayAggregate } from '@/lib/journal/types';
-import { fmtR } from './charts/echarts-container';
+import { intensityFor } from '@/lib/journal/intensity';
+import { fmtR, fmtMoney } from './charts/echarts-container';
 
 interface MiniCalendarProps {
   days: DayAggregate[];
   onSelectDay?: (date: string) => void;
+  /** Number of week columns to show. Default 39 (nine months). */
+  weeks?: number;
+  /**
+   * Fill the container width (default) — cells stay square via `aspect-ratio`,
+   * so the strip scales with its card instead of leaving dead space. Set false
+   * to use a fixed `cellSize` instead.
+   */
+  fill?: boolean;
+  /**
+   * Upper bound on cell size in `fill` mode. Without this a very wide card
+   * stretches the cells to ~50px and the strip dominates the page; capping keeps
+   * them big-but-proportional and centres the grid in the leftover space.
+   */
+  maxCell?: number;
+  /** Fixed cell edge length in px when `fill` is false. */
+  cellSize?: number;
 }
 
-export function MiniCalendar({ days, onSelectDay }: MiniCalendarProps) {
-  const last30 = useMemo(() => {
-    const map = new Map(days.map((d) => [d.date, d]));
-    const out: { date: string; day: DayAggregate | null }[] = [];
+export const MINI_CELL_PX = 22;
+/** Largest cell produced by `fill` mode before the grid stops growing. */
+export const MINI_CELL_MAX = 30;
+
+/** Fixed-size metrics used when `fill` is false. */
+function metrics(cellSize: number) {
+  return {
+    cell: cellSize,
+    gap: Math.max(2, Math.round(cellSize * 0.15)),
+    radius: Math.max(3, Math.round(cellSize * 0.2)),
+    labelFont: Math.max(8, Math.round(cellSize * 0.4)),
+  };
+}
+
+const CELL_CLASS = {
+  empty: 'bg-white/[0.04]',
+  zero: 'bg-white/[0.10]',
+  pos: {
+    1: 'bg-emerald-500/25',
+    2: 'bg-emerald-500/45',
+    3: 'bg-emerald-500/70',
+    4: 'bg-emerald-400',
+  },
+  neg: {
+    1: 'bg-rose-500/25',
+    2: 'bg-rose-500/45',
+    3: 'bg-rose-500/70',
+    4: 'bg-rose-500',
+  },
+} as const;
+
+/** Monday-first weekday index (0=Mon … 6=Sun) for a UTC date. */
+function mondayIndex(d: Date): number {
+  return (d.getUTCDay() + 6) % 7;
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function MiniCalendar({
+  days, onSelectDay, weeks = 39, fill = true, maxCell = MINI_CELL_MAX, cellSize = MINI_CELL_PX,
+}: MiniCalendarProps) {
+  const [hovered, setHovered] = useState<{ day: DayAggregate | null; date: string } | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const m = metrics(cellSize);
+  // In fill mode the columns share the width, but each cell is capped so a wide
+  // card doesn't produce enormous squares. The grid is then centred.
+  const gridStyle = fill
+    ? { gap: 4, width: '100%', maxWidth: `${weeks * (maxCell + 4)}px` }
+    : { gap: m.gap };
+
+  const dayMap = useMemo(() => new Map(days.map((d) => [d.date, d])), [days]);
+
+  // Build `weeks` columns of 7 days ending on the current week's Sunday.
+  const columns = useMemo(() => {
     const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today);
-      d.setUTCDate(d.getUTCDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      out.push({ date: key, day: map.get(key) ?? null });
+    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    // End on the Sunday of the current week so the last column is complete.
+    const end = new Date(todayUtc);
+    end.setUTCDate(end.getUTCDate() + (6 - mondayIndex(todayUtc)));
+
+    const cols: { date: string; inFuture: boolean; day: DayAggregate | null }[][] = [];
+    const cursor = new Date(end);
+    cursor.setUTCDate(cursor.getUTCDate() - (weeks * 7 - 1));
+    for (let w = 0; w < weeks; w++) {
+      const col: { date: string; inFuture: boolean; day: DayAggregate | null }[] = [];
+      for (let d = 0; d < 7; d++) {
+        const iso = cursor.toISOString().slice(0, 10);
+        col.push({ date: iso, inFuture: cursor > todayUtc, day: dayMap.get(iso) ?? null });
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      cols.push(col);
     }
-    return out;
-  }, [days]);
+    return cols;
+  }, [dayMap, weeks]);
+
+  // Month labels sit above the first column whose week contains that month's 1st.
+  const monthLabels = useMemo(() => {
+    const labels: { label: string; col: number }[] = [];
+    let last = -1;
+    columns.forEach((col, ci) => {
+      const month = Number(col[0].date.slice(5, 7));
+      if (month !== last) {
+        labels.push({ label: MONTH_SHORT[month - 1], col: ci });
+        last = month;
+      }
+    });
+    return labels;
+  }, [columns]);
+
+  const traded = useMemo(() => columns.flat().filter((c) => c.day && c.day.trades > 0), [columns]);
+  const totalR = useMemo(() => traded.reduce((a, c) => a + (c.day?.netR ?? 0), 0), [traded]);
+
+  const handleEnter = (e: React.MouseEvent, date: string, day: DayAggregate | null) => {
+    if (!day || day.trades === 0) { setHovered(null); setHoverPos(null); return; }
+    setHovered({ day, date });
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  };
+  const clearHover = () => { setHovered(null); setHoverPos(null); };
 
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="font-serif text-sm font-semibold text-foreground">Last 30 Days</h3>
-        <span className="font-mono text-[9px] text-muted-foreground/70">NET R PER DAY</span>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="font-serif text-sm font-semibold text-foreground">
+          Last {weeks} Weeks
+        </h3>
+        <span className={cn('font-mono text-[10px] font-bold', totalR > 0 ? 'text-emerald-400' : totalR < 0 ? 'text-rose-400' : 'text-muted-foreground/70')}>
+          {fmtR(totalR)}
+        </span>
       </div>
-      <div className="grid grid-cols-10 gap-1">
-        {last30.map(({ date, day }) => {
-          const has = day && day.trades > 0;
-          const netR = day?.netR ?? 0;
-          const cls = !has
-            ? 'bg-white/[0.03]'
-            : netR > 0
-              ? 'bg-emerald-500/50'
-              : netR < 0
-                ? 'bg-rose-500/50'
-                : 'bg-white/[0.08]';
-          return (
-            <button
-              key={date}
-              type="button"
-              disabled={!has}
-              onClick={() => has && onSelectDay?.(date)}
-              title={has ? `${date} · ${fmtR(netR)}` : date}
-              className={cn('h-6 rounded-[4px] transition-transform', cls, has && 'cursor-pointer hover:scale-110 hover:ring-1 hover:ring-primary/50')}
+
+      {/*
+        In `fill` mode the grid spans the card: the 7 weekday rows and N week
+        columns share the width via flex, and each cell keeps a square aspect
+        ratio so the cells grow with the container instead of leaving dead space.
+      */}
+      <div className={cn('flex', fill ? 'w-full justify-center gap-1.5' : 'gap-1.5')}>
+        {/* Weekday gutter */}
+        <div className={cn('flex flex-col', fill ? 'shrink-0' : 'pr-1')} style={{ gap: fill ? undefined : m.gap }} aria-hidden>
+          {['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (
+            <span
+              key={i}
+              className={cn('flex items-center font-mono text-muted-foreground/50', fill && 'flex-1')}
+              style={fill ? { fontSize: m.labelFont } : { height: m.cell, fontSize: m.labelFont }}
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+
+        <div className="flex min-w-0 flex-col" style={gridStyle}>
+          {/* Month labels */}
+          <div className={cn('mb-1 flex', fill ? 'w-full gap-1' : 'gap-1.5')} aria-hidden>
+            {columns.map((_, ci) => {
+              const label = monthLabels.find((ml) => ml.col === ci);
+              return (
+                <span
+                  key={ci}
+                  className={cn(
+                    'overflow-visible whitespace-nowrap font-mono text-muted-foreground/60',
+                    fill && 'flex-1',
+                  )}
+                  style={fill ? { fontSize: m.labelFont } : { width: m.cell, fontSize: m.labelFont }}
+                >
+                  {label ? label.label : ''}
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Grid */}
+          <div className={cn('flex', fill ? 'w-full gap-1' : 'gap-1.5')}>
+            {columns.map((col, ci) => (
+              <div
+                key={ci}
+                className={cn('flex flex-col', fill && 'min-w-0 flex-1')}
+                style={{ gap: fill ? 4 : m.gap }}
+              >
+                {col.map((cell) => {
+                  const has = cell.day && cell.day.trades > 0;
+                  const netR = cell.day?.netR ?? 0;
+                  const inten = has ? intensityFor(netR) : null;
+                  const cls = !has
+                    ? CELL_CLASS.empty
+                    : inten!.sign === 'zero'
+                      ? CELL_CLASS.zero
+                      : CELL_CLASS[inten!.sign][inten!.level as 1 | 2 | 3 | 4];
+                  return (
+                    <button
+                      key={cell.date}
+                      type="button"
+                      disabled={!has}
+                      onMouseEnter={(e) => handleEnter(e, cell.date, cell.day)}
+                      onMouseLeave={clearHover}
+                      onClick={() => has && onSelectDay?.(cell.date)}
+                      aria-label={has ? `${cell.date}: ${fmtR(netR)}` : `${cell.date}: no trade`}
+                      className={cn(
+                        'transition-transform',
+                        // Square via aspect-ratio so cells scale with `fill`.
+                        fill ? 'w-full aspect-square' : '',
+                        cls,
+                        cell.inFuture && 'opacity-25',
+                        has && 'cursor-pointer hover:scale-110 hover:ring-1 hover:ring-primary/60',
+                      )}
+                      style={fill
+                        ? { borderRadius: 4 }
+                        : { width: m.cell, height: m.cell, borderRadius: m.radius }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-muted-foreground/60" style={{ fontSize: m.labelFont }}>
+        {([
+          ['bg-emerald-500/70', 'Profit'],
+          ['bg-rose-500/70', 'Loss'],
+          ['bg-white/[0.10]', 'Flat'],
+          ['bg-white/[0.04]', 'No trade'],
+        ] as const).map(([cls, label]) => (
+          <span key={label} className="flex items-center gap-1">
+            <span
+              className={cn('inline-block', cls)}
+              style={{ width: m.cell * 0.5, height: m.cell * 0.5, borderRadius: Math.max(2, m.radius - 1) }}
             />
-          );
-        })}
+            {label}
+          </span>
+        ))}
+        <span className="ml-auto text-muted-foreground/50">darker = bigger move</span>
       </div>
-      <div className="mt-2 flex items-center gap-3 text-[9px] font-mono text-muted-foreground/60">
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-emerald-500/50" /> Profit</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-rose-500/50" /> Loss</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-white/[0.08]" /> Flat</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-white/[0.03]" /> No trade</span>
-      </div>
+
+      {/* Hover tooltip */}
+      {hovered?.day && hoverPos && (
+        <div
+          className="pointer-events-none fixed z-50 w-48 rounded-xl border border-white/10 glass-card-strong p-3 shadow-2xl shadow-black/50"
+          style={{
+            left: Math.min(hoverPos.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 210),
+            top: Math.min(hoverPos.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 190),
+          }}
+        >
+          <p className="font-mono text-[10px] font-bold text-foreground">{hovered.date}</p>
+          <div className="mt-2 space-y-1 font-mono text-[10px]">
+            <Row label="Net R" value={fmtR(hovered.day.netR)} tone={hovered.day.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+            <Row label="Net P&L" value={fmtMoney(hovered.day.netPnl)} tone={hovered.day.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+            <Row label="Trades" value={String(hovered.day.trades)} />
+            <Row
+              label="Win rate"
+              value={hovered.day.trades > 0 ? `${Math.round((hovered.day.wins / hovered.day.trades) * 100)}%` : '—'}
+            />
+            <Row label="Best / Worst" value={`${fmtR(hovered.day.bestR)} / ${fmtR(hovered.day.worstR)}`} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground/70">{label}</span>
+      <span className={cn('font-bold text-foreground', tone)}>{value}</span>
     </div>
   );
 }

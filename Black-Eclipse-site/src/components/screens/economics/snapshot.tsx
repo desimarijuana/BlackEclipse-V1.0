@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { RefreshCw, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 
 interface SnapshotMetric {
@@ -152,6 +153,11 @@ export function SnapshotView() {
     }
   };
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'economics.snapshot.refresh', label: 'Refresh macro snapshot', keys: 'R', run: refresh, enabled: !loading && !refreshing },
+  ]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground text-xs font-mono">
@@ -162,7 +168,7 @@ export function SnapshotView() {
 
   if (error && !data) {
     return (
-      <div className="p-4 rounded-xl bg-rose-500/5 border border-rose-500/30 text-[12px] text-rose-400 font-mono">{error}</div>
+      <div ref={rootRef} data-keyboard-scope="Macro snapshot" className="p-4 rounded-xl bg-rose-500/5 border border-rose-500/30 text-[12px] text-rose-400 font-mono">{error}</div>
     );
   }
 
@@ -171,7 +177,7 @@ export function SnapshotView() {
   const builtAt = data?.builtAt ? new Date(data.builtAt) : null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={rootRef} data-keyboard-scope="Macro snapshot" className="flex flex-col gap-6">
       {/* Vintage + controls */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[10px] font-mono text-muted-foreground/70">

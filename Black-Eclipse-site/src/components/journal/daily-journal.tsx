@@ -3,7 +3,8 @@
 // ── Daily Journal — per-day pre-market plan + post-market review ──────────────
 // Loads a day's review, emotion and trades. Editing saves via the days API.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { Save, Check, ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fmtR, fmtMoney } from './charts';
@@ -130,8 +131,14 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
   const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
   const textareaCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none min-h-[70px] resize-y';
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const planRef = useRef<HTMLTextAreaElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'daily.edit', label: 'Edit trading plan', keys: 'Shift+E', run: () => planRef.current?.focus(), enabled: !loading && !saving },
+  ]);
+
   return (
-    <div className="flex flex-col gap-5">
+    <div ref={rootRef} data-keyboard-scope="Daily journal" className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -182,7 +189,7 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
               </Field>
             </div>
             <Field label="Trading Plan">
-              <textarea value={form.tradingPlan} onChange={(e) => set('tradingPlan', e.target.value)} className={textareaCls} placeholder="What's the plan for today?" />
+              <textarea ref={planRef} value={form.tradingPlan} onChange={(e) => set('tradingPlan', e.target.value)} className={textareaCls} placeholder="What's the plan for today?" />
             </Field>
             <Field label="Key Levels">
               <textarea value={form.keyLevels} onChange={(e) => set('keyLevels', e.target.value)} className={textareaCls} placeholder="Support / resistance / liquidity levels…" />

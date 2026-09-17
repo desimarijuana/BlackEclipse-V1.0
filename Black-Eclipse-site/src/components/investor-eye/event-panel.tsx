@@ -21,7 +21,8 @@ import { severityColor } from '@/lib/investor-eye/layers';
 import { actorTypeLabel } from '@/lib/investor-eye/cameo';
 import { countryByIso2, countryByIso3 } from '@/lib/investor-eye/countries';
 import { GEO_METHOD_LABEL } from '@/lib/investor-eye/geo-resolve';
-import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
+import { formatUtc, formatDateTime, formatEventTitle, timeInZone } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import type { EventEntityRef, NormalizedEvent, SourceRef } from '@/lib/investor-eye/types';
 import { AnaloguesPanel } from './analogues-panel';
 import { ReactionPanel } from './reaction-panel';
@@ -315,17 +316,18 @@ function Actors({ event }: { event: NormalizedEvent }) {
 // ── Where & when ─────────────────────────────────────────────────────────────
 
 function WhereAndWhen({ event, onSelectCountry }: { event: NormalizedEvent; onSelectCountry?: (iso2: string) => void }) {
+  const tz = useDisplayTimeZone();
   const method = event.geoMethod ? GEO_METHOD_LABEL[event.geoMethod] : undefined;
   return (
-    <Block title="Where & when">
+    <Block title="Where & when" hint={`Times in ${tz}.`}>
       {event.placeName && (
         <div className="mb-1 flex items-start gap-1.5 text-[11px] text-foreground">
           <MapPin size={11} className="mt-0.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0">{event.placeName}</span>
         </div>
       )}
-      <Row label="First detected" value={formatUtc(event.publishedAt)} />
-      {event.lastUpdated && <Row label="Last updated" value={formatUtc(event.lastUpdated)} />}
+      <Row label="First detected" value={formatDateTime(event.publishedAt, tz)} />
+      {event.lastUpdated && <Row label="Last updated" value={formatDateTime(event.lastUpdated, tz)} />}
       {typeof event.lat === 'number' && typeof event.lon === 'number' && (
         <Row label="Coordinates" value={`${event.lat.toFixed(3)}, ${event.lon.toFixed(3)}`} />
       )}
@@ -444,7 +446,7 @@ function Evidence({ sources, sourceCount }: { sources: SourceRef[]; sourceCount:
               <div className="min-w-0">
                 <span className="text-[10px] font-medium text-foreground">{s.name}</span>
                 {s.publishedAt && (
-                  <span className="ml-1 font-mono text-[9px] text-muted-foreground/60">{formatUtc(s.publishedAt).slice(11, 16)}Z</span>
+                  <span className="ml-1 font-mono text-[9px] text-muted-foreground/60">{formatUtc(s.publishedAt)}</span>
                 )}
               </div>
               {s.url ? (
@@ -514,6 +516,7 @@ function TypeDetail({ event }: { event: NormalizedEvent }) {
 // last update. Drawn only from real timestamps.
 
 function EventTimeline({ event }: { event: NormalizedEvent }) {
+  const tz = useDisplayTimeZone();
   const stamps: Array<{ label: string; iso: string }> = [];
   if (event.firstSeen) stamps.push({ label: 'First ingested', iso: event.firstSeen });
   for (const s of event.sources) {
@@ -540,7 +543,7 @@ function EventTimeline({ event }: { event: NormalizedEvent }) {
         {ordered.slice(0, 8).map((s, i) => (
           <div key={`${s.label}-${s.iso}-${i}`} className="flex items-baseline gap-2">
             <span className="w-20 shrink-0 font-mono text-[9px] text-muted-foreground/70">
-              {formatUtc(s.iso).slice(11, 16)}Z
+              {timeInZone(s.iso, tz)}
             </span>
             <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{s.label}</span>
           </div>

@@ -14,6 +14,8 @@ import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/lib/investor-eye/topics';
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
 import { TIME_RANGES, timeRangeHours, useInvestorEyeStore } from '@/lib/investor-eye/store';
+import { formatClock } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { cn } from '@/lib/utils';
 import type {
@@ -37,6 +39,8 @@ import { LiveFeed } from './live-feed';
 import { AlertsPanel } from './alerts-panel';
 import { SourceHealthPanel } from './source-health-panel';
 import { SavedViews } from './saved-views';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 
 export function InvestorEyeScreen() {
   const selectedCountry = useInvestorEyeStore((s) => s.selectedCountry);
@@ -84,6 +88,7 @@ export function InvestorEyeScreen() {
   // narrowing `state` to `never` inside the `unavailable` branch.
   const lastKnownAt = state?.lastKnownAt ?? null;
   const staleGeneratedAt = state?.refreshing ? state.generatedAt : null;
+  const displayTz = useDisplayTimeZone();
 
   // Phase 2 inputs — only fetched when their layer is enabled.
   const needEconomy = activeLayers.includes('economy');
@@ -159,9 +164,15 @@ export function InvestorEyeScreen() {
     const set = new Set<string>(['events', 'markets']);
     if (!state) return set;
     if (state.events.some((e) => ['conflict', 'military', 'protest'].includes(e.eventType))) set.add('conflict');
-    if (state.events.some((e) => e.eventType === 'energy')) set.add('energy');
-    if (state.events.some((e) => ['trade', 'tariff', 'shipping'].includes(e.eventType))) set.add('trade');
-    if (state.events.some((e) => e.eventType === 'natural_disaster')) set.add('weather');
+    // Domain layers match type OR channel, so availability follows the same rule
+    // (a `conflict` event transmitting through Shipping makes the layer useful).
+    if (state.events.some((e) => e.eventType === 'shipping' || e.channels.includes('Shipping & Logistics'))) set.add('shipping');
+    if (state.events.some((e) => e.eventType === 'energy' || e.channels.includes('Energy'))) set.add('energy');
+    if (state.events.some((e) => ['trade', 'tariff', 'shipping'].includes(e.eventType) || e.channels.includes('Trade & Tariffs'))) set.add('trade');
+    if (state.events.some((e) => e.commodities.length > 0)) set.add('commodities');
+    // The weather layer is earthquakes only (fires have their own layer).
+    if (state.events.some((e) => e.eventType === 'natural_disaster' && e.category !== 'fire')) set.add('weather');
+    if (state.events.some((e) => e.eventType === 'natural_disaster' && e.category === 'fire')) set.add('fires');
     if (economyEntry.data?.values && Object.keys(economyEntry.data.values).length > 0) set.add('economy');
     if (companiesEntry.data?.companies?.length) set.add('companies');
     if (portfolioExposure.length > 0) set.add('portfolio');
@@ -216,30 +227,35 @@ export function InvestorEyeScreen() {
     }
   }, [searchValue, activeLayers, applyHighlights]);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'investor-eye.search', label: 'Ask the map', keys: 'S', run: () => { setSearchOpen(true); searchRef.current?.focus(); }, enabled: !fullPage },
+    { id: 'investor-eye.refresh', label: 'Refresh Investor Eye', keys: 'R', run: handleRefresh, enabled: !fullPage && !refreshing && !searchOpen },
+  ]);
+
   // Escape clears the current selection anywhere on the screen. In full-page
   // mode the overlay owns Escape (it exits first), so this stands down.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !useInvestorEyeStore.getState().fullPage) clearSelection();
+      if (!canHandleKeyboardEvent(e, rootRef.current) || useInvestorEyeStore.getState().fullPage || searchOpen) return;
+      if (matchesShortcut(e, 'Escape')) {
+        e.preventDefault();
+        clearSelection();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clearSelection]);
+  }, [clearSelection, searchOpen]);
 
   // Keyboard navigation over the event feed (spec §34): j/k or ↓/↑ step through
   // the newest-first event list and open each one, so the map is usable without
   // a mouse. Ignored while typing or when a modifier is held.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      const typing = !!target && (
-        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-      );
-      if (typing || useInvestorEyeStore.getState().fullPage) return;
+      if (!canHandleKeyboardEvent(e, rootRef.current) || useInvestorEyeStore.getState().fullPage || searchOpen) return;
 
-      const key = e.key.toLowerCase();
-      const dir = key === 'j' || key === 'arrowdown' ? 1 : key === 'k' || key === 'arrowup' ? -1 : 0;
+      const dir = matchesShortcut(e, 'J') || matchesShortcut(e, 'ArrowDown') ? 1 : matchesShortcut(e, 'K') || matchesShortcut(e, 'ArrowUp') ? -1 : 0;
       if (dir === 0) return;
 
       const events = (stateRef.current?.events ?? []);
@@ -257,7 +273,7 @@ export function InvestorEyeScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleSelectEvent]);
+  }, [handleSelectEvent, searchOpen]);
 
 
   if (fullPage) {
@@ -281,7 +297,7 @@ export function InvestorEyeScreen() {
     // MAP-FIRST LAYOUT: the whole screen scrolls. The map is the hero at full
     // width, with the layer/timeline controls directly beneath it, and all the
     // detail panels stacked below the fold where they never squeeze the map.
-    <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto p-2 md:p-3">
+    <div ref={rootRef} data-keyboard-scope="Investor Eye" className="flex h-full min-h-0 w-full flex-col overflow-y-auto p-2 md:p-3">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -339,6 +355,7 @@ export function InvestorEyeScreen() {
               <div className="absolute right-0 top-full z-40 mt-1 w-72 glass-card-strong rounded-xl border border-white/10 p-2">
                 <div className="flex items-center gap-1.5">
                   <input
+                    ref={searchRef}
                     autoFocus
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
@@ -401,14 +418,14 @@ export function InvestorEyeScreen() {
           {unavailable && (
             <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2">
               <div className="glass-card-subtle rounded-lg border border-red-500/20 px-3 py-1 text-[10px] text-foreground">
-                DATA UNAVAILABLE{lastKnownAt ? ` · LAST KNOWN ${lastKnownAt.slice(11, 16)} UTC` : ''}
+                DATA UNAVAILABLE{lastKnownAt ? ` · LAST KNOWN ${formatClock(lastKnownAt, displayTz)}` : ''}
               </div>
             </div>
           )}
           {!loading && !unavailable && staleGeneratedAt && (
             <div className="pointer-events-none absolute left-1/2 top-2 z-20 -translate-x-1/2">
               <div className="glass-card-subtle rounded-lg border border-sky-500/20 px-3 py-1 text-[10px] text-sky-200">
-                LAST KNOWN {staleGeneratedAt.slice(11, 16)} UTC · REFRESHING
+                LAST KNOWN {formatClock(staleGeneratedAt, displayTz)} · REFRESHING
               </div>
             </div>
           )}

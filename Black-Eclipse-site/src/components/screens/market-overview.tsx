@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
 import { useCommandStore } from '@/lib/search/store';
 import { useSubroute } from '@/hooks/use-subroute';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
   INDEX_DATA, SECTOR_PERFORMANCE, TOP_GAINERS, TOP_LOSERS,
@@ -1451,6 +1452,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }
   };
 
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const shortcutsEnabled = !embedded && !selectedAnalysisStock && !loadingApi;
+  usePageShortcuts(rootRef, [
+    { id: 'screener.search', label: 'Search current screener', keys: 'S', run: () => searchRef.current?.focus(), enabled: shortcutsEnabled && (screenerTab !== 'forex' || sectionVisible('table_forex')) },
+    { id: 'screener.filters', label: 'Toggle advanced filters', keys: 'Shift+F', run: () => setShowAdvancedFilters((v) => !v), enabled: shortcutsEnabled && ['stocks', 'crypto', 'etfs', 'funds', 'dividend_stocks'].includes(screenerTab) },
+    { id: 'screener.customize', label: 'Customize screener', keys: 'Shift+C', run: () => { if (screenerTab === 'markets') setGmConfigOpen((v) => !v); else setSectionsOpen((v) => !v); }, enabled: shortcutsEnabled },
+    { id: 'screener.refresh', label: 'Refresh prices', keys: 'R', run: handleRefreshPrices, enabled: shortcutsEnabled && !refreshing && userCountry !== 'GLOBAL' },
+  ]);
+
   if (loadingApi) {
     return (
       <>
@@ -1495,7 +1506,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   return (
     <>
       {(loadingApi || loadingTab || loadingDashboard) && <TopLoader />}
-      <div className={cn(
+      <div ref={rootRef} data-keyboard-scope="Market screener" className={cn(
         "w-full py-6 space-y-8 pb-20 relative bg-transparent",
         !embedded && "flex-1 overflow-y-auto h-full"
       )}>
@@ -2068,6 +2079,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[160px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search stocks by ticker or name..."
                   value={stockSearch}
@@ -2163,6 +2175,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search crypto by symbol or name..."
                   value={stockSearch}
@@ -2227,6 +2240,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search ETFs..."
                   value={etfSearch}
@@ -2266,6 +2280,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search Funds..."
                   value={fundSearch}
@@ -2305,6 +2320,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search Dividends..."
                   value={dividendSearch}
@@ -2321,6 +2337,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search markets..."
                   value={stockSearch}
@@ -2338,6 +2355,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[160px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search pairs e.g. EUR, PKR..."
                   value={forexSearch}
@@ -2382,6 +2400,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               <div className="relative flex-1 min-w-[160px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <input
+                  ref={searchRef}
                   type="text"
                   placeholder="Search commodities e.g. Gold, Oil..."
                   value={commoditySearch}

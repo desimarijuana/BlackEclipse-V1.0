@@ -39,6 +39,14 @@ export type EventType =
 
 export type EventSeverity = 'low' | 'medium' | 'high' | 'critical';
 
+/**
+ * Sub-categories for events whose type is too coarse on its own. Currently the
+ * hazard sub-types: both are `natural_disaster`, but they are independent
+ * physical phenomena with their own sources, layers and detail presentation.
+ */
+export const HAZARD_CATEGORIES = ['earthquake', 'fire'] as const;
+export type HazardCategory = (typeof HAZARD_CATEGORIES)[number];
+
 /** One independent source that reported (or confirmed) an event. */
 export interface SourceRef {
   id: string;
@@ -116,6 +124,14 @@ export interface NormalizedEvent {
    */
   geoMethod?: 'provider' | 'place' | 'capital' | 'centroid';
   eventType: EventType;
+  /**
+   * Provider-level sub-classification, kept when the event type alone is too
+   * coarse to be useful. The motivating case (spec §7/§8): `natural_disaster`
+   * covers both an EARTHQUAKE and a FIRE, and those need their own map layers
+   * and their own detail treatment. Only set from a provider that actually
+   * states it (USGS = earthquake, FIRMS = fire) — never inferred from text.
+   */
+  category?: string;
   severity: EventSeverity;
   /** Economic channels the event could transmit through (observed relevance). */
   channels: string[];

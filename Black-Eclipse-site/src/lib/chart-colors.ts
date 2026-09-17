@@ -3,6 +3,9 @@
 // option must be a hex/rgba string. These helpers resolve CSS variables and
 // convert any modern color function to hex.
 
+import { DEFAULT_CHART_PALETTE } from './chart-palette';
+import { getChartPalette } from './chart-palette-store';
+
 export function oklchToHex(input: string): string {
   const m = input.match(/oklch\(\s*([\d.]+)%?\s*([\d.]+)?\s*([\d.-]+)?\s*\)/i);
   if (!m) return input;
@@ -46,22 +49,9 @@ export function cssVarToHex(name: string, fallback = '#888888'): string {
 }
 
 // ── BlackEclipse brand up/down colors ─────────────────────────────────────────
-// The terminal's canonical green/red (see globals.css remaps): green #7aff78 in
-// dark mode / #047857 in light; red #ff3e3e in both. ECharts needs hex, so we
-// resolve the active theme once and cache it.
-
-const UP_DARK = '#7aff78';
-const UP_LIGHT = '#047857';
-const DOWN = '#ff3e3e';
-
-let cached: { up: string; down: string } | null = null;
-
-/** Resolve the current theme's up (green) and down (red) chart colors. */
 export function brandUpDown(): { up: string; down: string } {
-  if (cached) return cached;
-  const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
-  cached = { up: dark ? UP_DARK : UP_LIGHT, down: DOWN };
-  return cached;
+  const { up, down } = typeof window === "undefined" ? DEFAULT_CHART_PALETTE.candles : getChartPalette().candles;
+  return { up, down };
 }
 
 /** Resolve the current theme's up (green) color. */

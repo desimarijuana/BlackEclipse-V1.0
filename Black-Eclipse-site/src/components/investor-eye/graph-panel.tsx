@@ -7,9 +7,16 @@
 //
 // Edge colour encodes the relation class, so an INFERRED link is visibly
 // different from an OBSERVED one. A country node click pivots back to the map.
+//
+// FULL-PAGE MODE: a force graph is the one view where screen area IS the
+// information — at panel width the nodes collapse into a blob. The expand
+// affordance renders the SAME chart component in a full-viewport overlay, so the
+// two presentations can never drift apart (one implementation, two sizes).
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as echarts from 'echarts';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { IE_GRAPH_TOPIC } from '@/lib/investor-eye/topics';
 import type { GraphLink, GraphNode, RelationshipGraph, RelationClass } from '@/lib/investor-eye/types';
@@ -32,27 +39,29 @@ const KIND_COLOR: Record<string, string> = {
   security: '#f472b6',
 };
 
-export function GraphPanel({ onSelectCountry }: { onSelectCountry?: (iso2: string) => void }) {
-  const topic = useTopic<RelationshipGraph>(IE_GRAPH_TOPIC);
+/**
+ * The chart itself, at whatever size its container is. Owns its own ECharts
+ * instance, so the panel and the full-page overlay are the same code at two
+ * sizes rather than two implementations.
+ */
+function GraphChart({
+  graph,
+  onSelectCountry,
+  className,
+}: {
+  graph: RelationshipGraph;
+  onSelectCountry?: (iso2: string) => void;
+  className?: string;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
-  const graph = topic.data;
-
-  const stats = useMemo(() => {
-    if (!graph) return null;
-    const byClass = new Map<RelationClass, number>();
-    for (const l of graph.links) byClass.set(l.relationClass, (byClass.get(l.relationClass) ?? 0) + 1);
-    const byKind = new Map<string, number>();
-    for (const n of graph.nodes) byKind.set(n.kind, (byKind.get(n.kind) ?? 0) + 1);
-    return { byClass: [...byClass.entries()].sort((a, b) => b[1] - a[1]), byKind: [...byKind.entries()].sort((a, b) => b[1] - a[1]) };
-  }, [graph]);
 
   // Stable click bridge so the handler never goes stale.
   const selectRef = useRef(onSelectCountry);
   selectRef.current = onSelectCountry;
 
   useEffect(() => {
-    if (!ref.current || !graph || graph.nodes.length === 0) return;
+    if (!ref.current || graph.nodes.length === 0) return;
     const chart = chartRef.current ?? echarts.init(ref.current, undefined, { renderer: 'canvas' });
     chartRef.current = chart;
 
@@ -136,63 +145,162 @@ export function GraphPanel({ onSelectCountry }: { onSelectCountry?: (iso2: strin
     return () => ro.disconnect();
   }, [graph]);
 
+  // Dispose on unmount — this component is mounted/unmounted when the graph
+  // switches between panel and full-page mode.
   useEffect(() => () => { chartRef.current?.dispose(); chartRef.current = null; }, []);
 
+  return <div ref={ref} className={className} />;
+}
+
+export function GraphPanel({ onSelectCountry }: { onSelectCountry?: (iso2: string) => void }) {
+  const topic = useTopic<RelationshipGraph>(IE_GRAPH_TOPIC);
+  const graph = topic.data;
+  const [expanded, setExpanded] = useState(false);
+
+  const stats = useMemo(() => {
+    if (!graph) return null;
+    const byClass = new Map<RelationClass, number>();
+    for (const l of graph.links) byClass.set(l.relationClass, (byClass.get(l.relationClass) ?? 0) + 1);
+    const byKind = new Map<string, number>();
+    for (const n of graph.nodes) byKind.set(n.kind, (byKind.get(n.kind) ?? 0) + 1);
+    return { byClass: [...byClass.entries()].sort((a, b) => b[1] - a[1]), byKind: [...byKind.entries()].sort((a, b) => b[1] - a[1]) };
+  }, [graph]);
+
+  // Esc closes full-page; lock page scroll so the reclaimed area is usable.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [expanded]);
+
+  const hasGraph = Boolean(graph && graph.nodes.length > 0);
+
   return (
-    <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-          Relationship Graph
-        </span>
-        {graph && (
-          <span className="text-[9px] font-mono text-muted-foreground/60">
-            {graph.nodes.length}n · {graph.links.length}e
+    <>
+      <div className="glass-card rounded-xl border border-white/10 dark:border-white/5 px-3 py-2.5">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+            Relationship Graph
           </span>
+          <span className="flex items-center gap-2">
+            {graph && (
+              <span className="text-[9px] font-mono text-muted-foreground/60">
+                {graph.nodes.length}n · {graph.links.length}e
+              </span>
+            )}
+            {hasGraph && (
+              <button
+                onClick={() => setExpanded(true)}
+                className="flex items-center gap-1 rounded-md border border-border/40 px-1.5 py-0.5 text-[9px] text-muted-foreground hover:border-primary/30 hover:text-foreground cursor-pointer"
+                title="Open the graph full page (Esc to exit)"
+              >
+                <Maximize2 size={10} /> full page
+              </button>
+            )}
+          </span>
+        </div>
+
+        {topic.source === 'UNAVAILABLE' && (
+          <div className="text-[10px] italic text-muted-foreground/70">Graph unavailable.</div>
+        )}
+
+        {topic.source !== 'UNAVAILABLE' && graph && graph.nodes.length === 0 && (
+          <div className="text-[10px] italic text-muted-foreground/70">
+            No relationships derived yet — they are built from ingested events.
+          </div>
+        )}
+
+        {hasGraph && (
+          <>
+            {/* The inline chart unmounts while expanded, so only one ECharts
+                instance is ever alive and the two views cannot desync. */}
+            {!expanded && <GraphChart graph={graph!} onSelectCountry={onSelectCountry} className="h-56 w-full" />}
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {stats?.byKind.map(([kind, count]) => (
+                <span key={kind} className="glass-card-subtle rounded border border-white/10 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
+                  <span
+                    className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                    style={{ backgroundColor: KIND_COLOR[kind] ?? '#94a3b8' }}
+                  />
+                  {kind} · {count}
+                </span>
+              ))}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {stats?.byClass.map(([cls, count]) => (
+                <span key={cls} className={cn('rounded border px-1.5 py-0.5 text-[9px] font-mono')} style={{ borderColor: `${CLASS_COLOR[cls]}55`, color: CLASS_COLOR[cls] }}>
+                  {cls.toLowerCase()} · {count}
+                </span>
+              ))}
+            </div>
+            {graph!.totals.truncated && (
+              <div className="mt-1 text-[9px] italic text-muted-foreground/60">
+                Showing the {graph!.nodes.length} most-connected of {graph!.totals.nodes} nodes.
+              </div>
+            )}
+            <div className="mt-1 text-[9px] italic text-muted-foreground/60">
+              Edges are co-mentions in real source records unless marked otherwise. Click a country to
+              pivot the map.
+            </div>
+          </>
         )}
       </div>
 
-      {topic.source === 'UNAVAILABLE' && (
-        <div className="text-[10px] italic text-muted-foreground/70">Graph unavailable.</div>
-      )}
-
-      {topic.source !== 'UNAVAILABLE' && graph && graph.nodes.length === 0 && (
-        <div className="text-[10px] italic text-muted-foreground/70">
-          No relationships derived yet — they are built from ingested events.
-        </div>
-      )}
-
-      {graph && graph.nodes.length > 0 && (
-        <>
-          <div ref={ref} className="h-56 w-full" />
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {stats?.byKind.map(([kind, count]) => (
-              <span key={kind} className="glass-card-subtle rounded border border-white/10 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
-                <span
-                  className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle"
-                  style={{ backgroundColor: KIND_COLOR[kind] ?? '#94a3b8' }}
-                />
-                {kind} · {count}
+      {/* Full-page overlay — portaled to <body> for the same containing-block
+          reason the other overlays are (a transformed ancestor would trap it). */}
+      {expanded && hasGraph && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[86] flex flex-col bg-background">
+          <div className="flex items-center gap-2 border-b border-border/10 px-4 py-2.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-foreground">
+              Relationship Graph
+            </span>
+            <span className="font-mono text-[9px] text-muted-foreground">
+              {graph!.nodes.length} nodes · {graph!.links.length} edges
+              {graph!.totals.truncated ? ` · of ${graph!.totals.nodes} total` : ''}
+            </span>
+            <div className="ml-auto flex items-center gap-1.5">
+              {/* Legends travel with the graph so the full-page view is
+                  self-explanatory rather than relying on the panel behind it. */}
+              <span className="hidden flex-wrap items-center gap-2 lg:flex">
+                {stats?.byClass.map(([cls, count]) => (
+                  <span key={cls} className="text-[9px] font-mono" style={{ color: CLASS_COLOR[cls] }}>
+                    {cls.toLowerCase()} · {count}
+                  </span>
+                ))}
               </span>
-            ))}
-          </div>
-          <div className="mt-1 flex flex-wrap gap-1">
-            {stats?.byClass.map(([cls, count]) => (
-              <span key={cls} className={cn('rounded border px-1.5 py-0.5 text-[9px] font-mono')} style={{ borderColor: `${CLASS_COLOR[cls]}55`, color: CLASS_COLOR[cls] }}>
-                {cls.toLowerCase()} · {count}
-              </span>
-            ))}
-          </div>
-          {graph.totals.truncated && (
-            <div className="mt-1 text-[9px] italic text-muted-foreground/60">
-              Showing the {graph.nodes.length} most-connected of {graph.totals.nodes} nodes.
+              <button
+                onClick={() => setExpanded(false)}
+                className="glass-button flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Exit full page (Esc)"
+              >
+                <Minimize2 size={11} /> Exit
+                <kbd className="ml-0.5 rounded bg-white/[0.06] px-1 py-0.5 font-mono text-[9px]">Esc</kbd>
+              </button>
+              <button
+                onClick={() => setExpanded(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-rose-400 cursor-pointer"
+                aria-label="Close full-page graph"
+              >
+                <X size={15} />
+              </button>
             </div>
-          )}
-          <div className="mt-1 text-[9px] italic text-muted-foreground/60">
-            Edges are co-mentions in real source records unless marked otherwise. Click a country to
-            pivot the map.
           </div>
-        </>
+          <div className="min-h-0 flex-1 p-3">
+            <GraphChart graph={graph!} onSelectCountry={onSelectCountry} className="h-full w-full" />
+          </div>
+          <div className="border-t border-border/10 px-4 py-2 text-[9px] italic text-muted-foreground/60">
+            Edges are co-mentions in real source records unless marked otherwise. Drag to rearrange,
+            scroll to zoom. Click a country node to pivot the map behind this view.
+          </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
 import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
 import { dataHub, useRefreshAll } from '@/lib/workspace/data-hub';
@@ -80,6 +81,15 @@ export function CustomizableWorkspace({
   //             (or click the ghost), right-click / Esc to cancel.
   const [addDrag, setAddDrag] = useState<{ widgetId: string; label: string; mode: 'hold' | 'click' } | null>(null);
   const refreshAll = useRefreshAll();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const shortcutsEnabled = !configPlacement && !libraryOpen && !addDrag;
+
+  usePageShortcuts(rootRef, [
+    { id: 'workspace-customize', label: 'Customize workspace', keys: 'shift+e', run: () => workspace.setEditMode(!workspace.editMode), enabled: shortcutsEnabled },
+    { id: 'workspace-library', label: 'Open widget library', keys: 'shift+w', run: () => { workspace.setEditMode(true); setLibraryOpen(true); }, enabled: shortcutsEnabled },
+    { id: 'workspace-refresh', label: 'Refresh workspace widgets', keys: 'r', run: refreshAll, enabled: shortcutsEnabled },
+    { id: 'workspace-compact', label: 'Toggle compact rows', keys: 'shift+c', run: () => setCompact(v => !v), enabled: shortcutsEnabled },
+  ]);
 
   // Timestamp of the last add-commit. The trailing click of a double-click
   // lands on the palette backdrop (which becomes interactive the instant the
@@ -122,7 +132,7 @@ export function CustomizableWorkspace({
   }, [workspace.layout, widgets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cn('relative', className)}>
+    <div ref={rootRef} data-keyboard-scope="Widget workspace" className={cn('relative', className)}>
       {/* Customize toggle + compact + refresh — always visible */}
       {toolbar === 'compact' ? (
         <div className="mb-3 flex items-center justify-end gap-1">
@@ -132,24 +142,24 @@ export function CustomizableWorkspace({
               'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
               compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
             )}
-            title="Toggle compact row height"
+            title="Toggle compact row height (Shift+C)"
           >
             <Settings2 size={12} />
           </button>
           <button
             onClick={refreshAll}
             className="glass-button rounded-lg p-1.5 text-muted-foreground hover:text-primary transition-all cursor-pointer"
-            title="Force refresh all widgets (F5)"
+            title="Force refresh all widgets (R)"
           >
             <RefreshCw size={12} />
           </button>
           <button
+            title={workspace.editMode ? 'Done customizing (Shift+E)' : 'Customize layout (Shift+E)'}
             onClick={() => workspace.setEditMode(!workspace.editMode)}
             className={cn(
               'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
               workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
             )}
-            title={workspace.editMode ? 'Done customizing' : 'Customize layout'}
           >
             <Settings2 size={12} />
           </button>
@@ -162,18 +172,19 @@ export function CustomizableWorkspace({
               'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
               compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
             )}
-            title="Toggle compact row height"
+            title="Toggle compact row height (Shift+C)"
           >
             <Settings2 size={13} /> {compact ? 'Compact' : 'Compact'}
           </button>
           <button
             onClick={refreshAll}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
-            title="Force refresh all widgets (F5)"
+            title="Force refresh all widgets (R)"
           >
             <RefreshCw size={13} /> Refresh
           </button>
           <button
+            title={workspace.editMode ? 'Done customizing (Shift+E)' : 'Customize layout (Shift+E)'}
             onClick={() => workspace.setEditMode(!workspace.editMode)}
             className={cn(
               'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
@@ -197,6 +208,7 @@ export function CustomizableWorkspace({
           <div className="ml-auto flex items-center gap-1.5">
             {editBarExtra}
             <button
+              title="Open widget library (Shift+W)"
               onClick={() => setLibraryOpen(v => !v)}
               className={cn(
                 'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',

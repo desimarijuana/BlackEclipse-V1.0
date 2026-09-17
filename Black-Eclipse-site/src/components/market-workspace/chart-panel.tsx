@@ -154,7 +154,12 @@ export function ChartPanel({
         dragOver && 'ring-2 ring-primary/70',
       )}
       style={gridStyle}
-      onMouseDown={onFocus}
+      data-market-panel-id={panel.id}
+      tabIndex={0}
+      onPointerDownCapture={(e) => {
+        const interactive = (e.target as HTMLElement).closest('input, textarea, select, [contenteditable], button, a, [tabindex]');
+        if (e.button === 0 && interactive === e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+      }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}

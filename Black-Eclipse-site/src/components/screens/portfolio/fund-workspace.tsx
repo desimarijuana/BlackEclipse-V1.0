@@ -2,7 +2,8 @@
 
 // ── Per-fund workspace — kernel-driven customizable widget grid ──────────────
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
+import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
   ArrowLeft, Plus, RefreshCw,
 } from 'lucide-react';
@@ -31,8 +32,13 @@ export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps
   const s = data.stats;
   const loading = data.loading && !data.ready;
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  usePageShortcuts(rootRef, [
+    { id: 'fund.transaction', label: 'Add transaction', keys: 'Shift+N', run: () => setAddTxOpen(true), enabled: !addTxOpen },
+  ]);
+
   return (
-    <div className="animate-fade-in-up w-full">
+    <div ref={rootRef} data-keyboard-scope="Fund portfolio" className="animate-fade-in-up w-full">
       {/* Top bar — frosted glass */}
       <div className="glass-card mb-5 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3">
         <button

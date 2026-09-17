@@ -1,7 +1,7 @@
 ---
 title: Decisions (ADR log)
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-16
 ---
 
 # Decisions — Architecture Decision Record
@@ -171,6 +171,55 @@ provenance (`LIVE`/`CACHED`/`HISTORICAL`/`UNAVAILABLE`). A failed source is
 `UNAVAILABLE`, never a fake zero; the page and map still load on partial source
 failure. Optional authenticated sources (e.g. ACLED) are supported but never
 required. See [`investor-eye-architecture.md`](./investor-eye-architecture.md).
+
+## ADR-012 — Data-source governance is its own registry, enforced by test (2026)
+**Decision:** Every external source Investor Eye consumes must have an entry in
+`src/lib/investor-eye/source-catalog.ts` (provider, licence, licence/terms URL,
+commercial-use status, API-key requirement, attribution, rate limit, expected
+freshness) — kept **separate from the `EventSource` adapter**, and enforced by
+`source-catalog.test.ts`, which fails if a registered adapter has no entry, if an
+entry has no registered adapter, or if `requiresApiKey` disagrees with the
+adapter's `requiresCredentials`.
+**Why:** "Public API" does not mean "free for commercial use". Fusing governance
+into the adapters would make a licence question answerable only by constructing a
+fetcher, and would let a new source ship with no licence declared and nobody
+notice. A test is the only mechanism that keeps the registry complete as sources
+are added.
+**Impact:** A new source is now *connector + normalizer + registry entry +
+catalog entry*, with the third and fourth held in sync mechanically.
+`/api/investor-eye/health` joins the catalogue onto `SourceRun` accounting and
+returns the required attribution lines; `SourceHealthPanel` renders them and
+flags a runnable-but-undeclared source as a governance gap. Local data the app
+produces itself (the stored RSS corpus) is marked `local: true` and exempt from
+the licence-link requirement, since its upstream feeds declare their own terms.
+AIS/ADS-B/OpenStreetMap/CelesTrak are deliberately **not** wired: each is
+key-gated, restricted, or a bulk dataset with no sensible live cadence. Adding
+one is connector + normalizer + registry + catalog entry, and nothing else
+changes. See [`investor-eye-architecture.md`](./investor-eye-architecture.md) §5k.
+
+---
+
+## ADR-013 — Operator API keys are an encrypted vault layered over env vars (2026)
+**Decision:** Credentials entered in Settings → API Keys are stored
+AES-256-GCM-encrypted in `SystemConfig` via the existing `connectors/secrets`
+path, declared once in `PROVIDER_KEYS` (`src/lib/provider-keys.ts`), and resolved
+**env var first, vault second**. `applyStoredKeysToEnv()` copies stored keys into
+`process.env` at boot so every existing consumer keeps reading env vars with no
+per-provider refactor. A real environment variable is never overwritten, and
+removing a stored key only clears a variable this process itself populated.
+**Why:** Environment variables are right for a deployment but useless to a
+zero-config local install — the user would have to edit a file and restart. The
+repo also had no single place to enter a credential: the connector wizard only
+accepts an arbitrary REST endpoint, so a user could not plug in, say, a Finnhub
+key at all. Layering the vault over env vars preserves both: local convenience
+and deployment authority, with one resolution order.
+**Impact:** The key VALUE never crosses the API boundary — the browser sees only
+`stored`, `fromEnv` and a masked hint. "Test" performs a real request and reports
+the real status code (an invalid key returns 401, verified), never a success
+inferred from the key existing. Adding a provider is one entry in `PROVIDER_KEYS`.
+Secrets must never be logged and never returned; `SystemConfig` plaintext storage
+is explicitly not used for them. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+(operator credentials) and [`investor-eye-architecture.md`](./investor-eye-architecture.md) §5l.
 
 ---
 

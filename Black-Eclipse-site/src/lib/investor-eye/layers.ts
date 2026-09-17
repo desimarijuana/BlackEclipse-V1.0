@@ -18,8 +18,8 @@ import type {
 
 /** Every layer id the app knows about, in controller order. */
 export const ALL_LAYER_IDS = [
-  'events', 'markets', 'conflict', 'trade', 'energy', 'economy',
-  'weather', 'companies', 'risk', 'portfolio',
+  'events', 'markets', 'conflict', 'shipping', 'trade', 'energy', 'commodities',
+  'economy', 'weather', 'fires', 'companies', 'risk', 'portfolio',
 ] as const;
 export type LayerId = (typeof ALL_LAYER_IDS)[number];
 
@@ -61,10 +61,13 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   events: { name: 'Events', phase: 1, group: 'events', color: '#38bdf8', symbol: 'circle', hint: 'All geolocated world events' },
   markets: { name: 'Markets', phase: 1, group: 'markets', color: '#34d399', symbol: 'circle', hint: 'Index observations by country' },
   conflict: { name: 'Conflict', phase: 2, group: 'events', color: '#ef4444', symbol: 'circle', hint: 'Conflict, military and protest events' },
-  trade: { name: 'Trade', phase: 2, group: 'flows', color: '#eab308', symbol: 'square', hint: 'Trade, tariff and shipping co-mentions' },
-  energy: { name: 'Energy', phase: 2, group: 'flows', color: '#fb923c', symbol: 'diamond', hint: 'Energy and infrastructure events' },
+  shipping: { name: 'Shipping', phase: 2, group: 'flows', color: '#0ea5e9', symbol: 'ring', hint: 'Shipping, ports, straits and supply-chain events' },
+  trade: { name: 'Trade', phase: 2, group: 'flows', color: '#eab308', symbol: 'square', hint: 'Trade, tariff and sanction co-mentions' },
+  energy: { name: 'Energy', phase: 2, group: 'flows', color: '#fb923c', symbol: 'diamond', hint: 'Oil, gas and power events' },
+  commodities: { name: 'Commodities', phase: 2, group: 'economy', color: '#f59e0b', symbol: 'triangle', hint: 'Events naming a traded commodity' },
   economy: { name: 'Economy', phase: 2, group: 'economy', color: '#a78bfa', hint: 'Country metric fill (real series only)' },
-  weather: { name: 'Weather', phase: 2, group: 'hazards', color: '#22d3ee', symbol: 'triangle', hint: 'Natural disasters (USGS earthquakes)' },
+  weather: { name: 'Earthquakes', phase: 2, group: 'hazards', color: '#22d3ee', symbol: 'triangle', hint: 'USGS seismic events' },
+  fires: { name: 'Fires', phase: 2, group: 'hazards', color: '#f97316', symbol: 'diamond', hint: 'NASA FIRMS satellite fire clusters' },
   companies: { name: 'Companies', phase: 2, group: 'markets', color: '#60a5fa', symbol: 'square', hint: 'Listed companies by HQ country' },
   risk: { name: 'Risk', phase: 2, group: 'events', color: '#f472b6', hint: 'Event density per country' },
   portfolio: { name: 'Portfolio', phase: 2, group: 'markets', color: '#818cf8', symbol: 'ring', hint: 'Countries your holdings are exposed to' },
@@ -238,30 +241,111 @@ export function buildMarketsLayer(
 
 // ── Phase 2 layer builders ───────────────────────────────────────────────────
 
+/**
+ * Domain layers match on the event TYPE **or** the economic CHANNEL.
+ *
+ * WHY BOTH: `classify.ts` assigns one event type (the strongest signal) but any
+ * number of channels. An event whose type is `conflict` can still carry the
+ * "Shipping & Logistics" channel — a Red Sea attack, say. Matching only on type
+ * hid those: measured against live data, 204 events were tagged with the
+ * Shipping channel in a 24h window while only 26 were *typed* `shipping`, so the
+ * layer drew 13% of the signal that existed. The same held for energy (375
+ * channel-tagged vs 91 typed).
+ *
+ * So a domain layer is "events whose type is X **or** which transmit through
+ * channel Y". That is an observed classification, not an inference — the channel
+ * came from the text the source published.
+ */
+const CHANNEL = {
+  shipping: 'Shipping & Logistics',
+  energy: 'Energy',
+  trade: 'Trade & Tariffs',
+  rates: 'Rates & Credit',
+  defense: 'Defense & Aerospace',
+  metals: 'Metals & Mining',
+  agriculture: 'Agriculture',
+  tech: 'Technology',
+} as const;
+
+interface DomainSpec {
+  id: string;
+  name: string;
+  types: string[];
+  channels?: string[];
+  /** An event must name at least one commodity to qualify. */
+  requiresCommodity?: boolean;
+  /** Categories this layer must never include (used to split hazards). */
+  excludeCategory?: string;
+  /** Scope to exactly this provider-stated category. */
+  category?: string;
+}
+
 /** Conflict layer — conflict/military/protest events with severity fill. */
 export function buildConflictLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
-  return filterEventsLayer('conflict', 'Conflict', events, ['conflict', 'military', 'protest'], onSelect);
+  return buildDomainLayer({ id: 'conflict', name: 'Conflict', types: ['conflict', 'military', 'protest'], channels: [CHANNEL.defense, CHANNEL.energy] }, events, onSelect);
 }
 
-/** Weather layer — natural-disaster events (USGS earthquakes). */
+/** Shipping layer — the supply-chain domain, by type OR channel. */
+export function buildShippingLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return buildDomainLayer({ id: 'shipping', name: 'Shipping', types: ['shipping'], channels: [CHANNEL.shipping] }, events, onSelect);
+}
+
+/** Weather layer — natural-disaster events (USGS earthquakes, legacy rows). */
 export function buildWeatherLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
-  return filterEventsLayer('weather', 'Weather & Natural Events', events, ['natural_disaster'], onSelect);
+  // EXCLUDE-BY-CATEGORY rather than require `earthquake`: rows persisted before
+  // the category field existed carry no category, and they must keep their
+  // original layer rather than vanishing (no migration is needed for this, the
+  // same reasoning as `reResolveEventLocation`).
+  return buildDomainLayer({ id: 'weather', name: 'Earthquakes', types: ['natural_disaster'], excludeCategory: 'fire' }, events, onSelect);
 }
 
-/** Energy layer — energy events highlighted, energy commodities emphasised. */
+/** Fires layer — NASA FIRMS satellite fire clusters (spec §21). */
+export function buildFiresLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return buildDomainLayer({ id: 'fires', name: 'Fires', types: ['natural_disaster'], category: 'fire' }, events, onSelect);
+}
+
+/** Energy layer — oil, gas and power, by type OR channel. */
 export function buildEnergyLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
-  return filterEventsLayer('energy', 'Energy', events, ['energy'], onSelect);
+  return buildDomainLayer({ id: 'energy', name: 'Energy', types: ['energy'], channels: [CHANNEL.energy] }, events, onSelect);
 }
 
-function filterEventsLayer(
+/**
+ * Commodities layer — every event that names a traded commodity.
+ *
+ * This is the one layer keyed purely off the commodity extraction, so it
+ * surfaces the physical-supply reading regardless of how the event was typed.
+ */
+export function buildCommoditiesLayer(events: NormalizedEvent[], onSelect?: (e: NormalizedEvent) => void): MapLayer {
+  return buildDomainLayer({ id: 'commodities', name: 'Commodities', types: [], requiresCommodity: true }, events, onSelect);
+}
+
+function buildDomainLayer(
+  spec: DomainSpec,
+  events: NormalizedEvent[],
+  onSelect?: (e: NormalizedEvent) => void,
+): MapLayer {
+  const subset = events.filter((e) => {
+    if (typeof e.lon !== 'number') return false;
+    if (spec.category && e.category !== spec.category) return false;
+    if (spec.excludeCategory && e.category === spec.excludeCategory) return false;
+    // A purely commodity-driven layer has no type/channel scope: naming a traded
+    // commodity IS the membership test, whatever the event was typed as.
+    if (spec.requiresCommodity) return e.commodities.length > 0;
+    const typeHit = spec.types.includes(e.eventType);
+    const channelHit = spec.channels?.some((c) => e.channels.includes(c)) ?? false;
+    return typeHit || channelHit;
+  });
+  return eventsToScatterLayer(spec.id, spec.name, subset, onSelect);
+}
+
+/** Build a plain point layer from a pre-filtered event list. */
+function eventsToScatterLayer(
   id: string,
   name: string,
   events: NormalizedEvent[],
-  types: string[],
   onSelect?: (e: NormalizedEvent) => void,
 ): MapLayer {
-  const subset = events.filter((e) => types.includes(e.eventType) && typeof e.lon === 'number');
-  const data: LayerDatum[] = subset.map((e) => ({
+  const data: LayerDatum[] = events.map((e) => ({
     id: `evt-${e.id ?? e.dedupKey}`,
     lon: e.lon as number,
     lat: e.lat as number,
@@ -298,7 +382,13 @@ export function buildTradeLayer(
   const byIso = new Map(countries.map((c) => [c.iso2, c]));
   const lines: LayerDatum[] = [];
   for (const e of events) {
-    if (e.eventType !== 'trade' && e.eventType !== 'tariff' && e.eventType !== 'shipping') continue;
+    // Same type-or-channel rule as the point layers: a `conflict` event that
+    // names two countries and transmits through the Trade channel IS a trade
+    // link, even though its type is conflict.
+    const isTradeDomain =
+      e.eventType === 'trade' || e.eventType === 'tariff' || e.eventType === 'shipping' ||
+      e.channels.includes(CHANNEL.trade) || e.channels.includes(CHANNEL.shipping);
+    if (!isTradeDomain) continue;
     if (e.countries.length < 2) continue;
     for (let i = 0; i < e.countries.length - 1; i++) {
       const a = byIso.get(e.countries[i]);
@@ -500,8 +590,11 @@ export function buildAllLayers(inputs: LayerInputs): MapLayer[] {
     buildEventsLayer(state.events, inputs.onSelectEvent),
     buildMarketsLayer(state.markets, state.countries, inputs.onSelectMarket),
     buildConflictLayer(state.events, inputs.onSelectEvent),
+    buildShippingLayer(state.events, inputs.onSelectEvent),
     buildEnergyLayer(state.events, inputs.onSelectEvent),
+    buildCommoditiesLayer(state.events, inputs.onSelectEvent),
     buildWeatherLayer(state.events, inputs.onSelectEvent),
+    buildFiresLayer(state.events, inputs.onSelectEvent),
     buildTradeLayer(state.events, state.countries, inputs.onSelectEvent),
   ];
   if (inputs.economicValues) {

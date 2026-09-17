@@ -33,7 +33,7 @@ function symbolForLayer(layerId: string): string | undefined {
  * Layers that mix categories (`events`) or encode a direction of change
  * (`markets`, `companies`) keep severity/sign colouring instead.
  */
-const CATEGORY_COLORED = new Set<string>(['conflict', 'weather', 'energy', 'portfolio']);
+const CATEGORY_COLORED = new Set<string>(['conflict', 'weather', 'energy', 'fires', 'shipping', 'commodities', 'portfolio']);
 
 /** World map registration name — must match the GeoJSON `name` in app/geo.ts. */
 export const WORLD_MAP_NAME = 'blackeclipse-world';
@@ -111,6 +111,19 @@ function tooltipFormatter(layer: MapLayer) {
     );
   };
 }
+
+/**
+ * Marker visuals.
+ *
+ * Pins on a dark map must read at a glance. The previous style was a flat 6px
+ * dot with a 0.5px border, which read as noise rather than "something is
+ * happening here". Each pin now gets a larger core, a dark contrast ring so
+ * neighbouring pins never bleed together, and a glow sized by severity so
+ * urgency is visible before you hover.
+ */
+const PIN_SIZE: Record<string, number> = { critical: 18, high: 14, medium: 11, low: 8 };
+/** Glow radius per severity — the visual weight carries the urgency. */
+const PIN_GLOW: Record<string, number> = { critical: 26, high: 17, medium: 10, low: 5 };
 
 const BASE_GEO = {
   map: WORLD_MAP_NAME,
@@ -231,34 +244,36 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
         ? { showEffectOn: 'render', rippleEffect: { brushType: 'stroke', scale: 3, period: 5 } }
         : {}),
       // `scatter3D` uses `symbolSize` as a NUMBER (2D series accept a callback).
+      //
+      // GLOBE CAUTION: echarts-gl reads item properties through
+      // `getItemVisual`, which does NOT call callbacks. A function for
+      // `itemStyle.opacity` (or `color`) evaluates to NaN there, and the point
+      // builder then writes size 0 — invisible pins, with NO console error. So
+      // the globe branch uses only scalar styles; the per-item "approximate"
+      // cue is expressed via a scalar dimming on the whole series instead, which
+      // is why `_datum.geoMethod` is still attached (the tooltip and the 2D
+      // series use it, and the halo below distinguishes centroid points).
       ...(isGlobe
         ? {
-            symbolSize: 7,
-            // A small elevation lifts pins off the surface so they read as
-            // markers rather than being z-fought by the sphere.
+            symbolSize: 10,
             itemStyle: {
               color: (raw: unknown) => {
-                const item = raw as { data?: { severity?: string; approximate?: boolean } };
-                // An approximate (centroid) fix is drawn dimmer, so a guess never
-                // reads as an exact position.
+                const item = raw as { data?: { severity?: string } };
                 if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
                 if (!item.data?.severity) return layerColor(layer.id);
                 return severityColor((item.data?.severity ?? 'low') as never);
               },
-              opacity: (raw: unknown) => {
-                const item = raw as { data?: { approximate?: boolean } };
-                return item.data?.approximate ? 0.55 : 0.95;
-              },
+              opacity: 1,
             },
           }
         : {
             symbolSize: (raw: unknown) => {
               const item = raw as { data?: { value?: number; severity?: string; approximate?: boolean } };
               const sev = item.data?.severity ?? 'low';
-              const size = { critical: 13, high: 10, medium: 8, low: 6 }[sev] ?? 6;
+              const size = PIN_SIZE[sev] ?? PIN_SIZE.low;
               // Approximate points render slightly smaller — a visual cue that
               // the position is a country centre, not a confirmed location.
-              return item.data?.approximate ? Math.max(5, size - 2) : size;
+              return item.data?.approximate ? Math.max(7, size - 3) : size;
             },
             itemStyle: {
               color: (raw: unknown) => {
@@ -274,7 +289,8 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
               },
               borderColor: (raw: unknown) => {
                 const item = raw as { data?: { severity?: string; approximate?: boolean } };
-                if (!item.data?.approximate) return 'rgba(0,0,0,0.5)';
+                // A dark ring separates overlapping pins without hiding colour.
+                if (!item.data?.approximate) return 'rgba(8,9,12,0.92)';
                 // Match the ring to what the fill would have been.
                 if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
                 return item.data?.severity
@@ -283,15 +299,29 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
               },
               borderWidth: (raw: unknown) => {
                 const item = raw as { data?: { approximate?: boolean } };
-                return item.data?.approximate ? 1.5 : 0.5;
+                return item.data?.approximate ? 2 : 1.5;
               },
               borderType: (raw: unknown) => {
                 const item = raw as { data?: { approximate?: boolean } };
                 return item.data?.approximate ? 'dashed' : 'solid';
               },
-              opacity: 0.9,
+              // A coloured halo sized by severity, so a critical event is
+              // visibly heavier than a low one at the same zoom.
+              shadowBlur: (raw: unknown) => {
+                const item = raw as { data?: { severity?: string } };
+                return PIN_GLOW[item.data?.severity ?? 'low'] ?? PIN_GLOW.low;
+              },
+              shadowColor: (raw: unknown) => {
+                const item = raw as { data?: { severity?: string; approximate?: boolean } };
+                if (item.data?.approximate) return 'rgba(148,163,184,0.55)';
+                if (CATEGORY_COLORED.has(layer.id)) return layerColor(layer.id);
+                return item.data?.severity
+                  ? severityColor(item.data.severity as never)
+                  : layerColor(layer.id);
+              },
+              opacity: 1,
             },
-            emphasis: { scale: 1.4 },
+            emphasis: { scale: 1.5 },
           }),
       data: data.map((d) => ({
         name: d.label ?? d.id,

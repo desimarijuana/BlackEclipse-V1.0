@@ -16,15 +16,12 @@ import type { EChartsOption } from 'echarts';
 import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEChart } from '@/components/screens/portfolio/use-echart';
 import { useTopic } from '@/lib/workspace/data-hub';
-import { cn } from '@/lib/utils';
+import { useChartPalette } from '@/lib/chart-palette-store';
+import type { ChartPalette } from '@/lib/chart-palette';
 import { HEATMAP_MARKETS, heatmapMeta, type HeatmapPayload } from '@/lib/heatmap';
+import { cn } from '@/lib/utils';
 import { marketViewName, useActiveMarket } from './market-views';
 import type { WidgetPlacement } from '@/lib/workspace/types';
-
-// Gradient stops shared by the visualMap and the tooltip accents.
-const GRADIENT = ['#b91c1c', '#7f1d1d', '#27272a', '#166534', '#22c55e'];
-const UP_TEXT = '#34d399';
-const DOWN_TEXT = '#fb7185';
 
 function fmtCap(v: number | null | undefined): string {
   if (v == null || !(v > 0)) return '—';
@@ -44,7 +41,7 @@ function pctLabel(n: number): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
-function tooltipHtml(params: unknown, currency: string): string {
+function tooltipHtml(params: unknown, currency: string, palette: ChartPalette): string {
   const p = params as { data?: Record<string, unknown> };
   const d = p.data ?? {};
 
@@ -56,7 +53,7 @@ function tooltipHtml(params: unknown, currency: string): string {
       <div style="min-width:160px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px">
           <span style="font-weight:800;font-size:13px;color:#f8fafc">${String(d.name ?? '')}</span>
-          <span style="font-weight:700;font-size:12px;color:${change >= 0 ? UP_TEXT : DOWN_TEXT}">${pctLabel(change)}</span>
+          <span style="font-weight:700;font-size:12px;color:${change > 0 ? palette.heatmap.up : change < 0 ? palette.heatmap.down : palette.heatmap.mid}">${pctLabel(change)}</span>
         </div>
         <div style="color:#9ca3af;font-size:10px;margin-top:2px">${children.length} constituents</div>
         <div style="height:1px;background:rgba(255,255,255,.08);margin:7px 0"></div>
@@ -65,7 +62,7 @@ function tooltipHtml(params: unknown, currency: string): string {
   }
 
   const change = Number(d.changePct ?? 0);
-  const color = change >= 0 ? UP_TEXT : DOWN_TEXT;
+  const color = change > 0 ? palette.heatmap.up : change < 0 ? palette.heatmap.down : palette.heatmap.mid;
   const row = (label: string, value: string) =>
     `<tr><td style="color:#9ca3af;padding:1px 12px 1px 0">${label}</td><td style="text-align:right;color:#e5e7eb">${value}</td></tr>`;
 
@@ -91,6 +88,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
   // picker so a single heatmap card can be pinned to any asset class (equities,
   // crypto, forex, commodities) independently of the tab. Selection persists per
   // widget instance in localStorage.
+  const palette = useChartPalette();
   const activeMarket = useActiveMarket();
   const storageKey = `be_heatmap_market:${placement?.id ?? 'default'}`;
   const [market, setMarket] = useState<string>(() => {
@@ -223,7 +221,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
         textStyle: { color: '#e5e7eb', fontSize: 11 },
         extraCssText:
           'backdrop-filter: blur(18px) saturate(1.35); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);',
-        formatter: (params: unknown) => tooltipHtml(params, currency),
+        formatter: (params: unknown) => tooltipHtml(params, currency, palette),
       },
       visualMap: {
         type: 'continuous',
@@ -238,7 +236,7 @@ export function MarketHeatmapWidget({ placement }: { placement?: WidgetPlacement
         precision: 0,
         text: ['+3%', '-3%'],
         textStyle: { color: '#94a3b8', fontSize: 9 },
-        inRange: { color: GRADIENT },
+        inRange: { color: [palette.heatmap.down, palette.heatmap.mid, palette.heatmap.up] },
       },
       series: [
         {

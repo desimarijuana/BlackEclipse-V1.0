@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { usePageShortcuts } from "@/hooks/use-page-shortcuts";
 import {
   Bell, Plus, Save, Trash2, Pencil, FlaskConical, X,
   CircleDot, History, Check, Zap, PencilLine, Inbox,
@@ -207,11 +208,18 @@ export function AlertsClient() {
     setView("create");
   };
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const startCreating = () => { setEditing(null); setView("create"); };
+  usePageShortcuts(rootRef, [
+    { id: "alerts.new", label: "Create alert", keys: "Shift+N", run: startCreating, enabled: view !== "create" },
+    { id: "alerts.refresh", label: "Refresh alerts", keys: "R", run: () => { void loadAll(); void loadLive(); }, enabled: view !== "create" },
+  ]);
+
   const liveCount = alerts.filter((a) => a.active).length;
   const firedToday = events.filter((e) => Date.now() - new Date(e.firedAt).getTime() < 86400000).length;
 
   return (
-    <div className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-full text-foreground animate-in fade-in duration-500 relative overflow-x-hidden w-full">
+    <div ref={rootRef} data-keyboard-scope="Alerts" className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-full text-foreground animate-in fade-in duration-500 relative overflow-x-hidden w-full">
 
       {/* ─── HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
@@ -227,7 +235,7 @@ export function AlertsClient() {
           </p>
         </div>
         <Button
-          onClick={() => { setEditing(null); setView("create"); }}
+          onClick={startCreating}
           className="cursor-pointer rounded-xl gap-1.5 shrink-0"
         >
           <Plus className="w-3.5 h-3.5" /> New Watch

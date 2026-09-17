@@ -8,6 +8,8 @@
 import React, { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { DayAggregate } from '@/lib/journal/types';
+import { intensityFor } from '@/lib/journal/intensity';
+import { formatDayLabel, formatMonthLabel } from '@/lib/journal/dates';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 
 interface CalendarHeatmapProps {
@@ -17,18 +19,6 @@ interface CalendarHeatmapProps {
 }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-/** Map a day's net R to a 0-4 intensity bucket (signed). */
-function intensityFor(netR: number): { level: number; sign: 'pos' | 'neg' | 'zero' } {
-  if (netR === 0) return { level: 0, sign: 'zero' };
-  const sign = netR > 0 ? 'pos' : 'neg';
-  const abs = Math.abs(netR);
-  let level = 1;
-  if (abs >= 3) level = 4;
-  else if (abs >= 2) level = 3;
-  else if (abs >= 1) level = 2;
-  return { level, sign };
-}
 
 const CELL_CLASS = {
   empty: 'bg-white/[0.03] border border-white/5',
@@ -93,7 +83,7 @@ export function CalendarHeatmap({ days, year, onSelectDay }: CalendarHeatmapProp
       if (!firstInYear) return;
       const month = Number(firstInYear.date.slice(5, 7));
       if (month !== lastMonth) {
-        labels.push({ label: new Date(Date.UTC(targetYear, month - 1, 1)).toLocaleString('en', { month: 'short' }), col: ci });
+        labels.push({ label: formatMonthLabel(targetYear, month - 1).slice(0, 3), col: ci });
         lastMonth = month;
       }
     });
@@ -179,7 +169,7 @@ export function CalendarHeatmap({ days, year, onSelectDay }: CalendarHeatmapProp
           className="pointer-events-none fixed z-50 w-56 rounded-xl border border-white/10 glass-card-strong p-3 shadow-2xl shadow-black/50"
           style={{ left: Math.min(hoverPos.x + 12, window.innerWidth - 240), top: Math.min(hoverPos.y + 12, window.innerHeight - 200) }}
         >
-          <p className="font-mono text-[11px] font-bold text-foreground">{formatDate(hovered.date)}</p>
+          <p className="font-mono text-[11px] font-bold text-foreground">{formatDayLabel(hovered.date)}</p>
           <div className="mt-2 space-y-1 font-mono text-[10px] text-muted-foreground">
             <Row label="Trades" value={String(hovered.trades)} />
             <Row label="Win Rate" value={hovered.trades > 0 ? `${Math.round((hovered.wins / hovered.trades) * 100)}%` : '—'} />
@@ -202,9 +192,4 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: stri
       <span className={cn('font-bold text-foreground', tone)}>{value}</span>
     </div>
   );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' });
 }

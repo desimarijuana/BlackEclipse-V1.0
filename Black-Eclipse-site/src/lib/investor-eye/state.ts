@@ -599,6 +599,7 @@ export async function persistEvents(events: NormalizedEvent[]): Promise<{ writte
         placeName: e.placeName ?? null,
         geoMethod: e.geoMethod ?? null,
         eventType: e.eventType,
+        category: e.category ?? null,
         severity: e.severity,
         channels: JSON.stringify(e.channels),
         commodities: JSON.stringify(e.commodities),
@@ -655,7 +656,7 @@ export function rowToEvent(row: {
   headline?: string | null; description?: string | null;
   actors?: string | null; providerCodes?: string | null;
   placeName?: string | null; geoMethod?: string | null;
-  eventType: string; severity: string; channels: string; commodities: string;
+  eventType: string; category?: string | null; severity: string; channels: string; commodities: string;
   sectors: string; securities: string; countries: string; lon: number | null;
   lat: number | null; confidence: number; relevance?: number; relevanceReasons?: string;
   sourceCount: number; sources: string;
@@ -689,6 +690,7 @@ export function rowToEvent(row: {
     placeName: row.placeName ?? undefined,
     geoMethod: (row.geoMethod as NormalizedEvent['geoMethod']) ?? undefined,
     eventType: row.eventType as NormalizedEvent['eventType'],
+    category: row.category ?? undefined,
     severity: row.severity as EventSeverity,
     channels: parseJsonArray(row.channels),
     commodities: parseJsonArray(row.commodities),

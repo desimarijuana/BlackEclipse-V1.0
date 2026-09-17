@@ -7,6 +7,7 @@
 // registering a definition here.
 
 import type { IndicatorDefinition, PriceBar } from '@/lib/chart/types';
+import { getChartPalette } from '@/lib/chart-palette-store';
 import { analyzeMarketStructure } from '@/lib/chart/structure/engine';
 import { structureToMarks } from '@/lib/chart/structure/registry';
 
@@ -190,7 +191,7 @@ register({
     const period = Number(settings.period ?? 20);
     const source = String(settings.source ?? 'close') as 'close' | 'high' | 'low' | 'open';
     const values = candles.map((c) => c[source] ?? c.close);
-    return { pane: 'overlay', series: [{ id: 'ema', label: `EMA ${period}`, kind: 'line', data: ema(values, period), color: '#fbbf24' }] };
+    return { pane: 'overlay', series: [{ id: 'ema', label: `EMA ${period}`, kind: 'line', data: ema(values, period), color: getChartPalette().lines.series[1] }] };
   },
 });
 
@@ -207,7 +208,7 @@ register({
     const period = Number(settings.period ?? 20);
     const source = String(settings.source ?? 'close') as 'close' | 'high' | 'low' | 'open';
     const values = candles.map((c) => c[source] ?? c.close);
-    return { pane: 'overlay', series: [{ id: 'sma', label: `SMA ${period}`, kind: 'line', data: sma(values, period), color: '#60a5fa' }] };
+    return { pane: 'overlay', series: [{ id: 'sma', label: `SMA ${period}`, kind: 'line', data: sma(values, period), color: getChartPalette().lines.series[0] }] };
   },
 });
 
@@ -222,7 +223,7 @@ register({
   calculate(candles, settings) {
     const period = Number(settings.period ?? 20);
     const values = candles.map((c) => c.close);
-    return { pane: 'overlay', series: [{ id: 'wma', label: `WMA ${period}`, kind: 'line', data: wma(values, period), color: '#a78bfa' }] };
+    return { pane: 'overlay', series: [{ id: 'wma', label: `WMA ${period}`, kind: 'line', data: wma(values, period), color: getChartPalette().lines.series[2] }] };
   },
 });
 
@@ -239,11 +240,11 @@ register({
     const values = candles.map((c) => c.close);
     return {
       pane: 'separate', paneHeight: 0.22, yMin: 0, yMax: 100,
-      series: [{ id: 'rsi', label: `RSI ${period}`, kind: 'line', data: rsi(values, period), color: '#a78bfa' }],
+      series: [{ id: 'rsi', label: `RSI ${period}`, kind: 'line', data: rsi(values, period), color: getChartPalette().lines.series[2] }],
       marks: {
         markLine: [
-          { yAxis: 70, lineStyle: { color: 'rgba(255,62,62,0.35)', type: 'dashed', width: 1 }, label: { show: false } },
-          { yAxis: 30, lineStyle: { color: 'rgba(122,255,120,0.35)', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: 70, lineStyle: { color: getChartPalette().candles.down + '59', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: 30, lineStyle: { color: getChartPalette().candles.up + '59', type: 'dashed', width: 1 }, label: { show: false } },
         ],
       },
     };
@@ -269,8 +270,8 @@ register({
     return {
       pane: 'separate', paneHeight: 0.2,
       series: [
-        { id: 'macd', label: 'MACD', kind: 'line', data: m, color: '#60a5fa' },
-        { id: 'signal', label: 'Signal', kind: 'line', data: s, color: '#fbbf24' },
+        { id: 'macd', label: 'MACD', kind: 'line', data: m, color: getChartPalette().lines.series[0] },
+        { id: 'signal', label: 'Signal', kind: 'line', data: s, color: getChartPalette().lines.series[1] },
         { id: 'hist', label: 'Histogram', kind: 'bar', data: hist },
       ],
     };
@@ -289,7 +290,7 @@ register({
     const period = Number(settings.period ?? 14);
     return {
       pane: 'separate', paneHeight: 0.2,
-      series: [{ id: 'atr', label: `ATR ${period}`, kind: 'line', data: atr(candles, period), color: '#fbbf24' }],
+      series: [{ id: 'atr', label: `ATR ${period}`, kind: 'line', data: atr(candles, period), color: getChartPalette().lines.series[1] }],
     };
   },
 });
@@ -311,9 +312,9 @@ register({
     return {
       pane: 'overlay',
       series: [
-        { id: 'mid', label: `BB Mid ${period}`, kind: 'line', data: mid, color: '#fbbf24' },
-        { id: 'upper', label: 'Upper', kind: 'line', data: upper, color: '#60a5fa', bandId: 'lower' },
-        { id: 'lower', label: 'Lower', kind: 'line', data: lower, color: '#60a5fa' },
+        { id: 'mid', label: `BB Mid ${period}`, kind: 'line', data: mid, color: getChartPalette().lines.series[1] },
+        { id: 'upper', label: 'Upper', kind: 'line', data: upper, color: getChartPalette().lines.series[0], bandId: 'lower' },
+        { id: 'lower', label: 'Lower', kind: 'line', data: lower, color: getChartPalette().lines.series[0] },
       ],
     };
   },
@@ -326,7 +327,7 @@ register({
   category: 'volume',
   inputs: [],
   calculate(candles) {
-    return { pane: 'overlay', series: [{ id: 'vwap', label: 'VWAP', kind: 'line', data: vwap(candles), color: '#f472b6' }] };
+    return { pane: 'overlay', series: [{ id: 'vwap', label: 'VWAP', kind: 'line', data: vwap(candles), color: getChartPalette().lines.series[3] }] };
   },
 });
 
@@ -337,7 +338,7 @@ register({
   category: 'volume',
   inputs: [],
   calculate(candles) {
-    return { pane: 'separate', paneHeight: 0.2, series: [{ id: 'obv', label: 'OBV', kind: 'line', data: obv(candles), color: '#60a5fa' }] };
+    return { pane: 'separate', paneHeight: 0.2, series: [{ id: 'obv', label: 'OBV', kind: 'line', data: obv(candles), color: getChartPalette().lines.series[0] }] };
   },
 });
 

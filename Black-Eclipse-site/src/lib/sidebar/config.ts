@@ -47,6 +47,7 @@ export interface SidebarSectionConfig {
 
 export interface SidebarConfig {
   sections: SidebarSectionConfig[];
+  shortcutVersion?: number;
 }
 
 /** Shortcut choices offered in Settings. Keyboard codes (not labels). */
@@ -65,7 +66,8 @@ const LEGACY_DEFAULT_ORDER: AppTab[] = [
 
 export function defaultSidebarConfig(): SidebarConfig {
   return {
-    sections: DEFAULT_SIDEBAR_SECTIONS.map((s) => ({ id: s.id, enabled: true, shortcut: '' })),
+    shortcutVersion: 2,
+    sections: DEFAULT_SIDEBAR_SECTIONS.map((s, index) => ({ id: s.id, enabled: true, shortcut: `F${index < 10 ? index + 1 : 12}` })),
   };
 }
 
@@ -76,18 +78,14 @@ export function loadSidebarConfig(): SidebarConfig {
     const raw = localStorage.getItem(SIDEBAR_CONFIG_KEY);
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<SidebarConfig>;
-    const incoming = parsed?.sections ?? [];
-
-    // Reconcile with the canonical list: kept items inherit saved config,
-    // brand-new tab ids are appended (enabled, no shortcut), and retired ids
-    // are dropped. This keeps upgrades from losing a user's ordering.
-    // One-time migration: if the saved order is exactly the LEGACY shipped
-    // default (i.e. the user never customized it), adopt the new default so
-    // ChatBot leads. Any genuinely customized order is preserved below.
+    if (!Array.isArray(parsed?.sections)) return base;
+    const incoming = parsed.sections.filter((section) => section && typeof section.id === 'string');
+    if (incoming.length === 0) return base;
     const incomingIds = incoming.map((s) => s.id);
-    if (incomingIds.length === LEGACY_DEFAULT_ORDER.length && incomingIds.every((id, i) => id === LEGACY_DEFAULT_ORDER[i])) {
-      return base;
-    }
+    const defaultOrders = [LEGACY_DEFAULT_ORDER, DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id), DEFAULT_SIDEBAR_SECTIONS.filter((s) => s.id !== 'investor-eye').map((s) => s.id)];
+    const untouched = incoming.every((s) => s.enabled === true && s.shortcut === '');
+    const defaultOrder = defaultOrders.some((order) => incomingIds.length === order.length && incomingIds.every((id, i) => id === order[i]));
+    if (parsed.shortcutVersion !== 2 && untouched && defaultOrder) return base;
 
     const known = new Set<string>(DEFAULT_SIDEBAR_SECTIONS.map((d) => d.id));
 
@@ -95,8 +93,9 @@ export function loadSidebarConfig(): SidebarConfig {
     // enabled/shortcut settings. Retired ids are dropped.
     const merged: SidebarSectionConfig[] = [];
     for (const s of incoming) {
-      if (!known.has(s.id)) continue;
-      merged.push({ id: s.id, enabled: s.enabled !== false, shortcut: s.shortcut ?? '' });
+      if (!known.has(s.id) || merged.some((item) => item.id === s.id)) continue;
+      const shortcut = typeof s.shortcut === 'string' && /^(F([1-9]|1[0-2]))?$/.test(s.shortcut) ? s.shortcut : '';
+      merged.push({ id: s.id, enabled: s.enabled !== false, shortcut });
     }
 
     // Append any canonical section not present yet (upgrade path) at the end.
@@ -106,7 +105,7 @@ export function loadSidebarConfig(): SidebarConfig {
         merged.push({ id: def.id, enabled: true, shortcut: '' });
       }
     }
-    return { sections: merged };
+    return { sections: merged, shortcutVersion: 2 };
   } catch {
     return base;
   }
@@ -115,7 +114,7 @@ export function loadSidebarConfig(): SidebarConfig {
 export function saveSidebarConfig(cfg: SidebarConfig) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify(cfg));
+    localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify({ ...cfg, shortcutVersion: 2 }));
   } catch {
     /* quota / private mode — in-memory only */
   }

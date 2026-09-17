@@ -5,6 +5,8 @@
 
 export type Direction = "LONG" | "SHORT";
 export type TradeStatus = "open" | "closed";
+/** Provenance of a trade: user-entered vs seeded sample data. */
+export type TradeSource = "manual" | "demo";
 
 /** A normalized trade record the analytics engine consumes. */
 export interface TradeRecord {
@@ -28,6 +30,8 @@ export interface TradeRecord {
   mistakes?: string | null; // JSON string[]
   notes?: string | null;
   status: TradeStatus;
+  /** 'manual' (user/CSV) or 'demo' (seeded sample). Never fabricated prices. */
+  source?: TradeSource;
   strategyId?: string | null;
   strategyName?: string | null;
   setupId?: string | null;

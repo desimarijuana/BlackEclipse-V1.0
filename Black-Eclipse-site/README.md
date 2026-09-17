@@ -13,7 +13,7 @@ An open-source, agentic AI investment research platform with a Bloomberg-inspire
 - **Market Screener** — equities across US, Pakistan, India, China and 20+ more markets with advanced filtering (sector, industry, cap, P/E, price, volume)
 - **Market Bubbles** — interactive physics-based turnover map per market, with a whole-market Volume Analytics panel (traded value, concentration, contribution bands)
 - **Global Markets overview** — top instruments by market for every loaded country
-- **My Portfolio** — holdings, performance charts, allocation, transaction log
+- **My Portfolio** — holdings, performance charts, allocation, transaction log, plus a per-fund heatmap, date-aligned correlation matrix and contribution-to-risk decomposition
 - **Market News** — sentiment-tagged financial news feed (configurable RSS sources)
 - **Agentic Chat & Research** — provider-agnostic AI assistant (OpenAI / Anthropic / Ollama / built-in mock), with a multi-agent research pipeline that persists findings
 - **Self-healing data layer (JDDS)** — prices are scraped once into a local SQLite vault and served to every screen; source reliability is learned over time

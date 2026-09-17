@@ -7,13 +7,10 @@
 import React, { useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
 import { EChartsContainer, journalBaseOption, fmtR, fmtMoney } from './echarts-container';
-import { cssVarToHex } from '@/lib/chart-colors';
+import { useChartPalette } from '@/lib/chart-palette-store';
 import type { DimensionRow, EquityPoint } from '@/lib/journal/types';
 
 export { EChartsContainer, journalBaseOption, fmtR, fmtMoney, echarts } from './echarts-container';
-
-const UP = '#7aff78';
-const DOWN = '#ff3e3e';
 
 /** Shared frosted tooltip style. */
 const tooltipStyle = {
@@ -28,7 +25,7 @@ const tooltipStyle = {
 // ── Equity curve (cumulative R) with drawdown shading ────────────────────────
 
 export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve', hint = 'CUMULATIVE R' }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string }) {
-  const primary = useMemo(() => cssVarToHex('--primary', UP), []);
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (equity.length < 2) return null;
     const dates = equity.map((p) => p.date.slice(0, 10));
@@ -41,7 +38,7 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const p = equity[idx];
-          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Equity: <b style="color:${primary}">${fmtR(p.equity)}</b><br/>Drawdown: <b style="color:${DOWN}">${fmtR(-p.drawdown)}</b>`;
+          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Equity: <b style="color:${palette.lines.primary}">${fmtR(p.equity)}</b><br/>Drawdown: <b style="color:${palette.candles.down}">${fmtR(-p.drawdown)}</b>`;
         },
       },
       xAxis: {
@@ -67,28 +64,29 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
           data: equity.map((p) => p.equity),
           showSymbol: false,
           smooth: 0.3,
-          lineStyle: { width: 2.5, color: primary, shadowColor: `${primary}66`, shadowBlur: 8 },
-          itemStyle: { color: primary },
+          lineStyle: { width: 2.5, color: palette.lines.primary, shadowColor: `${palette.lines.primary}66`, shadowBlur: 8 },
+          itemStyle: { color: palette.lines.primary },
           areaStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: `${primary}40` },
-                { offset: 1, color: `${primary}00` },
+                { offset: 0, color: `${palette.lines.primary}40` },
+                { offset: 1, color: `${palette.lines.primary}00` },
               ],
             },
           },
         },
       ],
     };
-  }, [equity, primary]);
+  }, [equity, palette]);
 
-  return <EChartsContainer option={option} deps={[equity, primary]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
+  return <EChartsContainer option={option} deps={[equity, palette]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough closed trades to plot an equity curve." />;
 }
 
 // ── Horizontal bar: net R by dimension (symbol / setup / session) ────────────
 
 export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: DimensionRow[]; title: string; hint?: string; height?: number }) {
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (rows.length === 0) return null;
     const sorted = [...rows].sort((a, b) => a.netR - b.netR);
@@ -102,7 +100,7 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const r = sorted[idx];
-          const tone = r.netR >= 0 ? UP : DOWN;
+          const tone = r.netR >= 0 ? palette.candles.up : palette.candles.down;
           return `<div style="font-weight:600;margin-bottom:4px">${r.key}</div>Trades: <b>${r.trades}</b><br/>Win rate: <b>${(r.winRate * 100).toFixed(0)}%</b><br/>Net R: <b style="color:${tone}">${fmtR(r.netR)}</b><br/>Net P&L: <b style="color:${tone}">${fmtMoney(r.netPnl)}</b>`;
         },
       },
@@ -127,9 +125,9 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
           data: sorted.map((r) => ({
             value: r.netR,
             itemStyle: {
-              color: r.netR >= 0 ? UP : DOWN,
+              color: r.netR >= 0 ? palette.candles.up : palette.candles.down,
               borderRadius: [0, 4, 4, 0],
-              shadowColor: r.netR >= 0 ? `${UP}44` : `${DOWN}44`,
+              shadowColor: r.netR >= 0 ? `${palette.candles.up}44` : `${palette.candles.down}44`,
               shadowBlur: 6,
             },
           })),
@@ -145,14 +143,15 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
         },
       ],
     };
-  }, [rows]);
+  }, [rows, palette]);
 
-  return <EChartsContainer option={option} deps={[rows]} height={height} title={title} hint={hint} empty={rows.length === 0} emptyText="No data for this dimension yet." />;
+  return <EChartsContainer option={option} deps={[rows, palette]} height={height} title={title} hint={hint} empty={rows.length === 0} emptyText="No data for this dimension yet." />;
 }
 
 // ── R distribution histogram ─────────────────────────────────────────────────
 
 export function RDistributionChart({ rValues, height = 200, title = 'R Distribution', hint = 'TRADE OUTCOMES' }: { rValues: number[]; height?: number; title?: string; hint?: string }) {
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (rValues.length === 0) return null;
     const min = Math.floor(Math.min(...rValues));
@@ -189,9 +188,9 @@ export function RDistributionChart({ rValues, height = 200, title = 'R Distribut
           data: bins.map((b) => ({
             value: b.count,
             itemStyle: {
-              color: b.label.startsWith('-') ? DOWN : UP,
+              color: b.label.startsWith('-') ? palette.candles.down : palette.candles.up,
               borderRadius: [3, 3, 0, 0],
-              shadowColor: b.label.startsWith('-') ? `${DOWN}44` : `${UP}44`,
+              shadowColor: b.label.startsWith('-') ? `${palette.candles.down}44` : `${palette.candles.up}44`,
               shadowBlur: 4,
             },
           })),
@@ -199,14 +198,15 @@ export function RDistributionChart({ rValues, height = 200, title = 'R Distribut
         },
       ],
     };
-  }, [rValues]);
+  }, [rValues, palette]);
 
-  return <EChartsContainer option={option} deps={[rValues]} height={height} title={title} hint={hint} empty={rValues.length === 0} emptyText="No closed trades to distribute." />;
+  return <EChartsContainer option={option} deps={[rValues, palette]} height={height} title={title} hint={hint} empty={rValues.length === 0} emptyText="No closed trades to distribute." />;
 }
 
 // ── Win/loss distribution (donut) ─────────────────────────────────────────────
 
 export function WinLossChart({ wins, losses, breakevens, height = 200, title = 'Win / Loss', hint = 'OUTCOMES' }: { wins: number; losses: number; breakevens: number; height?: number; title?: string; hint?: string }) {
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (wins + losses + breakevens === 0) return null;
     return {
@@ -221,21 +221,22 @@ export function WinLossChart({ wins, losses, breakevens, height = 200, title = '
           emphasis: { scaleSize: 6 },
           itemStyle: { borderColor: '#0f0f0f', borderWidth: 2 },
           data: [
-            { name: 'Wins', value: wins, itemStyle: { color: UP } },
-            { name: 'Losses', value: losses, itemStyle: { color: DOWN } },
-            { name: 'Breakeven', value: breakevens, itemStyle: { color: '#94a3b8' } },
+            { name: 'Wins', value: wins, itemStyle: { color: palette.candles.up } },
+            { name: 'Losses', value: losses, itemStyle: { color: palette.candles.down } },
+            { name: 'Breakeven', value: breakevens, itemStyle: { color: palette.candles.neutral } },
           ].filter((d) => d.value > 0),
         },
       ],
     } as EChartsOption;
-  }, [wins, losses, breakevens]);
+  }, [wins, losses, breakevens, palette]);
 
-  return <EChartsContainer option={option} deps={[wins, losses, breakevens]} height={height} title={title} hint={hint} empty={wins + losses + breakevens === 0} emptyText="No closed trades yet." />;
+  return <EChartsContainer option={option} deps={[wins, losses, breakevens, palette]} height={height} title={title} hint={hint} empty={wins + losses + breakevens === 0} emptyText="No closed trades yet." />;
 }
 
 // ── Drawdown chart (equity drawdown from peak, in R) ──────────────────────────
 
 export function DrawdownChart({ equity, height = 200, title = 'Drawdown', hint = 'FROM PEAK' }: { equity: EquityPoint[]; height?: number; title?: string; hint?: string }) {
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (equity.length < 2) return null;
     const dates = equity.map((p) => p.date.slice(0, 10));
@@ -248,7 +249,7 @@ export function DrawdownChart({ equity, height = 200, title = 'Drawdown', hint =
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const p = equity[idx];
-          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Drawdown: <b style="color:${DOWN}">${fmtR(-p.drawdown)}</b>`;
+          return `<div style="font-weight:600;margin-bottom:4px">${p.date.slice(0, 10)}</div>Drawdown: <b style="color:${palette.candles.down}">${fmtR(-p.drawdown)}</b>`;
         },
       },
       xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
@@ -259,28 +260,29 @@ export function DrawdownChart({ equity, height = 200, title = 'Drawdown', hint =
           data: equity.map((p) => -p.drawdown),
           showSymbol: false,
           smooth: 0.3,
-          lineStyle: { width: 1.5, color: DOWN },
-          itemStyle: { color: DOWN },
+          lineStyle: { width: 1.5, color: palette.candles.down },
+          itemStyle: { color: palette.candles.down },
           areaStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: `${DOWN}40` },
-                { offset: 1, color: `${DOWN}00` },
+                { offset: 0, color: `${palette.candles.down}40` },
+                { offset: 1, color: `${palette.candles.down}00` },
               ],
             },
           },
         },
       ],
     };
-  }, [equity]);
+  }, [equity, palette]);
 
-  return <EChartsContainer option={option} deps={[equity]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough data to plot drawdown." />;
+  return <EChartsContainer option={option} deps={[equity, palette]} height={height} title={title} hint={hint} empty={equity.length < 2} emptyText="Not enough data to plot drawdown." />;
 }
 
 // ── Daily performance (net R per day, bar chart) ───────────────────────────────
 
 export function DailyPerformanceChart({ days, height = 200, title = 'Daily Performance', hint = 'NET R PER DAY' }: { days: { date: string; netR: number }[]; height?: number; title?: string; hint?: string }) {
+  const palette = useChartPalette();
   const option = useMemo<EChartsOption | null>(() => {
     if (days.length === 0) return null;
     const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
@@ -293,7 +295,7 @@ export function DailyPerformanceChart({ days, height = 200, title = 'Daily Perfo
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const d = sorted[idx];
-          return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>Net R: <b style="color:${d.netR >= 0 ? UP : DOWN}">${fmtR(d.netR)}</b>`;
+          return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>Net R: <b style="color:${d.netR >= 0 ? palette.candles.up : palette.candles.down}">${fmtR(d.netR)}</b>`;
         },
       },
       xAxis: { type: 'category', data: sorted.map((d) => d.date.slice(5)), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
@@ -303,13 +305,13 @@ export function DailyPerformanceChart({ days, height = 200, title = 'Daily Perfo
           type: 'bar',
           data: sorted.map((d) => ({
             value: d.netR,
-            itemStyle: { color: d.netR >= 0 ? UP : DOWN, borderRadius: [2, 2, 0, 0] },
+            itemStyle: { color: d.netR >= 0 ? palette.candles.up : palette.candles.down, borderRadius: [2, 2, 0, 0] },
           })),
           barWidth: '60%',
         },
       ],
     };
-  }, [days]);
+  }, [days, palette]);
 
-  return <EChartsContainer option={option} deps={[days]} height={height} title={title} hint={hint} empty={days.length === 0} emptyText="No daily data yet." />;
+  return <EChartsContainer option={option} deps={[days, palette]} height={height} title={title} hint={hint} empty={days.length === 0} emptyText="No daily data yet." />;
 }

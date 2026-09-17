@@ -15,7 +15,8 @@ import { Radio } from 'lucide-react';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import type { NormalizedEvent } from '@/lib/investor-eye/types';
 import { SEVERITY_COLORS } from '@/lib/investor-eye/layers';
-import { formatUtc, formatEventTitle } from '@/lib/investor-eye/format';
+import { formatClock, formatEventTitle } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
 
 interface LiveFeedProps {
@@ -59,6 +60,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export function LiveFeed({ events, onSelect, selectedKey, loading = false, className }: LiveFeedProps) {
+  const tz = useDisplayTimeZone();
   const [filter, setFilter] = useState<FilterId>('conflict');
 
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
@@ -142,7 +144,7 @@ export function LiveFeed({ events, onSelect, selectedKey, loading = false, class
                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: sev }} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="font-mono text-[9px] text-muted-foreground">{formatUtc(e.publishedAt).slice(11, 16)}</span>
+                    <span className="font-mono text-[9px] text-muted-foreground">{formatClock(e.publishedAt, tz)}</span>
                     <span
                       className="rounded-sm px-1 text-[8px] font-bold uppercase tracking-wide"
                       style={{ color: sev, backgroundColor: `${sev}1f` }}
