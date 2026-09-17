@@ -124,21 +124,24 @@ const GLOBE_PALETTES: Record<GlobeSkin, GlobePalette> = {
     stipple: { count: 2600, minAlpha: 0.06, maxAlpha: 0.22 },
   },
   black: {
+    // GREY, not near-black. A near-black texture under `lambert` lighting with
+    // low ambient came out as an almost featureless dark ball. These tones are
+    // mid-grey, so the continents read as land at a glance.
     ocean: [
-      [0, '#050506'],
-      [0.5, '#08080a'],
-      [1, '#050506'],
+      [0, '#1a1c20'],
+      [0.5, '#23262b'],
+      [1, '#1a1c20'],
     ],
-    band: [[0, 'rgba(255,255,255,0)'], [1, 'rgba(0,0,0,0)']],
-    graticule: 'rgba(255,255,255,0.04)',
+    band: [[0, 'rgba(255,255,255,0.05)'], [1, 'rgba(0,0,0,0)']],
+    graticule: 'rgba(255,255,255,0.09)',
     bloom: null,
     land: [
-      [0, '#141416'],
-      [0.5, '#191a1d'],
-      [1, '#141416'],
+      [0, '#4b5058'],
+      [0.5, '#5a606a'],
+      [1, '#4b5058'],
     ],
-    coastline: 'rgba(255,255,255,0.24)',
-    coastlineWidth: 0.8,
+    coastline: 'rgba(255,255,255,0.55)',
+    coastlineWidth: 1,
     stipple: null,
   },
 };

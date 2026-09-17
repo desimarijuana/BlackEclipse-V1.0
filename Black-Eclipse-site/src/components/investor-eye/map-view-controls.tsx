@@ -12,8 +12,8 @@
 // option in place: no data refetch, no chart rebuild (except the projection
 // switch, which legitimately swaps the base component).
 
-import { Layers2, Sun } from 'lucide-react';
-import { MAP_SKINS, useInvestorEyeStore, type MapMode, type MapSkin } from '@/lib/investor-eye/store';
+import { Layers2, Sparkles, Sun } from 'lucide-react';
+import { MAP_SKINS, useInvestorEyeStore, type MapMode } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 
 const MODES: Array<{ id: MapMode; label: string; hint: string }> = [
@@ -32,6 +32,8 @@ export function MapViewControls({ className, compact = false }: MapViewControlsP
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const setMapSkin = useInvestorEyeStore((s) => s.setMapSkin);
+  const showStars = useInvestorEyeStore((s) => s.showStars);
+  const setShowStars = useInvestorEyeStore((s) => s.setShowStars);
 
   return (
     <div className={cn('glass-button flex items-center gap-0.5 rounded-lg p-0.5', className)}>
@@ -75,6 +77,25 @@ export function MapViewControls({ className, compact = false }: MapViewControlsP
           {!compact && s.label}
         </button>
       ))}
+
+      {/* Divider: decoration is independent of the surface and the projection. */}
+      <span className="mx-0.5 h-4 w-px bg-white/10" aria-hidden="true" />
+
+      {/* Stars are purely decorative, so they get a plain on/off rather than a
+          third skin. The button says what it will DO when clicked. */}
+      <button
+        type="button"
+        onClick={() => setShowStars(!showStars)}
+        title={showStars ? 'Hide the starfield' : 'Show the starfield'}
+        aria-pressed={showStars}
+        className={cn(
+          'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
+          showStars ? 'bg-indigo-500/25 text-indigo-100' : 'text-muted-foreground hover:text-foreground',
+        )}
+      >
+        <Sparkles size={11} />
+        {!compact && (showStars ? 'STARS ON' : 'STARS OFF')}
+      </button>
     </div>
   );
 }

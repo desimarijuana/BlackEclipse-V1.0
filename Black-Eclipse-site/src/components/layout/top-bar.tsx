@@ -69,12 +69,12 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
          </div>
        </div>
 
-       {/* Right-aligned live price ribbon + frosted-glass search bar */}
+       {/* Live price ribbon (flexible, fills the middle) + frosted search bar */}
        <div className="flex-1 flex items-center justify-end gap-2 md:gap-3 min-w-0 px-2">
-          <PriceRibbon className="max-w-[38vw] shrink-0" />
+          <PriceRibbon className="flex-1" />
           <button
             onClick={() => useCommandStore.getState().setOpen(true)}
-            className="command-glass-bar group flex flex-1 min-w-0 max-w-md items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
+            className="command-glass-bar group flex w-[38%] min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"
             title="Search & command center (⌘K)"
           >
             <Search size={16} className="text-muted-foreground/70 shrink-0 transition-colors group-hover:text-primary" />

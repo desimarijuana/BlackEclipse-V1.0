@@ -529,19 +529,19 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
           shading: 'lambert' as const,
           // The sphere's untextured base. The texture supplies every visible
           // surface detail, so this only matters behind it.
-          color: isGlow ? '#0b2f66' : '#03060e',
-          // `black` keeps the planet near-black with a glowing rim, so its ambient
-          // stays LOW (a high ambient washes the dark texture into a bright blue
-          // ball) and the directional light does the shaping. `glow` WANTS the
-          // blue surface lit, so it lifts the ambient and drops the shadowing.
+          color: isGlow ? '#0b2f66' : '#2a2d33',
+          // `black` is the plain grey planet: a mid-grey texture needs enough
+          // ambient to actually read as grey rather than collapsing to black
+          // under `lambert`. `glow` wants its blue surface lit, so it lifts the
+          // ambient further and drops the shadowing.
           light: isGlow
             ? {
                 ambient: { intensity: 0.62 },
                 main: { intensity: 0.7, shadow: false, alpha: 35, beta: 150 },
               }
             : {
-                ambient: { intensity: 0.35 },
-                main: { intensity: 0.55, shadow: true, alpha: 35, beta: 150 },
+                ambient: { intensity: 0.85 },
+                main: { intensity: 0.5, shadow: false, alpha: 35, beta: 150 },
               },
           // ATMOSPHERE OFF ON PURPOSE. echarts-gl's atmosphere paints
           // `glowColor * pow(1 - dot(normal, viewDir), glowPower)`, which peaks

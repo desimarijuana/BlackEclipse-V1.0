@@ -201,6 +201,27 @@ describe('map skin', () => {
     expect(globeFor('black').postEffect.enable).toBe(false);
     expect(globeFor('black').layers).toHaveLength(0);
   });
+
+  it('keeps the black globe grey, not near-black', () => {
+    // A near-black texture under `lambert` lighting collapsed into an almost
+    // featureless dark ball, so the plain skin uses mid-grey tones and enough
+    // ambient to actually show them.
+    const layer = buildEventsLayer([event({ id: 'g2', lon: 1, lat: 1 })]);
+    const globeFor = (skin: 'black' | 'glow') => {
+      const opt = buildMapOption({ layers: [{ ...layer, enabled: true }], mode: 'globe', skin });
+      return (opt as unknown as {
+        globe: { color: string; light: { ambient: { intensity: number } } };
+      }).globe;
+    };
+    const black = globeFor('black');
+    // #2a2d33 — mid-grey, and lighter than the blue skin's deep navy base.
+    const grey = parseInt(black.color.slice(1), 16);
+    const r = (grey >> 16) & 0xff;
+    expect(r).toBeGreaterThan(0x20);
+    expect(r).toBeLessThan(0x60);
+    // Enough ambient that the grey does not collapse back to black.
+    expect(black.light.ambient.intensity).toBeGreaterThanOrEqual(0.8);
+  });
 });
 
 describe('severityColor', () => {

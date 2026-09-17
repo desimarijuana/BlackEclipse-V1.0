@@ -30,6 +30,8 @@ interface WorldMapProps {
   mode?: MapMode;
   /** Surface skin: blue "lit planet" vs the plain black terminal look. */
   skin?: MapSkin;
+  /** Draw the animated starfield behind the map. Purely decorative. */
+  showStars?: boolean;
   /** Called when the globe can't load, so the parent can revert the toggle. */
   onModeUnavailable?: () => void;
   className?: string;
@@ -56,7 +58,7 @@ function ensureGlobeSupport(): Promise<boolean> {
 /** Hard ceiling on globe initialisation before falling back to the flat map. */
 const GLOBE_INIT_TIMEOUT_MS = 20_000;
 
-export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d', skin = 'glow', onModeUnavailable, className }: WorldMapProps) {
+export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, onModeUnavailable, className }: WorldMapProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const featuresRef = useRef<GeoFeature[]>([]);
@@ -249,11 +251,30 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
 
   return (
     <div className={className}>
+      {/* Backdrop. With stars ON the starfield canvas paints the whole sky, so
+          this is only visible where the canvas is (and when stars are OFF, where
+          it is the entire background). Matched to the skin so switching stars off
+          still looks deliberate rather than like a missing layer. */}
+      {!showStars && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background: skin === 'glow'
+              ? 'radial-gradient(120% 90% at 50% 42%, #071a3d 0%, #04102b 55%, #020a1c 100%)'
+              : 'radial-gradient(120% 90% at 50% 42%, #101114 0%, #08090b 60%, #040405 100%)',
+          }}
+        />
+      )}
       {/* Starfield sits behind the chart in BOTH projections: flat mode reads it
           as a dark sky, globe mode as space behind the planet. It is a canvas,
           not a CSS gradient, so the density scales with the container. The skin
-          follows the surface — the plain skin gets a still, flat-black sky. */}
-      <Starfield className="absolute inset-0 h-full w-full" density={mode === 'globe' ? 1 : 0.7} skin={skin} />
+          follows the surface — the plain skin gets a still, flat-black sky.
+          Unmounting it (rather than hiding it) is what actually stops the rAF
+          loop, which matters because this screen also runs a WebGL render loop. */}
+      {showStars && (
+        <Starfield className="absolute inset-0 h-full w-full" density={mode === 'globe' ? 1 : 0.7} skin={skin} />
+      )}
       <div ref={ref} className="absolute inset-0 h-full w-full" />
       {overlay && <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}
     </div>

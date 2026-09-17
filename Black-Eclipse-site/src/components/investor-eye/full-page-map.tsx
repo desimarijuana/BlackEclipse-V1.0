@@ -44,6 +44,7 @@ export function FullPageMap({
   const toggleLayer = useInvestorEyeStore((s) => s.toggleLayer);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
   const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
+  const showStars = useInvestorEyeStore((s) => s.showStars);
   const tz = useDisplayTimeZone();
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
   const timeRange = useInvestorEyeStore((s) => s.timeRange);
@@ -80,6 +81,7 @@ export function FullPageMap({
         onSelectCountry={onSelectCountry}
         mode={mapMode}
         skin={mapSkin}
+        showStars={showStars}
         onModeUnavailable={() => setMapMode('2d')}
       />
 

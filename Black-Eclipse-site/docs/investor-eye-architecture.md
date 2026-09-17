@@ -13,8 +13,9 @@ later presentation/quality passes (globe, colour-coded layers, full-page mode,
 the runtime bugs fixed after them, price reaction/alerts/gazetteer, event
 dossiers, clustering recovery, event plotting, the AI analyst, recurrence,
 data-source governance + NASA FIRMS, the layer/pin corrections that surfaced data
-already in the database, and finally the globe's visual system + the two bugs
-that fixing it exposed).
+already in the database, the globe's visual system + the two bugs that fixing it
+exposed, and finally the surface skins, the pin-glyph accuracy fixes and the
+living sky).
 
 > This document is Phase 0's output. The repository is authoritative: where the
 > implementation spec and the code disagreed, the code won and this record notes
@@ -1077,6 +1078,14 @@ per-row catch is correct for resilience but hides a total-write failure.
 
 ## 5m. Phase 15 — the globe gets a look, and two bugs it exposed
 
+> **Partly superseded by §5n.** The near-black palette, the halos and the
+> atmosphere-rim decision below describe the `black` skin as it stood before the
+> skins existed. The pins are now category **glyphs**, not haloed dots (the halos
+> were removed — a larger copy of a glyph behind it reads as a blob that erases
+> the shape), the rim is an emission layer rather than `atmosphere`, and the
+> default surface is the blue `glow` skin. The reasoning about why the TEXTURE
+> carries the look, and the two runtime bugs, still hold.
+
 The globe worked but read as a flat, bland sphere. Making it *look* like a
 financial intelligence planet surfaced two real defects.
 
@@ -1089,8 +1098,8 @@ financial intelligence planet surfaced two real defects.
 | Coastline | 1px cyan stroke | blurred shadow pass UNDER the land, leaving a halo that hugs the coast |
 | City light | none | deterministic stipple on land only |
 | Stars | none | canvas starfield: 3 depth tiers + two nebula washes |
-| Globe rim | none | `atmosphere` cyan rim glow |
-| Pins (globe) | single flat dot | **two halo passes + a white-hot core** |
+| Globe rim | none | `atmosphere` cyan rim glow (now: an additive **emission layer** — `atmosphere` peaks exactly on the silhouette, so it can only ever draw a hard ring) |
+| Pins (globe) | single flat dot | **category glyph + a faint critical ring** (the halo discs were removed — see §5n) |
 | Pins (2D) | 6–13px flat, 0.5px border | 8–18px, dark contrast ring, severity-sized glow |
 | Trade routes | hairline | wide translucent glow pass under a bright pass |
 
@@ -1136,6 +1145,92 @@ shared transport caps timeouts at 10 s and the feed occasionally exceeds it,
 which silently emptied the hazard layer for a whole cycle. `firmsSource.fetch`
 now does one bounded retry, and only for a *transient* transport error (a 4xx/5xx
 is not retried — the request itself would be wrong).
+
+---
+
+## 5n. Phase 16 — surface skins, accurate pin glyphs, a living sky
+
+Three requests: the map/globe should be **blue**, the background should be
+**alive with shooting stars**, the pins should look like the thing they mean, and
+there should be a **simple button to switch between the plain black surface we
+first had and the new glowy one**.
+
+### The skin switch (`MapSkin`)
+
+`MapSkin = 'black' | 'glow'`, persisted in the store alongside `mapMode` and
+captured in saved views. `MapControls` (`src/components/investor-eye/
+map-view-controls.tsx`) is the single place both choices are made, rendered in the
+hero header **and** the full-page dock — it exists because two hand-rolled copies
+is how one surface ends up missing a control the other has.
+
+The same control strip carries a **STARS ON/OFF** toggle (`showStars`). The
+starfield is deliberately **unmounted**, not hidden — a hidden canvas keeps its
+rAF loop running, and this screen already runs a WebGL render loop. With stars
+off, a skin-matched CSS radial gradient paints the sky so the surface still
+looks intentional rather than like a missing layer.
+
+- `black` is the original terminal look: **mid-grey** land (`#4b5058`→`#5a606a`)
+  on a `#1a1c20` ocean, hairline borders, no shadow, no globe aura, no bloom, and
+  a **still** flat-black sky. The grey is deliberate — the first version was
+  near-black (`#141416`), which under `lambert` lighting with low ambient
+  collapsed into a featureless dark ball. It also carries a higher ambient
+  (0.85) and no shadowing so the grey actually reads. Measured mean luminance
+  55 vs 14 before; land sits at 84–119 against an ocean of 38.
+- `glow` (default) is the blue lit planet: translucent blue continents that let
+  the starfield read through, cyan coastlines, blue globe ocean/land, an additive
+  emission aura and post-process bloom.
+
+A skin is pure view state, so switching it re-renders the option in place. The
+globe texture is **keyed by skin** (`globeTextureRef = { skin, url }`) — the
+obvious `if (globeTextureRef.current) return` guard silently kept the blue planet
+in the black skin after a switch. `texVersion` state bumps when a texture
+finishes drawing so the update effect re-renders without rebuilding the chart.
+
+### The pin glyphs were wrong, and it was three bugs
+
+Measured by rasterising every `SYMBOL_PATHS` glyph and sampling ink coverage at
+known radii — not by eye.
+
+1. **Same-winding holes.** A canvas/SVG fill uses the **nonzero winding rule**. A
+   subpath meant to be a *hole* must run the **opposite** way round, or the hole
+   fills in. `seismic`, `portfolio` and `risk` all wound their cut-outs the same
+   way as their outer shape, so an earthquake, a portfolio and a risk all drew as
+   **solid blobs** — indistinguishable from the catch-all dot.
+2. **A single near-full arc.** `M50,14 A36,36 0 1,1 49.9,14 Z` (a circle drawn as
+   one arc back to a point 0.1px away) renders **off-centre and lumpy**. Every
+   circle is now a pair of 180° arcs.
+3. **The catch-all drew on top.** The `events` layer sat at `zIndex: 30`, *above*
+   the category layers at 25, so its dot was painted over the conflict/fire/
+   energy glyphs. It is now 15: it is background texture, and the shapes that say
+   what each event *is* have to win. `wave` and `exchange` also had overlapping
+   subpaths that merged into unreadable shapes.
+
+The regression test asserts the winding directly (opposite sweeps for arc rings,
+opposite signed area for `risk`'s polygon hole, an even arc count), and a
+separate test pins the z-order relationship.
+
+### The living sky
+
+`Starfield` gained the same `skin` prop. In `glow` it animates; in `black` the
+loop is **never started** and one still frame is painted, which is the point of
+that skin.
+
+Two fixes made the animation actually visible:
+
+- **Meteors were too rare.** The first timer was 6–18 s, so the sky looked dead
+  on arrival. It now spawns from 0.6 s and then every 3–8 s, up to three in
+  flight.
+- **The loop assumed 60 fps.** `dt` was hard-coded to `1/60`, so drift and
+  meteors ran at the wrong speed on any other refresh rate. It now uses real
+  elapsed time, clamped to 50 ms so a backgrounded tab (where rAF pauses) never
+  teleports stars when it resumes.
+
+Measured on the glow skin: sky brightness swings `254 → 578` over 40 s (drift +
+meteors); the black skin is **constant at 335**.
+
+The `black` surface is GREY rather than black for the same reason the sky is
+flat there: a terminal surface should still be readable. Its palette lives in
+`GLOBE_PALETTES.black` in `app-geo.ts`.
 
 ---
 

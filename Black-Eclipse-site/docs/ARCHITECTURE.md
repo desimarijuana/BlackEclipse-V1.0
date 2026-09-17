@@ -384,17 +384,26 @@ The owning screen consumes it with `useSubroute(tab, handler)`; both live in
 result list with `aria-activedescendant`; a polite live region announces result
 counts. Rows are memoized so selection changes don't re-render the whole list.
 
-**Header price ribbon.** `src/components/layout/price-ribbon.tsx` is the live
-ticker strip mounted in `top-bar.tsx` beside the search trigger. It is a **thin
-view over existing DataHub topics** — `market:indices:US`, `market:indices:CRYPTO`,
-`market:commodities`, `market:forex` — so it adds no polling, no second cache,
-and no new API surface. Rows are curated (`RIBBON_ORDER`) and a symbol the
-upstream doesn't return is omitted rather than shown with a placeholder. Clicking
-a quote dispatches a `{ tab: 'chart', params: { symbol } }` destination on the
-command bus. The marquee (`.price-ribbon` / `.price-ribbon-track` in `globals.css`)
-renders two copies of the list and translates `-50%` for a seamless loop; the
-blurred glass wrapper stays untransformed so the backdrop blur isn't scoped to a
-transformed ancestor, and motion is disabled under `prefers-reduced-motion`.
+**Header price ribbon.** `src/components/layout/price-ribbon.tsx` is the live,
+**user-customizable** ticker strip mounted in `top-bar.tsx` beside the search
+trigger. The configured symbols live in `src/lib/ribbon/store.ts` (localStorage,
+same storage-event pattern as the guest watchlist) and are **routed by family**:
+
+- catalog instruments (commodities `GC=F`, FX `EURUSD=X`; registered in
+  `src/lib/market-catalog.ts`, which is also the single source of truth for
+  `/api/commodities` and `/api/forex`) come from the shared `market:commodities`
+  / `market:forex` topics;
+- everything else (indices, stocks, crypto) goes to a dynamic
+  `ribbon:quote:<sorted symbols>` topic over `/api/quote?symbols=…`.
+
+A symbol the upstream cannot price is omitted rather than shown as a fake zero.
+Clicking a quote dispatches a `{ tab: 'chart', params: { symbol } }` destination
+on the command bus; the trailing gear opens a portaled customization popover
+(add via the same database autocomplete the pin inputs use, remove, reset).
+Presentation: **no background** (bare text, reads as market chrome), and the
+marquee (`.price-ribbon` / `.price-ribbon-track` in `globals.css`) renders two
+copies and translates `from -50% to 0` for continuous **left→right** motion,
+pausing on hover and disabled under `prefers-reduced-motion`.
 
 ## The Universal Data Connector Layer
 

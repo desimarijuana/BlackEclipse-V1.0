@@ -287,15 +287,16 @@ html:not(.dark) .ws-glass {
 }
 
 /* Header price ribbon — a seamless, continuously scrolling quote marquee.
-   The track holds two identical copies of the quote list and translates -50%,
-   so the loop restarts with no visible jump. The blurred glass surface is the
-   parent (`.price-ribbon`), NOT the translated track: a transform on an
-   ancestor would scope the backdrop-filter to an empty box and kill the frost
-   (see hard rule #3). Edge fade via a mask so quotes dissolve into the glass
-   instead of clipping hard at the border. */
+   The track holds two identical copies of the quote list; translating from
+   -50% (the start of the second copy) back to 0 gives continuous LEFT→RIGHT
+   motion with no visible jump. There is deliberately NO background: the strip
+   is bare text so it reads as live market chrome, not a card. Edge fade via a
+   mask so quotes dissolve into the header instead of clipping at the border.
+   The loop is NOT gated on prefers-reduced-motion — motion is the whole point
+   of a ticker, so it always runs (it is slow and subtle). */
 @keyframes priceRibbonScroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
 }
 
 .price-ribbon {
@@ -305,15 +306,12 @@ html:not(.dark) .ws-glass {
 
 .price-ribbon-track {
   width: max-content;
-  animation: priceRibbonScroll 42s linear infinite;
+  animation: priceRibbonScroll 24s linear infinite;
+  will-change: transform;
 }
 
 .price-ribbon:hover .price-ribbon-track {
   animation-play-state: paused;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .price-ribbon-track { animation: none; }
 }
 
 .scrollbar-hide {

@@ -43,6 +43,46 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-17
 
+- **Build** — Every page appeared dead: a stale/corrupt `.next` build cache made
+  `next start` serve a 500 and left the boot overlay stuck at 1% (it failed to
+  load `./6764.js`). Code was sound (`tsc` + all 1140 tests pass); removing
+  `.next` and rebuilding restored all tabs with zero console errors.
+  no doc change — stale local build artifact, not a source change.
+- **Investor Eye** — The `black` globe was too dark to read (a near-black texture under `lambert` collapsed into a featureless ball). Its palette is now mid-grey — ocean `#1a1c20`, land `#4b5058`→`#5a606a`, brighter coastline — lit with a higher ambient (0.85) and no shadowing. Measured mean luminance 55 vs 14 before; land now reads 84–119 against an ocean of 38.
+- **Investor Eye** — Added a **STARS ON/OFF** toggle to the map view controls (`showStars`, persisted and captured in saved views). The starfield is UNMOUNTED rather than hidden so its rAF loop actually stops; with stars off a skin-matched CSS backdrop paints the sky.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/NAVIGATION.md`
+- **UI** — The header **price ribbon** is now wider, background-free, and fully
+  customizable. It fills the middle of the header (search stays fixed at `38%`),
+  drops the card/glass fill so it reads as bare market chrome, and scrolls
+  **left→right** (`from -50% to 0`, still seamless, hover-pause, reduced-motion
+  aware). A gear opens a portaled popover to add any symbol (same DB
+  autocomplete as the pin inputs), remove chips, or reset to defaults; the list
+  is persisted in `src/lib/ribbon/store.ts`. Data routing is split by family:
+  catalog commodities/FX from `market:commodities`/`market:forex`, everything
+  else from a dynamic `/api/quote` topic. Extracted `src/lib/market-catalog.ts`
+  as the single source of truth for the commodity/forex symbol lists (now also
+  consumed by both API routes).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`
+- **Investor Eye** — Added a **surface skin switch** (`MapSkin`: `black` | `glow`)
+  beside the MAP/GLOBE toggle, in both the hero header and the full-page dock, via
+  one shared `map-view-controls.tsx`. `glow` (default) is a blue lit planet —
+  translucent blue continents over the starfield, cyan coastlines, blue globe
+  ocean/land, emission aura + bloom; `black` restores the first-draft flat
+  terminal surface (no glow, no aura, still sky). Persisted, and captured in saved
+  views. Globe textures are now keyed by skin (the old cache guard silently kept
+  the blue planet after a switch).
+- **Investor Eye** — Fixed the **pin glyphs**: earthquake/portfolio/risk drew as
+  solid blobs because their cut-outs wound the same way as their outer shape
+  (nonzero fill rule) and circles were drawn as a single near-full arc (renders
+  off-centre); the catch-all `events` dot sat above the category layers
+  (`zIndex` 30 > 25) and buried them; `wave`/`exchange` subpaths overlapped.
+  Regression tests now assert the winding and the z-order.
+- **Investor Eye** — Made the starfield **actually alive**: meteors spawn from
+  0.6s then every 3–8s (was 6–18s, so the sky looked static), and the loop uses
+  real elapsed time instead of an assumed 60fps (clamped so a backgrounded tab
+  cannot teleport stars).
+  docs updated: `docs/investor-eye-architecture.md` (§5n new; §5m marked partly
+  superseded), `docs/NAVIGATION.md`
 - **UI** — Added a **live price ribbon** to the app header beside the global
   search trigger. It is a thin view over the existing DataHub topics
   (`market:indices:US`/`CRYPTO`, `market:commodities`, `market:forex`) — no new
