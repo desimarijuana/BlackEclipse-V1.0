@@ -43,6 +43,20 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Command Center / Earnings** — Added an **Earnings Calendar** widget.
+  `src/lib/earnings.ts` (server-only) fetches Alpha Vantage
+  `EARNINGS_CALENDAR?horizon=3month` using the existing provider-key vault
+  (`ALPHAVANTAGE_API_KEY`); the key never reaches the browser. `getEarningsCalendar`
+  caches 6h (shared in-flight, serve-stale-on-error) and returns an explicit
+  `unavailable` state with a reason on a missing key, timeout, HTTP error, or a
+  JSON rate-limit/notice body. New route `GET /api/earnings`; the widget
+  (`widgets.tsx`, registered as `earnings-calendar`, topic `earnings:calendar`)
+  shows company, ticker, date, BMO/AMC (maps `pre-market`/`post-market` too),
+  EPS estimate, Today/Tomorrow/This Week/3-month filters, loading/empty/error
+  states, source + last-updated, and opens a row's symbol on the chart via the
+  command store. 5 parser tests. docs updated: `docs/ARCHITECTURE.md`,
+  `docs/CHANGELOG.md`
+
 - **Command Center** — ChatDock minimized pill is now draggable. It defaults to
   the viewport bottom-right corner (it was anchored to the centred column, so it
   sat mid-right) and can be dragged anywhere, with the position persisted

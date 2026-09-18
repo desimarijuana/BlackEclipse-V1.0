@@ -28,6 +28,7 @@ export {
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
+  EarningsCalendarWidget,
   StockQuoteWidget, WatchlistWidget,
   RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
   NotesWidget, GeopoliticsWidget, MaritimeWidget, PolymarketWidget,
@@ -65,6 +66,8 @@ registerTopic(jsonTopic('market:commodities', '/api/commodities', { ttl: 120_000
 registerTopic(jsonTopic('market:forex', '/api/forex', { ttl: 120_000, interval: 60_000 }));
 registerTopic(jsonTopic('news:feed', '/api/news?limit=30', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('econ:calendar', '/api/economics/calendar', { ttl: 300_000, interval: 120_000 }));
+// Earnings calendar — server-cached 6h upstream, so a modest client cadence.
+registerTopic(jsonTopic('earnings:calendar', '/api/earnings', { ttl: 1_800_000, interval: 1_800_000 }));
 registerTopic(jsonTopic('market:quote:AAPL', '/api/quote?symbols=AAPL', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('market:quote:AAPL,MSFT,NVDA,TSLA,AMZN', '/api/quote?symbols=AAPL,MSFT,NVDA,TSLA,AMZN', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('alerts:list', '/api/alerts', { ttl: 60_000, interval: 30_000 }));
@@ -144,6 +147,7 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   mdef('candle-chart', 'research', 'Candle Chart', 'Candlesticks for the active market’s lead instrument.', 'candlestick', ['large', 'full'], (p) => <CandleChartWidget placement={p} />),
   mdef('stock-screener', 'research', 'Stock Screener', 'Live JDDS rows ranked by market cap for the chosen market.', 'table', ['large', 'full'], (p) => <StockScreenerWidget placement={p} />),
   def('economic-calendar', 'research', 'Economic Calendar', 'Upcoming macro events.', 'calendar', ['medium', 'large'], () => <EconomicCalendarWidget />, ['econ:calendar']),
+  def('earnings-calendar', 'research', 'Earnings Calendar', 'Upcoming company earnings — date, BMO/AMC and EPS estimate.', 'calendar', ['medium', 'large'], () => <EarningsCalendarWidget />, ['earnings:calendar']),
   def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />, ['news:feed']),
 
   // ── Portfolio ──

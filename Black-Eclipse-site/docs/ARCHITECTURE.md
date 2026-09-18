@@ -133,7 +133,7 @@ routes are protected by `src/lib/api-guard.ts`:
 
 Key route groups: `stocks`, `quote`, `price-history`, `markets` (+`global`),
 `indices`, `forex`, `commodities`, `heatmap`, `news` (+`status`, `alert`),
-`economics` (+`snapshot`, `calendar`), `search` (+`global`, `index`), `agent`
+`economics` (+`snapshot`, `calendar`), `earnings`, `search` (+`global`, `index`), `agent`
 (+`chat`, `research`, `activity`), `journal/*` (largest group), `alerts/*`,
 `scraper` (+`import`), `refresh`, `settings`, `cron` (+`run`, `refresh-news`),
 `data-sources` (+`test`), `datasets`, `data/[capability]`, `providers`,
@@ -876,6 +876,21 @@ research agent in `research.ts`. Every result states provenance and labels
   AI-INTERPRETED`).
 - Partial failure does not break the page: the map renders from whatever the
   remaining sources produced, and the status chip reports each source's state.
+
+## Earnings calendar (the Command Center)
+
+`src/lib/earnings.ts` (server-only) + `GET /api/earnings` serve upcoming company
+earnings to the `earnings-calendar` widget (topic `earnings:calendar`).
+**Alpha Vantage `EARNINGS_CALENDAR?horizon=3month`** is the source, using the
+`ALPHAVANTAGE_API_KEY` already declared in the provider-key vault; the key is
+read with `resolveProviderKey` server-side and **never** sent to the browser.
+The parser accepts Alpha Vantage's header aliases (`estimate`/`estimatedEPS`) and
+session spellings (`pre-market`/`post-market` → BMO/AMC). Caching is 6h with a
+shared in-flight promise, and a stale cached result is served on failure so a
+transient hiccup never blanks the widget. Every failure — no key, timeout, HTTP
+error, or a JSON rate-limit/notice body — returns an explicit
+`source: 'unavailable'` with a human `reason`; rows are never fabricated. Clicking
+a row dispatches `{ tab: 'chart', params: { symbol } }` on the command store.
 
 ## Live Intelligence (the Command Center media widget)
 

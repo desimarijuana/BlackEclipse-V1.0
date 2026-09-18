@@ -16,6 +16,7 @@ import { useAggregatePortfolio } from './portfolio-store';
 import { useMarketIndices, useMarketGroup, useMarketSectors, useMarketLeadSymbol, marketViewName } from './market-views';
 import { MarketPicker } from '@/components/workspace/market-picker';
 import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
+import { useCommandStore } from '@/lib/search/store';
 import { IE_STATE_TOPIC } from '@/lib/investor-eye/topics';
 import type { InvestorEyeState } from '@/lib/investor-eye/types';
 import { formatClock, formatEventTitle } from '@/lib/investor-eye/format';
@@ -1113,6 +1114,152 @@ export function MarketStatusWidget({ placement }: { placement?: WidgetPlacement 
           <span className="text-rose-400">{down} declining</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Earnings Calendar ───────────────────────────────────────────────────────
+// Upcoming company earnings from /api/earnings (Alpha Vantage via the server;
+// the key never reaches the browser). Today / Tomorrow / This Week filtering,
+// BMO/AMC session, EPS estimate. Unavailable/error states are explicit — rows
+// are never fabricated. Clicking a row opens that symbol on the chart.
+
+interface EarningsRow {
+  symbol: string;
+  name: string;
+  date: string;
+  time: 'BMO' | 'AMC' | null;
+  epsEstimate: number | null;
+  epsActual: number | null;
+  currency: string | null;
+}
+interface EarningsPayload {
+  rows?: EarningsRow[];
+  source?: 'alphavantage' | 'unavailable';
+  fetchedAt?: string;
+  reason?: string;
+}
+
+type EarningsRange = 'today' | 'tomorrow' | 'week' | 'all';
+
+/** Local calendar day (YYYY-MM-DD) for a Date, in the viewer's timezone. */
+function localDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function EarningsCalendarWidget() {
+  const t = useTopic<EarningsPayload>('earnings:calendar');
+  const [range, setRange] = useState<EarningsRange>('today');
+
+  const today = localDay(new Date());
+  const tomorrow = localDay(new Date(Date.now() + 86_400_000));
+  const weekEnd = localDay(new Date(Date.now() + 7 * 86_400_000));
+
+  const rows = useMemo(() => t.data?.rows ?? [], [t.data]);
+  const filtered = useMemo(() => {
+    const within = (d: string) => d >= today && d <= weekEnd;
+    const list = rows
+      .filter(r => {
+        if (range === 'today') return r.date === today;
+        if (range === 'tomorrow') return r.date === tomorrow;
+        if (range === 'week') return within(r.date);
+        return true;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
+    return list.slice(0, 40);
+  }, [rows, range, today, tomorrow, weekEnd]);
+
+  const loading = t.updatedAt === null;
+  const unavailable = !loading && (t.source === 'UNAVAILABLE' || t.data?.source === 'unavailable');
+  const dayLabel = (d: string) => (d === today ? 'Today' : d === tomorrow ? 'Tomorrow' : d);
+
+  const openSymbol = (symbol: string) =>
+    useCommandStore.getState().dispatch({ tab: 'chart', params: { symbol } });
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader
+        title="Earnings Calendar"
+        hint={loading ? '…' : `${rows.length} · 3MO`}
+      />
+
+      {/* Range filter */}
+      <div className="mb-2 flex shrink-0 flex-wrap gap-1.5">
+        {(['today', 'tomorrow', 'week', 'all'] as const).map(r => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setRange(r)}
+            className={cn(
+              'cursor-pointer rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors',
+              range === r ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border/20 text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {r === 'week' ? 'This week' : r === 'all' ? '3 months' : r}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <EmptyNote>Loading earnings…</EmptyNote>
+      ) : unavailable ? (
+        <EmptyNote>
+          UNAVAILABLE — {t.data?.reason ?? 'earnings source not reachable.'}
+        </EmptyNote>
+      ) : filtered.length === 0 ? (
+        <EmptyNote>No earnings scheduled in this window.</EmptyNote>
+      ) : (
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle">
+          <table className="w-full text-left border-separate border-spacing-0 text-[10px]">
+            <thead className="sticky top-0 z-10">
+              <tr className="glass-card-subtle">
+                {['Company', 'Date', 'Session', 'EPS est'].map((h, i) => (
+                  <th key={h} className={cn(
+                    'border-b border-white/10 py-2 px-2.5 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono whitespace-nowrap',
+                    i === 0 ? 'text-left' : 'text-right',
+                  )}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {filtered.map(r => (
+                <tr
+                  key={`${r.symbol}-${r.date}`}
+                  onClick={() => openSymbol(r.symbol)}
+                  className="cursor-pointer transition-colors hover:bg-white/[0.05]"
+                  title={`Open ${r.symbol} on the chart`}
+                >
+                  <td className="border-b border-white/5 py-2 px-2.5 whitespace-nowrap">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-bold text-foreground">{r.symbol}</span>
+                      <span className="truncate text-muted-foreground">{r.name}</span>
+                    </span>
+                  </td>
+                  <td className="border-b border-white/5 py-2 px-2.5 text-right text-muted-foreground tabular-nums whitespace-nowrap">
+                    {dayLabel(r.date)}
+                  </td>
+                  <td className="border-b border-white/5 py-2 px-2.5 text-right whitespace-nowrap">
+                    {r.time
+                      ? <span className={cn('rounded px-1 py-0.5 text-[8px] font-bold',
+                          r.time === 'BMO' ? 'bg-sky-500/10 text-sky-400' : 'bg-violet-500/10 text-violet-400')}>{r.time}</span>
+                      : <span className="text-muted-foreground/40">—</span>}
+                  </td>
+                  <td className="border-b border-white/5 py-2 px-2.5 text-right tabular-nums text-foreground">
+                    {r.epsEstimate != null ? r.epsEstimate.toFixed(2) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Provenance — source + last updated, never fabricated. */}
+      <p className="mt-1.5 shrink-0 font-mono text-[9px] text-muted-foreground/60">
+        {unavailable
+          ? 'Alpha Vantage · unavailable'
+          : `Alpha Vantage · ${t.data?.fetchedAt ? `updated ${new Date(t.data.fetchedAt).toLocaleTimeString()}` : '—'}`}
+      </p>
     </div>
   );
 }
