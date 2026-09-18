@@ -43,6 +43,23 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Workspace / Command Center** — Rebuilt all default layouts gap-free and
+  rewrote fullscreen. **Every default placement is now pinned to one of
+  `HEIGHTS`** (`strip/tile/panel/tall/chart/live`) and each centre row is
+  authored as matched-height columns, so a short widget is never stranded beside
+  a tall one. Section rows switched from `items-stretch` to `items-start`, so a
+  short column can no longer grow to its sibling's height and leave blank tail
+  space. **Widgets render full size with no inner scrollbars**: the card body no
+  longer gets `overflow-y-auto` when height-pinned (it is clipped by the card's
+  own `overflow-hidden`; widgets that scroll internally opt in). **Fullscreen**
+  now renders the REAL app `<TopBar activeTab="dashboard" />` — the live price
+  ribbon and the global ⌘K search — with only a floating bottom-right Exit
+  button (no custom bar). **Eight personas** now ship with genuinely different
+  widget sets and primary visuals: `trader`, `trader-pro` (dual charts, tape,
+  alerts, heatmap, large live TV), `investor`, `macro`, `crypto`, `forex`,
+  `quant`, `world` (Investor Eye map). `live-tv` and `market-heatmap` are core
+  to both trader layouts. Storage bumped to **v6** (full reset — all old layouts
+  discarded). Docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
 - **Workspace / Command Center** — Removed compact mode, added fullscreen, and
   fixed the gappy look of the v4 layouts.
   - **Compact mode deleted** (prop, state, toggle, `Shift+C`, canvas plumbing).

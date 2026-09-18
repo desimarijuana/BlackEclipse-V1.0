@@ -163,9 +163,14 @@ Default arrangements are composed by the pure, tested engine in
 `src/lib/dashboard/layout.ts`:
 
 - **Templates** (`templates.ts`) are widget-id specs, centre-only, using the
-  **band grammar**: hero (4 tall-ish KPI tiles) → a full-width **primary** visual
-  with a pinned height → **analysis**/**context** TWO-UP (roomy, not four skinny
-  columns). Six personas: Trader, Investor, Macro, Crypto, Forex, Quant.
+  **band grammar**: a 4-up hero of small tiles → a full-width **primary** visual
+  → matched-height two-up analysis/context bands → an optional full-width live
+  strip. **Every default placement is pinned to a `HEIGHTS` token** (`strip 130`,
+  `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) and each row's
+  columns share a height — never leave a short widget beside a tall one.
+  **Eight personas**, each with a different widget set AND primary visual:
+  Trader, Trader Pro (dual charts, tape, alerts, heatmap, large live TV),
+  Investor, Macro, Crypto, Forex, Quant, World (Investor Eye map).
 - **`buildMarketViewLayout(market, ids, templateBase)`** frames the template with
   thin side rails: left = Watchlist only; right = the asset class's `mp-*` stat
   tiles (`ASSET_RAIL`). Each rail is **ONE STACKED section** (single column),
@@ -174,7 +179,13 @@ Default arrangements are composed by the pure, tested engine in
 - **`composeRows`** enforces the invariants in ONE place: global first-wins
   **dedupe** across zones, **4-column cap at build time**, unknown ids dropped,
   and per-cell **pinned heights** (`height`). Rows with `stack:true` collapse to
-  a single column. Never bypass it — the old generator skipped dedupe and built
+  a single column.
+- **Widgets render at full size with NO inner scrollbar.** The card body never
+  gets `overflow-y-auto`; a height-pinned card is clipped by its own
+  `overflow-hidden` container. If a widget legitimately needs to scroll, it opts
+  in internally (`scrollbar-hide`).
+- Section rows use **`items-start`** (NOT `items-stretch`) so a short column
+  cannot grow to its tallest sibling and leave blank tail space. Never bypass it — the old generator skipped dedupe and built
   5-wide rows truncated on reload.
 - Storage is **v5** (`be_dashboards_index_v5` / `be_ws_dashboard_v5_`) and is a
   deliberate reset; pre-v5 layouts are not migrated forward.
@@ -182,11 +193,13 @@ Default arrangements are composed by the pure, tested engine in
 ## Command Center fullscreen
 
 `DashboardScreen` has an in-app fullscreen mode (`Shift+F`, button in the header,
-`Esc` to exit). It **portals to `<body>`** — the app shell is wrapped in a
-glass-card whose `backdrop-filter` creates a containing block, so a bare
-`position: fixed` would be trapped and the global nav would stay on top (same
-reason the Chart Workspace portals its full-page overlay). While open, body
-scroll is locked and the workspace owns the remaining height and scrolls.
+`Esc` to exit). It renders the **real app `<TopBar activeTab="dashboard" />`** —
+the live price ribbon + global ⌘K search — and only a floating bottom-right
+**Exit** button; there is no custom full-width bar. It **portals to `<body>`** —
+the app shell is wrapped in a glass-card whose `backdrop-filter` creates a
+containing block, so a bare `position: fixed` would be trapped and the global nav
+would stay on top (same reason the Chart Workspace portals its full-page
+overlay). While open, body scroll is locked and the workspace owns the height.
 
 ## Chart widgets
 

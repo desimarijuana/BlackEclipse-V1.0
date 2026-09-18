@@ -94,8 +94,12 @@ padding/gap that made the dashboard look gappy. See `buildLeftSections` /
 `buildRailSections`.
 
 **Pinned height** — a per-placement fixed pixel height (`placement.height`) used
-to size large visuals (primary chart, map, live strip) intentionally instead of
-letting them stretch. Auto placements (`height: null`) fill the column.
+to size every default widget intentionally instead of letting it stretch. Shared
+tokens live in `HEIGHTS` (`strip 130`, `tile 190`, `panel 300`, `tall 420`,
+`chart 460`, `live 520`). Auto placements (`height: null`) are reserved for
+user-added widgets and fill the column. A pinned card renders its widget **full
+size with no inner scrollbar** — content is clipped by the card's
+`overflow-hidden`, and widgets that need to scroll opt in themselves.
 
 **Compact mode** — *removed*. It forced a fixed 40px card height and crushed
 widget content; there is no row-height mode any more.

@@ -343,40 +343,57 @@ widgets, this stays about arrangement):
    - **build-time 4-column cap** (the layout shown is what is persisted — the old
      generator built 5-wide lead rows that `normalizeLayout` truncated on reload,
      so layouts changed shape after a refresh),
-   - **per-cell pinned heights** (`height`) so large visuals get an intentional
-     size instead of stretching into dead space,
-   - `stack: true` rows collapse into ONE column (used for the side rails),
-   - unknown ids dropped.
+    - **per-cell pinned heights** (`height`) so large visuals get an intentional
+      size instead of stretching into dead space. `HEIGHTS` (`strip 130`,
+      `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) are the only
+      default heights; `auto` (null) is reserved for user-added widgets,
+    - `stack: true` rows collapse into ONE column (used for the side rails),
+    - unknown ids dropped.
 
 The side rails are each a **single stacked section**, not one section per tile.
 The old per-widget sections wrapped every tile in its own section gap + padding,
-which is what made the dashboard look full of gaps. The centre uses a **band
-grammar**: a short 4-up **hero** of small tiles → a full-width **primary** visual
-with a pinned height → roomy **two-up** analysis/context bands (not four skinny
-columns) → an optional full-width **live** strip. Six personas ship: **Trader,
-Investor, Macro, Crypto, Forex, Quant**, each materially distinct (different
-primary chart and bands), not index shuffles of one another.
+which is what made the dashboard look full of gaps.
 
-**Storage v5 is a deliberate RESET.** v4 shipped the grammar with the gappy
-rails and stretched heights; v5 stacks the rails, pins band heights, and drops
-compact mode. Stale layouts are *not* migrated forward
-(`be_dashboards_index_v5` / `be_ws_dashboard_v5_`; older keys are absent from
-`LEGACY_INDEX_KEYS`). Everyone reopens into the clean defaults.
+**Every default placement is pinned to a height, and each centre row is authored
+so its columns share a height** — a short widget is never left beside a tall one.
+Section rows use `items-start` (NOT `items-stretch`), so a short column can no
+longer grow to its tallest sibling and leave blank tail space. The centre uses a
+**band grammar**: a 4-up hero of small tiles → a full-width primary visual →
+matched-height two-up analysis/context bands → an optional full-width live strip.
+
+**Eight personas ship, each with a genuinely different widget set and primary
+visual — not index shuffles:** `trader` (chart + tape + movers + heatmap + live
+TV), `trader-pro` (dual charts, tape, alerts, heatmap, large live TV),
+`investor` (fund performance, holdings, risk), `macro` (economic chart, rates,
+commodities, geopolitics), `crypto` (crypto markets, ticker, polymarket),
+`forex` (FX pairs, drivers, macro snapshot), `quant` (heatmap, screener,
+opportunities), `world` (Investor Eye map, events, conflict layers).
+
+**Storage v6 is a deliberate RESET.** v5 still let short columns stretch and had
+auto heights, so layouts looked gappy. v6 pins every default height, authors
+matched-height rows, stops columns stretching, and ships the eight personas.
+Stale layouts are *not* migrated forward (`be_dashboards_index_v6` /
+`be_ws_dashboard_v6_`; older keys are absent from `LEGACY_INDEX_KEYS`). Everyone
+reopens into the new, gap-free defaults.
 
 ### Command Center fullscreen
 
 `DashboardScreen` has an in-app fullscreen mode (`Shift+F`; header button; `Esc`
-exits). The overlay is **portaled to `<body>`**: the app shell is wrapped in a
-glass-card whose `backdrop-filter` establishes a containing block, so a plain
-`position: fixed` overlay would be trapped inside it and the global nav would
-stay on top — the same reason the Chart Workspace portals its full-page overlay.
-Body scroll is locked while open; the workspace owns the height and scrolls.
+exits). It renders the **real app `<TopBar activeTab="dashboard" />`** — the live
+price ribbon and the global ⌘K search — so fullscreen keeps the market chrome
+rather than inventing its own bar. There is no dedicated full-width bar; a
+floating **Exit** button sits bottom-right. The overlay is **portaled to
+`<body>`**: the app shell is wrapped in a glass-card whose `backdrop-filter`
+establishes a containing block, so a plain `position: fixed` overlay would be
+trapped inside it and the global nav would stay on top — the same reason the
+Chart Workspace portals its full-page overlay. Body scroll is locked while open;
+the workspace owns the height and scrolls.
 
 ### Compact mode was removed
 
 The widget workspace no longer has a compact/row-height mode. It forced every
 card to a fixed 40px height, crushing widget content. Cards now size to their
-widget (auto, stretching to fill the column) or to a per-placement pinned height.
+widget (auto, filling the column) or to a per-placement pinned height.
 
 ## The command center (⌘K)
 

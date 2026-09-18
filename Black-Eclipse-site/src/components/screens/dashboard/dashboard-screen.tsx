@@ -16,6 +16,7 @@ import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWid
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
 import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
+import { TopBar } from '@/components/layout/top-bar';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 import { MarketTabs } from './market-tabs';
 
@@ -164,23 +165,21 @@ export function DashboardScreen() {
         ref={rootRef}
         tabIndex={-1}
         data-keyboard-scope="Command Center"
-        className="fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background/95 p-3 backdrop-blur-md outline-none"
+        className="fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background/95 backdrop-blur-md outline-none"
       >
-        <div className="mb-3 flex items-center gap-3 rounded-2xl glass-card px-4 py-2">
-          <LayoutDashboard className="text-primary" size={16} />
-          <span className="font-serif text-sm font-semibold text-foreground">Command Center</span>
-          {dashboards.active && (
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{dashboards.active.name}</span>
-          )}
-          <button
-            onClick={toggleFullscreen}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary hover:border-primary/40 transition-all cursor-pointer"
-            title="Exit fullscreen (Esc)"
-          >
-            <Minimize2 size={13} /> Exit
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{workspaceEl}</div>
+        {/* The REAL app TopBar — price ribbon + global ⌘K search. No custom
+            bar; fullscreen keeps the live market chrome the app already has. */}
+        <TopBar activeTab="dashboard" />
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">{workspaceEl}</div>
+        {/* Floating exit — bottom-right so it never overlaps the TopBar's
+            price ribbon / search. No bar stealing board space. */}
+        <button
+          onClick={toggleFullscreen}
+          className="glass-button fixed bottom-4 right-4 z-[85] inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+          title="Exit fullscreen (Esc)"
+        >
+          <Minimize2 size={13} /> Exit
+        </button>
         {showOnboarding && (
           <DashboardOnboarding open onComplete={(r) => handleOnboard(r)} />
         )}

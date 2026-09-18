@@ -27,6 +27,28 @@ export function assetClassFor(market: string): AssetClass {
 
 const MAX_COLUMNS = 4;
 
+/**
+ * Default band heights (px). Every default placement is pinned to one of these
+ * so a widget never stretches into dead space and rows can be authored as
+ * matched-height pairs. `auto` (null) is only used for user-added widgets.
+ */
+export const HEIGHTS = {
+  /** One-line tickers / strips. */
+  strip: 130,
+  /** Small status / KPI tiles. */
+  tile: 190,
+  /** Standard panel (lists, tables, feeds). */
+  panel: 300,
+  /** Tall news / live / map panels. */
+  tall: 420,
+  /** The full-width primary visual (chart, heatmap, map). */
+  chart: 460,
+  /** Live TV — deliberately large so it is watchable. */
+  live: 520,
+  /** Auto height — natural content size (user-added widgets only). */
+  auto: null,
+} as const;
+
 /** Left zone: the personal watchlist only. Never duplicated in the centre. */
 const LEFT_WIDGET_IDS = ['watchlist'];
 
@@ -46,8 +68,12 @@ export const MARKET_RAIL_WIDGET_IDS = [
   'mp-fear-greed', 'mp-breadth', 'mp-movers', 'mp-snapshot', 'mp-hours',
 ];
 
-/** Build one STACKED section (single column) holding every widget id. */
-function stackedSection(zone: WorkspaceZone, widgetIds: string[]): WorkspaceSection[] {
+/**
+ * Build one STACKED section (single column) holding every widget id, each
+ * pinned to `height` (default `HEIGHTS.tile`) so stacked rail tiles never
+ * stretch.
+ */
+function stackedSection(zone: WorkspaceZone, widgetIds: string[], height: number | null = HEIGHTS.tile): WorkspaceSection[] {
   if (widgetIds.length === 0) return [];
   return [{
     id: newId('sec'),
@@ -55,7 +81,7 @@ function stackedSection(zone: WorkspaceZone, widgetIds: string[]): WorkspaceSect
     columns: [{
       id: newId('col'),
       weight: 1,
-      widgets: widgetIds.map(widgetId => ({ id: newId('wid'), widgetId, height: null })),
+      widgets: widgetIds.map(widgetId => ({ id: newId('wid'), widgetId, height })),
     }],
   }];
 }
@@ -67,7 +93,7 @@ export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS):
 
 /** Left zone: the personal watchlist, stacked. */
 export function buildLeftSections(widgetIds: string[] = LEFT_WIDGET_IDS): WorkspaceSection[] {
-  return stackedSection('left', widgetIds);
+  return stackedSection('left', widgetIds, HEIGHTS.panel);
 }
 
 /**
@@ -150,11 +176,11 @@ export function buildMarketViewLayout(
   const cls = assetClassFor(market);
 
   const rows: LayoutRow[] = [
-    { zone: 'left', stack: true, cells: LEFT_WIDGET_IDS.map(widget => ({ widget })) },
+    { zone: 'left', stack: true, cells: LEFT_WIDGET_IDS.map(widget => ({ widget, height: HEIGHTS.panel })) },
     ...(templateBase && templateBase.sections.length > 0
       ? layoutToRows(templateBase)
       : []),
-    { zone: 'right', stack: true, cells: ASSET_RAIL[cls].map(widget => ({ widget })) },
+    { zone: 'right', stack: true, cells: ASSET_RAIL[cls].map(widget => ({ widget, height: HEIGHTS.tile })) },
   ];
 
   return { version: 1, sections: composeRows(rows, known) };

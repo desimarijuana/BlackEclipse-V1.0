@@ -15,7 +15,9 @@ const IDS = [
   'what-changed', 'opportunity-scanner', 'news-feed', 'economic-calendar',
   'geopolitics', 'maritime', 'crypto-markets', 'trade-tape', 'sparklines',
   'crypto-ticker', 'polymarket', 'forex-pairs', 'stock-screener', 'asset-chart',
-  'live-tv', 'watchlist',
+  'live-tv', 'watchlist', 'commodities',
+  'tradingview-chart', 'journal-performance', 'active-alerts', 'candle-chart',
+  'investor-eye', 'investor-eye-map',
   'mp-indices', 'mp-movers', 'mp-breadth', 'mp-snapshot', 'mp-hours',
   'mp-forex', 'mp-commodities', 'mp-crypto', 'mp-fear-greed',
 ];
@@ -119,9 +121,9 @@ describe('side-zone builders', () => {
 // ── personas ─────────────────────────────────────────────────────────────────
 
 describe('persona templates', () => {
-  it('ships exactly the six personas', () => {
+  it('ships exactly the eight personas, including Trader Pro and World', () => {
     expect(DASHBOARD_TEMPLATES.map(t => t.id))
-      .toEqual(['trader', 'investor', 'macro', 'crypto', 'forex', 'quant']);
+      .toEqual(['trader', 'trader-pro', 'investor', 'macro', 'crypto', 'forex', 'quant', 'world']);
   });
 
   it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
@@ -144,15 +146,35 @@ describe('persona templates', () => {
     },
   );
 
+  it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
+    '%s pins a height on every default placement (no stretched gaps)',
+    (_id, t) => {
+      const built = t.build(IDS);
+      for (const s of built.sections) {
+        for (const c of s.columns) {
+          for (const w of c.widgets) expect(w.height).toBeGreaterThan(0);
+        }
+      }
+    },
+  );
+
+  it('uses live TV and the heatmap in the two trader personas', () => {
+    const trader = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'trader')!.build(IDS));
+    expect(trader).toContain('live-tv');
+    expect(trader).toContain('market-heatmap');
+    const pro = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'trader-pro')!.build(IDS));
+    expect(pro).toContain('live-tv');
+    expect(pro).toContain('market-heatmap');
+  });
+
   it('drops unknown ids without crashing', () => {
     const built = DASHBOARD_TEMPLATES[0].build(['market-status', 'not-real']);
     expect(allIds(built)).toEqual(['market-status']);
   });
 
-  it('keeps personas materially distinct (Trader vs Investor differ)', () => {
-    const trader = allIds(DASHBOARD_TEMPLATES[0].build(IDS));
-    const investor = allIds(DASHBOARD_TEMPLATES[1].build(IDS));
-    expect(trader).not.toEqual(investor);
+  it('keeps every persona materially distinct (no two share their widget set)', () => {
+    const sets = DASHBOARD_TEMPLATES.map(t => allIds(t.build(IDS)).slice().sort().join(','));
+    expect(new Set(sets).size).toBe(DASHBOARD_TEMPLATES.length);
   });
 });
 

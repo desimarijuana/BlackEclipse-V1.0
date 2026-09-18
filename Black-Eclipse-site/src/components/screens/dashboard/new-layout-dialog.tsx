@@ -8,7 +8,7 @@
 
 import React, { useState } from 'react';
 import {
-  BarChart3, Briefcase, Coins, Globe, LineChart, LayoutGrid, Orbit, Search,
+  BarChart3, Briefcase, Coins, Globe, Landmark, LineChart, LayoutGrid, Orbit, Search, Zap,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -16,11 +16,13 @@ import { DASHBOARD_TEMPLATES } from '@/lib/dashboard/templates';
 
 const PRESET_ICON: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   trader: LineChart,
+  'trader-pro': Zap,
   investor: Briefcase,
   crypto: Coins,
   forex: Globe,
   quant: BarChart3,
   macro: Orbit,
+  world: Landmark,
   research: Search,
 };
 

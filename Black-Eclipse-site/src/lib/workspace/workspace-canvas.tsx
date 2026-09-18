@@ -810,7 +810,10 @@ function SectionRow({
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-2.5 items-stretch">
+      {/* items-start (not stretch): a short column must NOT grow to the height
+          of its tallest sibling — that is what produced blank tail space under
+          short widgets. Each card owns its own pinned height. */}
+      <div className="flex flex-col md:flex-row gap-2.5 items-start">
         {section.columns.map((column, colIdx) => (
           <React.Fragment key={column.id}>
             <ColumnDroppable
@@ -1087,7 +1090,11 @@ function WidgetCard({
           ><X size={12} /></button>
         </div>
       )}
-      <div className={cn('min-h-0 flex-1', placement.height != null && 'overflow-y-auto')}>
+      {/* No overflow scroll on the card body: a widget must render FULL SIZE
+          within its pinned height. The card itself is overflow-hidden, so
+          content is clipped rather than showing an inner scrollbar. Widgets
+          that need to scroll internally opt in themselves (scrollbar-hide). */}
+      <div className="flex min-h-0 flex-1 flex-col">
         {placement.hidden ? (
           <div className="flex h-full items-center justify-center p-4">
             <span className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-400/80">

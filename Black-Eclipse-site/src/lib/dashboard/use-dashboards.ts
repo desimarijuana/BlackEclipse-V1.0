@@ -21,19 +21,20 @@ export interface DashboardEntry {
   isDefault: boolean;
 }
 
-const INDEX_KEY = 'be_dashboards_index_v5';
+const INDEX_KEY = 'be_dashboards_index_v6';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 // Remembers the last-viewed dashboard so a restart/reload reopens the same one
 // instead of always snapping back to the dashboard flagged `isDefault`.
 const ACTIVE_KEY = 'be_dashboards_active_v1';
 
 // Bump the storage prefix when the widget catalog OR the generated layout
-// grammar changes so stale layouts don't load half-migrated. v5 is a deliberate
-// RESET: v4 shipped the band grammar but with one-section-per-rail-widget (lots
-// of dead gaps) and stretched auto heights; v5 stacks each rail into one section
-// and pins sensible band heights. Old layouts are not carried forward, so
-// everyone reopens into the calmer defaults.
-export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v5_';
+// grammar changes so stale layouts don't load half-migrated. v6 is a deliberate
+// RESET: v5 still let short columns stretch (items-stretch) and had stretched
+// auto heights, so layouts looked gappy. v6 pins every default placement height,
+// authors matched-height rows, stops columns stretching, and ships EIGHT
+// genuinely distinct personas (incl. Trader Pro and World). Old layouts are not
+// carried forward — everyone reopens into the new, gap-free defaults.
+export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v6_';
 
 // Legacy index keys, newest first. When the storage prefix is bumped we migrate
 // the user's existing dashboards forward instead of silently seeding a fresh
