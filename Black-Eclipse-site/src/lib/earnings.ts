@@ -208,26 +208,37 @@ export function parseNasdaqEarnings(json: unknown): EarningsRow[] {
   return out;
 }
 
-/** Fetch a few upcoming weekdays from Nasdaq and merge into one list. */
+/**
+ * Nasdaq is queried one day at a time, so fetch a bounded rolling window that
+ * fills a month calendar: the last 7 days (for context) through +35 days.
+ * Weekends are skipped and requests are pooled to stay gentle on the endpoint.
+ */
 async function fetchFromNasdaq(): Promise<EarningsResult> {
   const fetchedAt = new Date().toISOString();
   const days: string[] = [];
-  // Next 5 weekdays (today included) — enough for the Today/Tomorrow/Week filters.
-  for (let i = 0; days.length < 5 && i < 9; i++) {
+  for (let i = -7; i <= 35; i++) {
     const d = new Date(Date.now() + i * 86_400_000);
     const dow = d.getDay();
     if (dow === 0 || dow === 6) continue;
     days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
   }
-  const results = await Promise.all(days.map(async (date) => {
+
+  const fetchDay = async (date: string): Promise<EarningsRow[]> => {
     try {
       const res = await getJson(`https://api.nasdaq.com/api/calendar/earnings?date=${date}`, 12_000);
-      if (!res.ok) return [] as EarningsRow[];
-      const parsed = parseNasdaqEarnings(JSON.parse(res.text));
-      return parsed.map(r => ({ ...r, date }));
-    } catch { return [] as EarningsRow[]; }
-  }));
-  const rows = results.flat();
+      if (!res.ok) return [];
+      return parseNasdaqEarnings(JSON.parse(res.text)).map(r => ({ ...r, date }));
+    } catch { return []; }
+  };
+
+  // Small concurrency pool (~6 at a time) so ~30 days don't burst the endpoint.
+  const rows: EarningsRow[] = [];
+  const POOL = 6;
+  for (let i = 0; i < days.length; i += POOL) {
+    const batch = await Promise.all(days.slice(i, i + POOL).map(fetchDay));
+    rows.push(...batch.flat());
+  }
+
   if (rows.length === 0) {
     return { rows: [], source: 'unavailable', fetchedAt, reason: 'Nasdaq returned no earnings rows.' };
   }

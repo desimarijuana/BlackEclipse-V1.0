@@ -886,7 +886,8 @@ the `ALPHAVANTAGE_API_KEY` from the provider-key vault (read with
 `resolveProviderKey` server-side; the key is **never** sent to the browser). A
 zero-config install has no key, so the module falls back to **Nasdaq's public
 earnings calendar** (`api.nasdaq.com/api/calendar/earnings`, no key) for the next
-5 weekdays — so the widget works out of the box and labels the real source
+a bounded rolling window (last 7 → +35 days, weekends skipped, ~6 requests pooled
+at a time) — so the widget works out of the box and labels the real source
 (`Nasdaq` / `Alpha Vantage`). A present-but-rejected key also falls through to
 Nasdaq, and the Alpha Vantage reason is preserved in the error text. Parsers
 accept Alpha Vantage's header aliases (`estimate`/`estimatedEPS`) and session
@@ -894,8 +895,10 @@ spellings (`pre-market`/`post-market`, `time-pre-market`/`time-after-hours` →
 BMO/AMC), plus parenthesised negative Nasdaq EPS (`($1.08)`). Caching is 6h with
 a shared in-flight promise, and a stale cached result is served on failure. Only
 when BOTH sources fail does it return `source: 'unavailable'` with a human
-`reason`; rows are never fabricated. Clicking a row dispatches
-`{ tab: 'chart', params: { symbol } }` on the command store.
+`reason`; rows are never fabricated. The widget renders a **month grid calendar**
+(cells group rows by ISO day, with ticker chips; a selected-day detail list),
+and clicking a company dispatches `{ tab: 'chart', params: { symbol } }` on the
+command store.
 
 ## Live Intelligence (the Command Center media widget)
 

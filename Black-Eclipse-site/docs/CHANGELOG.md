@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Command Center / Earnings** — The Earnings Calendar widget now renders a
+  **month grid calendar** instead of a list: 6×7 Sunday-first cells with per-day
+  ticker chips (+N overflow), a highlighted today and selected day, month
+  prev/next + Today, and a detail list for the selected day (company, BMO/AMC,
+  EPS est; clicking opens the chart). The keyless Nasdaq fallback now fetches a
+  bounded rolling window (last 7 → +35 days, weekends skipped, pooled ~6 at a
+  time) so the calendar is actually populated — verified live: 605 rows across
+  30 days. Widget frame raised to 420px.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Command Center / Earnings** — Fixed "no data" when no key is configured and
   added the keyless fallback. Alpha Vantage stays primary, but a zero-config
   install has no `ALPHAVANTAGE_API_KEY`, so `earnings.ts` now falls back to

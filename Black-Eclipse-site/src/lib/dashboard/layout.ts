@@ -59,7 +59,7 @@ export const WIDGET_FRAME_HEIGHT: Record<string, number> = {
   'holdings': 380,
   'stock-screener': 420,
   'economic-calendar': 340,
-  'earnings-calendar': 340,
+  'earnings-calendar': 420,
   'trade-tape': 320,
   'active-alerts': 300,
   'journal-performance': 300,

@@ -7,7 +7,7 @@
 // UNAVAILABLE state instead of fake data.
 
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Search, Star, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Search, Star, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useChartPalette } from '@/lib/chart-palette-store';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
@@ -1140,38 +1140,67 @@ interface EarningsPayload {
   reason?: string;
 }
 
-type EarningsRange = 'today' | 'tomorrow' | 'week' | 'all';
-
 /** Local calendar day (YYYY-MM-DD) for a Date, in the viewer's timezone. */
 function localDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
 export function EarningsCalendarWidget() {
   const t = useTopic<EarningsPayload>('earnings:calendar');
-  const [range, setRange] = useState<EarningsRange>('today');
-
+  // The visible month (first day). Starts on the current month.
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), 1);
+  });
   const today = localDay(new Date());
-  const tomorrow = localDay(new Date(Date.now() + 86_400_000));
-  const weekEnd = localDay(new Date(Date.now() + 7 * 86_400_000));
+  const [selectedDay, setSelectedDay] = useState<string>(today);
 
   const rows = useMemo(() => t.data?.rows ?? [], [t.data]);
-  const filtered = useMemo(() => {
-    const within = (d: string) => d >= today && d <= weekEnd;
-    const list = rows
-      .filter(r => {
-        if (range === 'today') return r.date === today;
-        if (range === 'tomorrow') return r.date === tomorrow;
-        if (range === 'week') return within(r.date);
-        return true;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
-    return list.slice(0, 40);
-  }, [rows, range, today, tomorrow, weekEnd]);
+
+  // Group earnings by ISO day so each cell can render its own tickers.
+  const byDay = useMemo(() => {
+    const m = new Map<string, EarningsRow[]>();
+    for (const r of rows) {
+      if (!r.date) continue;
+      const list = m.get(r.date) ?? [];
+      list.push(r);
+      m.set(r.date, list);
+    }
+    for (const list of m.values()) list.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return m;
+  }, [rows]);
+
+  // Build the 6×7 grid (Sunday-first) covering the visible month, padded with
+  // adjacent-month days so the calendar reads continuously.
+  const weeks = useMemo(() => {
+    const first = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
+    const start = new Date(first);
+    start.setDate(first.getDate() - first.getDay()); // back to Sunday
+    const cells: { date: string; day: number; inMonth: boolean }[] = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      cells.push({ date: localDay(d), day: d.getDate(), inMonth: d.getMonth() === first.getMonth() });
+    }
+    const out: typeof cells[] = [];
+    for (let i = 0; i < 42; i += 7) out.push(cells.slice(i, i + 7));
+    return out;
+  }, [monthCursor]);
 
   const loading = t.updatedAt === null;
   const unavailable = !loading && (t.source === 'UNAVAILABLE' || t.data?.source === 'unavailable');
-  const dayLabel = (d: string) => (d === today ? 'Today' : d === tomorrow ? 'Tomorrow' : d);
+  const monthLabel = monthCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const monthCount = useMemo(
+    () => rows.filter(r => r.date.startsWith(`${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`)).length,
+    [rows, monthCursor],
+  );
+
+  const shiftMonth = (delta: number) =>
+    setMonthCursor(c => new Date(c.getFullYear(), c.getMonth() + delta, 1));
+
+  const selectedRows = byDay.get(selectedDay) ?? [];
 
   const openSymbol = (symbol: string) =>
     useCommandStore.getState().dispatch({ tab: 'chart', params: { symbol } });
@@ -1180,78 +1209,120 @@ export function EarningsCalendarWidget() {
     <div className="flex h-full flex-col p-4">
       <WidgetHeader
         title="Earnings Calendar"
-        hint={loading ? '…' : `${rows.length} · 3MO`}
+        hint={loading ? '…' : `${monthCount} in ${monthCursor.toLocaleDateString(undefined, { month: 'short' })}`}
       />
 
-      {/* Range filter */}
-      <div className="mb-2 flex shrink-0 flex-wrap gap-1.5">
-        {(['today', 'tomorrow', 'week', 'all'] as const).map(r => (
+      {/* Month navigation */}
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => shiftMonth(-1)}
+          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+          title="Previous month"
+          aria-label="Previous month"
+        ><ChevronLeft size={14} /></button>
+        <span className="font-mono text-[11px] font-bold text-foreground">{monthLabel}</span>
+        <div className="flex items-center gap-1">
           <button
-            key={r}
             type="button"
-            onClick={() => setRange(r)}
-            className={cn(
-              'cursor-pointer rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors',
-              range === r ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border/20 text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {r === 'week' ? 'This week' : r === 'all' ? '3 months' : r}
-          </button>
-        ))}
+            onClick={() => { const n = new Date(); setMonthCursor(new Date(n.getFullYear(), n.getMonth(), 1)); setSelectedDay(today); }}
+            className="rounded-lg px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-muted-foreground transition-colors hover:bg-accent hover:text-primary cursor-pointer"
+            title="Jump to today"
+          >Today</button>
+          <button
+            type="button"
+            onClick={() => shiftMonth(1)}
+            className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+            title="Next month"
+            aria-label="Next month"
+          ><ChevronRight size={14} /></button>
+        </div>
       </div>
 
       {loading ? (
         <EmptyNote>Loading earnings…</EmptyNote>
       ) : unavailable ? (
-        <EmptyNote>
-          UNAVAILABLE — {t.data?.reason ?? 'earnings source not reachable.'}
-        </EmptyNote>
-      ) : filtered.length === 0 ? (
-        <EmptyNote>No earnings scheduled in this window.</EmptyNote>
+        <EmptyNote>UNAVAILABLE — {t.data?.reason ?? 'earnings source not reachable.'}</EmptyNote>
       ) : (
-        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle">
-          <table className="w-full text-left border-separate border-spacing-0 text-[10px]">
-            <thead className="sticky top-0 z-10">
-              <tr className="glass-card-subtle">
-                {['Company', 'Date', 'Session', 'EPS est'].map((h, i) => (
-                  <th key={h} className={cn(
-                    'border-b border-white/10 py-2 px-2.5 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono whitespace-nowrap',
-                    i === 0 ? 'text-left' : 'text-right',
-                  )}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="font-mono">
-              {filtered.map(r => (
-                <tr
-                  key={`${r.symbol}-${r.date}`}
-                  onClick={() => openSymbol(r.symbol)}
-                  className="cursor-pointer transition-colors hover:bg-white/[0.05]"
-                  title={`Open ${r.symbol} on the chart`}
-                >
-                  <td className="border-b border-white/5 py-2 px-2.5 whitespace-nowrap">
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <span className="font-bold text-foreground">{r.symbol}</span>
-                      <span className="truncate text-muted-foreground">{r.name}</span>
-                    </span>
-                  </td>
-                  <td className="border-b border-white/5 py-2 px-2.5 text-right text-muted-foreground tabular-nums whitespace-nowrap">
-                    {dayLabel(r.date)}
-                  </td>
-                  <td className="border-b border-white/5 py-2 px-2.5 text-right whitespace-nowrap">
-                    {r.time
-                      ? <span className={cn('rounded px-1 py-0.5 text-[8px] font-bold',
-                          r.time === 'BMO' ? 'bg-sky-500/10 text-sky-400' : 'bg-violet-500/10 text-violet-400')}>{r.time}</span>
-                      : <span className="text-muted-foreground/40">—</span>}
-                  </td>
-                  <td className="border-b border-white/5 py-2 px-2.5 text-right tabular-nums text-foreground">
-                    {r.epsEstimate != null ? r.epsEstimate.toFixed(2) : '—'}
-                  </td>
-                </tr>
+        <>
+          {/* Month grid */}
+          <div className="shrink-0 rounded-xl glass-card-subtle p-1.5">
+            <div className="grid grid-cols-7 gap-px">
+              {WEEKDAYS.map((w, i) => (
+                <span key={i} className="py-0.5 text-center text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">{w}</span>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+            <div className="grid grid-cols-7 gap-px">
+              {weeks.flat().map(cell => {
+                const list = byDay.get(cell.date) ?? [];
+                const count = list.length;
+                const isToday = cell.date === today;
+                const isSelected = cell.date === selectedDay;
+                return (
+                  <button
+                    key={cell.date}
+                    type="button"
+                    onClick={() => setSelectedDay(cell.date)}
+                    className={cn(
+                      'flex min-h-[38px] flex-col items-center rounded-md px-0.5 pt-0.5 transition-colors cursor-pointer',
+                      isSelected ? 'bg-primary/20 ring-1 ring-primary/50' : count > 0 ? 'bg-accent/30 hover:bg-accent/60' : 'hover:bg-accent/30',
+                      !cell.inMonth && 'opacity-40',
+                    )}
+                    aria-label={`${cell.date}${count ? `, ${count} earnings` : ''}`}
+                    aria-pressed={isSelected}
+                  >
+                    <span className={cn(
+                      'flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-mono leading-none',
+                      isToday ? 'bg-primary text-primary-foreground font-bold' : 'text-muted-foreground',
+                    )}>{cell.day}</span>
+                    {count > 0 && (
+                      <span className="mt-0.5 flex flex-wrap items-center justify-center gap-px">
+                        {list.slice(0, 2).map(r => (
+                          <span key={r.symbol} className="rounded-[3px] bg-primary/15 px-0.5 text-[6.5px] font-mono font-bold text-primary">
+                            {r.symbol.slice(0, 4)}
+                          </span>
+                        ))}
+                        {count > 2 && <span className="text-[6.5px] font-mono text-muted-foreground">+{count - 2}</span>}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Selected day detail */}
+          <div className="mt-2 flex min-h-0 flex-1 flex-col">
+            <p className="mb-1 shrink-0 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">
+              {selectedDay === today ? 'Today' : selectedDay} · {selectedRows.length} report{selectedRows.length === 1 ? '' : 's'}
+            </p>
+            {selectedRows.length === 0 ? (
+              <p className="text-[10px] italic text-muted-foreground/60">No earnings scheduled.</p>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide flex flex-col gap-1">
+                {selectedRows.map(r => (
+                  <button
+                    key={`${r.symbol}-${r.date}`}
+                    type="button"
+                    onClick={() => openSymbol(r.symbol)}
+                    className="flex items-center gap-2 rounded-lg border border-border/10 glass-card-subtle px-2 py-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40 cursor-pointer"
+                    title={`Open ${r.symbol} on the chart`}
+                  >
+                    <span className="font-mono text-[10px] font-bold text-foreground shrink-0">{r.symbol}</span>
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{r.name}</span>
+                    {r.time && (
+                      <span className={cn('shrink-0 rounded px-1 py-0.5 text-[8px] font-bold',
+                        r.time === 'BMO' ? 'bg-sky-500/10 text-sky-400' : 'bg-violet-500/10 text-violet-400')}>{r.time}</span>
+                    )}
+                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground">
+                      {r.epsEstimate != null ? r.epsEstimate.toFixed(2) : '—'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Provenance — source + last updated, never fabricated. */}
