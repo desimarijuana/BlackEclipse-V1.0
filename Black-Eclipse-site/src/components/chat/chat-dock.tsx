@@ -32,6 +32,8 @@ import { ChatHistory } from './chat-history';
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Persisted collapse preference — the user decides small vs big. */
 const MINIMIZED_KEY = 'be_chat_dock_minimized_v1';
+/** Persisted position of the minimized pill (viewport px, top-left corner). */
+const PILL_POS_KEY = 'be_chat_dock_pill_pos_v1';
 const MAX_PERSISTED = 60;
 
 function loadMinimized(): boolean {
@@ -41,6 +43,31 @@ function loadMinimized(): boolean {
 
 function saveMinimized(minimized: boolean) {
   try { window.localStorage.setItem(MINIMIZED_KEY, minimized ? '1' : '0'); } catch { /* best effort */ }
+}
+
+interface PillPos { x: number; y: number; }
+
+function loadPillPos(): PillPos | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(PILL_POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<PillPos>;
+    if (typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    return { x: p.x, y: p.y };
+  } catch { return null; }
+}
+
+function savePillPos(pos: PillPos) {
+  try { window.localStorage.setItem(PILL_POS_KEY, JSON.stringify(pos)); } catch { /* best effort */ }
+}
+
+/** Keep the pill fully on screen after a drag or a viewport resize. */
+function clampPill(x: number, y: number, w: number, h: number): PillPos {
+  const pad = 6;
+  const maxX = Math.max(pad, window.innerWidth - w - pad);
+  const maxY = Math.max(pad, window.innerHeight - h - pad);
+  return { x: Math.min(Math.max(pad, x), maxX), y: Math.min(Math.max(pad, y), maxY) };
 }
 
 function loadMessages(): Message[] {
@@ -100,6 +127,9 @@ export function ChatDock({
   // True minimize: the whole dock shrinks to a small pill the user can restore.
   // Persisted so the choice survives a reload.
   const [minimized, setMinimized] = useState(false);
+  // The minimized pill is draggable; `null` means "default corner" (bottom-right).
+  const [pillPos, setPillPos] = useState<PillPos | null>(null);
+  const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const providerLabel = useProviderLabel();
 
@@ -116,7 +146,20 @@ export function ChatDock({
     setMounted(true);
     setMessages(loadMessages());
     setMinimized(loadMinimized());
+    setPillPos(loadPillPos());
   }, []);
+
+  // Re-clamp the pill if the window shrinks under it.
+  useEffect(() => {
+    if (!pillPos) return;
+    const onResize = () => {
+      const el = pillRef.current;
+      const r = el?.getBoundingClientRect();
+      setPillPos(p => (p ? clampPill(p.x, p.y, r?.width ?? 130, r?.height ?? 36) : p));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [pillPos]);
 
   const toggleMinimized = useCallback(() => {
     setMinimized(prev => {
@@ -127,6 +170,58 @@ export function ChatDock({
       return next;
     });
   }, []);
+
+  /**
+   * Pointer drag for the minimized pill. A press that moves past a small
+   * threshold becomes a drag (position persisted); otherwise it is a click that
+   * restores the dock. Uses real pointer captures so the drag survives leaving
+   * the button.
+   */
+  const onPillPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const el = pillRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const start = el.getBoundingClientRect();
+    const rect = { w: start.width, h: start.height };
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const originX = start.left;
+    const originY = start.top;
+    let moved = false;
+    let latest = clampPill(originX, originY, rect.w, rect.h);
+    const PID = e.pointerId;
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== PID) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      latest = clampPill(originX + dx, originY + dy, rect.w, rect.h);
+      // Move the live element directly for a jank-free drag; commit on release.
+      el.style.left = `${latest.x}px`;
+      el.style.top = `${latest.y}px`;
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== PID) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (moved) {
+        setPillPos(latest);
+        savePillPos(latest);
+      } else {
+        // A click (no drag) restores the dock.
+        toggleMinimized();
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -241,19 +336,25 @@ export function ChatDock({
     >
       <div className="pointer-events-auto flex w-[min(760px,100%)] flex-col gap-2">
         {minimized ? (
-          // Minimized: a compact pill the user can restore. Drag/expand is a
-          // per-user preference, so we only shrink — never hide permanently.
+          // Minimized: a compact pill. Click restores; drag repositions (the
+          // position is persisted). Defaults to the bottom-right corner, and
+          // when positioned we anchor by top/left so it never fights the layout.
           <button
+            ref={pillRef}
             type="button"
-            onClick={toggleMinimized}
-            className="ml-auto inline-flex items-center gap-2 rounded-full border border-white/12 dark:border-white/8 glass-card-strong px-3.5 py-2 text-xs font-bold text-muted-foreground shadow-2xl shadow-black/50 transition-colors hover:text-primary cursor-pointer"
-            title="Expand the assistant"
-            aria-label="Expand the assistant"
+            onPointerDown={onPillPointerDown}
+            style={pillPos ? { left: pillPos.x, top: pillPos.y, right: 'auto', bottom: 'auto' } : undefined}
+            className={cn(
+              'fixed z-[90] inline-flex touch-none select-none items-center gap-2 rounded-full border border-white/12 dark:border-white/8 glass-card-strong px-3.5 py-2 text-xs font-bold text-muted-foreground shadow-2xl shadow-black/50 transition-colors hover:text-primary',
+              pillPos ? 'cursor-grab active:cursor-grabbing' : 'bottom-4 right-4 ml-auto cursor-grab active:cursor-grabbing',
+            )}
+            title="Drag to move · click to expand"
+            aria-label="Expand the assistant (drag to move)"
             aria-expanded={false}
           >
-            <Sparkles size={13} className="text-primary" />
-            <span className="hidden sm:inline">Assistant</span>
-            <Maximize2 size={13} />
+            <Sparkles size={13} className="pointer-events-none text-primary" />
+            <span className="pointer-events-none hidden sm:inline">Assistant</span>
+            <Maximize2 size={13} className="pointer-events-none" />
           </button>
         ) : (
           <>

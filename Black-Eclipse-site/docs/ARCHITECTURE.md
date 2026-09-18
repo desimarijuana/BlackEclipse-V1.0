@@ -478,8 +478,12 @@ It renders at `z-[90]` (above the fullscreen overlay's `z-[80]`) and takes a
 collapse controls: the **transcript** expand/collapse (and Escape, captured so it
 does not also exit fullscreen), and a true **minimize** that shrinks the whole
 dock to a restore pill — persisted (`be_chat_dock_minimized_v1`) so the user's
-small-vs-big choice survives reload. The composer overlays the board; it does not
-reserve layout space.
+small-vs-big choice survives reload. The minimized pill is **draggable**: it
+defaults to the viewport bottom-right corner and, once moved, anchors by
+`top`/`left` with its position persisted (`be_chat_dock_pill_pos_v1`) and
+re-clamped on resize (`clampPill`). Click (no drag) restores the dock; a press
+that passes a 4px threshold becomes a drag. The composer overlays the board; it
+does not reserve layout space.
 
 ### Shipped default dashboard board
 

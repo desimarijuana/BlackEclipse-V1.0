@@ -43,6 +43,13 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Command Center** — ChatDock minimized pill is now draggable. It defaults to
+  the viewport bottom-right corner (it was anchored to the centred column, so it
+  sat mid-right) and can be dragged anywhere, with the position persisted
+  (`be_chat_dock_pill_pos_v1`) and re-clamped on resize. Click restores; a drag
+  moves it.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Command Center** — ChatDock float fix + minimize option. The visibility gate
   no longer uses an `IntersectionObserver` on a zero-size sentinel (which made the
   composer vanish mid-scroll — it looked like it scrolled with the page); it now
