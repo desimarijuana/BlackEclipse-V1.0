@@ -54,16 +54,20 @@ function buildFromRows(rows: LayoutRow[], widgetIds: string[]): WorkspaceLayout 
     ?? cloneLayout({ version: 1, sections: [] });
 }
 
+// Centre rows are capped at TWO widgets. Four skinny columns are what squeezed
+// KPI tiles until their titles and numbers truncated — the "looks horrible"
+// regression. Two-up (or one full-width) gives every widget room to render its
+// full content without crowding.
 export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
   {
     id: 'trader',
     name: 'Trader',
-    desc: 'Chart-first day trading: status, movers, a big chart, trade tape, heatmap and live TV.',
+    desc: 'Chart-first day trading: status, a big chart, heatmap, trade tape, live TV and news.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'performance', 'portfolio-summary'], HEIGHTS.tile),
+      band(['market-status', 'market-regime'], HEIGHTS.tile),
       full('eclipse-chart', HEIGHTS.chart),
-      band(['trade-tape', 'top-movers'], HEIGHTS.panel),
       full('market-heatmap', HEIGHTS.tall),
+      band(['trade-tape', 'top-movers'], HEIGHTS.panel),
       band(['what-changed', 'opportunity-scanner'], HEIGHTS.panel),
       full('live-tv', HEIGHTS.live),
       band(['news-feed', 'economic-calendar'], HEIGHTS.panel),
@@ -72,13 +76,13 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
   {
     id: 'trader-pro',
     name: 'Trader Pro',
-    desc: 'The full professional board: dual charts, trade tape, alerts, heatmap and large live TV.',
+    desc: 'The full professional board: chart, trade tape, alerts, heatmap and large live TV.',
     build: ids => buildFromRows([
-      band(['market-status', 'top-movers', 'performance', 'journal-performance'], HEIGHTS.tile),
-      band(['eclipse-chart', 'tradingview-chart'], HEIGHTS.chart),
-      band(['trade-tape', 'risk-metrics'], HEIGHTS.panel),
+      band(['market-status', 'top-movers'], HEIGHTS.tile),
+      full('eclipse-chart', HEIGHTS.chart),
       full('market-heatmap', HEIGHTS.tall),
-      band(['active-alerts', 'candle-chart'], HEIGHTS.panel),
+      band(['trade-tape', 'active-alerts'], HEIGHTS.panel),
+      band(['candle-chart', 'risk-metrics'], HEIGHTS.tall),
       band(['sector-heatmap', 'what-changed'], HEIGHTS.panel),
       full('live-tv', HEIGHTS.live),
     ], ids),
@@ -88,9 +92,10 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     name: 'Investor',
     desc: 'Portfolio-first: performance vs benchmarks, holdings, allocation and risk.',
     build: ids => buildFromRows([
-      band(['market-status', 'portfolio-summary', 'performance', 'risk-metrics'], HEIGHTS.tile),
+      band(['market-status', 'portfolio-summary'], HEIGHTS.tile),
       full('fund-performance-chart', HEIGHTS.chart),
-      band(['holdings', 'funds-comparison-chart'], HEIGHTS.tall),
+      full('holdings', HEIGHTS.tall),
+      band(['funds-comparison-chart', 'risk-metrics'], HEIGHTS.panel),
       band(['global-markets', 'market-regime'], HEIGHTS.panel),
       band(['news-feed', 'economic-calendar'], HEIGHTS.panel),
     ], ids),
@@ -100,8 +105,9 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     name: 'Macro',
     desc: 'Rates, central banks and global flows — economic series, commodities, geopolitics, news.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'global-markets', 'macro-snapshot'], HEIGHTS.tile),
+      band(['market-status', 'market-regime'], HEIGHTS.tile),
       full('economic-chart', HEIGHTS.chart),
+      band(['global-markets', 'macro-snapshot'], HEIGHTS.panel),
       band(['market-drivers', 'what-changed'], HEIGHTS.panel),
       band(['commodities', 'economic-calendar'], HEIGHTS.panel),
       band(['geopolitics', 'maritime'], HEIGHTS.tall),
@@ -111,10 +117,11 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
   {
     id: 'crypto',
     name: 'Crypto',
-    desc: 'Live crypto markets, a big chart, trade tape, ticker, sparklines and prediction markets.',
+    desc: 'Live crypto markets, a big chart, trade tape, sparklines and prediction markets.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'crypto-markets', 'global-markets'], HEIGHTS.tile),
+      band(['market-status', 'crypto-markets'], HEIGHTS.tile),
       full('eclipse-chart', HEIGHTS.chart),
+      band(['market-regime', 'global-markets'], HEIGHTS.panel),
       band(['trade-tape', 'top-movers'], HEIGHTS.panel),
       band(['sparklines', 'polymarket'], HEIGHTS.panel),
       full('crypto-ticker', HEIGHTS.strip),
@@ -126,8 +133,9 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     name: 'Forex',
     desc: 'FX pairs, a big chart, drivers, macro snapshot and the economic calendar.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'forex-pairs', 'global-markets'], HEIGHTS.tile),
+      band(['market-status', 'forex-pairs'], HEIGHTS.tile),
       full('eclipse-chart', HEIGHTS.chart),
+      band(['market-regime', 'global-markets'], HEIGHTS.panel),
       band(['market-drivers', 'what-changed'], HEIGHTS.panel),
       band(['macro-snapshot', 'economic-calendar'], HEIGHTS.panel),
       full('economic-chart', HEIGHTS.tall),
@@ -139,9 +147,10 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     name: 'Quant',
     desc: 'Screeners, heatmaps, risk and momentum setups for systematic work.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'top-movers', 'performance'], HEIGHTS.tile),
+      band(['market-status', 'market-regime'], HEIGHTS.tile),
       full('market-heatmap', HEIGHTS.chart),
-      band(['stock-screener', 'sector-heatmap'], HEIGHTS.tall),
+      full('stock-screener', HEIGHTS.tall),
+      band(['sector-heatmap', 'top-movers'], HEIGHTS.panel),
       band(['opportunity-scanner', 'risk-metrics'], HEIGHTS.panel),
       full('asset-chart', HEIGHTS.chart),
       full('news-feed', HEIGHTS.tall),
@@ -152,10 +161,11 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
     name: 'World',
     desc: 'Geopolitics and world events: the live map, event feed, conflict layers and markets.',
     build: ids => buildFromRows([
-      band(['market-status', 'market-regime', 'global-markets', 'macro-snapshot'], HEIGHTS.tile),
+      band(['market-status', 'market-regime'], HEIGHTS.tile),
       full('investor-eye-map', HEIGHTS.chart),
       full('investor-eye', HEIGHTS.tall),
       band(['geopolitics', 'maritime'], HEIGHTS.tall),
+      band(['global-markets', 'macro-snapshot'], HEIGHTS.panel),
       band(['economic-calendar', 'news-feed'], HEIGHTS.panel),
     ], ids),
   },

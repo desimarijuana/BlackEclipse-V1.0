@@ -358,8 +358,14 @@ which is what made the dashboard look full of gaps.
 so its columns share a height** — a short widget is never left beside a tall one.
 Section rows use `items-start` (NOT `items-stretch`), so a short column can no
 longer grow to its tallest sibling and leave blank tail space. The centre uses a
-**band grammar**: a 4-up hero of small tiles → a full-width primary visual →
+**band grammar**: a two-up hero of small tiles → a full-width primary visual →
 matched-height two-up analysis/context bands → an optional full-width live strip.
+
+**Centre rows are capped at TWO columns.** Four skinny columns squeezed KPI
+tiles until their titles and numbers truncated — widgets looked "compacted" and
+unreadable. Two-up (or one full-width) gives every widget room to render its
+full content. The 4-column engine capability still exists for user drag/drop;
+the *defaults* simply never go above two.
 
 **Eight personas ship, each with a genuinely different widget set and primary
 visual — not index shuffles:** `trader` (chart + tape + movers + heatmap + live

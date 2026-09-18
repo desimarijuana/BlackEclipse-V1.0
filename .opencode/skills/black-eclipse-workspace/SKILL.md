@@ -163,11 +163,14 @@ Default arrangements are composed by the pure, tested engine in
 `src/lib/dashboard/layout.ts`:
 
 - **Templates** (`templates.ts`) are widget-id specs, centre-only, using the
-  **band grammar**: a 4-up hero of small tiles → a full-width **primary** visual
-  → matched-height two-up analysis/context bands → an optional full-width live
-  strip. **Every default placement is pinned to a `HEIGHTS` token** (`strip 130`,
-  `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) and each row's
-  columns share a height — never leave a short widget beside a tall one.
+  **band grammar**: a two-up hero of small tiles → a full-width **primary**
+  visual → matched-height two-up analysis/context bands → an optional full-width
+  live strip. **Every default placement is pinned to a `HEIGHTS` token**
+  (`strip 130`, `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) and
+  each row's columns share a height — never leave a short widget beside a tall
+  one. **Centre rows are capped at TWO columns** — four skinny columns truncate
+  widget titles and numbers; the engine still supports 4 for user drag/drop, but
+  defaults never exceed two.
   **Eight personas**, each with a different widget set AND primary visual:
   Trader, Trader Pro (dual charts, tape, alerts, heatmap, large live TV),
   Investor, Macro, Crypto, Forex, Quant, World (Investor Eye map).

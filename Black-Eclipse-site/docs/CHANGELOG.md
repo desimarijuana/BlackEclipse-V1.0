@@ -43,6 +43,13 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Workspace / Command Center** — Fixed the "widgets look compacted" regression
+  in the new defaults: centre rows are now **capped at TWO columns** (one or two
+  widgets per row, never four). Four skinny columns were truncating KPI titles
+  and numbers until widgets looked crushed. Every persona re-authored to the
+  two-up grammar; the engine still supports 4 columns for user drag/drop, only
+  the defaults changed. 8 new tests assert no default centre row exceeds 2
+  columns. docs updated: `docs/ARCHITECTURE.md`
 - **Workspace / Command Center** — Rebuilt all default layouts gap-free and
   rewrote fullscreen. **Every default placement is now pinned to one of
   `HEIGHTS`** (`strip/tile/panel/tall/chart/live`) and each centre row is

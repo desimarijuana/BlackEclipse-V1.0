@@ -158,6 +158,14 @@ describe('persona templates', () => {
     },
   );
 
+  it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
+    '%s keeps centre rows to at most 2 columns so widgets render full size',
+    (_id, t) => {
+      const built = t.build(IDS);
+      for (const s of built.sections) expect(s.columns.length).toBeLessThanOrEqual(2);
+    },
+  );
+
   it('uses live TV and the heatmap in the two trader personas', () => {
     const trader = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'trader')!.build(IDS));
     expect(trader).toContain('live-tv');
