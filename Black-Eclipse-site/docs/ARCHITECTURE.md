@@ -325,6 +325,36 @@ Both workspace systems are real and both are supported. The **retired** thing is
 `src/lib/customize/` — an earlier kernel that is documented as superseded and
 must not receive new features. See ADR-005 and ADR-006.
 
+### Dashboard layout grammar (personas + bands)
+
+The *default* arrangement of the Command Center is composed by the pure,
+unit-tested engine in `src/lib/dashboard/layout.ts` (registry stays about
+widgets, this stays about arrangement):
+
+1. **Templates** (`src/lib/dashboard/templates.ts`) are authored as **widget-id
+   specs**, never registry indices — inserting a widget in the registry can no
+   longer silently repoint a template. A template is **centre-only**.
+2. **`buildMarketViewLayout`** frames the template with the two thin side zones
+   (left = Watchlist; right = the market's asset-class `mp-*` stat tiles) and
+   composes everything through `composeRows`.
+3. **`composeRows`** is the single enforcement point for the invariants:
+   - **global first-wins dedupe** across every zone (a widget renders once, never
+     in both the centre and a rail),
+   - **build-time 4-column cap** (the layout shown is what is persisted — the old
+     generator built 5-wide lead rows that `normalizeLayout` truncated on reload,
+     so layouts changed shape after a refresh),
+   - unknown ids dropped.
+
+Templates follow a **band grammar** — hero (4) → primary (1 full) → analysis
+(3) → intelligence (2) → context (2) → live. Six personas ship: **Trader,
+Investor, Macro, Crypto, Forex, Quant**, each materially distinct (different
+primary chart and bands), not index shuffles of one another.
+
+**Storage v4 is a deliberate RESET.** The pre-v4 generator produced the
+cross-zone duplicates and truncated rows above, so stale layouts are *not*
+migrated forward (`be_dashboards_index_v4` / `be_ws_dashboard_v4_`; v3 is absent
+from `LEGACY_INDEX_KEYS`). Everyone reopens into the clean defaults.
+
 ## The command center (⌘K)
 
 `src/components/layout/global-search.tsx` (palette) + `src/components/layout/top-bar.tsx`

@@ -76,6 +76,18 @@ Now just the `right` zone; stored layouts still using `rail` are migrated on rea
 
 **Preset** — a curated starting layout offered to users.
 
+**Persona / template** — a curated starting layout for the Command Center
+(Trader, Investor, Macro, Crypto, Forex, Quant), authored as **widget-id specs**
+in `src/lib/dashboard/templates.ts` — never registry indices, so adding a widget
+cannot silently repoint a template. A template describes only the **centre**;
+the side rails are added by `buildMarketViewLayout`.
+
+**Band** — a row-role in the dashboard layout grammar: **hero** (4 at-a-glance
+widgets) → **primary** (the one big chart) → **analysis** → **intelligence** →
+**context** → **live**. `composeRows` enforces global first-wins dedupe and a
+4-column cap, so a widget never renders twice and a section never exceeds four
+columns. See `src/lib/dashboard/layout.ts`.
+
 **Placement / two-click contract** — the interaction model for moving widgets:
 grab to *preview* a slot, click again to *commit*. Escape or right-click cancels.
 See ADR-008.

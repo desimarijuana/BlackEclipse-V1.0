@@ -21,21 +21,26 @@ export interface DashboardEntry {
   isDefault: boolean;
 }
 
-const INDEX_KEY = 'be_dashboards_index_v3';
+const INDEX_KEY = 'be_dashboards_index_v4';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 // Remembers the last-viewed dashboard so a restart/reload reopens the same one
 // instead of always snapping back to the dashboard flagged `isDefault`.
 const ACTIVE_KEY = 'be_dashboards_active_v1';
 
-// Bump the storage prefix when the widget catalog changes so stale layouts
-// (referencing removed widget ids) don't leave empty columns. A fresh default
-// template loads instead.
-export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v3_';
+// Bump the storage prefix when the widget catalog OR the generated layout
+// grammar changes so stale layouts don't load half-migrated. v4 is a deliberate
+// RESET: the pre-v4 generator produced cross-zone duplicates and 5-column rows
+// (truncated to 4 on reload), so old layouts were "all over the place" and are
+// not carried forward. Everyone reopens into the clean band-grammar defaults.
+export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v4_';
 
 // Legacy index keys, newest first. When the storage prefix is bumped we migrate
 // the user's existing dashboards forward instead of silently seeding a fresh
-// default (which made layouts appear "lost" after an update).
-const LEGACY_INDEX_KEYS = ['be_dashboards_index_v2', 'be_dashboards_index_v1'];
+// default (which made layouts appear "lost" after an update). v3 is intentionally
+// NOT listed: the v4 bump is a reset of the messy generated layouts, so carrying
+// them forward would defeat it. Earlier keys (v1/v2) are also not carried, since
+// they predate the layout grammar entirely.
+const LEGACY_INDEX_KEYS: string[] = [];
 
 /**
  * One-time migration from an older dashboard index/prefix to the current one.

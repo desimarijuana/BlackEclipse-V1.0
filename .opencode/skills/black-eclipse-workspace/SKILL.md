@@ -80,10 +80,11 @@ Workspace kernel  (src/lib/workspace/)
   the workspace's **right zone** — not a separate page/panel. Its widgets live in
   `src/lib/dashboard/market-rail-widgets.tsx` (`MARKET_RAIL_WIDGETS`,
   `marketPanelIcon`) and are merged into the single `DASHBOARD_WIDGETS` catalog.
-  The default right-zone sections come from `buildRailSections()` and the left
-  column from `buildLeftSections()` (asset-class aware via `ASSET_LEFT`) in
-  `src/lib/dashboard/registry.tsx`; `dashboard-screen.tsx` appends them to the
-  template layout and passes one `CustomizableWorkspace` with `zones={{ left, right }}`.
+  The default right-zone sections come from `buildRailSections()` (asset-class
+  aware via `ASSET_RAIL`) and the left column from `buildLeftSections()` in
+  `src/lib/dashboard/layout.ts`; `buildMarketViewLayout` frames the persona
+  template with them and `dashboard-screen.tsx` passes one `CustomizableWorkspace`
+  with `zones={{ left, right }}`.
 
 ## Zones (centre + left/right)
 
@@ -150,9 +151,28 @@ companion, the **Investor Eye Map** widget
 topics + `buildAllLayers()`, and writes selection to the shared
 `useInvestorEyeStore` — no second fetch path and no fabricated data. Its map
 chunk is `next/dynamic`-split so dashboards without it never load
-ECharts/`echarts-gl`. Register new widgets at the END of `DASHBOARD_WIDGETS` —
-the persona templates (`src/lib/dashboard/templates.ts`) address widgets by array
-index, so inserting mid-list silently repoints every template.
+ECharts/`echarts-gl`. Register new widgets anywhere in `DASHBOARD_WIDGETS` — the
+persona templates (`src/lib/dashboard/templates.ts`) address widgets by **id**,
+not array index.
+
+## Dashboard default layouts (personas + bands)
+
+Default arrangements are composed by the pure, tested engine in
+`src/lib/dashboard/layout.ts`:
+
+- **Templates** (`templates.ts`) are widget-id specs, centre-only, using the
+  **band grammar**: hero (4) → primary (1 full) → analysis (3) → intelligence
+  (2) → context (2) → live. Six personas: Trader, Investor, Macro, Crypto,
+  Forex, Quant.
+- **`buildMarketViewLayout(market, ids, templateBase)`** frames the template with
+  thin side rails: left = Watchlist only; right = the asset class's `mp-*` stat
+  tiles (`ASSET_RAIL`).
+- **`composeRows`** enforces the invariants in ONE place: global first-wins
+  **dedupe** across zones, **4-column cap at build time**, unknown ids dropped.
+  Never bypass it — the old generator skipped dedupe and built 5-wide rows that
+  were truncated on reload.
+- Storage is **v4** (`be_dashboards_index_v4` / `be_ws_dashboard_v4_`) and is a
+  deliberate reset; pre-v4 layouts are not migrated forward.
 
 ## Chart widgets
 

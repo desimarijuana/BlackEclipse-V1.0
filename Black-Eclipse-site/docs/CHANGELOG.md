@@ -43,6 +43,22 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Workspace / Command Center** — Rebuilt the default dashboard layouts. The
+  old generator produced cross-zone duplicates (left/right builders were not
+  deduped against the centre, so `watchlist`/`top-movers`/`news-feed` rendered
+  twice) and a 5-widget "lead" row that `normalizeLayout` truncated to 4 columns
+  on reload — layouts literally changed shape after a refresh. Fixes:
+  extracted a pure, tested layout engine (`src/lib/dashboard/layout.ts`) with a
+  single `composeRows` that enforces **global first-wins dedupe** and a
+  **build-time 4-column cap**; rewrote persona templates as **widget-id specs**
+  (no more fragile registry indices that silently repoint when a widget is
+  inserted) using a **band grammar** (hero → primary → analysis → intelligence →
+  context). Six genuinely distinct personas (Trader, Investor, Macro, Crypto,
+  Forex, Quant), all with thin side rails (left = Watchlist only; right =
+  asset-class `mp-*` stat tiles) and no widget shown twice. Bumped storage to
+  **v4** as a deliberate reset — pre-v4 layouts are not carried forward (v3
+  dropped from `LEGACY_INDEX_KEYS`), so everyone reopens into the clean defaults.
+  23 new tests. docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
 - **Workspace** — Added a **left side zone** to the widget workspace so the
   Command Center reads as a three-column dashboard instead of one wide grid. The
   zone model is now `left | main | right` (the old `rail` is mapped to `right` on

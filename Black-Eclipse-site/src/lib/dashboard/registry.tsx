@@ -14,10 +14,18 @@ import {
 } from 'lucide-react';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
-import { newId, type WorkspaceLayout, type WorkspaceSection } from '@/lib/workspace/types';
-import { allWidgetIds } from '@/lib/workspace/ops';
 import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { MARKET_CONFIG_FIELD } from './market-views';
+// Layout composition lives in ./layout (pure + unit-tested); re-exported below
+// so existing `@/lib/dashboard/registry` imports keep working.
+import {
+  buildMarketViewLayout, buildRailSections, buildLeftSections,
+  assetClassFor, LEFT_WIDGET_IDS, ASSET_RAIL, type AssetClass,
+} from './layout';
+export {
+  buildMarketViewLayout, buildRailSections, buildLeftSections,
+  assetClassFor, LEFT_WIDGET_IDS, ASSET_RAIL, type AssetClass,
+} from './layout';
 
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
@@ -232,11 +240,6 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
     [INVESTOR_EYE_MAP_RANGE_FIELD], { range: '24h' }),
 ];
 
-/** Widget ids that ship in the default Market rail (kept for the migration). */
-export const MARKET_RAIL_WIDGET_IDS = [
-  'mp-fear-greed', 'mp-breadth', 'mp-movers', 'mp-snapshot', 'mp-hours',
-];
-
 export const DASHBOARD_WIDGET_IDS = DASHBOARD_WIDGETS.map(w => w.id);
 
 export function getWidgetDefinition(id: string): WidgetDefinition | undefined {
@@ -246,138 +249,6 @@ export function renderDashboardWidget(widgetId: string, placement: WidgetPlaceme
   const def = getWidgetDefinition(widgetId);
   if (!def) return <div className="p-4 text-xs text-muted-foreground">Unknown widget: {widgetId}</div>;
   return def.render ? def.render(placement) : <div className="p-4 text-xs text-muted-foreground">No renderer for {widgetId}</div>;
-}
-
-/**
- * Build the default `rail` sections (the Market column) for a dashboard's
- * layout. Each widget id becomes its own stacked section so the rail behaves
- * like the classic side panel, while remaining fully draggable — a card can be
- * dragged out to the centre or dropped back in.
- */
-export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS): WorkspaceSection[] {
-  return widgetIds.map(widgetId => ({
-    id: newId('sec'),
-    zone: 'right' as const,
-    columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
-  }));
-}
-
-/** Default left column: watchlist, movers, then a compact news feed. */
-const DEFAULT_LEFT_WIDGET_IDS = ['watchlist', 'top-movers', 'news-feed'];
-
-/**
- * Build the default `left` sections (the Watchlist column) for a dashboard's
- * layout. Same shape as `buildRailSections` — each widget gets its own stacked
- * section, fully draggable between the left column and the centre.
- */
-export function buildLeftSections(widgetIds: string[] = DEFAULT_LEFT_WIDGET_IDS): WorkspaceSection[] {
-  return widgetIds.map(widgetId => ({
-    id: newId('sec'),
-    zone: 'left' as const,
-    columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
-  }));
-}
-
-/** Asset classes for a market id (equity country, forex, commodities, crypto). */
-type AssetClass = 'equity' | 'forex' | 'commodities' | 'crypto';
-
-export function assetClassFor(market: string): AssetClass {
-  if (market === 'FOREX') return 'forex';
-  if (market === 'COMMODITIES') return 'commodities';
-  if (market === 'CRYPTO') return 'crypto';
-  return 'equity';
-}
-
-/** Lead row — the asset-class headline widgets, shown first on that market tab. */
-const ASSET_LEAD: Record<AssetClass, string[]> = {
-  equity: ['market-heatmap', 'mp-country-watch', 'market-indices', 'top-movers', 'sector-heatmap'],
-  forex: ['forex-pairs', 'mp-forex', 'economic-calendar'],
-  commodities: ['commodities', 'mp-commodities', 'top-movers'],
-  crypto: ['crypto-markets', 'market-heatmap', 'mp-crypto', 'top-movers'],
-};
-
-/** Extra asset-class widgets appended after the shared body. */
-const ASSET_EXTRAS: Record<AssetClass, string[]> = {
-  equity: ['global-markets', 'macro-snapshot'],
-  forex: ['global-markets', 'macro-snapshot', 'economic-chart'],
-  commodities: ['macro-snapshot', 'global-markets', 'economic-chart'],
-  crypto: ['crypto-ticker', 'trade-tape', 'sparklines', 'global-markets'],
-};
-
-/** Generic body shown when a tab has no persona template (custom markets). */
-const DEFAULT_MARKET_BODY = ['news-feed', 'watchlist', 'market-regime', 'opportunity-scanner'];
-
-/**
- * Market rail (right column) per asset class. FOREX / COMMODITIES have no JDDS
- * overview group, so overview-driven tiles (movers, breadth) are omitted there.
- */
-const ASSET_RAIL: Record<AssetClass, string[]> = {
-  equity: ['mp-indices', 'mp-country-watch', 'mp-movers', 'mp-breadth', 'mp-snapshot', 'mp-hours'],
-  forex: ['mp-forex', 'mp-snapshot', 'mp-hours'],
-  commodities: ['mp-commodities', 'mp-snapshot', 'mp-hours'],
-  crypto: ['mp-crypto', 'mp-movers', 'mp-fear-greed', 'mp-breadth', 'mp-snapshot'],
-};
-
-/** Left column (watchlist rail) per asset class. */
-const ASSET_LEFT: Record<AssetClass, string[]> = {
-  equity: ['watchlist', 'top-movers', 'news-feed'],
-  forex: ['watchlist', 'economic-calendar', 'news-feed'],
-  commodities: ['watchlist', 'top-movers', 'news-feed'],
-  crypto: ['crypto-ticker', 'watchlist', 'news-feed'],
-};
-
-/**
- * Build the starting layout for a single market view. Every market tab gets the
- * SAME full body of widgets the US tab has (the persona template the user picked
- * at onboarding, or the default when there is none). Market-aware widgets follow
- * the active tab by default — a widget is only pinned to a specific market when
- * the user sets its Market config field. Asset-class-specific lead and extra
- * widgets are layered on top: FX panels for Forex, commodities for Commodities,
- * crypto for Crypto, country constituents for equities. The layout is per-view,
- * so each market can also arrange its own set of widgets.
- */
-export function buildMarketViewLayout(
-  market: string,
-  baseWidgetIds: string[] = DASHBOARD_WIDGET_IDS,
-  templateBase?: WorkspaceLayout,
-): WorkspaceLayout {
-  const known = new Set(baseWidgetIds);
-  const cls = assetClassFor(market);
-  const widget = (widgetId: string): WidgetPlacement => ({ id: newId('wid'), widgetId, height: null });
-  const section = (widgetIds: string[]): WorkspaceSection => ({
-    id: newId('sec'),
-    zone: 'main',
-    columns: widgetIds.map(widgetId => ({ id: newId('col'), weight: 1, widgets: [widget(widgetId)] })),
-  });
-
-  // The shared body — identical across every tab so all markets match US.
-  const body = templateBase && templateBase.sections.length > 0
-    ? templateBase.sections
-    : DEFAULT_MARKET_BODY.filter(id => known.has(id)).map(id => ({
-        id: newId('sec'),
-        zone: 'main' as const,
-        columns: [{ id: newId('col'), weight: 1 as const, widgets: [widget(id)] }],
-      }));
-
-  // Dedupe idempotently: a lead/extra widget already in the body is skipped.
-  const present = new Set(allWidgetIds({ version: 1, sections: body }));
-  const pick = (ids: string[]) => ids.filter(id => known.has(id) && !present.has(id));
-
-  const lead = pick(ASSET_LEAD[cls]);
-  const extras = pick(ASSET_EXTRAS[cls]);
-  const railSections = buildRailSections(ASSET_RAIL[cls].filter(id => known.has(id)));
-  const leftSections = buildLeftSections(ASSET_LEFT[cls].filter(id => known.has(id)));
-
-  return {
-    version: 1,
-    sections: [
-      ...leftSections,
-      ...(lead.length ? [section(lead)] : []),
-      ...body,
-      ...(extras.length ? [section(extras)] : []),
-      ...railSections,
-    ].filter(s => s.columns.length > 0),
-  };
 }
 
 function UnavailableStub(label: string) {
