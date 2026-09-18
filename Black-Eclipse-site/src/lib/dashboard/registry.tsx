@@ -10,7 +10,7 @@ import {
   Activity, BarChart3, Bell, Briefcase, CalendarDays, CandlestickChart,
   Globe, LayoutDashboard, Newspaper, PieChart, TrendingUp, Wallet,
   LineChart, Coins, Droplets, Flame, Radio, FileText, Bot, Scissors,
-  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye,
+  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin,
 } from 'lucide-react';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -44,6 +44,10 @@ import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './a
 import {
   InvestorEyeWidget, INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD,
 } from './investor-eye-widget';
+import { InvestorEyeMapWidget, INVESTOR_EYE_MAP_RANGE_FIELD } from './investor-eye-map-widget';
+import {
+  LiveIntelligenceWidget, LIVE_INTELLIGENCE_MUTED_FIELD, LIVE_INTELLIGENCE_AUTOPLAY_FIELD,
+} from './live-intelligence-widget';
 import { MARKET_RAIL_WIDGETS, marketPanelIcon } from './market-rail-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
@@ -79,7 +83,7 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   droplets: Droplets, flame: Flame, radio: Radio, 'file-text': FileText,
   bot: Bot, scissors: Scissors, 'sticky-note': StickyNote, landmark: Landmark,
   ship: Ship, gauge: Gauge, table: Table2, layers: Layers, heart: HeartPulse,
-  brain: Brain, zap: Zap, 'scan-eye': ScanEye,
+  brain: Brain, zap: Zap, 'scan-eye': ScanEye, 'map-pin': MapPin,
 };
 export function widgetIcon(name: string) {
   return ICONS[name] ?? marketPanelIcon(name) ?? LayoutDashboard;
@@ -211,6 +215,24 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   // pointing at the same widgets. Reuses the full Investor Eye state topics.
   def('investor-eye', 'intelligence', 'Investor Eye', 'Live normalized world events — conflict, energy, trade and hazards.', 'scan-eye', ['medium', 'large'], (p) => <InvestorEyeWidget placement={p} />, ['investor-eye:state:24'],
     [INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD], { range: '24h', lens: 'all' }),
+
+  // ── Intelligence: Investor Eye MAP ──
+  // The spatial companion to the feed widget — the same interactive world map /
+  // 3D globe the full screen renders, embedded in the grid. Reuses the SAME
+  // state topics + layer builders (no second fetch path), and its map chunk is
+  // lazy so a dashboard without this widget never loads ECharts/echarts-gl.
+  // Sits at the tail alongside `investor-eye` so the index-based persona
+  // templates (templates.ts) keep pointing at the same widgets.
+  def('investor-eye-map', 'intelligence', 'Investor Eye Map', 'Interactive world map / 3D globe of the live event layers.', 'map-pin', ['medium', 'large', 'full'], (p) => <InvestorEyeMapWidget placement={p} />, ['investor-eye:state:24'],
+    [INVESTOR_EYE_MAP_RANGE_FIELD], { range: '24h' }),
+
+  // ── News: Live Intelligence ──
+  // Appended LAST so the index-based persona templates keep pointing at the
+  // same widgets. Streams are torn down when off-screen or the tab is hidden —
+  // see the widget header and ADR-015.
+  def('live-intelligence', 'news', 'Live Intelligence', 'Live financial, market and world-news channels.', 'radio', ['large', 'full'], (p) => <LiveIntelligenceWidget placement={p} />, undefined,
+    [LIVE_INTELLIGENCE_AUTOPLAY_FIELD, LIVE_INTELLIGENCE_MUTED_FIELD],
+    { autoplay: true, muted: true }),
 ];
 
 /** Widget ids that ship in the default Market rail (kept for the migration). */

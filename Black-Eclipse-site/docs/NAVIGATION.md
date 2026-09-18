@@ -36,7 +36,7 @@ Black-Eclipse-site/
 |---|---|
 | Change the app shell / add a tab | `src/components/screens/stock-chat.tsx`, `src/components/layout/sidebar.tsx` |
 | Change sidebar defaults / shortcuts | `src/lib/sidebar/config.ts` |
-| Work on the screener | `src/components/screens/market-overview.tsx`, `use-screener-filters.ts`, `market-data.ts` |
+| Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-format.ts` (price/cap/time formatting), `market-loaders.tsx` (table loaders) |
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
 | Work on portfolio | `src/components/screens/portfolio/`, `src/lib/portfolio/`, `src/hooks/use-portfolio-engine.ts` |
@@ -46,6 +46,7 @@ Black-Eclipse-site/
 | Journal date formatting | `src/lib/journal/dates.ts` — journal dates are UTC everywhere, so format month/day labels in UTC or they render a month off |
 | Seed / clear journal demo data | `src/lib/journal/demo.ts` (generator + marker), `src/app/api/journal/demo/route.ts` (seed/clear), `scripts/seed-journal.ts` (CLI wrapper) |
 | Work on the dashboard widgets | `src/lib/dashboard/`, `src/components/screens/dashboard/` |
+| Work on Live Intelligence (live news streams) | `src/lib/dashboard/live-intelligence-widget.tsx` (player + states + channel manager), `live-channels.ts` (channel registry + embed/safety helpers), `live-intelligence-store.ts` (persisted selection), `live-resolver.ts` + `src/app/api/live-streams/route.ts` (server-side cached current-live-id resolver) |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |

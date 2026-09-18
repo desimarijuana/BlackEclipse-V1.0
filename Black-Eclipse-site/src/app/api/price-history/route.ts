@@ -4,6 +4,7 @@ import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { yahooSymbol } from "@/lib/scraper/fetchers/yfinance";
 import { fetchPsxIndexChart } from "@/lib/scraper/fetchers/psx-index";
 import { resolveIndex } from "@/lib/indices";
+import { stripExchangeSuffix } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -213,8 +214,8 @@ function tickerCandidates(symbol: string, market: string): string[] {
     if (!candidates.includes(`${bare}.KA`)) candidates.push(`${bare}.KA`);
     if (!candidates.includes(bare)) candidates.push(bare);
   }
-  const bare = symbol.replace(/\.(PSX|NS|BO|SS|SZ|BJ|TW|T|HK|KS|KQ|SI|KL|AX|L|DE|PA|AS|TO|SA|SR|AE|JO|CA|NG|ME|IS|JK|BK|VN)$/i, "");
-  if (bare !== symbol && !candidates.includes(bare)) candidates.push(bare);
+  const bare = stripExchangeSuffix(symbol);
+  if (bare !== symbol.toUpperCase() && !candidates.includes(bare)) candidates.push(bare);
   return candidates;
 }
 

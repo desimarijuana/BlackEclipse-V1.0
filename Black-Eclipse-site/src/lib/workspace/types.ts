@@ -52,8 +52,8 @@ export interface DropTarget {
   columnIndex?: number;
 }
 
-export const MIN_COLUMN_WEIGHT = 1;
-export const MAX_COLUMN_WEIGHT = 6;
+export const MIN_COLUMN_WEIGHT = 0.3;
+export const MAX_COLUMN_WEIGHT = 12;
 export const MIN_WIDGET_HEIGHT = 140;
 
 let counter = 0;

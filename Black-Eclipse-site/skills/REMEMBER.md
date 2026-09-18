@@ -67,10 +67,13 @@
 
 ## Known Problems
 
-- `market-overview.tsx` is a monolith (~1900 lines, ~129KB). Being split (data → `market-data.ts`, filter → `use-screener-filters.ts`) but the JSX rendering remains large.
-- News sentiment is a crude keyword heuristic — can misclassify.
-- Chat is a keyword-based mock (no real LLM yet).
-- `getTradingViewSymbol()` regex for ticker extraction is naive.
+- Chat falls back to a keyword-based mock provider when no real LLM is configured.
+- News sentiment is a keyword+phrase heuristic (`src/lib/sentiment.ts`) — better
+  than a flat word list (handles "record loss", negators, hyphenation) but still
+  can misclassify sarcasm, quotes, and multi-clause headlines.
+- `getTradingViewSymbol()` maps suffixed/numeric tickers via a shared
+  `stripExchangeSuffix()`; the map is curated, so an exchange Yahoo adds can
+  still fall through to a bare symbol.
 - **SQLite Prisma connector does NOT support `mode: "insensitive"`** on string filters. JDDS stores symbols uppercase, so normalize input to uppercase (e.g. `symbol.toUpperCase()`) instead of using `mode`. (Fixed in `src/lib/agent/tools.ts`.)
 - **`skills/ARCHITECT.md` sections 2–4 were stale** (pre-JDDS: claimed "no database" and "only /api/news"). Corrected 2026-09-15; if you spot similar relics, fix them against `docs/` + code.
 

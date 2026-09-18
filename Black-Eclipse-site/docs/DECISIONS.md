@@ -243,6 +243,27 @@ dark-donut regression). See [`investor-eye-architecture.md`](./investor-eye-arch
 
 ---
 
+## ADR-015 — Media widgets tear down their own player when not visible (2026)
+**Decision:** A widget that plays media (live video/audio) must not rely on the
+shell to stop it. The keep-alive tab model keeps every visited screen MOUNTED and
+hides the inactive ones with `display:none`, and `WidgetDefinition.lazy` is
+declared but never read — so an embed left mounted keeps streaming in the
+background. The Live Intelligence widget therefore owns its teardown: an
+`IntersectionObserver` on its root (which reports zero intersection inside a
+`display:none` ancestor, and for a scrolled-off card) plus a `visibilitychange`
+listener (the browser tab) unmount the iframe. Playback re-mounts with a fresh
+embed URL when the card becomes visible again.
+**Why:** Nothing in the repo tore an embed down on visibility — `TradingViewChartWidget`
+leaves its iframe live under `display:none` — so a "Live TV" widget would have
+burned bandwidth and CPU indefinitely on an unwatched tab. The two observers are
+needed together: `visibilitychange` does not fire for in-app tab switches, and
+the observer does not fire for OS-level tab switches.
+**Impact:** Applies to any future media widget (video, audio, streaming, WebGL
+animation). `lazy` remains dead — do not treat it as a teardown mechanism. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Live Intelligence".
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

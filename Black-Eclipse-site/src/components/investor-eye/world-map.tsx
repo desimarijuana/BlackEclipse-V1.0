@@ -19,7 +19,7 @@ import { DotGrid } from '@/components/ui/ascii-loader';
 import {
   ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture, worldGlobeGlowTexture, type GeoFeature,
 } from '@/lib/investor-eye/app-geo';
-import { bindLayerEvents, buildMapOption, type MapMode, type MapSkin } from '@/lib/investor-eye/map-echarts';
+import { bindLayerEvents, buildMapOption, hasDrawableBox, type MapMode, type MapSkin } from '@/lib/investor-eye/map-echarts';
 import type { MapLayer } from '@/lib/investor-eye/types';
 import { Starfield } from './starfield';
 
@@ -161,33 +161,51 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     // component ECharts does not have.
     if (mode === 'globe' && !glReady) return;
 
-    const init = async () => {
+    /**
+     * ECharts' geo map cannot be initialised against a zero-size container: the
+     * internal View throws `Cannot read properties of null (reading '0')` from
+     * its matrix copy. The full-screen map always has an explicit height, but an
+     * embedded one (the Command Center widget) can mount a frame before flex
+     * layout gives it a height. So the init waits for a non-zero box — the
+     * ResizeObserver below then fires `initChart` once the box is real.
+     */
+    let chart: echarts.ECharts | null = null;
+    let ro: ResizeObserver | null = null;
+
+    const initChart = async () => {
+      if (chart) return;
+      const el = ref.current;
+      // ECharts' geo View throws on a zero-size container (see `hasDrawableBox`).
+      if (!el || !hasDrawableBox(el.clientWidth, el.clientHeight)) return;
       try {
         const features = await ensureWorldMapRegistered();
         if (cancelled || !ref.current) return;
+        // The box may have been re-hidden while the geometry loaded.
+        if (!hasDrawableBox(ref.current.clientWidth, ref.current.clientHeight)) return;
         featuresRef.current = features;
         geoReadyRef.current = true;
 
-        const chart = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+        chart = echarts.init(ref.current, undefined, { renderer: 'canvas' });
         chartRef.current = chart;
         bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick });
         chart.setOption(buildMapOption({ layers: layersRef.current, highlightPoints, mode, skin, globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current }));
         setStatus('ready');
-
-        const ro = new ResizeObserver(() => chart.resize());
-        ro.observe(ref.current);
-        return () => ro.disconnect();
       } catch (err) {
         console.error('[investor-eye] world map init failed:', err);
         if (!cancelled) setStatus('unavailable');
       }
     };
 
-    const cleanupPromise = init();
+    ro = new ResizeObserver(() => {
+      if (chart) chart.resize();
+      else void initChart();
+    });
+    ro.observe(ref.current);
+    void initChart();
 
     return () => {
       cancelled = true;
-      void cleanupPromise.then((cleanup) => cleanup?.());
+      ro?.disconnect();
       chartRef.current?.dispose();
       chartRef.current = null;
     };

@@ -285,16 +285,40 @@ export function setColumnCount(d: Draft<WorkspaceLayout>, sectionId: string, cou
   while (section.columns.length < clamped) {
     section.columns.push({ id: newId('col'), weight: 3, widgets: [] });
   }
-  pruneLayout(d);
+  // NOTE: deliberately NO pruneLayout here. An empty section is a legitimate
+  // user-created drop target (createSectionAt preserves it), so adding columns
+  // to it must not let pruneLayout delete it out from under the user.
+}
+
+function clampWeight(weight: number): number {
+  return Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(weight * 10) / 10));
 }
 
 export function setColumnWeight(d: Draft<WorkspaceLayout>, columnId: string, weight: number): void {
   // Float weights (0.1 steps): integer weights quantized so repeated resizes
   // often produced the same value and the handle appeared stuck.
-  const clamped = Math.max(MIN_COLUMN_WEIGHT, Math.min(MAX_COLUMN_WEIGHT, Math.round(weight * 10) / 10));
+  const clamped = clampWeight(weight);
   for (const s of d.sections) {
     const c = s.columns.find(col => col.id === columnId);
     if (c) { c.weight = clamped; return; }
+  }
+}
+
+/**
+ * Set several column weights atomically (used by the boundary resize handle,
+ * which grows one column while shrinking its neighbour so the section total —
+ * and therefore every other column — stays put).
+ */
+export function setColumnWeights(
+  d: Draft<WorkspaceLayout>,
+  sectionId: string,
+  updates: ReadonlyArray<{ columnId: string; weight: number }>,
+): void {
+  const section = d.sections.find(s => s.id === sectionId);
+  if (!section) return;
+  for (const u of updates) {
+    const c = section.columns.find(col => col.id === u.columnId);
+    if (c) c.weight = clampWeight(u.weight);
   }
 }
 

@@ -4,7 +4,7 @@
 // surfaced as runtime crashes in the browser.
 
 import { describe, it, expect } from 'vitest';
-import { buildMapOption, unwrapDatum } from './map-echarts';
+import { buildMapOption, hasDrawableBox, unwrapDatum } from './map-echarts';
 import { buildConflictLayer, buildEventsLayer, severityColor, SYMBOL_PATHS } from './layers';
 import type { LayerDatum, MapLayer, NormalizedEvent } from './types';
 
@@ -228,5 +228,23 @@ describe('severityColor', () => {
   it('maps every severity to the shared palette', () => {
     expect(severityColor('critical')).toBe('#ef4444');
     expect(severityColor('low')).toBe('#38bdf8');
+  });
+});
+
+describe('hasDrawableBox', () => {
+  // Regression: ECharts' geo View dereferences a null matrix when `setOption`
+  // runs against a zero-size container (`Cannot read properties of null
+  // (reading '0')`). An embedded map mounts before flex layout resolves its
+  // height, so WorldMap must wait for a real box. Verified against the library:
+  // 0x400 / 400x0 / 0x0 all throw, 1x1 and any real size are fine.
+  it('rejects zero width or height', () => {
+    expect(hasDrawableBox(0, 0)).toBe(false);
+    expect(hasDrawableBox(0, 400)).toBe(false);
+    expect(hasDrawableBox(400, 0)).toBe(false);
+  });
+
+  it('accepts any non-zero box', () => {
+    expect(hasDrawableBox(1, 1)).toBe(true);
+    expect(hasDrawableBox(320, 500)).toBe(true);
   });
 });

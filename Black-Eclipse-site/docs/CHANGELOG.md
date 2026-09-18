@@ -41,8 +41,145 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-18
+
+- **Live Intelligence** — Fixed the "STREAM UNAVAILABLE" bug. Root cause, verified
+  in a real browser against live YouTube: the widget embedded
+  `youtube-nocookie.com/embed/live_stream?channel=<UC>`, which YouTube renders as
+  **"This video is unavailable"** for most channels that *do* have a live
+  broadcast. Two independent findings, both load-bearing:
+  - `/embed/<resolved-video-id>` plays correctly where `live_stream?channel=`
+    fails (confirmed: Sky News, DW News, Geo News, Bloomberg all "unavailable"
+    via live_stream, all playing via the resolved id). Live ids rotate, so they
+    cannot be hardcoded.
+  - YouTube's `/channel/<UC>/live` page silently omits the canonical live video
+    for many channels whose `/@handle/live` resolves correctly — so resolution
+    now tries the handle first.
+  Added a **server-side, cached resolver** (`live-resolver.ts` +
+  `GET /api/live-streams`, 3-min TTL, shared in-flight guard, globalThis-anchored
+  like the Investor Eye cache) that reads YouTube's own page metadata
+  (`canonical watch?v=` + `"isLive":true` + `playableInEmbed`) to classify
+  `live` / `offline` / `unavailable` / `unknown`. The widget embeds the resolved
+  id, exposes honest `LIVE`/`OFFLINE`/`CHECKING` status (never a fabricated
+  LIVE), shows a `CHANNEL OFFLINE` state with Check Again, and surfaces live
+  status dots in the channel manager. Registry corrected too: the old
+  `al-jazeera` id was actually Al Jazeera *Arabic* (English now
+  `UCNye-wNBqNL5ZzHSJj3l8Bg`); added `@handle` for every channel; added
+  verified Moneycontrol, CNBC Awaaz, India Today, PTV News; removed unverified/
+  permanently-offline entries from the default-on set. 26 new tests.
+  docs updated: `docs/ARCHITECTURE.md` (Live Intelligence section),
+  `docs/NAVIGATION.md`
+- **Live Intelligence** — Verified source registry against live YouTube. 20
+  channels resolved and played: Bloomberg Television, CNBC, Yahoo Finance,
+  Moneycontrol, Sky News, Al Jazeera English, DW News, Euronews, NHK WORLD-JAPAN,
+  CNA, ABC News (Australia), CNBC-TV18, ET Now, Zee Business, India Today, WION,
+  CNBC Awaaz, Geo News, Samaa TV, PTV News. Five official channels were **not**
+  broadcasting at test time and are shipped disabled with `lastKnownStatus:
+  'offline'` (Fox Business, France 24 English, TRT World, NDTV Profit, ARY News,
+  Dunya News) — they may return, and the resolver re-checks every 3 minutes.
+  Not added at all: Sky News' old id, Bloomberg Technology, CGTN America (no
+  live broadcast observed).
+  no doc change — covered by the architecture section above.
+- **Build** — Learned (again) not to run `next build` while `next dev` shares the
+  same `.next` directory: it produced `Cannot find module './NNNN.js'` and an
+  empty Command Center. Clearing `.next` and restarting dev fixed it; no source
+  change.
+  no doc change — local build-artifact contention.
+
 ## 2026-09-17
 
+- **Investor Eye** — Fixed the `Cannot read properties of null (reading '0')`
+  crash when the Investor Eye **map** is embedded in a dashboard widget. The
+  ECharts geo `View` dereferences a null matrix when `setOption` runs against a
+  **zero-size container**; the full-screen map always has an explicit height, but
+  a widget card can mount a frame before flex layout resolves its height.
+  `WorldMap` now initialises through a `hasDrawableBox()` guard and lets its
+  ResizeObserver trigger init once the box is real (the previous observer only
+  resized an already-created chart). Reproduced directly against echarts: 0×0,
+  0×400 and 400×0 throw; 1×1 and any real size are fine.
+  docs updated: `docs/CHANGELOG.md`; skill `.opencode/skills/black-eclipse-workspace/SKILL.md`
+- **Command Center** — Added an **Investor Eye Map** widget: the same interactive
+  world map / 3D globe the Investor Eye screen renders, embedded in the dashboard
+  grid. It reuses the SAME DataHub state topics + `buildAllLayers()` (no second
+  fetch path, no fabricated data) and the shared `useInvestorEyeStore`, so
+  selection and layers stay in sync with the full screen. The map chunk is
+  `next/dynamic`-split, so a dashboard without this widget never loads
+  ECharts/`echarts-gl`. Configurable `range` (1H…30D); a header **Open** button
+  navigates to the Investor Eye tab for the detail dossier. Registered beside
+  `investor-eye` in `DASHBOARD_WIDGETS` (templates are index-based).
+  docs updated: `docs/CHANGELOG.md`; skill `.opencode/skills/black-eclipse-workspace/SKILL.md`
+- **Workspace** — Fixed two editor bugs. (1) Column width resize reverted to its
+  pre-drag width: the handle rewrote a single column's weight, which the 1..6
+  clamp saturated, and the height-resize commit measured a stale DOM value after
+  clearing the preview style. The boundary handle now moves the shared edge —
+  growing one column while shrinking its neighbour atomically via the new
+  `setColumnWeights` op, so the section total is invariant and the drag is fully
+  reversible left↔right; weight range widened to 0.3..12 for a usable aspect
+  ratio; the height commit now uses the tracked pointer delta.
+  (2) Adding a column to a section (`setColumnCount`) ran `pruneLayout`, which
+  deleted the still-empty section the user had just created — so "add a
+  three-column section" vanished. `setColumnCount` no longer prunes empty
+  sections (they are legitimate user-created drop targets, as `createSectionAt`
+  already preserved).
+  no doc change — UI bug fixes and internal op addition, contracts unchanged
+  (`setColumnWeights` is additive; `WorkspaceColumn.weight` still a number).
+- **Live Intelligence** — Added a **Live Intelligence** Command Center widget: a
+  terminal-style live news player for financial, market, business and
+  geopolitical broadcasters, with an in-card channel manager (enable/disable,
+  set default, filter, search, and advanced custom sources). New modules:
+  `live-channels.ts` (23-channel registry — every YouTube id resolved from the
+  network's own page, never invented — plus `channelEmbedUrl`/`safeEmbedUrl`
+  host-allowlist and `parseCustomSource`), `live-intelligence-store.ts`
+  (localStorage selection store reusing the ribbon/watchlist storage-event
+  pattern), and `live-intelligence-widget.tsx` (player + loading/offline/error/
+  empty states). Registered as a normal widget appended last in
+  `DASHBOARD_WIDGETS`, so move/resize/config/persist come from the existing
+  workspace kernel — no second framework, no new dependency (YouTube embed uses
+  a plain iframe; HLS was deliberately not added since no verified source needs
+  it). 27 tests.
+  docs updated: `docs/ARCHITECTURE.md` (new "Live Intelligence" section),
+  `docs/DECISIONS.md` (ADR-015), `skills/ARCHITECT.md` (ADR-012–015 backfilled
+  from `DECISIONS.md`), `docs/NAVIGATION.md`
+- **Live Intelligence** — Media widgets now own their teardown (ADR-015). The
+  shell keeps visited tabs MOUNTED and hidden with `display:none`, and
+  `WidgetDefinition.lazy` is declared but never read, so a playing iframe would
+  stream forever on an unwatched tab. The widget uses an `IntersectionObserver`
+  (catches `display:none` ancestors and scrolled-off cards) plus a
+  `visibilitychange` listener (browser tab) to unmount the player, re-mounting
+  on return. Neither signal alone is sufficient.
+  docs updated: `docs/DECISIONS.md` (ADR-015), `skills/ARCHITECT.md`
+- **Screener** — Split the `market-overview.tsx` monolith: 4,599 → 2,593 lines
+  (273 KB → 140 KB). Extracted `use-global-markets.ts` (Global Markets fetch +
+  persisted prefs + pointer drag engine), `market-overview-global-markets.tsx`,
+  `use-market-tabs.ts` (forex/commodities), `market-stock-tables.tsx`,
+  `market-fund-etf-tables.tsx`, `market-tables.tsx`, `market-format.ts`
+  (price/cap/time formatting) and `market-loaders.tsx` (table loaders). Pure
+  mechanical extraction — no behavior or contract change; `tsc`, all 1157 tests
+  and `next build` pass.
+  docs updated: `docs/NAVIGATION.md`, `skills/ARCHITECT.md`, `skills/REMEMBER.md`
+- **News** — Rewrote the sentiment classifier (`src/lib/sentiment.ts`): phrase
+  patterns now disambiguate context words (bare "record" is neutral, "record
+  loss" is bearish, "record high" bullish), punctuation is normalized so
+  "sell-off"/"record-breaking" reach their phrases, dead zero-weight lexicon
+  entries were removed, and concessive connectors ("despite", "although") no
+  longer negate (they inverted correct headlines). Negation now covers a
+  dedicated negator set. 10 unit tests.
+  no doc change — the `src/lib/sentiment.ts` reference already in `DATA-FLOW.md`
+  is still correct; behavior improved, contract unchanged.
+- **Symbols** — `getTradingViewSymbol()` fixes: the Yahoo suffix list is now one
+  shared `stripExchangeSuffix()` helper (was duplicated with drift across the
+  quote/price-history routes, with duplicate `.AS`/`.TO` branches), suffix-only
+  resolution works without a `market` hint (`0001.HK`→`HKEX:0001`, `7203.T`→
+  `TSE:7203`), the crypto branch no longer produces `BINANCE:BTC-USDT` for
+  `BTC-USD`, and the explicit FX mappings (`EUR=X` etc.) are reachable again —
+  the generic `=X` branch had turned them into a non-pair `FX_IDC:EUR`. 12 tests.
+  no doc change — internal mapping correction; the contract is unchanged.
+- **Docs** — `skills/ARCHITECT.md`: corrected stale relics against the code —
+  ADR-001 "no DB" and ADR-002 "live news" claims, the missing Investor Eye /
+  connector routes and DB models in the architecture map, the pre-JDDS
+  "Yahoo Finance + HTML fallback" scraper description, and the ~1900-line
+  screener note (now the current module split).
+  docs updated: `skills/ARCHITECT.md`
 - **Build** — Every page appeared dead: a stale/corrupt `.next` build cache made
   `next start` serve a 500 and left the boot overlay stuck at 1% (it failed to
   load `./6764.js`). Code was sound (`tsc` + all 1140 tests pass); removing

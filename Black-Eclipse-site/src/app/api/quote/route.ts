@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { searchIndices, resolveIndex } from "@/lib/indices";
 import { fetchPsxIndexQuote } from "@/lib/scraper/fetchers/psx-index";
+import { stripExchangeSuffix } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -147,8 +148,7 @@ export async function GET(request: Request) {
 
   // JDDS stores bare symbols (RELIANCE, not RELIANCE.NS) — strip exchange
   // suffixes so user-typed variants like "AAPL.US" or "OGDC.PSX" resolve.
-  const assetKey = (s: string) =>
-    s.replace(/\.(PSX|NS|BO|SS|SZ|BJ|TW|T|HK|KS|KQ|SI|KL|AX|L|DE|PA|AS|TO|SA|AE|JO|CA|NG|ME|IS|JK|BK|VN|US)$/, "");
+  const assetKey = stripExchangeSuffix;
 
   try {
     const looksLikeIndex = (s: string) => Boolean(resolveIndex(s)) || s.startsWith("^");

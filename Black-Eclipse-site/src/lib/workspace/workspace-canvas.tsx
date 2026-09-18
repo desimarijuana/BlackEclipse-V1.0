@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
 import type { WidgetPlacement, WorkspaceSection } from './types';
+import { MIN_COLUMN_WEIGHT } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
@@ -979,7 +980,13 @@ function WidgetCard({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       document.body.style.userSelect = '';
-      onResizeHeight(placement.id, startH + (lastClientY - startY));
+      // Commit from the TRACKED pointer delta. Clearing the inline preview style
+      // first would let React re-render and reset the card to its stored height,
+      // so measuring the DOM here read the stale size and the widget snapped
+      // back to its previous height — the "resize keeps reverting" bug.
+      const next = Math.max(140, startH + (lastClientY - startY));
+      card.style.height = '';
+      onResizeHeight(placement.id, next);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -1166,34 +1173,64 @@ function ColumnWeightHandle({ columnId, section, ops }: {
     e.stopPropagation();
     e.preventDefault();
     const row = (e.currentTarget as HTMLElement).parentElement as HTMLElement | null;
-    if (!row || section.columns.length < 2) return;
-    const total = row.getBoundingClientRect().width - (section.columns.length - 1) * 10; // gap-2.5
-    const startX = e.clientX;
+    const sectionForRow = section;
+    if (!row || sectionForRow.columns.length < 2) return;
     const target = row.querySelector<HTMLElement>(`[data-wcol="${columnId}"]`);
     if (!target) return;
-    const startW = target.getBoundingClientRect().width;
-    const totalWeight = section.columns.reduce((a, c) => a + c.weight, 0);
+    const colIdx = sectionForRow.columns.findIndex(c => c.id === columnId);
+    if (colIdx === -1) return;
+    const startX = e.clientX;
+    const rowW = row.getBoundingClientRect().width;
+    const gap = 10; // gap-2.5
+    const totalW = Math.max(1, rowW - (sectionForRow.columns.length - 1) * gap);
+    // px → weight conversion from the ACTUAL rendered geometry, so the live
+    // preview matches the committed result exactly.
+    const pxPerWeight = totalW / sectionForRow.columns.reduce((a, c) => a + c.weight, 0);
+    const startWeights = sectionForRow.columns.map(c => c.weight);
+    // The handle sits on the RIGHT edge of `columnId`: grow it by shrinking the
+    // next column by the same px amount. That keeps the section total constant
+    // (other columns never shift) and is fully reversible left↔right, which the
+    // old single-weight approach was not — its clamped weight snapped back.
+    const left = sectionForRow.columns[colIdx];
+    const right = sectionForRow.columns[colIdx + 1];
+    const leftId = left.id;
+    const rightId = right.id;
+    const startLeft = startWeights[colIdx];
+    const startRight = startWeights[colIdx + 1];
+    const minW = MIN_COLUMN_WEIGHT;
+    let lastX = startX;
     document.body.style.userSelect = 'none';
 
-    // Track the live pointer — the commit uses the tracked position, NOT a
-    // post-drag DOM measurement (clearing the inline style re-renders React
-    // asynchronously, so measuring after the drag read the stale width and
-    // the column could never be re-stretched back).
-    let lastX = startX;
+    const compute = (clientX: number) => {
+      // Desired delta in weight units, bounded so neither side leaves its range.
+      const rawDelta = (clientX - startX) / pxPerWeight;
+      const delta = Math.max(minW - startLeft, Math.min(startRight - minW, rawDelta));
+      const round = (n: number) => Math.round(n * 10) / 10;
+      const newLeft = round(startLeft + delta);
+      // Round the pair sum so the two weights always add up to the same total.
+      const newRight = round(startLeft + startRight - newLeft);
+      return { left: newLeft, right: newRight };
+    };
+
     const onMove = (ev: PointerEvent) => {
       lastX = ev.clientX;
-      const w = Math.max(120, startW + lastX - startX);
-      target.style.flexGrow = String(Math.max(0.4, (w / total) * totalWeight));
+      const { left: lw, right: rw } = compute(lastX);
+      target.style.flexGrow = String(lw);
+      const rightEl = row.querySelector<HTMLElement>(`[data-wcol="${rightId}"]`);
+      if (rightEl) rightEl.style.flexGrow = String(rw);
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       document.body.style.userSelect = '';
       target.style.flexGrow = '';
-      // Float weight rounded to 0.1 — integer weights quantized so a second
-      // resize often produced the same value (the "can't resize twice" bug).
-      const w = Math.max(120, startW + lastX - startX);
-      ops.setColumnWeight(columnId, Math.round(Math.max(0.4, (w / total) * totalWeight) * 10) / 10);
+      const rightEl = row.querySelector<HTMLElement>(`[data-wcol="${rightId}"]`);
+      if (rightEl) rightEl.style.flexGrow = '';
+      const { left: lw, right: rw } = compute(lastX);
+      ops.setColumnWeights(sectionForRow.id, [
+        { columnId: leftId, weight: lw },
+        { columnId: rightId, weight: rw },
+      ]);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -1202,6 +1239,7 @@ function ColumnWeightHandle({ columnId, section, ops }: {
   return (
     <div
       onPointerDown={onPointerDown}
+      onClick={(e) => e.stopPropagation()}
       className="hidden md:flex w-1.5 shrink-0 items-center justify-center group/colres cursor-ew-resize"
       title="Drag to resize column width"
     >

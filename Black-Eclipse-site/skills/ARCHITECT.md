@@ -17,7 +17,7 @@ BlackEclipse will grow into a **zero-configuration, agentic finance research too
 Free, good-quality market data APIs are scarce or expensive. Most users can't afford premium data feeds. BlackEclipse solves this by:
 1. Working **out of the box with zero configuration** (demo data → free sources).
 2. Letting users plug in their **own API keys** (Finnhub, Alpha Vantage, etc.) when they have them.
-3. Providing a **free agentic scraper** (Yahoo Finance + lightweight HTML fallback) for markets without paid coverage.
+3. Providing a **free agentic scraper** (TradingView whole-market scanner + a yfinance Python bridge, with HTML/Playwright fallbacks) for markets without paid coverage.
 
 ### Who the intended users are
 - Technical professionals: developers, quant researchers, analysts, and power users.
@@ -25,7 +25,7 @@ Free, good-quality market data APIs are scarce or expensive. Most users can't af
 - Open-source contributors extending the platform.
 
 ### What makes BlackEclipse different
-- **Zero-config by default** — runs immediately with demo data, no keys, no DB setup.
+- **Zero-config by default** — runs immediately with a self-seeding SQLite vault (`jdds.db` ships as a seed snapshot), demo data, and no keys required.
 - **Provider-agnostic** data + AI layers — swap sources/models freely.
 - **Agentic direction** — a chat that becomes a real tool-using research agent.
 - **Bloomberg-style density** — information-rich, data-first, professional.
@@ -57,26 +57,31 @@ UI / Shell (StockChat terminal — ONE page, keep-alive tabs)
  ├── ChatBot tab        → src/components/screens/stock-chat.tsx → src/lib/agent/*
  ├── Command Center     → src/components/screens/dashboard/ → src/lib/workspace/ + src/lib/dashboard/
  ├── Chart Workspace    → src/components/market-workspace/ → src/lib/market-workspace/
- ├── Market Screener    → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts)
+ ├── Market Screener    → MarketOverviewScreen (market-overview.tsx + use-screener-filters.ts,
+ │                        use-global-markets.ts, use-market-tabs.ts, market-*-tables.tsx)
  ├── Portfolio          → src/components/screens/portfolio/ → use-portfolio-engine.ts
  ├── Journal            → src/components/journal/ → src/lib/journal/
  ├── News               → MarketNews → /api/news (reads JDDS; RSS ingested in background)
  ├── Market Bubbles     → market-bubbles.tsx
  ├── Economics          → src/components/screens/economics/ → /api/economics
  ├── Price Alerts       → src/app/alerts/ → src/lib/alerts/ (server poll loop)
+ ├── Investor Eye       → src/components/investor-eye/ → src/lib/investor-eye/ (world-state tier)
  └── Chart (embedded)   → embedded-chart.tsx / tradingview-chart.tsx
  │
  ▼
 Client Data Layer
  ├── DataHub (src/lib/workspace/data-hub.ts) — pub/sub topics, TTL, fan-out
- ├── Zustand stores — sidebar, dashboard, search, market-workspace, aurora
+ ├── Zustand stores — sidebar, dashboard, search, market-workspace, aurora, investor-eye
  └── Portfolio engine (src/hooks/use-portfolio-engine.ts) — pure FIFO/LIFO math
  │
  ▼
 API / Services (src/app/api/**/route.ts — thin, server-only, api-guard protected)
- └── stocks · quote · price-history · asset-details · symbols · markets · indices ·
-     forex · commodities · heatmap · news · economics · search · agent ·
-     journal/* · alerts/* · scraper · refresh · settings · cron
+ └── stocks · quote · price-history · asset-details · symbols · markets ·
+     indices · forex · commodities · heatmap · news · economics · search · agent ·
+     journal/* · alerts/* · scraper · refresh · settings · cron ·
+     connectors (data-sources, datasets, providers, provider-keys) ·
+     investor-eye/* (state, events, countries, markets, layers, economy,
+     companies, portfolio, risk, analogues, query, graph, health)
  │
  ▼
 JDDS — jdds.db (SQLite via Prisma + better-sqlite3, src/lib/db.ts)
@@ -85,6 +90,8 @@ JDDS — jdds.db (SQLite via Prisma + better-sqlite3, src/lib/db.ts)
  ├── Macro: MacroSeries, CronJob, SystemConfig
  ├── Research memory: ResearchReport, AgentRun, ResearchFinding
  ├── Alerts: PriceAlert, PriceAlertEvent, Candles
+ ├── Connectors: DataConnector, ConnectorMapping, CustomDataset*
+ ├── Investor Eye: Country, GeopoliticalEvent, EventEntity, Relationship, SourceRun
  └── Trading journal: JournalProfile, TradingAccount, Strategy, … , Review
  │
  ▼
@@ -97,7 +104,8 @@ Background workers (all in-process, started from src/instrumentation.ts)
  ▼
 Data Sources
  └── TradingView scanner (whole-market) · yfinance Python bridge ·
-     RSS feeds (free) · crypto/macro providers · user API keys · demo fallback
+     RSS feeds (free) · crypto/macro providers · user API keys · demo fallback ·
+     Investor Eye event feeds (GDELT, USGS, NASA FIRMS, conflict RSS)
 ```
 
 ### Frontend
@@ -235,6 +243,12 @@ coordinate through mutex flags so two heavy SQLite write storms never collide.
   `StrategyRule`, `Setup`, `Tag`, `JournalDay`, `DailyReview`, `DailyEmotion`,
   `Trade`, `TradeExecution`, `TradeScreenshot`, `TradeAnnotation`, `TradeTag`,
   `MarketContext`, `JournalEntry`, `Review`.
+- **Connector layer** — `DataConnector`, `ConnectorMapping`, `CustomDataset`,
+  `CustomDatasetField`, `CustomDatasetRecord` (custom API data is isolated here
+  and can never write `Asset`/`Price`/`Candles` — ADR-010).
+- **Investor Eye (world-state)** — `Country`, `GeopoliticalEvent`,
+  `EventEntity`, `Relationship`, `SourceRun` (ADR-011). The relationship graph
+  is this relational edge table, aggregated by a pure builder — no graph DB.
 
 Client-side shapes:
 - `StockItem` — demo/screener record (`market-data.ts`).
@@ -284,7 +298,7 @@ Client-side shapes:
 8. **Never silently change data shapes** that screens depend on (e.g., `StockItem` fields).
 9. **Never remove existing functionality without confirming its dependency chain.**
 10. **Never put secrets or API keys in client-side code.**
-11. **Memory discipline:** the codebase is large (market-overview.tsx is ~1900 lines). Keep splitting large components into hooks/modules; avoid re-bloating a single file.
+11. **Memory discipline:** large screens are split into hooks/modules (the screener lives in `market-overview.tsx` + `use-global-markets.ts` + `use-market-tabs.ts` + `market-overview-global-markets.tsx` + `market-*-tables.tsx`). Keep components small; avoid re-bloating a single file.
 
 ---
 
@@ -293,14 +307,14 @@ Client-side shapes:
 **What is an ADR?** It is a short note recording *why* a significant architecture decision was made — like a git commit message for architecture. It exists so future AI agents understand the reasoning instead of re-deciding or re-litigating it. Write one whenever you make a meaningful choice. Keep it to a few lines.
 
 ### ADR-001 — Demo data + zero-config (2026)
-**Decision:** Ship with demo data; no DB, no keys required.
+**Decision:** Ship with demo data seeded into JDDS; no keys required. `jdds.db` is a committed seed snapshot so the app boots populated with zero setup.
 **Reason:** Zero-config policy + open-source friendliness.
-**Impact:** All screens work immediately; real data is a future opt-in.
+**Impact:** All screens work immediately; real data is a future opt-in. **Superseded in part:** the DB was added later (SQLite JDDS) — see ADR-004 and `docs/ARCHITECTURE.md`. The "no DB" clause is historical, not current.
 
 ### ADR-002 — RSS for news (2026)
 **Decision:** Use free RSS feeds (Yahoo/CoinDesk/CoinTelegraph/CNBC) for news.
 **Reason:** No API key, no rate limits, open standard.
-**Impact:** `/api/news` returns live news with offline mock fallback.
+**Impact:** RSS is ingested in the background into `NewsItem`; `/api/news` serves from JDDS and returns `source: "jdds"` (`"error"` on a DB failure) with `lastIngestAt`. The client may fall back to its local mock when the feed is empty. **Correction:** the old claim that the route fetches live with an offline mock fallback is stale — the route never fetches feeds.
 
 ### ADR-003 — Agent provider abstraction (2026)
 **Decision:** Define `AgentProvider` interface; mock by default; plug in real LLMs later.
@@ -387,3 +401,49 @@ provenance (`LIVE`/`CACHED`/`HISTORICAL`/`UNAVAILABLE`). A failed source is
 failure. Optional authenticated sources (e.g. ACLED) are supported but never
 required. See `docs/investor-eye-architecture.md` and `docs/ARCHITECTURE.md`
 → "Investor Eye".
+
+### ADR-012 — Data-source governance is its own registry, enforced by test (2026)
+**Decision:** Every external Investor Eye source must have an entry in
+`src/lib/investor-eye/source-catalog.ts` (provider, licence, terms URL,
+commercial-use, API-key requirement, attribution, rate limit, freshness),
+kept separate from the `EventSource` adapter and enforced by
+`source-catalog.test.ts`.
+**Reason:** "Public API" ≠ "free for commercial use"; fusing governance into
+adapters makes a licence question answerable only by constructing a fetcher.
+**Impact:** A new source = connector + normalizer + registry entry + catalog
+entry, the last two held in sync mechanically. AIS/ADS-B/OSM/CelesTrak are
+deliberately not wired. See `docs/DECISIONS.md` ADR-012.
+
+### ADR-013 — Operator API keys are an encrypted vault over env vars (2026)
+**Decision:** Settings → API Keys credentials are AES-256-GCM-encrypted in
+`SystemConfig` via `connectors/secrets`, declared once in `PROVIDER_KEYS`
+(`src/lib/provider-keys.ts`), and resolved **env var first, vault second**;
+`applyStoredKeysToEnv()` copies them into `process.env` at boot.
+**Reason:** Env vars suit a deployment but not a zero-config local install, and
+there was no single place to enter a credential.
+**Impact:** The key value never crosses the API boundary (only `stored`,
+`fromEnv`, masked hint). Adding a provider is one `PROVIDER_KEYS` entry. See
+`docs/DECISIONS.md` ADR-013.
+
+### ADR-014 — Map-local loading states must never portal to the body (2026)
+**Decision:** A region-scoped loading/empty overlay renders inside that region;
+`TopLoader` is reserved for whole-screen loads and must never be used inside a
+card, panel, or widget.
+**Reason:** `TopLoader` portals to `document.body` at `z-[45]`, so a map-local
+spinner silently became a full-app blocker frozen at 95%.
+**Impact:** The rule applies to any region-scoped loader; the globe halo
+contract is now covered by a test. See `docs/DECISIONS.md` ADR-014.
+
+### ADR-015 — Media widgets tear down their own player when not visible (2026)
+**Decision:** A widget that plays media must not rely on the shell to stop it.
+The keep-alive tab model keeps visited screens MOUNTED and hides them with
+`display:none`, and `WidgetDefinition.lazy` is declared but never read, so an
+embed left mounted keeps streaming. Such a widget owns its teardown: an
+`IntersectionObserver` on its root (zero intersection inside a `display:none`
+ancestor, and when scrolled off) plus a `visibilitychange` listener (browser
+tab). Both are required — each misses the case the other covers.
+**Reason:** Nothing in the repo tore an embed down on visibility; a live-stream
+widget would burn bandwidth and CPU indefinitely on an unwatched tab.
+**Impact:** Applies to any future media widget (video, audio, streaming, WebGL
+animation). `lazy` remains dead — do not treat it as a teardown mechanism. See
+`docs/DECISIONS.md` ADR-015 and `docs/ARCHITECTURE.md` → "Live Intelligence".

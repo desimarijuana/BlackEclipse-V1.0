@@ -17,6 +17,7 @@ import {
   removeWidget,
   setColumnCount,
   setColumnWeight,
+  setColumnWeights,
   setWidgetConfig,
   setWidgetHeight,
   toggleWidgetHidden,
@@ -120,10 +121,9 @@ describe('normalizeLayout', () => {
     };
     const n = normalizeLayout(raw, KNOWN)!;
     expect(n.sections[0].columns).toHaveLength(3);
-    expect(n.sections[0].columns[0].weight).toBe(6);
-    expect(n.sections[0].columns[1].weight).toBe(1);
-    expect(new Set(n.sections[0].columns.map(c => c.id)).size).toBe(3);
-  });
+    expect(n.sections[0].columns[0].weight).toBe(12);
+    expect(n.sections[0].columns[1].weight).toBe(0.3);
+    expect(new Set(n.sections[0].columns.map(c => c.id)).size).toBe(3);  });
 });
 
 // ── moveWidget ───────────────────────────────────────────────────────────────
@@ -368,11 +368,11 @@ describe('columns & resize', () => {
     expect(runOp(setColumnCount, l, l.sections[0].id, 0).sections[0].columns).toHaveLength(1);
   });
 
-  it('clamps weights 1..6', () => {
+  it('clamps weights to the column-weight range', () => {
     const l = makeLayout([[['kpi']]]);
     const colId = l.sections[0].columns[0].id;
-    expect(runOp(setColumnWeight, l, colId, 100).sections[0].columns[0].weight).toBe(6);
-    expect(runOp(setColumnWeight, l, colId, -3).sections[0].columns[0].weight).toBe(1);
+    expect(runOp(setColumnWeight, l, colId, 100).sections[0].columns[0].weight).toBe(12);
+    expect(runOp(setColumnWeight, l, colId, -3).sections[0].columns[0].weight).toBe(0.3);
   });
 
   it('sets widget height with a minimum', () => {
@@ -381,6 +381,25 @@ describe('columns & resize', () => {
     expect(runOp(setWidgetHeight, l, wid0, 40).sections[0].columns[0].widgets[0].height).toBe(140);
     expect(runOp(setWidgetHeight, l, wid0, 320).sections[0].columns[0].widgets[0].height).toBe(320);
     expect(runOp(setWidgetHeight, l, wid0, null).sections[0].columns[0].widgets[0].height).toBeNull();
+  });
+
+  it('preserves an empty section when its column count changes', () => {
+    const empty: WorkspaceLayout = { version: 1, sections: [{ id: 's1', columns: [{ id: 'c1', weight: 3, widgets: [] }] }] };
+    const three = runOp(setColumnCount, empty, 's1', 3);
+    expect(three.sections).toHaveLength(1);
+    expect(three.sections[0].columns).toHaveLength(3);
+  });
+
+  it('setColumnWeights updates a boundary pair atomically, keeping the sum', () => {
+    const l = makeLayout([[['kpi'], ['perf']]]);
+    const [c0, c1] = l.sections[0].columns;
+    const n = runOp(setColumnWeights, l, l.sections[0].id, [
+      { columnId: c0.id, weight: 5 },
+      { columnId: c1.id, weight: 1 },
+    ]);
+    expect(n.sections[0].columns[0].weight).toBe(5);
+    expect(n.sections[0].columns[1].weight).toBe(1);
+    expect(n.sections[0].columns[0].weight + n.sections[0].columns[1].weight).toBe(6);
   });
 });
 

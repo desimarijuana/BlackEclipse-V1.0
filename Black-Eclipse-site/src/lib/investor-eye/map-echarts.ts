@@ -49,6 +49,21 @@ const CATEGORY_COLORED = new Set<string>(['conflict', 'weather', 'energy', 'fire
 export const WORLD_MAP_NAME = 'blackeclipse-world';
 
 /**
+ * Whether a container box is large enough to initialise the ECharts geo map.
+ *
+ * WHY THIS EXISTS: ECharts' geo/`View` code path dereferences a null matrix when
+ * `setOption` runs against a ZERO-size container — it throws
+ * `Cannot read properties of null (reading '0')` and the chart never recovers.
+ * A full-screen map always has an explicit height, but an EMBEDDED map (the
+ * Command Center widget) can mount a frame before flex layout resolves its
+ * height, so initialization must wait for a real box. Any non-zero size works;
+ * `WorldMap` observes the container and initialises once this is true.
+ */
+export function hasDrawableBox(width: number, height: number): boolean {
+  return width >= 1 && height >= 1;
+}
+
+/**
  * Note on the 3D globe surface: `echarts-gl`'s `globe` component has no `map`
  * property — it takes a raster `baseTexture`. Rather than ship a binary asset
  * or a flat fill, the texture is drawn at runtime from the same world GeoJSON

@@ -17,6 +17,7 @@ import {
   removeWidget as removeWidgetDraft,
   setColumnCount as setColumnCountDraft,
   setColumnWeight as setColumnWeightDraft,
+  setColumnWeights as setColumnWeightsDraft,
   setWidgetHeight as setWidgetHeightDraft,
   setWidgetConfig as setWidgetConfigDraft,
   toggleWidgetHidden as toggleWidgetHiddenDraft,
@@ -65,6 +66,7 @@ interface WorkspaceActions {
   addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
+  setColumnWeights: (sectionId: string, updates: ReadonlyArray<{ columnId: string; weight: number }>) => void;
   setWidgetHeight: (widgetId: string, height: number | null) => void;
   setWidgetConfig: (widgetId: string, patch: Record<string, unknown>) => void;
   toggleWidgetHidden: (widgetId: string) => void;
@@ -130,6 +132,7 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       addWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
+      setColumnWeights: (sectionId, updates) => commit(d => { setColumnWeightsDraft(d, sectionId, updates); }),
       setWidgetHeight: (widgetId, height) => commit(d => { setWidgetHeightDraft(d, widgetId, height); }),
       setWidgetConfig: (widgetId, patch) => commit(d => { setWidgetConfigDraft(d, widgetId, patch); }),
       toggleWidgetHidden: (widgetId) => commit(d => { toggleWidgetHiddenDraft(d, widgetId); }),
@@ -196,6 +199,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       addWidgetToNewSectionAt: useStore.getState().addWidgetToNewSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,
+      setColumnWeights: useStore.getState().setColumnWeights,
       setWidgetHeight: useStore.getState().setWidgetHeight,
       setWidgetConfig: useStore.getState().setWidgetConfig,
       toggleWidgetHidden: useStore.getState().toggleWidgetHidden,

@@ -131,10 +131,16 @@ economic calendar, quotes). Widgets needing external/broker integrations
 
 The **Investor Eye** widget (`src/lib/dashboard/investor-eye-widget.tsx`) is a
 thin view over the same Investor Eye DataHub state topics the full screen uses
-(`investor-eye:state:<hours>`), with `range` + `lens` config fields. Register new
-widgets at the END of `DASHBOARD_WIDGETS` — the persona templates
-(`src/lib/dashboard/templates.ts`) address widgets by array index, so inserting
-mid-list silently repoints every template.
+(`investor-eye:state:<hours>`), with `range` + `lens` config fields. Its spatial
+companion, the **Investor Eye Map** widget
+(`src/lib/dashboard/investor-eye-map-widget.tsx`), embeds the real
+`components/investor-eye/WorldMap` (2D map or lazy 3D globe) over the same state
+topics + `buildAllLayers()`, and writes selection to the shared
+`useInvestorEyeStore` — no second fetch path and no fabricated data. Its map
+chunk is `next/dynamic`-split so dashboards without it never load
+ECharts/`echarts-gl`. Register new widgets at the END of `DASHBOARD_WIDGETS` —
+the persona templates (`src/lib/dashboard/templates.ts`) address widgets by array
+index, so inserting mid-list silently repoints every template.
 
 ## Chart widgets
 
@@ -216,3 +222,10 @@ positions; wiring a real broker adapter is a prerequisite.
   with cards underneath.
 - `WidgetDefinition.render` is optional; prefer the host's `renderWidget` so page
   data can be threaded in. Only set `render` for self-contained widgets.
+- **Canvas/chart widgets must handle a zero-size mount.** A card can render a
+  frame before flex layout resolves its height, and some libraries crash on a
+  0×0 container (ECharts' geo map throws
+  `Cannot read properties of null (reading '0')`). Gate the chart init on a
+  non-zero box and let a ResizeObserver start it once the box is real — see
+  `hasDrawableBox()` in `src/lib/investor-eye/map-echarts.ts` and the init effect
+  in `components/investor-eye/world-map.tsx`.

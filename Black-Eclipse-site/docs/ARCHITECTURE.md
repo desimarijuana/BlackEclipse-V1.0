@@ -675,6 +675,62 @@ research agent in `research.ts`. Every result states provenance and labels
 - Partial failure does not break the page: the map renders from whatever the
   remaining sources produced, and the status chip reports each source's state.
 
+## Live Intelligence (the Command Center media widget)
+
+"Live Intelligence" is a Command Center dashboard widget that streams financial,
+market, business and geopolitical broadcasters inside the widget grid. It is a
+normal `WidgetDefinition` — it moves, resizes, configures and persists through
+the shared workspace kernel like every other widget, and introduces no second
+framework.
+
+- **Channel registry** — `src/lib/dashboard/live-channels.ts` is the single
+  source of truth. Every channel is a broadcaster's OWN official feed, and every
+  channel id AND `@handle` was resolved from that network's page. The catalog is
+  finance/market-scoped by design (entertainment, sport and lifestyle are
+  excluded). `LiveCategory` groups the picker; `LiveStreamType` is
+  `youtube | video | embed`. `lastKnownStatus` records only what a real playback
+  test observed; the runtime resolver is authoritative.
+- **Live resolver (server-side, cached)** — `src/lib/dashboard/live-resolver.ts`
+  + `GET /api/live-streams` resolve each channel's CURRENT live video id and
+  status, cached 3 minutes with a shared in-flight guard. **This exists because
+  embedding `live_stream?channel=<id|handle>` is unreliable** — YouTube renders
+  "This video is unavailable" inside the frame for many channels that *are* live,
+  which is the original "UNAVAILABLE" bug. Two findings are load-bearing:
+  1. `/embed/<resolved-video-id>` plays where `live_stream?channel=` does not.
+  2. YouTube's `/channel/<UC>/live` page silently fails to expose a canonical
+     live video for many channels whose `/@handle/live` resolves correctly — so
+     resolution tries the handle first.
+  Live ids rotate, so none are hardcoded. Status is classified from YouTube's own
+  page metadata (`canonical watch?v=` + `"isLive":true` +
+  `playableInEmbed`) — never fabricated.
+- **Selection store** — `src/lib/dashboard/live-intelligence-store.ts` holds the
+  app-level configuration (enabled channels, default channel, validated custom
+  sources) in localStorage with the same storage-event pattern as the price
+  ribbon and guest watchlist. The channel a *specific* card is watching is
+  per-instance state, persisted by the widget under its own placement id — two
+  cards can watch different feeds.
+- **Player** — `src/lib/dashboard/live-intelligence-widget.tsx` embeds the
+  provider's official player, preferring the resolved video id
+  (`/embed/<id>`), falling back to `live_stream?channel=<handle>`, or an
+  allowlisted embed. States: checking, live, offline (a *resolved* verdict — the
+  provider has no live broadcast right now), stream error (retry / change
+  channel / open at source), no channels configured, and paused/off-screen.
+  Custom sources are validated by `parseCustomSource` + a host allowlist
+  (`safeEmbedUrl`) so a user URL can never load an arbitrary origin.
+  The status chip shows `LIVE` only when the resolver confirmed a live,
+  embeddable stream, `OFFLINE` for a resolved no-broadcast, `CHECKING` otherwise.
+- **Teardown** — the widget owns its own lifecycle (ADR-015). Because the shell
+  keeps visited tabs MOUNTED and hidden with `display:none`, and
+  `WidgetDefinition.lazy` is never read, an `IntersectionObserver` plus a
+  `visibilitychange` listener unmount the iframe whenever the card is hidden,
+  scrolled off, or the browser tab is backgrounded, and re-mount it on return.
+- **No proxy.** The app never proxies, restreams, scrapes or rebroadcasts
+  anything, never fabricates a stream URL, and makes no unverifiable claim about
+  a stream's live state. The resolver reads a public page's metadata only.
+- **Extension point** — `LiveIntelligenceEvent` is declared (and unused) as the
+  shape a future transcript → event-detection pipeline would emit for Investor
+  Eye. No producer exists yet, and none may fabricate its fields.
+
 ## Design system
 
 All surfaces use the shared frosted-glass classes from
