@@ -21,18 +21,19 @@ export interface DashboardEntry {
   isDefault: boolean;
 }
 
-const INDEX_KEY = 'be_dashboards_index_v4';
+const INDEX_KEY = 'be_dashboards_index_v5';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 // Remembers the last-viewed dashboard so a restart/reload reopens the same one
 // instead of always snapping back to the dashboard flagged `isDefault`.
 const ACTIVE_KEY = 'be_dashboards_active_v1';
 
 // Bump the storage prefix when the widget catalog OR the generated layout
-// grammar changes so stale layouts don't load half-migrated. v4 is a deliberate
-// RESET: the pre-v4 generator produced cross-zone duplicates and 5-column rows
-// (truncated to 4 on reload), so old layouts were "all over the place" and are
-// not carried forward. Everyone reopens into the clean band-grammar defaults.
-export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v4_';
+// grammar changes so stale layouts don't load half-migrated. v5 is a deliberate
+// RESET: v4 shipped the band grammar but with one-section-per-rail-widget (lots
+// of dead gaps) and stretched auto heights; v5 stacks each rail into one section
+// and pins sensible band heights. Old layouts are not carried forward, so
+// everyone reopens into the calmer defaults.
+export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v5_';
 
 // Legacy index keys, newest first. When the storage prefix is bumped we migrate
 // the user's existing dashboards forward instead of silently seeding a fresh

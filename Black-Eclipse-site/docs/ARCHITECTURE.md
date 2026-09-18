@@ -343,17 +343,40 @@ widgets, this stays about arrangement):
    - **build-time 4-column cap** (the layout shown is what is persisted — the old
      generator built 5-wide lead rows that `normalizeLayout` truncated on reload,
      so layouts changed shape after a refresh),
+   - **per-cell pinned heights** (`height`) so large visuals get an intentional
+     size instead of stretching into dead space,
+   - `stack: true` rows collapse into ONE column (used for the side rails),
    - unknown ids dropped.
 
-Templates follow a **band grammar** — hero (4) → primary (1 full) → analysis
-(3) → intelligence (2) → context (2) → live. Six personas ship: **Trader,
+The side rails are each a **single stacked section**, not one section per tile.
+The old per-widget sections wrapped every tile in its own section gap + padding,
+which is what made the dashboard look full of gaps. The centre uses a **band
+grammar**: a short 4-up **hero** of small tiles → a full-width **primary** visual
+with a pinned height → roomy **two-up** analysis/context bands (not four skinny
+columns) → an optional full-width **live** strip. Six personas ship: **Trader,
 Investor, Macro, Crypto, Forex, Quant**, each materially distinct (different
 primary chart and bands), not index shuffles of one another.
 
-**Storage v4 is a deliberate RESET.** The pre-v4 generator produced the
-cross-zone duplicates and truncated rows above, so stale layouts are *not*
-migrated forward (`be_dashboards_index_v4` / `be_ws_dashboard_v4_`; v3 is absent
-from `LEGACY_INDEX_KEYS`). Everyone reopens into the clean defaults.
+**Storage v5 is a deliberate RESET.** v4 shipped the grammar with the gappy
+rails and stretched heights; v5 stacks the rails, pins band heights, and drops
+compact mode. Stale layouts are *not* migrated forward
+(`be_dashboards_index_v5` / `be_ws_dashboard_v5_`; older keys are absent from
+`LEGACY_INDEX_KEYS`). Everyone reopens into the clean defaults.
+
+### Command Center fullscreen
+
+`DashboardScreen` has an in-app fullscreen mode (`Shift+F`; header button; `Esc`
+exits). The overlay is **portaled to `<body>`**: the app shell is wrapped in a
+glass-card whose `backdrop-filter` establishes a containing block, so a plain
+`position: fixed` overlay would be trapped inside it and the global nav would
+stay on top — the same reason the Chart Workspace portals its full-page overlay.
+Body scroll is locked while open; the workspace owns the height and scrolls.
+
+### Compact mode was removed
+
+The widget workspace no longer has a compact/row-height mode. It forced every
+card to a fixed 40px height, crushing widget content. Cards now size to their
+widget (auto, stretching to fill the column) or to a per-placement pinned height.
 
 ## The command center (⌘K)
 

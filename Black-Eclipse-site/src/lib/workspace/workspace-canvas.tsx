@@ -55,8 +55,6 @@ interface WorkspaceCanvasProps {
   className?: string;
   /** Hide the built-in edit bar (used when a host provides its own chrome). */
   hideEditBar?: boolean;
-  /** Compact row height (60→40px) for dense layouts. */
-  compact?: boolean;
   /** Widget id currently being dragged in from the library (add-drag mode). */
   addingWidgetId?: string | null;
   /** Label for the add-drag ghost. */
@@ -87,7 +85,7 @@ export interface WorkspaceZoneConfig {
   onToggle?: () => void;
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones }: WorkspaceCanvasProps) {
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const rootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -543,7 +541,6 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
           <SectionRow
             section={section}
             editMode={editMode}
-            compact={compact}
             dragging={dragging}
             activeId={activeId}
             grabbedId={grabbedId}
@@ -764,11 +761,10 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
 // ── Section row: columns + edit controls + resize handles ────────────────────
 
 function SectionRow({
-  section, editMode, compact, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
+  section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
 }: {
   section: WorkspaceSection;
   editMode: boolean;
-  compact: boolean;
   dragging: boolean;
   activeId: string | null;
   grabbedId: string | null;
@@ -821,7 +817,6 @@ function SectionRow({
               column={column}
               section={section}
               editMode={editMode}
-              compact={compact}
               dragging={dragging}
               activeId={activeId}
               grabbedId={grabbedId}
@@ -848,12 +843,11 @@ function SectionRow({
 // ── Column with live insertion indicator + edge drop halves ──────────────────
 
 function ColumnDroppable({
-  column, section, editMode, compact, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
+  column, section, editMode, dragging, activeId, grabbedId, armedTarget, target, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef, onGhostConfirm, onEmptyColumnClick,
 }: {
   column: WorkspaceSection['columns'][number];
   section: WorkspaceSection;
   editMode: boolean;
-  compact: boolean;
   dragging: boolean;
   activeId: string | null;
   grabbedId: string | null;
@@ -885,7 +879,6 @@ function ColumnDroppable({
       <WidgetCard
         placement={placement}
         editMode={editMode}
-        compact={compact}
         hidden={activeId === placement.id}
         tapActive={grabbedId === placement.id}
         lastDragEndRef={lastDragEndRef}
@@ -974,11 +967,10 @@ function ConfirmGhost({ onConfirm }: { onConfirm: () => void }) {
 // ── Draggable widget card ────────────────────────────────────────────────────
 
 function WidgetCard({
-  placement, editMode, compact, hidden, tapActive, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef,
+  placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef,
 }: {
   placement: WidgetPlacement;
   editMode: boolean;
-  compact: boolean;
   hidden: boolean;
   /** THIS card is the one being held in click-grab mode. */
   tapActive: boolean;
@@ -1025,7 +1017,7 @@ function WidgetCard({
     <div
       ref={setNodeRef}
       data-wcard={placement.id}
-      style={compact ? { height: 40 } : placement.height != null ? { height: placement.height } : undefined}
+      style={placement.height != null ? { height: placement.height } : undefined}
       {...(editMode ? { ...attributes, ...listeners } : {})}
       onClick={editMode ? (e) => {
         // A genuine dnd-kit drag never produces a click (pointer capture).
@@ -1037,10 +1029,9 @@ function WidgetCard({
       className={cn(
         CARD_CLASS,
         'group/card relative flex w-full flex-col overflow-hidden',
-        // Fixed-height cards keep their size; auto cards grow to fill the whole
-        // column height so columns never show gaps — content stretches edge to edge.
-        // Compact mode forces a fixed 40px row height.
-        !compact && placement.height == null && 'flex-1',
+        // Auto cards stretch to fill the column so columns never show gaps —
+        // content reaches edge to edge. Pinned-height cards keep their size.
+        placement.height == null && 'flex-1',
         editMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
         // Touch: let the pointer sensor own the gesture — no browser pan.
         editMode && 'touch-none select-none',

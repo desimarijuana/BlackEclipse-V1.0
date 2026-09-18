@@ -40,9 +40,10 @@ Workspace kernel  (src/lib/workspace/)
   - `renderWidget` (widgetId, placement → ReactNode) — the source of truth for
     rendering; thread page data (fund, market data, etc.) through here.
   - optional `editBarExtra` (extra chrome in the edit bar)
-  - optional `toolbar` (`'default'` labelled buttons · `'compact'` icon-only ·
-    `'none'`) and `hideFloatingAdd`.
-  - optional `defaultCompact` — start with dense rows.
+  - optional `toolbar` (`'default'` labelled buttons · `'icons'` icon-only ·
+    `'none'`) and `hideFloatingAdd`. There is NO compact/row-height mode — it
+    crushed content; cards size to their widget (auto stretch) or a pinned
+    per-placement height.
   - optional **side zones**: `zones={{ left?, right? }}`, each a
     `{ className?, header?, collapsed?, onToggle? }` config. When a section is
     tagged `zone:'left' | 'right'`, the canvas lays that zone beside the `main`
@@ -128,8 +129,9 @@ Never build a second customization surface / second workspace for a side column.
 
 ## Toolbar (always visible)
 
-`CustomizableWorkspace` renders a toolbar with **Compact** (row height 60→40px),
-**Refresh** (force-refresh all topics), and **Customize** (enter edit mode).
+`CustomizableWorkspace` renders a toolbar with **Refresh** (force-refresh all
+topics) and **Customize** (enter edit mode). Compact mode was removed — it
+forced a fixed 40px card height that crushed widget content.
 
 ## Widget catalog (Command Center)
 
@@ -161,18 +163,30 @@ Default arrangements are composed by the pure, tested engine in
 `src/lib/dashboard/layout.ts`:
 
 - **Templates** (`templates.ts`) are widget-id specs, centre-only, using the
-  **band grammar**: hero (4) → primary (1 full) → analysis (3) → intelligence
-  (2) → context (2) → live. Six personas: Trader, Investor, Macro, Crypto,
-  Forex, Quant.
+  **band grammar**: hero (4 tall-ish KPI tiles) → a full-width **primary** visual
+  with a pinned height → **analysis**/**context** TWO-UP (roomy, not four skinny
+  columns). Six personas: Trader, Investor, Macro, Crypto, Forex, Quant.
 - **`buildMarketViewLayout(market, ids, templateBase)`** frames the template with
   thin side rails: left = Watchlist only; right = the asset class's `mp-*` stat
-  tiles (`ASSET_RAIL`).
+  tiles (`ASSET_RAIL`). Each rail is **ONE STACKED section** (single column),
+  NOT one section per widget — the old per-widget sections produced a section
+  gap + padding around every tile, which read as "too many gaps".
 - **`composeRows`** enforces the invariants in ONE place: global first-wins
-  **dedupe** across zones, **4-column cap at build time**, unknown ids dropped.
-  Never bypass it — the old generator skipped dedupe and built 5-wide rows that
-  were truncated on reload.
-- Storage is **v4** (`be_dashboards_index_v4` / `be_ws_dashboard_v4_`) and is a
-  deliberate reset; pre-v4 layouts are not migrated forward.
+  **dedupe** across zones, **4-column cap at build time**, unknown ids dropped,
+  and per-cell **pinned heights** (`height`). Rows with `stack:true` collapse to
+  a single column. Never bypass it — the old generator skipped dedupe and built
+  5-wide rows truncated on reload.
+- Storage is **v5** (`be_dashboards_index_v5` / `be_ws_dashboard_v5_`) and is a
+  deliberate reset; pre-v5 layouts are not migrated forward.
+
+## Command Center fullscreen
+
+`DashboardScreen` has an in-app fullscreen mode (`Shift+F`, button in the header,
+`Esc` to exit). It **portals to `<body>`** — the app shell is wrapped in a
+glass-card whose `backdrop-filter` creates a containing block, so a bare
+`position: fixed` would be trapped and the global nav would stay on top (same
+reason the Chart Workspace portals its full-page overlay). While open, body
+scroll is locked and the workspace owns the remaining height and scrolls.
 
 ## Chart widgets
 

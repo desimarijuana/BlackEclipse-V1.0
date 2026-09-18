@@ -76,6 +76,23 @@ describe('composeRows', () => {
     expect(secs).toHaveLength(1);
     expect(secs[0].zone).toBe('right');
   });
+
+  it('honours pinned cell heights and leaves unpinned cells null (auto)', () => {
+    const secs = composeRows([
+      { zone: 'main', cells: [{ widget: 'a', height: 440 }, { widget: 'b' }] },
+    ], new Set(['a', 'b']));
+    expect(secs[0].columns[0].widgets[0].height).toBe(440);
+    expect(secs[0].columns[1].widgets[0].height).toBeNull();
+  });
+
+  it('stacks a whole row into ONE column when stack is set (compact rails)', () => {
+    const secs = composeRows([
+      { zone: 'right', stack: true, cells: [{ widget: 'a' }, { widget: 'b' }, { widget: 'c' }] },
+    ], new Set(['a', 'b', 'c']));
+    expect(secs).toHaveLength(1);
+    expect(secs[0].columns).toHaveLength(1);
+    expect(secs[0].columns[0].widgets.map(w => w.widgetId)).toEqual(['a', 'b', 'c']);
+  });
 });
 
 // ── side-zone builders ───────────────────────────────────────────────────────
@@ -89,10 +106,13 @@ describe('side-zone builders', () => {
     expect(s[0].columns[0].widgets[0].widgetId).toBe('watchlist');
   });
 
-  it('builds right-zone stat tiles with no duplicates', () => {
-    const s = buildRailSections(['mp-indices', 'mp-indices', 'mp-movers']);
-    expect(s).toHaveLength(3); // builder does not dedupe; composeRows does
-    expect(s.every(sec => sec.zone === 'right')).toBe(true);
+  it('stacks right-zone stat tiles into ONE section (no per-tile gaps)', () => {
+    const s = buildRailSections(['mp-indices', 'mp-movers', 'mp-breadth']);
+    expect(s).toHaveLength(1);
+    expect(s[0].zone).toBe('right');
+    expect(s[0].columns).toHaveLength(1);
+    expect(s[0].columns[0].widgets.map(w => w.widgetId))
+      .toEqual(['mp-indices', 'mp-movers', 'mp-breadth']);
   });
 });
 

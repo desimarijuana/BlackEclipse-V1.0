@@ -43,6 +43,24 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Workspace / Command Center** — Removed compact mode, added fullscreen, and
+  fixed the gappy look of the v4 layouts.
+  - **Compact mode deleted** (prop, state, toggle, `Shift+C`, canvas plumbing).
+    It forced every card to a fixed 40px height and crushed widget content.
+    Cards now size to the widget (auto stretch) or a pinned per-placement height.
+  - **Fullscreen mode** added to the Command Center (`Shift+F`, header button,
+    `Esc` to exit). The overlay is **portaled to `<body>`** because the app
+    shell's glass-card `backdrop-filter` creates a containing block that traps
+    `position: fixed` — the same constraint the Chart Workspace already handles.
+    Body scroll locks while open.
+  - **Gaps fixed:** each side rail is now ONE STACKED section instead of one
+    section per tile (the per-tile section padding/gap was the "too many gaps"
+    problem). Persona bands were reworked to a short 4-up hero, a full-width
+    pinned-height primary visual, and roomy TWO-UP analysis/context bands rather
+    than four skinny columns. `composeRows` now also carries **pinned heights**
+    and `stack` rows. Storage bumped to **v5** (deliberate reset).
+  2 new tests (pinned heights + stacked rails). docs updated:
+  `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
 - **Workspace / Command Center** — Rebuilt the default dashboard layouts. The
   old generator produced cross-zone duplicates (left/right builders were not
   deduped against the centre, so `watchlist`/`top-movers`/`news-feed` rendered

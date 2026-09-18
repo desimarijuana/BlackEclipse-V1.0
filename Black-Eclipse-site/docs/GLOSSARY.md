@@ -88,6 +88,18 @@ widgets) → **primary** (the one big chart) → **analysis** → **intelligence
 4-column cap, so a widget never renders twice and a section never exceeds four
 columns. See `src/lib/dashboard/layout.ts`.
 
+**Stacked rail** — a side zone built as ONE section with a single column holding
+every tile, rather than one section per tile. This removes the per-tile section
+padding/gap that made the dashboard look gappy. See `buildLeftSections` /
+`buildRailSections`.
+
+**Pinned height** — a per-placement fixed pixel height (`placement.height`) used
+to size large visuals (primary chart, map, live strip) intentionally instead of
+letting them stretch. Auto placements (`height: null`) fill the column.
+
+**Compact mode** — *removed*. It forced a fixed 40px card height and crushed
+widget content; there is no row-height mode any more.
+
 **Placement / two-click contract** — the interaction model for moving widgets:
 grab to *preview* a slot, click again to *commit*. Escape or right-click cancels.
 See ADR-008.

@@ -41,9 +41,7 @@ export interface CustomizableWorkspaceProps {
   /** Optional bottom status bar rendered under the canvas. */
   statusBar?: React.ReactNode;
   /** Toolbar style: full labelled buttons, icon-only (for narrow columns), or hidden. */
-  toolbar?: 'default' | 'compact' | 'none';
-  /** Start in compact row mode (denser dashboard feel). Default false. */
-  defaultCompact?: boolean;
+  toolbar?: 'default' | 'icons' | 'none';
   /** Hide the floating "Add Widget" button (e.g. in a narrow side panel). */
   hideFloatingAdd?: boolean;
   /**
@@ -72,7 +70,6 @@ export function CustomizableWorkspace({
   editBarExtra,
   statusBar,
   toolbar = 'default',
-  defaultCompact = false,
   hideFloatingAdd = false,
   zones,
   railClassName,
@@ -94,7 +91,6 @@ export function CustomizableWorkspace({
   }, [zones, railClassName, railHeader, railCollapsed, onToggleRail]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [configPlacement, setConfigPlacement] = useState<WidgetPlacement | null>(null);
-  const [compact, setCompact] = useState(defaultCompact);
   // Widget currently being added from the library. `mode`:
   //   'hold'  — press & drag, release to place (direct drag-and-drop)
   //   'click' — click to project a ghost, then double-click to confirm
@@ -108,7 +104,6 @@ export function CustomizableWorkspace({
     { id: 'workspace-customize', label: 'Customize workspace', keys: 'shift+e', run: () => workspace.setEditMode(!workspace.editMode), enabled: shortcutsEnabled },
     { id: 'workspace-library', label: 'Open widget library', keys: 'shift+w', run: () => { workspace.setEditMode(true); setLibraryOpen(true); }, enabled: shortcutsEnabled },
     { id: 'workspace-refresh', label: 'Refresh workspace widgets', keys: 'r', run: refreshAll, enabled: shortcutsEnabled },
-    { id: 'workspace-compact', label: 'Toggle compact rows', keys: 'shift+c', run: () => setCompact(v => !v), enabled: shortcutsEnabled },
   ]);
 
   useEffect(() => {
@@ -173,19 +168,9 @@ export function CustomizableWorkspace({
 
   return (
     <div ref={rootRef} data-keyboard-scope="Widget workspace" className={cn('relative', className)}>
-      {/* Customize toggle + compact + refresh — always visible */}
-      {toolbar === 'compact' ? (
+      {/* Refresh + Customize — always visible */}
+      {toolbar === 'icons' ? (
         <div className="mb-3 flex items-center justify-end gap-1">
-          <button
-            onClick={() => setCompact(v => !v)}
-            className={cn(
-              'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
-              compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
-            )}
-            title="Toggle compact row height (Shift+C)"
-          >
-            <Settings2 size={12} />
-          </button>
           <button
             onClick={refreshAll}
             className="glass-button rounded-lg p-1.5 text-muted-foreground hover:text-primary transition-all cursor-pointer"
@@ -206,16 +191,6 @@ export function CustomizableWorkspace({
         </div>
       ) : toolbar === 'default' ? (
         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-          <button
-            onClick={() => setCompact(v => !v)}
-            className={cn(
-              'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
-              compact ? 'text-primary' : 'text-muted-foreground hover:text-primary',
-            )}
-            title="Toggle compact row height (Shift+C)"
-          >
-            <Settings2 size={13} /> {compact ? 'Compact' : 'Compact'}
-          </button>
           <button
             onClick={refreshAll}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
@@ -298,7 +273,6 @@ export function CustomizableWorkspace({
         <WorkspaceCanvas
           workspace={workspace}
           hideEditBar
-          compact={compact}
           addingWidgetId={addDrag?.widgetId ?? null}
           addingLabel={addDrag?.label}
           addingMode={addDrag?.mode ?? 'hold'}

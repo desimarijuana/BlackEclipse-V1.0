@@ -4,15 +4,16 @@
 // registry stays about widgets, this stays about arrangement.
 //
 // Composition rules (the "band" grammar, see docs/ARCHITECTURE.md):
-//   left zone : the personal Watchlist (thin, one widget)
+//   left zone : the personal Watchlist, STACKED in one section
 //   main zone : the persona template (hero → primary → analysis → context)
-//   right zone: asset-class market stat tiles (mp-*), thin
+//   right zone: asset-class stat tiles, STACKED in one section
 // A global first-wins dedupe runs across EVERY zone, so a widget never renders
-// twice. Each section is capped at 4 columns AT BUILD TIME, so the layout the
-// user sees is exactly the layout that is persisted (normalizeLayout also caps
-// at 4 on read, which used to silently drop the 5th column on reload).
+// twice. Each section is capped at 4 columns AT BUILD TIME. Side rails are a
+// single STACKED section (not one section per tile) so tiles sit close together
+// with no per-section padding/gap — the old one-section-per-widget shape was
+// what made the rails look full of dead gaps.
 
-import { newId, type WorkspaceColumn, type WorkspaceLayout, type WorkspaceSection, type WorkspaceZone } from '@/lib/workspace/types';
+import { newId, type WorkspaceColumn, type WorkspaceLayout, type WorkspaceSection, type WorkspaceZone, type WidgetPlacement } from '@/lib/workspace/types';
 
 /** Asset classes for a market id (equity country, forex, commodities, crypto). */
 export type AssetClass = 'equity' | 'forex' | 'commodities' | 'crypto';
@@ -45,73 +46,100 @@ export const MARKET_RAIL_WIDGET_IDS = [
   'mp-fear-greed', 'mp-breadth', 'mp-movers', 'mp-snapshot', 'mp-hours',
 ];
 
-/** Build a section per widget id (one widget per column), in the given zone. */
-function sectionsFor(zone: WorkspaceZone, widgetIds: string[]): WorkspaceSection[] {
-  return widgetIds.map(widgetId => ({
+/** Build one STACKED section (single column) holding every widget id. */
+function stackedSection(zone: WorkspaceZone, widgetIds: string[]): WorkspaceSection[] {
+  if (widgetIds.length === 0) return [];
+  return [{
     id: newId('sec'),
     zone,
-    columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
-  }));
+    columns: [{
+      id: newId('col'),
+      weight: 1,
+      widgets: widgetIds.map(widgetId => ({ id: newId('wid'), widgetId, height: null })),
+    }],
+  }];
 }
 
-/** Right zone: the asset-class market stat tiles. */
+/** Right zone: the asset-class market stat tiles, stacked. */
 export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS): WorkspaceSection[] {
-  return sectionsFor('right', widgetIds);
+  return stackedSection('right', widgetIds);
 }
 
-/** Left zone: the personal watchlist column. */
+/** Left zone: the personal watchlist, stacked. */
 export function buildLeftSections(widgetIds: string[] = LEFT_WIDGET_IDS): WorkspaceSection[] {
-  return sectionsFor('left', widgetIds);
+  return stackedSection('left', widgetIds);
 }
 
-/** A section spec: widget ids placed one-per-column, with optional weights. */
+/**
+ * A row spec. `stack: true` puts every cell in ONE column of a single section
+ * (used for the side rails); otherwise each cell is its own column.
+ * `height` pins a card's pixel height (null = auto/stretch).
+ */
 export interface LayoutRow {
   zone?: WorkspaceZone;
-  cells: Array<{ widget: string; weight?: number }>;
+  stack?: boolean;
+  cells: Array<{ widget: string; weight?: number; height?: number | null }>;
 }
 
-/** Flatten a built layout back into rows (one cell per widget) for re-composition. */
+/** Flatten a built layout back into rows for re-composition. */
 export function layoutToRows(layout: WorkspaceLayout): LayoutRow[] {
   return layout.sections.map(section => ({
     zone: section.zone ?? 'main',
     cells: section.columns.flatMap(col =>
-      col.widgets.map(w => ({ widget: w.widgetId, weight: col.weight })),
+      col.widgets.map(w => ({ widget: w.widgetId, weight: col.weight, height: w.height })),
     ),
   }));
 }
 
+/** A placement with the cell's pinned height (null = auto). */
+function placement(widgetId: string, height?: number | null): WidgetPlacement {
+  return { id: newId('wid'), widgetId, height: height ?? null };
+}
+
 /**
  * Compose rows into sections: drop unknown ids, dedupe globally (first wins),
- * and cap each section at 4 columns. This is the single place the composition
- * invariants are enforced.
+ * cap each section at 4 columns, and honour each cell's pinned height. This is
+ * the single place the composition invariants are enforced.
  */
 export function composeRows(rows: LayoutRow[], known: ReadonlySet<string>): WorkspaceSection[] {
   const seen = new Set<string>();
   const sections: WorkspaceSection[] = [];
   for (const row of rows) {
-    const columns: WorkspaceColumn[] = [];
-    for (const cell of row.cells) {
-      if (!known.has(cell.widget) || seen.has(cell.widget)) continue;
+    const cells = row.cells.filter(cell => {
+      if (!known.has(cell.widget) || seen.has(cell.widget)) return false;
       seen.add(cell.widget);
-      columns.push({
-        id: newId('col'),
-        weight: cell.weight ?? 1,
-        widgets: [{ id: newId('wid'), widgetId: cell.widget, height: null }],
+      return true;
+    });
+    if (cells.length === 0) continue;
+
+    if (row.stack) {
+      sections.push({
+        id: newId('sec'),
+        zone: row.zone ?? 'main',
+        columns: [{
+          id: newId('col'),
+          weight: 1,
+          widgets: cells.map(c => placement(c.widget, c.height)),
+        }],
       });
-      if (columns.length >= MAX_COLUMNS) break;
+      continue;
     }
-    if (columns.length > 0) {
-      sections.push({ id: newId('sec'), zone: row.zone ?? 'main', columns });
-    }
+
+    const columns: WorkspaceColumn[] = cells.slice(0, MAX_COLUMNS).map(cell => ({
+      id: newId('col'),
+      weight: cell.weight ?? 1,
+      widgets: [placement(cell.widget, cell.height)],
+    }));
+    sections.push({ id: newId('sec'), zone: row.zone ?? 'main', columns });
   }
   return sections;
 }
 
 /**
  * Build the starting layout for a single market view: the persona template's
- * centre, framed by a thin Watchlist (left) and the market's asset-class stat
- * tiles (right). `templateBase` is the persona layout from `templates.ts`; when
- * absent, the caller's default body is used.
+ * centre, framed by a stacked Watchlist (left) and the market's stacked
+ * asset-class stat tiles (right). `templateBase` is the persona layout from
+ * `templates.ts`; when absent, only the two rails are produced.
  */
 export function buildMarketViewLayout(
   market: string,
@@ -122,11 +150,11 @@ export function buildMarketViewLayout(
   const cls = assetClassFor(market);
 
   const rows: LayoutRow[] = [
-    { zone: 'left', cells: LEFT_WIDGET_IDS.map(widget => ({ widget })) },
+    { zone: 'left', stack: true, cells: LEFT_WIDGET_IDS.map(widget => ({ widget })) },
     ...(templateBase && templateBase.sections.length > 0
       ? layoutToRows(templateBase)
       : []),
-    { zone: 'right', cells: ASSET_RAIL[cls].map(widget => ({ widget })) },
+    { zone: 'right', stack: true, cells: ASSET_RAIL[cls].map(widget => ({ widget })) },
   ];
 
   return { version: 1, sections: composeRows(rows, known) };

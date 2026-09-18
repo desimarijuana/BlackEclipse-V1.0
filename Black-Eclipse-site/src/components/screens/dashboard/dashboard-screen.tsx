@@ -4,10 +4,11 @@
 // Hosts the workspace kernel (WorkspaceCanvas) for the active dashboard, plus
 // the dashboard switcher, onboarding, widget library, and config panel.
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
+  ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Maximize2, Minimize2, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded, seedMarketKeyFromLegacy } from '@/lib/dashboard/use-dashboards';
@@ -24,6 +25,9 @@ export function DashboardScreen() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [watchlistOpen, setWatchlistOpen] = useState(true);
   const [marketOpen, setMarketOpen] = useState(true);
+  // In-app fullscreen: the Command Center expands to a fixed full-viewport
+  // overlay (its own slim bar), hiding the app chrome for a focused board.
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // The active layout's id + default market. The layout id keys the workspace
   // (each named layout owns its own widgets); the market drives "follow the tab"
@@ -72,9 +76,118 @@ export function DashboardScreen() {
     if (name) dashboards.create(name, 'trader');
   };
 
+  const toggleFullscreen = () => setIsFullscreen(v => !v);
+
   usePageShortcuts(rootRef, [
     { id: 'dashboard-new', label: 'New dashboard', keys: 'shift+d', run: createDashboard, enabled: dashboards.loaded && !showOnboarding },
+    { id: 'dashboard-fullscreen', label: 'Toggle fullscreen', keys: 'shift+f', run: toggleFullscreen, enabled: dashboards.loaded && !showOnboarding },
   ]);
+
+  // Lock page scroll while fullscreen so the reclaimed space is usable and the
+  // background can't drift behind the overlay. Esc exits.
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Esc exits — unless the workspace already consumed it (active drag/grab),
+    // in which case the card gesture should win.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) setIsFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [isFullscreen]);
+
+  // The workspace is rendered either inline (normal) or inside the fullscreen
+  // portal. It is hoisted into a variable so both paths share one instance.
+  const workspaceEl = (
+    <CustomizableWorkspace
+      key={storageKey}
+      storageKey={storageKey}
+      defaultLayout={defaultLayout}
+      widgets={DASHBOARD_WIDGETS}
+      widgetIcon={widgetIcon}
+      renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
+      zones={{
+        left: {
+          className: 'hidden xl:block w-64',
+          collapsed: !watchlistOpen,
+          onToggle: () => setWatchlistOpen(v => !v),
+          header: (
+            <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                <List size={13} className="text-primary" /> Watchlist
+              </span>
+              <button
+                onClick={() => setWatchlistOpen(false)}
+                className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Collapse watchlist panel"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            </div>
+          ),
+        },
+        right: {
+          className: 'hidden lg:block w-72',
+          collapsed: !marketOpen,
+          onToggle: () => setMarketOpen(v => !v),
+          header: (
+            <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                <Globe size={13} className="text-primary" /> Market
+              </span>
+              <button
+                onClick={() => setMarketOpen(false)}
+                className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Collapse market panel"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          ),
+        },
+      }}
+      statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
+    />
+  );
+
+  // Fullscreen, portaled to <body>: the app shell is wrapped in a glass-card
+  // (backdrop-filter creates a containing block), so a bare `position: fixed`
+  // would be trapped and the global nav would stay on top. Same reason the
+  // Chart Workspace portals its full-page overlay. Early-returned so exactly
+  // one keyboard scope / rootRef exists at a time.
+  if (isFullscreen && typeof document !== 'undefined') {
+    return createPortal(
+      <div
+        ref={rootRef}
+        tabIndex={-1}
+        data-keyboard-scope="Command Center"
+        className="fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background/95 p-3 backdrop-blur-md outline-none"
+      >
+        <div className="mb-3 flex items-center gap-3 rounded-2xl glass-card px-4 py-2">
+          <LayoutDashboard className="text-primary" size={16} />
+          <span className="font-serif text-sm font-semibold text-foreground">Command Center</span>
+          {dashboards.active && (
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{dashboards.active.name}</span>
+          )}
+          <button
+            onClick={toggleFullscreen}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary hover:border-primary/40 transition-all cursor-pointer"
+            title="Exit fullscreen (Esc)"
+          >
+            <Minimize2 size={13} /> Exit
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{workspaceEl}</div>
+        {showOnboarding && (
+          <DashboardOnboarding open onComplete={(r) => handleOnboard(r)} />
+        )}
+      </div>,
+      document.body,
+    );
+  }
 
   return (
     <div ref={rootRef} data-keyboard-scope="Command Center" className="animate-fade-in-up w-full">
@@ -147,6 +260,13 @@ export function DashboardScreen() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={toggleFullscreen}
+            className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+            title="Fullscreen (Shift+F)"
+          >
+            <Maximize2 size={13} /> Fullscreen
+          </button>
+          <button
             onClick={() => {
               const json = dashboards.exportLayout(dashboards.activeId!);
               if (json) {
@@ -198,56 +318,7 @@ export function DashboardScreen() {
       {/* Reusable customizable workspace — left, centre and right are ONE
           workspace. The single Customize button drives all three, cards drag
           between them, and the left/right panels can be removed from Customize. */}
-      <CustomizableWorkspace
-        key={storageKey}
-        storageKey={storageKey}
-        defaultLayout={defaultLayout}
-        defaultCompact
-        widgets={DASHBOARD_WIDGETS}
-        widgetIcon={widgetIcon}
-        renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
-        zones={{
-          left: {
-            className: 'hidden xl:block w-64',
-            collapsed: !watchlistOpen,
-            onToggle: () => setWatchlistOpen(v => !v),
-            header: (
-              <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                  <List size={13} className="text-primary" /> Watchlist
-                </span>
-                <button
-                  onClick={() => setWatchlistOpen(false)}
-                  className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Collapse watchlist panel"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-              </div>
-            ),
-          },
-          right: {
-            className: 'hidden lg:block w-72',
-            collapsed: !marketOpen,
-            onToggle: () => setMarketOpen(v => !v),
-            header: (
-              <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                  <Globe size={13} className="text-primary" /> Market
-                </span>
-                <button
-                  onClick={() => setMarketOpen(false)}
-                  className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Collapse market panel"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            ),
-          },
-        }}
-        statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
-      />
+      {workspaceEl}
 
       {/* Onboarding */}
       {showOnboarding && (
