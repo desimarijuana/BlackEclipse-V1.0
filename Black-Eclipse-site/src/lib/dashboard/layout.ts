@@ -3,17 +3,24 @@
 // Pure and framework-free (types + ops only) so it is unit-testable: the widget
 // registry stays about widgets, this stays about arrangement.
 //
-// Composition rules (the "band" grammar, see docs/ARCHITECTURE.md):
-//   left zone : the personal Watchlist, STACKED in one section
-//   main zone : the persona template (hero → primary → analysis → context)
-//   right zone: asset-class stat tiles, STACKED in one section
-// A global first-wins dedupe runs across EVERY zone, so a widget never renders
-// twice. Each section is capped at 4 columns AT BUILD TIME. Side rails are a
-// single STACKED section (not one section per tile) so tiles sit close together
-// with no per-section padding/gap — the old one-section-per-widget shape was
-// what made the rails look full of dead gaps.
+// Track-board grammar (replaces the retired row-band grammar):
+//   left zone : the personal Watchlist, one stacked track
+//   main zone : one or more centre bands, each 1–4 tracks
+//   right zone: asset-class stat tiles, one stacked track
+// The masonry packer (workspace/pack.ts) balances each band's cards into the
+// shortest track. A global first-wins dedupe runs across EVERY zone, so a
+// widget never renders twice.
+//
+// SIZING has two modes (see WidgetPlacement):
+//   FRAME  (`defaultHeight`) — the widget's content fills the card and/or
+//          scrolls internally (charts, maps, live video, tables, feeds). The
+//          card gets that height as a frame and its body stretches to fill.
+//   GROW   (`minHeight`)     — compact tiles that size to content with a floor.
+// Frame heights are deliberately VARIED per widget so bands pack into distinct,
+// non-uniform shapes rather than a monotone grid.
 
 import { newId, type WorkspaceColumn, type WorkspaceLayout, type WorkspaceSection, type WorkspaceZone, type WidgetPlacement } from '@/lib/workspace/types';
+import { rebalanceColumns } from '@/lib/workspace/pack';
 
 /** Asset classes for a market id (equity country, forex, commodities, crypto). */
 export type AssetClass = 'equity' | 'forex' | 'commodities' | 'crypto';
@@ -25,29 +32,88 @@ export function assetClassFor(market: string): AssetClass {
   return 'equity';
 }
 
-const MAX_COLUMNS = 4;
+/** Default centre track count when a band does not specify one. */
+export const CENTRE_TRACKS = 3;
 
 /**
- * Default band heights (px). Every default placement is pinned to one of these
- * so a widget never stretches into dead space and rows can be authored as
- * matched-height pairs. `auto` (null) is only used for user-added widgets.
+ * FRAME heights (px): widgets whose content fills the card and must have a
+ * definite box — charts, maps, live video, scrollable tables/feeds. The card
+ * becomes a fixed frame and the widget body stretches into it.
  */
-export const HEIGHTS = {
-  /** One-line tickers / strips. */
-  strip: 130,
-  /** Small status / KPI tiles. */
-  tile: 190,
-  /** Standard panel (lists, tables, feeds). */
-  panel: 300,
-  /** Tall news / live / map panels. */
-  tall: 420,
-  /** The full-width primary visual (chart, heatmap, map). */
-  chart: 460,
-  /** Live TV — deliberately large so it is watchable. */
-  live: 520,
-  /** Auto height — natural content size (user-added widgets only). */
-  auto: null,
-} as const;
+export const WIDGET_FRAME_HEIGHT: Record<string, number> = {
+  // Charts / maps / media
+  'eclipse-chart': 460,
+  'tradingview-chart': 460,
+  'asset-chart': 400,
+  'candle-chart': 440,
+  'economic-chart': 400,
+  'fund-performance-chart': 420,
+  'funds-comparison-chart': 360,
+  'market-heatmap': 440,
+  'live-tv': 460,
+  'investor-eye': 420,
+  'investor-eye-map': 460,
+  // Tables / feeds / scrolling lists
+  'news-feed': 380,
+  'news-category': 380,
+  'holdings': 380,
+  'stock-screener': 420,
+  'economic-calendar': 340,
+  'trade-tape': 320,
+  'active-alerts': 300,
+  'journal-performance': 300,
+  'geopolitics': 360,
+  'maritime': 360,
+  'agent-activity': 300,
+  'recent-research': 300,
+  'ai-insights': 300,
+};
+
+/**
+ * GROW floors (px): compact tiles that size to their content with a floor.
+ * These read best side-by-side because they never force a tall row.
+ */
+export const WIDGET_MIN_HEIGHT: Record<string, number> = {
+  'market-status': 150,
+  'market-regime': 260,
+  'crypto-ticker': 130,
+  'sparklines': 170,
+  'quote-strip': 130,
+  'top-movers': 280,
+  'sector-heatmap': 280,
+  'what-changed': 280,
+  'opportunity-scanner': 300,
+  'market-drivers': 280,
+  'global-markets': 300,
+  'macro-snapshot': 260,
+  'commodities': 260,
+  'forex-pairs': 260,
+  'crypto-markets': 260,
+  'polymarket': 300,
+  'portfolio-summary': 280,
+  'performance': 300,
+  'risk-metrics': 220,
+  'mp-fear-greed': 120,
+  'mp-breadth': 150,
+  'mp-movers': 260,
+  'mp-snapshot': 240,
+  'mp-hours': 220,
+  'mp-indices': 240,
+  'mp-forex': 240,
+  'mp-crypto': 240,
+  'mp-commodities': 240,
+  'mp-country-watch': 280,
+};
+
+/** Floor for any widget id without an explicit hint. */
+export const WIDGET_MIN_DEFAULT = 260;
+
+/** Resolve a widget's intrinsic size hints by id. */
+export function placementSizing(widgetId: string): { defaultHeight?: number; minHeight?: number } {
+  const frame = WIDGET_FRAME_HEIGHT[widgetId];
+  if (frame != null) return { defaultHeight: frame };
+  return { minHeight: WIDGET_MIN_HEIGHT[widgetId] ?? WIDGET_MIN_DEFAULT };
+}
 
 /** Left zone: the personal watchlist only. Never duplicated in the centre. */
 const LEFT_WIDGET_IDS = ['watchlist'];
@@ -68,12 +134,17 @@ export const MARKET_RAIL_WIDGET_IDS = [
   'mp-fear-greed', 'mp-breadth', 'mp-movers', 'mp-snapshot', 'mp-hours',
 ];
 
+/** A placement with its intrinsic sizing (height stays null = auto). */
+function placement(widgetId: string, override?: Partial<Pick<WidgetPlacement, 'height' | 'defaultHeight' | 'minHeight'>>): WidgetPlacement {
+  const sizing = placementSizing(widgetId);
+  return { id: newId('wid'), widgetId, height: null, ...sizing, ...override };
+}
+
 /**
  * Build one STACKED section (single column) holding every widget id, each
- * pinned to `height` (default `HEIGHTS.tile`) so stacked rail tiles never
- * stretch.
+ * sized to its intrinsic hints so stacked side tiles never stretch.
  */
-function stackedSection(zone: WorkspaceZone, widgetIds: string[], height: number | null = HEIGHTS.tile): WorkspaceSection[] {
+function stackedSection(zone: WorkspaceZone, widgetIds: string[], override?: Partial<Pick<WidgetPlacement, 'height' | 'defaultHeight' | 'minHeight'>>): WorkspaceSection[] {
   if (widgetIds.length === 0) return [];
   return [{
     id: newId('sec'),
@@ -81,7 +152,7 @@ function stackedSection(zone: WorkspaceZone, widgetIds: string[], height: number
     columns: [{
       id: newId('col'),
       weight: 1,
-      widgets: widgetIds.map(widgetId => ({ id: newId('wid'), widgetId, height })),
+      widgets: widgetIds.map(widgetId => placement(widgetId, override)),
     }],
   }];
 }
@@ -91,72 +162,66 @@ export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS):
   return stackedSection('right', widgetIds);
 }
 
-/** Left zone: the personal watchlist, stacked. */
+/** Left zone: the personal watchlist, stacked at a generous frame. */
 export function buildLeftSections(widgetIds: string[] = LEFT_WIDGET_IDS): WorkspaceSection[] {
-  return stackedSection('left', widgetIds, HEIGHTS.panel);
+  return stackedSection('left', widgetIds, { defaultHeight: 520 });
 }
 
 /**
- * A row spec. `stack: true` puts every cell in ONE column of a single section
- * (used for the side rails); otherwise each cell is its own column.
- * `height` pins a card's pixel height (null = auto/stretch).
+ * One band cell: a widget id, or an object overriding its intrinsic height so a
+ * persona can express intentional asymmetry (e.g. a taller hero chart).
  */
-export interface LayoutRow {
+export type BoardCell = string | { id: string; h?: number; min?: number; frame?: boolean };
+
+/**
+ * A track-board band: one section, `tracks` columns, holding `cells` in
+ * document order. The packer balances the cards across the tracks.
+ */
+export interface BoardSpec {
   zone?: WorkspaceZone;
-  stack?: boolean;
-  cells: Array<{ widget: string; weight?: number; height?: number | null }>;
+  tracks?: number;
+  cells: BoardCell[];
 }
 
-/** Flatten a built layout back into rows for re-composition. */
-export function layoutToRows(layout: WorkspaceLayout): LayoutRow[] {
-  return layout.sections.map(section => ({
-    zone: section.zone ?? 'main',
-    cells: section.columns.flatMap(col =>
-      col.widgets.map(w => ({ widget: w.widgetId, weight: col.weight, height: w.height })),
-    ),
-  }));
-}
-
-/** A placement with the cell's pinned height (null = auto). */
-function placement(widgetId: string, height?: number | null): WidgetPlacement {
-  return { id: newId('wid'), widgetId, height: height ?? null };
+function cellToPlacement(cell: BoardCell): WidgetPlacement {
+  if (typeof cell === 'string') return placement(cell);
+  const { id, h, min, frame } = cell;
+  if (h != null) return placement(id, frame === false ? { minHeight: h } : { defaultHeight: h });
+  if (min != null) return placement(id, { minHeight: min });
+  return placement(id);
 }
 
 /**
- * Compose rows into sections: drop unknown ids, dedupe globally (first wins),
- * cap each section at 4 columns, and honour each cell's pinned height. This is
- * the single place the composition invariants are enforced.
+ * Compose specs into sections: drop unknown ids, dedupe globally (first wins),
+ * cap each section at 4 tracks, and balance each section's cards with the
+ * masonry packer so no track is left with dead space. This is the single place
+ * the composition invariants are enforced.
  */
-export function composeRows(rows: LayoutRow[], known: ReadonlySet<string>): WorkspaceSection[] {
+export function composeBoard(specs: BoardSpec[], known: ReadonlySet<string>): WorkspaceSection[] {
   const seen = new Set<string>();
   const sections: WorkspaceSection[] = [];
-  for (const row of rows) {
-    const cells = row.cells.filter(cell => {
-      if (!known.has(cell.widget) || seen.has(cell.widget)) return false;
-      seen.add(cell.widget);
+  for (const spec of specs) {
+    const cells = spec.cells.filter(cell => {
+      const id = typeof cell === 'string' ? cell : cell.id;
+      if (!known.has(id) || seen.has(id)) return false;
+      seen.add(id);
       return true;
     });
     if (cells.length === 0) continue;
 
-    if (row.stack) {
-      sections.push({
-        id: newId('sec'),
-        zone: row.zone ?? 'main',
-        columns: [{
-          id: newId('col'),
-          weight: 1,
-          widgets: cells.map(c => placement(c.widget, c.height)),
-        }],
-      });
-      continue;
-    }
-
-    const columns: WorkspaceColumn[] = cells.slice(0, MAX_COLUMNS).map(cell => ({
+    // Never create more tracks than cards: an empty track is exactly the dead
+    // space this grammar exists to remove.
+    const tracks = Math.max(1, Math.min(4, Math.round(spec.tracks ?? 1), cells.length));
+    const columns: WorkspaceColumn[] = Array.from({ length: tracks }, () => ({
       id: newId('col'),
-      weight: cell.weight ?? 1,
-      widgets: [placement(cell.widget, cell.height)],
+      weight: 1,
+      widgets: [],
     }));
-    sections.push({ id: newId('sec'), zone: row.zone ?? 'main', columns });
+    // Seed cards across tracks so the packer has something to balance; it then
+    // re-distributes by estimated height.
+    cells.forEach((cell, i) => columns[i % tracks].widgets.push(cellToPlacement(cell)));
+    rebalanceColumns(columns);
+    sections.push({ id: newId('sec'), zone: spec.zone ?? 'main', columns });
   }
   return sections;
 }
@@ -165,7 +230,7 @@ export function composeRows(rows: LayoutRow[], known: ReadonlySet<string>): Work
  * Build the starting layout for a single market view: the persona template's
  * centre, framed by a stacked Watchlist (left) and the market's stacked
  * asset-class stat tiles (right). `templateBase` is the persona layout from
- * `templates.ts`; when absent, only the two rails are produced.
+ * `templates.ts`; when absent, only the two side tracks are produced.
  */
 export function buildMarketViewLayout(
   market: string,
@@ -175,15 +240,25 @@ export function buildMarketViewLayout(
   const known = new Set(baseWidgetIds);
   const cls = assetClassFor(market);
 
-  const rows: LayoutRow[] = [
-    { zone: 'left', stack: true, cells: LEFT_WIDGET_IDS.map(widget => ({ widget, height: HEIGHTS.panel })) },
-    ...(templateBase && templateBase.sections.length > 0
-      ? layoutToRows(templateBase)
-      : []),
-    { zone: 'right', stack: true, cells: ASSET_RAIL[cls].map(widget => ({ widget, height: HEIGHTS.tile })) },
+  const centreSpecs: BoardSpec[] = templateBase
+    ? templateBase.sections.map(s => ({
+        zone: 'main' as WorkspaceZone,
+        tracks: s.columns.length,
+        cells: s.columns.flatMap(c => c.widgets.map(w => ({
+          id: w.widgetId,
+          ...(w.defaultHeight != null ? { h: w.defaultHeight } : {}),
+          ...(w.minHeight != null ? { min: w.minHeight } : {}),
+        }))),
+      }))
+    : [];
+
+  const specs: BoardSpec[] = [
+    { zone: 'left', tracks: 1, cells: LEFT_WIDGET_IDS },
+    ...centreSpecs,
+    { zone: 'right', tracks: 1, cells: ASSET_RAIL[cls] },
   ];
 
-  return { version: 1, sections: composeRows(rows, known) };
+  return { version: 2, sections: composeBoard(specs, known) };
 }
 
 export { LEFT_WIDGET_IDS, ASSET_RAIL };

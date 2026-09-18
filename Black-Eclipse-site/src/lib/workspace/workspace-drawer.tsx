@@ -14,6 +14,9 @@ export interface WorkspaceWidgetMeta {
   widgetId: string;
   label: string;
   desc: string;
+  /** Intrinsic sizing hints, applied when the widget is added from the library. */
+  defaultHeight?: number;
+  minHeight?: number;
 }
 
 interface WorkspaceDrawerProps {
@@ -47,7 +50,7 @@ export function WorkspaceDrawer({ onClose, workspace, widgets }: WorkspaceDrawer
                 {widgets.map((w) => (
                   <button
                     key={w.widgetId}
-                    onClick={() => ops.addWidget(w.widgetId)}
+                    onClick={() => ops.addWidget(w.widgetId, undefined, { defaultHeight: w.defaultHeight, minHeight: w.minHeight })}
                     className="group flex items-start gap-2 rounded-xl border border-white/10 dark:border-white/10 glass-card-subtle hover:bg-accent/50 hover:border-primary/40 px-3 py-2.5 text-left transition-all cursor-pointer"
                   >
                     <Plus size={13} className="mt-0.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />

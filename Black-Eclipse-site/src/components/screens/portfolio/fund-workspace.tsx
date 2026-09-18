@@ -22,7 +22,9 @@ interface FundWorkspaceProps {
   onUpdateFund: (patch: Partial<Omit<Fund, 'id' | 'seeded'>>) => void;
 }
 
-const wsKeyFor = (fundId: string) => `be_ws_fund_${fundId}_v2`;
+// v3 is a deliberate reset into the track-board grammar (v2 stored the retired
+// row-band arrangement, which was gappy). Old payloads are left untouched.
+const wsKeyFor = (fundId: string) => `be_ws_fund_${fundId}_v3`;
 
 export function FundWorkspace({ fund, onBack, onUpdateFund }: FundWorkspaceProps) {
   const defaultLayout = useMemo(() => defaultFundLayout(), []);

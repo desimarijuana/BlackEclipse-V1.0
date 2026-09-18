@@ -6,21 +6,24 @@
 
 import React, { useState } from 'react';
 import {
-  BarChart3, Briefcase, Coins, Globe, Landmark, LineChart, Orbit, Search, Wallet, Zap,
+  Activity, BarChart3, Briefcase, Coins, Globe, Landmark, LineChart, Orbit, Search, Wallet, Zap,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { DASHBOARD_TEMPLATES } from '@/lib/dashboard/templates';
 
 const PERSONA_ICON: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  trader: LineChart,
+  'tape-reader': LineChart,
+  desk: Zap,
   'trader-pro': Zap,
-  investor: Briefcase,
-  crypto: Coins,
-  forex: Globe,
-  quant: BarChart3,
-  macro: Orbit,
-  world: Landmark,
+  allocator: Briefcase,
+  'rates-desk': Orbit,
+  'chain-desk': Coins,
+  'fx-desk': Globe,
+  screener: BarChart3,
+  'risk-desk': Activity,
+  'map-room': Landmark,
+  newsroom: Search,
   research: Search,
 };
 

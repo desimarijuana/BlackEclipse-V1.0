@@ -17,7 +17,7 @@ import { useMarketViews } from '@/lib/dashboard/market-views';
 import { NewLayoutDialog } from './new-layout-dialog';
 
 export function MarketTabs() {
-  const { views, activeId, active, setActiveId, create, remove, rename } = useMarketViews();
+  const { views, activeId, active, setActiveId, create, remove, rename, reorder } = useMarketViews();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
@@ -76,6 +76,10 @@ export function MarketTabs() {
         onChange={setActiveId}
         onItemDoubleClick={startRename}
         onItemRemove={views.length > 1 ? remove : undefined}
+        onReorder={editingId ? undefined : (fromId, toId) => {
+          const to = views.findIndex(v => v.id === toId);
+          if (to !== -1) reorder(fromId, to);
+        }}
         leading={(
           <span className="hidden shrink-0 pl-3 pr-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground sm:inline">
             Layouts

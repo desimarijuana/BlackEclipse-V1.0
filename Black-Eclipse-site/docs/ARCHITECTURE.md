@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-09-17
+last-verified: 2026-09-18
 ---
 
 # Architecture
@@ -293,7 +293,7 @@ them concurrently is what used to freeze the API.
 | UI | `src/components/workspace/` | `src/components/market-workspace/` |
 | Powers | Command Center dashboard | Chart Workspace tab |
 | Unit | widget card in a column | chart/market panel |
-| Shape | sections → columns → widgets, + `left`/`right` zones | panels with presets/ops |
+| Shape | track board: sections → columns (tracks) → widgets, packed masonry, + `left`/`right` zones | panels with presets/ops |
 | Persistence | `localStorage` via `use-workspace` | `localStorage` via `use-market-workspace` |
 
 ### Widget workspace zones (three-column shape)
@@ -302,7 +302,10 @@ A layout is a flat list of sections, each tagged with an optional
 `zone: 'left' | 'main' | 'right'` (undefined = `main`). The canvas renders all
 `left` sections in a narrow column, all `main` sections in the centre, and all
 `right` sections in a second narrow column — **all under one `DndContext`** and
-**one Customize surface**, so a card drags freely between the three.
+**one Customize surface**, so a card drags freely between the three. Each
+section's columns are its vertical tracks; within a multi-track section the
+compose-time masonry packer balances cards (see the track-board grammar above),
+and cards size to content with a per-widget floor.
 
 Key invariants:
 
@@ -320,12 +323,21 @@ Key invariants:
 - Per-zone presentation (`className`, `header`, `collapsed`, `onToggle`) is passed
   via `CustomizableWorkspace`'s `zones` prop; the old `rail*` props are deprecated
   aliases for `zones.right`.
+- **Layout tabs are drag-to-reorder.** `TabBar` takes an `onReorder(fromId, toId)`
+  prop (HTML5 drag on each tab); `market-tabs.tsx` maps it through
+  `useMarketViews.reorder`. Double-click still renames and widget
+  rearrangement (drag/click-to-place) is unchanged.
+- **Side panels are drag-resizable.** A vertical handle between each side zone and
+  the centre sets that zone's width live (clamped 180–520px) and commits on
+  release through `ops.setZoneWidth`, persisted in `WorkspaceLayout.zoneWidths`
+  (presentation-only — it never touches the section tree). Resizing works in both
+  normal and edit mode; `main` is not resizable.
 
 Both workspace systems are real and both are supported. The **retired** thing is
 `src/lib/customize/` — an earlier kernel that is documented as superseded and
 must not receive new features. See ADR-005 and ADR-006.
 
-### Dashboard layout grammar (personas + bands)
+### Dashboard layout grammar (personas + track board)
 
 The *default* arrangement of the Command Center is composed by the pure,
 unit-tested engine in `src/lib/dashboard/layout.ts` (registry stays about
@@ -333,54 +345,83 @@ widgets, this stays about arrangement):
 
 1. **Templates** (`src/lib/dashboard/templates.ts`) are authored as **widget-id
    specs**, never registry indices — inserting a widget in the registry can no
-   longer silently repoint a template. A template is **centre-only**.
+   longer silently repoint a template. A template is **centre-only**. Each
+   persona authors one or more bands (`full(...)` or `board(widgets, tracks)`).
 2. **`buildMarketViewLayout`** frames the template with the two thin side zones
    (left = Watchlist; right = the market's asset-class `mp-*` stat tiles) and
-   composes everything through `composeRows`.
-3. **`composeRows`** is the single enforcement point for the invariants:
+   composes everything through `composeBoard`.
+3. **`composeBoard`** is the single enforcement point for the invariants:
    - **global first-wins dedupe** across every zone (a widget renders once, never
      in both the centre and a rail),
-   - **build-time 4-column cap** (the layout shown is what is persisted — the old
-     generator built 5-wide lead rows that `normalizeLayout` truncated on reload,
-     so layouts changed shape after a refresh),
-    - **per-cell pinned heights** (`height`) so large visuals get an intentional
-      size instead of stretching into dead space. `HEIGHTS` (`strip 130`,
-      `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) are the only
-      default heights; `auto` (null) is reserved for user-added widgets,
-    - `stack: true` rows collapse into ONE column (used for the side rails),
-    - unknown ids dropped.
+   - **build-time 4-track cap**, clamped to the card count so a band never
+     creates an empty track,
+   - **content sizing** in two modes — a FRAME (`defaultHeight`, for charts /
+     maps / live video / scrollable tables & feeds) whose body stretches to fill
+     the card, or a GROW floor (`minHeight`, for compact tiles). See
+     `WIDGET_FRAME_HEIGHT` / `WIDGET_MIN_HEIGHT`; a `BoardCell` of `{ id, h }`
+     can override a widget's frame for deliberate asymmetry,
+   - **masonry balance** — `rebalanceColumns` (in `src/lib/workspace/pack.ts`)
+     distributes each section's cards into the shortest track by estimated
+     height,
+   - unknown ids dropped.
 
 The side rails are each a **single stacked section**, not one section per tile.
 The old per-widget sections wrapped every tile in its own section gap + padding,
 which is what made the dashboard look full of gaps.
 
-**Every default placement is pinned to a height, and each centre row is authored
-so its columns share a height** — a short widget is never left beside a tall one.
-Section rows use `items-start` (NOT `items-stretch`), so a short column can no
-longer grow to its tallest sibling and leave blank tail space. The centre uses a
-**band grammar**: a two-up hero of small tiles → a full-width primary visual →
-matched-height two-up analysis/context bands → an optional full-width live strip.
+**Gap-free by construction.** In the retired row-band grammar a section was a
+rigid full-width row of content-height columns (`items-start`), so any short
+widget left dead space beside a tall sibling, and the side rails (pinned 300px /
+4×190px) left ~490px blank under the Watchlist. The track board instead treats a
+section's **columns as vertical tracks** and packs cards into the shortest one, so
+the next card flows underneath a short one. Cards size to content with a floor
+(no oversized pinned bands to clip against), and the centre defaults to
+**`CENTRE_TRACKS` (3)** balanced tracks — enough room that KPI tiles never
+truncate. The 4-track engine capability remains for user drag/drop.
 
-**Centre rows are capped at TWO columns.** Four skinny columns squeezed KPI
-tiles until their titles and numbers truncated — widgets looked "compacted" and
-unreadable. Two-up (or one full-width) gives every widget room to render its
-full content. The 4-column engine capability still exists for user drag/drop;
-the *defaults* simply never go above two.
+**Packing is compose-time, not edit-time.** `rebalanceColumns` runs when building
+defaults, templates and imports — never inside the store's `commit`. Re-packing on
+every edit would silently reshuffle cards the user just arranged (masonry has no
+stable fixed point for equal-height cards), so a drag commits exactly where it was
+dropped and the packer only shapes starting layouts.
 
-**Eight personas ship, each with a genuinely different widget set and primary
-visual — not index shuffles:** `trader` (chart + tape + movers + heatmap + live
-TV), `trader-pro` (dual charts, tape, alerts, heatmap, large live TV),
-`investor` (fund performance, holdings, risk), `macro` (economic chart, rates,
-commodities, geopolitics), `crypto` (crypto markets, ticker, polymarket),
-`forex` (FX pairs, drivers, macro snapshot), `quant` (heatmap, screener,
-opportunities), `world` (Investor Eye map, events, conflict layers).
+**Twelve personas ship, each with a genuinely different SHAPE (band structure)
+and widget set — not index shuffles:** `tape-reader` (full chart → wide tape →
+two-up → TV), `desk` (dense 4-track: chart + heatmap + TV top row), `allocator`
+(portfolio: performance hero → holdings → risk), `rates-desk` (economic chart +
+rates + calendar), `chain-desk` (crypto hero row → chart → venue grid),
+`fx-desk` (FX pairs hero → chart → drivers/macro), `screener` (heatmap +
+screener full → momentum grid), `map-room` (map hero → event feed → conflict
+layers), `newsroom` (news + calendar lead, charts second), `risk-desk` (regime +
+risk above the chart), `trader-pro` (dual charts + candle + tape), `research`
+(news categories + agent work + charts).
 
-**Storage v6 is a deliberate RESET.** v5 still let short columns stretch and had
-auto heights, so layouts looked gappy. v6 pins every default height, authors
-matched-height rows, stops columns stretching, and ships the eight personas.
-Stale layouts are *not* migrated forward (`be_dashboards_index_v6` /
-`be_ws_dashboard_v6_`; older keys are absent from `LEGACY_INDEX_KEYS`). Everyone
-reopens into the new, gap-free defaults.
+A band cell may be a plain widget id or `{ id, h, min, frame }`, letting a
+persona pin a specific frame height where the default would read badly.
+
+**A `defaultHeight` card gets a definite `height`, not `min-height`.** Frame
+widgets (charts, maps, live video, scrollable tables) put `absolute inset-0` /
+`h-full` children inside a `flex-1` body; those only resolve against a definite
+height. Rendering a frame as `min-height` left the ECharts canvas at **0px** —
+the "blank charts/maps/heatmaps" bug. `cardStyle` therefore emits `height` for
+`defaultHeight`, and `minHeight` remains a grow floor for compact tiles. Widgets
+added from the library carry their intrinsic sizing (`addWidget(..., sizing)`).
+
+**Storage v8 is a deliberate RESET.** v7 replaced the row-band grammar with the
+track board; v8 fixes the persona rename. Because the nine personas gained new
+ids but stored layouts keep the OLD id in `templateId`, `getDashboardTemplate`
+returned `undefined` and the centre rendered EMPTY (only the side rails).
+`templates.ts` now ships `LEGACY_TEMPLATE_IDS` + `resolveTemplateId` (old ids
+resolve to their renamed persona; unknown/empty ids fall back to the first
+persona), `use-workspace` self-heals a fully blank stored layout, and the
+storage prefix reseeds everyone (`be_dashboards_index_v8` /
+`be_ws_dashboard_v8_`; older keys are absent from `LEGACY_INDEX_KEYS`; fund
+layouts are `be_ws_fund_*_v3`). **When renaming a persona, always add its old id
+to `LEGACY_TEMPLATE_IDS`.**
+
+`WorkspaceLayout.version` is `2`; `normalizeLayout` upgrades any stored payload
+to v2 on read (mapping legacy `rail → right`, preserving `minHeight` /
+`defaultHeight` and `zoneWidths`).
 
 ### Command Center fullscreen
 
@@ -394,6 +435,26 @@ establishes a containing block, so a plain `position: fixed` overlay would be
 trapped inside it and the global nav would stay on top — the same reason the
 Chart Workspace portals its full-page overlay. Body scroll is locked while open;
 the workspace owns the height and scrolls.
+
+Because the overlay sits ABOVE the app shell, the shell's Aurora (`z-0`) is
+covered — so fullscreen mounts its own **`<AuroraGlow>`**
+(`src/components/layout/aurora-glow.tsx`). `AuroraGlow` is the single reusable
+glow: it owns the market+news sentiment subscription (`market:indices:US` +
+`aurora:news-score` topics) and the user palette, and renders the masked top
+band. The shell and fullscreen both use it, so the sentiment model stays in one
+place (`src/lib/aurora-sentiment.ts`). Any future full-viewport overlay must do
+the same — the shell's glow does not reach above it.
+
+### Shipped default dashboard board
+
+`src/lib/dashboard/default-board.ts` exports `DEFAULT_BOARD_JSON`. Paste a
+Command Center **Export** payload's `layout` there and every NEW user (and every
+Reset) starts from that curated arrangement instead of a generic persona.
+`getDefaultBoard()` validates it through `normalizeLayout` against the live
+registry, so an unknown/retired widget id or a malformed paste degrades to the
+persona template — a bad paste can never ship an empty or broken first-run
+board. `DEFAULT_BOARD_JSON = null` means "ship the persona templates unchanged".
+A layout explicitly created from a persona preset still honours that preset.
 
 ### Compact mode was removed
 
@@ -855,3 +916,4 @@ Do not introduce raw `backdrop-blur-*` or flat fills for cards.
 5. Do not add a dependency without justification; prefer the lighter option.
 6. Keep files small — memory is the top constraint on this machine.
 7. Simulated data is always labeled; missing data is `UNAVAILABLE`, never faked.
+

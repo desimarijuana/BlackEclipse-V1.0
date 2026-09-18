@@ -21,6 +21,7 @@ import {
   setWidgetConfig,
   setWidgetHeight,
   setZoneHidden,
+  setZoneWidth,
   toggleWidgetHidden,
   widgetCount,
 } from './ops';
@@ -102,11 +103,21 @@ describe('normalizeLayout', () => {
     expect(widgetCount(normalizeLayout(l)!)).toBe(1);
   });
 
-  it('migrates legacy version-less {sections} payloads', () => {
+  it('migrates legacy version-less {sections} payloads to the current version', () => {
     const legacy = { sections: [{ id: 's1', columns: [{ id: 'c1', widgets: [{ id: 'a', widgetId: 'kpi' }] }] }] };
     const n = normalizeLayout(legacy)!;
-    expect(n.version).toBe(1);
+    expect(n.version).toBe(2);
     expect(allWidgetIds(n)).toEqual(['kpi']);
+  });
+
+  it('round-trips minHeight and upgrades version to 2', () => {
+    const raw = {
+      version: 1,
+      sections: [{ id: 's1', columns: [{ id: 'c1', weight: 3, widgets: [{ id: 'a', widgetId: 'kpi', height: null, minHeight: 321 }] }] }],
+    };
+    const n = normalizeLayout(raw)!;
+    expect(n.version).toBe(2);
+    expect(n.sections[0].columns[0].widgets[0].minHeight).toBe(321);
   });
 
   it('maps the legacy rail zone to right without a storage bump', () => {
@@ -338,6 +349,21 @@ describe('add/remove', () => {
     expect(widgetCount(n)).toBe(1);
   });
 
+  it('applies intrinsic sizing when adding a widget', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = runOp(addWidget, l, 'chart', undefined, { defaultHeight: 420 });
+    const added = n.sections[0].columns[0].widgets.find(w => w.widgetId === 'chart')!;
+    expect(added.defaultHeight).toBe(420);
+    expect(added.height).toBeNull();
+  });
+
+  it('applies intrinsic sizing when adding into a new section', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = runOp(addWidgetToNewSectionAt, l, 'map', l.sections[0].id, 'below', { defaultHeight: 460 });
+    const added = n.sections.flatMap(s => s.columns).flatMap(c => c.widgets).find(w => w.widgetId === 'map')!;
+    expect(added.defaultHeight).toBe(460);
+  });
+
   it('removes a widget and prunes empty sections', () => {
     const l = makeLayout([[['kpi']], [['perf']]]);
     const n = runOp(removeWidget, l, l.sections[1].columns[0].widgets[0].id);
@@ -457,6 +483,33 @@ describe('setZoneHidden', () => {
     expect(n.hiddenZones).toEqual(['left']);
     n = runOp(setZoneHidden, n, 'right', true);
     expect(n.hiddenZones).toEqual(['left', 'right']);
+  });
+});
+
+describe('setZoneWidth', () => {
+  it('stores a clamped width per side zone', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = runOp(setZoneWidth, l, 'left', 300);
+    expect(n.zoneWidths?.left).toBe(300);
+  });
+
+  it('clamps below the minimum and above the maximum', () => {
+    const l = makeLayout([[['kpi']]]);
+    expect(runOp(setZoneWidth, l, 'left', 10).zoneWidths?.left).toBe(180);
+    expect(runOp(setZoneWidth, l, 'right', 9999).zoneWidths?.right).toBe(520);
+  });
+
+  it('never resizes the main zone and clears on null', () => {
+    const l = makeLayout([[['kpi']]]);
+    expect(runOp(setZoneWidth, l, 'main', 300).zoneWidths).toBeUndefined();
+    const set = runOp(setZoneWidth, l, 'left', 300);
+    expect(runOp(setZoneWidth, set, 'left', null).zoneWidths).toBeUndefined();
+  });
+
+  it('round-trips zoneWidths through normalizeLayout', () => {
+    const l = makeLayout([[['kpi']]]);
+    const n = normalizeLayout(runOp(setZoneWidth, l, 'right', 340))!;
+    expect(n.zoneWidths?.right).toBe(340);
   });
 });
 

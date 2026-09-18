@@ -1,7 +1,7 @@
 ---
 title: Decisions (ADR log)
 status: Current
-last-verified: 2026-09-17
+last-verified: 2026-09-18
 ---
 
 # Decisions — Architecture Decision Record
@@ -261,6 +261,53 @@ the observer does not fire for OS-level tab switches.
 **Impact:** Applies to any future media widget (video, audio, streaming, WebGL
 animation). `lazy` remains dead — do not treat it as a teardown mechanism. See
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Live Intelligence".
+
+## ADR-016 — Track board replaces the row-band layout grammar (2026)
+**Decision:** The widget workspace's default arrangement is a **masonry track
+board**. A section's columns are vertical tracks; a pure packer
+(`src/lib/workspace/pack.ts`, `rebalanceColumns`) distributes each section's
+cards into the shortest track by estimated height. Every placement sizes to
+content (`height: null`) with an intrinsic floor (`WidgetPlacement.minHeight`,
+from `WidgetDefinition.minHeight` / the composition's `WIDGET_MIN_HEIGHT`).
+`WorkspaceLayout.version` is `2`; `buildMarketViewLayout`/`composeBoard` replace
+`composeRows`; the retired `HEIGHTS` band constants, `LayoutRow` and the
+`items-start` row renderer are gone.
+**Why:** The row-band grammar was structurally gappy. A section was a rigid
+full-width row of content-height columns (`items-start`), so any short widget
+left dead space beside a tall sibling, and the side rails (a 300px Watchlist and
+4×190px tiles) left ~490px blank under the Watchlist. Pinned `HEIGHTS` were too
+coarse for real content, so cards either clipped or left empty tails. "Widgets do
+not fit properly / big gaps" was the symptom; rigid rows were the cause.
+**Impact:** Packing runs at **compose time only** (defaults, templates, imports)
+— never inside the store's `commit`, because masonry has no stable fixed point
+for equal-height cards and re-packing on edit would silently reshuffle what the
+user just dropped. Storage reset to **v7** dashboards / **v3** funds /
+`be_dashboards_index_v7`; old layouts are not migrated (the band grammar cannot
+be meaningfully carried forward). The 4-track engine capability remains for user
+drag/drop. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Dashboard layout grammar
+(personas + track board)".
+
+## ADR-017 — Frame vs grow card sizing and resizable side panels (2026)
+**Decision:** Every track-board placement carries EITHER a **frame**
+(`WidgetPlacement.defaultHeight`) — a definite box whose body stretches to fill
+(charts, maps, live video, scrollable tables/feeds) — OR a **grow floor**
+(`minHeight`) under content that sizes itself (compact tiles). The renderer keys
+its body class off `isDefiniteCard(placement)`. Side zones get a
+user-resizable width (`WorkspaceLayout.zoneWidths`, `ops.setZoneWidth`,
+clamped 180–520px via a drag handle).
+**Why:** The single `minHeight` field collapsed widgets: a grow card got a
+`min-h` frame but the body used `flex-1`/`flex-basis:0`, so content with no
+intrinsic height (a chart, a scrollable list) rendered at zero height and
+looked broken. Splitting definite-frame widgets from growing tiles is what makes
+them render. Fixed side-zone widths also wasted space — a user reading a long
+watchlist wanted a wider panel.
+**Impact:** `WidgetPlacement.defaultHeight` added and preserved by
+`normalizeLayout`; `WIDGET_FRAME_HEIGHT` / `WidgetDefinition.defaultHeight`
+added alongside `WIDGET_MIN_HEIGHT` / `minHeight`. Personas were redesigned into
+nine genuinely different band shapes and renamed. Frame/grow confusion is the
+first thing to check when a widget renders empty. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Dashboard layout grammar (personas +
+track board)".
 
 ---
 

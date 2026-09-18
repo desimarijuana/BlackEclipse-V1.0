@@ -6,8 +6,11 @@
 
 import {
   MAX_COLUMN_WEIGHT,
+  MAX_ZONE_WIDTH,
   MIN_COLUMN_WEIGHT,
   MIN_WIDGET_HEIGHT,
+  MIN_ZONE_WIDTH,
+  WORKSPACE_VERSION,
   newId,
   type DropTarget,
   type WorkspaceColumn,
@@ -20,7 +23,7 @@ import type { Draft } from 'immer';
 
 export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
   return {
-    version: 1,
+    version: WORKSPACE_VERSION,
     sections: l.sections.map(s => ({
       id: s.id,
       zone: s.zone,
@@ -34,12 +37,13 @@ export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
       })),
     })),
     hiddenZones: l.hiddenZones ? [...l.hiddenZones] : undefined,
+    zoneWidths: l.zoneWidths ? { ...l.zoneWidths } : undefined,
   };
 }
 
 export function emptyLayout(): WorkspaceLayout {
   return {
-    version: 1,
+    version: WORKSPACE_VERSION,
     sections: [{
       id: newId('sec'),
       zone: 'main',
@@ -224,6 +228,21 @@ export function setZoneHidden(d: Draft<WorkspaceLayout>, zone: WorkspaceZone, hi
 }
 
 /**
+ * Set a side zone's width (px). Presentation-only — clamped to the bounds and
+ * persisted so a widened panel survives reload. `main` is not resizable.
+ */
+export function setZoneWidth(d: Draft<WorkspaceLayout>, zone: WorkspaceZone, width: number | null): void {
+  if (zone === 'main') return;
+  if (width === null || !Number.isFinite(width)) {
+    const next = d.zoneWidths ? { ...d.zoneWidths, [zone]: undefined } : undefined;
+    d.zoneWidths = next && (next.left != null || next.right != null) ? next : undefined;
+    return;
+  }
+  const clamped = Math.max(MIN_ZONE_WIDTH, Math.min(MAX_ZONE_WIDTH, Math.round(width)));
+  d.zoneWidths = { ...(d.zoneWidths ?? {}), [zone]: clamped };
+}
+
+/**
  * Add a NEW widget into a brand-new section inserted above/below an anchor.
  * Used when dragging a widget in from the library straight onto an
  * inter-section strip. The new section always has a single column holding it.
@@ -233,18 +252,25 @@ export function addWidgetToNewSectionAt(
   widgetId: string,
   anchorSectionId: string,
   position: 'above' | 'below',
+  sizing?: PlacementSizing,
 ): void {
   const anchorIdx = d.sections.findIndex(s => s.id === anchorSectionId);
   const anchorZone = anchorIdx === -1 ? 'main' : (d.sections[anchorIdx].zone ?? 'main');
   const insertAt = anchorIdx === -1
     ? d.sections.length
     : position === 'above' ? anchorIdx : anchorIdx + 1;
-  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
+  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null, ...(sizing ?? {}) };
   d.sections.splice(insertAt, 0, { id: newId('sec'), zone: anchorZone, columns: [{ id: newId('col'), weight: 3, widgets: [widget] }] });
 }
 
-export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget): void {
-  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null };
+/** Intrinsic sizing hint applied to a freshly added widget (see widget-def). */
+export interface PlacementSizing {
+  defaultHeight?: number;
+  minHeight?: number;
+}
+
+export function addWidget(d: Draft<WorkspaceLayout>, widgetId: string, target?: DropTarget, sizing?: PlacementSizing): void {
+  const widget: WidgetPlacement = { id: newId('wid'), widgetId, height: null, ...(sizing ?? {}) };
   if (d.sections.length === 0) d.sections.push({ id: newId('sec'), columns: [] });
 
   let section = target ? d.sections.find(s => s.id === target.sectionId) : undefined;
@@ -432,11 +458,15 @@ function asPlacement(raw: unknown, known?: ReadonlySet<string>): WidgetPlacement
   if (typeof r.id !== 'string' || !r.id || typeof r.widgetId !== 'string' || !r.widgetId) return null;
   if (known && !known.has(r.widgetId)) return null;
   const height = r.height;
+  const defaultHeight = r.defaultHeight;
+  const minHeight = r.minHeight;
   const config = r.config;
   return {
     id: r.id,
     widgetId: r.widgetId,
     height: typeof height === 'number' && Number.isFinite(height) ? height : null,
+    defaultHeight: typeof defaultHeight === 'number' && Number.isFinite(defaultHeight) ? defaultHeight : undefined,
+    minHeight: typeof minHeight === 'number' && Number.isFinite(minHeight) ? minHeight : undefined,
     config: typeof config === 'object' && config !== null && !Array.isArray(config) ? { ...(config as Record<string, unknown>) } : undefined,
     hidden: r.hidden === true ? true : undefined,
   };
@@ -505,5 +535,19 @@ export function normalizeLayout(raw: unknown, knownWidgetIds?: ReadonlySet<strin
         .filter((z): z is 'left' | 'right' => z !== null)
     : undefined;
 
-  return { version: 1, sections, ...(hiddenZones && hiddenZones.length > 0 ? { hiddenZones } : {}) };
+  const clampZoneWidth = (v: unknown): number | undefined => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+    return Math.max(MIN_ZONE_WIDTH, Math.min(MAX_ZONE_WIDTH, Math.round(v)));
+  };
+  const rawWidths = (r.zoneWidths ?? {}) as Record<string, unknown>;
+  const left = clampZoneWidth(rawWidths.left);
+  const right = clampZoneWidth(rawWidths.right);
+  const zoneWidths = (left != null || right != null) ? { ...(left != null ? { left } : {}), ...(right != null ? { right } : {}) } : undefined;
+
+  return {
+    version: WORKSPACE_VERSION,
+    sections,
+    ...(hiddenZones && hiddenZones.length > 0 ? { hiddenZones } : {}),
+    ...(zoneWidths ? { zoneWidths } : {}),
+  };
 }

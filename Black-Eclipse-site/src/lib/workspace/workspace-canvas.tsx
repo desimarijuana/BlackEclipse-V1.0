@@ -21,13 +21,13 @@ import {
   useDroppable, useDraggable, type DragStartEvent,
 } from '@dnd-kit/core';
 import {
-  ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Scan, Sparkles, Trash2, X,
+  ChevronLeft, ChevronRight, Columns3, Copy, EyeOff, GripVertical, Minus, Plus, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { WorkspaceDrawer, type WorkspaceWidgetMeta } from './workspace-drawer';
 import type { WidgetPlacement, WorkspaceSection } from './types';
-import { MIN_COLUMN_WEIGHT } from './types';
+import { MAX_ZONE_WIDTH, MIN_COLUMN_WEIGHT, MIN_ZONE_WIDTH } from './types';
 import type { WorkspaceController as WC } from './use-workspace';
 
 const CARD_CLASS =
@@ -88,6 +88,7 @@ export interface WorkspaceZoneConfig {
 export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const rootRef = useRef<HTMLDivElement>(null);
+  const zoneRowRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState('');
   const [activeWidth, setActiveWidth] = useState(360);
@@ -344,9 +345,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
    * creates a whole new section when dropped on an inter-section strip.
    */
   const commitAdd = useCallback((widgetId: string, t: DropTargetInfo) => {
+    // Carry the widget's intrinsic sizing so a freshly added chart/map gets a
+    // definite frame instead of collapsing (the "blank widget" regression).
+    const meta = widgets.find(m => m.widgetId === widgetId);
+    const sizing = meta ? { defaultHeight: meta.defaultHeight, minHeight: meta.minHeight } : undefined;
     if (t.columnId.startsWith('__newsec:')) {
       const [, anchorId, pos] = t.columnId.split(':') as [string, string, 'above' | 'below'];
-      ops.addWidgetToNewSectionAt(widgetId, anchorId, pos);
+      ops.addWidgetToNewSectionAt(widgetId, anchorId, pos, sizing);
       return;
     }
     if (t.columnId.startsWith('__newcol:')) {
@@ -354,11 +359,11 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
       const section = layoutRef.current.sections.find(s => s.columns.some(c => c.id === anchorColId));
       const colIdx = section?.columns.findIndex(c => c.id === anchorColId) ?? -1;
       if (!section || colIdx === -1) return;
-      ops.addWidget(widgetId, { sectionId: section.id, columnId: null, index: 0, columnIndex: when === 'before' ? colIdx : colIdx + 1 });
+      ops.addWidget(widgetId, { sectionId: section.id, columnId: null, index: 0, columnIndex: when === 'before' ? colIdx : colIdx + 1 }, sizing);
       return;
     }
-    ops.addWidget(widgetId, { sectionId: t.sectionId, columnId: t.columnId, index: t.index });
-  }, [ops]);
+    ops.addWidget(widgetId, { sectionId: t.sectionId, columnId: t.columnId, index: t.index }, sizing);
+  }, [ops, widgets]);
 
   // ── Add-drag from the library ───────────────────────────────────────────────
   // A widget dragged out of the palette has no DOM card yet, so it uses the
@@ -657,6 +662,8 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
           const showRight = rightSections.length > 0 && !hiddenZones.includes('right');
           if (!showLeft && !showRight) return renderZone(mainSections);
 
+          const widths = layout.zoneWidths ?? {};
+
           /** One side column: collapsed → slim expand handle; else header + stack. */
           const zoneColumn = (
             zone: 'left' | 'right',
@@ -675,18 +682,30 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
                 </button>
               );
             }
+            const w = widths[zone];
             return (
-              <div key={zone} className={cn('shrink-0', cfg.className ?? 'w-72')}>
+              <div
+                key={zone}
+                data-zone={zone}
+                style={w != null ? { width: w, flexShrink: 0 } : undefined}
+                className={cn('shrink-0', cfg.className ?? 'w-72')}
+              >
                 {cfg.header}
                 {renderZone(sections)}
               </div>
             );
           };
 
+          const resizer = (zone: 'left' | 'right') => (
+            <ZoneResizer zone={zone} onCommit={(px) => ops.setZoneWidth(zone, px)} />
+          );
+
           return (
-            <div className="flex items-start gap-4">
+            <div ref={zoneRowRef} className="flex items-start gap-4">
               {showLeft && leftCfg && zoneColumn('left', leftSections, leftCfg)}
+              {showLeft && !leftCfg?.collapsed && resizer('left')}
               <div className="min-w-0 flex-1">{renderZone(mainSections)}</div>
+              {showRight && !rightCfg?.collapsed && resizer('right')}
               {showRight && rightCfg && zoneColumn('right', rightSections, rightCfg)}
             </div>
           );
@@ -967,7 +986,88 @@ function ConfirmGhost({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
+// ── Side-zone width resizer ──────────────────────────────────────────────────
+
+/**
+ * Vertical drag handle between a side zone and the centre. Dragging adjusts the
+ * zone's width in real px (bounded), committing once on release so the layout
+ * persists. Always available (both normal and edit mode) — resizing a panel is a
+ * reading preference, not a customization.
+ */
+function ZoneResizer({ zone, onCommit }: {
+  zone: 'left' | 'right';
+  onCommit: (px: number) => void;
+}) {
+  const [hot, setHot] = useState(false);
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    const row = handle.parentElement;
+    const panel = row?.querySelector<HTMLElement>(`[data-zone="${zone}"]`);
+    if (!panel) return;
+    const startX = e.clientX;
+    const startW = panel.getBoundingClientRect().width;
+    const dir = zone === 'left' ? 1 : -1; // left panel grows rightward
+    document.body.style.userSelect = 'none';
+    let lastW = startW;
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.max(MIN_ZONE_WIDTH, Math.min(MAX_ZONE_WIDTH, Math.round(startW + dir * (ev.clientX - startX))));
+      lastW = next;
+      panel.style.width = `${next}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+      panel.style.width = '';
+      onCommit(lastW);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      className={cn('group/zres shrink-0 self-stretch cursor-ew-resize', 'w-2 -mx-1 rounded-full transition-colors')}
+      title={`Drag to resize ${zone} panel`}
+      data-nodrag
+    >
+      <div className={cn('mx-auto h-full w-0.5 rounded-full transition-colors', hot ? 'bg-primary/70' : 'bg-border/40')} />
+    </div>
+  );
+}
+
 // ── Draggable widget card ────────────────────────────────────────────────────
+
+/**
+ * A card is DEFINITE when it has a pinned height or a `defaultHeight` — its
+ * body stretches to fill the frame (charts, lists). Otherwise it is CONTENT
+ * driven and grows with its widget, with `minHeight` acting only as a floor.
+ */
+function isDefiniteCard(placement: WidgetPlacement): boolean {
+  return placement.height != null || placement.defaultHeight != null;
+}
+
+/**
+ * Inline size for a card.
+ *  - `height`        → exact user-pinned height.
+ *  - `defaultHeight` → a DEFINITE frame height (not a min). This matters: a
+ *    frame card's body is `flex-1` with percentage/absolute-inset children
+ *    (ECharts `absolute inset-0`, `h-full` map hosts). Those only resolve
+ *    against a definite height — with `min-height` alone the flex body's height
+ *    is ambiguous and the chart canvas collapses to 0px (the "blank charts"
+ *    bug). Frames are meant to be fixed boxes whose widget fills/scrolls.
+ *  - `minHeight`     → a floor under content that GROWS (compact tiles).
+ */
+function cardStyle(placement: WidgetPlacement): React.CSSProperties | undefined {
+  if (placement.height != null) return { height: placement.height };
+  if (placement.defaultHeight != null) return { height: placement.defaultHeight };
+  if (placement.minHeight != null) return { minHeight: placement.minHeight };
+  return undefined;
+}
 
 function WidgetCard({
   placement, editMode, hidden, tapActive, ops, renderWidget, onResizeHeight, onCardTap, lastDragEndRef,
@@ -1020,7 +1120,7 @@ function WidgetCard({
     <div
       ref={setNodeRef}
       data-wcard={placement.id}
-      style={placement.height != null ? { height: placement.height } : undefined}
+      style={cardStyle(placement)}
       {...(editMode ? { ...attributes, ...listeners } : {})}
       onClick={editMode ? (e) => {
         // A genuine dnd-kit drag never produces a click (pointer capture).
@@ -1032,9 +1132,9 @@ function WidgetCard({
       className={cn(
         CARD_CLASS,
         'group/card relative flex w-full flex-col overflow-hidden',
-        // Auto cards stretch to fill the column so columns never show gaps —
-        // content reaches edge to edge. Pinned-height cards keep their size.
-        placement.height == null && 'flex-1',
+        // Sizing (see cardStyle): a pinned/default height makes the card a
+        // definite frame and its BODY stretches to fill; a content-only card
+        // grows with its widget. The body class below must match this choice.
         editMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
         // Touch: let the pointer sensor own the gesture — no browser pan.
         editMode && 'touch-none select-none',
@@ -1066,11 +1166,6 @@ function WidgetCard({
             title="Move to column on the right"
           ><ChevronRight size={12} /></button>
           <button
-            onClick={() => ops.setWidgetHeight(placement.id, null)}
-            className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
-            title="Fit height"
-          ><Scan size={12} /></button>
-          <button
             onClick={() => ops.duplicateWidget(placement.id)}
             className="rounded-lg bg-background/80 border border-border/40 p-1 text-muted-foreground hover:text-primary cursor-pointer"
             title="Duplicate widget"
@@ -1093,8 +1188,11 @@ function WidgetCard({
       {/* No overflow scroll on the card body: a widget must render FULL SIZE
           within its pinned height. The card itself is overflow-hidden, so
           content is clipped rather than showing an inner scrollbar. Widgets
-          that need to scroll internally opt in themselves (scrollbar-hide). */}
-      <div className="flex min-h-0 flex-1 flex-col">
+          that need to scroll internally opt in themselves (scrollbar-hide).
+          A definite card (pinned or `defaultHeight`) stretches its body to fill
+          that frame; a content-only card lets the widget define the height (a
+          flex-basis:0 body would otherwise collapse it). */}
+      <div className={cn('flex flex-col', isDefiniteCard(placement) ? 'min-h-0 flex-1' : 'shrink-0')}>
         {placement.hidden ? (
           <div className="flex h-full items-center justify-center p-4">
             <span className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-400/80">

@@ -277,7 +277,7 @@ export function CustomizableWorkspace({
           addingLabel={addDrag?.label}
           addingMode={addDrag?.mode ?? 'hold'}
           onAddingEnd={endAddDrag}
-          widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
+          widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc, defaultHeight: w.defaultHeight, minHeight: w.minHeight }))}
           zones={resolvedZones}
           renderWidget={(widgetId, placement) => (
             <div className="relative h-full">
@@ -306,7 +306,7 @@ export function CustomizableWorkspace({
         <WidgetLibrary
           widgets={widgets}
           widgetIcon={widgetIcon}
-          onAdd={(id) => { workspace.ops.addWidget(id); }}
+          onAdd={(id) => { const d = getDefinition(id); workspace.ops.addWidget(id, undefined, d ? { defaultHeight: d.defaultHeight, minHeight: d.minHeight } : undefined); }}
           onClose={closeLibrary}
           placed={placed}
           onStartAddDrag={(widgetId, label, mode) => setAddDrag({ widgetId, label, mode })}

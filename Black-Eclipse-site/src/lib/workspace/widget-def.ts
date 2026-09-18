@@ -64,6 +64,15 @@ export interface WidgetDefinition {
   icon: string;
   /** Suggested sizes. */
   sizes: Array<'small' | 'medium' | 'large' | 'full'>;
+  /**
+   * Intrinsic box sizing for the track board. `defaultHeight` is the preferred
+   * definite height for boxes whose content fills the card and cannot size
+   * itself (charts, maps, live video, scrollable lists) — the body stretches to
+   * it. `minHeight` is a floor under content that GROWS (stat tiles). Both are
+   * optional — a widget with neither sizes purely to content.
+   */
+  minHeight?: number;
+  defaultHeight?: number;
   /** Default per-instance config. */
   defaultConfig?: Record<string, unknown>;
   /** Config fields exposed in the config panel. */

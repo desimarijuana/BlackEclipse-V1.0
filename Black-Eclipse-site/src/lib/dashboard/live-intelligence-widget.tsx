@@ -128,6 +128,18 @@ export function LiveIntelligenceWidget({ placement }: { placement: WidgetPlaceme
   // `offline` is a real, resolved verdict from the provider — not an assumption.
   const activeOffline = Boolean(activeStream && activeStream.status !== 'live');
 
+  // A built-in YouTube channel MUST be resolved before we embed: the
+  // `live_stream?channel=` fallback renders a blank/"unavailable" frame for most
+  // channels, so mounting it on first paint (before the resolver answers) is
+  // exactly the bug this widget exists to avoid. Channels with a fixed video id
+  // or an embed URL do not need resolution.
+  const needsResolution = Boolean(active && active.type === 'youtube' && !active.youtubeVideoId && (active.youtubeHandle || active.youtubeChannelId));
+  const resolvePending = needsResolution && !activeStream;
+  // Resolved but the provider reported no live broadcast, or the resolver failed
+  // outright — in the latter case `activeOffline` is false and we fall through to
+  // the explicit error/fallback path below.
+  const resolveFailed = needsResolution && activeStream?.status === 'unknown';
+
   const [playing, setPlaying] = useState(cfg.autoplay !== false);
   const [muted, setMuted] = useState(cfg.muted !== false);
   const [managerOpen, setManagerOpen] = useState(false);
@@ -169,12 +181,15 @@ export function LiveIntelligenceWidget({ placement }: { placement: WidgetPlaceme
 
   const embedUrl = useMemo(() => {
     if (!active || !streaming) return null;
-    // Prefer the RESOLVED live video id (the form that plays); the resolver
-    // falls back to live_stream?channel= inside channelEmbedUrl when unresolved.
+    // Wait for the resolver on a built-in YouTube channel — do NOT mount the
+    // unreliable live_stream fallback on first paint (see resolvePending).
+    if (resolvePending) return null;
+    // Prefer the RESOLVED live video id (the form that plays); channelEmbedUrl
+    // falls back to live_stream?channel= only for custom/unresolvable sources.
     return channelEmbedUrl(active, { muted, autoplay: true, resolvedVideoId: activeVideoId });
     // reloadKey forces a fresh URL (and therefore a fresh iframe) on retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, streaming, muted, reloadKey, activeVideoId]);
+  }, [active, streaming, muted, reloadKey, activeVideoId, resolvePending]);
 
   // The iframe mounts only once we have a URL; surface a loading state until its
   // load event fires, and a bounded failure state if it never does.
@@ -199,9 +214,9 @@ export function LiveIntelligenceWidget({ placement }: { placement: WidgetPlaceme
   // The status chip is honest: LIVE only when the resolver confirmed a live,
   // embeddable stream; OFFLINE when the provider has no live broadcast; and
   // CHECKING while the resolver is in flight.
-  const statusChip = resolving && !activeStream
+  const statusChip = resolvePending || (resolving && !activeStream)
     ? { label: 'CHECKING', dot: 'bg-muted-foreground/50 animate-pulse', text: 'text-muted-foreground/70' }
-    : activeOffline
+    : activeOffline || resolveFailed
       ? { label: 'OFFLINE', dot: 'bg-amber-400', text: 'text-amber-400/90' }
       : activeStream?.status === 'live'
         ? { label: 'LIVE', dot: 'bg-emerald-400', text: 'text-emerald-400' }
@@ -299,17 +314,29 @@ export function LiveIntelligenceWidget({ placement }: { placement: WidgetPlaceme
         action={{ label: 'Configure Channels', icon: Settings2, onClick: () => setManagerOpen(true) }}
       />
     );
-  } else if (errored) {
+  } else if (errored || resolveFailed) {
     body = (
       <StatePanel
-        title="STREAM ERROR"
-        message="Unable to load this stream. It may be blocked, offline, or unavailable in your region."
+        title={resolveFailed ? 'COULD NOT CHECK STREAM' : 'STREAM ERROR'}
+        message={resolveFailed
+          ? 'The live status could not be verified right now. Try again in a moment.'
+          : 'Unable to load this stream. It may be blocked, offline, or unavailable in your region.'}
         actions={[
           { label: 'Retry', icon: RotateCcw, onClick: retry },
           { label: 'Change Channel', icon: ChevronDown, onClick: () => setManagerOpen(true) },
         ]}
         onExternal={watchUrl}
       />
+    );
+  } else if (resolvePending) {
+    // Resolution is in flight for a built-in channel. Showing the unreliable
+    // live_stream fallback here is exactly the original bug, so we wait.
+    body = (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-border/10 bg-black/40 text-center">
+        <Loader2 size={18} className="animate-spin text-primary" />
+        <p className="font-mono text-[10px] text-muted-foreground/80">Checking live status…</p>
+        <p className="text-[9px] italic text-muted-foreground/50">{active?.name}</p>
+      </div>
     );
   } else if (activeOffline) {
     // The provider has no live broadcast right now. This is a resolved verdict

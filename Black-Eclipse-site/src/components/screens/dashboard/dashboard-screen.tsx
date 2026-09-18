@@ -11,12 +11,14 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Maximize2, Minimize2, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDashboards, isOnboarded, markOnboarded, seedMarketKeyFromLegacy } from '@/lib/dashboard/use-dashboards';
+import { useDashboards, isOnboarded, markOnboarded } from '@/lib/dashboard/use-dashboards';
 import { DASHBOARD_WIDGETS, DASHBOARD_WIDGET_IDS, widgetIcon, renderDashboardWidget, buildMarketViewLayout } from '@/lib/dashboard/registry';
 import { getDashboardTemplate } from '@/lib/dashboard/templates';
+import { getDefaultBoard } from '@/lib/dashboard/default-board';
 import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
 import { TopBar } from '@/components/layout/top-bar';
+import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 import { MarketTabs } from './market-tabs';
 
@@ -36,26 +38,35 @@ export function DashboardScreen() {
   const layoutId = markets.active?.id ?? 'US';
   const activeMarket = markets.active?.market ?? 'US';
 
-  // Seed the starting workspace for this layout. A layout created from a preset
-  // uses its own templateId; otherwise it inherits the dashboard's template
-  // (the persona the user picked at onboarding). Asset-class lead/extra widgets
-  // are layered on for the layout's default market.
-  const templateId = markets.active?.templateId ?? dashboards.active?.templateId ?? 'trader';
+  // Seed the starting workspace for this layout. Priority:
+  //   1. a layout explicitly created from a persona preset (its own templateId);
+  //   2. the SHIPPED curated board (DEFAULT_BOARD_JSON) — the product default
+  //      every new user downloads into;
+  //   3. the dashboard's persona template (onboarding pick / legacy).
+  // Side rails (Watchlist / Market) are layered on top in every case.
+  const explicitTemplateId = markets.active?.templateId;
+  const dashboardTemplateId = dashboards.active?.templateId ?? 'tape-reader';
   const defaultLayout = useMemo(() => {
-    const t = getDashboardTemplate(templateId);
-    const templateBase = t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;
-    return buildMarketViewLayout(activeMarket, DASHBOARD_WIDGET_IDS, templateBase);
-  }, [activeMarket, templateId]);
+    const known = new Set(DASHBOARD_WIDGET_IDS);
+    // A layout created from a persona preset always honours that preset;
+    // everything else (new users, resets) starts from the SHIPPED curated board
+    // when one is configured. `buildMarketViewLayout` frames it with the side
+    // rails and dedupes globally, so a curated widget that also lives in a rail
+    // is never rendered twice.
+    const curated = explicitTemplateId ? null : getDefaultBoard(known);
+    const base = curated ?? (() => {
+      const t = getDashboardTemplate(explicitTemplateId ?? dashboardTemplateId);
+      return t ? t.build(DASHBOARD_WIDGET_IDS) : undefined;
+    })();
+    return buildMarketViewLayout(activeMarket, DASHBOARD_WIDGET_IDS, base ?? undefined);
+  }, [activeMarket, explicitTemplateId, dashboardTemplateId]);
 
-  // Per-dashboard + per-layout storage key. Seed the US layout key from the
-  // legacy (un-suffixed) arrangement BEFORE the workspace store is created on
-  // first render, so an existing user's centre layout survives the upgrade.
+  // Per-dashboard + per-layout storage key. v7 is a deliberate reset into the
+  // track board; pre-v7 arrangements are NOT carried forward (the old band
+  // grammar was inherently gappy), so no legacy market-key seeding here.
   const storageKey = useMemo(() => {
     const baseKey = dashboards.active?.storageKey ?? 'be_ws_dashboard_none';
-    const key = `${baseKey}__m_${layoutId}`;
-    // Only the built-in US layout inherits the pre-layout arrangement.
-    if (layoutId === 'US') seedMarketKeyFromLegacy(baseKey, key, 'US');
-    return key;
+    return `${baseKey}__m_${layoutId}`;
   }, [dashboards.active?.storageKey, layoutId]);
 
   // First-run onboarding.
@@ -74,7 +85,7 @@ export function DashboardScreen() {
   const createDashboard = () => {
     setSwitcherOpen(false);
     const name = prompt('New dashboard name');
-    if (name) dashboards.create(name, 'trader');
+    if (name) dashboards.create(name, 'tape-reader');
   };
 
   const toggleFullscreen = () => setIsFullscreen(v => !v);
@@ -167,10 +178,16 @@ export function DashboardScreen() {
         data-keyboard-scope="Command Center"
         className="fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col overflow-hidden bg-background/95 backdrop-blur-md outline-none"
       >
+        {/* Aurora is mounted in the app shell at z-0, but this overlay portals
+            to <body> above it, so fullscreen needs its own copy of the glow.
+            Rendered first (behind the TopBar + workspace). */}
+        <AuroraGlow />
         {/* The REAL app TopBar — price ribbon + global ⌘K search. No custom
             bar; fullscreen keeps the live market chrome the app already has. */}
-        <TopBar activeTab="dashboard" />
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">{workspaceEl}</div>
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+          <TopBar activeTab="dashboard" />
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">{workspaceEl}</div>
+        </div>
         {/* Floating exit — bottom-right so it never overlaps the TopBar's
             price ribbon / search. No bar stealing board space. */}
         <button
@@ -329,4 +346,5 @@ export function DashboardScreen() {
     </div>
   );
 }
+
 

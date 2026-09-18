@@ -13,9 +13,15 @@ import { useChartPalette } from '@/lib/chart-palette-store';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { useWatchlist } from './watchlist-store';
 import { useAggregatePortfolio } from './portfolio-store';
-import { useMarketIndices, useMarketGroup, useMarketSectors, marketViewName } from './market-views';
+import { useMarketIndices, useMarketGroup, useMarketSectors, useMarketLeadSymbol, marketViewName } from './market-views';
 import { MarketPicker } from '@/components/workspace/market-picker';
+import { baseChartOption, useEChart } from '@/components/screens/portfolio/use-echart';
+import { IE_STATE_TOPIC } from '@/lib/investor-eye/topics';
+import type { InvestorEyeState } from '@/lib/investor-eye/types';
+import { formatClock, formatEventTitle } from '@/lib/investor-eye/format';
+import { useDisplayTimeZone } from '@/lib/timezone';
 import type { WidgetPlacement } from '@/lib/workspace/types';
+import type { EChartsOption } from 'echarts';
 
 const UP = 'text-emerald-400';
 const DOWN = 'text-rose-400';
@@ -565,22 +571,302 @@ export function WatchlistWidget() {
   );
 }
 
-// ── Stubs (external/broker integrations not yet wired) ──────────────────────
+// ── Stubs (no honest data source yet) ───────────────────────────────────────
 
-export function LiveTVWidget() { return <Unavailable label="Live TV / Streams" />; }
 export function RecentFilesWidget() { return <Unavailable label="Recent Files" />; }
-export function AgentErrorsWidget() { return <Unavailable label="Agent Errors" />; }
 export function WebScraperWidget() { return <Unavailable label="Web Scraper" />; }
 export function NotesWidget() { return <Unavailable label="Notes" />; }
-export function GeopoliticsWidget() { return <Unavailable label="Geopolitics Events" />; }
-export function MaritimeWidget() { return <Unavailable label="Maritime Vessels" />; }
 export function PolymarketWidget() { return <Unavailable label="Polymarket" />; }
-export function CryptoQuoteStripWidget() { return <Unavailable label="Crypto Ticker" />; }
-export function TradeTapeWidget() { return <Unavailable label="Trade Tape" />; }
-export function SparklinesWidget() { return <Unavailable label="Sparklines" />; }
-export function CandleChartWidget() { return <Unavailable label="Candle Chart" />; }
-export function StockScreenerWidget() { return <Unavailable label="Stock Screener" />; }
-export function NewsCategoryWidget() { return <Unavailable label="News by Category" />; }
+
+// ── Agent Errors — real failed agent runs from JDDS ─────────────────────────
+
+interface AgentRunRow { id: string; agent: string; status: string; toolCalls: number; toolErrors: number; startedAt: string; }
+
+export function AgentErrorsWidget() {
+  const t = useTopic<{ runs: AgentRunRow[] }>('agent:activity');
+  const failed = useMemo(() => (t.data?.runs ?? []).filter(r => r.status === 'failed' || r.toolErrors > 0), [t.data]);
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Agent Errors" hint={`${failed.length}`} />
+      {failed.length === 0 ? <EmptyNote>No agent errors recorded.</EmptyNote> : (
+        <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-hide">
+          {failed.slice(0, 8).map(r => (
+            <div key={r.id} className="flex items-center justify-between text-[10px] rounded-lg border border-rose-500/15 bg-rose-500/5 px-2 py-1.5">
+              <span className="font-mono font-bold text-foreground capitalize">{r.agent}</span>
+              <span className="font-mono text-rose-400">{r.toolErrors} err · {r.toolCalls} calls</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Candle Chart — ECharts candlesticks for the market's lead symbol ─────────
+
+interface Bar { date: string; open: number | null; high: number | null; low: number | null; close: number; volume: number | null; }
+interface PriceHistory { symbol: string; currency: string; points: number[]; series: Bar[]; }
+
+const candleTopicId = (symbol: string, market: string) => `chart:candles:${market}:${symbol}`;
+
+export function CandleChartWidget({ placement }: { placement?: WidgetPlacement }) {
+  const { market, symbol } = useMarketLeadSymbol(placement);
+  const topicId = candleTopicId(symbol, market);
+  useMemo(() => {
+    registerTopic(jsonTopic<PriceHistory>(topicId, `/api/price-history?symbol=${encodeURIComponent(symbol)}&market=${encodeURIComponent(market)}&range=3mo`, { ttl: 300_000, interval: 120_000 }));
+  }, [topicId, symbol, market]);
+  const t = useTopic<PriceHistory>(topicId);
+  const data = t.data;
+  const up = useChartPalette().candles.up;
+  const down = useChartPalette().candles.down;
+
+  const ref = useEChart(() => {
+    const bars = data?.series ?? [];
+    if (bars.length < 2) return null;
+    return {
+      ...baseChartOption(),
+      grid: { left: 8, right: 8, top: 10, bottom: 0, containLabel: true },
+      xAxis: { type: 'category', data: bars.map(b => b.date), axisLabel: { color: '#94a3b8', fontSize: 9 }, axisLine: { lineStyle: { color: 'rgba(148,163,184,0.04)' } } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.03)' } }, axisLabel: { color: '#94a3b8', fontSize: 9 } },
+      series: [{
+        type: 'candlestick',
+        data: bars.map(b => [b.open ?? b.close, b.close, b.low ?? b.close, b.high ?? b.close]),
+        itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down },
+      }],
+    } as EChartsOption;
+  }, [data, up, down]);
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Candle Chart" hint={`${symbol} · 3MO`} />
+      {(data?.series?.length ?? 0) < 2 ? <EmptyNote>Loading candles…</EmptyNote> : (
+        <div ref={ref} className="min-h-[180px] flex-1" />
+      )}
+    </div>
+  );
+}
+
+// ── Stock Screener — real JDDS rows via /api/stocks ─────────────────────────
+
+interface ScreenerRow { symbol: string; name: string; price: number; changePercent: number; marketCap: string; sector: string; }
+
+export function StockScreenerWidget({ placement }: { placement?: WidgetPlacement }) {
+  const market = useMarketIndices(placement).market;
+  const topicId = `screener:${market}`;
+  useMemo(() => {
+    registerTopic(jsonTopic<{ stocks: ScreenerRow[]; simulated?: boolean }>(topicId, `/api/stocks?country=${encodeURIComponent(market)}&limit=12&sort=marketCap`, { ttl: 300_000, interval: 0 }));
+  }, [topicId, market]);
+  const t = useTopic<{ stocks: ScreenerRow[]; simulated?: boolean }>(topicId);
+  const rows = t.data?.stocks ?? [];
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Stock Screener" hint={<MarketPicker placement={placement} />} />
+      {rows.length === 0 ? <EmptyNote>Loading screener…</EmptyNote> : (
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle">
+          <table className="w-full text-left border-separate border-spacing-0 text-[10px]">
+            <thead className="sticky top-0 z-10">
+              <tr className="glass-card-subtle">
+                {['Symbol', 'Price', 'Chg', 'Cap'].map((h, i) => (
+                  <th key={h} className={cn('border-b border-white/10 py-2 px-2.5 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono whitespace-nowrap', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {rows.map(s => (
+                <tr key={s.symbol} className="hover:bg-white/[0.05]">
+                  <td className="border-b border-white/5 py-2 px-2.5 font-bold text-foreground whitespace-nowrap">{s.symbol}</td>
+                  <td className="border-b border-white/5 py-2 px-2.5 text-right text-foreground tabular-nums">{fmt(s.price)}</td>
+                  <td className={cn('border-b border-white/5 py-2 px-2.5 text-right tabular-nums', tone(s.changePercent))}>{s.changePercent > 0 ? '+' : ''}{fmt(s.changePercent)}%</td>
+                  <td className="border-b border-white/5 py-2 px-2.5 text-right text-muted-foreground tabular-nums">{s.marketCap}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {t.data?.simulated && <p className="mt-1.5 shrink-0 font-mono text-[9px] text-amber-400/70">Demo universe — JDDS has no priced rows for this market yet.</p>}
+    </div>
+  );
+}
+
+// ── Sparklines — a strip of real 1-month price sparklines ───────────────────
+
+export function SparklinesWidget() {
+  const { market, rows } = useMarketIndices();
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Sparklines" hint="1MO" />
+      {rows.length === 0 ? <EmptyNote>Loading sparklines…</EmptyNote> : (
+        <div className="flex flex-1 flex-col gap-2">
+          {rows.slice(0, 5).map(i => (
+            <div key={i.symbol} className="flex items-center gap-3 text-[10px]">
+              <span className="w-24 shrink-0 truncate font-mono font-bold text-foreground">{i.name}</span>
+              <div className="min-w-0 flex-1">
+                <RealSparkline symbol={i.symbol} market={market} fluid height={34} />
+              </div>
+              <span className={cn('w-14 shrink-0 text-right font-mono', tone(i.changePercent))}>{i.changePercent > 0 ? '+' : ''}{fmt(i.changePercent)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Crypto Ticker — a live horizontal quote strip ───────────────────────────
+
+export function CryptoQuoteStripWidget() {
+  const t = useTopic<{ indices: IndexRow[] }>('market:indices:CRYPTO');
+  const rows = t.data?.indices ?? [];
+  return (
+    <div className="flex h-full flex-col justify-center p-4">
+      <WidgetHeader title="Crypto Ticker" hint="LIVE" />
+      {rows.length === 0 ? <EmptyNote>Loading crypto ticker…</EmptyNote> : (
+        <div className="flex flex-1 items-center gap-4 overflow-x-auto scrollbar-hide">
+          {rows.slice(0, 10).map(i => (
+            <div key={i.symbol} className="shrink-0">
+              <p className="font-mono text-[10px] font-bold text-muted-foreground">{i.name}</p>
+              <p className="font-mono text-sm font-bold text-foreground">{fmt(i.price)}</p>
+              <p className={cn('font-mono text-[10px]', tone(i.changePercent))}>{i.changePercent > 0 ? '+' : ''}{fmt(i.changePercent)}%</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── News by Category — real headlines through the news category filter ──────
+
+// ── Trade Tape — live crypto market prints (quotes with session range) ──────
+
+export function TradeTapeWidget() {
+  const t = useTopic<{ indices: IndexRow[] }>('market:indices:CRYPTO');
+  const rows = t.data?.indices ?? [];
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Trade Tape" hint="CRYPTO · LIVE" />
+      {rows.length === 0 ? <EmptyNote>Loading crypto tape…</EmptyNote> : (
+        <div className="flex-1 overflow-auto custom-scrollbar rounded-xl glass-card-subtle">
+          <table className="w-full text-left border-separate border-spacing-0 text-[10px]">
+            <thead className="sticky top-0 z-10">
+              <tr className="glass-card-subtle">
+                {['Pair', 'Last', 'Chg'].map((h, i) => (
+                  <th key={h} className={cn('border-b border-white/10 py-2 px-2.5 text-[9px] uppercase tracking-widest text-muted-foreground/80 font-mono whitespace-nowrap', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {rows.slice(0, 12).map(i => (
+                <tr key={i.symbol} className="hover:bg-white/[0.05]">
+                  <td className="border-b border-white/5 py-1.5 px-2.5 font-bold text-foreground whitespace-nowrap">{i.name}</td>
+                  <td className="border-b border-white/5 py-1.5 px-2.5 text-right text-foreground tabular-nums">{fmt(i.price)}</td>
+                  <td className={cn('border-b border-white/5 py-1.5 px-2.5 text-right tabular-nums', tone(i.changePercent))}>{i.changePercent > 0 ? '+' : ''}{fmt(i.changePercent)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-1.5 shrink-0 font-mono text-[9px] text-muted-foreground/60">Live crypto quotes — exchange tick data not connected.</p>
+    </div>
+  );
+}
+
+// ── Geopolitics / Maritime — real Investor Eye events filtered by lens ──────
+// Both are thin views over the SAME world-state topic the Investor Eye widget
+// uses (one fetch path). Geopolitics = conflict/military/protest events;
+// Maritime = shipping-channel events. Never fabricated.
+
+const GEO_LENS: Record<'geopolitics' | 'maritime', string[]> = {
+  geopolitics: ['conflict', 'military', 'protest', 'sanction', 'diplomatic', 'election'],
+  maritime: ['shipping', 'trade', 'tariff'],
+};
+
+function InvestorEyeLensWidget({ lens, title, hint }: { lens: 'geopolitics' | 'maritime'; title: string; hint: string }) {
+  const t = useTopic<InvestorEyeState>(`${IE_STATE_TOPIC}:24`);
+  const tz = useDisplayTimeZone();
+  const lensTypes = GEO_LENS[lens];
+  const rows = useMemo(() => {
+    const events = t.data?.events ?? [];
+    return [...events.filter(e => lensTypes.includes(e.eventType))]
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+      .slice(0, 14);
+  }, [t.data, lensTypes]);
+  const loading = t.updatedAt === null;
+  const unavailable = !loading && (t.source === 'UNAVAILABLE' || !t.data);
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title={title} hint={loading ? '…' : `${rows.length} · 24H`} />
+      {loading ? <EmptyNote>Loading world state…</EmptyNote> : unavailable ? (
+        <EmptyNote>UNAVAILABLE — world-state feed not connected.</EmptyNote>
+      ) : rows.length === 0 ? <EmptyNote>{hint}</EmptyNote> : (
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-hide">
+          {rows.map(e => (
+            <div key={e.id ?? e.dedupKey} className="border-b border-border/5 pb-1.5 last:border-b-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[9px] text-muted-foreground">{formatClock(e.publishedAt, tz)}</span>
+                <span className="rounded-sm bg-primary/10 px-1 text-[8px] font-bold uppercase tracking-wide text-primary">{e.eventType.replace(/_/g, ' ')}</span>
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-foreground">{e.headline ?? formatEventTitle(e.title, e.placeName)}</p>
+              <p className="mt-0.5 truncate text-[9px] text-muted-foreground/70">{e.countries.slice(0, 3).join(', ') || 'location unknown'}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function GeopoliticsWidget() {
+  return <InvestorEyeLensWidget lens="geopolitics" title="Geopolitics Events" hint="No conflict events in the last 24h." />;
+}
+
+export function MaritimeWidget() {
+  return <InvestorEyeLensWidget lens="maritime" title="Maritime Vessels" hint="No shipping events in the last 24h." />;
+}
+
+const NEWS_TOPIC_CATEGORIES = ['MARKETS', 'STOCKS', 'CRYPTO', 'FOREX', 'COMMODITIES', 'ECONOMIC', 'CENTRAL BANKS', 'GEOPOLITICS'];
+
+export function NewsCategoryWidget() {
+  const [category, setCategory] = useState('MARKETS');
+  const topicId = `news:category:${category}`;
+  useMemo(() => {
+    registerTopic(jsonTopic<{ news: NewsRow[] }>(topicId, `/api/news?category=${encodeURIComponent(category)}&limit=20`, { ttl: 90_000, interval: 60_000 }));
+  }, [topicId, category]);
+  const t = useTopic<{ news: NewsRow[] }>(topicId);
+  const rows = t.data?.news ?? [];
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="News by Category" hint={category} />
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {NEWS_TOPIC_CATEGORIES.map(c => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setCategory(c)}
+            className={cn('cursor-pointer rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors',
+              category === c ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border/20 text-muted-foreground hover:text-foreground')}
+          >{c}</button>
+        ))}
+      </div>
+      {rows.length === 0 ? <EmptyNote>Loading {category.toLowerCase()} headlines…</EmptyNote> : (
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto scrollbar-hide">
+          {rows.slice(0, 8).map(n => (
+            <div key={n.id} className="rounded-xl border border-border/10 glass-card-subtle px-2.5 py-2">
+              <p className="text-xs leading-snug text-foreground">{n.headline}</p>
+              <div className="mt-1 flex items-center gap-2 text-[9px] text-muted-foreground">
+                <span className="font-mono">{n.source}</span>
+                {n.ticker && <span className="font-mono text-primary">{n.ticker}</span>}
+                <span className={cn('font-mono capitalize', n.sentiment === 'bullish' ? 'text-emerald-400' : n.sentiment === 'bearish' ? 'text-rose-400' : '')}>{n.sentiment}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Portfolio widgets (real — read the guest fund book + live JDDS quotes) ──
 

@@ -173,6 +173,8 @@ export interface MarketViewsContextValue {
   rename: (id: string, name: string) => void;
   /** Change which market the layout's "follow the tab" widgets show. */
   setMarket: (id: string, market: string) => void;
+  /** Move a layout tab to a new index (drag-to-reorder). */
+  reorder: (fromId: string, toIndex: number) => void;
 }
 
 const FALLBACK: MarketViewsContextValue = {
@@ -184,6 +186,7 @@ const FALLBACK: MarketViewsContextValue = {
   remove: () => {},
   rename: () => {},
   setMarket: () => {},
+  reorder: () => {},
 };
 
 const MarketViewsContext = createContext<MarketViewsContextValue | null>(null);
@@ -251,6 +254,20 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     });
   }, []);
 
+  const reorder = useCallback((fromId: string, toIndex: number) => {
+    setViews(prev => {
+      const from = prev.findIndex(v => v.id === fromId);
+      if (from === -1) return prev;
+      const clampedTo = Math.max(0, Math.min(prev.length - 1, toIndex));
+      if (from === clampedTo) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(clampedTo, 0, moved);
+      writeViews(next);
+      return next;
+    });
+  }, []);
+
   // If the active view was removed, fall back to the first remaining one.
   useEffect(() => {
     if (views.length > 0 && !views.some(v => v.id === activeId)) {
@@ -269,6 +286,7 @@ export function MarketViewsProvider({ children }: { children: React.ReactNode })
     remove,
     rename,
     setMarket,
+    reorder,
   };
 
   return <MarketViewsContext.Provider value={value}>{children}</MarketViewsContext.Provider>;

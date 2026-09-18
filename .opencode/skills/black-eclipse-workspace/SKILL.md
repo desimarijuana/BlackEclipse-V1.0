@@ -21,13 +21,49 @@ CustomizableWorkspace  (src/components/workspace/customizable-workspace.tsx)
    │  composes: useWorkspace + WorkspaceCanvas + WidgetLibrary + WidgetConfigPanel
    ▼
 Workspace kernel  (src/lib/workspace/)
-   ├─ types.ts        WidgetPlacement { id, widgetId, height, config, hidden }
+   ├─ types.ts        WidgetPlacement { id, widgetId, height, minHeight, config, hidden }
+   ├─ pack.ts         pure masonry packer — rebalanceColumns/rebalanceLayout
+   │                  (compose-time only; never inside store commit)
    ├─ ops.ts          pure Immer layout ops (move/add/remove/resize/duplicate/
    │                  removeSection/addWidgetToNewSectionAt/…)
    ├─ persistence.ts  localStorage, corrupt-data-never-overwritten guard
    ├─ use-workspace.ts Zustand store per storageKey
    └─ workspace-canvas.tsx  dnd-kit drag/drop + click-to-place chrome
 ```
+
+### Track board (v2 layout)
+
+`WorkspaceLayout.version` is `2`. Every placement sizes to content
+(`height: null`) in one of TWO modes:
+- **frame** — `WidgetPlacement.defaultHeight` (from `WidgetDefinition.defaultHeight`
+  / the dashboard's `WIDGET_FRAME_HEIGHT`). A definite box whose body STRETCHES
+  to fill: charts, maps, live video, scrollable tables/feeds.
+- **grow** — `WidgetPlacement.minHeight` (from `WidgetDefinition.minHeight` /
+  `WIDGET_MIN_HEIGHT`). A floor under content that sizes itself: compact tiles.
+
+The renderer keys its body class off `isDefiniteCard(placement)` (height or
+defaultHeight present) — a frame card gets `min-h-0 flex-1`; a grow card gets
+`shrink-0`. Mixing these up is what collapsed widgets before. A user can still
+pin an exact `height` by dragging the card's bottom edge.
+
+A section's **columns are its vertical tracks**; the pure packer (`pack.ts`)
+distributes each section's cards into the shortest track **at compose time only**
+(defaults, templates, imports). Do NOT call the packer inside the store's
+`commit` — masonry has no stable fixed point, so re-packing on edit would
+silently reshuffle cards the user just placed. The dashboard's composition
+(`composeBoard` in `src/lib/dashboard/layout.ts`) is the reference: side zones
+are single-column stacked tracks, the centre is one or more balanced bands, and
+a `BoardCell` may be a widget id or `{ id, h, min, frame }` to override a
+widget's frame height. `ops.normalizeLayout` upgrades any stored payload to v2
+on read and preserves `minHeight` / `defaultHeight`.
+
+### Resizable side panels
+
+A vertical handle (`ZoneResizer` in `workspace-canvas.tsx`) between each side
+zone and the centre sets the zone width live (clamped 180–520px via
+`MIN_ZONE_WIDTH`/`MAX_ZONE_WIDTH`), committing on release through
+`ops.setZoneWidth`. It persists in `WorkspaceLayout.zoneWidths` (presentation
+only). `main` is not resizable. The handle is always available (not edit-only).
 
 ## The reusable pieces
 
@@ -157,41 +193,53 @@ ECharts/`echarts-gl`. Register new widgets anywhere in `DASHBOARD_WIDGETS` — t
 persona templates (`src/lib/dashboard/templates.ts`) address widgets by **id**,
 not array index.
 
-## Dashboard default layouts (personas + bands)
+## Dashboard default layouts (personas + track board)
 
 Default arrangements are composed by the pure, tested engine in
 `src/lib/dashboard/layout.ts`:
 
-- **Templates** (`templates.ts`) are widget-id specs, centre-only, using the
-  **band grammar**: a two-up hero of small tiles → a full-width **primary**
-  visual → matched-height two-up analysis/context bands → an optional full-width
-  live strip. **Every default placement is pinned to a `HEIGHTS` token**
-  (`strip 130`, `tile 190`, `panel 300`, `tall 420`, `chart 460`, `live 520`) and
-  each row's columns share a height — never leave a short widget beside a tall
-  one. **Centre rows are capped at TWO columns** — four skinny columns truncate
-  widget titles and numbers; the engine still supports 4 for user drag/drop, but
-  defaults never exceed two.
-  **Eight personas**, each with a different widget set AND primary visual:
-  Trader, Trader Pro (dual charts, tape, alerts, heatmap, large live TV),
-  Investor, Macro, Crypto, Forex, Quant, World (Investor Eye map).
+- **Templates** (`templates.ts`) are widget-id specs, centre-only. Helpers:
+  `full(...cells)` (one track), `split(left, right)` (two tracks), or
+  `grid(tracks, ...cells)` (N balanced tracks). **Centre bands are capped at 4
+  tracks.** A cell is a widget id or `{ id, h, min, frame }` overriding its frame
+  height for deliberate asymmetry. **Twelve personas**, each a different SHAPE
+  (band structure) and widget set: Tape Reader, The Desk, The Allocator,
+  Rates Desk, Chain Desk, FX Desk, The Screener, Map Room, Newsroom.
+- **Frame vs grow sizing.** Every placement ships `height: null` with either a
+  frame (`defaultHeight` — charts/maps/live/scrollable tables, body stretches)
+  or a grow floor (`minHeight` — compact tiles). The renderer's body class keys
+  off `isDefiniteCard`. **A `defaultHeight` card MUST render as a definite
+  `height`, never `min-height`** — frame widgets put `absolute inset-0`/`h-full`
+  children in a `flex-1` body, and those collapse to 0px without a definite
+  height (this was the blank-chart bug). The masonry packer fills each section's
+  shortest track, so a short widget never leaves dead space beside a tall one.
+- **Library adds carry sizing.** `ops.addWidget(id, target, sizing)` /
+  `addWidgetToNewSectionAt(..., sizing)`; pass `{ defaultHeight, minHeight }`
+  from the widget definition so a freshly added chart is never born collapsed.
 - **`buildMarketViewLayout(market, ids, templateBase)`** frames the template with
   thin side rails: left = Watchlist only; right = the asset class's `mp-*` stat
   tiles (`ASSET_RAIL`). Each rail is **ONE STACKED section** (single column),
-  NOT one section per widget — the old per-widget sections produced a section
-  gap + padding around every tile, which read as "too many gaps".
-- **`composeRows`** enforces the invariants in ONE place: global first-wins
-  **dedupe** across zones, **4-column cap at build time**, unknown ids dropped,
-  and per-cell **pinned heights** (`height`). Rows with `stack:true` collapse to
-  a single column.
+  NOT one section per widget.
+- **`composeBoard`** enforces the invariants in ONE place: global first-wins
+  **dedupe** across zones, **4-track cap at build time clamped to the card
+  count**, unknown ids dropped, content sizing, and **masonry balance** via
+  `rebalanceColumns`.
+- **Packing is COMPOSE-TIME only.** Never call `rebalanceColumns`/`rebalanceLayout`
+  inside the store's `commit` — masonry has no stable fixed point for equal-height
+  cards, so re-packing on edit silently reshuffles what the user just dropped.
 - **Widgets render at full size with NO inner scrollbar.** The card body never
-  gets `overflow-y-auto`; a height-pinned card is clipped by its own
-  `overflow-hidden` container. If a widget legitimately needs to scroll, it opts
-  in internally (`scrollbar-hide`).
-- Section rows use **`items-start`** (NOT `items-stretch`) so a short column
-  cannot grow to its tallest sibling and leave blank tail space. Never bypass it — the old generator skipped dedupe and built
-  5-wide rows truncated on reload.
-- Storage is **v5** (`be_dashboards_index_v5` / `be_ws_dashboard_v5_`) and is a
-  deliberate reset; pre-v5 layouts are not migrated forward.
+  gets `overflow-y-auto`; the card is clipped by its own `overflow-hidden`
+  container. If a widget legitimately needs to scroll, it opts in internally
+  (`scrollbar-hide`).
+- **Renaming a persona? Add its old id to `LEGACY_TEMPLATE_IDS`.** Stored
+  dashboards and market layouts persist `templateId`, so a renamed id that no
+  longer resolves makes `getDashboardTemplate` return `undefined` and the centre
+  render EMPTY (only side rails). `resolveTemplateId` maps legacy → current and
+  falls back to the first persona; `use-workspace` also self-heals a fully blank
+  stored layout.
+- Storage is **v8** (`be_dashboards_index_v8` / `be_ws_dashboard_v8_`; funds
+  `be_ws_fund_*_v3`) and is a deliberate reset; prior layouts are not migrated
+  forward.
 
 ## Command Center fullscreen
 
@@ -291,3 +339,4 @@ positions; wiring a real broker adapter is a prerequisite.
   non-zero box and let a ResizeObserver start it once the box is real — see
   `hasDrawableBox()` in `src/lib/investor-eye/map-echarts.ts` and the init effect
   in `components/investor-eye/world-map.tsx`.
+

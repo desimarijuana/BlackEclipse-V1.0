@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-18
 ---
 
 # Glossary
@@ -82,24 +82,37 @@ in `src/lib/dashboard/templates.ts` — never registry indices, so adding a widg
 cannot silently repoint a template. A template describes only the **centre**;
 the side rails are added by `buildMarketViewLayout`.
 
-**Band** — a row-role in the dashboard layout grammar: **hero** (4 at-a-glance
-widgets) → **primary** (the one big chart) → **analysis** → **intelligence** →
-**context** → **live**. `composeRows` enforces global first-wins dedupe and a
-4-column cap, so a widget never renders twice and a section never exceeds four
-columns. See `src/lib/dashboard/layout.ts`.
+**Band** — a horizontal grouping in a persona template: a flat widget list that
+`composeBoard` arranges into a section (a `full` band = one track; a `board` band
+= N balanced tracks). `composeBoard` enforces global first-wins dedupe, a
+4-track cap clamped to the card count, and content sizing. See
+`src/lib/dashboard/layout.ts`.
+
+**Track / track board** — the current layout model (`WorkspaceLayout.version: 2`).
+A section's **columns are vertical tracks**; the pure packer
+(`src/lib/workspace/pack.ts`) distributes each section's cards into the shortest
+track by estimated height, so a short widget never leaves dead space beside a
+tall one. Packing runs at compose time only (defaults/templates/imports), never
+on user edits. The centre defaults to three balanced tracks (`CENTRE_TRACKS`).
 
 **Stacked rail** — a side zone built as ONE section with a single column holding
 every tile, rather than one section per tile. This removes the per-tile section
 padding/gap that made the dashboard look gappy. See `buildLeftSections` /
 `buildRailSections`.
 
-**Pinned height** — a per-placement fixed pixel height (`placement.height`) used
-to size every default widget intentionally instead of letting it stretch. Shared
-tokens live in `HEIGHTS` (`strip 130`, `tile 190`, `panel 300`, `tall 420`,
-`chart 460`, `live 520`). Auto placements (`height: null`) are reserved for
-user-added widgets and fill the column. A pinned card renders its widget **full
-size with no inner scrollbar** — content is clipped by the card's
-`overflow-hidden`, and widgets that need to scroll opt in themselves.
+**Frame vs grow sizing** — every default card sizes to its widget
+(`height: null`) in one of two modes. A **frame** (`placement.defaultHeight`,
+from `WIDGET_FRAME_HEIGHT` / `WidgetDefinition.defaultHeight`) is a definite box
+whose body stretches to fill it — charts, maps, live video, scrollable
+tables/feeds. A **grow floor** (`placement.minHeight`) is a floor under content
+that sizes itself — compact stat tiles. The renderer keys its body class off
+this so a frame widget never collapses to a `flex-basis:0` body. A user can
+still pin an exact height by dragging the card's bottom edge; auto is the
+default and the old "Fit height" control is gone.
+
+**Zone width** — a side panel's user-resized width in px (`zoneWidths.left` /
+`zoneWidths.right` in the layout), set by dragging the vertical handle beside
+the panel and clamped to 180–520px. Presentation-only; never affects the tree.
 
 **Compact mode** — *removed*. It forced a fixed 40px card height and crushed
 widget content; there is no row-height mode any more.

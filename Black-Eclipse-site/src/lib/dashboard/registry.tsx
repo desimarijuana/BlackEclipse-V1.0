@@ -18,13 +18,11 @@ import { registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
 import { MARKET_CONFIG_FIELD } from './market-views';
 // Layout composition lives in ./layout (pure + unit-tested); re-exported below
 // so existing `@/lib/dashboard/registry` imports keep working.
-import {
-  buildMarketViewLayout, buildRailSections, buildLeftSections,
-  assetClassFor, LEFT_WIDGET_IDS, ASSET_RAIL, type AssetClass,
-} from './layout';
 export {
   buildMarketViewLayout, buildRailSections, buildLeftSections,
-  assetClassFor, LEFT_WIDGET_IDS, ASSET_RAIL, type AssetClass,
+  assetClassFor, LEFT_WIDGET_IDS, ASSET_RAIL, WIDGET_MIN_HEIGHT,
+  WIDGET_FRAME_HEIGHT, CENTRE_TRACKS, composeBoard, placementSizing,
+  type AssetClass, type BoardSpec, type BoardCell,
 } from './layout';
 
 import {
@@ -135,18 +133,18 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   mdef('top-movers', 'markets', 'Top Movers', 'Biggest gainers and losers for the chosen market.', 'trending', ['medium', 'large'], (p) => <TopMoversWidget placement={p} />),
   def('market-sentiment', 'markets', 'Market Sentiment', 'Fear & greed, bull/bear indicators.', 'activity', ['small', 'medium'], () => UnavailableStub('')),
   def('quote-strip', 'markets', 'Quote Strip', 'Configurable live quote list.', 'bar-chart', ['large', 'full'], () => UnavailableStub('')),
-  def('crypto-ticker', 'markets', 'Crypto Ticker', 'Live Kraken/HyperLiquid ticker strip.', 'radio', ['large', 'full'], () => <CryptoQuoteStripWidget />),
+  def('crypto-ticker', 'markets', 'Crypto Ticker', 'Live crypto quote strip.', 'radio', ['large', 'full'], () => <CryptoQuoteStripWidget />, ['market:indices:CRYPTO']),
   def('polymarket', 'markets', 'Polymarket', 'Live prediction-market prices.', 'gauge', ['medium', 'large'], () => <PolymarketWidget />),
-  def('sparklines', 'markets', 'Sparklines', 'Configurable sparkline strip.', 'line-chart', ['large', 'full'], () => <SparklinesWidget />),
-  def('trade-tape', 'markets', 'Trade Tape', 'Live trade prints for a crypto pair.', 'activity', ['medium', 'large'], () => <TradeTapeWidget />),
+  def('sparklines', 'markets', 'Sparklines', 'One-month price sparklines for the active market.', 'line-chart', ['large', 'full'], () => <SparklinesWidget />),
+  def('trade-tape', 'markets', 'Trade Tape', 'Live crypto quote tape (exchange tick data not connected).', 'activity', ['medium', 'large'], () => <TradeTapeWidget />, ['market:indices:CRYPTO']),
 
   // ── Research ──
   def('news-feed', 'research', 'News Feed', 'Latest financial headlines.', 'newspaper', ['medium', 'large'], () => <NewsFeedWidget />, ['news:feed']),
   def('stock-quote', 'research', 'Stock Quote', 'Single stock detail (price, volume, chart).', 'bar-chart', ['small', 'medium'], () => <StockQuoteWidget />, ['market:quote:AAPL']),
-  def('candle-chart', 'research', 'Candle Chart', 'Candlestick chart for a ticker.', 'candlestick', ['large', 'full'], () => <CandleChartWidget />),
-  def('stock-screener', 'research', 'Stock Screener', 'Filter by fundamentals/technicals.', 'table', ['large', 'full'], () => <StockScreenerWidget />),
+  mdef('candle-chart', 'research', 'Candle Chart', 'Candlesticks for the active market’s lead instrument.', 'candlestick', ['large', 'full'], (p) => <CandleChartWidget placement={p} />),
+  mdef('stock-screener', 'research', 'Stock Screener', 'Live JDDS rows ranked by market cap for the chosen market.', 'table', ['large', 'full'], (p) => <StockScreenerWidget placement={p} />),
   def('economic-calendar', 'research', 'Economic Calendar', 'Upcoming macro events.', 'calendar', ['medium', 'large'], () => <EconomicCalendarWidget />, ['econ:calendar']),
-  def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />),
+  def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />, ['news:feed']),
 
   // ── Portfolio ──
   def('watchlist', 'portfolio', 'Watchlist', 'Your symbols with live prices and favourites.', 'bar-chart', ['medium', 'large'], () => <WatchlistWidget />, ['market:quote:AAPL,MSFT,NVDA,TSLA,AMZN']),
@@ -175,8 +173,8 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('notes', 'tools', 'Notes', 'Recent/favorite financial notes.', 'sticky-note', ['small', 'medium'], () => <NotesWidget />),
 
   // ── Geopolitics ──
-  def('geopolitics', 'geopolitics', 'Geopolitics Events', 'Live conflict/political events.', 'landmark', ['medium', 'large'], () => <GeopoliticsWidget />),
-  def('maritime', 'geopolitics', 'Maritime Vessels', 'Live vessel positions.', 'ship', ['medium', 'large'], () => <MaritimeWidget />),
+  def('geopolitics', 'geopolitics', 'Geopolitics Events', 'Live conflict/military/diplomatic events from Investor Eye.', 'landmark', ['medium', 'large'], () => <GeopoliticsWidget />, ['investor-eye:state:24']),
+  def('maritime', 'geopolitics', 'Maritime & Trade', 'Live shipping/trade events from Investor Eye.', 'ship', ['medium', 'large'], () => <MaritimeWidget />, ['investor-eye:state:24']),
 
   // ── Alerts ──
   def('active-alerts', 'alerts', 'Active Alerts', 'Active price/condition alert watches.', 'bell', ['medium', 'large'], () => <ActiveAlertsWidget />, ['alerts:list']),

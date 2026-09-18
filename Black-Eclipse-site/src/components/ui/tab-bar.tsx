@@ -31,6 +31,11 @@ interface TabBarProps {
    * is the restrained control-strip tier for dense/toolbar-adjacent tab rows.
    */
   variant?: 'glass' | 'subtle'
+  /**
+   * When provided, tabs become drag-to-reorder: dropping a tab on another moves
+   * it to that tab's position. Enables HTML5 drag on each tab button.
+   */
+  onReorder?: (fromId: string, toId: string) => void
 }
 
 /**
@@ -48,7 +53,10 @@ export function TabBar({
   onItemDoubleClick,
   onItemRemove,
   variant = 'glass',
+  onReorder,
 }: TabBarProps) {
+  const [dragId, setDragId] = React.useState<string | null>(null)
+  const [overId, setOverId] = React.useState<string | null>(null)
   return (
     <div
       className={cn(
@@ -66,7 +74,10 @@ export function TabBar({
           variant === 'glass' ? 'px-4 py-2' : 'px-3 py-1.5',
           active
             ? 'bg-primary/15 text-primary'
-            : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+            : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+          onReorder && 'cursor-grab active:cursor-grabbing',
+          onReorder && overId === item.id && dragId !== item.id && 'ring-1 ring-primary/60 bg-primary/5',
+          dragId === item.id && 'opacity-40',
         )
 
         if (item.editing) {
@@ -82,8 +93,19 @@ export function TabBar({
             key={item.id}
             onClick={() => onChange(item.id)}
             onDoubleClick={onItemDoubleClick ? () => onItemDoubleClick(item.id) : undefined}
+            draggable={Boolean(onReorder) && !item.editing}
+            onDragStart={onReorder ? (e) => { setDragId(item.id); e.dataTransfer.effectAllowed = 'move'; } : undefined}
+            onDragOver={onReorder ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverId(item.id); } : undefined}
+            onDragLeave={onReorder ? () => setOverId((cur) => (cur === item.id ? null : cur)) : undefined}
+            onDrop={onReorder ? (e) => {
+              e.preventDefault()
+              if (dragId && dragId !== item.id) onReorder(dragId, item.id)
+              setDragId(null); setOverId(null)
+            } : undefined}
+            onDragEnd={onReorder ? () => { setDragId(null); setOverId(null) } : undefined}
             aria-pressed={active}
             className={classNameForTab}
+            title={onReorder ? 'Drag to reorder · double-click to rename' : undefined}
           >
             {Icon && <Icon size={12} />}
             {item.label}

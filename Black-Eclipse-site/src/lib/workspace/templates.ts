@@ -1,10 +1,13 @@
 // ── Curated workspace templates ──────────────────────────────────────────────
 // Templates are generic: each takes the page's widget ids in its canonical
 // registry order and arranges them into sections/columns. Missing ids are
-// skipped, so a page can safely pass a shorter registry.
+// skipped, so a page can safely pass a shorter registry. On the track board a
+// template's columns are tracks — each section's cards are balanced by the
+// masonry packer so a short card never leaves a hole.
 
 import { cloneLayout, normalizeLayout } from './ops';
-import { newId, type WorkspaceLayout } from './types';
+import { rebalanceColumns } from './pack';
+import { newId, WORKSPACE_VERSION, type WorkspaceLayout } from './types';
 
 export interface WorkspaceTemplate {
   id: string;
@@ -29,11 +32,12 @@ function buildFromSpec(spec: SectionSpec[], widgetIds: string[]): WorkspaceLayou
           return { id: newId('col'), weight: col.weight ?? 3, widgets };
         })
         .filter(c => c.widgets.length > 0);
+      rebalanceColumns(columns);
       return { id: newId('sec'), columns };
     })
     .filter(s => s.columns.length > 0);
   // Round-trip through the validator so every template ships structurally clean.
-  return normalizeLayout({ version: 1, sections }) ?? cloneLayout({ version: 1, sections: [] });
+  return normalizeLayout({ version: WORKSPACE_VERSION, sections }) ?? cloneLayout({ version: WORKSPACE_VERSION, sections: [] });
 }
 
 export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [

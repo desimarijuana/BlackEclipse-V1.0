@@ -18,7 +18,8 @@ import { computeMonteCarlo } from '@/lib/portfolio-analysis';
 import { MIN_OBSERVATIONS } from '@/lib/portfolio/matrix';
 import { useChartPalette } from '@/lib/chart-palette-store';
 import { normalizeLayout } from '@/lib/workspace/ops';
-import type { WorkspaceLayout } from '@/lib/workspace/types';
+import { rebalanceColumns } from '@/lib/workspace/pack';
+import type { WorkspaceColumn, WorkspaceLayout, WorkspaceSection, WidgetPlacement } from '@/lib/workspace/types';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import { baseChartOption, useEChart } from './use-echart';
 import type { FundData } from './use-fund-data';
@@ -956,33 +957,71 @@ export function renderFundWidget(widgetId: string, props: WidgetProps): React.Re
 }
 
 /**
- * Clean default arrangement — mirrors the classic analytics-hub layout:
- * tight rows, no dead space. KPI strip → Performance (wide) + Allocation →
- * Holdings (wide) + AI Insights → Risk + Health → Ledger (wide) + Monte Carlo
- * → Rebalancing (full-width action row).
+ * Intrinsic sizing per fund widget. Charts/heatmaps/tables that fill their card
+ * get a FRAME (`defaultHeight`); compact stat boards GROW (`minHeight`).
+ */
+const FUND_WIDGET_FRAME: Record<string, number> = {
+  'performance': 340,
+  'allocation': 380,
+  'portfolio-heatmap': 400,
+  'correlation-matrix': 420,
+  'risk-matrix': 400,
+  'holdings': 380,
+  'ledger': 380,
+  'health': 360,
+  'monte-carlo': 380,
+  'ai-insights': 340,
+};
+const FUND_WIDGET_MIN_HEIGHT: Record<string, number> = {
+  'kpi-board': 220,
+  'rebalance': 320,
+  'risk-metrics': 200,
+};
+const FUND_MIN_DEFAULT = 260;
+
+function fundSizing(widgetId: string): { defaultHeight?: number; minHeight?: number } {
+  const frame = FUND_WIDGET_FRAME[widgetId];
+  if (frame != null) return { defaultHeight: frame };
+  return { minHeight: FUND_WIDGET_MIN_HEIGHT[widgetId] ?? FUND_MIN_DEFAULT };
+}
+
+/**
+ * Clean default arrangement on the track board: cards size to content with an
+ * intrinsic floor, and the masonry packer balances each band so there is no
+ * dead space. A one-track KPI strip, then balanced bands, then a full-width
+ * rebalancing action row.
  */
 export function defaultFundLayout(): WorkspaceLayout {
-  const id = (widgetId: string) => FUND_WIDGET_IDS.includes(widgetId) ? widgetId : null;
-  const col = (ids: string[], weight: number) => ({
-    id: `col-${ids.join('-')}-${Math.random().toString(36).slice(2, 6)}`,
-    weight,
-    widgets: ids.map(widgetId => ({ id: `wid-${widgetId}-${Math.random().toString(36).slice(2, 6)}`, widgetId, height: null as number | null })),
-  });
-  const sec = (cols: { id: string; weight: number; widgets: { id: string; widgetId: string; height: number | null }[] }[]) =>
-    ({ id: `sec-${Math.random().toString(36).slice(2, 6)}`, columns: cols });
+  const board = (widgets: string[], tracks = 3): WorkspaceSection => {
+    const ids = widgets.filter(w => FUND_WIDGET_IDS.includes(w));
+    const columnCount = Math.max(1, Math.min(4, tracks, ids.length || 1));
+    const columns: WorkspaceColumn[] = Array.from({ length: columnCount }, () => ({
+      id: `col-${Math.random().toString(36).slice(2, 8)}`,
+      weight: 1,
+      widgets: [] as WidgetPlacement[],
+    }));
+    ids.forEach((widgetId, i) => {
+      columns[i % columns.length].widgets.push({
+        id: `wid-${widgetId}-${Math.random().toString(36).slice(2, 6)}`,
+        widgetId,
+        height: null,
+        ...fundSizing(widgetId),
+      });
+    });
+    rebalanceColumns(columns);
+    return { id: `sec-${Math.random().toString(36).slice(2, 6)}`, zone: 'main', columns };
+  };
 
   const layout: WorkspaceLayout = {
-    version: 1,
+    version: 2,
     sections: [
-      sec([col([id('kpi-board')].filter(Boolean) as string[], 3)]),
-      sec([col([id('performance')].filter(Boolean) as string[], 2), col([id('allocation')].filter(Boolean) as string[], 1)]),
-      // Risk analytics row: heatmap + correlation side by side.
-      sec([col([id('portfolio-heatmap')].filter(Boolean) as string[], 1), col([id('correlation-matrix')].filter(Boolean) as string[], 1)]),
-      sec([col([id('risk-matrix')].filter(Boolean) as string[], 3)]),
-      sec([col([id('holdings')].filter(Boolean) as string[], 2), col([id('ai-insights')].filter(Boolean) as string[], 1)]),
-      sec([col([id('risk-metrics')].filter(Boolean) as string[], 1), col([id('health')].filter(Boolean) as string[], 1)]),
-      sec([col([id('ledger')].filter(Boolean) as string[], 2), col([id('monte-carlo')].filter(Boolean) as string[], 1)]),
-      sec([col([id('rebalance')].filter(Boolean) as string[], 3)]),
+      board(['kpi-board'], 1),
+      board(['performance', 'allocation']),
+      board(['portfolio-heatmap', 'correlation-matrix'], 2),
+      board(['risk-matrix', 'risk-metrics', 'health']),
+      board(['holdings', 'ai-insights']),
+      board(['ledger', 'monte-carlo']),
+      board(['rebalance'], 1),
     ],
   };
   const normalized = normalizeLayout(layout, new Set(FUND_WIDGET_IDS));

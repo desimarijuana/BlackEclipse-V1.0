@@ -444,7 +444,7 @@ export function EclipseChartWidget({ placement }: { placement?: WidgetPlacement 
   };
 
   return (
-    <div className="flex h-full w-full flex-col p-2" style={{ minHeight: 620 }}>
+    <div className="flex h-full w-full flex-col p-2">
       <ChartWidget
         symbol={chartState.symbol}
         market={chartState.market}

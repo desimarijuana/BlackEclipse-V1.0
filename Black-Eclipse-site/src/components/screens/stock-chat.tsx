@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
@@ -65,17 +65,8 @@ const InvestorEyeScreen = dynamic(
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import Aurora from '@/components/ui/Aurora';
+import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { getAgentProvider } from '@/lib/agent/registry';
-import { auroraSentiment, marketSentimentFromIndices } from '@/lib/aurora-sentiment';
-import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
-import { useHydrateAuroraPalette, useAuroraPaletteStore } from '@/lib/aurora/store';
-
-// Aurora needs the US index topic even on a cold boot straight into chat, where
-// the dashboard chunk (which normally registers it) is never loaded. Idempotent:
-// the DataHub ignores a duplicate registration, and the dashboard registry uses
-// identical ttl/interval values.
-registerTopic(jsonTopic('market:indices:US', '/api/indices?market=US', { ttl: 120_000, interval: 60_000 }));
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
@@ -113,34 +104,6 @@ function StockChatContent() {
   navHistoryRef.current = navHistory;
   // Section requested by a `settings.<section>` palette subroute.
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
-
-  // ── App-wide sentiment (drives the Aurora glow) ──────────────────────────
-  // Market sentiment is a continuous [-1, +1] score from the global DataHub
-  // topic `market:indices:US` (registered above, so it resolves on every tab,
-  // not just when the dashboard chunk loads). The hub subscribes while the
-  // Aurora is mounted and auto-refreshes, so the glow stays live with no bespoke
-  // fetch. News sentiment is the tier-weighted 24h score emitted by the news API.
-  const [newsScore, setNewsScore] = useState<number | null>(null);
-  const indicesTopic = useTopic<{ indices?: Array<{ symbol: string; price: number; changePercent: number }>; sectors?: Array<{ name: string; change: number }> }>('market:indices:US');
-
-  // Recompute only when the hub entry actually changes (its object identity is
-  // stable per refresh), keeping the sentiment math off the render hot path.
-  const marketScore = useMemo(
-    () => marketSentimentFromIndices(indicesTopic.data?.indices, indicesTopic.data?.sectors),
-    [indicesTopic.data],
-  );
-
-  // Combine market (60%) + news (40%) into the Aurora contract. Missing sides
-  // are renormalized; both missing → neutral (never a false bullish reading).
-  const aurora = useMemo(
-    () => auroraSentiment(marketScore, newsScore),
-    [marketScore, newsScore],
-  );
-
-  // User-customized Aurora colors (Settings › Aurora), hydrated from
-  // localStorage post-mount so SSR stays on the shipped default.
-  useHydrateAuroraPalette();
-  const auroraPalette = useAuroraPaletteStore((s) => s.palette);
 
   useEffect(() => {
     setMounted(true);
@@ -528,25 +491,15 @@ function StockChatContent() {
   };
 
   // ── Aurora glow ─────────────────────────────────────────────────────────
-  // Aurora is the app-wide market-state indicator. `aurora.score` is the
-  // combined market (60%) + news (40%) sentiment in [-1, +1]; the component
-  // maps it to a continuous red→green palette (subdued green at neutral) and
-  // subtly scales motion, easing between values internally so ticks never
-  // flicker. See src/lib/aurora-sentiment.ts for the single source of truth.
+  // The app-wide market-state indicator is mounted via <AuroraGlow>, which owns
+  // the sentiment subscription + user palette and renders the masked top glow.
+  // Fullscreen mounts its own copy (it portals to <body>, above the shell).
 
   return (
     <TooltipProvider delay={0}>
     <div ref={appRootRef} className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
       {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
-      <div
-        className="absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden"
-        style={{
-          maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',
-        }}
-      >
-        <Aurora sentiment={aurora.score} palette={auroraPalette} />
-      </div>
+      <AuroraGlow />
 
       <Sidebar 
         activeTab={activeTab} 
@@ -641,7 +594,6 @@ function StockChatContent() {
                     onDiscussNews={handleDiscussNews}
                     onAnalyzeTicker={handleChartTicker}
                     fullPage={true}
-                    onNewsSentiment={setNewsScore}
                     symbol={newsSymbol}
                   />
                 </div>

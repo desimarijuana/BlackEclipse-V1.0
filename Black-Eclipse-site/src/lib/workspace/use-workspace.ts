@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import { produce } from 'immer';
 import { newId } from './types';
+import type { PlacementSizing } from './ops';
 import {
   addWidget as addWidgetDraft,
   moveWidget as moveWidgetDraft,
@@ -30,6 +31,8 @@ import {
   createSectionInZone as createSectionInZoneDraft,
   addWidgetToNewSectionAt as addWidgetToNewSectionAtDraft,
   setZoneHidden as setZoneHiddenDraft,
+  setZoneWidth as setZoneWidthDraft,
+  cloneLayout,
   locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
@@ -56,7 +59,7 @@ interface WorkspaceState {
 
 interface WorkspaceActions {
   commit: (recipe: (draft: WorkspaceLayout) => void) => void;
-  addWidget: (widgetId: string, target?: DropTarget) => void;
+  addWidget: (widgetId: string, target?: DropTarget, sizing?: PlacementSizing) => void;
   removeWidget: (widgetId: string) => void;
   moveWidget: (widgetId: string, target: DropTarget) => void;
   moveWidgetToNewSection: (widgetId: string) => void;
@@ -66,7 +69,9 @@ interface WorkspaceActions {
   createSectionInZone: (zone: WorkspaceZone) => void;
   /** Hide/show a whole side zone (keeps its sections for later restore). */
   setZoneHidden: (zone: WorkspaceZone, hidden: boolean) => void;
-  addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
+  /** Set a side zone's width in px (null = reset to default). */
+  setZoneWidth: (zone: WorkspaceZone, width: number | null) => void;
+  addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below', sizing?: PlacementSizing) => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
   setColumnWeights: (sectionId: string, updates: ReadonlyArray<{ columnId: string; weight: number }>) => void;
@@ -87,6 +92,21 @@ export type WorkspaceStore = WorkspaceState & WorkspaceActions;
 function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWorkspaceOptions) {
   const known = knownWidgetIds ? new Set(knownWidgetIds) : undefined;
   const initial = loadWorkspace(storageKey, defaultLayout, { knownWidgetIds: known });
+
+  // Blank-layout self-heal: a stored layout with NO widgets at all while the
+  // defaults DO have widgets is the residue of a build that failed to resolve a
+  // template. Restore the defaults rather than show an empty board. (A user who
+  // deliberately empties a workspace has no saved payload, so this never fights
+  // that state.) Storage was bumped to v8 for the persona-rename break, so this
+  // is a belt-and-suspenders guard for any future resolver failure.
+  const storedWidgetCount = initial.layout.sections
+    .reduce((a, s) => a + s.columns.reduce((b, c) => b + c.widgets.length, 0), 0);
+  const defaultWidgetCount = defaultLayout.sections
+    .reduce((a, s) => a + s.columns.reduce((b, c) => b + c.widgets.length, 0), 0);
+  if (!initial.corrupt && storedWidgetCount === 0 && defaultWidgetCount > 0) {
+    initial.layout = cloneLayout(defaultLayout);
+    saveWorkspace(storageKey, initial.layout);
+  }
 
   // One-time side-zone migration: when the default layout declares `left` /
   // `right` sections but a stored layout (from before that zone existed) has
@@ -118,6 +138,11 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
 
   return create<WorkspaceStore>()((set, get) => {
     const commit = (recipe: (draft: WorkspaceLayout) => void) => {
+      // NOTE: masonry packing runs at COMPOSE time (defaults/templates/reset),
+      // never here. Re-packing on every edit would silently reshuffle cards the
+      // user just arranged (masonry has no stable fixed point for equal-height
+      // cards), so a drag commits exactly where it was dropped. Content-driven
+      // heights keep live layouts gap-free without re-packing.
       set(state => ({ layout: produce(state.layout, recipe) }));
       saveWorkspace(storageKey, get().layout);
     };
@@ -130,7 +155,7 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       dragging: false,
 
       commit,
-      addWidget: (widgetId, target) => commit(d => { addWidgetDraft(d, widgetId, target); }),
+      addWidget: (widgetId, target, sizing) => commit(d => { addWidgetDraft(d, widgetId, target, sizing); }),
       removeWidget: (widgetId) => commit(d => { removeWidgetDraft(d, widgetId); }),
       moveWidget: (widgetId, target) => commit(d => { moveWidgetDraft(d, widgetId, target); }),
       moveWidgetToNewSection: (widgetId) => commit(d => { moveWidgetToNewSectionDraft(d, widgetId); }),
@@ -139,7 +164,8 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       removeSection: (sectionId) => commit(d => { removeSectionDraft(d, sectionId); }),
       createSectionInZone: (zone) => commit(d => { createSectionInZoneDraft(d, zone); }),
       setZoneHidden: (zone, hidden) => commit(d => { setZoneHiddenDraft(d, zone, hidden); }),
-      addWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
+      setZoneWidth: (zone, width) => commit(d => { setZoneWidthDraft(d, zone, width); }),
+      addWidgetToNewSectionAt: (widgetId, anchorSectionId, position, sizing) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position, sizing); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
       setColumnWeights: (sectionId, updates) => commit(d => { setColumnWeightsDraft(d, sectionId, updates); }),
@@ -207,6 +233,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       removeSection: useStore.getState().removeSection,
       createSectionInZone: useStore.getState().createSectionInZone,
       setZoneHidden: useStore.getState().setZoneHidden,
+      setZoneWidth: useStore.getState().setZoneWidth,
       addWidgetToNewSectionAt: useStore.getState().addWidgetToNewSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,

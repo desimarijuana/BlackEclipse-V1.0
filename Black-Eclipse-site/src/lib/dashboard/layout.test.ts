@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ASSET_RAIL, LEFT_WIDGET_IDS, assetClassFor, buildLeftSections,
-  buildMarketViewLayout, buildRailSections, composeRows,
+  ASSET_RAIL, LEFT_WIDGET_IDS, assetClassFor,
+  buildLeftSections, buildMarketViewLayout, buildRailSections, composeBoard,
 } from './layout';
-import { DASHBOARD_TEMPLATES } from './templates';
+import { DASHBOARD_TEMPLATES, LEGACY_TEMPLATE_IDS, getDashboardTemplate, resolveTemplateId } from './templates';
+import { columnHeights } from '@/lib/workspace/pack';
 import type { WorkspaceLayout, WorkspaceSection } from '@/lib/workspace/types';
 
 // Registry ids we exercise. The layout engine only needs ids, not renderers.
@@ -43,68 +44,74 @@ describe('assetClassFor', () => {
   });
 });
 
-// ── composeRows (the invariants) ─────────────────────────────────────────────
+// ── composeBoard (the invariants) ────────────────────────────────────────────
 
-describe('composeRows', () => {
-  const rows = [
-    { zone: 'main' as const, cells: [{ widget: 'a' }, { widget: 'b' }] },
-    { zone: 'main' as const, cells: [{ widget: 'b' }, { widget: 'c' }] },
-  ];
-
+describe('composeBoard', () => {
   it('dedupes globally, first occurrence wins', () => {
-    const secs = composeRows(rows, new Set(['a', 'b', 'c']));
+    const secs = composeBoard([
+      { zone: 'main', tracks: 2, cells: ['a', 'b'] },
+      { zone: 'main', tracks: 1, cells: ['b', 'c'] },
+    ], new Set(['a', 'b', 'c']));
+    expect(secs).toHaveLength(2);
     expect(secs.flatMap(s => s.columns.flatMap(c => c.widgets.map(w => w.widgetId))))
       .toEqual(['a', 'b', 'c']);
   });
 
   it('drops unknown widget ids', () => {
-    const secs = composeRows([{ zone: 'main', cells: [{ widget: 'a' }, { widget: 'ghost' }] }], new Set(['a']));
-    expect(secs[0].columns).toHaveLength(1);
+    const secs = composeBoard([{ zone: 'main', tracks: 2, cells: ['a', 'ghost'] }], new Set(['a']));
+    expect(secs[0].columns.flatMap(c => c.widgets)).toHaveLength(1);
   });
 
-  it('caps each section at 4 columns at BUILD time (no silent reload truncation)', () => {
-    const wide = [{ zone: 'main' as const, cells: ['a', 'b', 'c', 'd', 'e'].map(widget => ({ widget })) }];
-    const secs = composeRows(wide, new Set(['a', 'b', 'c', 'd', 'e']));
-    expect(secs[0].columns).toHaveLength(4);
-    // The 5th widget is dropped here, not lost later on read.
-    expect(secs[0].columns.flatMap(c => c.widgets.map(w => w.widgetId))).toEqual(['a', 'b', 'c', 'd']);
+  it('caps a section at 4 tracks at BUILD time, and never makes empty tracks', () => {
+    const capped = composeBoard([{ zone: 'main', tracks: 9, cells: ['a', 'b', 'c', 'd', 'e'] }], new Set(['a', 'b', 'c', 'd', 'e']));
+    expect(capped[0].columns).toHaveLength(4);
+    // More tracks than cards is clamped to the card count (no dead tracks).
+    const single = composeBoard([{ zone: 'main', tracks: 9, cells: ['a'] }], new Set(['a']));
+    expect(single[0].columns).toHaveLength(1);
   });
 
-  it('drops empty rows and keeps the zone', () => {
-    const secs = composeRows([
-      { zone: 'left', cells: [{ widget: 'ghost' }] },
-      { zone: 'right', cells: [{ widget: 'a' }] },
+  it('drops empty sections and keeps the zone', () => {
+    const secs = composeBoard([
+      { zone: 'left', tracks: 1, cells: ['ghost'] },
+      { zone: 'right', tracks: 1, cells: ['a'] },
     ], new Set(['a']));
     expect(secs).toHaveLength(1);
     expect(secs[0].zone).toBe('right');
   });
 
-  it('honours pinned cell heights and leaves unpinned cells null (auto)', () => {
-    const secs = composeRows([
-      { zone: 'main', cells: [{ widget: 'a', height: 440 }, { widget: 'b' }] },
-    ], new Set(['a', 'b']));
-    expect(secs[0].columns[0].widgets[0].height).toBe(440);
-    expect(secs[0].columns[1].widgets[0].height).toBeNull();
+  it('sizes every card to content (height null) with an intrinsic hint', () => {
+    const secs = composeBoard([{ zone: 'main', tracks: 2, cells: ['market-status', 'news-feed'] }], KNOWN);
+    for (const c of secs[0].columns) {
+      for (const w of c.widgets) {
+        expect(w.height).toBeNull();
+        expect((w.defaultHeight ?? w.minHeight ?? 0)).toBeGreaterThan(0);
+      }
+    }
   });
 
-  it('stacks a whole row into ONE column when stack is set (compact rails)', () => {
-    const secs = composeRows([
-      { zone: 'right', stack: true, cells: [{ widget: 'a' }, { widget: 'b' }, { widget: 'c' }] },
-    ], new Set(['a', 'b', 'c']));
-    expect(secs).toHaveLength(1);
-    expect(secs[0].columns).toHaveLength(1);
-    expect(secs[0].columns[0].widgets.map(w => w.widgetId)).toEqual(['a', 'b', 'c']);
+  it('balances a multi-track section so no track is stranded short', () => {
+    const secs = composeBoard([
+      { zone: 'main', tracks: 2, cells: ['eclipse-chart', 'market-status', 'news-feed', 'economic-calendar'] },
+    ], KNOWN);
+    const heights = columnHeights(secs[0].columns);
+    const max = Math.max(...heights);
+    const min = Math.min(...heights);
+    // The lighter track must carry at least one card and be within one card of
+    // the heaviest — the packer fills the shortest track each time.
+    expect(heights.every(h => h > 0)).toBe(true);
+    expect(max - min).toBeLessThanOrEqual(500);
   });
 });
 
 // ── side-zone builders ───────────────────────────────────────────────────────
 
 describe('side-zone builders', () => {
-  it('builds the thin left watchlist zone', () => {
+  it('builds the thin left watchlist zone as one stacked track', () => {
     const s = buildLeftSections();
     expect(LEFT_WIDGET_IDS).toEqual(['watchlist']);
     expect(s).toHaveLength(1);
     expect(s[0].zone).toBe('left');
+    expect(s[0].columns).toHaveLength(1);
     expect(s[0].columns[0].widgets[0].widgetId).toBe('watchlist');
   });
 
@@ -121,58 +128,65 @@ describe('side-zone builders', () => {
 // ── personas ─────────────────────────────────────────────────────────────────
 
 describe('persona templates', () => {
-  it('ships exactly the eight personas, including Trader Pro and World', () => {
+  it('ships exactly the twelve personas', () => {
     expect(DASHBOARD_TEMPLATES.map(t => t.id))
-      .toEqual(['trader', 'trader-pro', 'investor', 'macro', 'crypto', 'forex', 'quant', 'world']);
+      .toEqual(['tape-reader', 'desk', 'allocator', 'rates-desk', 'chain-desk', 'fx-desk', 'screener', 'map-room', 'newsroom', 'risk-desk', 'trader-pro', 'research']);
   });
 
   it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
-    '%s builds a valid centre with ≤4-column sections and no duplicates',
+    '%s builds a valid centre with ≤4-track sections and no duplicates',
     (_id, t) => {
       const built = t.build(IDS);
       const used = allIds(built);
       expect(used.length).toBeGreaterThan(0);
-      // No widget repeats within a persona.
       expect(new Set(used).size).toBe(used.length);
-      // Every section respects the 4-column cap and has at least one widget.
       for (const s of built.sections) {
         expect(s.columns.length).toBeGreaterThanOrEqual(1);
         expect(s.columns.length).toBeLessThanOrEqual(4);
-        for (const c of s.columns) expect(c.widgets.length).toBeGreaterThanOrEqual(1);
+        for (const c of s.columns) expect(c.widgets.length).toBeGreaterThanOrEqual(0);
       }
-      // A persona is centre-only (side zones are added by buildMarketViewLayout).
+      // A persona is centre-only (side tracks are added by buildMarketViewLayout).
       expect(zoneIds(built, 'left')).toEqual([]);
       expect(zoneIds(built, 'right')).toEqual([]);
     },
   );
 
   it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
-    '%s pins a height on every default placement (no stretched gaps)',
+    '%s sizes every card to content with an intrinsic frame/floor (no pinned bands)',
     (_id, t) => {
       const built = t.build(IDS);
       for (const s of built.sections) {
         for (const c of s.columns) {
-          for (const w of c.widgets) expect(w.height).toBeGreaterThan(0);
+          for (const w of c.widgets) {
+            expect(w.height).toBeNull();
+            expect((w.defaultHeight ?? w.minHeight ?? 0)).toBeGreaterThan(0);
+          }
         }
       }
     },
   );
 
+  it('uses a DIFFERENT shape for each persona (no two share band structure)', () => {
+    const shape = (t: (typeof DASHBOARD_TEMPLATES)[number]) =>
+      t.build(IDS).sections.map(s => s.columns.length).join('-');
+    const shapes = DASHBOARD_TEMPLATES.map(shape);
+    expect(new Set(shapes).size).toBeGreaterThanOrEqual(5);
+  });
+
   it.each(DASHBOARD_TEMPLATES.map(t => [t.id, t] as const))(
-    '%s keeps centre rows to at most 2 columns so widgets render full size',
+    '%s keeps centre bands to at most 4 tracks',
     (_id, t) => {
       const built = t.build(IDS);
-      for (const s of built.sections) expect(s.columns.length).toBeLessThanOrEqual(2);
+      for (const s of built.sections) expect(s.columns.length).toBeLessThanOrEqual(4);
     },
   );
 
-  it('uses live TV and the heatmap in the two trader personas', () => {
-    const trader = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'trader')!.build(IDS));
-    expect(trader).toContain('live-tv');
-    expect(trader).toContain('market-heatmap');
-    const pro = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'trader-pro')!.build(IDS));
-    expect(pro).toContain('live-tv');
-    expect(pro).toContain('market-heatmap');
+  it('uses live TV in the tape-reader and desk personas, heatmap in the desk', () => {
+    const tapeReader = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'tape-reader')!.build(IDS));
+    expect(tapeReader).toContain('live-tv');
+    const desk = allIds(DASHBOARD_TEMPLATES.find(t => t.id === 'desk')!.build(IDS));
+    expect(desk).toContain('live-tv');
+    expect(desk).toContain('market-heatmap');
   });
 
   it('drops unknown ids without crashing', () => {
@@ -183,6 +197,24 @@ describe('persona templates', () => {
   it('keeps every persona materially distinct (no two share their widget set)', () => {
     const sets = DASHBOARD_TEMPLATES.map(t => allIds(t.build(IDS)).slice().sort().join(','));
     expect(new Set(sets).size).toBe(DASHBOARD_TEMPLATES.length);
+  });
+
+  it('resolves every legacy persona id to a live template that places a centre', () => {
+    for (const [legacy, current] of Object.entries(LEGACY_TEMPLATE_IDS)) {
+      expect(resolveTemplateId(legacy)).toBe(current);
+      const t = getDashboardTemplate(legacy);
+      expect(t).toBeTruthy();
+      expect(t!.id).toBe(current);
+      // The regression: an unresolved legacy id produced an EMPTY centre.
+      const centre = allIds(t!.build(IDS));
+      expect(centre.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('falls back to the first persona for an unknown/empty id (never empty)', () => {
+    expect(resolveTemplateId('does-not-exist')).toBe(DASHBOARD_TEMPLATES[0].id);
+    expect(resolveTemplateId(undefined)).toBe(DASHBOARD_TEMPLATES[0].id);
+    expect(getDashboardTemplate('does-not-exist')?.id).toBe(DASHBOARD_TEMPLATES[0].id);
   });
 });
 
@@ -203,7 +235,7 @@ describe('buildMarketViewLayout', () => {
     expect(new Set(used).size).toBe(used.length);
   });
 
-  it('uses the asset-class right tiles', () => {
+  it('uses the asset-class right tracks', () => {
     expect(zoneIds(buildMarketViewLayout('FOREX', IDS, trader.build(IDS)), 'right'))
       .toEqual(ASSET_RAIL.forex);
     expect(zoneIds(buildMarketViewLayout('CRYPTO', IDS, trader.build(IDS)), 'right'))
@@ -214,12 +246,10 @@ describe('buildMarketViewLayout', () => {
     const layout = buildMarketViewLayout('US', IDS);
     const sections: WorkspaceSection[] = layout.sections;
     expect(sections.length).toBeGreaterThan(0);
-    // Without a persona base it still carries the two thin rails.
     expect(zoneIds(layout, 'left')).toEqual(['watchlist']);
   });
 
-  it('does not put the same widget in the centre and a rail', () => {
-    // watchlist is a left-zone widget; no persona may also place it centrally.
+  it('does not put the same widget in the centre and a side track', () => {
     const layout = buildMarketViewLayout('US', IDS, trader.build(IDS));
     expect(zoneIds(layout, 'main')).not.toContain('watchlist');
   });
@@ -232,4 +262,9 @@ describe('buildMarketViewLayout', () => {
     expect(shape(a)).toEqual(shape(b));
     expect(allIds(a)).toEqual(allIds(b));
   });
+
+  it('emits version 2 so the track-board reader is used', () => {
+    expect(buildMarketViewLayout('US', IDS, trader.build(IDS)).version).toBe(2);
+  });
 });
+

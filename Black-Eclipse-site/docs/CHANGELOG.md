@@ -43,30 +43,92 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
-- **Workspace / Command Center** — Fixed the "widgets look compacted" regression
-  in the new defaults: centre rows are now **capped at TWO columns** (one or two
-  widgets per row, never four). Four skinny columns were truncating KPI titles
-  and numbers until widgets looked crushed. Every persona re-authored to the
-  two-up grammar; the engine still supports 4 columns for user drag/drop, only
-  the defaults changed. 8 new tests assert no default centre row exceeds 2
-  columns. docs updated: `docs/ARCHITECTURE.md`
-- **Workspace / Command Center** — Rebuilt all default layouts gap-free and
-  rewrote fullscreen. **Every default placement is now pinned to one of
-  `HEIGHTS`** (`strip/tile/panel/tall/chart/live`) and each centre row is
-  authored as matched-height columns, so a short widget is never stranded beside
-  a tall one. Section rows switched from `items-stretch` to `items-start`, so a
-  short column can no longer grow to its sibling's height and leave blank tail
-  space. **Widgets render full size with no inner scrollbars**: the card body no
-  longer gets `overflow-y-auto` when height-pinned (it is clipped by the card's
-  own `overflow-hidden`; widgets that scroll internally opt in). **Fullscreen**
-  now renders the REAL app `<TopBar activeTab="dashboard" />` — the live price
-  ribbon and the global ⌘K search — with only a floating bottom-right Exit
-  button (no custom bar). **Eight personas** now ship with genuinely different
-  widget sets and primary visuals: `trader`, `trader-pro` (dual charts, tape,
-  alerts, heatmap, large live TV), `investor`, `macro`, `crypto`, `forex`,
-  `quant`, `world` (Investor Eye map). `live-tv` and `market-heatmap` are core
-  to both trader layouts. Storage bumped to **v6** (full reset — all old layouts
-  discarded). Docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
+- **Aurora / Fullscreen** — Fixed the missing Aurora glow in Command Center
+  fullscreen. The overlay portals to `<body>` at `z-[80]`, above the app shell's
+  Aurora (`z-0`), so it covered the glow. Extracted the glow into a reusable
+  **`<AuroraGlow>`** (`components/layout/aurora-glow.tsx`) that owns the
+  market+news sentiment subscription and user palette; the shell and the
+  fullscreen overlay both mount it (fullscreen renders its own above the
+  translucent backdrop). Removed the duplicated sentiment wiring from
+  `stock-chat.tsx` and added a dedicated `aurora:news-score` topic so the glow no
+  longer depends on the news screen emitting a callback.
+- **Command Center** — Shipped-default board mechanism. `default-board.ts` holds
+  `DEFAULT_BOARD_JSON` (paste a Command Center → Export layout) so a curated
+  arrangement becomes what every new user downloads into and what Reset returns
+  to; validated through `normalizeLayout` so a bad/unknown-widget paste falls
+  back to the persona template instead of shipping holes.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Charts / Command Center** — Fixed blank charts, maps and heatmaps. A
+  `defaultHeight` card was rendered as `min-height` only, so a frame widget's
+  body (`flex-1` with `absolute inset-0` / `h-full` children) had no definite
+  height and the ECharts canvas collapsed to **0px** (verified: 687×0 → 687×314
+  after the fix). `cardStyle` now gives a `defaultHeight` card a definite
+  `height`; `minHeight` stays a grow floor for tiles. Widgets added from the
+  library now carry their intrinsic sizing too (`ops.addWidget` /
+  `addWidgetToNewSectionAt` take a `sizing` hint), so a fresh chart/map is never
+  added collapsed.
+- **Command Center** — Added three personas (12 total): **Risk Desk**,
+  **Trader Pro** (dual charts) and **The Research Desk**. Layout tabs are now
+  **drag-to-reorder** (`TabBar` `onReorder` + `useMarketViews.reorder`), on top
+  of the existing drag/click widget arrangement and double-click rename.
+  2 new tests. docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`,
+  `.opencode/skills/black-eclipse-workspace/SKILL.md`
+
+- **Workspace / Command Center** — Fixed empty layouts after the persona rename.
+  The nine personas got new ids (`trader` → `tape-reader` …) but stored v7
+  dashboards/market layouts still carried the OLD `templateId`, so
+  `getDashboardTemplate` returned `undefined`, `buildMarketViewLayout` received
+  no centre base, and **only the side rails rendered**. Added
+  `LEGACY_TEMPLATE_IDS` + `resolveTemplateId` so old ids resolve, a blank-layout
+  self-heal in `use-workspace`, and bumped storage to **v8**
+  (`be_dashboards_index_v8` / `be_ws_dashboard_v8_`) to reseed existing users.
+  4 new tests cover every legacy alias building a non-empty centre.
+  docs updated: `docs/ARCHITECTURE.md`
+
+- **Workspace / Command Center** — Persona variety, resizable side panels, and
+  the widget-fit fix.
+  - **Widgets now fit.** Auto cards split into two sizing modes:
+    `defaultHeight` (a FRAME whose body stretches — charts, maps, live video,
+    scrollable tables/feeds) and `minHeight` (a floor under content that GROWS —
+    tiles). The renderer keys its body class off this (`isDefiniteCard`), so
+    frame widgets no longer collapse to a `flex-basis:0` body, and the hardcoded
+    `minHeight:620` on the Eclipse chart is gone. `WidgetPlacement.defaultHeight`
+    added; `normalizeLayout` preserves it.
+  - **Personas redesigned + renamed.** The nine templates are now genuinely
+    different SHAPES, not reshuffles: Tape Reader, The Desk (dense 4-track),
+    The Allocator, Rates Desk, Chain Desk, FX Desk, The Screener, Map Room,
+    Newsroom. Bands can override a widget's frame height (`{ id, h }`) for
+    deliberate asymmetry.
+  - **Resizable left/right panels.** Drag the vertical handle between a side
+    zone and the centre to set its width (180–520px); persisted per layout in
+    `WorkspaceLayout.zoneWidths` via `ops.setZoneWidth`. Works in normal and
+    edit mode.
+  - **Nine dead widgets wired to real data:** Agent Errors (agent runs),
+    Candle Chart (ECharts candles on the market's lead symbol), Stock Screener
+    (`/api/stocks`), Sparklines (real 1mo price history), Crypto Ticker + Trade
+    Tape (`market:indices:CRYPTO`), Geopolitics + Maritime & Trade (Investor Eye
+    events by lens), News by Category (`/api/news?category=`). Still honest
+    UNAVAILABLE: Recent Files, Web Scraper, Notes, Polymarket.
+  25 new/updated tests. docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`,
+  `.opencode/skills/black-eclipse-workspace/SKILL.md`
+
+- **Workspace / Command Center** — Replaced the row-band layout grammar with the
+  **masonry track board** to eliminate dead gaps. Every default placement now
+  sizes to content (`height: null`) with a per-widget intrinsic floor
+  (`WidgetDefinition.minHeight` / the composition `WIDGET_MIN_HEIGHT` map), so a
+  short widget can no longer sit stranded beside a tall one. A new pure packer
+  (`src/lib/workspace/pack.ts`, `rebalanceColumns`/`rebalanceLayout`) balances
+  each multi-column section's cards into the shortest track at COMPOSE time;
+  user edits commit exactly where dropped (no silent reshuffle). Added the
+  removed "Fit height" control (auto is the default); `WorkspaceLayout.version`
+  is now `2`. `buildMarketViewLayout`/`composeBoard` replace `composeRows`, and
+  the eight persona templates + `defaultFundLayout` are track-board specs.
+  Storage reset to **v7** dashboards / **v3** funds / `be_dashboards_index_v7`
+  (old keys untouched). 20 new/updated tests. docs updated:
+  `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`,
+  `.opencode/skills/black-eclipse-workspace/SKILL.md`
+
 - **Workspace / Command Center** — Removed compact mode, added fullscreen, and
   fixed the gappy look of the v4 layouts.
   - **Compact mode deleted** (prop, state, toggle, `Shift+C`, canvas plumbing).
@@ -101,6 +163,28 @@ proves the documentation obligation was considered rather than skipped.
   **v4** as a deliberate reset — pre-v4 layouts are not carried forward (v3
   dropped from `LEGACY_INDEX_KEYS`), so everyone reopens into the clean defaults.
   23 new tests. docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
+- **Live Intelligence** — The widget users actually found was still the OLD
+  `UNAVAILABLE` stub. The `live-tv` ("Live TV / Streams") registry slot was a
+  hardcoded `<Unavailable>` stub, and it was left in place when Live Intelligence
+  was added as a separate `live-intelligence` entry — so anyone with the slot
+  already placed (or finding it in the library first) saw "UNAVAILABLE — data
+  source not connected yet." Fixed by **upgrading the `live-tv` slot in place** to
+  render the real `LiveIntelligenceWidget` (keeping the id so existing saved
+  layouts work), deleting the duplicate `live-intelligence` entry, removing the
+  dead `LiveTVWidget` stub, and adding the slot to the Trader persona template
+  (index 28, which no template referenced) so new users get it by default.
+- **Live Intelligence** — Fixed a real first-paint bug this exposed: the widget
+  embedded the unreliable `live_stream?channel=<handle>` fallback *before* the
+  resolver answered, rendering a blank frame stuck at `CHECKING`. Built-in
+  YouTube channels now **wait for the resolver** (a "Checking live status…"
+  state) instead of mounting the fallback, so the first frame is always the
+  playable `/embed/<resolved-id>`. Added a `COULD NOT CHECK STREAM` state for a
+  resolver failure, distinct from a resolved `CHANNEL OFFLINE`.
+  Verified in a real browser: `CHECKING → LIVE`, iframe
+  `/embed/QB5BNdBFujE`, `<video>` present, and switching to Geo News swaps to
+  `/embed/t3fvgmDDmdc` with chip `LIVE`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Workspace** — Added a **left side zone** to the widget workspace so the
   Command Center reads as a three-column dashboard instead of one wide grid. The
   zone model is now `left | main | right` (the old `rail` is mapped to `right` on

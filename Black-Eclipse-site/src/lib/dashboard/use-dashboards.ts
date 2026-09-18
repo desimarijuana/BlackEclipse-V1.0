@@ -21,20 +21,21 @@ export interface DashboardEntry {
   isDefault: boolean;
 }
 
-const INDEX_KEY = 'be_dashboards_index_v6';
+const INDEX_KEY = 'be_dashboards_index_v8';
 const ONBOARDED_KEY = 'be_dashboards_onboarded_v1';
 // Remembers the last-viewed dashboard so a restart/reload reopens the same one
 // instead of always snapping back to the dashboard flagged `isDefault`.
 const ACTIVE_KEY = 'be_dashboards_active_v1';
 
 // Bump the storage prefix when the widget catalog OR the generated layout
-// grammar changes so stale layouts don't load half-migrated. v6 is a deliberate
-// RESET: v5 still let short columns stretch (items-stretch) and had stretched
-// auto heights, so layouts looked gappy. v6 pins every default placement height,
-// authors matched-height rows, stops columns stretching, and ships EIGHT
-// genuinely distinct personas (incl. Trader Pro and World). Old layouts are not
-// carried forward — everyone reopens into the new, gap-free defaults.
-export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v6_';
+// grammar changes so stale layouts don't load half-migrated. v8 is a RESET for
+// the persona rename: the nine personas gained new ids, but v7 dashboards and
+// market layouts store the OLD id in `templateId`, so `getDashboardTemplate`
+// returned undefined and the centre rendered EMPTY (only the side rails). The
+// rename ships an alias map (LEGACY_TEMPLATE_IDS) so old ids resolve, and this
+// bump reseeds every layout into a working persona. v7 itself replaced the
+// row-band grammar with the track board.
+export const DASHBOARD_STORAGE_PREFIX = 'be_ws_dashboard_v8_';
 
 // Legacy index keys, newest first. When the storage prefix is bumped we migrate
 // the user's existing dashboards forward instead of silently seeding a fresh
@@ -74,7 +75,7 @@ function migrateLegacyDashboards(): DashboardEntry[] {
           id: e.id,
           name: e.name,
           storageKey: newKey,
-          templateId: typeof e.templateId === 'string' ? e.templateId : 'trader',
+          templateId: typeof e.templateId === 'string' ? e.templateId : 'tape-reader',
           isDefault: !!e.isDefault,
         });
       }
@@ -90,24 +91,6 @@ function migrateLegacyDashboards(): DashboardEntry[] {
 /** True when a dashboard entry has no stored layout yet (auto-seeded default). */
 function isUnseeded(entry: DashboardEntry): boolean {
   try { return !localStorage.getItem(entry.storageKey); } catch { return true; }
-}
-
-/**
- * One-time migration for the per-market workspace keys. The Command Center now
- * stores each market view's layout under a suffixed key
- * (`<dashboardKey>__m_<MARKET>`); a pre-market dashboard's arrangement lives at
- * the un-suffixed key. Copy it into the default (US) market key the first time
- * so an existing user's centre arrangement survives the upgrade instead of
- * silently reverting to the template. Idempotent — a market key that already
- * exists is never overwritten.
- */
-export function seedMarketKeyFromLegacy(baseKey: string, marketKey: string, market: string): void {
-  if (typeof window === 'undefined' || market !== 'US') return;
-  try {
-    if (localStorage.getItem(marketKey)) return;
-    const legacy = localStorage.getItem(baseKey);
-    if (legacy) localStorage.setItem(marketKey, legacy);
-  } catch { /* best effort */ }
 }
 
 function loadIndex(): DashboardEntry[] {
@@ -166,7 +149,7 @@ export function useDashboards() {
     let existing = loadIndex();
     // If the current index only holds an auto-seeded default with no saved
     // layout, try to recover the user's legacy dashboards before giving up.
-    const onlyUnseededSeed = existing.length === 1 && existing[0].templateId === 'trader' && isUnseeded(existing[0]);
+    const onlyUnseededSeed = existing.length === 1 && existing[0].templateId === 'tape-reader' && isUnseeded(existing[0]);
     if (existing.length === 0 || onlyUnseededSeed) {
       const migrated = migrateLegacyDashboards();
       if (migrated.length > 0) existing = migrated;
@@ -174,7 +157,7 @@ export function useDashboards() {
     let next = existing;
     if (next.length === 0) {
       // First run: seed a default "Main" dashboard from the Trader template.
-      const main = seedDashboard('Main', 'trader');
+      const main = seedDashboard('Main', 'tape-reader');
       main.isDefault = true;
       next = [main];
       persistIndex(next);
@@ -238,7 +221,7 @@ export function useDashboards() {
       const target = prev.find(d => d.id === id);
       const next = prev.filter(d => d.id !== id);
       if (next.length === 0) {
-        const main = seedDashboard('Main', 'trader');
+        const main = seedDashboard('Main', 'tape-reader');
         main.isDefault = true;
         next.push(main);
       }
@@ -291,7 +274,7 @@ export function useDashboards() {
       const layout = parsed.layout ?? parsed;
       if (!layout || !Array.isArray(layout.sections)) return false;
       const name = typeof parsed.name === 'string' ? parsed.name : 'Imported';
-      const entry = seedDashboard(name, typeof parsed.templateId === 'string' ? parsed.templateId : 'trader');
+      const entry = seedDashboard(name, typeof parsed.templateId === 'string' ? parsed.templateId : 'tape-reader');
       localStorage.setItem(entry.storageKey, JSON.stringify(layout));
       setList(prev => {
         const next = [...prev, entry];
@@ -321,3 +304,4 @@ export function useDashboards() {
 }
 
 export { DASHBOARD_WIDGET_IDS, getDashboardTemplate };
+

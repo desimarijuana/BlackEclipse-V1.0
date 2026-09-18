@@ -1,30 +1,30 @@
 // ── Dashboard persona templates ──────────────────────────────────────────────
 // Onboarding picks a persona → a starting template. A template is a set of
-// CENTRE sections. The left/right side zones are added later by
+// CENTRE bands. The left/right side tracks are added later by
 // `buildMarketViewLayout`, so templates stay purely about the centre.
 //
 // Specs are WIDGET-ID based (not registry indices): inserting or reordering a
 // widget in the registry can no longer silently repoint a template. Unknown ids
 // are dropped and a widget never appears twice. The template is ONLY a starting
-// point — the user can fully modify it (spec §26, §28).
+// point — the user can fully modify it.
 //
-// The gap-free rule: EVERY default placement is pinned to one of `HEIGHTS`, and
-// each row is authored so its columns share a height (a short widget is never
-// left beside a tall one, and nothing stretches into dead space). Rows are
-// therefore mostly 2-up or 4-up with matched heights.
+// Track-board grammar: each persona authors several bands. A band is `full`
+// (one track), `split` (two tracks) or `grid` (N tracks). Cell objects can
+// override a widget's intrinsic frame height so a persona expresses deliberate
+// asymmetry instead of a uniform grid. The packer then balances each band.
 //
-// Eight personas with GENUINELY different widgets and a different primary
-// visual — not index shuffles of one another:
-//   trader    chart + trade tape + movers + live TV
-//   trader-pro chart + tradingview + tape + alerts + LARGE live TV + heatmap
-//   investor  fund performance + holdings + risk
-//   macro     economic chart + rates + commodities + geopolitics
-//   crypto    chart + crypto markets + ticker + polymarket
-//   forex     chart + FX pairs + drivers + macro
-//   quant     heatmap + screener + opportunities + asset chart
-//   world     investor-eye map + events + conflict layers
+// Twelve personas, each a DIFFERENT SHAPE (not index shuffles):
+//   tape-reader  full chart → wide tape → two-up context → TV
+//   desk         dense 4-track dashboard, TV + heatmap flank the chart
+//   allocator    portfolio: performance hero → holdings → risk grid
+//   rates-desk   macro: economic chart + rates + calendar, geopolitics
+//   chain-desk   crypto: crypto hero row → chart → venue grid → prediction
+//   fx-desk      forex: FX pairs hero → chart → drivers/macro two-up
+//   screener     quant: heatmap + screener full, momentum grid
+//   map-room     world: map hero → event feed → conflict/markets grid
+//   newsroom     text-forward: news + calendar lead, charts secondary
 
-import { composeRows, HEIGHTS, type LayoutRow } from './layout';
+import { composeBoard, type BoardCell, type BoardSpec } from './layout';
 import { cloneLayout, normalizeLayout } from '@/lib/workspace/ops';
 import type { WorkspaceLayout } from '@/lib/workspace/types';
 
@@ -36,141 +36,284 @@ export interface DashboardTemplate {
   build: (widgetIds: string[]) => WorkspaceLayout;
 }
 
-/** A band row: widgets one-per-column, each pinned to the same height. */
-const band = (widgets: string[], height: number, weights?: number[]): LayoutRow => ({
-  zone: 'main',
-  cells: widgets.map((widget, i) => ({ widget, weight: weights?.[i], height })),
-});
+/** One full-width band. */
+const full = (...cells: BoardCell[]): BoardSpec => ({ zone: 'main', tracks: 1, cells });
 
-/** A full-width single-widget band (the primary visual). */
-const full = (widget: string, height: number): LayoutRow => ({
-  zone: 'main',
-  cells: [{ widget, weight: 1, height }],
-});
+/** A two-up band (deliberately asymmetric — one tall left, one short right). */
+const split = (left: BoardCell, right: BoardCell): BoardSpec => ({ zone: 'main', tracks: 2, cells: [left, right] });
 
-function buildFromRows(rows: LayoutRow[], widgetIds: string[]): WorkspaceLayout {
-  const sections = composeRows(rows, new Set(widgetIds));
-  return normalizeLayout({ version: 1, sections })
-    ?? cloneLayout({ version: 1, sections: [] });
+/** A multi-track band balanced by the packer. */
+const grid = (tracks: number, ...cells: BoardCell[]): BoardSpec => ({ zone: 'main', tracks, cells });
+
+function buildFromSpecs(specs: BoardSpec[], widgetIds: string[]): WorkspaceLayout {
+  const sections = composeBoard(specs, new Set(widgetIds));
+  return normalizeLayout({ version: 2, sections })
+    ?? cloneLayout({ version: 2, sections: [] });
 }
 
-// Centre rows are capped at TWO widgets. Four skinny columns are what squeezed
-// KPI tiles until their titles and numbers truncated — the "looks horrible"
-// regression. Two-up (or one full-width) gives every widget room to render its
-// full content without crowding.
 export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
   {
-    id: 'trader',
-    name: 'Trader',
-    desc: 'Chart-first day trading: status, a big chart, heatmap, trade tape, live TV and news.',
-    build: ids => buildFromRows([
-      band(['market-status', 'market-regime'], HEIGHTS.tile),
-      full('eclipse-chart', HEIGHTS.chart),
-      full('market-heatmap', HEIGHTS.tall),
-      band(['trade-tape', 'top-movers'], HEIGHTS.panel),
-      band(['what-changed', 'opportunity-scanner'], HEIGHTS.panel),
-      full('live-tv', HEIGHTS.live),
-      band(['news-feed', 'economic-calendar'], HEIGHTS.panel),
+    id: 'tape-reader',
+    name: 'Tape Reader',
+    desc: 'Chart-first day trading with a wide trade tape and live TV below.',
+    build: ids => buildFromSpecs([
+      full('eclipse-chart'),
+      full('trade-tape'),
+      split({ id: 'market-status', min: 170 }, { id: 'top-movers', min: 300 }),
+      split({ id: 'what-changed', min: 300 }, { id: 'opportunity-scanner', min: 300 }),
+      full('live-tv'),
+      split({ id: 'news-feed', h: 380, frame: false }, { id: 'economic-calendar', h: 340, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'desk',
+    name: 'The Desk',
+    desc: 'Dense professional board — chart, heatmap and TV share the top row.',
+    build: ids => buildFromSpecs([
+      grid(3,
+        { id: 'eclipse-chart', h: 440 },
+        { id: 'market-heatmap', h: 440 },
+        { id: 'market-status', min: 170 },
+      ),
+      grid(4,
+        { id: 'top-movers', min: 280 },
+        { id: 'trade-tape', h: 320, frame: false },
+        { id: 'active-alerts', h: 300, frame: false },
+        { id: 'risk-metrics', min: 220 },
+      ),
+      full('live-tv'),
+      grid(3,
+        { id: 'sector-heatmap', min: 280 },
+        { id: 'what-changed', min: 280 },
+        { id: 'market-drivers', min: 280 },
+      ),
+    ], ids),
+  },
+  {
+    id: 'allocator',
+    name: 'The Allocator',
+    desc: 'Portfolio-first: performance curve, holdings, allocation and risk.',
+    build: ids => buildFromSpecs([
+      full({ id: 'fund-performance-chart', h: 440 }),
+      split({ id: 'portfolio-summary', min: 300 }, { id: 'risk-metrics', min: 300 }),
+      full({ id: 'holdings', h: 380, frame: false }),
+      grid(3,
+        { id: 'funds-comparison-chart', h: 360 },
+        { id: 'market-regime', min: 280 },
+        { id: 'global-markets', min: 300 },
+      ),
+      split({ id: 'news-feed', h: 380, frame: false }, { id: 'economic-calendar', h: 340, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'rates-desk',
+    name: 'Rates Desk',
+    desc: 'Macro plumbing: economic series, rates, commodities and geopolitics.',
+    build: ids => buildFromSpecs([
+      full('economic-chart'),
+      grid(3,
+        { id: 'macro-snapshot', min: 280 },
+        { id: 'market-regime', min: 280 },
+        { id: 'market-status', min: 170 },
+      ),
+      grid(4,
+        { id: 'global-markets', min: 300 },
+        { id: 'commodities', min: 280 },
+        { id: 'market-drivers', min: 280 },
+        { id: 'economic-calendar', h: 340, frame: false },
+      ),
+      split({ id: 'geopolitics', h: 380, frame: false }, { id: 'maritime', h: 380, frame: false }),
+      full({ id: 'news-feed', h: 380, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'chain-desk',
+    name: 'Chain Desk',
+    desc: 'Crypto venue board: markets, big chart, venue tiles and prediction markets.',
+    build: ids => buildFromSpecs([
+      grid(3,
+        { id: 'crypto-markets', min: 300 },
+        { id: 'market-status', min: 170 },
+        { id: 'market-regime', min: 300 },
+      ),
+      full('eclipse-chart'),
+      grid(4,
+        { id: 'trade-tape', h: 320, frame: false },
+        { id: 'top-movers', min: 280 },
+        { id: 'sparklines', min: 200 },
+        { id: 'polymarket', min: 300 },
+      ),
+      full('crypto-ticker'),
+      split({ id: 'opportunity-scanner', min: 320 }, { id: 'news-feed', h: 380, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'fx-desk',
+    name: 'FX Desk',
+    desc: 'Currency board: FX pairs hero, a big chart, drivers and rates.',
+    build: ids => buildFromSpecs([
+      split({ id: 'forex-pairs', min: 340 }, { id: 'market-status', min: 170 }),
+      full('eclipse-chart'),
+      grid(3,
+        { id: 'market-drivers', min: 300 },
+        { id: 'what-changed', min: 300 },
+        { id: 'macro-snapshot', min: 300 },
+      ),
+      split({ id: 'global-markets', min: 300 }, { id: 'economic-calendar', h: 340, frame: false }),
+      full({ id: 'economic-chart', h: 380 }),
+      full({ id: 'news-feed', h: 360, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'screener',
+    name: 'The Screener',
+    desc: 'Systematic workbench: heatmap + screener, momentum and setup grids.',
+    build: ids => buildFromSpecs([
+      grid(2,
+        { id: 'market-heatmap', h: 460 },
+        { id: 'market-status', min: 170 },
+      ),
+      full({ id: 'stock-screener', h: 440, frame: false }),
+      grid(3,
+        { id: 'market-regime', min: 300 },
+        { id: 'sector-heatmap', min: 300 },
+        { id: 'top-movers', min: 300 },
+      ),
+      split({ id: 'opportunity-scanner', min: 340 }, { id: 'risk-metrics', min: 260 }),
+      full('asset-chart'),
+      full({ id: 'news-feed', h: 360, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'map-room',
+    name: 'Map Room',
+    desc: 'Geopolitics first: the world map, live event feed and conflict layers.',
+    build: ids => buildFromSpecs([
+      full('investor-eye-map'),
+      grid(2,
+        { id: 'investor-eye', h: 420, frame: false },
+        { id: 'market-status', min: 170 },
+      ),
+      split({ id: 'geopolitics', h: 400, frame: false }, { id: 'maritime', h: 400, frame: false }),
+      grid(3,
+        { id: 'global-markets', min: 300 },
+        { id: 'macro-snapshot', min: 300 },
+        { id: 'market-regime', min: 280 },
+      ),
+      full({ id: 'news-feed', h: 380, frame: false }),
+    ], ids),
+  },
+  {
+    id: 'newsroom',
+    name: 'Newsroom',
+    desc: 'Text-forward: headlines and the economic calendar lead, charts second.',
+    build: ids => buildFromSpecs([
+      grid(2,
+        { id: 'news-feed', h: 440, frame: false },
+        { id: 'economic-calendar', h: 440, frame: false },
+      ),
+      full('eclipse-chart'),
+      grid(3,
+        { id: 'global-markets', min: 300 },
+        { id: 'market-drivers', min: 300 },
+        { id: 'what-changed', min: 300 },
+      ),
+      split({ id: 'market-status', min: 170 }, { id: 'market-regime', min: 280 }),
+      full({ id: 'live-tv', h: 460 }),
+    ], ids),
+  },
+  {
+    id: 'risk-desk',
+    name: 'Risk Desk',
+    desc: 'Downside-first: regime, breadth and risk metrics above the chart.',
+    build: ids => buildFromSpecs([
+      grid(3,
+        { id: 'market-regime', min: 300 },
+        { id: 'risk-metrics', min: 240 },
+        { id: 'market-status', min: 170 },
+      ),
+      split({ id: 'eclipse-chart', h: 460 }, { id: 'market-heatmap', h: 460 }),
+      grid(3,
+        { id: 'active-alerts', h: 300, frame: false },
+        { id: 'market-drivers', min: 300 },
+        { id: 'sector-heatmap', min: 300 },
+      ),
+      full({ id: 'news-feed', h: 380, frame: false }),
     ], ids),
   },
   {
     id: 'trader-pro',
     name: 'Trader Pro',
-    desc: 'The full professional board: chart, trade tape, alerts, heatmap and large live TV.',
-    build: ids => buildFromRows([
-      band(['market-status', 'top-movers'], HEIGHTS.tile),
-      full('eclipse-chart', HEIGHTS.chart),
-      full('market-heatmap', HEIGHTS.tall),
-      band(['trade-tape', 'active-alerts'], HEIGHTS.panel),
-      band(['candle-chart', 'risk-metrics'], HEIGHTS.tall),
-      band(['sector-heatmap', 'what-changed'], HEIGHTS.panel),
-      full('live-tv', HEIGHTS.live),
+    desc: 'Dual charts, candle detail, tape and alerts — the full trading cockpit.',
+    build: ids => buildFromSpecs([
+      grid(2,
+        { id: 'eclipse-chart', h: 460 },
+        { id: 'tradingview-chart', h: 460 },
+      ),
+      grid(3,
+        { id: 'candle-chart', h: 440 },
+        { id: 'trade-tape', h: 320, frame: false },
+        { id: 'top-movers', min: 300 },
+      ),
+      grid(4,
+        { id: 'active-alerts', h: 300, frame: false },
+        { id: 'risk-metrics', min: 240 },
+        { id: 'market-status', min: 170 },
+        { id: 'what-changed', min: 300 },
+      ),
+      full('live-tv'),
     ], ids),
   },
   {
-    id: 'investor',
-    name: 'Investor',
-    desc: 'Portfolio-first: performance vs benchmarks, holdings, allocation and risk.',
-    build: ids => buildFromRows([
-      band(['market-status', 'portfolio-summary'], HEIGHTS.tile),
-      full('fund-performance-chart', HEIGHTS.chart),
-      full('holdings', HEIGHTS.tall),
-      band(['funds-comparison-chart', 'risk-metrics'], HEIGHTS.panel),
-      band(['global-markets', 'market-regime'], HEIGHTS.panel),
-      band(['news-feed', 'economic-calendar'], HEIGHTS.panel),
-    ], ids),
-  },
-  {
-    id: 'macro',
-    name: 'Macro',
-    desc: 'Rates, central banks and global flows — economic series, commodities, geopolitics, news.',
-    build: ids => buildFromRows([
-      band(['market-status', 'market-regime'], HEIGHTS.tile),
-      full('economic-chart', HEIGHTS.chart),
-      band(['global-markets', 'macro-snapshot'], HEIGHTS.panel),
-      band(['market-drivers', 'what-changed'], HEIGHTS.panel),
-      band(['commodities', 'economic-calendar'], HEIGHTS.panel),
-      band(['geopolitics', 'maritime'], HEIGHTS.tall),
-      full('news-feed', HEIGHTS.tall),
-    ], ids),
-  },
-  {
-    id: 'crypto',
-    name: 'Crypto',
-    desc: 'Live crypto markets, a big chart, trade tape, sparklines and prediction markets.',
-    build: ids => buildFromRows([
-      band(['market-status', 'crypto-markets'], HEIGHTS.tile),
-      full('eclipse-chart', HEIGHTS.chart),
-      band(['market-regime', 'global-markets'], HEIGHTS.panel),
-      band(['trade-tape', 'top-movers'], HEIGHTS.panel),
-      band(['sparklines', 'polymarket'], HEIGHTS.panel),
-      full('crypto-ticker', HEIGHTS.strip),
-      band(['opportunity-scanner', 'news-feed'], HEIGHTS.tall),
-    ], ids),
-  },
-  {
-    id: 'forex',
-    name: 'Forex',
-    desc: 'FX pairs, a big chart, drivers, macro snapshot and the economic calendar.',
-    build: ids => buildFromRows([
-      band(['market-status', 'forex-pairs'], HEIGHTS.tile),
-      full('eclipse-chart', HEIGHTS.chart),
-      band(['market-regime', 'global-markets'], HEIGHTS.panel),
-      band(['market-drivers', 'what-changed'], HEIGHTS.panel),
-      band(['macro-snapshot', 'economic-calendar'], HEIGHTS.panel),
-      full('economic-chart', HEIGHTS.tall),
-      full('news-feed', HEIGHTS.tall),
-    ], ids),
-  },
-  {
-    id: 'quant',
-    name: 'Quant',
-    desc: 'Screeners, heatmaps, risk and momentum setups for systematic work.',
-    build: ids => buildFromRows([
-      band(['market-status', 'market-regime'], HEIGHTS.tile),
-      full('market-heatmap', HEIGHTS.chart),
-      full('stock-screener', HEIGHTS.tall),
-      band(['sector-heatmap', 'top-movers'], HEIGHTS.panel),
-      band(['opportunity-scanner', 'risk-metrics'], HEIGHTS.panel),
-      full('asset-chart', HEIGHTS.chart),
-      full('news-feed', HEIGHTS.tall),
-    ], ids),
-  },
-  {
-    id: 'world',
-    name: 'World',
-    desc: 'Geopolitics and world events: the live map, event feed, conflict layers and markets.',
-    build: ids => buildFromRows([
-      band(['market-status', 'market-regime'], HEIGHTS.tile),
-      full('investor-eye-map', HEIGHTS.chart),
-      full('investor-eye', HEIGHTS.tall),
-      band(['geopolitics', 'maritime'], HEIGHTS.tall),
-      band(['global-markets', 'macro-snapshot'], HEIGHTS.panel),
-      band(['economic-calendar', 'news-feed'], HEIGHTS.panel),
+    id: 'research',
+    name: 'The Research Desk',
+    desc: 'Charts plus the full news and research surface: categories, calendar, agent work.',
+    build: ids => buildFromSpecs([
+      grid(2,
+        { id: 'eclipse-chart', h: 420 },
+        { id: 'news-category', h: 420, frame: false },
+      ),
+      grid(3,
+        { id: 'recent-research', h: 300, frame: false },
+        { id: 'agent-activity', h: 300, frame: false },
+        { id: 'ai-insights', h: 300, frame: false },
+      ),
+      split({ id: 'news-feed', h: 400, frame: false }, { id: 'economic-calendar', h: 400, frame: false }),
+      grid(3,
+        { id: 'global-markets', min: 300 },
+        { id: 'market-drivers', min: 300 },
+        { id: 'market-heatmap', h: 440 },
+      ),
     ], ids),
   },
 ];
 
-export function getDashboardTemplate(id: string): DashboardTemplate | undefined {
-  return DASHBOARD_TEMPLATES.find(t => t.id === id);
+/**
+ * Legacy persona ids → current ids. The nine personas were renamed when the
+ * track-board grammar landed, but stored dashboards and market layouts still
+ * carry the OLD ids. Without this map `getDashboardTemplate('trader')` returns
+ * undefined, so the centre of every existing dashboard renders EMPTY (only the
+ * side rails appear). Resolving aliases keeps those arrangements working.
+ */
+export const LEGACY_TEMPLATE_IDS: Record<string, string> = {
+  trader: 'tape-reader',
+  investor: 'allocator',
+  macro: 'rates-desk',
+  crypto: 'chain-desk',
+  forex: 'fx-desk',
+  quant: 'screener',
+  world: 'map-room',
+};
+
+/** Resolve a possibly-legacy template id to a current persona id. */
+export function resolveTemplateId(id: string | undefined | null): string {
+  if (!id) return DASHBOARD_TEMPLATES[0].id;
+  if (DASHBOARD_TEMPLATES.some(t => t.id === id)) return id;
+  return LEGACY_TEMPLATE_IDS[id] ?? DASHBOARD_TEMPLATES[0].id;
 }
+
+export function getDashboardTemplate(id: string): DashboardTemplate | undefined {
+  const resolved = resolveTemplateId(id);
+  return DASHBOARD_TEMPLATES.find(t => t.id === resolved);
+}
+
