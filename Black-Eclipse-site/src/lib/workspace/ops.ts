@@ -33,6 +33,7 @@ export function cloneLayout(l: WorkspaceLayout): WorkspaceLayout {
         })),
       })),
     })),
+    hiddenZones: l.hiddenZones ? [...l.hiddenZones] : undefined,
   };
 }
 
@@ -206,9 +207,20 @@ export function removeSection(d: Draft<WorkspaceLayout>, sectionId: string): voi
   }
 }
 
-/** Create an empty section in a specific zone (used to re-seed the rail). */
+/** Create an empty section in a specific zone (used to re-seed a side panel). */
 export function createSectionInZone(d: Draft<WorkspaceLayout>, zone: WorkspaceZone): void {
   d.sections.push({ id: newId('sec'), zone, columns: [{ id: newId('col'), weight: 3, widgets: [] }] });
+}
+
+/**
+ * Hide or show a whole zone (left/right panel). Hiding KEEPS the zone's
+ * sections in the tree so re-showing restores the exact arrangement — it is
+ * never a delete. Mutates `hiddenZones` only.
+ */
+export function setZoneHidden(d: Draft<WorkspaceLayout>, zone: WorkspaceZone, hidden: boolean): void {
+  const current = d.hiddenZones ?? [];
+  const without = current.filter(z => z !== zone);
+  d.hiddenZones = hidden ? [...without, zone] : (without.length > 0 ? without : undefined);
 }
 
 /**
@@ -477,10 +489,21 @@ export function normalizeLayout(raw: unknown, knownWidgetIds?: ReadonlySet<strin
     if (columns.length === 0) continue;
     const secId = typeof s.id === 'string' && s.id && !seenSections.has(s.id) ? s.id : newId('sec');
     seenSections.add(secId);
-    const zone = s.zone === 'rail' ? 'rail' as const : 'main' as const;
+    // `rail` is the legacy name for `right` (two-zone era) — map it on read so
+    // stored layouts survive the three-zone upgrade without a storage bump.
+    const zone = s.zone === 'left' ? 'left' as const
+      : s.zone === 'rail' || s.zone === 'right' ? 'right' as const
+      : 'main' as const;
     sections.push({ id: secId, zone, columns: columns.slice(0, 4) });
   }
 
   if (sections.length === 0) return null;
-  return { version: 1, sections };
+
+  const hiddenZones = Array.isArray(r.hiddenZones)
+    ? (r.hiddenZones as unknown[])
+        .map(z => (z === 'left' ? 'left' : z === 'rail' || z === 'right' ? 'right' : null))
+        .filter((z): z is 'left' | 'right' => z !== null)
+    : undefined;
+
+  return { version: 1, sections, ...(hiddenZones && hiddenZones.length > 0 ? { hiddenZones } : {}) };
 }

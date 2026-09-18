@@ -20,6 +20,7 @@ import {
   setColumnWeights,
   setWidgetConfig,
   setWidgetHeight,
+  setZoneHidden,
   toggleWidgetHidden,
   widgetCount,
 } from './ops';
@@ -106,6 +107,40 @@ describe('normalizeLayout', () => {
     const n = normalizeLayout(legacy)!;
     expect(n.version).toBe(1);
     expect(allWidgetIds(n)).toEqual(['kpi']);
+  });
+
+  it('maps the legacy rail zone to right without a storage bump', () => {
+    const raw = {
+      sections: [{
+        id: 's1',
+        zone: 'rail',
+        columns: [{ id: 'c1', weight: 3, widgets: [wid('kpi')] }],
+      }],
+    };
+    const n = normalizeLayout(raw);
+    expect(n!.sections[0].zone).toBe('right');
+  });
+
+  it('preserves left/right zones and hiddenZones through normalize', () => {
+    const raw = {
+      sections: [
+        { id: 's1', zone: 'left', columns: [{ id: 'c1', weight: 3, widgets: [wid('kpi')] }] },
+        { id: 's2', zone: 'right', columns: [{ id: 'c2', weight: 3, widgets: [wid('perf')] }] },
+        { id: 's3', columns: [{ id: 'c3', weight: 3, widgets: [wid('alloc')] }] },
+      ],
+      hiddenZones: ['left', 'rail'],
+    };
+    const n = normalizeLayout(raw)!;
+    expect(n.sections.map(s => s.zone)).toEqual(['left', 'right', 'main']);
+    expect(n.hiddenZones).toEqual(['left', 'right']);
+  });
+
+  it('drops unknown zone names in hiddenZones', () => {
+    const raw = {
+      sections: [{ id: 's1', columns: [{ id: 'c1', weight: 3, widgets: [wid('kpi')] }] }],
+      hiddenZones: ['main', 'bogus'],
+    };
+    expect(normalizeLayout(raw)!.hiddenZones).toBeUndefined();
   });
 
   it('clamps weights and de-duplicates ids', () => {
@@ -400,6 +435,28 @@ describe('columns & resize', () => {
     expect(n.sections[0].columns[0].weight).toBe(5);
     expect(n.sections[0].columns[1].weight).toBe(1);
     expect(n.sections[0].columns[0].weight + n.sections[0].columns[1].weight).toBe(6);
+  });
+});
+
+describe('setZoneHidden', () => {
+  it('hides and restores a zone WITHOUT touching its sections', () => {
+    const l = makeLayout([[['kpi']]]);
+    l.sections[0].zone = 'left';
+    const hidden = runOp(setZoneHidden, l, 'left', true);
+    expect(hidden.hiddenZones).toEqual(['left']);
+    expect(allWidgetIds(hidden)).toEqual(['kpi']); // section kept
+    const shown = runOp(setZoneHidden, hidden, 'left', false);
+    expect(shown.hiddenZones).toBeUndefined();
+    expect(allWidgetIds(shown)).toEqual(['kpi']);
+  });
+
+  it('is idempotent and keeps zones distinct', () => {
+    const l = makeLayout([[['kpi']]]);
+    let n = runOp(setZoneHidden, l, 'left', true);
+    n = runOp(setZoneHidden, n, 'left', true);
+    expect(n.hiddenZones).toEqual(['left']);
+    n = runOp(setZoneHidden, n, 'right', true);
+    expect(n.hiddenZones).toEqual(['left', 'right']);
   });
 });
 

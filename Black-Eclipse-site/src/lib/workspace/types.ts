@@ -24,12 +24,16 @@ export interface WorkspaceColumn {
 }
 
 /**
- * Which canvas column a section belongs to. `main` is the primary/centre
- * canvas; `rail` is the narrow secondary column beside it (e.g. the Command
- * Center Market panel). Both render under the SAME workspace + DndContext, so
- * cards drag freely between them. Undefined = `main`.
+ * Which canvas column a section belongs to. `left` and `right` are the narrow
+ * side columns beside the primary/centre `main` canvas (e.g. the Command Center
+ * Watchlist and Market panels). All render under the SAME workspace +
+ * DndContext, so cards drag freely between them. Undefined = `main`.
+ *
+ * Legacy note: stored layouts from the two-zone era use `'rail'` for the right
+ * column. `normalizeLayout` maps `'rail'` → `'right'` on read, so no storage
+ * bump is required.
  */
-export type WorkspaceZone = 'main' | 'rail';
+export type WorkspaceZone = 'left' | 'main' | 'right';
 
 export interface WorkspaceSection {
   id: string;
@@ -41,6 +45,12 @@ export interface WorkspaceSection {
 export interface WorkspaceLayout {
   version: 1;
   sections: WorkspaceSection[];
+  /**
+   * Zones the user has removed from view. Their sections are KEPT in `sections`
+   * (so re-showing restores the exact arrangement) but not rendered. Persisted
+   * so a panel stays removed across reloads.
+   */
+  hiddenZones?: WorkspaceZone[];
 }
 
 /** Where a dragged card should land. columnId=null means "create a new column". */

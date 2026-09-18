@@ -92,7 +92,8 @@ There are **two** drag-and-drop, user-customizable grid systems in this repo, an
 they are not the same thing:
 
 - **`src/lib/workspace/`** — the *widget* workspace behind the **Command Center**
-  dashboard. Sections → columns → widget cards, plus a "rail" side zone.
+  dashboard. Sections → columns → widget cards, plus optional `left`/`right` side
+  zones (Watchlist and Market).
 - **`src/lib/market-workspace/`** — a separate *panel* workspace behind the
   **Chart Workspace** tab (chart panels and market panels). The folder and tab
   id (`market-workspace`) keep the old name; only the user-facing label changed.

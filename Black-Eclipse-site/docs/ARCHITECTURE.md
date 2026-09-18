@@ -293,10 +293,35 @@ them concurrently is what used to freeze the API.
 | UI | `src/components/workspace/` | `src/components/market-workspace/` |
 | Powers | Command Center dashboard | Chart Workspace tab |
 | Unit | widget card in a column | chart/market panel |
-| Shape | sections → columns → widgets, + rail zone | panels with presets/ops |
+| Shape | sections → columns → widgets, + `left`/`right` zones | panels with presets/ops |
 | Persistence | `localStorage` via `use-workspace` | `localStorage` via `use-market-workspace` |
 
-Both are real and both are supported. The **retired** thing is
+### Widget workspace zones (three-column shape)
+
+A layout is a flat list of sections, each tagged with an optional
+`zone: 'left' | 'main' | 'right'` (undefined = `main`). The canvas renders all
+`left` sections in a narrow column, all `main` sections in the centre, and all
+`right` sections in a second narrow column — **all under one `DndContext`** and
+**one Customize surface**, so a card drags freely between the three.
+
+Key invariants:
+
+- **No second engine / no second customization surface** for a side column. The
+  Command Center's Watchlist (left) and Market (right) are ordinary workspace
+  sections, not separate panels.
+- **Legacy `rail` = `right`.** Stored layouts from the two-zone era are mapped
+  `rail → right` by `normalizeLayout` on read (no storage-prefix bump).
+- **Side-zone migration.** `useWorkspace` seeds missing default `left`/`right`
+  sections once (persisted), so existing dashboards gain the side columns without
+  losing their centre arrangement.
+- **Remove ≠ delete.** `setZoneHidden(zone, hidden)` records the zone in
+  `layout.hiddenZones`; its sections stay in the tree so re-showing restores the
+  exact widgets. Exposed as the **Left panel / Right panel** toggles in Customize.
+- Per-zone presentation (`className`, `header`, `collapsed`, `onToggle`) is passed
+  via `CustomizableWorkspace`'s `zones` prop; the old `rail*` props are deprecated
+  aliases for `zones.right`.
+
+Both workspace systems are real and both are supported. The **retired** thing is
 `src/lib/customize/` — an earlier kernel that is documented as superseded and
 must not receive new features. See ADR-005 and ADR-006.
 

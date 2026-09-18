@@ -12,12 +12,12 @@
 // handled here.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, RefreshCw, Settings2 } from 'lucide-react';
+import { PanelLeft, PanelRight, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { useWorkspace } from '@/lib/workspace/use-workspace';
-import { WorkspaceCanvas } from '@/lib/workspace/workspace-canvas';
+import { WorkspaceCanvas, type WorkspaceZoneConfig } from '@/lib/workspace/workspace-canvas';
 import { dataHub, useRefreshAll } from '@/lib/workspace/data-hub';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement, WorkspaceLayout } from '@/lib/workspace/types';
@@ -42,15 +42,23 @@ export interface CustomizableWorkspaceProps {
   statusBar?: React.ReactNode;
   /** Toolbar style: full labelled buttons, icon-only (for narrow columns), or hidden. */
   toolbar?: 'default' | 'compact' | 'none';
+  /** Start in compact row mode (denser dashboard feel). Default false. */
+  defaultCompact?: boolean;
   /** Hide the floating "Add Widget" button (e.g. in a narrow side panel). */
   hideFloatingAdd?: boolean;
-  /** Width class for the secondary rail zone (sections with zone:'rail'). */
+  /**
+   * Presentation for the side zones (sections tagged `zone:'left' | 'right'`).
+   * A zone only renders when its sections exist AND the user has not hidden it
+   * from the Customize edit bar.
+   */
+  zones?: { left?: WorkspaceZoneConfig; right?: WorkspaceZoneConfig };
+  /** @deprecated Use `zones.right`. Kept as an alias for existing callers. */
   railClassName?: string;
-  /** Header rendered above the rail zone (e.g. the "Market" title + collapse). */
+  /** @deprecated Use `zones.right.header`. */
   railHeader?: React.ReactNode;
-  /** Collapse the rail zone down to a slim expand affordance. */
+  /** @deprecated Use `zones.right.collapsed`. */
   railCollapsed?: boolean;
-  /** Toggle the rail collapse state. */
+  /** @deprecated Use `zones.right.onToggle`. */
   onToggleRail?: () => void;
   className?: string;
 }
@@ -64,7 +72,9 @@ export function CustomizableWorkspace({
   editBarExtra,
   statusBar,
   toolbar = 'default',
+  defaultCompact = false,
   hideFloatingAdd = false,
+  zones,
   railClassName,
   railHeader,
   railCollapsed = false,
@@ -73,9 +83,18 @@ export function CustomizableWorkspace({
 }: CustomizableWorkspaceProps) {
   const widgetIds = useMemo(() => widgets.map(w => w.id), [widgets]);
   const workspace = useWorkspace({ storageKey, defaultLayout, knownWidgetIds: widgetIds });
+  // Merge the legacy rail* aliases into zones.right so old callers keep working.
+  const resolvedZones = useMemo(() => {
+    const hasLegacyRight = Boolean(railClassName || railHeader || railCollapsed || onToggleRail);
+    const right: WorkspaceZoneConfig | undefined = zones?.right
+      ?? (hasLegacyRight
+        ? { className: railClassName, header: railHeader, collapsed: railCollapsed, onToggle: onToggleRail }
+        : undefined);
+    return { left: zones?.left, right };
+  }, [zones, railClassName, railHeader, railCollapsed, onToggleRail]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [configPlacement, setConfigPlacement] = useState<WidgetPlacement | null>(null);
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = useState(defaultCompact);
   // Widget currently being added from the library. `mode`:
   //   'hold'  — press & drag, release to place (direct drag-and-drop)
   //   'click' — click to project a ghost, then double-click to confirm
@@ -126,6 +145,13 @@ export function CustomizableWorkspace({
 
   const getDefinition = (id: string) => widgets.find(w => w.id === id);
   const activeDef = configPlacement ? getDefinition(configPlacement.widgetId) : null;
+
+  // Side zones present in this layout (so Customize can remove/restore them).
+  const hiddenZones = workspace.layout.hiddenZones ?? [];
+  const presentZones = useMemo(() => {
+    const zonesSet = new Set(workspace.layout.sections.map(s => s.zone).filter(Boolean));
+    return (['left', 'right'] as const).filter(z => zonesSet.has(z));
+  }, [workspace.layout]);
 
   // ── Data-hub subscription: subscribe visible widgets' dataDeps, unsubscribe
   //    hidden ones so they don't burn rate limits. ───────────────────────────
@@ -221,6 +247,30 @@ export function CustomizableWorkspace({
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             {editBarExtra}
+            {/* Panels — remove/restore the left & right side zones. Kept in the
+                layout, so turning a panel back on restores its exact widgets. */}
+            {presentZones.length > 0 && (
+              <div className="flex items-center gap-1 rounded-xl border border-white/15 dark:border-white/10 bg-accent/30 p-0.5">
+                {presentZones.map(zone => {
+                  const hidden = hiddenZones.includes(zone);
+                  const label = zone === 'left' ? 'Left panel' : 'Right panel';
+                  return (
+                    <button
+                      key={zone}
+                      title={hidden ? `Show ${label.toLowerCase()}` : `Remove ${label.toLowerCase()}`}
+                      onClick={() => workspace.ops.setZoneHidden(zone, !hidden)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer',
+                        hidden ? 'text-muted-foreground hover:text-primary' : 'bg-primary/15 text-primary',
+                      )}
+                    >
+                      {zone === 'left' ? <PanelLeft size={13} /> : <PanelRight size={13} />}
+                      <span className="hidden md:inline">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <button
               title="Open widget library (Shift+W)"
               onClick={() => setLibraryOpen(v => !v)}
@@ -254,10 +304,7 @@ export function CustomizableWorkspace({
           addingMode={addDrag?.mode ?? 'hold'}
           onAddingEnd={endAddDrag}
           widgets={widgets.map(w => ({ widgetId: w.id, label: w.label, desc: w.desc }))}
-          railClassName={railClassName}
-          railHeader={railHeader}
-          railCollapsed={railCollapsed}
-          onToggleRail={onToggleRail}
+          zones={resolvedZones}
           renderWidget={(widgetId, placement) => (
             <div className="relative h-full">
               {renderWidget(widgetId, placement)}

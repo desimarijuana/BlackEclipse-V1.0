@@ -176,4 +176,5 @@ When a change touches one of these, update the listed doc in the same change:
 
 - `src/lib/customize/` — superseded customization kernel (ADR-005).
 - The old JDdS daemon and its PostgreSQL provider system — removed.
-- `MarketSidePanel` as a separate page — its widgets are now the workspace rail.
+- `MarketSidePanel` as a separate page — its widgets are now the workspace right
+  zone (legacy name: "rail").

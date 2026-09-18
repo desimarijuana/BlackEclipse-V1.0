@@ -42,9 +42,13 @@ Workspace kernel  (src/lib/workspace/)
   - optional `editBarExtra` (extra chrome in the edit bar)
   - optional `toolbar` (`'default'` labelled buttons · `'compact'` icon-only ·
     `'none'`) and `hideFloatingAdd`.
-  - optional **rail zone**: `railClassName`, `railHeader`, `railCollapsed`,
-    `onToggleRail`. When any section is `zone:'rail'` the canvas lays the main
-    zone and the rail side-by-side under ONE DndContext — see "Zones" below.
+  - optional `defaultCompact` — start with dense rows.
+  - optional **side zones**: `zones={{ left?, right? }}`, each a
+    `{ className?, header?, collapsed?, onToggle? }` config. When a section is
+    tagged `zone:'left' | 'right'`, the canvas lays that zone beside the `main`
+    centre under ONE DndContext — see "Zones" below. The legacy `railClassName` /
+    `railHeader` / `railCollapsed` / `onToggleRail` props are **deprecated
+    aliases for `zones.right`** and still work.
 - **`WidgetDefinition`** (`src/lib/workspace/widget-def.ts`) — the plug-and-play
   widget contract: `{ id, category, label, desc, icon, sizes, defaultConfig?,
   configFields?, dataDeps?, refreshPolicy?, lazy?, render? }`. `render` is
@@ -73,33 +77,40 @@ Workspace kernel  (src/lib/workspace/)
   status, feeds connected, memory usage, API latency, pending-orders badge, bell.
   Mount via `CustomizableWorkspace`'s `statusBar` prop.
 - **`MarketSidePanel`** was REMOVED. The Command Center's Market column is now
-  the workspace's **rail zone** — not a separate page/panel. Its widgets live in
+  the workspace's **right zone** — not a separate page/panel. Its widgets live in
   `src/lib/dashboard/market-rail-widgets.tsx` (`MARKET_RAIL_WIDGETS`,
   `marketPanelIcon`) and are merged into the single `DASHBOARD_WIDGETS` catalog.
-  The default rail sections come from `buildRailSections()` in
+  The default right-zone sections come from `buildRailSections()` and the left
+  column from `buildLeftSections()` (asset-class aware via `ASSET_LEFT`) in
   `src/lib/dashboard/registry.tsx`; `dashboard-screen.tsx` appends them to the
-  template layout and passes one `CustomizableWorkspace` with `railClassName` +
-  `railHeader` + `railCollapsed`/`onToggleRail`.
+  template layout and passes one `CustomizableWorkspace` with `zones={{ left, right }}`.
 
-## Zones (centre + rail)
+## Zones (centre + left/right)
 
 A workspace layout is a flat list of sections, each tagged with an optional
-`zone: 'main' | 'rail'` (undefined = `main`). The canvas renders all `main`
-sections in the primary column and all `rail` sections in a narrow column beside
-it — **both under one `DndContext`**, so cards drag freely between the centre and
-the rail, and **one Customize button drives everything**. Never build a second
-customization surface / second workspace for a side column.
+`zone: 'left' | 'main' | 'right'` (undefined = `main`). The canvas renders all
+`left` sections in one narrow column, all `main` sections in the centre, and all
+`right` sections in a second narrow column — **all under one `DndContext`**, so
+cards drag freely between them, and **one Customize button drives everything**.
+Never build a second customization surface / second workspace for a side column.
 
+- Legacy storage: the two-zone era used `zone:'rail'` for the right column.
+  `normalizeLayout` maps `rail → right` on read, so no storage-prefix bump.
 - Sections created via strips inherit the anchor section's zone
   (`createSectionAt` / `moveWidgetToNewSectionAt` / `addWidgetToNewSectionAt`).
-- `normalizeLayout` preserves the zone; `pruneLayout`/`cloneLayout` carry it.
-- `useWorkspace` runs a one-time migration: if the `defaultLayout` has rail
-  sections but the stored layout has none, it appends the default rail sections
-  (and persists) so existing dashboards gain the rail without losing their
-  centre arrangement — no storage-prefix bump needed.
-- The rail is only active when `railClassName`/`railHeader` are passed AND the
-  layout actually contains rail sections; single-zone pages (fund workspaces)
-  are unaffected.
+- `normalizeLayout` preserves the zone and `hiddenZones`;
+  `pruneLayout`/`cloneLayout` carry them.
+- `useWorkspace` runs a one-time migration per side zone: if the `defaultLayout`
+  has `left`/`right` sections but the stored layout has none, it appends the
+  defaults (and persists) so existing dashboards gain the side columns without
+  losing their centre arrangement.
+- **Remove vs collapse.** `onToggle` only *collapses* a zone to a slim handle
+  (ephemeral). To fully **remove** a panel use the edit bar's **Left panel /
+  Right panel** toggles → `workspace.ops.setZoneHidden(zone, hidden)`, which
+  records the zone in `layout.hiddenZones` and *keeps its sections*, so re-showing
+  restores the exact widgets. Prefer this for "remove a section" requests.
+- A zone renders only when its sections exist, the host passed its config, and it
+  is not in `hiddenZones`; single-zone pages (fund workspaces) are unaffected.
 
 ## How to add a customizable page
 
@@ -110,8 +121,9 @@ customization surface / second workspace for a side column.
 3. Provide a `renderWidget(widgetId, placement)` that renders your widget content
    (threading your page's data/props).
 4. Build a `defaultLayout` (see `defaultFundLayout()` in `portfolio/widgets.tsx`).
-   For a centre + rail page, append rail sections (see `buildRailSections()`).
-5. Render `<CustomizableWorkspace storageKey=… defaultLayout=… widgets=… widgetIcon=… renderWidget=… statusBar=… />`.
+   For a centre + side-columns page, append `left`/`right` sections (see
+   `buildLeftSections()` / `buildRailSections()`).
+5. Render `<CustomizableWorkspace storageKey=… defaultLayout=… widgets=… widgetIcon=… renderWidget=… zones={{ left, right }} statusBar=… />`.
 
 ## Toolbar (always visible)
 

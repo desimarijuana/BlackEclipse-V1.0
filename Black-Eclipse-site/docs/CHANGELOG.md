@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Workspace** — Added a **left side zone** to the widget workspace so the
+  Command Center reads as a three-column dashboard instead of one wide grid. The
+  zone model is now `left | main | right` (the old `rail` is mapped to `right` on
+  read — no storage bump), rendered under the same `DndContext` and one Customize
+  surface. New `setZoneHidden` op + **Left panel / Right panel** toggles in
+  Customize let users *remove* a side panel without deleting its widgets
+  (`hiddenZones` persists, so re-showing restores the exact arrangement). The
+  left column ships populated (Watchlist / Top Movers / News Feed, asset-class
+  aware) via `buildLeftSections` + `ASSET_LEFT`. Command Center is denser by
+  default (compact rows, trimmed header). Existing layouts migrate automatically.
+  5 new tests (legacy-rail mapping, hiddenZones normalization, setZoneHidden).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`
 - **Live Intelligence** — Fixed the "STREAM UNAVAILABLE" bug. Root cause, verified
   in a real browser against live YouTube: the widget embedded
   `youtube-nocookie.com/embed/live_stream?channel=<UC>`, which YouTube renders as

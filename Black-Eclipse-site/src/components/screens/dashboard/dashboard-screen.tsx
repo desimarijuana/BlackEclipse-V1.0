@@ -7,7 +7,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
-  ChevronDown, ChevronRight, Copy, Download, Globe, LayoutDashboard, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
+  ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Globe, LayoutDashboard, List, Plus, RotateCcw, Settings2, Star, Trash2, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboards, isOnboarded, markOnboarded, seedMarketKeyFromLegacy } from '@/lib/dashboard/use-dashboards';
@@ -22,6 +22,7 @@ export function DashboardScreen() {
   const dashboards = useDashboards();
   const markets = useMarketViews();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [watchlistOpen, setWatchlistOpen] = useState(true);
   const [marketOpen, setMarketOpen] = useState(true);
 
   // The active layout's id + default market. The layout id keys the workspace
@@ -77,14 +78,14 @@ export function DashboardScreen() {
 
   return (
     <div ref={rootRef} data-keyboard-scope="Command Center" className="animate-fade-in-up w-full">
-      {/* Header + toolbar — matches the standard page heading */}
-      <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-border/10 pb-4">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-          <LayoutDashboard className="text-primary" size={30} />
+      {/* Header + toolbar — denser than a content page; this is a dashboard. */}
+      <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border/10 pb-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+          <LayoutDashboard className="text-primary" size={20} />
         </div>
         <div className="min-w-0">
-          <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Command Center</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Build your workspace — arrange widgets, sections and columns to suit how you trade.</p>
+          <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Command Center</h1>
+          <p className="text-muted-foreground text-[11px] mt-0.5 hidden sm:block">Arrange widgets, sections and columns to suit how you trade.</p>
         </div>
 
         {/* Dashboard switcher */}
@@ -194,32 +195,57 @@ export function DashboardScreen() {
       {/* Market tabs — pick a country/market; each keeps its own widget layout. */}
       <MarketTabs />
 
-      {/* Reusable customizable workspace — centre + rail are ONE workspace.
-          The single Customize button drives both and cards drag between them. */}
+      {/* Reusable customizable workspace — left, centre and right are ONE
+          workspace. The single Customize button drives all three, cards drag
+          between them, and the left/right panels can be removed from Customize. */}
       <CustomizableWorkspace
         key={storageKey}
         storageKey={storageKey}
         defaultLayout={defaultLayout}
+        defaultCompact
         widgets={DASHBOARD_WIDGETS}
         widgetIcon={widgetIcon}
         renderWidget={(widgetId, placement) => renderDashboardWidget(widgetId, placement)}
-        railClassName="hidden lg:block w-72"
-        railCollapsed={!marketOpen}
-        onToggleRail={() => setMarketOpen(v => !v)}
-        railHeader={(
-          <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
-            <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-              <Globe size={13} className="text-primary" /> Market
-            </span>
-            <button
-              onClick={() => setMarketOpen(false)}
-              className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-              title="Collapse market panel"
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        )}
+        zones={{
+          left: {
+            className: 'hidden xl:block w-64',
+            collapsed: !watchlistOpen,
+            onToggle: () => setWatchlistOpen(v => !v),
+            header: (
+              <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <List size={13} className="text-primary" /> Watchlist
+                </span>
+                <button
+                  onClick={() => setWatchlistOpen(false)}
+                  className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                  title="Collapse watchlist panel"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+              </div>
+            ),
+          },
+          right: {
+            className: 'hidden lg:block w-72',
+            collapsed: !marketOpen,
+            onToggle: () => setMarketOpen(v => !v),
+            header: (
+              <div className="mb-3 flex items-center justify-between rounded-2xl glass-card px-3 py-2">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <Globe size={13} className="text-primary" /> Market
+                </span>
+                <button
+                  onClick={() => setMarketOpen(false)}
+                  className="glass-button rounded-lg p-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                  title="Collapse market panel"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            ),
+          },
+        }}
         statusBar={<StatusBar version="v0.1.0" layoutStatus="saved" pendingOrders={0} notifications={0} />}
       />
 

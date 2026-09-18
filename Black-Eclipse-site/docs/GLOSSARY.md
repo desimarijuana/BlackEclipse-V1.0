@@ -52,16 +52,27 @@ labeled, never presented as live.
 `WidgetDefinition` (id, category, label, icon, sizes, `dataDeps`, …).
 
 **Widget workspace** — the engine behind the Command Center dashboard:
-`sections → columns → widget cards`, with an optional side "rail" zone. Lives in
-`src/lib/workspace/`.
+`sections → columns → widget cards`, with optional **side zones** (`left` and
+`right`) flanking the centre `main` zone. Lives in `src/lib/workspace/`.
 
 **Market workspace** — a *separate* engine behind the **Chart Workspace** tab,
 based on panels rather than widget cards. Lives in `src/lib/market-workspace/`.
 Not the same as the widget workspace. The label was renamed Chart Workspace while
 the folder and tab id (`market-workspace`) stayed put.
 
-**Rail** — the narrow side column of a widget workspace (used by the Command
-Center's market column). Cards drag freely between the centre and the rail.
+**Zone** — a canvas column a widget workspace section belongs to: `main`
+(centre), `left`, or `right`. All render under one `DndContext`, so cards drag
+freely between them. The legacy name for the right zone was **rail**; stored
+layouts using `rail` are migrated to `right` on read. A zone can be **removed**
+(hidden) from the Customize edit bar — its sections are kept in the layout, so
+re-showing restores the exact arrangement.
+
+**Left / right panel** — the narrow side columns of a widget workspace (the
+Command Center's Watchlist on the left, Market on the right). Cards drag freely
+between the centre and the side panels.
+
+**Rail** — *legacy* name for the workspace's right side zone (the Market panel).
+Now just the `right` zone; stored layouts still using `rail` are migrated on read.
 
 **Preset** — a curated starting layout offered to users.
 

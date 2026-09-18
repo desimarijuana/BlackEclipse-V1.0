@@ -23,7 +23,7 @@ import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
   StockQuoteWidget, WatchlistWidget,
-  LiveTVWidget, RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
+  RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
   NotesWidget, GeopoliticsWidget, MaritimeWidget, PolymarketWidget,
   CryptoQuoteStripWidget, TradeTapeWidget, SparklinesWidget, CandleChartWidget,
   StockScreenerWidget, NewsCategoryWidget, PerformanceWidget, PortfolioSummaryWidget,
@@ -155,7 +155,12 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => UnavailableStub('Today P&L')),
 
   // ── Tools ──
-  def('live-tv', 'tools', 'Live TV / Streams', 'Financial TV networks + custom streams.', 'radio', ['large', 'full'], () => <LiveTVWidget />),
+  // `live-tv` is the ORIGINAL registry slot; it now renders the real Live
+  // Intelligence widget (it used to be an UNAVAILABLE stub). Keeping the id means
+  // any saved layout that already placed this slot keeps working.
+  def('live-tv', 'tools', 'Live Intelligence', 'Live financial, market and world-news channels.', 'radio', ['large', 'full'], (p) => <LiveIntelligenceWidget placement={p} />, undefined,
+    [LIVE_INTELLIGENCE_AUTOPLAY_FIELD, LIVE_INTELLIGENCE_MUTED_FIELD],
+    { autoplay: true, muted: true }),
   def('recent-files', 'tools', 'Recent Files', 'Exports, reports, notebooks.', 'file-text', ['small', 'medium'], () => <RecentFilesWidget />),
   def('agent-errors', 'tools', 'Agent Errors', 'Recent agent execution failures.', 'bot', ['small', 'medium'], () => <AgentErrorsWidget />),
   def('web-scraper', 'tools', 'Web Scraper', 'Scrape tables from any URL.', 'scissors', ['medium', 'large'], () => <WebScraperWidget />),
@@ -225,14 +230,6 @@ export const DASHBOARD_WIDGETS: WidgetDefinition[] = [
   // templates (templates.ts) keep pointing at the same widgets.
   def('investor-eye-map', 'intelligence', 'Investor Eye Map', 'Interactive world map / 3D globe of the live event layers.', 'map-pin', ['medium', 'large', 'full'], (p) => <InvestorEyeMapWidget placement={p} />, ['investor-eye:state:24'],
     [INVESTOR_EYE_MAP_RANGE_FIELD], { range: '24h' }),
-
-  // ── News: Live Intelligence ──
-  // Appended LAST so the index-based persona templates keep pointing at the
-  // same widgets. Streams are torn down when off-screen or the tab is hidden —
-  // see the widget header and ADR-015.
-  def('live-intelligence', 'news', 'Live Intelligence', 'Live financial, market and world-news channels.', 'radio', ['large', 'full'], (p) => <LiveIntelligenceWidget placement={p} />, undefined,
-    [LIVE_INTELLIGENCE_AUTOPLAY_FIELD, LIVE_INTELLIGENCE_MUTED_FIELD],
-    { autoplay: true, muted: true }),
 ];
 
 /** Widget ids that ship in the default Market rail (kept for the migration). */
@@ -260,7 +257,23 @@ export function renderDashboardWidget(widgetId: string, placement: WidgetPlaceme
 export function buildRailSections(widgetIds: string[] = MARKET_RAIL_WIDGET_IDS): WorkspaceSection[] {
   return widgetIds.map(widgetId => ({
     id: newId('sec'),
-    zone: 'rail' as const,
+    zone: 'right' as const,
+    columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
+  }));
+}
+
+/** Default left column: watchlist, movers, then a compact news feed. */
+const DEFAULT_LEFT_WIDGET_IDS = ['watchlist', 'top-movers', 'news-feed'];
+
+/**
+ * Build the default `left` sections (the Watchlist column) for a dashboard's
+ * layout. Same shape as `buildRailSections` — each widget gets its own stacked
+ * section, fully draggable between the left column and the centre.
+ */
+export function buildLeftSections(widgetIds: string[] = DEFAULT_LEFT_WIDGET_IDS): WorkspaceSection[] {
+  return widgetIds.map(widgetId => ({
+    id: newId('sec'),
+    zone: 'left' as const,
     columns: [{ id: newId('col'), weight: 1, widgets: [{ id: newId('wid'), widgetId, height: null }] }],
   }));
 }
@@ -305,6 +318,14 @@ const ASSET_RAIL: Record<AssetClass, string[]> = {
   crypto: ['mp-crypto', 'mp-movers', 'mp-fear-greed', 'mp-breadth', 'mp-snapshot'],
 };
 
+/** Left column (watchlist rail) per asset class. */
+const ASSET_LEFT: Record<AssetClass, string[]> = {
+  equity: ['watchlist', 'top-movers', 'news-feed'],
+  forex: ['watchlist', 'economic-calendar', 'news-feed'],
+  commodities: ['watchlist', 'top-movers', 'news-feed'],
+  crypto: ['crypto-ticker', 'watchlist', 'news-feed'],
+};
+
 /**
  * Build the starting layout for a single market view. Every market tab gets the
  * SAME full body of widgets the US tab has (the persona template the user picked
@@ -345,10 +366,12 @@ export function buildMarketViewLayout(
   const lead = pick(ASSET_LEAD[cls]);
   const extras = pick(ASSET_EXTRAS[cls]);
   const railSections = buildRailSections(ASSET_RAIL[cls].filter(id => known.has(id)));
+  const leftSections = buildLeftSections(ASSET_LEFT[cls].filter(id => known.has(id)));
 
   return {
     version: 1,
     sections: [
+      ...leftSections,
       ...(lead.length ? [section(lead)] : []),
       ...body,
       ...(extras.length ? [section(extras)] : []),

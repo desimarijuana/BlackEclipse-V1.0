@@ -66,21 +66,28 @@ interface WorkspaceCanvasProps {
   /** Called when an add-drag ends (committed or cancelled) so the host clears it. */
   onAddingEnd?: () => void;
   /**
-   * Enable the secondary `rail` zone: sections with `zone:'rail'` render in a
-   * narrow column beside the main canvas, under the SAME drag context, so cards
-   * can be dragged freely between the centre and the rail. When unset, all
-   * sections render in the main column (single-zone pages like fund workspaces).
+   * Enable the side `left` / `right` zones: sections tagged with that zone
+   * render in a narrow column beside the main canvas, under the SAME drag
+   * context, so cards can be dragged freely between centre and sides. When a
+   * zone is unset, its sections render in the main column (single-zone pages
+   * like fund workspaces).
    */
-  railClassName?: string;
-  /** Header rendered above the rail zone (e.g. the "Market" title + collapse). */
-  railHeader?: React.ReactNode;
-  /** Collapse the rail zone down to a slim expand affordance. */
-  railCollapsed?: boolean;
-  /** Toggle the rail collapse state (renders the expand button when collapsed). */
-  onToggleRail?: () => void;
+  zones?: { left?: WorkspaceZoneConfig; right?: WorkspaceZoneConfig };
 }
 
-export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, railClassName, railHeader, railCollapsed = false, onToggleRail }: WorkspaceCanvasProps) {
+/** Per-zone presentation config (width, header, collapse state). */
+export interface WorkspaceZoneConfig {
+  /** Width class for the zone column (default `w-72`). */
+  className?: string;
+  /** Header rendered above the zone (e.g. "Market" title + collapse button). */
+  header?: React.ReactNode;
+  /** Collapse the zone down to a slim expand affordance. */
+  collapsed?: boolean;
+  /** Toggle the zone collapse state (renders the expand button when collapsed). */
+  onToggle?: () => void;
+}
+
+export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, hideEditBar = false, compact = false, addingWidgetId = null, addingLabel, addingMode = 'hold', onAddingEnd, zones }: WorkspaceCanvasProps) {
   const { layout, editMode, ops, corrupt } = workspace;
   const rootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -509,11 +516,13 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
   // Any edit-gesture in flight: dnd drag, click-grab, or an add-drag from the library.
   const dragging = activeId !== null || grabbedId !== null || addingWidgetId !== null;
 
+  const hiddenZones = layout.hiddenZones ?? [];
   const mainSections = layout.sections.filter(s => (s.zone ?? 'main') === 'main');
-  const railSections = layout.sections.filter(s => s.zone === 'rail');
+  const leftSections = layout.sections.filter(s => s.zone === 'left');
+  const rightSections = layout.sections.filter(s => s.zone === 'right');
 
-  /** Render one zone's stack of sections (strips + rows) — both zones share the
-   *  same DndContext so cards drag freely between the centre and the rail. */
+  /** Render one zone's stack of sections (strips + rows) — all zones share the
+   *  same DndContext so cards drag freely between centre and sides. */
   const renderZone = (sections: WorkspaceSection[]) => (
     <div className="flex flex-col gap-3">
       {sections.map((section, secIdx) => (
@@ -644,27 +653,47 @@ export function WorkspaceCanvas({ workspace, renderWidget, widgets, className, h
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
       >
-        {railSections.length > 0 ? (
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">{renderZone(mainSections)}</div>
-            {railCollapsed ? (
-              <button
-                onClick={onToggleRail}
-                className="glass-card-subtle shrink-0 self-start rounded-xl p-2 text-muted-foreground hover:text-primary cursor-pointer"
-                title="Open market panel"
-              >
-                <ChevronLeft size={14} />
-              </button>
-            ) : (
-              <div className={cn('shrink-0', railClassName ?? 'w-72')}>
-                {railHeader}
-                {renderZone(railSections)}
+        {(() => {
+          const leftCfg = zones?.left;
+          const rightCfg = zones?.right;
+          const showLeft = leftSections.length > 0 && !hiddenZones.includes('left');
+          const showRight = rightSections.length > 0 && !hiddenZones.includes('right');
+          if (!showLeft && !showRight) return renderZone(mainSections);
+
+          /** One side column: collapsed → slim expand handle; else header + stack. */
+          const zoneColumn = (
+            zone: 'left' | 'right',
+            sections: WorkspaceSection[],
+            cfg: WorkspaceZoneConfig,
+          ) => {
+            if (cfg.collapsed) {
+              return (
+                <button
+                  key={zone}
+                  onClick={cfg.onToggle}
+                  className="glass-card-subtle shrink-0 self-start rounded-xl p-2 text-muted-foreground hover:text-primary cursor-pointer"
+                  title={`Open ${zone} panel`}
+                >
+                  {zone === 'left' ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+                </button>
+              );
+            }
+            return (
+              <div key={zone} className={cn('shrink-0', cfg.className ?? 'w-72')}>
+                {cfg.header}
+                {renderZone(sections)}
               </div>
-            )}
-          </div>
-        ) : (
-          renderZone(mainSections)
-        )}
+            );
+          };
+
+          return (
+            <div className="flex items-start gap-4">
+              {showLeft && leftCfg && zoneColumn('left', leftSections, leftCfg)}
+              <div className="min-w-0 flex-1">{renderZone(mainSections)}</div>
+              {showRight && rightCfg && zoneColumn('right', rightSections, rightCfg)}
+            </div>
+          );
+        })()}
 
         {(activePlacement || grabStateRef.current.id) && (
           <DragOverlay dropAnimation={null}>

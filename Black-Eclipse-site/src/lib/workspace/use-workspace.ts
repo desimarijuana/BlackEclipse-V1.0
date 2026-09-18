@@ -29,6 +29,7 @@ import {
   removeSection as removeSectionDraft,
   createSectionInZone as createSectionInZoneDraft,
   addWidgetToNewSectionAt as addWidgetToNewSectionAtDraft,
+  setZoneHidden as setZoneHiddenDraft,
   locate,
 } from './ops';
 import { clearWorkspace, loadWorkspace, saveWorkspace } from './persistence';
@@ -63,6 +64,8 @@ interface WorkspaceActions {
   createSectionAt: (anchorSectionId: string, position: 'above' | 'below') => void;
   removeSection: (sectionId: string) => void;
   createSectionInZone: (zone: WorkspaceZone) => void;
+  /** Hide/show a whole side zone (keeps its sections for later restore). */
+  setZoneHidden: (zone: WorkspaceZone, hidden: boolean) => void;
   addWidgetToNewSectionAt: (widgetId: string, anchorSectionId: string, position: 'above' | 'below') => void;
   setColumnCount: (sectionId: string, count: number) => void;
   setColumnWeight: (columnId: string, weight: number) => void;
@@ -85,25 +88,31 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
   const known = knownWidgetIds ? new Set(knownWidgetIds) : undefined;
   const initial = loadWorkspace(storageKey, defaultLayout, { knownWidgetIds: known });
 
-  // One-time rail migration: when the default layout declares `rail` sections
-  // but a stored (pre-rail) layout has none, append the default rail sections
-  // (with their widgets) so an existing dashboard gains the secondary column
-  // without losing its centre arrangement. Persisted immediately so it runs
-  // once. No-op for single-zone pages (fund workspaces) whose defaults have
-  // no rail.
-  const defaultRail = defaultLayout.sections.filter(s => s.zone === 'rail');
-  const storedHasRail = initial.layout.sections.some(s => s.zone === 'rail');
-  if (!initial.corrupt && defaultRail.length > 0 && !storedHasRail) {
-    const railSections = defaultRail.map(s => ({
-      id: newId('sec'),
-      zone: 'rail' as const,
-      columns: s.columns.map(c => ({
-        id: newId('col'),
-        weight: c.weight,
-        widgets: c.widgets.map(w => ({ ...w, id: newId('wid') })),
-      })),
-    }));
-    initial.layout = { version: 1, sections: [...initial.layout.sections, ...railSections] };
+  // One-time side-zone migration: when the default layout declares `left` /
+  // `right` sections but a stored layout (from before that zone existed) has
+  // none, append the defaults (with their widgets) so an existing dashboard
+  // gains the side columns without losing its centre arrangement. Persisted
+  // immediately so it runs once. No-op for single-zone pages (fund workspaces)
+  // whose defaults have no side zones.
+  const sideZones = (['left', 'right'] as const).filter(z =>
+    defaultLayout.sections.some(s => s.zone === z)
+    && !initial.layout.sections.some(s => s.zone === z),
+  );
+  if (!initial.corrupt && sideZones.length > 0) {
+    const appended = sideZones.flatMap(zone =>
+      defaultLayout.sections
+        .filter(s => s.zone === zone)
+        .map(s => ({
+          id: newId('sec'),
+          zone,
+          columns: s.columns.map(c => ({
+            id: newId('col'),
+            weight: c.weight,
+            widgets: c.widgets.map(w => ({ ...w, id: newId('wid') })),
+          })),
+        })),
+    );
+    initial.layout = { version: 1, sections: [...initial.layout.sections, ...appended] };
     saveWorkspace(storageKey, initial.layout);
   }
 
@@ -129,6 +138,7 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
       createSectionAt: (anchorSectionId, position) => commit(d => { createSectionAtDraft(d, anchorSectionId, position); }),
       removeSection: (sectionId) => commit(d => { removeSectionDraft(d, sectionId); }),
       createSectionInZone: (zone) => commit(d => { createSectionInZoneDraft(d, zone); }),
+      setZoneHidden: (zone, hidden) => commit(d => { setZoneHiddenDraft(d, zone, hidden); }),
       addWidgetToNewSectionAt: (widgetId, anchorSectionId, position) => commit(d => { addWidgetToNewSectionAtDraft(d, widgetId, anchorSectionId, position); }),
       setColumnCount: (sectionId, count) => commit(d => { setColumnCountDraft(d, sectionId, count); }),
       setColumnWeight: (columnId, weight) => commit(d => { setColumnWeightDraft(d, columnId, weight); }),
@@ -196,6 +206,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       createSectionAt: useStore.getState().createSectionAt,
       removeSection: useStore.getState().removeSection,
       createSectionInZone: useStore.getState().createSectionInZone,
+      setZoneHidden: useStore.getState().setZoneHidden,
       addWidgetToNewSectionAt: useStore.getState().addWidgetToNewSectionAt,
       setColumnCount: useStore.getState().setColumnCount,
       setColumnWeight: useStore.getState().setColumnWeight,
