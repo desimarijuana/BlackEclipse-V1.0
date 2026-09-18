@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseEarningsCsv } from './earnings';
+import { parseEarningsCsv, parseNasdaqEarnings } from './earnings';
 
 describe('parseEarningsCsv', () => {
   it('parses the Alpha Vantage EARNINGS_CALENDAR shape', () => {
@@ -42,6 +42,31 @@ describe('parseEarningsCsv', () => {
     expect(parseEarningsCsv('')).toEqual([]);
     expect(parseEarningsCsv('symbol,name')).toEqual([]);
     expect(parseEarningsCsv('{"Information":"rate limit"}')).toEqual([]);
+  });
+
+  it('parses the keyless Nasdaq fallback shape (session + parenthesised negative EPS)', () => {
+    const json = {
+      data: {
+        rows: [
+          { symbol: 'abvx', name: 'Abivax SA', time: 'time-after-hours', epsForecast: '($1.08)' },
+          { symbol: 'MSFT', name: 'Microsoft', time: 'time-pre-market', epsForecast: '$2.90' },
+          { symbol: 'X', name: 'X', time: 'time-not-supplied', epsForecast: 'N/A' },
+        ],
+      },
+    };
+    const rows = parseNasdaqEarnings(json);
+    expect(rows.map(r => r.symbol)).toEqual(['ABVX', 'MSFT', 'X']);
+    expect(rows[0].time).toBe('AMC');
+    expect(rows[0].epsEstimate).toBe(-1.08);
+    expect(rows[1].time).toBe('BMO');
+    expect(rows[1].epsEstimate).toBe(2.9);
+    expect(rows[2].time).toBeNull();
+    expect(rows[2].epsEstimate).toBeNull();
+  });
+
+  it('returns [] for a malformed Nasdaq payload', () => {
+    expect(parseNasdaqEarnings(null)).toEqual([]);
+    expect(parseNasdaqEarnings({ data: {} })).toEqual([]);
   });
 
   it('drops rows without a symbol or date, and nulls missing EPS', () => {

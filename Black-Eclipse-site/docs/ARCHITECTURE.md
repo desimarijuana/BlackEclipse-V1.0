@@ -881,16 +881,21 @@ research agent in `research.ts`. Every result states provenance and labels
 
 `src/lib/earnings.ts` (server-only) + `GET /api/earnings` serve upcoming company
 earnings to the `earnings-calendar` widget (topic `earnings:calendar`).
-**Alpha Vantage `EARNINGS_CALENDAR?horizon=3month`** is the source, using the
-`ALPHAVANTAGE_API_KEY` already declared in the provider-key vault; the key is
-read with `resolveProviderKey` server-side and **never** sent to the browser.
-The parser accepts Alpha Vantage's header aliases (`estimate`/`estimatedEPS`) and
-session spellings (`pre-market`/`post-market` → BMO/AMC). Caching is 6h with a
-shared in-flight promise, and a stale cached result is served on failure so a
-transient hiccup never blanks the widget. Every failure — no key, timeout, HTTP
-error, or a JSON rate-limit/notice body — returns an explicit
-`source: 'unavailable'` with a human `reason`; rows are never fabricated. Clicking
-a row dispatches `{ tab: 'chart', params: { symbol } }` on the command store.
+**Alpha Vantage `EARNINGS_CALENDAR?horizon=3month`** is the PRIMARY source, using
+the `ALPHAVANTAGE_API_KEY` from the provider-key vault (read with
+`resolveProviderKey` server-side; the key is **never** sent to the browser). A
+zero-config install has no key, so the module falls back to **Nasdaq's public
+earnings calendar** (`api.nasdaq.com/api/calendar/earnings`, no key) for the next
+5 weekdays — so the widget works out of the box and labels the real source
+(`Nasdaq` / `Alpha Vantage`). A present-but-rejected key also falls through to
+Nasdaq, and the Alpha Vantage reason is preserved in the error text. Parsers
+accept Alpha Vantage's header aliases (`estimate`/`estimatedEPS`) and session
+spellings (`pre-market`/`post-market`, `time-pre-market`/`time-after-hours` →
+BMO/AMC), plus parenthesised negative Nasdaq EPS (`($1.08)`). Caching is 6h with
+a shared in-flight promise, and a stale cached result is served on failure. Only
+when BOTH sources fail does it return `source: 'unavailable'` with a human
+`reason`; rows are never fabricated. Clicking a row dispatches
+`{ tab: 'chart', params: { symbol } }` on the command store.
 
 ## Live Intelligence (the Command Center media widget)
 

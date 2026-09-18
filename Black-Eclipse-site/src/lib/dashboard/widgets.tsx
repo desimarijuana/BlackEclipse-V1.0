@@ -1135,7 +1135,7 @@ interface EarningsRow {
 }
 interface EarningsPayload {
   rows?: EarningsRow[];
-  source?: 'alphavantage' | 'unavailable';
+  source?: 'alphavantage' | 'nasdaq' | 'unavailable';
   fetchedAt?: string;
   reason?: string;
 }
@@ -1257,8 +1257,8 @@ export function EarningsCalendarWidget() {
       {/* Provenance — source + last updated, never fabricated. */}
       <p className="mt-1.5 shrink-0 font-mono text-[9px] text-muted-foreground/60">
         {unavailable
-          ? 'Alpha Vantage · unavailable'
-          : `Alpha Vantage · ${t.data?.fetchedAt ? `updated ${new Date(t.data.fetchedAt).toLocaleTimeString()}` : '—'}`}
+          ? `UNAVAILABLE · ${t.data?.reason ?? 'source not reachable'}`
+          : `${t.data?.source === 'nasdaq' ? 'Nasdaq' : 'Alpha Vantage'} · ${t.data?.fetchedAt ? `updated ${new Date(t.data.fetchedAt).toLocaleTimeString()}` : '—'}`}
       </p>
     </div>
   );

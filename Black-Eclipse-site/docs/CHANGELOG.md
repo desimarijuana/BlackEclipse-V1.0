@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Command Center / Earnings** — Fixed "no data" when no key is configured and
+  added the keyless fallback. Alpha Vantage stays primary, but a zero-config
+  install has no `ALPHAVANTAGE_API_KEY`, so `earnings.ts` now falls back to
+  **Nasdaq's public earnings calendar** (no key) for the next 5 weekdays; the
+  widget names the real source (`Nasdaq` / `Alpha Vantage`). Verified live: 77
+  real rows. Nasdaq session values (`time-pre-market` / `time-after-hours`) and
+  parenthesised negative EPS (`($1.08)`) are parsed. If a key exists but is
+  rejected/limited, it also falls through to Nasdaq. 3 new tests.
+- **Workspace** — Fixed being stuck in edit mode. The toolbar/Done buttons used
+  `setEditMode(!workspace.editMode)` — a render-time closure, so two toggles
+  before a re-render acted on a stale value and left edit mode on. Added
+  `toggleEditMode()` which reads the store's current value at call time; the
+  toolbar Done button now also shows a check icon. docs updated:
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Command Center / Earnings** — Added an **Earnings Calendar** widget.
   `src/lib/earnings.ts` (server-only) fetches Alpha Vantage
   `EARNINGS_CALENDAR?horizon=3month` using the existing provider-key vault

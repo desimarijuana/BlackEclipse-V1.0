@@ -25,9 +25,11 @@ export interface EarningsRow {
   currency: string | null;
 }
 
+export type EarningsSource = 'alphavantage' | 'nasdaq' | 'unavailable';
+
 export interface EarningsResult {
   rows: EarningsRow[];
-  source: 'alphavantage' | 'unavailable';
+  source: EarningsSource;
   /** ISO timestamp of the fetch. */
   fetchedAt: string;
   /** Human reason shown when `source === 'unavailable'`. */
@@ -122,50 +124,129 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 let cache: { t: number; result: EarningsResult } | null = null;
 let inFlight: Promise<EarningsResult> | null = null;
 
-async function fetchFromAlphaVantage(): Promise<EarningsResult> {
-  const fetchedAt = new Date().toISOString();
-  const key = await resolveProviderKey('ALPHAVANTAGE_API_KEY');
-  if (!key) {
-    return {
-      rows: [],
-      source: 'unavailable',
-      fetchedAt,
-      reason: 'No Alpha Vantage API key. Add one in Settings › API Keys.',
-    };
-  }
-  const url = `${ALPHA_URL}?function=EARNINGS_CALENDAR&horizon=3month&apikey=${encodeURIComponent(key)}`;
+async function getJson(url: string, timeoutMs = 15_000): Promise<{ ok: boolean; status: number; text: string }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-    if (!res.ok) {
-      return { rows: [], source: 'unavailable', fetchedAt, reason: `Alpha Vantage returned ${res.status}.` };
-    }
-    const text = await res.text();
-    // Alpha Vantage answers a rate limit / bad key with JSON (or an info note)
-    // rather than a non-200, so detect it before treating the body as CSV.
-    const head = text.trimStart().slice(0, 40).toLowerCase();
-    if (head.startsWith('{') || head.startsWith('"') || head.includes('thank you for using')) {
-      let note = 'Alpha Vantage rejected the request.';
-      try {
-        const j = JSON.parse(text) as Record<string, string>;
-        note = j['Information'] || j['Note'] || j['Error Message'] || note;
-      } catch { /* keep default */ }
-      return { rows: [], source: 'unavailable', fetchedAt, reason: note };
-    }
-    const rows = parseEarningsCsv(text);
-    if (rows.length === 0) {
-      return { rows: [], source: 'unavailable', fetchedAt, reason: 'Alpha Vantage returned no earnings rows.' };
-    }
-    return { rows, source: 'alphavantage', fetchedAt };
-  } catch (err) {
-    const reason = err instanceof Error && err.name === 'AbortError'
-      ? 'Alpha Vantage request timed out.'
-      : 'Could not reach Alpha Vantage.';
-    return { rows: [], source: 'unavailable', fetchedAt, reason };
+    const res = await fetch(url, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BlackEclipse/1.0)', Accept: 'application/json, text/csv, */*' },
+    });
+    return { ok: res.ok, status: res.status, text: await res.text() };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchFromAlphaVantage(key: string): Promise<EarningsResult> {
+  const fetchedAt = new Date().toISOString();
+  const url = `${ALPHA_URL}?function=EARNINGS_CALENDAR&horizon=3month&apikey=${encodeURIComponent(key)}`;
+  const res = await getJson(url);
+  if (!res.ok) {
+    return { rows: [], source: 'unavailable', fetchedAt, reason: `Alpha Vantage returned ${res.status}.` };
+  }
+  const text = res.text;
+  // Alpha Vantage answers a rate limit / bad key with JSON (or an info note)
+  // rather than a non-200, so detect it before treating the body as CSV.
+  const head = text.trimStart().slice(0, 40).toLowerCase();
+  if (head.startsWith('{') || head.startsWith('"') || head.includes('thank you for using')) {
+    let note = 'Alpha Vantage rejected the request.';
+    try {
+      const j = JSON.parse(text) as Record<string, string>;
+      note = j['Information'] || j['Note'] || j['Error Message'] || note;
+    } catch { /* keep default */ }
+    return { rows: [], source: 'unavailable', fetchedAt, reason: note };
+  }
+  const rows = parseEarningsCsv(text);
+  if (rows.length === 0) {
+    return { rows: [], source: 'unavailable', fetchedAt, reason: 'Alpha Vantage returned no earnings rows.' };
+  }
+  return { rows, source: 'alphavantage', fetchedAt };
+}
+
+// ── Nasdaq fallback (keyless) ────────────────────────────────────────────────
+// Alpha Vantage is the PRIMARY source, but a zero-config install has no key.
+// Nasdaq's public calendar endpoint needs no key, so we fall back to it. Shape:
+//   { data: { rows: [{ symbol, name, time, epsForecast, ... }] } }
+// `time` is 'time-pre-market' | 'time-after-hours' | 'time-not-supplied'.
+
+function parseNasdaqMoney(v: unknown): number | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t || t === 'N/A') return null;
+  const negative = /^\(.*\)$/.test(t);
+  const n = Number(t.replace(/[()$,]/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return negative ? -n : n;
+}
+
+/** Parse one Nasdaq calendar response. Exported for tests. */
+export function parseNasdaqEarnings(json: unknown): EarningsRow[] {
+  const rows = (json as { data?: { rows?: unknown } })?.data?.rows;
+  if (!Array.isArray(rows)) return [];
+  const out: EarningsRow[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    const symbol = typeof o.symbol === 'string' ? o.symbol.trim().toUpperCase() : '';
+    if (!symbol) continue;
+    // The endpoint is queried per-day; the date is injected by the caller.
+    const time = typeof o.time === 'string'
+      ? (/pre/i.test(o.time) ? 'BMO' as const : /after|post/i.test(o.time) ? 'AMC' as const : null)
+      : null;
+    out.push({
+      symbol,
+      name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : symbol,
+      date: '', // filled in by fetchFromNasdaq
+      time,
+      epsEstimate: parseNasdaqMoney(o.epsForecast),
+      epsActual: null,
+      currency: 'USD',
+    });
+  }
+  return out;
+}
+
+/** Fetch a few upcoming weekdays from Nasdaq and merge into one list. */
+async function fetchFromNasdaq(): Promise<EarningsResult> {
+  const fetchedAt = new Date().toISOString();
+  const days: string[] = [];
+  // Next 5 weekdays (today included) — enough for the Today/Tomorrow/Week filters.
+  for (let i = 0; days.length < 5 && i < 9; i++) {
+    const d = new Date(Date.now() + i * 86_400_000);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) continue;
+    days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  const results = await Promise.all(days.map(async (date) => {
+    try {
+      const res = await getJson(`https://api.nasdaq.com/api/calendar/earnings?date=${date}`, 12_000);
+      if (!res.ok) return [] as EarningsRow[];
+      const parsed = parseNasdaqEarnings(JSON.parse(res.text));
+      return parsed.map(r => ({ ...r, date }));
+    } catch { return [] as EarningsRow[]; }
+  }));
+  const rows = results.flat();
+  if (rows.length === 0) {
+    return { rows: [], source: 'unavailable', fetchedAt, reason: 'Nasdaq returned no earnings rows.' };
+  }
+  return { rows, source: 'nasdaq', fetchedAt };
+}
+
+/** Alpha Vantage first (if a key is configured), then the keyless Nasdaq feed. */
+async function fetchEarnings(): Promise<EarningsResult> {
+  const key = await resolveProviderKey('ALPHAVANTAGE_API_KEY');
+  if (key) {
+    const av = await fetchFromAlphaVantage(key);
+    if (av.source === 'alphavantage') return av;
+    // Key present but rejected/limited — fall through to Nasdaq rather than
+    // showing nothing, and keep the Alpha Vantage reason if Nasdaq also fails.
+    const nasdaq = await fetchFromNasdaq();
+    if (nasdaq.source !== 'unavailable') return nasdaq;
+    return { ...nasdaq, reason: `${av.reason ?? 'Alpha Vantage failed.'} · ${nasdaq.reason ?? ''}`.trim() };
+  }
+  return fetchFromNasdaq();
 }
 
 /**
@@ -175,9 +256,9 @@ async function fetchFromAlphaVantage(): Promise<EarningsResult> {
 export async function getEarningsCalendar(): Promise<EarningsResult> {
   if (cache && Date.now() - cache.t < CACHE_TTL_MS) return cache.result;
   if (inFlight) return inFlight;
-  inFlight = fetchFromAlphaVantage()
+  inFlight = fetchEarnings()
     .then((result) => {
-      if (result.source === 'alphavantage') cache = { t: Date.now(), result };
+      if (result.source !== 'unavailable') cache = { t: Date.now(), result };
       else if (cache) return cache.result; // serve stale on failure
       return result;
     })

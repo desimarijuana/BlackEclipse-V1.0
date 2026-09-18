@@ -12,7 +12,7 @@
 // handled here.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelLeft, PanelRight, Plus, RefreshCw, Settings2 } from 'lucide-react';
+import { Check, PanelLeft, PanelRight, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
@@ -101,7 +101,7 @@ export function CustomizableWorkspace({
   const shortcutsEnabled = !configPlacement && !libraryOpen && !addDrag;
 
   usePageShortcuts(rootRef, [
-    { id: 'workspace-customize', label: 'Customize workspace', keys: 'shift+e', run: () => workspace.setEditMode(!workspace.editMode), enabled: shortcutsEnabled },
+    { id: 'workspace-customize', label: 'Customize workspace', keys: 'shift+e', run: () => workspace.toggleEditMode(), enabled: shortcutsEnabled },
     { id: 'workspace-library', label: 'Open widget library', keys: 'shift+w', run: () => { workspace.setEditMode(true); setLibraryOpen(true); }, enabled: shortcutsEnabled },
     { id: 'workspace-refresh', label: 'Refresh workspace widgets', keys: 'r', run: refreshAll, enabled: shortcutsEnabled },
   ]);
@@ -180,7 +180,7 @@ export function CustomizableWorkspace({
           </button>
           <button
             title={workspace.editMode ? 'Done customizing (Shift+E)' : 'Customize layout (Shift+E)'}
-            onClick={() => workspace.setEditMode(!workspace.editMode)}
+            onClick={() => workspace.toggleEditMode()}
             className={cn(
               'glass-button rounded-lg p-1.5 transition-all cursor-pointer',
               workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
@@ -188,6 +188,16 @@ export function CustomizableWorkspace({
           >
             <Settings2 size={12} />
           </button>
+          {workspace.editMode && (
+            <button
+              type="button"
+              onClick={() => workspace.setEditMode(false)}
+              className="glass-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-primary transition-all cursor-pointer"
+              title="Done customizing"
+            >
+              <Check size={12} /> Done
+            </button>
+          )}
         </div>
       ) : toolbar === 'default' ? (
         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
@@ -199,14 +209,16 @@ export function CustomizableWorkspace({
             <RefreshCw size={13} /> Refresh
           </button>
           <button
+            type="button"
             title={workspace.editMode ? 'Done customizing (Shift+E)' : 'Customize layout (Shift+E)'}
-            onClick={() => workspace.setEditMode(!workspace.editMode)}
+            onClick={() => workspace.toggleEditMode()}
             className={cn(
               'glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer',
               workspace.editMode ? 'text-primary' : 'text-muted-foreground hover:text-primary',
             )}
           >
-            <Settings2 size={13} /> {workspace.editMode ? 'Done' : 'Customize'}
+            {workspace.editMode ? <Check size={13} /> : <Settings2 size={13} />}
+            {workspace.editMode ? 'Done' : 'Customize'}
           </button>
         </div>
       ) : null}
@@ -339,3 +351,4 @@ export function CustomizableWorkspace({
     </div>
   );
 }
+

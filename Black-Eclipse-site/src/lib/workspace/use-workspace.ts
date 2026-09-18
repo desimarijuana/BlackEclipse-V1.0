@@ -83,6 +83,13 @@ interface WorkspaceActions {
   applyTemplate: (template: WorkspaceTemplate) => void;
   resetToDefault: () => void;
   setEditMode: (on: boolean) => void;
+  /**
+   * Flip edit mode using the STORE's current value (not a render-time closure).
+   * A handler that does `setEditMode(!workspace.editMode)` can act on a stale
+   * value when two toggles land before a re-render, leaving the user stuck in
+   * edit mode — this reads `get()` at call time instead.
+   */
+  toggleEditMode: () => void;
   selectWidget: (widgetId: string | null) => void;
   setDragging: (on: boolean) => void;
 }
@@ -185,6 +192,10 @@ function makeWorkspaceStore({ storageKey, defaultLayout, knownWidgetIds }: UseWo
         saveWorkspace(storageKey, get().layout);
       },
       setEditMode: (on) => set({ editMode: on, selectedWidgetId: on ? get().selectedWidgetId : null }),
+      toggleEditMode: () => {
+        const on = !get().editMode;
+        set({ editMode: on, selectedWidgetId: on ? get().selectedWidgetId : null });
+      },
       selectWidget: (widgetId) => set({ selectedWidgetId: widgetId }),
       setDragging: (on) => set({ dragging: on }),
     };
@@ -218,6 +229,7 @@ export function useWorkspace(options: UseWorkspaceOptions) {
     layout,
     editMode,
     setEditMode: useStore.getState().setEditMode,
+    toggleEditMode: useStore.getState().toggleEditMode,
     corrupt,
     dragging,
     selectedWidgetId,
