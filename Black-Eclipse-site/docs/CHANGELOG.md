@@ -43,6 +43,31 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Command Center** — ChatDock float fix + minimize option. The visibility gate
+  no longer uses an `IntersectionObserver` on a zero-size sentinel (which made the
+  composer vanish mid-scroll — it looked like it scrolled with the page); it now
+  reads the keep-alive panel's `display` via `MutationObserver`
+  (`[data-keepalive-panel]`). The composer is a true viewport-fixed overlay (no
+  reserved `pb-28`). Added a persisted **minimize/restore** pill
+  (`be_chat_dock_minimized_v1`) separate from the transcript expand toggle, so
+  the user decides small vs big.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Command Center** — Added the floating **ChatDock** assistant composer.
+  `components/chat/chat-dock.tsx` is a Gemini-style bottom-centre bar: collapsed
+  it is just the composer, and the transcript expands ABOVE it once there is a
+  conversation. It reuses the existing chat stack (`ChatHistory`,
+  `getAgentProvider()`, `/api/agent/research` for research intents) so there is
+  one chat implementation. It owns its own localStorage conversation
+  (`be_chat_dock_v1`), portals to `<body>` at `z-[90]` (above the fullscreen
+  overlay), and is `data-nodrag` — but deliberately NOT `data-keyboard-overlay`
+  (an always-on surface must not block page shortcuts; the focused input already
+  suppresses them). A visibility sentinel gates it on the Command Center being
+  the ACTIVE keep-alive tab (a body portal is not hidden by an ancestor
+  `display:none`). The provider pill shows the REAL configured provider label,
+  never a fabricated model. `ChatHistory` gained a `compact` variant.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Aurora / Fullscreen** — Fixed the missing Aurora glow in Command Center
   fullscreen. The overlay portals to `<body>` at `z-[80]`, above the app shell's
   Aurora (`z-0`), so it covered the glow. Extracted the glow into a reusable

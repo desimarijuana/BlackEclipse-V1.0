@@ -526,7 +526,7 @@ function StockChatContent() {
               reload, no refetch, no loader flash. Unvisited tabs render
               nothing, preserving the old single-screen boot behavior. */}
           {visited.has('dashboard') && (
-            <div className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
+            <div data-keepalive-panel className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8">
                 <MarketViewsProvider>
                   <DashboardScreen />

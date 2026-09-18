@@ -445,6 +445,42 @@ band. The shell and fullscreen both use it, so the sentiment model stays in one
 place (`src/lib/aurora-sentiment.ts`). Any future full-viewport overlay must do
 the same — the shell's glow does not reach above it.
 
+### ChatDock (the Command Center assistant composer)
+
+`src/components/chat/chat-dock.tsx` is the floating, **bottom-centre** assistant
+bar mounted on the Command Center (collapsed = composer only; the transcript
+expands above it once there is a conversation). It is a **view over the existing
+chat stack**, not a second one: it renders `ChatHistory`, calls
+`getAgentProvider()` for ordinary questions and `/api/agent/research` for
+research intents (the same heuristic the ChatBot tab uses). Invariants:
+
+- **It owns its own conversation.** Persisted to `localStorage`
+  (`be_chat_dock_v1`), separate from the ChatBot tab's shell-owned `chats_guest`
+  state, so opening it never mutates or races the full chat screen.
+- **A body portal must gate itself on the HOST TAB's display, never on viewport
+  intersection.** The Command Center is a keep-alive tab hidden with
+  `display:none`, and a `createPortal` to `<body>` is NOT hidden by an ancestor's
+  `display:none`. The dock walks up to the keep-alive panel
+  (`[data-keepalive-panel]`, set by `stock-chat.tsx`) and reads its
+  `display`/`visibility`, re-reading via a `MutationObserver` when the tab's
+  `class` toggles. Do **not** use an `IntersectionObserver` here: the dashboard
+  scrolls, a zero-size sentinel scrolls out of view, the observer reports
+  "hidden", and the always-on composer disappears mid-scroll.
+- **Always-on overlays are NOT `data-keyboard-overlay`.** That marker declares a
+  *blocking dialog* and would disable every page shortcut while the dock is
+  mounted. The dock is therefore only `data-nodrag`; the focused composer input
+  already suppresses shortcuts via the editable-element guard.
+- **Never fabricate a model name.** The provider pill renders
+  `getAgentProvider().label` — the real configured provider.
+
+It renders at `z-[90]` (above the fullscreen overlay's `z-[80]`) and takes a
+`className` so fullscreen can lift it clear of the Exit button. Two independent
+collapse controls: the **transcript** expand/collapse (and Escape, captured so it
+does not also exit fullscreen), and a true **minimize** that shrinks the whole
+dock to a restore pill — persisted (`be_chat_dock_minimized_v1`) so the user's
+small-vs-big choice survives reload. The composer overlays the board; it does not
+reserve layout space.
+
 ### Shipped default dashboard board
 
 `src/lib/dashboard/default-board.ts` exports `DEFAULT_BOARD_JSON`. Paste a
