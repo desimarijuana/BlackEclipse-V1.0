@@ -1,6 +1,8 @@
 'use client';
 
-// ── TradeForm — reusable trade entry form (used by Trades + Calendar) ─────────
+// ── TradeForm — the shared trade entry form ──────────────────────────────────
+// Rendered inside `QuickAddTrade` (the Journal's single add-trade dialog), which
+// is mounted once in the Journal header and reachable from every sub-tab.
 
 import React, { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';

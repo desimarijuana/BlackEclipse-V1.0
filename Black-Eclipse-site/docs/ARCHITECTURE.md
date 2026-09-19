@@ -169,6 +169,16 @@ Two design notes that matter:
   a `User` relation can be added later without a rewrite. There are no accounts
   today — the app is a guest app.
 
+### One Add-Trade entry point
+
+The Journal header mounts a single `QuickAddTrade` dialog
+(`src/components/journal/quick-add-trade.tsx`), reachable from every sub-tab and
+via `Shift+N`. It wraps the shared `TradeForm`, owns the
+`POST /api/journal/trades` + parent `refresh()`, and can be pre-filled from a
+calendar day. The Trades and Calendar tabs used to carry divergent inline copies
+(Trades had its own duplicated form-state type); both now open this one dialog,
+so the add-trade contract lives in one file.
+
 ### Journal demo data is real rows, clearly labelled
 
 The journal is DB-backed, unlike the localStorage portfolio demo, so a fresh

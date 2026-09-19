@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Journal / Quick Add Trade** — Added a single Add-Trade entry point on the
+  Journal header (`QuickAddTrade`), reachable from every sub-tab, with a global
+  `Shift+N` shortcut and pre-fill from a selected calendar day. It wraps the
+  shared `TradeForm` in a glass dialog and owns the POST + refresh. The old
+  divergent inline forms in the Trades and Calendar tabs were removed (Trades
+  had a duplicated form/state type); both tabs now open the same dialog, and
+  Overview's empty-state button opens it directly. 1312 tests pass, `tsc` clean,
+  build clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Journal / Market Bubbles fixes** — (1) The MiniCalendar ("Last 39 Weeks")
   hover tooltip drifted down instead of following the cursor: `position: fixed`
   is relative to the nearest ancestor with a `backdrop-filter`, and the frosted

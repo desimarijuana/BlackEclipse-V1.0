@@ -22,6 +22,7 @@ import { JournalReviews } from './reviews';
 import { JournalInsights } from './insights';
 import { DailyJournal } from './daily-journal';
 import { DemoDataBanner } from './demo-banner';
+import { QuickAddTrade } from './quick-add-trade';
 
 export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'psychology' | 'playbook' | 'reviews' | 'insights';
 
@@ -44,6 +45,7 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dailyOpen, setDailyOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // Global search: 'journal.<tab>' sub-pages (e.g. 'journal.analytics').
   useSubroute('journal', (req) => {
@@ -86,6 +88,7 @@ export function JournalScreen() {
   }, []);
   usePageShortcuts(rootRef, [
     { id: 'journal.refresh', label: 'Refresh journal', keys: 'R', run: refresh, enabled: !loading && !dailyOpen },
+    { id: 'journal.new-trade', label: 'Add trade', keys: 'Shift+N', run: () => setQuickAddOpen(true), enabled: !dailyOpen && !quickAddOpen },
     ...TABS.slice(0, 9).map((t, i) => ({
       id: `journal.tab.${t.id}`,
       label: t.label,
@@ -98,15 +101,24 @@ export function JournalScreen() {
 
   return (
     <div ref={rootRef} data-keyboard-scope="Trading journal" className="animate-fade-in-up w-full">
-      {/* Header */}
+      {/* Header — the Add-Trade action lives here so it is reachable from every
+          sub-tab, not just Trades/Calendar. */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
           <BookOpen className="text-primary" size={22} />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Trading Journal</h1>
           <p className="text-muted-foreground text-xs mt-0.5">Every trade becomes data. Every day becomes behavioral data.</p>
         </div>
+        {!dailyOpen && (
+          <QuickAddTrade
+            onAdded={refresh}
+            defaultDate={selectedDate ?? undefined}
+            open={quickAddOpen}
+            onOpenChange={setQuickAddOpen}
+          />
+        )}
       </div>
 
       {/* Sub-tab navigation */}
@@ -135,7 +147,7 @@ export function JournalScreen() {
             <DailyJournal date={selectedDate} onBack={() => setDailyOpen(false)} />
           ) : (
             <>
-              {tab === 'overview' && <JournalOverview analytics={analytics} trades={trades} onOpenTrades={() => setTab('trades')} onOpenCalendar={(d) => { if (d) { setSelectedDate(d); setDailyOpen(true); } else setTab('calendar'); }} />}
+              {tab === 'overview' && <JournalOverview analytics={analytics} trades={trades} onOpenTrades={() => setTab('trades')} onAddTrade={() => setQuickAddOpen(true)} onOpenCalendar={(d) => { if (d) { setSelectedDate(d); setDailyOpen(true); } else setTab('calendar'); }} />}
               {tab === 'calendar' && <JournalCalendar trades={trades} onSelectDay={(d) => { setSelectedDate(d); setDailyOpen(true); }} onChanged={refresh} />}
               {tab === 'trades' && <JournalTrades trades={trades} analytics={analytics} onChanged={refresh} selectedDate={selectedDate} />}
               {tab === 'analytics' && <JournalAnalyticsView analytics={analytics} trades={trades} />}

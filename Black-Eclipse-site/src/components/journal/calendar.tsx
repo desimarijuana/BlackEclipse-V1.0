@@ -4,10 +4,10 @@
 
 import React, { useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
-import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
-import { TradeForm, emptyTradeForm, type TradeFormState } from './trade-form';
+import { QuickAddTrade } from './quick-add-trade';
 import { CsvImport } from './csv-import';
 import type { TradeRecord } from '@/lib/journal/types';
 import { formatMonthLabel } from '@/lib/journal/dates';
@@ -24,9 +24,6 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
   const [year, setYear] = useState(now.getUTCFullYear());
   const [month, setMonth] = useState(now.getUTCMonth());
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<TradeFormState>(() => emptyTradeForm());
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const monthLabel = useMemo(() => formatMonthLabel(year, month), [year, month]);
 
@@ -58,48 +55,8 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
 
   const isCurrentMonth = year === now.getUTCFullYear() && month === now.getUTCMonth();
 
-  const submit = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/journal/trades', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol: form.symbol,
-          direction: form.direction,
-          entry: Number(form.entry),
-          exit: Number(form.exit),
-          stopLoss: form.stopLoss ? Number(form.stopLoss) : null,
-          takeProfit: form.takeProfit ? Number(form.takeProfit) : null,
-          quantity: Number(form.quantity) || 1,
-          entryTime: new Date(form.entryTime).toISOString(),
-          exitTime: new Date(form.exitTime).toISOString(),
-          session: form.session || null,
-          timeframe: form.timeframe || null,
-          emotion: form.emotion || null,
-          confidence: form.confidence ? Number(form.confidence) : null,
-          mistakes: form.mistakes,
-          notes: form.notes || null,
-          strategyId: form.strategyId || null,
-          setupId: form.setupId || null,
-          tagNames: form.tagNames,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save');
-      setForm(emptyTradeForm());
-      setAdding(false);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const rootRef = useRef<HTMLDivElement>(null);
-  const startAdding = () => { setAdding(true); setForm(emptyTradeForm()); };
+  const startAdding = () => setAdding(true);
   usePageShortcuts(rootRef, [
     { id: 'calendar.new', label: 'Add trade', keys: 'Shift+N', run: startAdding, enabled: !adding },
   ]);
@@ -129,25 +86,19 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
           </div>
           <CsvImport onImported={onChanged} />
           <button
-            onClick={() => { if (adding) setAdding(false); else startAdding(); }}
+            onClick={startAdding}
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
           >
-            {adding ? <X size={13} /> : <Plus size={13} />} {adding ? 'Cancel' : 'Add Trade'}
+            <Plus size={13} /> Add Trade
           </button>
+          <QuickAddTrade
+            onAdded={onChanged}
+            open={adding}
+            onOpenChange={setAdding}
+            trigger={false}
+          />
         </div>
       </div>
-
-      {/* Add trade form */}
-      {adding && (
-        <TradeForm
-          form={form}
-          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
-          onSubmit={submit}
-          onCancel={() => setAdding(false)}
-          saving={saving}
-          error={error}
-        />
-      )}
 
       {/* Month summary strip */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

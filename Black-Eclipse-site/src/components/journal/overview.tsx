@@ -17,9 +17,11 @@ interface OverviewProps {
   trades: TradeRecord[];
   onOpenTrades: () => void;
   onOpenCalendar?: (date?: string) => void;
+  /** Open the global quick-add trade dialog directly. */
+  onAddTrade?: () => void;
 }
 
-export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalendar }: OverviewProps) {
+export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalendar, onAddTrade }: OverviewProps) {
   const p = analytics?.performance;
   const recent = useMemo(() => [...trades].sort((a, b) => Date.parse(b.exitTime) - Date.parse(a.exitTime)).slice(0, 8), [trades]);
   const rValues = useMemo(() => trades.filter((t) => t.status === 'closed').map((t) => t.rMultiple), [trades]);
@@ -28,7 +30,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
     return (
       <div className="rounded-3xl glass-card p-12 text-center">
         <p className="text-sm text-muted-foreground">No trades yet. Add your first trade to start building your journal.</p>
-        <button onClick={onOpenTrades} className="mt-4 rounded-xl border border-primary/40 bg-primary/15 text-primary px-4 py-2 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer">
+        <button onClick={onAddTrade ?? onOpenTrades} className="mt-4 rounded-xl border border-primary/40 bg-primary/15 text-primary px-4 py-2 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer">
           + Add Trade
         </button>
       </div>
