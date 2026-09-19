@@ -684,10 +684,34 @@ layer. Status is computed from the real environment (`builtin` / `connected` /
 `not_configured` / `available`) and buttons never claim to have saved a key:
 env-gated providers route to the screen that actually sets it.
 
-**Providers live where they are configured.** Each settings section renders the
-slice it owns — AI Agent (a preset picker), Market Data (market + crypto),
-Integrations (economics), Data Sources (custom only) — rather than dumping all 72
-into one screen. Long lists are collapsible and filterable.
+**Providers live where they are configured (purpose-first IA).** Settings is
+organised around *what the user is configuring*, never backend concepts. There
+is no "API Keys", "Integrations", "Data Sources" or "AI Agent" menu overlap:
+
+- **AI / LLM** — every LLM concern (preset picker, provider keys, base URL,
+  model, active provider, **Test Connection**, status). Strictly separated from
+  financial/data APIs.
+- **Investor Eye** — every financial/data provider grouped by the purpose it
+  serves (market, fundamentals, economics, news, earnings, SEC/company, crypto)
+  plus a feature→provider map and the Data Sources wizard for custom APIs.
+- **Market Data** — supported markets/exchanges and the price-source fallback
+  chain.
+- **News** — RSS feeds plus news API providers.
+- **System** — technical/internal only: JDDS/database status, health, all-provider
+  technical view.
+
+`src/lib/providers/directory.ts` is the single source of "why does this provider
+exist, who uses it, and where does it live" (purpose, `usedBy`, free/paid tier,
+and a `home`). `home` is what guarantees **every provider appears in exactly one
+Settings section** — it is the anti-duplication invariant, filtered by
+`providerHome()`. `provider-registry-panel.tsx` renders one
+`Provider → Purpose → Features → Status → API key → Test` list per section, with
+inline (never-echoed) key management, so a section does not also render a second
+"API Keys" list of the same providers. Investor Eye additionally shows its own
+keyless event sources (`InvestorEyeSources`) and a feature→provider map whose
+chips deep-link to each provider's home section. Provider buckets currently:
+AI/LLM (14), Economics (44), News (Finnhub), Market (15), Investor Eye (GDELT/
+USGS/FIRMS, keyless).
 
 **AI presets are one source of truth.** `src/lib/agent/presets.ts` declares every
 OpenAI-compatible provider (base URL + default model). The AI Agent picker and
@@ -708,11 +732,11 @@ provenance so widgets never invent a tag.
 **New routes:** `GET/POST/PATCH/DELETE /api/data-sources`,
 `POST /api/data-sources/test` (outbound → `guardExpensiveMutation`),
 `GET/POST/PUT/DELETE /api/datasets`, `GET /api/data/[capability]`,
-`GET /api/providers`.
-**UI:** Settings → **Data Sources** (`data-sources-panel.tsx`) — the provider
-catalog, the connector list, the add wizard (Configure → Authenticate → Test →
-Map & define dataset), and a **Datasets** browser with **Pull**, per-dataset
-parameter inputs, records with provenance, auto-refresh, and delete.
+`GET /api/providers`, `POST /api/agent/test` (real LLM endpoint check).
+**UI:** Settings → **Investor Eye** (`data-sources-panel.tsx` embedded) — the
+provider registry, the connector list, the add wizard (Configure → Authenticate →
+Test → Map & define dataset), and a **Datasets** browser with **Pull**,
+per-dataset parameter inputs, records with provenance, auto-refresh, and delete.
 
 **Agent access.** Read-only `list_datasets` / `describe_dataset` /
 `query_dataset` tools in `src/lib/agent/dataset-tools.ts`, spread into `TOOLS`;

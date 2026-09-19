@@ -51,7 +51,7 @@ describe('registry', () => {
     // A sub-page's group is its parent tab, so the palette can nest it.
     expect(subs.every((p) => p.group === p.destination.tab)).toBe(true);
     const subroutes = new Set(subs.map((p) => p.destination.subroute));
-    for (const r of ['economics.calendar', 'journal.analytics', 'discovery.crypto', 'alerts.create', 'settings.aurora']) {
+    for (const r of ['economics.calendar', 'journal.analytics', 'discovery.crypto', 'alerts.create', 'settings.aurora', 'settings.investor-eye', 'settings.economics']) {
       expect(subroutes.has(r)).toBe(true);
     }
   });

@@ -93,7 +93,10 @@ Black-Eclipse-site/
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
-| Add/change a provider API key (the settings "API Keys" menu) | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) → `/api/provider-keys` → `src/components/screens/api-keys-panel.tsx`; section id `settings.api-keys` |
+| Add/change a provider API key | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) → `/api/provider-keys` → `src/components/screens/api-keys-panel.tsx` (filtered by `categories` prop); LLM keys render under `settings.ai`, financial/data keys under `settings.investor-eye` |
+| Change Settings information architecture / sections | `src/components/screens/settings.tsx` (`SectionId`, `NAV`), sub-pages in `src/lib/search/registry.ts` (`settings.*`) |
+| Explain why a provider exists / which feature uses it | `src/lib/providers/directory.ts` (`providerMeta`, `INVESTOR_EYE_FEATURES`) → registry UI `src/components/screens/provider-registry-panel.tsx` |
+| Test an LLM connection | `POST /api/agent/test` (real endpoint request) |
 | Pull/ingest custom dataset records | `PUT /api/datasets` → `pullDataset` in `src/lib/connectors/refresh.ts` |
 | Scheduled connector refresh | `src/lib/connectors/refresh-scheduler.ts` (started in `src/instrumentation.ts`) |
 | Change the DB schema | `prisma/schema.prisma` → `prisma db push` |
@@ -113,6 +116,7 @@ Black-Eclipse-site/
 | `chart/` | Chart types, data hooks, indicators, drawings, structure, providers |
 | `connectors/` | Universal Data Connector Layer: provider catalog, capability resolver, custom REST connectors, SSRF/secret security, custom datasets, scheduled refresh |
 | `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |
+| `providers/` | Provider directory: purpose / used-by / tier metadata + the Investor Eye feature→provider map (client-safe) |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
 | `economics/` | Macro fetching, sources, calendar, snapshot |
 | `fundamentals/` | Investor financial-analysis tier: provider abstraction (SEC/FMP/Yahoo), Eclipse schema normalization, derived metrics + data-driven risks, JDDS cache — see `ARCHITECTURE.md` › Fundamentals |
@@ -131,7 +135,7 @@ Black-Eclipse-site/
 `stocks` · `quote` · `price-history` · `asset-details` · `symbols` ·
 `markets`(+`global`) · `indices` · `forex` · `commodities` · `heatmap` ·
 `news`(+`status`,`alert`) · `economics`(+`snapshot`,`calendar`) ·
-`search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`) ·
+`search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`,`test`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
 `data/[capability]` · `providers` · `provider-keys` · `fundamentals` · `investor-eye/*` (state, events, countries,

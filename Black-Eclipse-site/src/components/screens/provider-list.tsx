@@ -4,23 +4,27 @@
 // A compact slice of the provider catalog, rendered INSIDE the settings section
 // that configures it. APIs live where you would look for them:
 //
-//   AI Agent      → AI & LLM
-//   Market Data   → Market Data + Crypto
-//   Integrations  → Economics & Macro
-//   Data Sources  → Your own data (the wizard)
+//   AI / LLM       → AI & LLM
+//   Investor Eye   → Market, fundamentals, economics, crypto, news, earnings
+//   Market Data    → Market price sources
+//   News           → News providers
+//   Data Sources   → Your own data (the wizard)
 //
 // The full catalog is still one request (`GET /api/providers`); it is cached at
 // module scope so rendering it in several sections costs one fetch.
 //
-// Honesty rules (unchanged from the catalog): a row only says "connected" when
-// the gating env var is really set, and an action button never claims to have
-// saved a key — env-gated providers route to the section that sets it.
+// Every row now answers "why does this exist and who uses it?" via the provider
+// directory (`lib/providers/directory`): purpose, used-by features, and cost
+// tier. Honesty rules are unchanged: a row only says "connected" when the
+// gating env var is really set, and an action button never claims to have saved
+// a key — env-gated providers route to the section that sets it.
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ExternalLink, Loader2, Plus } from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCommandStore } from "@/lib/search/store";
+import { providerMeta, TIER_LABEL } from "@/lib/providers/directory";
 import type { CatalogProvider, ProviderCatalog, ProviderCategory } from "@/lib/connectors/catalog";
 
 let cached: Promise<ProviderCatalog> | null = null;
@@ -35,7 +39,7 @@ export function loadProviderCatalog(force = false): Promise<ProviderCatalog> {
   return cached;
 }
 
-function useProviderCatalog(): ProviderCatalog | null {
+export function useProviderCatalog(): ProviderCatalog | null {
   const [catalog, setCatalog] = useState<ProviderCatalog | null>(null);
   useEffect(() => {
     let live = true;
@@ -59,7 +63,7 @@ function goConfigure(provider: CatalogProvider, onOpenWizard?: () => void) {
     onOpenWizard?.();
     return;
   }
-  if (provider.configure.target === "agent" || provider.configure.target === "integrations") {
+  if (provider.configure.target === "ai" || provider.configure.target === "investor-eye") {
     useCommandStore.getState().dispatch({
       tab: "settings",
       subroute: `settings.${provider.configure.target}`,
@@ -76,51 +80,65 @@ function ProviderRow({
 }) {
   const available = provider.status === "builtin" || provider.status === "connected";
   const actionable = !available && provider.configure.target !== "none";
+  const meta = providerMeta(provider.id, provider.category);
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-accent/20 transition-colors">
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-foreground flex items-center gap-1.5">
-          <span className="truncate">{provider.name}</span>
-          {provider.recommended && (
-            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border border-primary/30 bg-primary/10 text-primary shrink-0">
-              RECOMMENDED
-            </span>
-          )}
-        </p>
-        <p className="text-[10px] text-muted-foreground truncate" title={provider.description}>
-          {provider.description}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0">
-        {provider.status === "not_configured" && provider.envVar && (
-          <span className="text-[9px] text-amber-400/90 font-mono hidden sm:inline">needs {provider.envVar}</span>
-        )}
-        {available ? (
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-              {provider.status === "builtin" ? "Built-in" : "Key set"}
-            </span>
-          </span>
-        ) : actionable ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="cursor-pointer rounded-xl text-[10px] h-7 px-2.5"
-            onClick={() => goConfigure(provider, onOpenWizard)}
-          >
-            {provider.configure.target === "wizard" ? (
-              <Plus className="w-3 h-3 mr-1" />
-            ) : (
-              <ExternalLink className="w-3 h-3 mr-1" />
+    <div className="px-4 py-3 hover:bg-accent/20 transition-colors">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+            <span className="truncate">{provider.name}</span>
+            {provider.recommended && (
+              <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border border-primary/30 bg-primary/10 text-primary shrink-0">
+                RECOMMENDED
+              </span>
             )}
-            {provider.configure.target === "wizard" ? "Add" : "Set up"}
-          </Button>
-        ) : (
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Off</span>
-        )}
+            <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground/70 shrink-0">
+              {TIER_LABEL[meta.tier]}
+            </span>
+          </p>
+          {/* Purpose — "what is this API?" */}
+          <p className="text-[10px] text-primary/90 mt-0.5">{meta.purpose}</p>
+          <p className="text-[10px] text-muted-foreground truncate" title={provider.description}>
+            {provider.description}
+          </p>
+          {/* Used-by — "which feature uses it?" */}
+          {meta.usedBy.length > 0 && (
+            <p className="text-[9px] text-muted-foreground/70 mt-1">
+              Used by: {meta.usedBy.join(", ")}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {provider.status === "not_configured" && provider.envVar && (
+            <span className="text-[9px] text-amber-400/90 font-mono hidden sm:inline">needs {provider.envVar}</span>
+          )}
+          {available ? (
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                {provider.status === "builtin" ? "Built-in" : "Key set"}
+              </span>
+            </span>
+          ) : actionable ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer rounded-xl text-[10px] h-7 px-2.5"
+              onClick={() => goConfigure(provider, onOpenWizard)}
+            >
+              {provider.configure.target === "wizard" ? (
+                <Plus className="w-3 h-3 mr-1" />
+              ) : (
+                <Wrench className="w-3 h-3 mr-1" />
+              )}
+              {provider.configure.target === "wizard" ? "Add" : "Configure"}
+            </Button>
+          ) : (
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Off</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -133,17 +151,20 @@ function ProviderRow({
  * @param collapsible Start collapsed (for long lists like economics).
  * @param searchable  Show a filter box (worth it only for long lists).
  * @param onOpenWizard Called when a provider's action is "open the wizard".
+ * @param title       Override the section heading (e.g. "Fundamental data providers").
  */
 export function ProviderList({
   categories,
   collapsible = false,
   searchable = false,
   onOpenWizard,
+  title,
 }: {
   categories: ProviderCategory[];
   collapsible?: boolean;
   searchable?: boolean;
   onOpenWizard?: () => void;
+  title?: string;
 }) {
   const catalog = useProviderCatalog();
   const [open, setOpen] = useState(!collapsible);
@@ -177,7 +198,7 @@ export function ProviderList({
       >
         <div className="text-left">
           <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary">
-            {groups.length === 1 ? groups[0].label : "Providers"}
+            {title ?? (groups.length === 1 ? groups[0].label : "Providers")}
           </p>
           <p className="text-[10px] text-muted-foreground mt-0.5">
             {available} of {total} available
@@ -203,7 +224,7 @@ export function ProviderList({
               />
             </div>
           )}
-          <div className="divide-y divide-border/10 border-t border-border/10 max-h-[22rem] overflow-y-auto scrollbar-hide">
+          <div className="divide-y divide-border/10 border-t border-border/10 max-h-[26rem] overflow-y-auto scrollbar-hide">
             {groups.flatMap((group) =>
               group.providers.filter(matches).map((provider) => (
                 <ProviderRow key={provider.id} provider={provider} onOpenWizard={onOpenWizard} />
@@ -215,7 +236,7 @@ export function ProviderList({
           </div>
           <p className="px-4 py-2.5 border-t border-border/10 text-[9px] text-muted-foreground flex items-center gap-1.5">
             <Check className="w-3 h-3 text-primary shrink-0" />
-            Key-gated providers are set with an environment variable; this list links you to the right screen.
+            Key-gated providers are set with an environment variable or the encrypted vault; this list links you to the right screen.
           </p>
         </>
       )}

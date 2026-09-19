@@ -75,7 +75,7 @@ describe("provider catalog", () => {
 
   it("points every provider somewhere honest to configure", () => {
     const catalog = buildCatalog({});
-    const valid = new Set(["agent", "integrations", "wizard", "none"]);
+    const valid = new Set(["ai", "investor-eye", "wizard", "none"]);
     for (const provider of catalog.categories.flatMap((c) => c.providers)) {
       expect(valid.has(provider.configure.target)).toBe(true);
       // A provider that needs configuring must not claim "none".

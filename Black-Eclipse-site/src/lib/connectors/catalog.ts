@@ -32,9 +32,11 @@ export type ProviderStatus = "connected" | "not_configured" | "builtin" | "avail
 /** Minimal read-only view of the environment (avoids requiring NODE_ENV). */
 export type EnvLike = Record<string, string | undefined>;
 
+// Configuration homes, expressed as user-facing Settings sections (not backend
+// concepts): AI/LLM, Investor Eye, or the custom-source wizard.
 export type ConfigureTarget =
-  | { target: "agent" }
-  | { target: "integrations" }
+  | { target: "ai" }
+  | { target: "investor-eye" }
   | { target: "wizard" }
   /** Built in and working — nothing to configure. */
   | { target: "none" };
@@ -103,7 +105,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "YAHOO_FINANCE_ENABLED",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
   },
   {
     id: "scraper",
@@ -120,7 +122,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "FINNHUB_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://finnhub.io/register",
   },
   {
@@ -130,7 +132,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "POLYGON_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://polygon.io/dashboard/api-keys",
   },
   {
@@ -140,7 +142,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "ALPHAVANTAGE_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://www.alphavantage.co/support/#api-key",
   },
   {
@@ -150,7 +152,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "TWELVE_DATA_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://twelvedata.com/account/api-keys",
   },
   {
@@ -160,7 +162,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "MARKETSTACK_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://marketstack.com/product",
   },
   {
@@ -180,7 +182,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "market",
     auth: "env",
     envVar: "FINANCIALMODELINGPREP_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://site.financialmodelingprep.com/developer/docs",
   },
 
@@ -201,7 +203,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "crypto",
     auth: "env",
     envVar: "COINGECKO_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://www.coingecko.com/en/developers/dashboard",
   },
   {
@@ -211,7 +213,7 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     category: "crypto",
     auth: "env",
     envVar: "COINMARKETCAP_API_KEY",
-    configure: { target: "integrations" },
+    configure: { target: "investor-eye" },
     docsUrl: "https://pro.coinmarketcap.com/account",
   },
   {
@@ -259,7 +261,7 @@ function aiProviders(env: EnvLike): CatalogProvider[] {
       auth: preset.keyless ? ("builtin" as const) : ("env" as const),
       envVar: preset.keyless ? undefined : preset.envVar,
       status: connected ? ("connected" as const) : ("not_configured" as const),
-      configure: { target: "agent" as const },
+      configure: { target: "ai" as const },
       recommended: preset.recommended,
       docsUrl: preset.docsUrl,
     };
@@ -293,7 +295,7 @@ function economicsProviders(env: EnvLike): CatalogProvider[] {
       auth: gated ? ("env" as const) : ("builtin" as const),
       envVar: gated ? source.keyEnv : undefined,
       status: gated ? (connected ? "connected" : "not_configured") : "builtin",
-      configure: gated ? { target: "integrations" as const } : { target: "none" as const },
+      configure: gated ? { target: "investor-eye" as const } : { target: "none" as const },
     };
   });
 }

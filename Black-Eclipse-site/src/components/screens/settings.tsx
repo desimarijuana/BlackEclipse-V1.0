@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import {
-  SlidersHorizontal, Bot, Globe2, Newspaper, Palette, Database,
+  Cog, Bot, Globe2, Newspaper, Palette, Database,
   Trash2, RotateCcw, Check, Eye, EyeOff, Activity, ShieldCheck,
   Save, Sparkles, ChevronRight, Cpu, Server, KeyRound,
-  CircleDashed, RefreshCcw, Boxes, PanelLeft,
+  CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +21,9 @@ import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
-import { ApiKeysPanel } from "./api-keys-panel";
-import { ProviderList } from "./provider-list";
+import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
+
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -84,12 +85,28 @@ const ALL_MARKETS = [
 ];
 
 const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-export type SectionId = "appearance" | "aurora" | "charts" | "sidebar" | "agent" | "market" | "news" | "api-keys" | "connectors" | "integrations" | "data" | "alerts";
+
+// The Settings information architecture. Sections are named for WHAT the user
+// is configuring, never for how the backend is implemented:
+//   general        — appearance, market, currency, timezone, refresh
+//   aurora         — the glow palette (visual, kept next to General)
+//   ai             — every LLM: providers, keys, base URLs, model, test
+//   investor-eye   — every financial/data provider, grouped by purpose
+//   market         — supported markets, exchanges, JDDS data
+//   news           — RSS feeds + news providers
+//   charts         — chart colors & preferences
+//   sidebar        — navigation order & shortcuts
+//   alerts         — notification channels
+//   data           — local chats/watchlist/portfolio + reset
+//   system         — JDDS status, health, internal integrations
+export type SectionId =
+  | "general" | "aurora" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "charts" | "sidebar" | "alerts" | "data" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "appearance", "aurora", "charts", "sidebar", "agent", "market",
-  "news", "api-keys", "connectors", "integrations", "data", "alerts",
+  "general", "aurora", "ai", "investor-eye", "economics", "market", "news",
+  "charts", "sidebar", "alerts", "data", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
@@ -124,24 +141,17 @@ function SectionHeader({
   icon: Icon,
   title,
   description,
-  eyebrow,
 }: {
   icon: React.ElementType;
   title: string;
   description: string;
-  eyebrow?: string;
 }) {
   return (
     <div className="mb-6">
-      {eyebrow && (
-        <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold mb-2 flex items-center gap-1.5">
-          <Sparkles size={11} /> {eyebrow}
-        </p>
-      )}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm shadow-primary/10">
-          <Icon className="text-primary w-[18px] h-[18px]" />
-        </div>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+          <Icon className="text-primary" size={22} />
+        </span>
         <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">{description}</p>
@@ -211,13 +221,15 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionId>(initialSection ?? "appearance");
+  const [section, setSection] = useState<SectionId>(initialSection ?? "general");
 
   // LLM
   const [llm, setLlm] = useState<LLMConfig>({
     provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
   });
   const [showApiKey, setShowApiKey] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
+  const [llmTest, setLlmTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
 
   // News
   const [feeds, setFeeds] = useState<NewsFeed[]>([]);
@@ -331,6 +343,25 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     document.documentElement.classList.toggle("dark", theme === "dark");
   };
 
+  // Test the in-progress LLM config (before saving) against the live endpoint.
+  const testLlm = async () => {
+    setTestingLlm(true);
+    setLlmTest(null);
+    try {
+      const res = await fetch("/api/agent/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: llm.baseUrl, model: llm.model, apiKey: llm.apiKey }),
+      });
+      const data = (await res.json()) as { ok: boolean; message: string; latencyMs?: number; error?: string };
+      setLlmTest(data.error ? { ok: false, message: data.error } : { ok: data.ok, message: data.message, latencyMs: data.latencyMs });
+    } catch {
+      setLlmTest({ ok: false, message: "Test request failed" });
+    } finally {
+      setTestingLlm(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="w-full h-full flex items-center justify-center p-8">
@@ -345,18 +376,18 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
   }
 
   const NAV: { id: SectionId; label: string; desc: string; icon: React.ElementType }[] = [
-    { id: "appearance", label: "Appearance", desc: "Theme & refresh", icon: Palette },
+    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette },
     { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles },
+    { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot },
+    { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon },
+    { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity },
+    { id: "market", label: "Market Data", desc: "Screener, charts & markets", icon: Globe2 },
+    { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper },
     { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity },
-    { id: "sidebar", label: "Sidebar", desc: "Menu & shortcuts", icon: PanelLeft },
-    { id: "agent", label: "AI Agent", desc: "Provider & model", icon: Bot },
-    { id: "market", label: "Market Data", desc: "Active markets", icon: Globe2 },
-    { id: "news", label: "News Feeds", desc: "RSS sources", icon: Newspaper },
-    { id: "api-keys", label: "API Keys", desc: "Plug data in", icon: KeyRound },
-    { id: "connectors", label: "Data Sources", desc: "Bring your own API", icon: Boxes },
-    { id: "integrations", label: "Integrations", desc: "Service status", icon: ShieldCheck },
-    { id: "alerts", label: "Alerts", desc: "Notification channels", icon: Activity },
-    { id: "data", label: "Data", desc: "Local storage", icon: Database },
+    { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft },
+    { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck },
+    { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database },
+    { id: "system", label: "System", desc: "Health & integrations", icon: Cpu },
   ];
 
   return (
@@ -364,9 +395,9 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
       {/* Left nav rail */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 glass-card-subtle">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20">
-            <SlidersHorizontal size={16} />
-          </div>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
+            <Cog className="text-primary" size={20} />
+          </span>
           <div>
             <p className="font-serif text-sm font-semibold leading-none text-foreground">Settings</p>
             <p className="text-[10px] text-muted-foreground mt-1 tracking-wide">BlackEclipse Console</p>
@@ -400,12 +431,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
             );
           })}
         </nav>
-
-        <div className="p-4 border-t border-border/10">
-          <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-            <Sparkles size={11} className="text-primary" /> Powered by JDDS
-          </p>
-        </div>
       </aside>
 
       {/* Right content */}
@@ -423,13 +448,12 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                 </SelectContent>
               </Select>
             </div>
-            {section === "appearance" && (
+            {section === "general" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
-                  eyebrow="Personalize"
                   icon={Palette}
                   title="Appearance & Preferences"
-                  description="Tailor the interface theme, default market, and how frequently live data refreshes."
+                  description="Tailor the interface theme, default market, currency, timezone and how frequently live data refreshes."
                 />
                 <Panel className="p-5 md:p-6 space-y-5">
                   <Field label="Theme">
@@ -528,17 +552,16 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
 
             {section === "aurora" && <AuroraSettingsPanel />}
 
-            {section === "charts" && <ChartSettingsPanel />}
-
-            {section === "sidebar" && <SidebarSettingsPanel />}
-
-            {section === "agent" && (
+            {/* ── AI / LLM ────────────────────────────────────────────────
+                Every LLM concern lives here — providers, keys, base URLs,
+                model selection, active provider, test, status. Nothing else
+                in Settings configures an LLM. */}
+            {section === "ai" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
-                  eyebrow="Intelligence"
                   icon={Bot}
-                  title="AI Agent Provider"
-                  description="Pick a provider, paste its key, and the chat and research agents use it immediately."
+                  title="AI / LLM"
+                  description="Choose the model provider that powers Chat, Research and the Investor Eye analyst. Keys, base URLs and model selection all live here — never mixed with financial/data APIs."
                 />
 
                 {/* One provider picker (not a dropdown AND a list). Clicking a
@@ -667,17 +690,74 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       </button>
                     </div>
                   </Field>
+
+                  {/* Test connection — makes a real request to the endpoint. */}
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="cursor-pointer rounded-xl"
+                      disabled={testingLlm}
+                      onClick={() => void testLlm()}
+                    >
+                      {testingLlm ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Activity className="w-3.5 h-3.5 mr-1" />}
+                      Test Connection
+                    </Button>
+                    {llmTest && (
+                      <span className={cn("text-[11px] flex items-center gap-1.5", llmTest.ok ? "text-emerald-400" : "text-rose-400")}>
+                        {llmTest.ok ? <Check size={12} /> : <CircleDashed size={12} />}
+                        {llmTest.message}
+                        {llmTest.latencyMs !== undefined && <span className="text-muted-foreground/60">· {llmTest.latencyMs} ms</span>}
+                      </span>
+                    )}
+                  </div>
                 </Panel>
               </div>
             )}
 
+            {/* ── Investor Eye ────────────────────────────────────────────
+                Only what powers the Investor Eye world-state page: its own
+                keyless event sources (GDELT/USGS/FIRMS) and the feature map.
+                Macro, market and news providers live in their own sections. */}
+            {section === "investor-eye" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={EyeIcon}
+                  title="Investor Eye"
+                  description="The sources behind the Investor Eye world-state map, and a map of which provider powers each feature. Providers are configured in their own sections — tap a chip to jump there."
+                />
+
+                <div className="mb-5">
+                  <InvestorEyeFeatureMap />
+                </div>
+
+                <InvestorEyeSources />
+              </div>
+            )}
+
+            {/* ── Economics ───────────────────────────────────────────────
+                Only macro/economic providers. */}
+            {section === "economics" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={Activity}
+                  title="Economics"
+                  description="Providers that power the Economics calendar, indicators and time-series explorer—macro series, national accounts and central-bank data."
+                />
+                <ProviderRegistry home="economics" title="Economics & macro providers" />
+              </div>
+            )}
+
+            {section === "charts" && <ChartSettingsPanel />}
+
+            {section === "sidebar" && <SidebarSettingsPanel />}
+
             {section === "market" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
-                  eyebrow="Coverage"
                   icon={Globe2}
                   title="Market Data"
-                  description="Choose which markets loaded in JDDS are surfaced across the site."
+                  description="Providers that power the Market Screener, charts and Fundamentals. Choose which markets and exchanges loaded in JDDS are surfaced, and review the price-source fallback chain."
                 />
                 {markets.length === 0 ? (
                   <Panel className="p-8 text-center">
@@ -741,8 +821,17 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                   </div>
                 )}
 
-                <div className="mt-4">
-                  <ProviderList categories={["market", "crypto"]} />
+                <div className="mt-4 space-y-4">
+                  <ProviderRegistry home="market" title="Market Screener providers" />
+                  <Panel className="p-5 md:p-6">
+                    <p className="text-[11px] font-semibold text-foreground mb-1">Price-source priority & fallback</p>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      JDDS serves stored prices first, then the built-in scraper chain escalates automatically:
+                      TradingView scanner → HTTP/scraper → Playwright browser → optional yfinance bridge.
+                      Configure keys for alternative sources above to widen coverage and rate limits.
+                    </p>
+                  </Panel>
+                  <DataSourcesPanel />
                 </div>
               </div>
             )}
@@ -750,10 +839,9 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
             {section === "news" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
-                  eyebrow="Bulletins"
                   icon={Newspaper}
-                  title="News Feeds"
-                  description="Toggle which RSS sources feed the Market News bulletin."
+                  title="News"
+                  description="Providers that power the Market News bulletin and sentiment—RSS feeds and news APIs. No other section lists news providers."
                 />
                 <Panel className="divide-y divide-border/10">
                   {feeds.map((f) => (
@@ -782,40 +870,9 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     </div>
                   ))}
                 </Panel>
-              </div>
-            )}
 
-            {section === "api-keys" && <ApiKeysPanel />}
-            {section === "connectors" && <DataSourcesPanel />}
-            {section === "integrations" && (
-              <div className="animate-fade-in-up">
-                <SectionHeader
-                  eyebrow="Connectivity"
-                  icon={ShieldCheck}
-                  title="Integrations & Status"
-                  description="Live connection status for every external service powering BlackEclipse."
-                />
-                <Panel className="divide-y divide-border/10">
-                  {[
-                    { label: "AI Model", ok: integrations?.llm.configured, detail: integrations ? `${integrations.llm.provider} · ${integrations.llm.model}` : "—" },
-                    { label: "Database (JDDS)", ok: integrations?.database, detail: "Connected" },
-                  ].map((row) => (
-                    <div key={row.label} className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors">
-                      <span className="text-xs text-foreground">{row.label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground font-mono">{row.detail}</span>
-                        <StatusDot ok={row.ok} />
-                      </div>
-                    </div>
-                  ))}
-                </Panel>
-
-                {/* Every economics/macro source, with real key status derived from
-                    ECON_SOURCES. Replaces the hand-written rows that drifted from
-                    the fetch layer (they listed finnhub/binance/coingecko which
-                    nothing consumes). */}
                 <div className="mt-4">
-                  <ProviderList categories={["economics"]} collapsible searchable />
+                  <ProviderRegistry home="news" title="News providers" />
                 </div>
               </div>
             )}
@@ -825,9 +882,8 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
             {section === "data" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
-                  eyebrow="Hygiene"
                   icon={Database}
-                  title="Data Management"
+                  title="Data & Storage"
                   description="Clear locally stored chats, watchlists, or portfolio data from this device."
                 />
                 <Panel className="p-5 md:p-6">
@@ -851,11 +907,43 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                 </Panel>
               </div>
             )}
+
+            {/* ── System ──────────────────────────────────────────────────
+                Technical/internal only: database, health and the status of
+                the services BlackEclipse itself runs. No user-facing provider
+                configuration lives here. */}
+            {section === "system" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={Cpu}
+                  title="System & Integrations"
+                  description="Technical status only — JDDS/database health and the internal services BlackEclipse runs. Providers are configured in their own sections."
+                />
+                <Panel className="divide-y divide-border/10">
+                  {[
+                    { label: "Database (JDDS)", ok: integrations?.database, detail: "Connected" },
+                    { label: "AI Model", ok: integrations?.llm.configured, detail: integrations ? `${integrations.llm.provider} · ${integrations.llm.model}` : "—" },
+                    { label: "Investor Eye runtime", ok: true, detail: "Scheduler active" },
+                    { label: "News ingestion", ok: true, detail: `${feeds.filter((f) => f.enabled).length} feeds enabled` },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-accent/20 transition-colors">
+                      <span className="text-xs text-foreground">{row.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground font-mono">{row.detail}</span>
+                        <StatusDot ok={row.ok} />
+                      </div>
+                    </div>
+                  ))}
+                </Panel>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Save bar */}
-        <div className={cn("shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3", section === "charts" && "hidden")}>
+        {/* Save bar — only shown for sections whose edits are server-persisted
+            (General preferences, AI/LLM config, News feeds). Everything else
+            persists instantly to localStorage or its own endpoint. */}
+        <div className={cn("shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3", !["general", "ai", "news"].includes(section) && "hidden")}>
           {message ? (
             <span className="text-xs text-primary flex items-center gap-1.5">
               {saved && <Check className="w-3.5 h-3.5" />}

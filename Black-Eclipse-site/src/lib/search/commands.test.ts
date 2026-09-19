@@ -134,8 +134,8 @@ describe('settingsCommands', () => {
   it('emits one command per settings section, targeting the modal section', () => {
     const cmds = settingsCommands(getPageEntries(), cfg);
     expect(cmds.length).toBeGreaterThanOrEqual(10);
-    const apiKeys = cmds.find((c) => c.title === 'Open Settings · API Keys');
-    expect(apiKeys?.destination).toEqual({ tab: 'settings', subroute: 'settings.api-keys' });
+    const ai = cmds.find((c) => c.title === 'Open Settings · AI / LLM');
+    expect(ai?.destination).toEqual({ tab: 'settings', subroute: 'settings.ai' });
     expect(cmds.every((c) => c.destination?.tab === 'settings')).toBe(true);
   });
 });

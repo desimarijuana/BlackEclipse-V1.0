@@ -43,6 +43,47 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Settings / UI polish** — Removed the section eyebrow labels, removed the
+  "Powered by JDDS" rail footer, and aligned the Settings rail + section icons
+  with the app's page-icon language (`rounded-2xl border border-primary/25
+  bg-primary/15 shadow-lg shadow-primary/10`, `text-primary`). Rail header icon
+  is now a gear. Presentation only.
+  no doc change — cosmetic, contracts unchanged.
+
+- **Settings / UX-IA (dedup)** — Fixed repeated providers across Settings: each
+  provider now has exactly one `home` section, enforced by `providerHome()` in
+  `lib/providers/directory.ts`. Investor Eye lists only its own keyless event
+  sources (GDELT/USGS/FIRMS) + a deep-linking feature map; added a dedicated
+  **Economics** section; Market Data lists prices/fundamentals/crypto/custom;
+  News lists only Finnhub. The separate `ApiKeysPanel` was removed from sections
+  (and `api-keys-panel.tsx` deleted) because the registry now manages keys
+  inline — one list per section, not two. Buckets: AI 14, Economics 44, News 1,
+  Market 15. 1307 tests pass, `tsc` clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Ops** — Dev server outage during the Settings/UX-IA work: running `next build`
+  while `npm run dev` was live overwrote `.next` with production output, so the
+  running dev server lost `routes-manifest.json` and its webpack chunks (all API
+  routes errored with ENOENT / MODULE_NOT_FOUND). Fix: stop dev, delete `.next`,
+  restart. Lesson: never build while `next dev` is live — they share `.next`.
+  no doc change — operational fix, no code or contract change.
+
+- **Settings / UX-IA** — Reorganized the Settings modal around *what the user is
+  configuring* instead of backend concepts. The 12 overlapping sections
+  (Appearance, Aurora, Charts, Sidebar, AI Agent, Market Data, News Feeds, API
+  Keys, Data Sources, Integrations, Alerts, Data) became 11 purpose-first
+  sections: **General · Aurora · AI / LLM · Investor Eye · Market Data · News ·
+  Charts · Sidebar & Navigation · Alerts · Data & Storage · System**. New
+  `src/lib/providers/directory.ts` gives every provider a purpose / used-by /
+  free-or-paid tier; `provider-registry-panel.tsx` renders the
+  Provider→Purpose→Features→Status→Key→Test registry and an Investor Eye
+  feature→provider map. `ApiKeysPanel` is now category-filterable so LLM keys
+  live only under AI / LLM and financial/data keys only under Investor Eye.
+  Added `POST /api/agent/test` for a real LLM **Test Connection**. Catalog
+  `configure.target` values renamed `agent`/`integrations` → `ai`/`investor-eye`.
+  Visual glass system unchanged. 1307 tests pass, `tsc` clean, build clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **UI / Chat** — Shrank the floating assistant dock: width `760px` → `560px`
   and transcript max height `min(60vh,520px)` → `min(45vh,360px)` so the popup
   no longer dominates the dashboard. Pure sizing change.
