@@ -117,6 +117,37 @@ describe('user theme presets', () => {
   });
 });
 
+describe('live preview', () => {
+  it('previews without persisting and restores on cancel', async () => {
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    expect(values.has(THEME_KEY)).toBe(false);
+
+    const previewDraft = normalizeTheme({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#abc123' } });
+    useThemeStore.getState().preview(previewDraft);
+
+    // Preview is held, but the saved theme + storage are untouched.
+    expect(useThemeStore.getState().previewTheme?.colors.primary).toBe('#abc123');
+    expect(useThemeStore.getState().theme.colors.primary).toBe(DEFAULT_ECLIPSE_THEME.colors.primary);
+    expect(values.has(THEME_KEY)).toBe(false);
+
+    useThemeStore.getState().cancelPreview();
+    expect(useThemeStore.getState().previewTheme).toBeNull();
+    expect(values.has(THEME_KEY)).toBe(false);
+  });
+
+  it('commits a preview to the saved theme + storage', async () => {
+    const { useThemeStore } = await import('./store');
+    useThemeStore.getState().hydrate();
+    useThemeStore.getState().preview(normalizeTheme({ ...DEFAULT_ECLIPSE_THEME, colors: { ...DEFAULT_ECLIPSE_THEME.colors, primary: '#abc123' } }));
+    useThemeStore.getState().commitPreview();
+    expect(useThemeStore.getState().previewTheme).toBeNull();
+    expect(useThemeStore.getState().theme.colors.primary).toBe('#abc123');
+    expect(useThemeStore.getState().customized).toBe(true);
+    expect(values.has(THEME_KEY)).toBe(true);
+  });
+});
+
 describe('theme normalization from import', () => {
   it('coerces a partial imported theme to a full theme', () => {
     const imported = normalizeTheme({ colors: { primary: '#101010' }, radius: 0.2 });

@@ -8,7 +8,7 @@ export const metadata = {
 
 export default function AlertsPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="app-page-bg min-h-screen bg-background text-foreground">
       <AlertsClient />
     </div>
   );

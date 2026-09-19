@@ -6,20 +6,22 @@
 // design tokens on <html> — so changes recolor the entire app (chrome, cards,
 // charts, widgets) with no component-specific hacks.
 //
-// Three groups:
-//   1. Branding      — app name, logo, favicon
-//   2. Typography & shape — UI/heading/mono fonts, radius, density
-//   3. Colors        — presets + custom primary/accent/surface/text/market
-//   4. Motion        — glow + animation preferences
+// Editing model:
+//   * All controls edit a local *draft* theme, so you can explore without
+//     committing anything.
+//   * With "Live preview" on, the draft is pushed to the document (unpersisted)
+//     as you edit, so the WHOLE app can be auditioned. A small inline preview
+//     card also shows the draft in isolation.
+//   * "Apply" persists the draft; "Discard" restores the saved theme.
 //
-// Language + accessibility live here too (presentation-layer, localStorage).
-// Every preference applies instantly and persists locally.
+// Tabs: Theme · Glass & Surfaces · Aurora · Charts · Language & Access.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
+  Eye, EyeOff, Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,8 +32,8 @@ import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/
 import {
   BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
   SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
-  isValidHex, normalizeHex, normalizeTheme, syncChartPaletteFromTheme, themeFromBrandColor,
-  useThemeStore, type ThemeColors, type ThemeGlass,
+  isValidHex, normalizeHex, normalizeTheme, syncChartPaletteFromTheme, themeCssVars,
+  themeFromBrandColor, useThemeStore, type EclipseTheme, type ThemeColors, type ThemeGlass,
 } from "@/lib/theme";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
@@ -88,7 +90,43 @@ function Card({
   );
 }
 
-/** Native color swatch + hex input pair, committed live through the store. */
+/** Labelled range slider with a live value readout. */
+function Slider({
+  label, value, min, max, step, format, onChange, disabled,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format?: (v: number) => string;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs text-muted-foreground font-medium">{label}</Label>
+        <span className="text-[10px] font-mono text-muted-foreground">
+          {format ? format(value) : value}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full cursor-pointer disabled:opacity-40"
+        aria-label={label}
+      />
+    </div>
+  );
+}
+
+/** Native color swatch + hex input pair. */
 function ColorField({
   label, hint, value, onChange,
 }: { label: string; hint?: string; value: string; onChange: (hex: string) => void }) {
@@ -201,6 +239,92 @@ function ImageField({
   );
 }
 
+/**
+ * A self-contained, themed preview of the draft. `themeCssVars` are set as
+ * inline custom properties on the wrapper, and `.dark` is added so the shipped
+ * dark recipes apply — giving an isolated, accurate look at the draft without
+ * touching the rest of the page.
+ */
+function ThemePreview({ theme }: { theme: EclipseTheme }) {
+  const vars = useMemo(() => themeCssVars(theme) as React.CSSProperties, [theme]);
+  const glassOn = theme.glass.enabled;
+  return (
+    <div
+      style={vars}
+      className="dark rounded-2xl overflow-hidden border border-border/40"
+      aria-label="Theme preview"
+    >
+      {/* Fake app chrome */}
+      <div className="flex">
+        <div className="w-24 shrink-0 border-r border-border/40 bg-card p-2 space-y-1.5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <div className="w-5 h-5 rounded-md" style={{ background: "var(--primary)" }} />
+            <span className="text-[9px] font-semibold" style={{ color: "var(--foreground)" }}>
+              {theme.appName.slice(0, 12) || "App"}
+            </span>
+          </div>
+          {["Dashboard", "Markets", "Journal"].map((t, i) => (
+            <div
+              key={t}
+              className="rounded-md px-2 py-1 text-[9px]"
+              style={{
+                background: i === 0 ? "color-mix(in srgb, var(--primary) 15%, transparent)" : "transparent",
+                color: i === 0 ? "var(--primary)" : "var(--muted-foreground)",
+              }}
+            >
+              {t}
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 p-3 space-y-2" style={{ background: "var(--background)" }}>
+          <div
+            className={glassOn ? "rounded-xl p-3" : "rounded-xl p-3"}
+            style={{
+              background: `rgb(var(--glass-tint) / ${glassOn ? theme.glass.opacity.toFixed(2) : "0.96"})`,
+              backdropFilter: glassOn ? `blur(${theme.glass.blur}px)` : "none",
+              boxShadow: "var(--glass-shadow)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <p className="text-[10px] font-semibold" style={{ color: "var(--foreground)" }}>Portfolio</p>
+            <p className="text-[9px]" style={{ color: "var(--muted-foreground)" }}>Total value</p>
+            <div className="flex items-end gap-2 mt-1">
+              <span className="text-base font-bold font-mono" style={{ color: "var(--foreground)" }}>$42,180</span>
+              <span className="text-[10px] font-mono" style={{ color: "var(--bullish)" }}>+2.4%</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[["AAPL", "+1.2%", "var(--bullish)"], ["TSLA", "-0.8%", "var(--bearish)"], ["NVDA", "+3.1%", "var(--bullish)"]].map(([s, c, col]) => (
+              <div
+                key={s}
+                className="rounded-lg p-2"
+                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              >
+                <p className="text-[9px] font-semibold" style={{ color: "var(--foreground)" }}>{s}</p>
+                <p className="text-[9px] font-mono" style={{ color: col as string }}>{c}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <span
+              className="rounded-full px-3 py-1 text-[9px] font-semibold"
+              style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
+            >
+              Primary
+            </span>
+            <span
+              className="rounded-full px-3 py-1 text-[9px] font-semibold"
+              style={{ background: "var(--secondary)", color: "var(--secondary-foreground)", border: "1px solid var(--border)" }}
+            >
+              Secondary
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CustomizationSettingsPanel() {
   const t = useT();
   const locale = useLocaleStore((s) => s.locale);
@@ -209,48 +333,72 @@ export function CustomizationSettingsPanel() {
   const setA11y = useLocaleStore((s) => s.setA11y);
 
   const theme = useThemeStore((s) => s.theme);
-  const customized = useThemeStore((s) => s.customized);
-  const setTheme = useThemeStore((s) => s.setTheme);
-  const setColor = useThemeStore((s) => s.setColor);
-  const setGlass = useThemeStore((s) => s.setGlass);
-  const applyPreset = useThemeStore((s) => s.applyPreset);
-  const resetTheme = useThemeStore((s) => s.reset);
   const userPresets = useThemeStore((s) => s.userPresets);
   const saveUserPreset = useThemeStore((s) => s.saveUserPreset);
   const updateUserPreset = useThemeStore((s) => s.updateUserPreset);
   const renameUserPreset = useThemeStore((s) => s.renameUserPreset);
   const deleteUserPreset = useThemeStore((s) => s.deleteUserPreset);
+  const applyPreset = useThemeStore((s) => s.applyPreset);
+  const previewTheme = useThemeStore((s) => s.preview);
+  const cancelPreview = useThemeStore((s) => s.cancelPreview);
+  const resetTheme = useThemeStore((s) => s.reset);
 
   const [tab, setTab] = useState<CustomTab>("theme");
-  const [brandColor, setBrandColor] = useState(theme.colors.primary);
+  const [draft, setDraft] = useState<EclipseTheme>(theme);
+  const [livePreview, setLivePreview] = useState(true);
   const [presetName, setPresetName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [brandColor, setBrandColor] = useState(theme.colors.primary);
   const importRef = useRef<HTMLInputElement | null>(null);
 
-  // Keep native charts in step with the theme's market colors when the user
-  // explicitly recolors (presets, color edits, reset) — never on hydration.
-  const changePreset = (next: typeof theme) => {
-    applyPreset(next);
-    syncChartPaletteFromTheme(next);
+  // When the saved theme changes from outside (apply/reset/preset), resync the
+  // draft — but never while a draft preview is active.
+  useEffect(() => {
+    setDraft(theme);
+  }, [theme]);
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(theme);
+
+  // Keep the document showing the draft while live preview is on; when it is
+  // turned off, restore the saved theme to the document.
+  useEffect(() => {
+    if (livePreview) previewTheme(draft);
+    else cancelPreview();
+  }, [draft, livePreview, previewTheme, cancelPreview]);
+
+  // Leaving the panel cancels an uncommitted preview so the saved theme wins.
+  useEffect(() => () => { cancelPreview(); }, [cancelPreview]);
+
+  // ── Draft mutators ──────────────────────────────────────────────────────
+  const patch = (p: Partial<Omit<EclipseTheme, "colors">>) =>
+    setDraft((d) => normalizeTheme({ ...d, ...p }));
+  const patchColor = (key: keyof ThemeColors, hex: string) =>
+    setDraft((d) => normalizeTheme({ ...d, colors: { ...d.colors, [key]: hex } }));
+  const patchGlass = (p: Partial<ThemeGlass>) =>
+    setDraft((d) => normalizeTheme({ ...d, glass: { ...d.glass, ...p } }));
+
+  const applyDraft = () => {
+    applyPreset(draft);
+    syncChartPaletteFromTheme(draft);
   };
-  const changeColor = (key: keyof ThemeColors, hex: string) => {
-    setColor(key, hex);
-    syncChartPaletteFromTheme(useThemeStore.getState().theme);
+  const discardDraft = () => {
+    setDraft(theme);
+    cancelPreview();
   };
   const resetAll = () => {
     resetTheme();
     syncChartPaletteFromTheme(useThemeStore.getState().theme);
   };
-  // ServiceNow-style "build a theme from your brand color": derive primary,
-  // accent and market colors, then sync charts.
+
+  // ServiceNow-style "build a theme from your brand color".
   const generateFromBrand = (hex: string) => {
-    const next = themeFromBrandColor(hex, theme);
-    applyPreset(next);
-    syncChartPaletteFromTheme(next);
+    setDraft((d) => themeFromBrandColor(hex, d));
   };
 
   const handleSavePreset = () => {
+    // Persist the draft first so the saved preset reflects what's on screen.
+    applyDraft();
     const name = presetName.trim() || `My Theme ${userPresets.length + 1}`;
     saveUserPreset(name);
     setPresetName("");
@@ -258,11 +406,11 @@ export function CustomizationSettingsPanel() {
 
   const handleExport = () => {
     try {
-      const blob = new Blob([JSON.stringify(theme, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(theme.appName || "eclipse").replace(/\s+/g, "-").toLowerCase()}-theme.json`;
+      a.download = `${(draft.appName || "eclipse").replace(/\s+/g, "-").toLowerCase()}-theme.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -274,10 +422,7 @@ export function CustomizationSettingsPanel() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result));
-        const next = normalizeTheme(parsed);
-        applyPreset(next);
-        syncChartPaletteFromTheme(next);
+        setDraft(normalizeTheme(JSON.parse(String(reader.result))));
       } catch {
         /* invalid file — ignore */
       }
@@ -285,11 +430,10 @@ export function CustomizationSettingsPanel() {
     reader.readAsText(file);
   };
 
-  const activePreset = THEME_PRESETS.find(
-    (p) => JSON.stringify(theme) === JSON.stringify(p.theme),
-  )?.id ?? userPresets.find(
-    (p) => JSON.stringify(theme) === JSON.stringify(normalizeTheme(p.theme)),
-  )?.id ?? null;
+  const activePreset =
+    THEME_PRESETS.find((p) => JSON.stringify(draft) === JSON.stringify(p.theme))?.id ??
+    userPresets.find((p) => JSON.stringify(draft) === JSON.stringify(normalizeTheme(p.theme)))?.id ??
+    null;
 
   const COLORS: { key: keyof ThemeColors; label: string; hint: string }[] = [
     { key: "primary", label: "Primary", hint: "Brand / interactive" },
@@ -299,15 +443,14 @@ export function CustomizationSettingsPanel() {
     { key: "border", label: "Border", hint: "Hairlines & inputs" },
     { key: "text", label: "Text", hint: "Primary text" },
     { key: "bullish", label: "Bullish", hint: "Gains & up candles" },
-    { key: "bearish", label: "Bearish", hint: "Losses & down candles" },
+    { key: "bearish", label: "Bearish", hint: "Down candles & losses" },
   ];
 
-  // Glass preset is "active" when every field matches (so the chip highlights).
   const glassMatches = (g: ThemeGlass) =>
-    theme.glass.enabled === g.enabled &&
-    theme.glass.blur === g.blur &&
-    theme.glass.opacity === g.opacity &&
-    theme.glass.tint === g.tint;
+    draft.glass.enabled === g.enabled &&
+    draft.glass.blur === g.blur &&
+    draft.glass.opacity === g.opacity &&
+    draft.glass.tint === g.tint;
 
   const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
     { id: "theme", label: "Theme", icon: Palette },
@@ -319,8 +462,59 @@ export function CustomizationSettingsPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Sub-navigation: one Customization home for theme, Aurora, charts and
-          language/accessibility so everything that shapes the look lives here. */}
+      {/* ── Live preview toggle + Apply/Discard ───────────────────────── */}
+      <div className="sticky top-0 z-20 -mx-1 px-1 pb-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 glass-card-strong px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={livePreview}
+              onClick={() => setLivePreview((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+                livePreview
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border/40 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {livePreview ? <Eye size={13} className="text-primary" /> : <EyeOff size={13} />}
+              Live preview
+            </button>
+            <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
+              {dirty
+                ? livePreview
+                  ? "Previewing unsaved changes across the app."
+                  : "Editing draft — turn on live preview to audition it."
+                : "No unsaved changes."}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl cursor-pointer"
+              disabled={!dirty && !livePreview}
+              onClick={discardDraft}
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Discard
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-xl cursor-pointer"
+              disabled={!dirty}
+              onClick={applyDraft}
+            >
+              <Save className="w-3.5 h-3.5 mr-1" /> Apply changes
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Inline, isolated preview of the draft. */}
+      <ThemePreview theme={draft} />
+
+      {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">
         {TABS.map((item) => {
           const Icon = item.icon;
@@ -344,15 +538,15 @@ export function CustomizationSettingsPanel() {
         })}
       </div>
 
+      {/* ══ Glass & Surfaces ═══════════════════════════════════════════ */}
       {tab === "glass" && (
         <div className="animate-fade-in-up space-y-6">
-          {/* ── Glass mode ───────────────────────────────────────────── */}
           <Card icon={Layers} title="Glass Mode">
             <Row
               label="Frosted glass surfaces"
               hint="When off, every card, panel and menu becomes solid with no blur."
-              checked={theme.glass.enabled}
-              onChange={(v) => setGlass({ enabled: v })}
+              checked={draft.glass.enabled}
+              onChange={(v) => patchGlass({ enabled: v })}
             />
             <div className="grid gap-2 sm:grid-cols-4">
               {GLASS_PRESETS.map((p) => {
@@ -361,23 +555,21 @@ export function CustomizationSettingsPanel() {
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => setGlass(p.glass)}
+                    onClick={() => patchGlass(p.glass)}
                     aria-pressed={active}
                     title={p.hint}
                     className={cn(
                       "flex flex-col gap-2 rounded-xl border p-3 text-left transition-all cursor-pointer",
-                      active
-                        ? "border-primary/40 bg-primary/10"
-                        : "border-border/20 glass-card-subtle hover:border-border/40",
+                      active ? "border-primary/40 bg-primary/10" : "border-border/20 glass-card-subtle hover:border-border/40",
                     )}
                   >
                     <span
                       className="h-8 w-full rounded-lg border border-white/10"
                       style={{
                         backgroundColor: p.glass.enabled
-                          ? `rgb(${normalizeHex(p.glass.tint)?.slice(1).match(/../g)?.map((h) => parseInt(h, 16)).join(' ') ?? '18 18 20'} / ${p.glass.opacity})`
+                          ? `rgb(${rgbTriplet(p.glass.tint)} / ${p.glass.opacity})`
                           : p.glass.tint,
-                        backdropFilter: p.glass.enabled ? `blur(${p.glass.blur}px)` : 'none',
+                        backdropFilter: p.glass.enabled ? `blur(${p.glass.blur}px)` : "none",
                       }}
                       aria-hidden
                     />
@@ -391,53 +583,34 @@ export function CustomizationSettingsPanel() {
             </div>
           </Card>
 
-          {/* ── Fine-tune ────────────────────────────────────────────── */}
           <Card icon={SlidersHorizontal} title="Fine-tune Glass">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground font-medium">Blur radius</Label>
-                <span className="text-[10px] font-mono text-muted-foreground">{theme.glass.blur}px</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={48}
-                step={1}
-                value={theme.glass.blur}
-                disabled={!theme.glass.enabled}
-                onChange={(e) => setGlass({ blur: Number(e.target.value) })}
-                className="w-full cursor-pointer disabled:opacity-40"
-                aria-label="Glass blur radius"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground font-medium">Tint opacity</Label>
-                <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.glass.opacity * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min={0.05}
-                max={1}
-                step={0.01}
-                value={theme.glass.opacity}
-                onChange={(e) => setGlass({ opacity: Number(e.target.value) })}
-                className="w-full cursor-pointer"
-                aria-label="Glass tint opacity"
-              />
-            </div>
+            <Slider
+              label="Blur radius"
+              value={draft.glass.blur}
+              min={0} max={48} step={1}
+              format={(v) => `${v}px`}
+              disabled={!draft.glass.enabled}
+              onChange={(v) => patchGlass({ blur: v })}
+            />
+            <Slider
+              label="Tint opacity"
+              value={draft.glass.opacity}
+              min={0.05} max={1} step={0.01}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onChange={(v) => patchGlass({ opacity: v })}
+            />
             <ColorField
               label="Tint color"
               hint="Base color of every glass surface"
-              value={theme.glass.tint}
-              onChange={(hex) => setGlass({ tint: hex })}
+              value={draft.glass.tint}
+              onChange={(hex) => patchGlass({ tint: hex })}
             />
             <div className="flex items-start gap-3 rounded-xl border border-border/20 glass-card-subtle p-3">
               <span
-                className="mt-0.5 h-10 w-16 shrink-0 rounded-lg border border-white/10"
+                className="mt-0.5 h-12 w-20 shrink-0 rounded-lg border border-white/10"
                 style={{
-                  backgroundColor: `rgb(${normalizeHex(theme.glass.tint)?.slice(1).match(/../g)?.map((h) => parseInt(h, 16)).join(' ') ?? '18 18 20'} / ${theme.glass.enabled ? theme.glass.opacity : 0.96})`,
-                  backdropFilter: theme.glass.enabled ? `blur(${theme.glass.blur}px)` : 'none',
+                  backgroundColor: `rgb(${rgbTriplet(draft.glass.tint)} / ${draft.glass.enabled ? draft.glass.opacity : 0.96})`,
+                  backdropFilter: draft.glass.enabled ? `blur(${draft.glass.blur}px)` : "none",
                 }}
                 aria-hidden
               />
@@ -448,18 +621,17 @@ export function CustomizationSettingsPanel() {
             </div>
           </Card>
 
-          {/* ── Depth ────────────────────────────────────────────────── */}
           <Card icon={Square} title="Depth & Shadow">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {SHADOW_OPTIONS.map((s) => (
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setTheme({ shadow: s.id })}
+                  onClick={() => patch({ shadow: s.id })}
                   title={s.hint}
                   className={cn(
                     "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                    theme.shadow === s.id
+                    draft.shadow === s.id
                       ? "bg-primary/10 text-primary border-primary/40"
                       : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
                   )}
@@ -470,18 +642,17 @@ export function CustomizationSettingsPanel() {
             </div>
           </Card>
 
-          {/* ── Page background ──────────────────────────────────────── */}
           <Card icon={Palette} title="Page Background">
             <div className="grid grid-cols-3 gap-2">
               {BACKGROUND_OPTIONS.map((b) => (
                 <button
                   key={b.id}
                   type="button"
-                  onClick={() => setTheme({ background: b.id })}
+                  onClick={() => patch({ background: b.id })}
                   title={b.hint}
                   className={cn(
                     "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                    theme.background === b.id
+                    draft.background === b.id
                       ? "bg-primary/10 text-primary border-primary/40"
                       : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
                   )}
@@ -491,28 +662,24 @@ export function CustomizationSettingsPanel() {
               ))}
             </div>
             <p className="text-[10px] text-muted-foreground">
-              The pattern is tinted with your primary color and sits over the Background
-              token, so it always matches the theme.
+              The pattern is tinted with your primary color and paints across the app
+              background, so it always matches the theme.
             </p>
           </Card>
         </div>
       )}
 
+      {/* ══ Aurora / Charts (embedded panels) ══════════════════════════ */}
       {tab === "aurora" && (
-        <div className="animate-fade-in-up">
-          <AuroraSettingsPanel />
-        </div>
+        <div className="animate-fade-in-up"><AuroraSettingsPanel /></div>
       )}
-
       {tab === "charts" && (
-        <div className="animate-fade-in-up">
-          <ChartSettingsPanel />
-        </div>
+        <div className="animate-fade-in-up"><ChartSettingsPanel /></div>
       )}
 
+      {/* ══ Language & Access ══════════════════════════════════════════ */}
       {tab === "access" && (
         <div className="animate-fade-in-up space-y-6">
-          {/* ── Language ──────────────────────────────────────────────── */}
           <Card icon={Languages} title={t("settings.customization.language")}>
             <div className="flex flex-col gap-1.5">
               <Select value={locale} onValueChange={(v) => v && setLocale(v as LocaleCode)}>
@@ -534,7 +701,6 @@ export function CustomizationSettingsPanel() {
             </div>
           </Card>
 
-          {/* ── Accessibility ─────────────────────────────────────────── */}
           <Card icon={Accessibility} title={t("settings.accessibility.description")}>
             <Row
               label={t("settings.accessibility.reduceMotion")}
@@ -568,466 +734,435 @@ export function CustomizationSettingsPanel() {
         </div>
       )}
 
+      {/* ══ Theme (default) ════════════════════════════════════════════ */}
       {tab === "theme" && (
-      <div className="animate-fade-in-up space-y-6">
-      {/* ── Brand color generator ─────────────────────────────────────── */}
-      <Card icon={Wand2} title="Build Theme From Brand Color">
-        <p className="text-[10px] text-muted-foreground -mt-2">
-          Pick your organisation&apos;s brand color and Eclipse derives a coordinated
-          palette — primary, accent and market colors — around it.
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <label
-            className="relative h-9 w-9 shrink-0 rounded-xl border border-white/15 cursor-pointer overflow-hidden shadow-sm"
-            style={{ backgroundColor: brandColor }}
-          >
-            <input
-              type="color"
-              value={normalizeHex(brandColor) ?? theme.colors.primary}
-              onChange={(e) => setBrandColor(e.target.value)}
-              className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
-              aria-label="Brand color picker"
-            />
-          </label>
-          <input
-            value={brandColor}
-            onChange={(e) => {
-              setBrandColor(e.target.value);
-              const n = normalizeHex(e.target.value);
-              if (n) generateFromBrand(n);
-            }}
-            spellCheck={false}
-            className="w-[120px] rounded-lg border border-border/40 bg-transparent px-2 py-1 font-mono text-[11px] uppercase outline-none focus-visible:border-primary/50"
-            aria-label="Brand hex value"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl cursor-pointer"
-            onClick={() => generateFromBrand(normalizeHex(brandColor) ?? theme.colors.primary)}
-          >
-            <Wand2 className="w-3.5 h-3.5 mr-1" /> Generate theme
-          </Button>
-          <span
-            className="h-5 w-32 shrink-0 rounded-md border border-white/15"
-            style={{ background: `linear-gradient(90deg, ${theme.colors.bearish} 0%, ${theme.colors.primary} 50%, ${theme.colors.accent} 100%)` }}
-            aria-hidden
-          />
-        </div>
-      </Card>
+        <div className="animate-fade-in-up space-y-6">
+          {/* Brand color generator */}
+          <Card icon={Wand2} title="Build Theme From Brand Color">
+            <p className="text-[10px] text-muted-foreground -mt-2">
+              Pick your organisation&apos;s brand color and Eclipse derives a coordinated
+              palette — primary, accent and market colors — around it.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label
+                className="relative h-9 w-9 shrink-0 rounded-xl border border-white/15 cursor-pointer overflow-hidden shadow-sm"
+                style={{ backgroundColor: brandColor }}
+              >
+                <input
+                  type="color"
+                  value={normalizeHex(brandColor) ?? draft.colors.primary}
+                  onChange={(e) => { setBrandColor(e.target.value); generateFromBrand(e.target.value); }}
+                  className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+                  aria-label="Brand color picker"
+                />
+              </label>
+              <input
+                value={brandColor}
+                onChange={(e) => {
+                  setBrandColor(e.target.value);
+                  const n = normalizeHex(e.target.value);
+                  if (n) generateFromBrand(n);
+                }}
+                spellCheck={false}
+                className="w-[120px] rounded-lg border border-border/40 bg-transparent px-2 py-1 font-mono text-[11px] uppercase outline-none focus-visible:border-primary/50"
+                aria-label="Brand hex value"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl cursor-pointer"
+                onClick={() => generateFromBrand(normalizeHex(brandColor) ?? draft.colors.primary)}
+              >
+                <Wand2 className="w-3.5 h-3.5 mr-1" /> Generate theme
+              </Button>
+              <span
+                className="h-5 w-32 shrink-0 rounded-md border border-white/15"
+                style={{ background: `linear-gradient(90deg, ${draft.colors.bearish} 0%, ${draft.colors.primary} 50%, ${draft.colors.accent} 100%)` }}
+                aria-hidden
+              />
+            </div>
+          </Card>
 
-      {/* ── Theme presets + reset ─────────────────────────────────────── */}
-      <Card icon={Palette} title="Eclipse Themes">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {THEME_PRESETS.map((preset) => {
-            const active = activePreset === preset.id;
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => changePreset(preset.theme)}
-                aria-pressed={active}
-                title={preset.description}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer",
-                  active
-                    ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                    : "border-border/20 glass-card-subtle hover:border-border/40",
-                )}
-              >
-                <span
-                  className="h-5 w-12 shrink-0 rounded-md border border-white/15"
-                  style={{
-                    background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
-                  }}
-                  aria-hidden
-                />
-                <span className="flex flex-col min-w-0">
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    {preset.label}
-                    {active && <Check className="w-3 h-3 text-primary shrink-0" />}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground truncate">{preset.description}</span>
-                </span>
-              </button>
-            );
-          })}
-          {userPresets.map((preset) => {
-            const active = activePreset === preset.id;
-            const editing = editingId === preset.id;
-            return (
-              <div
-                key={preset.id}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all",
-                  active
-                    ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
-                    : "border-border/20 glass-card-subtle hover:border-border/40",
-                )}
-              >
-                <span
-                  className="h-5 w-12 shrink-0 rounded-md border border-white/15"
-                  style={{
-                    background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
-                  }}
-                  aria-hidden
-                />
-                {editing ? (
-                  <input
-                    autoFocus
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    onBlur={() => { renameUserPreset(preset.id, editingName); setEditingId(null); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { renameUserPreset(preset.id, editingName); setEditingId(null); }
-                      if (e.key === "Escape") setEditingId(null);
-                    }}
-                    className="flex-1 min-w-0 rounded-lg border border-primary/40 bg-transparent px-2 py-1 text-xs outline-none"
-                  />
-                ) : (
+          {/* Presets */}
+          <Card icon={Palette} title="Eclipse Themes">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {THEME_PRESETS.map((preset) => {
+                const active = activePreset === preset.id;
+                return (
                   <button
+                    key={preset.id}
                     type="button"
-                    onClick={() => changePreset(preset.theme)}
-                    className="flex flex-col min-w-0 flex-1 text-left cursor-pointer"
+                    onClick={() => setDraft(normalizeTheme(preset.theme))}
+                    aria-pressed={active}
+                    title={preset.description}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer",
+                      active
+                        ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+                        : "border-border/20 glass-card-subtle hover:border-border/40",
+                    )}
                   >
-                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      {preset.label}
-                      {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+                    <span
+                      className="h-5 w-12 shrink-0 rounded-md border border-white/15"
+                      style={{
+                        background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
+                      }}
+                      aria-hidden
+                    />
+                    <span className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        {preset.label}
+                        {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground truncate">{preset.description}</span>
                     </span>
-                    <span className="text-[10px] text-muted-foreground truncate">Your saved theme</span>
                   </button>
+                );
+              })}
+
+              {userPresets.map((preset) => {
+                const active = activePreset === preset.id;
+                const editing = editingId === preset.id;
+                return (
+                  <div
+                    key={preset.id}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all",
+                      active
+                        ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+                        : "border-border/20 glass-card-subtle hover:border-border/40",
+                    )}
+                  >
+                    <span
+                      className="h-5 w-12 shrink-0 rounded-md border border-white/15"
+                      style={{
+                        background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
+                      }}
+                      aria-hidden
+                    />
+                    {editing ? (
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={() => { renameUserPreset(preset.id, editingName); setEditingId(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { renameUserPreset(preset.id, editingName); setEditingId(null); }
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="flex-1 min-w-0 rounded-lg border border-primary/40 bg-transparent px-2 py-1 text-xs outline-none"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setDraft(normalizeTheme(preset.theme))}
+                        className="flex flex-col min-w-0 flex-1 text-left cursor-pointer"
+                      >
+                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          {preset.label}
+                          {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground truncate">Your saved theme</span>
+                      </button>
+                    )}
+                    <span className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        title="Rename"
+                        onClick={() => { setEditingId(preset.id); setEditingName(preset.label); }}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Overwrite with current theme"
+                        onClick={() => { applyDraft(); updateUserPreset(preset.id); }}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete theme"
+                        onClick={() => deleteUserPreset(preset.id)}
+                        className="p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-accent cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+
+              <div
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left",
+                  dirty && activePreset === null
+                    ? "bg-primary/10 border-primary/40"
+                    : "border-border/20 glass-card-subtle",
                 )}
-                <span className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    title="Rename"
-                    onClick={() => { setEditingId(preset.id); setEditingName(preset.label); }}
-                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Update with current theme"
-                    onClick={() => updateUserPreset(preset.id)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                  >
-                    <RotateCcw size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete theme"
-                    onClick={() => deleteUserPreset(preset.id)}
-                    className="p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-accent cursor-pointer"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+              >
+                <SlidersHorizontal className="w-4 h-4 text-primary shrink-0" />
+                <span className="flex flex-col min-w-0">
+                  <span className="text-xs font-semibold text-foreground">Custom Theme</span>
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {dirty && activePreset === null ? "Unsaved — edited below" : "Tune any token, then save below"}
+                  </span>
                 </span>
               </div>
-            );
-          })}
-          <div
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left",
-              customized && activePreset === null
-                ? "bg-primary/10 border-primary/40"
-                : "border-border/20 glass-card-subtle",
-            )}
-          >
-            <SlidersHorizontal className="w-4 h-4 text-primary shrink-0" />
-            <span className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-foreground">Custom Theme</span>
-              <span className="text-[10px] text-muted-foreground truncate">
-                {customized && activePreset === null ? "Active — edited below" : "Tune any token, then save below"}
-              </span>
-            </span>
-          </div>
-        </div>
-
-        {/* Save the current design as a reusable named preset. */}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Input
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
-            placeholder="Name this theme…"
-            className="h-9 flex-1 min-w-[180px]"
-          />
-          <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
-            <Plus className="w-3.5 h-3.5 mr-1" /> Save as preset
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap justify-between items-center gap-2 pt-1 border-t border-border/10">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={handleExport}>
-              <Download className="w-3.5 h-3.5 mr-1" /> Export
-            </Button>
-            <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => importRef.current?.click()}>
-              <Upload className="w-3.5 h-3.5 mr-1" /> Import
-            </Button>
-            <input
-              ref={importRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) handleImport(file);
-              }}
-            />
-          </div>
-          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
-            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
-          </Button>
-        </div>
-      </Card>
-
-      {/* ── Branding ──────────────────────────────────────────────────── */}
-      <Card icon={Sparkles} title="Branding">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">App / workspace name</Label>
-            <Input
-              value={theme.appName}
-              onChange={(e) => setTheme({ appName: e.target.value })}
-              placeholder="BlackEclipse"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Logo mark (text)</Label>
-            <Input
-              value={theme.logoText}
-              maxLength={4}
-              onChange={(e) => setTheme({ logoText: e.target.value })}
-              placeholder="B"
-            />
-          </div>
-        </div>
-        <ImageField
-          label="Logo image"
-          hint="Replaces the sidebar / header mark. PNG, SVG or WEBP up to 300 KB."
-          value={theme.logoUrl}
-          onChange={(v) => setTheme({ logoUrl: v })}
-        />
-        <ImageField
-          label="Favicon"
-          hint="Browser tab icon. Empty derives one from your logo mark + primary color."
-          value={theme.faviconUrl}
-          onChange={(v) => setTheme({ faviconUrl: v })}
-        />
-      </Card>
-
-      {/* ── Typography & shape ────────────────────────────────────────── */}
-      <Card icon={Type} title="Typography & Shape">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">UI font</Label>
-            <Select value={theme.fontUi} onValueChange={(v) => v && setTheme({ fontUi: v })}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {UI_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Heading font</Label>
-            <Select value={theme.fontHeading} onValueChange={(v) => v && setTheme({ fontHeading: v })}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {HEADING_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Monospace font</Label>
-            <Select value={theme.fontMono} onValueChange={(v) => v && setTheme({ fontMono: v })}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {MONO_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground font-medium">Text size</Label>
-              <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.fontScale * 100)}%</span>
             </div>
-            <input
-              type="range"
-              min={0.8}
-              max={1.4}
-              step={0.05}
-              value={theme.fontScale}
-              onChange={(e) => setTheme({ fontScale: Number(e.target.value) })}
-              className="w-full cursor-pointer"
-              aria-label="Text size"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground font-medium">Logo size</Label>
-              <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.logoScale * 100)}%</span>
+
+            {/* Save / import / export / reset */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
+                placeholder="Name this theme…"
+                className="h-9 flex-1 min-w-[180px]"
+              />
+              <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Save as preset
+              </Button>
             </div>
-            <input
-              type="range"
-              min={0.6}
-              max={1.8}
-              step={0.05}
-              value={theme.logoScale}
-              onChange={(e) => setTheme({ logoScale: Number(e.target.value) })}
-              className="w-full cursor-pointer"
-              aria-label="Logo size"
+
+            <div className="flex flex-wrap justify-between items-center gap-2 pt-1 border-t border-border/10">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={handleExport}>
+                  <Download className="w-3.5 h-3.5 mr-1" /> Export
+                </Button>
+                <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => importRef.current?.click()}>
+                  <Upload className="w-3.5 h-3.5 mr-1" /> Import
+                </Button>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) handleImport(file);
+                  }}
+                />
+              </div>
+              <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
+                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
+              </Button>
+            </div>
+          </Card>
+
+          {/* Branding */}
+          <Card icon={Sparkles} title="Branding">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground font-medium">App / workspace name</Label>
+                <Input
+                  value={draft.appName}
+                  onChange={(e) => patch({ appName: e.target.value })}
+                  placeholder="BlackEclipse"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground font-medium">Logo mark (text)</Label>
+                <Input
+                  value={draft.logoText}
+                  maxLength={4}
+                  onChange={(e) => patch({ logoText: e.target.value })}
+                  placeholder="B"
+                />
+              </div>
+            </div>
+            <ImageField
+              label="Logo image"
+              hint="Replaces the sidebar / header mark. PNG, SVG or WEBP up to 300 KB."
+              value={draft.logoUrl}
+              onChange={(v) => patch({ logoUrl: v })}
             />
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground font-medium">Border radius</Label>
-            <span className="text-[10px] font-mono text-muted-foreground">{theme.radius.toFixed(2)}rem</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={1.6}
-            step={0.05}
-            value={theme.radius}
-            onChange={(e) => setTheme({ radius: Number(e.target.value) })}
-            className="w-full cursor-pointer"
-            aria-label="Border radius"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">UI density</Label>
-          <div className="grid grid-cols-3 gap-2">
-            {DENSITY_OPTIONS.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setTheme({ density: d.id })}
-                title={d.hint}
-                className={cn(
-                  "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                  theme.density === d.id
-                    ? "bg-primary/10 text-primary border-primary/40"
-                    : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-                )}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      {/* ── Colors ────────────────────────────────────────────────────── */}
-      <Card icon={Palette} title="Colors">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {COLORS.map((c) => (
-            <ColorField
-              key={c.key}
-              label={c.label}
-              hint={c.hint}
-              value={theme.colors[c.key]}
-              onChange={(hex) => changeColor(c.key, hex)}
+            <ImageField
+              label="Favicon"
+              hint="Browser tab icon. Empty derives one from your logo mark + primary color."
+              value={draft.faviconUrl}
+              onChange={(v) => patch({ faviconUrl: v })}
             />
-          ))}
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <Sun className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span>Light/dark mode still follows General › Theme. Custom colors apply in dark mode.</span>
-        </div>
-      </Card>
+          </Card>
 
-      {/* ── Glass quick controls ──────────────────────────────────────── */}
-      <Card icon={Layers} title="Glass & Surfaces">
-        <Row
-          label="Frosted glass"
-          hint="Turn off for flat, solid panels with no blur."
-          checked={theme.glass.enabled}
-          onChange={(v) => setGlass({ enabled: v })}
-        />
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground font-medium">Blur &amp; tint</Label>
-            <span className="text-[10px] font-mono text-muted-foreground">
-              {theme.glass.blur}px · {Math.round(theme.glass.opacity * 100)}%
-            </span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={48}
-            step={1}
-            value={theme.glass.blur}
-            disabled={!theme.glass.enabled}
-            onChange={(e) => setGlass({ blur: Number(e.target.value) })}
-            className="w-full cursor-pointer disabled:opacity-40"
-            aria-label="Glass blur radius"
-          />
-          <input
-            type="range"
-            min={0.05}
-            max={1}
-            step={0.01}
-            value={theme.glass.opacity}
-            onChange={(e) => setGlass({ opacity: Number(e.target.value) })}
-            className="w-full cursor-pointer"
-            aria-label="Glass tint opacity"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {GLASS_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setGlass(p.glass)}
-              aria-pressed={glassMatches(p.glass)}
-              title={p.hint}
-              className={cn(
-                "px-2.5 py-2 text-[11px] font-medium rounded-xl border transition-all cursor-pointer",
-                glassMatches(p.glass)
-                  ? "bg-primary/10 text-primary border-primary/40"
-                  : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[10px] text-muted-foreground">
-          More glass, shadow and background controls are on the{" "}
-          <button
-            type="button"
-            onClick={() => setTab("glass")}
-            className="text-primary hover:underline cursor-pointer"
-          >
-            Glass &amp; Surfaces
-          </button>{" "}
-          tab.
-        </p>
-      </Card>
+          {/* Typography & shape */}
+          <Card icon={Type} title="Typography & Shape">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground font-medium">UI font</Label>
+                <Select value={draft.fontUi} onValueChange={(v) => v && patch({ fontUi: v })}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {UI_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground font-medium">Heading font</Label>
+                <Select value={draft.fontHeading} onValueChange={(v) => v && patch({ fontHeading: v })}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {HEADING_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-muted-foreground font-medium">Monospace font</Label>
+                <Select value={draft.fontMono} onValueChange={(v) => v && patch({ fontMono: v })}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MONO_FONT_OPTIONS.map((f) => <SelectItem key={f.label} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Slider
+                label="Text size"
+                value={draft.fontScale}
+                min={0.8} max={1.4} step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => patch({ fontScale: v })}
+              />
+              <Slider
+                label="Logo size"
+                value={draft.logoScale}
+                min={0.6} max={1.8} step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => patch({ logoScale: v })}
+              />
+            </div>
+            <Slider
+              label="Border radius"
+              value={draft.radius}
+              min={0} max={1.6} step={0.05}
+              format={(v) => `${v.toFixed(2)}rem`}
+              onChange={(v) => patch({ radius: v })}
+            />
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs text-muted-foreground font-medium">UI density</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {DENSITY_OPTIONS.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => patch({ density: d.id })}
+                    title={d.hint}
+                    className={cn(
+                      "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                      draft.density === d.id
+                        ? "bg-primary/10 text-primary border-primary/40"
+                        : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                    )}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
 
-      {/* ── Motion ────────────────────────────────────────────────────── */}
-      <Card icon={Sparkles} title="Effects & Motion">
-        <Row
-          label="Ambient glow"
-          hint="The Aurora glow behind the app shell."
-          checked={theme.glow}
-          onChange={(v) => setTheme({ glow: v })}
-        />
-        <Row
-          label="Interface animations"
-          hint="Fades, transitions and animated accents."
-          checked={theme.animations}
-          onChange={(v) => setTheme({ animations: v })}
-        />
-      </Card>
-      </div>
+          {/* Colors */}
+          <Card icon={Palette} title="Colors">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {COLORS.map((c) => (
+                <ColorField
+                  key={c.key}
+                  label={c.label}
+                  hint={c.hint}
+                  value={draft.colors[c.key]}
+                  onChange={(hex) => patchColor(c.key, hex)}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <Sun className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span>Light/dark mode still follows General › Theme. Custom colors apply in dark mode.</span>
+            </div>
+          </Card>
+
+          {/* Glass quick controls */}
+          <Card icon={Layers} title="Glass & Surfaces">
+            <Row
+              label="Frosted glass"
+              hint="Turn off for flat, solid panels with no blur."
+              checked={draft.glass.enabled}
+              onChange={(v) => patchGlass({ enabled: v })}
+            />
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Slider
+                label="Glass blur"
+                value={draft.glass.blur}
+                min={0} max={48} step={1}
+                format={(v) => `${v}px`}
+                disabled={!draft.glass.enabled}
+                onChange={(v) => patchGlass({ blur: v })}
+              />
+              <Slider
+                label="Glass tint opacity"
+                value={draft.glass.opacity}
+                min={0.05} max={1} step={0.01}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => patchGlass({ opacity: v })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {GLASS_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => patchGlass(p.glass)}
+                  aria-pressed={glassMatches(p.glass)}
+                  title={p.hint}
+                  className={cn(
+                    "px-2.5 py-2 text-[11px] font-medium rounded-xl border transition-all cursor-pointer",
+                    glassMatches(p.glass)
+                      ? "bg-primary/10 text-primary border-primary/40"
+                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              More glass, shadow and background controls are on the{" "}
+              <button type="button" onClick={() => setTab("glass")} className="text-primary hover:underline cursor-pointer">
+                Glass &amp; Surfaces
+              </button>{" "}
+              tab.
+            </p>
+          </Card>
+
+          {/* Motion */}
+          <Card icon={Sparkles} title="Effects & Motion">
+            <Row
+              label="Ambient glow"
+              hint="The Aurora glow behind the app shell."
+              checked={draft.glow}
+              onChange={(v) => patch({ glow: v })}
+            />
+            <Row
+              label="Interface animations"
+              hint="Fades, transitions and animated accents."
+              checked={draft.animations}
+              onChange={(v) => patch({ animations: v })}
+            />
+          </Card>
+        </div>
       )}
     </div>
   );
+}
+
+/** Local hex → "r g b" helper for inline preview swatches. */
+function rgbTriplet(hex: string): string {
+  const n = normalizeHex(hex);
+  if (!n) return "18 18 20";
+  return [n.slice(1, 3), n.slice(3, 5), n.slice(5, 7)]
+    .map((h) => parseInt(h, 16))
+    .join(" ");
 }

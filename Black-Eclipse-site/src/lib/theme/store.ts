@@ -173,6 +173,8 @@ export interface ThemeStore {
   customized: boolean;
   /** User-saved themes, newest first. */
   userPresets: UserThemePreset[];
+  /** When set, the document is showing a non-persisted preview of this theme. */
+  previewTheme: EclipseTheme | null;
   hydrate: () => void;
   /** Patch top-level fields (appName, fonts, radius, density, toggles, …). */
   setTheme: (patch: Partial<Omit<EclipseTheme, 'colors'>>) => void;
@@ -182,6 +184,15 @@ export interface ThemeStore {
   setGlass: (patch: Partial<ThemeGlass>) => void;
   /** Replace the theme wholesale (preset application). */
   applyPreset: (theme: EclipseTheme) => void;
+  /**
+   * Apply a theme to the document WITHOUT persisting it. Used by the Settings
+   * preview toggle so the whole app can be auditioned before committing.
+   */
+  preview: (theme: EclipseTheme) => void;
+  /** Discard any active preview and restore the saved theme. */
+  cancelPreview: () => void;
+  /** Persist the active preview (no-op when none). */
+  commitPreview: () => void;
   /** Save the current theme as a named user preset; returns its id. */
   saveUserPreset: (label: string) => string;
   /** Overwrite an existing user preset with the current theme. */
@@ -190,6 +201,8 @@ export interface ThemeStore {
   renameUserPreset: (id: string, label: string) => void;
   /** Delete a user preset. */
   deleteUserPreset: (id: string) => void;
+  /** Replace a user preset's colors with the given theme (used by import). */
+  importPreset: (theme: EclipseTheme) => void;
   /** Restore the shipped Eclipse default and drop inline overrides. */
   reset: () => void;
 }
@@ -208,6 +221,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   hydrated: false,
   customized: false,
   userPresets: [],
+  previewTheme: null,
 
   hydrate: () => {
     const stored = loadTheme();
@@ -244,7 +258,29 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   },
 
   applyPreset: (theme) => {
-    set({ theme: commit(theme), customized: true });
+    set({ theme: commit(theme), customized: true, previewTheme: null });
+  },
+
+  preview: (theme) => {
+    const clean = normalizeTheme(theme);
+    // Apply to the document for live auditioning, but do NOT persist.
+    applyThemeToDocument(clean);
+    applyDocumentTitle(clean);
+    set({ previewTheme: clean });
+  },
+
+  cancelPreview: () => {
+    const current = get().theme;
+    applyThemeToDocument(current);
+    applyFavicon(current);
+    applyDocumentTitle(current);
+    set({ previewTheme: null });
+  },
+
+  commitPreview: () => {
+    const preview = get().previewTheme;
+    if (!preview) return;
+    set({ theme: commit(preview), customized: true, previewTheme: null });
   },
 
   saveUserPreset: (label) => {
@@ -281,6 +317,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const userPresets = get().userPresets.filter((p) => p.id !== id);
     persistUserPresets(userPresets);
     set({ userPresets });
+  },
+
+  importPreset: (theme) => {
+    // Import stores a new named user preset rather than replacing the active
+    // theme, so an import is always non-destructive.
+    get().applyPreset(theme);
+    get().saveUserPreset(theme.appName || 'Imported Theme');
   },
 
   reset: () => {

@@ -1157,9 +1157,15 @@ html:not(.dark).theme-glass-off .command-glass-bar {
   background-color: rgb(var(--glass-tint-light) / 0.92) !important;
 }
 
-/* Page background treatment (Customization › Background). The color token still
- * paints `bg-background`; these layers sit over it on the body. */
+/* Page background treatment (Customization › Background). The app shell paints
+ * an opaque `bg-background`, so the pattern must layer on the shell element
+ * itself (image paints over the background-color on the same box). */
 body {
+  background-image: var(--page-bg-image, none);
+  background-size: var(--page-bg-size, auto);
+  background-attachment: fixed;
+}
+.app-page-bg {
   background-image: var(--page-bg-image, none);
   background-size: var(--page-bg-size, auto);
   background-attachment: fixed;

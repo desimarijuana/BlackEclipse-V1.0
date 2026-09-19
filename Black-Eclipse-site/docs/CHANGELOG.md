@@ -43,6 +43,27 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Customization / live preview + draft editing** — The Customization panel now
+  edits a local **draft theme**. A sticky bar offers **Live preview** (pushes the
+  draft to the whole document without persisting) plus **Apply changes** /
+  **Discard**, and dirty state is tracked so nothing commits by accident. Added an
+  inline, isolated `ThemePreview` card (real app chrome rendered with the draft's
+  own token values) so users can see a theme before applying it. All numeric
+  controls now use a shared labelled `Slider` component. Fixed the **page
+  background** treatment: the `gradient`/`grid` pattern was painted on `<body>`
+  but covered by the app shell's opaque `bg-background`; it now layers on the
+  shell via the `.app-page-bg` class. Preview support (`preview`/`cancelPreview`/
+  `commitPreview`) added to the theme store, unpersisted and SSR-safe. 2 new
+  store tests; 1349 tests pass, `tsc` clean, 0 lint errors.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Market Screener / hidden-section restore** — The "Sections" show/hide manager
+  was gated behind `screenerTab !== 'markets'`, so on the default Global Market
+  tab (where the Ticker Strip, Earnings, Sectors and Market Shifters sections are
+  hideable) there was no way to bring hidden widgets back. Removed the gate so the
+  manager button is always available.
+  no doc change — UI bug fix, contracts unchanged.
+
 - **Customization / user presets + surfaces visibility** — Made the theme
   designer usable end-to-end. Added **user-saved presets**: "Save as preset"
   stores the current theme by name (`be_theme_presets_v1`), with rename, update

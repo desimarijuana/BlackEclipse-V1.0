@@ -510,7 +510,7 @@ function StockChatContent() {
 
   return (
     <TooltipProvider delay={0}>
-    <div ref={appRootRef} className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
+    <div ref={appRootRef} className="app-page-bg relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
       {/* Keyboard users can jump straight past the sidebar to the main content. */}
       <a href="#main-content" className="skip-to-content">
         {t('a11y.skipToContent')}

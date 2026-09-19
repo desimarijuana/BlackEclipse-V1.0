@@ -130,9 +130,15 @@ Two mechanisms:
      added once the user changes a glass/shadow setting — so the shipped per-tier
      glass hierarchy is preserved untouched by default. **User themes** are saved
      by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
-     exported/imported as JSON. The Settings panel is tabbed (**Theme · Glass &
-     Surfaces · Aurora · Charts · Language & Access**) and embeds the existing
-     Aurora and Chart panels, so all appearance controls live under Customization.
+     exported/imported as JSON. The panel uses a **draft + preview** model: edits
+     go to a local draft, `preview()` applies it to the document without
+     persisting, and Apply/Discard commit or revert (uncommitted previews are
+     cancelled on unmount). A page-level `.app-page-bg` class carries the
+     `gradient`/`grid` background treatment onto the app shell (the pattern would
+     otherwise be hidden behind the shell's opaque `bg-background`). The Settings
+     panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
+     Access**) and embeds the existing Aurora and Chart panels, so all appearance
+     controls live under Customization.
      The `bridge.ts` helper copies the theme's market colors into the native chart
      palette only on explicit user edits — never on hydration, so a separately
      saved chart palette survives reload. The shipped brand lives in
