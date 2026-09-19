@@ -719,8 +719,12 @@ debounced 500–600ms for prefs/LLM, immediate for feed toggles. A status strip
 reports "Saving…", the real result, or the real error. The rail groups sections
 under Personalize / Intelligence / System and carries a keyword search (each
 section declares `terms`). Long registries filter, sort configured-first, and
-collapse past 8 rows. A status header shows `N ready · M need a key`, and rail
-sections with unresolved providers show an amber dot.
+collapse past 8 rows (economics is instead sub-grouped by kind:
+Central banks / Multilateral / Official statistics / Market data). A status
+header shows `N ready · M need a key`, and rail sections with unresolved
+providers show an amber dot. Keyboard: `/` focuses the rail search, ↑/↓ move
+between sections, Esc blurs. Deep links may carry a block anchor
+(`settings.market#priority`) which scrolls to the matching `data-anchor`.
 
 **One LLM key.** The AI section's key is edited through the provider-key vault
 (keyed by the selected preset's env var), not a separate `llm.apiKey` field.

@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Settings / UX phase 4 (P2)** — Economics providers are now sub-grouped
+  (Central banks / Multilateral / Official statistics / Market data) instead of
+  one 44-row list. Added keyboard navigation (`/` focuses search, ↑/↓ switch
+  sections, Esc blurs), deep-link anchors (`settings.market#priority` scrolls to
+  a block), and honest error/retry states when the provider catalog fails to
+  load (empty catalog no longer renders silently). File split of inline sections
+  deferred with a TODO (needs state lifted to a context first). 1307 tests pass,
+  `tsc` clean, production build clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Settings / UX phase 3 (P1)** — Added a provider status header
   (`N ready · M need a key`), amber attention dots on rail sections whose
   providers need keys, clickable "Used by" labels that navigate to the consuming

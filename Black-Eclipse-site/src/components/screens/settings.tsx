@@ -1,5 +1,14 @@
 "use client";
 
+// TODO(P2, deferred): this file is the Settings shell plus the inline bodies
+// for General / AI / Investor Eye / Economics / Market / News / Data / System
+// (~1180 lines). Those bodies depend on parent state (llm, prefs, feeds,
+// markets, integrations) so splitting them cleanly means lifting that state
+// into a context/provider. Low risk to leave; deferred to avoid a rushed
+// refactor. Already-extracted panels live in their own files (aurora-settings,
+// chart-settings, sidebar-settings, alert-notifications-settings,
+// provider-registry-panel, data-sources-panel).
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
@@ -121,16 +130,18 @@ const PROVIDER_LABELS: Record<LLMProviderName, string> = {
 function Panel({
   className,
   children,
+  ...rest
 }: {
   className?: string;
   children: React.ReactNode;
-}) {
+} & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
         "rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden",
         className
       )}
+      {...rest}
     >
       {children}
     </div>
@@ -216,7 +227,14 @@ function StatusDot({ ok }: { ok: boolean | undefined }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────
 
-export function Settings({ initialSection }: { initialSection?: SectionId } = {}) {
+export function Settings({
+  initialSection,
+  initialAnchor,
+}: {
+  initialSection?: SectionId;
+  /** Optional block id to scroll to once mounted (e.g. "priority"). */
+  initialAnchor?: string;
+} = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Transient result toast shown in the footer status area.
@@ -408,19 +426,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     }
   };
 
-  if (loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center p-8">
-        <TopLoader />
-        <div className="animate-pulse space-y-4 w-full max-w-md">
-          <div className="h-9 w-52 rounded-2xl bg-muted/15" />
-          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
-          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
-        </div>
-      </div>
-    );
-  }
-
   // Rail items carry extra `terms` so the search box can match the words a
   // user would actually type ("dark", "key", "fred", "rss") — not just labels.
   const NAV: {
@@ -472,8 +477,66 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     });
   }, [needle, NAV]);
 
+  // Keyboard navigation: `/` focuses the search, ↑/↓ move between sections
+  // (within the current search), Esc clears/blurs. Ignored while typing in a
+  // field so it never hijacks input.
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (e.key === "Escape" && typing) {
+        (target as HTMLInputElement).blur();
+        return;
+      }
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !typing) {
+        const list = visibleNav.length > 0 ? visibleNav : NAV;
+        const idx = list.findIndex((i) => i.id === section);
+        const nextIdx = e.key === "ArrowDown"
+          ? (idx + 1) % list.length
+          : (idx - 1 + list.length) % list.length;
+        e.preventDefault();
+        setSection(list[nextIdx].id);
+      }
+    };
+    const node = modalRef.current;
+    node?.addEventListener("keydown", onKey);
+    return () => node?.removeEventListener("keydown", onKey);
+    // `loading` matters: the ref is null while the skeleton renders, so the
+    // effect must re-run once the real shell (and its ref) has mounted.
+  }, [visibleNav, section, loading]);
+
+  // Scroll to a deep-linked block once content has rendered.
+  useEffect(() => {
+    if (loading || !initialAnchor) return;
+    const t = setTimeout(() => {
+      modalRef.current?.querySelector(`[data-anchor="${initialAnchor}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [loading, initialAnchor]);
+
+  // All hooks run before this early return (rules of hooks).
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center p-8">
+        <TopLoader />
+        <div className="animate-pulse space-y-4 w-full max-w-md">
+          <div className="h-9 w-52 rounded-2xl bg-muted/15" />
+          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
+          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div ref={modalRef} className="flex h-full w-full overflow-hidden" tabIndex={-1}>
       {/* Left nav rail */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border/10 glass-card-subtle">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
@@ -491,9 +554,10 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search settings…"
+              placeholder="Search settings…  /"
               className="w-full h-9 rounded-xl border border-border/30 bg-transparent pl-8 pr-2.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
             />
           </div>
@@ -965,7 +1029,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
 
                 <div className="mt-4 space-y-4">
                   <ProviderRegistry home="market" title="Market Screener providers" />
-                  <Panel className="p-5 md:p-6">
+                  <Panel className="p-5 md:p-6" data-anchor="priority">
                     <p className="text-[11px] font-semibold text-foreground mb-1">Price-source priority & fallback</p>
                     <p className="text-[10px] text-muted-foreground leading-relaxed">
                       JDDS serves stored prices first, then the built-in scraper chain escalates automatically:

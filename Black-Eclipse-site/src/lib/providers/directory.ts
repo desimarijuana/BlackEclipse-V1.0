@@ -144,6 +144,29 @@ export const TIER_LABEL: Record<ProviderTier, string> = {
   paid: "Paid",
 };
 
+// ── Economics sub-groups ────────────────────────────────────────────────────
+// The economics catalog is 40+ sources; grouping them by kind keeps the section
+// scannable. Keyed by the source id (`econ:<sourceId>` in the catalog), with a
+// sensible fallback so a new source still renders.
+
+export type EconomicsGroup = "Official statistics" | "Central banks" | "Multilateral" | "Market & markets data";
+
+const ECONOMICS_GROUPS: Record<EconomicsGroup, string[]> = {
+  "Central banks": ["federalreserve", "ecb", "central-banks", "bis", "real-rate", "yield-curve", "breakeven", "credit-spread", "money-supply", "fed-balance-sheet", "liquidity", "dollar"],
+  Multilateral: ["worldbank", "imf", "oecd", "eurostat", "un-comtrade", "wb-health", "adb", "unesco", "owid", "ilo", "wto"],
+  "Official statistics": ["fred", "fred-analytics", "bls", "census", "fiscaldata", "bea", "nber", "ons-uk", "statcan", "bcb", "akshare-china", "econdb", "cftc", "eia", "economic-calendar", "leading-indicators", "pmi", "consumer-confidence", "housing"],
+  "Market & markets data": ["trading-economics", "fincept-macro"],
+};
+
+/** The economics sub-group a catalog id (or env var) belongs to. */
+export function economicsGroup(id: string): EconomicsGroup {
+  const sourceId = id.startsWith("econ:") ? id.slice(5) : id;
+  for (const [group, ids] of Object.entries(ECONOMICS_GROUPS) as Array<[EconomicsGroup, string[]]>) {
+    if (ids.includes(sourceId)) return group;
+  }
+  return "Official statistics";
+}
+
 // ── "Used by" → consuming page ───────────────────────────────────────────────
 // Lets the registry turn a "Used by: X" label into a link to the actual page
 // that consumes the provider, closing the why → where loop.

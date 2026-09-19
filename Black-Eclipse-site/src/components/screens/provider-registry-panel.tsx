@@ -32,11 +32,12 @@ import {
   providerHome,
   providerHomeForLabel,
   consumingPage,
+  economicsGroup,
   TIER_LABEL,
   INVESTOR_EYE_FEATURES,
   type SettingsHome,
 } from "@/lib/providers/directory";
-import { useProviderCatalog } from "./provider-list";
+import { useProviderCatalog, loadProviderCatalog } from "./provider-list";
 import type { CatalogProvider } from "@/lib/connectors/catalog";
 import { SOURCE_CATALOG } from "@/lib/investor-eye/source-catalog";
 
@@ -418,9 +419,31 @@ export function ProviderRegistry({
     );
   }
 
+  const catalogEmpty = catalog.categories.length === 0;
   const all = catalog.categories
     .flatMap((c) => c.providers)
     .filter((p) => providerHome(p.id, p.envVar, p.category) === home);
+
+  // A failed catalog fetch returns an empty catalog; say so honestly rather
+  // than rendering nothing, and offer a retry.
+  if (catalogEmpty) {
+    return (
+      <div className="rounded-2xl border border-border/20 glass-card px-4 py-4 flex items-center justify-between gap-3">
+        <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+          Could not load the provider catalog.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="cursor-pointer rounded-lg text-[10px] h-7 px-2.5"
+          onClick={() => void loadProviderCatalog(true)}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (all.length === 0) return null;
 
@@ -439,8 +462,21 @@ export function ProviderRegistry({
 
   const available = all.filter(isUp).length;
   const COLLAPSE_AT = 8;
-  const collapsible = !needle && filtered.length > COLLAPSE_AT;
+  // Economics has 40+ sources, so it is always shown grouped by kind instead of
+  // collapsed. Other sections collapse past a short threshold.
+  const grouped = home === "economics";
+  const collapsible = !grouped && !needle && filtered.length > COLLAPSE_AT;
   const shown = collapsible && !showAll ? filtered.slice(0, COLLAPSE_AT) : filtered;
+
+  const renderRow = (p: CatalogProvider) => (
+    <ProviderRegistryRow
+      key={p.id}
+      provider={p}
+      keyStatus={p.envVar ? keys[p.envVar] : undefined}
+      onKeyChanged={reload}
+      onOpenWizard={onOpenWizard}
+    />
+  );
 
   return (
     <div className="rounded-2xl border border-border/20 glass-card overflow-hidden">
@@ -453,7 +489,7 @@ export function ProviderRegistry({
             {available} of {all.length} available · keys encrypted in JDDS, never returned
           </p>
         </div>
-        {all.length > COLLAPSE_AT && (
+        {(all.length > COLLAPSE_AT || grouped) && (
           <div className="relative shrink-0">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
             <input
@@ -465,20 +501,34 @@ export function ProviderRegistry({
           </div>
         )}
       </div>
-      <div className="divide-y divide-border/10">
-        {shown.map((p) => (
-          <ProviderRegistryRow
-            key={p.id}
-            provider={p}
-            keyStatus={p.envVar ? keys[p.envVar] : undefined}
-            onKeyChanged={reload}
-            onOpenWizard={onOpenWizard}
-          />
-        ))}
-        {filtered.length === 0 && (
-          <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
-        )}
-      </div>
+
+      {grouped ? (
+        <div className="divide-y divide-border/10">
+          {Array.from(new Set(filtered.map((p) => economicsGroup(p.id)))).map((group) => {
+            const rows = filtered.filter((p) => economicsGroup(p.id) === group);
+            if (rows.length === 0) return null;
+            return (
+              <div key={group}>
+                <p className="px-4 pt-3 pb-1 text-[9px] uppercase tracking-[0.15em] font-bold text-muted-foreground/70">
+                  {group}
+                </p>
+                <div className="divide-y divide-border/10">{rows.map(renderRow)}</div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
+          )}
+        </div>
+      ) : (
+        <div className="divide-y divide-border/10">
+          {shown.map(renderRow)}
+          {filtered.length === 0 && (
+            <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
+          )}
+        </div>
+      )}
+
       {collapsible && (
         <button
           onClick={() => setShowAll((v) => !v)}

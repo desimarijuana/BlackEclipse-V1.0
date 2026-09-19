@@ -27,14 +27,22 @@ import { useCommandStore } from "@/lib/search/store";
 import { providerMeta, TIER_LABEL } from "@/lib/providers/directory";
 import type { CatalogProvider, ProviderCatalog, ProviderCategory } from "@/lib/connectors/catalog";
 
-let cached: Promise<ProviderCatalog> | null = null;
+const EMPTY_CATALOG: ProviderCatalog = { categories: [], envFlags: {}, totals: { providers: 0, connected: 0, custom: 0 } };
 
-/** Fetch the catalog once per page load. */
+let cached: Promise<ProviderCatalog> | null = null;
+// Every mounted consumer subscribes, so a forced reload (e.g. after a failed
+// fetch) updates all of them — the retry button actually re-renders.
+const subscribers = new Set<(c: ProviderCatalog) => void>();
+
+/** Fetch the catalog once per page load. Pass `force` to refetch and notify. */
 export function loadProviderCatalog(force = false): Promise<ProviderCatalog> {
   if (!cached || force) {
     cached = fetch("/api/providers")
       .then((r) => r.json())
-      .catch(() => ({ categories: [], totals: { providers: 0, connected: 0, custom: 0 } }));
+      .catch(() => EMPTY_CATALOG);
+    if (force) {
+      void cached.then((c) => subscribers.forEach((fn) => fn(c)));
+    }
   }
   return cached;
 }
@@ -42,12 +50,21 @@ export function loadProviderCatalog(force = false): Promise<ProviderCatalog> {
 export function useProviderCatalog(): ProviderCatalog | null {
   const [catalog, setCatalog] = useState<ProviderCatalog | null>(null);
   useEffect(() => {
+    const set = (c: ProviderCatalog) => setCatalog(c);
+    subscribers.add(set);
     let live = true;
-    void loadProviderCatalog().then((c) => {
-      if (live) setCatalog(c);
-    });
+    void loadProviderCatalog()
+      .then((c) => {
+        if (live) set(c);
+      })
+      .catch(() => {
+        // A failed fetch must leave the hook in a terminal state, not spin
+        // forever. An empty catalog renders the honest "no providers" state.
+        if (live) set(EMPTY_CATALOG);
+      });
     return () => {
       live = false;
+      subscribers.delete(set);
     };
   }, []);
   return catalog;

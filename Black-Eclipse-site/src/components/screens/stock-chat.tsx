@@ -105,6 +105,8 @@ function StockChatContent() {
   navHistoryRef.current = navHistory;
   // Section requested by a `settings.<section>` palette subroute.
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
+  // Optional block within the section, e.g. `settings.market#priority`.
+  const [settingsAnchor, setSettingsAnchor] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     setMounted(true);
@@ -180,8 +182,11 @@ function StockChatContent() {
       // Settings has no tab screen — it is a modal. Route there instead of
       // switching to a tab that renders nothing.
       if (dest.tab === 'settings') {
-        const sec = dest.subroute?.split('.')[1];
+        const raw = dest.subroute?.split('.')[1];
+        const sec = raw?.split('#')[0];
+        const anchor = raw?.split('#')[1];
         if (sec) setSettingsSection(sec as SectionId);
+        setSettingsAnchor(anchor);
         setSettingsOpen(true);
         return;
       }
@@ -679,7 +684,11 @@ function StockChatContent() {
           <DialogTitle className="sr-only">Settings</DialogTitle>
           {/* Keyed so a palette `settings.<section>` request remounts into the
               requested section even while the modal is already open. */}
-          <Settings key={settingsSection ?? 'default'} initialSection={settingsSection} />
+          <Settings
+            key={`${settingsSection ?? 'default'}:${settingsAnchor ?? ''}`}
+            initialSection={settingsSection}
+            initialAnchor={settingsAnchor}
+          />
         </DialogContent>
       </Dialog>
     </div>
