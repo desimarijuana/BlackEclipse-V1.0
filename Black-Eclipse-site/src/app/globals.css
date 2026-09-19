@@ -1061,51 +1061,51 @@ html:not(.dark) .glass-button-add:hover {
 }
 
 /* ── Customization-driven glass surfaces ─────────────────────────────────────
- * Settings › Customization › Glass writes --glass-* tokens on <html>. These
- * rules (declared after the hardcoded recipes) let the user retune or disable
- * frosted glass app-wide. Defaults match the shipped recipe, so nothing changes
- * until the user opts in. `--glass-enabled: 0` removes the blur entirely and
- * makes the tint opaque, turning every tier into a solid panel. */
-.glass-card,
-.glass-card-strong,
-.glass-card-subtle,
-.glass-drawer,
-.glass-button,
-.ws-glass,
-.tab-bar-glass,
-.tab-bar-subtle,
-.fund-tabs-glass,
-.glass-ticker,
-.fund-menu-glass,
-.command-glass,
-.command-glass-bar {
-  background-color: rgb(var(--glass-tint) / var(--glass-opacity)) !important;
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+ * Settings › Customization › Glass writes --glass-* tokens on <html> and adds
+ * `theme-glass-active`. These rules are scoped so the shipped tier hierarchy in
+ * the hardcoded recipes is untouched until the user opts into customization.
+ * `theme-glass-off` (glass disabled) removes the blur entirely and makes the
+ * tint opaque, turning every tier into a solid panel. */
+html.theme-glass-active .glass-card,
+html.theme-glass-active .glass-card-strong,
+html.theme-glass-active .glass-card-subtle,
+html.theme-glass-active .glass-drawer,
+html.theme-glass-active .glass-button,
+html.theme-glass-active .ws-glass,
+html.theme-glass-active .tab-bar-glass,
+html.theme-glass-active .tab-bar-subtle,
+html.theme-glass-active .fund-tabs-glass,
+html.theme-glass-active .glass-ticker,
+html.theme-glass-active .fund-menu-glass,
+html.theme-glass-active .command-glass,
+html.theme-glass-active .command-glass-bar {
+  background-color: rgb(var(--glass-tint, 18 18 20) / var(--glass-opacity, 0.55)) !important;
+  backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.35);
+  box-shadow: var(--glass-shadow, 0 8px 30px rgba(0, 0, 0, 0.30)), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 /* Light mode keeps its white frost (or a lightened custom tint). */
-html:not(.dark) .glass-card,
-html:not(.dark) .glass-card-strong,
-html:not(.dark) .glass-card-subtle,
-html:not(.dark) .glass-drawer,
-html:not(.dark) .glass-button,
-html:not(.dark) .ws-glass,
-html:not(.dark) .tab-bar-glass,
-html:not(.dark) .tab-bar-subtle,
-html:not(.dark) .fund-tabs-glass,
-html:not(.dark) .glass-ticker,
-html:not(.dark) .fund-menu-glass,
-html:not(.dark) .command-glass,
-html:not(.dark) .command-glass-bar {
-  background-color: rgb(var(--glass-tint-light) / var(--glass-opacity)) !important;
+html:not(.dark).theme-glass-active .glass-card,
+html:not(.dark).theme-glass-active .glass-card-strong,
+html:not(.dark).theme-glass-active .glass-card-subtle,
+html:not(.dark).theme-glass-active .glass-drawer,
+html:not(.dark).theme-glass-active .glass-button,
+html:not(.dark).theme-glass-active .ws-glass,
+html:not(.dark).theme-glass-active .tab-bar-glass,
+html:not(.dark).theme-glass-active .tab-bar-subtle,
+html:not(.dark).theme-glass-active .fund-tabs-glass,
+html:not(.dark).theme-glass-active .glass-ticker,
+html:not(.dark).theme-glass-active .fund-menu-glass,
+html:not(.dark).theme-glass-active .command-glass,
+html:not(.dark).theme-glass-active .command-glass-bar {
+  background-color: rgb(var(--glass-tint-light, 255 255 255) / var(--glass-opacity, 0.55)) !important;
 }
 
 /* The drawer/menu tiers keep their gradient when glass is on; a solid fill would
  * hide the blur they exist to show. */
-.glass-drawer,
-.fund-menu-glass,
-.command-glass {
+html.theme-glass-active .glass-drawer,
+html.theme-glass-active .fund-menu-glass,
+html.theme-glass-active .command-glass {
   background-color: transparent !important;
   background-image: linear-gradient(
     180deg,
@@ -1113,9 +1113,9 @@ html:not(.dark) .command-glass-bar {
     rgb(var(--glass-tint) / calc(var(--glass-opacity) + 0.08))
   ) !important;
 }
-html:not(.dark) .glass-drawer,
-html:not(.dark) .fund-menu-glass,
-html:not(.dark) .command-glass {
+html:not(.dark).theme-glass-active .glass-drawer,
+html:not(.dark).theme-glass-active .fund-menu-glass,
+html:not(.dark).theme-glass-active .command-glass {
   background-image: linear-gradient(
     180deg,
     rgb(var(--glass-tint-light) / var(--glass-opacity)),

@@ -125,10 +125,14 @@ Two mechanisms:
      the `theme-glass-off` root class removes blur and makes surfaces opaque, so
      users can disable frosted glass app-wide from Settings (no component reads the
      preference). `--glass-tint` is a dark-scoped color with a `--glass-tint-light`
-     counterpart, so a custom dark tint never leaks into light mode. The Settings
-     panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
-     Access**) and embeds the existing Aurora and Chart panels, so all appearance
-     controls live under Customization.
+     counterpart, so a custom dark tint never leaks into light mode. The token
+     glass override is gated by the `theme-glass-active` root class, which is only
+     added once the user changes a glass/shadow setting — so the shipped per-tier
+     glass hierarchy is preserved untouched by default. **User themes** are saved
+     by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
+     exported/imported as JSON. The Settings panel is tabbed (**Theme · Glass &
+     Surfaces · Aurora · Charts · Language & Access**) and embeds the existing
+     Aurora and Chart panels, so all appearance controls live under Customization.
      The `bridge.ts` helper copies the theme's market colors into the native chart
      palette only on explicit user edits — never on hydration, so a separately
      saved chart palette survives reload. The shipped brand lives in

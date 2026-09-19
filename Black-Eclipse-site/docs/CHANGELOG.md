@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Customization / user presets + surfaces visibility** — Made the theme
+  designer usable end-to-end. Added **user-saved presets**: "Save as preset"
+  stores the current theme by name (`be_theme_presets_v1`), with rename, update
+  (overwrite with current), and delete per preset — shown alongside the shipped
+  presets and matched for the active highlight. Added **theme Import/Export**
+  (JSON download/upload, validated through `normalizeTheme`). Surfaced a compact
+  **Glass & Surfaces** card directly in the main Theme tab (frosted on/off, blur,
+  tint, glass presets) so the controls are discoverable without hunting the tab.
+  Fixed the token-driven glass override so it only activates once the user
+  actually changes glass/shadow (`theme-glass-active` marker class), preserving
+  the shipped per-tier glass hierarchy by default; store now reads
+  `window.localStorage` (SSR/test-safe). 6 new store tests; 1347 tests pass,
+  `tsc` clean, 0 lint errors.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Customization / glass mode + theme designer** — Added a **Glass & Surfaces**
   tab and deeper theme-design controls. `EclipseTheme` gained `glass`
   (`enabled`, `blur`, `opacity`, `tint`), `shadow`

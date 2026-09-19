@@ -44,6 +44,7 @@ export {
   useHydrateTheme,
   applyThemeToDocument,
   THEME_STORAGE_KEY,
+  THEME_PRESETS_STORAGE_KEY,
 } from './store';
-export type { ThemeStore } from './store';
+export type { ThemeStore, UserThemePreset } from './store';
 export { syncChartPaletteFromTheme } from './bridge';

@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
-  Wand2, Activity, Layers, Square,
+  Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,8 @@ import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/
 import {
   BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
   SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
-  isValidHex, normalizeHex, syncChartPaletteFromTheme, themeFromBrandColor, useThemeStore,
-  type ThemeColors, type ThemeGlass,
+  isValidHex, normalizeHex, normalizeTheme, syncChartPaletteFromTheme, themeFromBrandColor,
+  useThemeStore, type ThemeColors, type ThemeGlass,
 } from "@/lib/theme";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
@@ -215,9 +215,18 @@ export function CustomizationSettingsPanel() {
   const setGlass = useThemeStore((s) => s.setGlass);
   const applyPreset = useThemeStore((s) => s.applyPreset);
   const resetTheme = useThemeStore((s) => s.reset);
+  const userPresets = useThemeStore((s) => s.userPresets);
+  const saveUserPreset = useThemeStore((s) => s.saveUserPreset);
+  const updateUserPreset = useThemeStore((s) => s.updateUserPreset);
+  const renameUserPreset = useThemeStore((s) => s.renameUserPreset);
+  const deleteUserPreset = useThemeStore((s) => s.deleteUserPreset);
 
   const [tab, setTab] = useState<CustomTab>("theme");
   const [brandColor, setBrandColor] = useState(theme.colors.primary);
+  const [presetName, setPresetName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const importRef = useRef<HTMLInputElement | null>(null);
 
   // Keep native charts in step with the theme's market colors when the user
   // explicitly recolors (presets, color edits, reset) — never on hydration.
@@ -241,8 +250,45 @@ export function CustomizationSettingsPanel() {
     syncChartPaletteFromTheme(next);
   };
 
+  const handleSavePreset = () => {
+    const name = presetName.trim() || `My Theme ${userPresets.length + 1}`;
+    saveUserPreset(name);
+    setPresetName("");
+  };
+
+  const handleExport = () => {
+    try {
+      const blob = new Blob([JSON.stringify(theme, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(theme.appName || "eclipse").replace(/\s+/g, "-").toLowerCase()}-theme.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* download unavailable — no-op */
+    }
+  };
+
+  const handleImport = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const next = normalizeTheme(parsed);
+        applyPreset(next);
+        syncChartPaletteFromTheme(next);
+      } catch {
+        /* invalid file — ignore */
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const activePreset = THEME_PRESETS.find(
     (p) => JSON.stringify(theme) === JSON.stringify(p.theme),
+  )?.id ?? userPresets.find(
+    (p) => JSON.stringify(theme) === JSON.stringify(normalizeTheme(p.theme)),
   )?.id ?? null;
 
   const COLORS: { key: keyof ThemeColors; label: string; hint: string }[] = [
@@ -606,6 +652,80 @@ export function CustomizationSettingsPanel() {
               </button>
             );
           })}
+          {userPresets.map((preset) => {
+            const active = activePreset === preset.id;
+            const editing = editingId === preset.id;
+            return (
+              <div
+                key={preset.id}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all",
+                  active
+                    ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+                    : "border-border/20 glass-card-subtle hover:border-border/40",
+                )}
+              >
+                <span
+                  className="h-5 w-12 shrink-0 rounded-md border border-white/15"
+                  style={{
+                    background: `linear-gradient(90deg, ${preset.theme.colors.bullish} 0%, ${preset.theme.colors.primary} 50%, ${preset.theme.colors.bearish} 100%)`,
+                  }}
+                  aria-hidden
+                />
+                {editing ? (
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    onBlur={() => { renameUserPreset(preset.id, editingName); setEditingId(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { renameUserPreset(preset.id, editingName); setEditingId(null); }
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="flex-1 min-w-0 rounded-lg border border-primary/40 bg-transparent px-2 py-1 text-xs outline-none"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => changePreset(preset.theme)}
+                    className="flex flex-col min-w-0 flex-1 text-left cursor-pointer"
+                  >
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      {preset.label}
+                      {active && <Check className="w-3 h-3 text-primary shrink-0" />}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground truncate">Your saved theme</span>
+                  </button>
+                )}
+                <span className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    title="Rename"
+                    onClick={() => { setEditingId(preset.id); setEditingName(preset.label); }}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Update with current theme"
+                    onClick={() => updateUserPreset(preset.id)}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete theme"
+                    onClick={() => deleteUserPreset(preset.id)}
+                    className="p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-accent cursor-pointer"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </span>
+              </div>
+            );
+          })}
           <div
             className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left",
@@ -618,12 +738,46 @@ export function CustomizationSettingsPanel() {
             <span className="flex flex-col min-w-0">
               <span className="text-xs font-semibold text-foreground">Custom Theme</span>
               <span className="text-[10px] text-muted-foreground truncate">
-                {customized && activePreset === null ? "Active — edited below" : "Tune any token below"}
+                {customized && activePreset === null ? "Active — edited below" : "Tune any token, then save below"}
               </span>
             </span>
           </div>
         </div>
-        <div className="flex justify-end">
+
+        {/* Save the current design as a reusable named preset. */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Input
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
+            placeholder="Name this theme…"
+            className="h-9 flex-1 min-w-[180px]"
+          />
+          <Button size="sm" className="rounded-xl cursor-pointer" onClick={handleSavePreset}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Save as preset
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap justify-between items-center gap-2 pt-1 border-t border-border/10">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={handleExport}>
+              <Download className="w-3.5 h-3.5 mr-1" /> Export
+            </Button>
+            <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => importRef.current?.click()}>
+              <Upload className="w-3.5 h-3.5 mr-1" /> Import
+            </Button>
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) handleImport(file);
+              }}
+            />
+          </div>
           <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
             <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
           </Button>
@@ -786,6 +940,75 @@ export function CustomizationSettingsPanel() {
           <Sun className="w-3.5 h-3.5 text-primary shrink-0" />
           <span>Light/dark mode still follows General › Theme. Custom colors apply in dark mode.</span>
         </div>
+      </Card>
+
+      {/* ── Glass quick controls ──────────────────────────────────────── */}
+      <Card icon={Layers} title="Glass & Surfaces">
+        <Row
+          label="Frosted glass"
+          hint="Turn off for flat, solid panels with no blur."
+          checked={theme.glass.enabled}
+          onChange={(v) => setGlass({ enabled: v })}
+        />
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground font-medium">Blur &amp; tint</Label>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {theme.glass.blur}px · {Math.round(theme.glass.opacity * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={48}
+            step={1}
+            value={theme.glass.blur}
+            disabled={!theme.glass.enabled}
+            onChange={(e) => setGlass({ blur: Number(e.target.value) })}
+            className="w-full cursor-pointer disabled:opacity-40"
+            aria-label="Glass blur radius"
+          />
+          <input
+            type="range"
+            min={0.05}
+            max={1}
+            step={0.01}
+            value={theme.glass.opacity}
+            onChange={(e) => setGlass({ opacity: Number(e.target.value) })}
+            className="w-full cursor-pointer"
+            aria-label="Glass tint opacity"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {GLASS_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setGlass(p.glass)}
+              aria-pressed={glassMatches(p.glass)}
+              title={p.hint}
+              className={cn(
+                "px-2.5 py-2 text-[11px] font-medium rounded-xl border transition-all cursor-pointer",
+                glassMatches(p.glass)
+                  ? "bg-primary/10 text-primary border-primary/40"
+                  : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          More glass, shadow and background controls are on the{" "}
+          <button
+            type="button"
+            onClick={() => setTab("glass")}
+            className="text-primary hover:underline cursor-pointer"
+          >
+            Glass &amp; Surfaces
+          </button>{" "}
+          tab.
+        </p>
       </Card>
 
       {/* ── Motion ────────────────────────────────────────────────────── */}

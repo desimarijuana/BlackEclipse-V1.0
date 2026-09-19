@@ -26,17 +26,60 @@ import {
 } from './tokens';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
+export const THEME_PRESETS_STORAGE_KEY = 'be_theme_presets_v1';
 const STYLE_ELEMENT_ID = 'eclipse-theme-overrides';
+
+/** A named theme the user saved themselves. */
+export interface UserThemePreset {
+  id: string;
+  label: string;
+  theme: EclipseTheme;
+  createdAt: number;
+}
 
 function loadTheme(): EclipseTheme | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(THEME_STORAGE_KEY);
+    const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
     if (!raw) return null;
     return normalizeTheme(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+function loadUserPresets(): UserThemePreset[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(THEME_PRESETS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((p) => p && typeof p === 'object')
+      .map((p) => ({
+        id: String(p.id ?? ''),
+        label: String(p.label ?? 'Custom'),
+        createdAt: Number(p.createdAt) || Date.now(),
+        theme: normalizeTheme(p.theme),
+      }))
+      .filter((p) => p.id.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function persistUserPresets(presets: UserThemePreset[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(THEME_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+  } catch {
+    /* quota / private mode — in-memory only */
+  }
+}
+
+function makePresetId(): string {
+  return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function buildOverrideCss(theme: EclipseTheme): string {
@@ -69,8 +112,20 @@ export function applyThemeToDocument(theme: EclipseTheme) {
   }
   el.textContent = buildOverrideCss(theme);
   const root = document.documentElement;
+  root.classList.add('theme-customized');
   root.classList.toggle('theme-no-anim', !theme.animations);
   root.classList.toggle('theme-no-glow', !theme.glow);
+  // The token-driven glass override (which unifies the per-tier recipes) only
+  // kicks in when the user changed glass settings or turned glass off. While
+  // they match the shipped defaults, the hardcoded tier hierarchy stays intact.
+  const dg = DEFAULT_ECLIPSE_THEME.glass;
+  const surfacesTouched =
+    !theme.glass.enabled ||
+    theme.glass.blur !== dg.blur ||
+    theme.glass.opacity !== dg.opacity ||
+    theme.glass.tint !== dg.tint ||
+    theme.shadow !== DEFAULT_ECLIPSE_THEME.shadow;
+  root.classList.toggle('theme-glass-active', surfacesTouched);
   root.classList.toggle('theme-glass-off', !theme.glass.enabled);
 }
 
@@ -78,7 +133,9 @@ export function applyThemeToDocument(theme: EclipseTheme) {
 function clearThemeFromDocument() {
   if (typeof document === 'undefined') return;
   document.getElementById(STYLE_ELEMENT_ID)?.remove();
-  document.documentElement.classList.remove('theme-no-anim', 'theme-no-glow', 'theme-glass-off');
+  document.documentElement.classList.remove(
+    'theme-customized', 'theme-no-anim', 'theme-no-glow', 'theme-glass-active', 'theme-glass-off',
+  );
 }
 
 function applyFavicon(theme: EclipseTheme) {
@@ -103,7 +160,7 @@ function applyDocumentTitle(theme: EclipseTheme) {
 function persist(theme: EclipseTheme) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
+    window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
   } catch {
     /* quota / private mode — in-memory only */
   }
@@ -114,6 +171,8 @@ export interface ThemeStore {
   hydrated: boolean;
   /** True once the user has overrides stored (drives the "Custom" badge). */
   customized: boolean;
+  /** User-saved themes, newest first. */
+  userPresets: UserThemePreset[];
   hydrate: () => void;
   /** Patch top-level fields (appName, fonts, radius, density, toggles, …). */
   setTheme: (patch: Partial<Omit<EclipseTheme, 'colors'>>) => void;
@@ -123,6 +182,14 @@ export interface ThemeStore {
   setGlass: (patch: Partial<ThemeGlass>) => void;
   /** Replace the theme wholesale (preset application). */
   applyPreset: (theme: EclipseTheme) => void;
+  /** Save the current theme as a named user preset; returns its id. */
+  saveUserPreset: (label: string) => string;
+  /** Overwrite an existing user preset with the current theme. */
+  updateUserPreset: (id: string) => void;
+  /** Rename a user preset. */
+  renameUserPreset: (id: string, label: string) => void;
+  /** Delete a user preset. */
+  deleteUserPreset: (id: string) => void;
   /** Restore the shipped Eclipse default and drop inline overrides. */
   reset: () => void;
 }
@@ -140,16 +207,18 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   theme: DEFAULT_ECLIPSE_THEME,
   hydrated: false,
   customized: false,
+  userPresets: [],
 
   hydrate: () => {
     const stored = loadTheme();
+    const userPresets = loadUserPresets();
     if (stored) {
       applyThemeToDocument(stored);
       applyFavicon(stored);
       applyDocumentTitle(stored);
-      set({ theme: stored, hydrated: true, customized: true });
+      set({ theme: stored, hydrated: true, customized: true, userPresets });
     } else {
-      set({ hydrated: true, customized: false });
+      set({ hydrated: true, customized: false, userPresets });
     }
   },
 
@@ -178,12 +247,48 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ theme: commit(theme), customized: true });
   },
 
+  saveUserPreset: (label) => {
+    const id = makePresetId();
+    const preset: UserThemePreset = {
+      id,
+      label: label.trim() || 'My Theme',
+      theme: normalizeTheme(get().theme),
+      createdAt: Date.now(),
+    };
+    const userPresets = [preset, ...get().userPresets];
+    persistUserPresets(userPresets);
+    set({ userPresets });
+    return id;
+  },
+
+  updateUserPreset: (id) => {
+    const userPresets = get().userPresets.map((p) =>
+      p.id === id ? { ...p, theme: normalizeTheme(get().theme), createdAt: Date.now() } : p,
+    );
+    persistUserPresets(userPresets);
+    set({ userPresets });
+  },
+
+  renameUserPreset: (id, label) => {
+    const userPresets = get().userPresets.map((p) =>
+      p.id === id ? { ...p, label: label.trim() || p.label } : p,
+    );
+    persistUserPresets(userPresets);
+    set({ userPresets });
+  },
+
+  deleteUserPreset: (id) => {
+    const userPresets = get().userPresets.filter((p) => p.id !== id);
+    persistUserPresets(userPresets);
+    set({ userPresets });
+  },
+
   reset: () => {
     clearThemeFromDocument();
     applyFavicon(DEFAULT_ECLIPSE_THEME);
     if (typeof window !== 'undefined') {
       try {
-        localStorage.removeItem(THEME_STORAGE_KEY);
+        window.localStorage.removeItem(THEME_STORAGE_KEY);
       } catch {
         /* ignore */
       }
