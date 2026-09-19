@@ -43,6 +43,14 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Customization / full-screen preview button disabled** — "Enter full-screen
+  preview" was gated on `disabled={!active && !dirty}`, so on a fresh Settings
+  open (no unsaved changes) the button was dead and the mode appeared broken.
+  Removed the gate so it always launches; Escape now also exits preview (capture
+  phase, since the hidden base-ui dialog's dismiss handler swallows the bubble).
+  Verified live: enter, Escape, Apply, and reload persistence all work.
+  no doc change — behavior fix, contracts unchanged.
+
 - **UI / dedicated Sound tab + customizable sound packs** — Moved UI sounds out
   of the Customization card into their own Settings › **Sound** tab
   (`sound-settings.tsx`) with a full customisation surface: master on/off +

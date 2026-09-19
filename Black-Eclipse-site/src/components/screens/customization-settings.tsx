@@ -264,6 +264,21 @@ function PreviewLauncher({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Escape returns to Settings — a predictable exit for a mode with no dialog
+  // chrome of its own. Capture phase because the hidden base-ui dialog's dismiss
+  // handler stops Escape propagation during the bubble phase.
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      onExit();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [active, onExit]);
+
   // The bar is portaled to <body> because the Settings popup it lives in is
   // `display:none` while previewing — a child of a hidden ancestor would never
   // paint, but a portal escapes that.
@@ -308,7 +323,7 @@ function PreviewLauncher({
             <p className="text-[10px] text-muted-foreground">Open the live app full screen to audition your draft theme in place.</p>
           </div>
         </div>
-        <Button size="sm" className="rounded-xl cursor-pointer" onClick={onEnter} disabled={!active && !dirty}>
+        <Button size="sm" className="rounded-xl cursor-pointer" onClick={onEnter}>
           <Eye className="mr-1 h-3.5 w-3.5" /> Enter full-screen preview
         </Button>
       </div>
