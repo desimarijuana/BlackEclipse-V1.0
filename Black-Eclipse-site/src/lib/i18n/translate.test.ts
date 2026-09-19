@@ -37,10 +37,21 @@ describe('createTranslator', () => {
     expect(t('common.settings')).toBe('Ajustes');
   });
 
-  it('falls back to English when a locale omits a key', () => {
-    // Bengali dictionary does not define the currency label.
-    const t = createTranslator('bn');
+  it('falls back to English for an unknown locale', () => {
+    const t = createTranslator('xx');
     expect(t('common.currency')).toBe(en['common.currency']);
+    expect(t('nav.chat')).toBe(en['nav.chat']);
+  });
+
+  it('every locale translates every English key (no silent fallbacks)', () => {
+    for (const l of LOCALES) {
+      const t = createTranslator(l.code);
+      for (const key of Object.keys(en) as Array<keyof typeof en>) {
+        // A locale may legitimately share a spelling with English, but it must
+        // never fall back to the raw key.
+        expect(t(key), `${l.code}:${key}`).not.toBe(key);
+      }
+    }
   });
 
   it('falls back to the key itself only if English lacks it', () => {

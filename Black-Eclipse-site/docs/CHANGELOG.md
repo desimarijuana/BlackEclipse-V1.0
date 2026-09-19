@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **i18n / completeness pass** — Fixed the language layer so no locale silently
+  falls back to English. All 21 registered languages now translate all 70 UI
+  keys (previously 22 keys were missing or stale, and `nav.ts` was missing the
+  `earnings` tab so that nav item never translated). Reworked the English source
+  around the new Customization page (`settings.customization.*`), translated the
+  Customization panel itself (it was hardcoded English), and added an
+  `earnings` nav mapping. The translator test now asserts full coverage for every
+  locale rather than allowing fallback. 1322 tests pass, `tsc` clean, 0 lint
+  errors.
+  docs updated: `docs/CHANGELOG.md`
+
 - **i18n / Accessibility** — Added the interface-localization foundation and an
   accessibility layer. New `src/lib/i18n/` (locale registry with RTL metadata for
   Arabic/Urdu/Persian/Hebrew, a canonical English dictionary, translations for
