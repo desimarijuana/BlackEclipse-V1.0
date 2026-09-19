@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DEFAULT_A11Y, LOCALES, useLocaleStore, type LocaleCode } from "@/lib/i18n";
+import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/lib/i18n";
 
 function Toggle({
   checked,
@@ -68,6 +68,7 @@ function Row({
 }
 
 export function CustomizationSettingsPanel() {
+  const t = useT();
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
   const a11y = useLocaleStore((s) => s.a11y);
@@ -79,10 +80,10 @@ export function CustomizationSettingsPanel() {
       <div className="space-y-4 rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 md:p-6">
         <div className="flex items-center gap-2 text-xs text-foreground/80">
           <Languages className="w-4 h-4 text-primary shrink-0" />
-          <p>Choose the language for the interface. Right-to-left languages flip the layout automatically.</p>
+          <p>{t('settings.customization.languageHint')}</p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">Language</Label>
+          <Label className="text-xs text-muted-foreground font-medium">{t('settings.customization.language')}</Label>
           <Select value={locale} onValueChange={(v) => v && setLocale(v as LocaleCode)}>
             <SelectTrigger className="w-full">
               <SelectValue />
@@ -99,7 +100,7 @@ export function CustomizationSettingsPanel() {
             </SelectContent>
           </Select>
           <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-            Financial data and news stay in their original language.
+            {t('settings.customization.languageHint')}
           </p>
         </div>
       </div>
@@ -108,24 +109,24 @@ export function CustomizationSettingsPanel() {
       <div className="space-y-5 rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 md:p-6">
         <div className="flex items-center gap-2 text-xs text-foreground/80">
           <Accessibility className="w-4 h-4 text-primary shrink-0" />
-          <p>These settings change how the interface renders — motion, contrast and text size.</p>
+          <p>{t('settings.accessibility.description')}</p>
         </div>
 
         <Row
-          label="Reduce motion"
-          hint="Minimize animations and transitions across the app."
+          label={t('settings.accessibility.reduceMotion')}
+          hint={t('settings.accessibility.reduceMotionHint')}
           checked={a11y.reduceMotion}
           onChange={(v) => setA11y({ reduceMotion: v })}
         />
         <Row
-          label="High contrast"
-          hint="Increase contrast for text and borders to improve legibility."
+          label={t('settings.accessibility.highContrast')}
+          hint={t('settings.accessibility.highContrastHint')}
           checked={a11y.highContrast}
           onChange={(v) => setA11y({ highContrast: v })}
         />
         <Row
-          label="Larger text"
-          hint="Increase the base font size throughout the interface."
+          label={t('settings.accessibility.largeText')}
+          hint={t('settings.accessibility.largeTextHint')}
           checked={a11y.largeText}
           onChange={(v) => setA11y({ largeText: v })}
         />
@@ -137,7 +138,7 @@ export function CustomizationSettingsPanel() {
             className="cursor-pointer rounded-xl"
             onClick={() => setA11y(DEFAULT_A11Y)}
           >
-            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset accessibility
+            <RotateCcw className="w-3.5 h-3.5 mr-1" /> {t('settings.accessibility.reset')}
           </Button>
         </div>
       </div>

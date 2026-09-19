@@ -1119,18 +1119,14 @@ export function MarketStatusWidget({ placement }: { placement?: WidgetPlacement 
 }
 
 // ── Earnings Calendar ───────────────────────────────────────────────────────
-// Wraps the shared `EarningsCalendar` (dense layout) and adds the "open full
-// page" affordance used by other dashboard widgets: it dispatches `be:navigate`
-// which the SPA shell listens for and switches to the `earnings` tab. Data and
-// rendering live in one place (`components/screens/earnings-calendar.tsx`).
+// Wraps the shared `EarningsCalendar` (dense layout). The same component is
+// embedded at the top of the Market Screener in its roomy layout, so the two
+// surfaces can never drift. No standalone page.
 
 import { EarningsCalendar } from '@/components/screens/earnings-calendar';
 
 export function EarningsCalendarWidget() {
-  const openFullPage = () =>
-    window.dispatchEvent(new CustomEvent('be:navigate', { detail: { tab: 'earnings' } }));
-
-  return <EarningsCalendar dense onExpand={openFullPage} />;
+  return <EarningsCalendar dense />;
 }
 
 // ── AI / Agent widgets moved to ai-widgets.tsx (real agent state) ────────────

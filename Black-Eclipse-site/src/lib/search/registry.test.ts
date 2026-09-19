@@ -37,7 +37,7 @@ describe('registry', () => {
     expect(pages.length).toBeGreaterThanOrEqual(11);
     expect(pages.every((p) => Boolean(p.title && p.destination?.tab))).toBe(true);
     const tabs = new Set(pages.map((p) => p.destination.tab));
-    for (const tab of ['chat', 'dashboard', 'discovery', 'portfolio', 'journal', 'news', 'heatmap', 'earnings', 'economics', 'alerts', 'settings', 'market-workspace']) {
+    for (const tab of ['chat', 'dashboard', 'discovery', 'portfolio', 'journal', 'news', 'heatmap', 'economics', 'alerts', 'settings', 'market-workspace']) {
       expect(tabs.has(tab as never)).toBe(true);
     }
   });

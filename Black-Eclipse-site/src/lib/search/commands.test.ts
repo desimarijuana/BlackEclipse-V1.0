@@ -83,7 +83,7 @@ describe('paramCommandFor', () => {
     expect(cmd?.title).toBe('Set price alert for AAPL (±3%)');
     expect(cmd?.target).toBe('AAPL');
     expect(cmd?.destination?.tab).toBe('alerts');
-    expect(cmd?.shortcut).toBe('F12');
+    expect(cmd?.shortcut).toBe('F11');
   });
 
   it('builds a chart command with the symbol param', () => {

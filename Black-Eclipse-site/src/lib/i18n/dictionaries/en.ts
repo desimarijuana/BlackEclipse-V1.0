@@ -63,20 +63,27 @@ export const en = {
   // Settings — General
   'settings.general.title': 'Appearance & Preferences',
   'settings.general.description':
-    'Tailor the interface theme, language, default market, currency, timezone and how frequently live data refreshes.',
+    'Tailor the interface theme, default market, currency, timezone and how frequently live data refreshes.',
   'settings.general.languageHint':
     'Translates the interface. Financial data and news stay in their original language.',
 
-  // Settings — Accessibility
+  // Settings — Customization (language + accessibility)
+  'settings.customization.title': 'Customization',
+  'settings.customization.description':
+    'Make the interface yours — choose your language and tune motion, contrast and text size for how you see and navigate.',
+  'settings.customization.language': 'Language',
+  'settings.customization.languageHint':
+    'Financial data and news stay in their original language.',
   'settings.accessibility.title': 'Accessibility',
   'settings.accessibility.description':
     'Adjust the interface so it works for how you see and navigate.',
   'settings.accessibility.reduceMotion': 'Reduce motion',
-  'settings.accessibility.reduceMotionHint': 'Minimize animations and transitions.',
+  'settings.accessibility.reduceMotionHint': 'Minimize animations and transitions across the app.',
   'settings.accessibility.highContrast': 'High contrast',
-  'settings.accessibility.highContrastHint': 'Increase contrast for text and borders.',
+  'settings.accessibility.highContrastHint': 'Increase contrast for text and borders to improve legibility.',
   'settings.accessibility.largeText': 'Larger text',
-  'settings.accessibility.largeTextHint': 'Increase the base font size across the app.',
+  'settings.accessibility.largeTextHint': 'Increase the base font size throughout the interface.',
+  'settings.accessibility.reset': 'Reset accessibility',
 
   // Accessibility (screen-reader labels)
   'a11y.skipToContent': 'Skip to main content',

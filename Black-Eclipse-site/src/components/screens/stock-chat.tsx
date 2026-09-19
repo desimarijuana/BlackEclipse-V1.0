@@ -24,10 +24,6 @@ const MarketBubbles = dynamic(() => import('./market-bubbles').then((m) => m.Mar
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
-const EarningsScreen = dynamic(() => import('./earnings-screen').then((m) => m.EarningsScreen), {
-  ssr: false,
-  loading: () => <ScreenSkeleton />,
-});
 const MarketNews = dynamic(() => import('./market-news').then((m) => m.MarketNews), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
@@ -645,11 +641,6 @@ function StockChatContent() {
             </div>
           )}
 
-          {visited.has('earnings') && (
-            <div className={cn('w-full h-full', activeTab === 'earnings' ? '' : 'hidden')}>
-              <EarningsScreen />
-            </div>
-          )}
 
           {visited.has('alerts') && (
             <div className={cn('w-full h-full', activeTab === 'alerts' ? '' : 'hidden')}>

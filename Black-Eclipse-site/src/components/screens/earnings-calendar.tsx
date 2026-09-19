@@ -9,7 +9,7 @@
 // state — rows are never fabricated. Clicking a row opens that symbol's chart.
 
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTopic } from '@/lib/workspace/data-hub';
 import { useCommandStore } from '@/lib/search/store';
@@ -66,11 +66,11 @@ function openSymbol(symbol: string) {
  */
 export function EarningsCalendar({
   dense = false,
-  onExpand,
+  title,
 }: {
   dense?: boolean;
-  /** When provided, renders an "open full page" affordance in the header. */
-  onExpand?: () => void;
+  /** Optional heading shown above the month navigation (full-page embed). */
+  title?: string;
 }) {
   const { t, rows, byDay, loading, unavailable } = useEarningsCalendar();
   const [monthCursor, setMonthCursor] = useState(() => {
@@ -117,19 +117,10 @@ export function EarningsCalendar({
             <span className="font-mono text-[9px] text-muted-foreground/70">
               {loading ? '…' : `${monthCount} in ${monthCursor.toLocaleDateString(undefined, { month: 'short' })}`}
             </span>
-            {onExpand && (
-              <button
-                type="button"
-                onClick={onExpand}
-                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-primary transition-colors cursor-pointer"
-                title="Open full page"
-                aria-label="Open full page"
-              >
-                <Maximize2 size={12} />
-              </button>
-            )}
           </span>
         </div>
+      ) : title ? (
+        <h2 className="mb-3 font-serif text-lg font-semibold text-foreground">{title}</h2>
       ) : null}
 
       {/* Month navigation */}

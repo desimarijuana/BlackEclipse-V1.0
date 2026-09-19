@@ -60,16 +60,14 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
-- **Earnings** — Promoted the Command Center Earnings Calendar widget to a
-  full-page screen (`earnings` tab, sidebar "Earnings", palette + action). The
-  month grid + selected-day detail are now one shared component
-  (`components/screens/earnings-calendar.tsx`) rendered both densely in the
-  widget and roomily on the full page, so they cannot drift. The widget gained
-  an expand affordance that dispatches `be:navigate` → the `earnings` tab (the
-  same mechanism the Screener panel uses), instead of the old inline clone in
-  `widgets.tsx`. Adding the tab shifted default F-key assignments by one
-  (earnings = F9, alerts = F12); tests updated. 1312 tests pass, `tsc` clean,
-  build clean.
+- **Earnings (revised)** — Removed the standalone `earnings` tab/screen added
+  earlier: it cluttered the sidebar with another page. The month-grid earnings
+  calendar (shared `components/screens/earnings-calendar.tsx`) is now embedded
+  at the TOP of the Market Screener as a hideable section, and the Command
+  Center widget renders the same component densely. One calendar, two embeds,
+  no extra page; default F-keys revert to F1–F11. Removed `earnings-screen.tsx`,
+  the AppTab/Sidebar/palette/action entries, and the widget expand affordance.
+  1321 tests pass, `tsc` clean, build clean.
   docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 
 - **Journal / Quick Add Trade** — Added a single Add-Trade entry point on the

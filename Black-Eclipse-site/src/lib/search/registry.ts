@@ -175,7 +175,6 @@ registerPage({ id: 'page-journal', kind: 'page', title: 'Trading Journal', alias
 registerPage({ id: 'page-news', kind: 'page', title: 'Market News', aliases: ['news', 'bulletin', 'headlines'], keywords: ['news', 'market news', 'headlines'], icon: 'news', tab: 'news' });
 registerPage({ id: 'page-heatmap', kind: 'page', title: 'Market Bubbles', aliases: ['heatmap', 'bubbles', 'market map', 'treemap'], keywords: ['heatmap', 'bubbles', 'treemap'], icon: 'orbit', tab: 'heatmap' });
 registerPage({ id: 'page-economics', kind: 'page', title: 'Economics', aliases: ['economics', 'economic calendar', 'macro', 'calendar', 'events'], keywords: ['economics', 'macro', 'calendar', 'indicators'], icon: 'globe', tab: 'economics' });
-registerPage({ id: 'page-earnings', kind: 'page', title: 'Earnings Calendar', aliases: ['earnings', 'earnings calendar', 'company earnings', 'results', 'reports', 'bmo', 'amc'], keywords: ['earnings', 'calendar', 'reports', 'results', 'companies'], icon: 'calendar', tab: 'earnings', rankBoost: 1.1 });
 registerPage({ id: 'page-alerts', kind: 'page', title: 'Price Alerts', aliases: ['alerts', 'price alerts', 'notifications'], keywords: ['alerts', 'price', 'notifications'], icon: 'bell', tab: 'alerts' });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
@@ -368,14 +367,6 @@ registerAction({
   keywords: ['open settings', 'settings', 'preferences'],
   icon: 'settings',
   run: () => ({ tab: 'settings' }),
-});
-registerAction({
-  id: 'act-open-earnings',
-  verb: 'open',
-  title: 'Open Earnings Calendar',
-  keywords: ['open earnings', 'earnings calendar', 'company earnings', 'results', 'reports'],
-  icon: 'calendar',
-  run: () => ({ tab: 'earnings' }),
 });
 registerAction({
   id: 'act-open-heatmap',

@@ -9,7 +9,7 @@ import { useT, navLabelKey } from '@/lib/i18n';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'earnings' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye';
+export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye';
 
 export interface Conversation {
   id: string;

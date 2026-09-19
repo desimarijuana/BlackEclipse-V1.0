@@ -25,6 +25,7 @@ import { useGlobalMarkets } from './use-global-markets';
 import { useForex, useCommodities } from './use-market-tabs';
 import { GlobalMarketsOverview } from './market-overview-global-markets';
 import { MarketTables } from './market-tables';
+import { EarningsCalendar } from './earnings-calendar';
 import { StockCryptoTables } from './market-stock-tables';
 import { FundEtfTables } from './market-fund-etf-tables';
 import { TableLoading } from './market-loaders';
@@ -214,12 +215,13 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // table (stocks / crypto / etfs / funds / dividends / forex / commodities)
   // — can be hidden by the user. Persisted in localStorage.
   type SectionKey =
-    | 'strip' | 'sectors' | 'shifters'
+    | 'strip' | 'earnings' | 'sectors' | 'shifters'
     | 'table_stocks' | 'table_crypto' | 'table_etfs' | 'table_funds'
     | 'table_dividend' | 'table_forex' | 'table_commodities';
   const SECTION_KEY = 'be_sections_hidden';
   const SECTION_LABELS: Record<SectionKey, string> = {
     strip: 'Ticker Strip',
+    earnings: 'Earnings Calendar',
     sectors: 'Sectors Daily Return',
     shifters: 'Market Shifters',
     table_stocks: 'Stocks Table',
@@ -1144,6 +1146,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
               {refreshMsg}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Earnings Calendar — embedded at the top of the screener (no separate page). */}
+      {sectionVisible('earnings') && (
+        <div className="animate-fade-in-up">
+          <div className="p-5 rounded-2xl glass-card border border-white/10 dark:border-white/5">
+            <EarningsCalendar title="Earnings Calendar" />
+          </div>
         </div>
       )}
 
