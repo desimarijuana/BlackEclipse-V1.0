@@ -509,11 +509,21 @@ the same — the shell's glow does not reach above it.
 ### ChatDock (the Command Center assistant composer)
 
 `src/components/chat/chat-dock.tsx` is the floating, **bottom-centre** assistant
-bar mounted on the Command Center (collapsed = composer only; the transcript
-expands above it once there is a conversation). It is a **view over the existing
-chat stack**, not a second one: it renders `ChatHistory`, calls
-`getAgentProvider()` for ordinary questions and `/api/agent/research` for
-research intents (the same heuristic the ChatBot tab uses). Invariants:
+bar (collapsed = composer only; the transcript expands above it once there is a
+conversation). It is a **view over the existing chat stack**, not a second one:
+it renders `ChatHistory`, calls `getAgentProvider()` for ordinary questions and
+`/api/agent/research` for research intents (the same heuristic the ChatBot tab
+uses). Invariants:
+
+- **Mounted once, app-wide, in `stock-chat.tsx` — not per screen.** The shell
+  renders `<ChatDock visible={activeTab !== 'chat' && !settingsOpen} />` inside
+  the keep-alive panel region, so it appears on every tab EXCEPT the ChatBot
+  (where it would be a second composer beside the full chat) and while the
+  Settings modal is open. The `visible` prop suppresses the dock without
+  unmounting it, so its conversation/expansion survives a suppress → restore. The
+  standalone `/alerts` route is outside the shell and mounts its own `<ChatDock>`;
+  the Command Center's fullscreen overlay is covered by the shell dock (z-90 over
+  z-80) and does NOT mount a copy.
 
 - **It owns its own conversation.** Persisted to `localStorage`
   (`be_chat_dock_v1`), separate from the ChatBot tab's shell-owned `chats_guest`

@@ -78,7 +78,7 @@ export function ToolbarMenu({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold transition-colors cursor-pointer',
-          active ? 'bg-primary/20 text-primary' : 'bg-accent/40 text-muted-foreground hover:text-foreground hover:bg-accent/70',
+          active ? 'bg-muted-foreground/20 text-foreground' : 'bg-accent/40 text-muted-foreground hover:text-foreground hover:bg-accent/70',
           triggerClassName,
         )}
       >

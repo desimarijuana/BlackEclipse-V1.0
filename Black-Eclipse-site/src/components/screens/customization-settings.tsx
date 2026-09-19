@@ -17,11 +17,12 @@
 // Tabs: Theme · Glass & Surfaces · Aurora · Charts · Language & Access.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
-  Eye, EyeOff, Save,
+  Eye, EyeOff, Save, Maximize2, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -240,88 +241,80 @@ function ImageField({
 }
 
 /**
- * A self-contained, themed preview of the draft. `themeCssVars` are set as
- * inline custom properties on the wrapper, and `.dark` is added so the shipped
- * dark recipes apply — giving an isolated, accurate look at the draft without
- * touching the rest of the page.
+ * Full-screen preview launcher. Instead of a tiny fake desktop, this hands the
+ * user the REAL app — already wearing the live-preview theme — with a floating
+ * Apply / Discard / Exit bar. The Settings modal is hidden (not unmounted) while
+ * previewing, so this panel's draft state survives the round-trip.
  */
-function ThemePreview({ theme }: { theme: EclipseTheme }) {
-  const vars = useMemo(() => themeCssVars(theme) as React.CSSProperties, [theme]);
-  const glassOn = theme.glass.enabled;
+function PreviewLauncher({
+  active,
+  onEnter,
+  onExit,
+  onApply,
+  onDiscard,
+  dirty,
+}: {
+  active: boolean;
+  onEnter: () => void;
+  onExit: () => void;
+  onApply: () => void;
+  onDiscard: () => void;
+  dirty: boolean;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // The bar is portaled to <body> because the Settings popup it lives in is
+  // `display:none` while previewing — a child of a hidden ancestor would never
+  // paint, but a portal escapes that.
+  const bar = active && mounted
+    ? createPortal(
+        <div
+          className="fixed inset-x-0 top-3 z-[200] flex justify-center px-3"
+          data-nokeyboard-overlay="true"
+        >
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-primary/25 glass-card-strong px-3 py-2 shadow-2xl shadow-black/40">
+            <span className="inline-flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
+              <Eye size={13} className="text-primary" />
+              Previewing theme
+            </span>
+            <span className="hidden text-[10px] text-muted-foreground sm:inline">
+              Interact with the real app. Nothing is saved until you apply.
+            </span>
+            <span className="mx-1 hidden h-4 w-px bg-border/50 sm:block" />
+            <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={onDiscard} disabled={!dirty}>
+              <RotateCcw className="mr-1 h-3.5 w-3.5" /> Discard
+            </Button>
+            <Button size="sm" className="rounded-xl cursor-pointer" onClick={onApply} disabled={!dirty}>
+              <Save className="mr-1 h-3.5 w-3.5" /> Apply theme
+            </Button>
+            <Button size="sm" variant="ghost" className="rounded-xl cursor-pointer" onClick={onExit} title="Back to settings">
+              <X className="mr-1 h-3.5 w-3.5" /> Exit preview
+            </Button>
+          </div>
+        </div>,
+        document.body,
+      )
+    : null;
+
   return (
-    <div
-      style={vars}
-      className="dark rounded-2xl overflow-hidden border border-border/40"
-      aria-label="Theme preview"
-    >
-      {/* Fake app chrome */}
-      <div className="flex">
-        <div className="w-24 shrink-0 border-r border-border/40 bg-card p-2 space-y-1.5">
-          <div className="flex items-center gap-1.5 mb-2">
-            <div className="w-5 h-5 rounded-md" style={{ background: "var(--primary)" }} />
-            <span className="text-[9px] font-semibold" style={{ color: "var(--foreground)" }}>
-              {theme.appName.slice(0, 12) || "App"}
-            </span>
-          </div>
-          {["Dashboard", "Markets", "Journal"].map((t, i) => (
-            <div
-              key={t}
-              className="rounded-md px-2 py-1 text-[9px]"
-              style={{
-                background: i === 0 ? "color-mix(in srgb, var(--primary) 15%, transparent)" : "transparent",
-                color: i === 0 ? "var(--primary)" : "var(--muted-foreground)",
-              }}
-            >
-              {t}
-            </div>
-          ))}
-        </div>
-        <div className="flex-1 p-3 space-y-2" style={{ background: "var(--background)" }}>
-          <div
-            className={glassOn ? "rounded-xl p-3" : "rounded-xl p-3"}
-            style={{
-              background: `rgb(var(--glass-tint) / ${glassOn ? theme.glass.opacity.toFixed(2) : "0.96"})`,
-              backdropFilter: glassOn ? `blur(${theme.glass.blur}px)` : "none",
-              boxShadow: "var(--glass-shadow)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <p className="text-[10px] font-semibold" style={{ color: "var(--foreground)" }}>Portfolio</p>
-            <p className="text-[9px]" style={{ color: "var(--muted-foreground)" }}>Total value</p>
-            <div className="flex items-end gap-2 mt-1">
-              <span className="text-base font-bold font-mono" style={{ color: "var(--foreground)" }}>$42,180</span>
-              <span className="text-[10px] font-mono" style={{ color: "var(--bullish)" }}>+2.4%</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[["AAPL", "+1.2%", "var(--bullish)"], ["TSLA", "-0.8%", "var(--bearish)"], ["NVDA", "+3.1%", "var(--bullish)"]].map(([s, c, col]) => (
-              <div
-                key={s}
-                className="rounded-lg p-2"
-                style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-              >
-                <p className="text-[9px] font-semibold" style={{ color: "var(--foreground)" }}>{s}</p>
-                <p className="text-[9px] font-mono" style={{ color: col as string }}>{c}</p>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <span
-              className="rounded-full px-3 py-1 text-[9px] font-semibold"
-              style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-            >
-              Primary
-            </span>
-            <span
-              className="rounded-full px-3 py-1 text-[9px] font-semibold"
-              style={{ background: "var(--secondary)", color: "var(--secondary-foreground)", border: "1px solid var(--border)" }}
-            >
-              Secondary
-            </span>
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/30 glass-card-subtle px-4 py-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary">
+            <Maximize2 size={15} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-foreground">Preview on the real app</p>
+            <p className="text-[10px] text-muted-foreground">Open the live app full screen to audition your draft theme in place.</p>
           </div>
         </div>
+        <Button size="sm" className="rounded-xl cursor-pointer" onClick={onEnter} disabled={!active && !dirty}>
+          <Eye className="mr-1 h-3.5 w-3.5" /> Enter full-screen preview
+        </Button>
       </div>
-    </div>
+      {bar}
+    </>
   );
 }
 
@@ -342,6 +335,8 @@ export function CustomizationSettingsPanel() {
   const previewTheme = useThemeStore((s) => s.preview);
   const cancelPreview = useThemeStore((s) => s.cancelPreview);
   const resetTheme = useThemeStore((s) => s.reset);
+  const previewMode = useThemeStore((s) => s.previewMode);
+  const setPreviewMode = useThemeStore((s) => s.setPreviewMode);
 
   const [tab, setTab] = useState<CustomTab>("theme");
   const [draft, setDraft] = useState<EclipseTheme>(theme);
@@ -511,8 +506,15 @@ export function CustomizationSettingsPanel() {
         </div>
       </div>
 
-      {/* Inline, isolated preview of the draft. */}
-      <ThemePreview theme={draft} />
+      {/* Full-screen preview: hands the user the real, live-themed app. */}
+      <PreviewLauncher
+        active={previewMode}
+        dirty={dirty}
+        onEnter={() => { setLivePreview(true); previewTheme(draft); setPreviewMode(true); }}
+        onExit={() => setPreviewMode(false)}
+        onApply={() => { applyDraft(); setPreviewMode(false); }}
+        onDiscard={() => { discardDraft(); setPreviewMode(false); }}
+      />
 
       {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">

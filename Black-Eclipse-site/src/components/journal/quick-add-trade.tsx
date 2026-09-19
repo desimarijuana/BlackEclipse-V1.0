@@ -123,7 +123,7 @@ export function QuickAddTrade({
       >
         <DialogContent
           showCloseButton
-          className="w-[calc(100%-2rem)] max-w-3xl max-h-[90dvh] overflow-y-auto scrollbar-hide rounded-2xl border border-white/10 glass-card-strong text-foreground p-0"
+          className="w-[calc(100%-2rem)] max-w-5xl sm:max-w-5xl max-h-[90dvh] overflow-y-auto scrollbar-hide rounded-2xl border border-white/10 glass-card-strong text-foreground p-0"
         >
           <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/10 px-5 py-3.5 glass-card-strong">
             <div className="flex items-center gap-2.5">

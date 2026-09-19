@@ -1187,6 +1187,18 @@ body {
   scroll-behavior: auto !important;
 }
 
+/* The price ticker is live market chrome — motion is its entire purpose, so it
+ * is deliberately EXEMPT from the reduce-motion / animations-off rules above
+ * (which would otherwise freeze it). It is slow and subtle; keeping it running
+ * is the documented intent (see .price-ribbon-track). Higher specificity + the
+ * !important keep it alive against both the class rules and the OS media query. */
+.a11y-reduce-motion .price-ribbon-track,
+.theme-no-anim .price-ribbon-track,
+.price-ribbon-track.price-ribbon-track {
+  animation-duration: 24s !important;
+  animation-iteration-count: infinite !important;
+}
+
 /* Customization › Glow off — hide the ambient Aurora glow without unmounting
  * it, so the preference needs no prop drilling into the app shell. */
 .theme-no-glow [data-aurora-glow] {

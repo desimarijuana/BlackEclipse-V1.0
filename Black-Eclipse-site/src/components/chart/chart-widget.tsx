@@ -697,7 +697,7 @@ function PriceFooter({
             title={o.ms ? `Refresh every ${o.label}` : 'Disable auto-refresh'}
             className={cn(
               'rounded-md px-1.5 py-0.5 text-[9px] font-bold transition-colors cursor-pointer',
-              o.ms === refreshMs ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground',
+              o.ms === refreshMs ? 'bg-muted-foreground/20 text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {o.label}
@@ -834,7 +834,7 @@ function SymbolSearch({
               onClick={() => choose(s)}
               className={cn(
                 'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors cursor-pointer',
-                i === highlight ? 'bg-primary/15' : 'hover:bg-accent/50',
+                i === highlight ? 'bg-accent/60' : 'hover:bg-accent/50',
               )}
             >
               <span className="flex flex-col min-w-0">
@@ -900,7 +900,7 @@ function ChartToolbar({
             onClick={() => onTimeframe(tf)}
             className={cn(
               'rounded-md px-1.5 py-0.5 text-[10px] font-bold transition-colors cursor-pointer',
-              tf === state.timeframe ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'
+              tf === state.timeframe ? 'bg-muted-foreground/20 text-foreground' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {tf}
@@ -916,7 +916,7 @@ function ChartToolbar({
             onClick={() => onChartType(ct)}
             className={cn(
               'rounded-md px-1.5 py-0.5 text-[10px] font-bold capitalize transition-colors cursor-pointer',
-              ct === state.chartType ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'
+              ct === state.chartType ? 'bg-muted-foreground/20 text-foreground' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {ct === 'candlestick' ? 'Candle' : ct}
@@ -1033,8 +1033,8 @@ function IndicatorMenu({
             className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent/40 cursor-pointer"
           >
             <span className="text-[11px] font-semibold text-foreground">Volume</span>
-            <span className={cn('h-3.5 w-6 rounded-full border relative transition-colors', showVolume ? 'bg-primary/30 border-primary/50' : 'bg-accent/40 border-border/40')}>
-              <span className={cn('absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all', showVolume ? 'left-3 bg-primary' : 'left-0.5 bg-muted-foreground/60')} />
+            <span className={cn('h-3.5 w-6 rounded-full border relative transition-colors', showVolume ? 'bg-muted-foreground/30 border-border/60' : 'bg-accent/40 border-border/40')}>
+              <span className={cn('absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all', showVolume ? 'left-3 bg-foreground/70' : 'left-0.5 bg-muted-foreground/60')} />
             </span>
           </button>
           <div className="mt-1 border-t border-border/10 px-2 pt-1.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Active</div>
@@ -1282,10 +1282,10 @@ function DrawingToolbar({
                       onClick={() => onTool(t)}
                       className={cn(
                         'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer',
-                        active ? 'bg-primary/15 text-primary' : 'hover:bg-accent/40'
+                        active ? 'bg-accent/60 text-foreground' : 'hover:bg-accent/40'
                       )}
                     >
-                      <Icon size={11} className={cn('shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                      <Icon size={11} className={cn('shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
                       <span className="min-w-0 truncate text-[10px] font-semibold text-foreground">{defName(t)}</span>
                     </button>
                   );
@@ -1300,13 +1300,13 @@ function DrawingToolbar({
                 onClick={() => manager.undo()}
                 disabled={!manager.canUndo()}
                 title="Undo (Ctrl+Z)"
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-primary disabled:opacity-30 cursor-pointer"
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
               ><Undo2 size={13} /></button>
               <button
                 onClick={() => manager.redo()}
                 disabled={!manager.canRedo()}
                 title="Redo (Ctrl+Shift+Z)"
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-primary disabled:opacity-30 cursor-pointer"
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
               ><Redo2 size={13} /></button>
               <button
                 onClick={() => selected && manager.delete(selected.id)}
@@ -1318,13 +1318,13 @@ function DrawingToolbar({
                 onClick={() => selected && manager.setLocked(selected.id, !selected.locked)}
                 disabled={!selected}
                 title="Lock/unlock"
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-primary disabled:opacity-30 cursor-pointer"
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
               ><Lock size={13} /></button>
               <button
                 onClick={() => selected && manager.setVisible(selected.id, !selected.visible)}
                 disabled={!selected}
                 title="Show/hide"
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-primary disabled:opacity-30 cursor-pointer"
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
               >{selected?.visible ? <Eye size={13} /> : <EyeOff size={13} />}</button>
             </div>
           </div>
@@ -1350,7 +1350,7 @@ function ProviderDropdown({ value, onChange }: { value: ChartProviderId; onChang
       width={224}
       title="Chart provider"
       triggerClassName="border border-border/40"
-      icon={<span className={cn('text-[10px]', value === 'eclipse' ? 'text-emerald-400' : 'text-rose-400')}>●</span>}
+      icon={<span className="text-[10px] text-muted-foreground">●</span>}
       label={current.label}
     >
       {(close) => (
@@ -1361,10 +1361,10 @@ function ProviderDropdown({ value, onChange }: { value: ChartProviderId; onChang
               onClick={() => { onChange(o.id); close(); }}
               className={cn(
                 'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors cursor-pointer',
-                o.id === value ? 'bg-primary/15' : 'hover:bg-accent/50'
+                o.id === value ? 'bg-accent/60' : 'hover:bg-accent/50'
               )}
             >
-              <span className={cn('mt-0.5 text-[10px]', o.id === 'eclipse' ? 'text-emerald-400' : 'text-rose-400')}>●</span>
+              <span className="mt-0.5 text-[10px] text-muted-foreground">●</span>
               <span>
                 <span className="block text-[11px] font-bold text-foreground">{o.label}</span>
                 <span className="block text-[9px] text-muted-foreground">{o.desc}</span>
@@ -1402,3 +1402,4 @@ function saveDrawings(symbol: string, drawings: ChartDrawing[]): void {
     /* ignore quota */
   }
 }
+

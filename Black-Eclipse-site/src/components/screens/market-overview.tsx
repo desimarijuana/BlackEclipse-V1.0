@@ -1590,21 +1590,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {loadingApi && <span className="text-[10px] text-muted-foreground/80 animate-pulse bg-accent/20 px-2.5 py-1 rounded-xl font-mono">Syncing Exchange...</span>}
-            {screenerTab !== 'markets' && (
-              <button
-                onClick={() => setSectionsOpen(o => !o)}
-                className={`inline-flex items-center gap-1.5 text-[10px] font-bold tracking-wider border rounded-xl px-2.5 py-1.5 transition-all cursor-pointer shrink-0 uppercase ${
-                  sectionsOpen
-                    ? 'text-primary bg-primary/10 border-primary/40'
-                    : hiddenSections.length > 0
-                      ? 'text-emerald-400/90 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
-                      : 'text-muted-foreground border-border/40 bg-accent/30 hover:bg-accent/60'
-                }`}
-                title="Show / hide tables and sections"
-              >
-                <Eye size={12} /> {hiddenSections.length > 0 ? `${hiddenSections.length} Hidden` : 'Sections'}
-              </button>
-            )}
+            <button
+              onClick={() => setSectionsOpen(o => !o)}
+              className={`inline-flex items-center gap-1.5 text-[10px] font-bold tracking-wider border rounded-xl px-2.5 py-1.5 transition-all cursor-pointer shrink-0 uppercase ${
+                sectionsOpen
+                  ? 'text-primary bg-primary/10 border-primary/40'
+                  : hiddenSections.length > 0
+                    ? 'text-emerald-400/90 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
+                    : 'text-muted-foreground border-border/40 bg-accent/30 hover:bg-accent/60'
+              }`}
+              title="Show / hide tables and sections"
+            >
+              <Eye size={12} /> {hiddenSections.length > 0 ? `${hiddenSections.length} Hidden` : 'Sections'}
+            </button>
             {screenerTab !== 'markets' && (
               <button
                 onClick={() => handleMarketSelect('GLOBAL')}

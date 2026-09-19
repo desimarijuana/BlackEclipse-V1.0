@@ -86,14 +86,14 @@ export function TradeForm({ form, onChange, onSubmit, onCancel, saving, error, s
     })();
   }, []);
 
-  const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
+  const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary outline-none transition-colors';
 
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); void onSubmit(); }}
-      className="rounded-2xl glass-card border border-primary/20 p-4"
+      className="rounded-2xl glass-card border border-primary/20 p-5 sm:p-6"
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
         <Field label="Symbol" required>
           <input value={form.symbol} onChange={(e) => onChange({ symbol: e.target.value.toUpperCase() })} placeholder="XAUUSD" className={inputCls} required />
         </Field>
@@ -159,64 +159,66 @@ export function TradeForm({ form, onChange, onSubmit, onCancel, saving, error, s
         </Field>
       </div>
 
-      {/* Tags */}
-      <div className="mt-3">
-        <p className="mb-1.5 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Tags</p>
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => onChange({ tagNames: form.tagNames.includes(t.name) ? form.tagNames.filter((x) => x !== t.name) : [...form.tagNames, t.name] })}
-              className={cn(
-                'rounded-lg border px-2 py-1 text-[10px] font-semibold transition-all cursor-pointer',
-                form.tagNames.includes(t.name) ? 'border-primary/40 bg-primary/15 text-primary' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t.name}
-            </button>
-          ))}
-          {tags.length === 0 && <span className="text-[10px] text-muted-foreground/60 italic">No tags yet — create them in the Playbook tab.</span>}
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        {/* Tags */}
+        <div>
+          <p className="mb-2 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Tags</p>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onChange({ tagNames: form.tagNames.includes(t.name) ? form.tagNames.filter((x) => x !== t.name) : [...form.tagNames, t.name] })}
+                className={cn(
+                  'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer',
+                  form.tagNames.includes(t.name) ? 'border-primary/40 bg-primary/15 text-primary' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t.name}
+              </button>
+            ))}
+            {tags.length === 0 && <span className="text-[11px] text-muted-foreground/60 italic">No tags yet — create them in the Playbook tab.</span>}
+          </div>
+        </div>
+
+        {/* Mistakes */}
+        <div>
+          <p className="mb-2 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Mistakes</p>
+          <div className="flex flex-wrap gap-2">
+            {MISTAKES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onChange({ mistakes: form.mistakes.includes(m) ? form.mistakes.filter((x) => x !== m) : [...form.mistakes, m] })}
+                className={cn(
+                  'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer',
+                  form.mistakes.includes(m) ? 'border-rose-500/40 bg-rose-500/10 text-rose-400' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Mistakes */}
-      <div className="mt-3">
-        <p className="mb-1.5 text-[9px] uppercase tracking-widest font-bold text-muted-foreground">Mistakes</p>
-        <div className="flex flex-wrap gap-1.5">
-          {MISTAKES.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onChange({ mistakes: form.mistakes.includes(m) ? form.mistakes.filter((x) => x !== m) : [...form.mistakes, m] })}
-              className={cn(
-                'rounded-lg border px-2 py-1 text-[10px] font-semibold transition-all cursor-pointer',
-                form.mistakes.includes(m) ? 'border-rose-500/40 bg-rose-500/10 text-rose-400' : 'border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </div>
+      {error && <p className="mt-4 text-xs text-rose-400 font-semibold">{error}</p>}
 
-      {error && <p className="mt-3 text-xs text-rose-400 font-semibold">{error}</p>}
-
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-5 flex items-center gap-3 border-t border-border/10 pt-4">
         <button
           type="submit"
           disabled={saving}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-4 py-2 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-5 py-2.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer disabled:opacity-50"
         >
           {saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" /> : <Check size={13} />}
           {saving ? 'Saving…' : submitLabel}
         </button>
         {onCancel && (
-          <button type="button" onClick={onCancel} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-accent/30 px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+          <button type="button" onClick={onCancel} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-accent/30 px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer">
             <X size={13} /> Cancel
           </button>
         )}
-        <span className="text-[10px] text-muted-foreground font-mono">P&L, R-multiple, risk & duration are computed automatically.</span>
+        <span className="ml-auto text-[10px] text-muted-foreground font-mono text-right">P&amp;L, R-multiple, risk &amp; duration<br className="hidden sm:block" /> are computed automatically.</span>
       </div>
     </form>
   );

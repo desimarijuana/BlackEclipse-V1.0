@@ -19,7 +19,6 @@ import { useMarketViews } from '@/lib/dashboard/market-views';
 import { CustomizableWorkspace, StatusBar } from '@/components/workspace';
 import { TopBar } from '@/components/layout/top-bar';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
-import { ChatDock } from '@/components/chat/chat-dock';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 import { MarketTabs } from './market-tabs';
 
@@ -198,9 +197,8 @@ export function DashboardScreen() {
         >
           <Minimize2 size={13} /> Exit
         </button>
-        {/* Chat assistant — floats bottom-centre, above the fullscreen overlay
-            (z-[90] > z-[80]). Lifted clear of the bottom-right Exit button. */}
-        <ChatDock className="bottom-16" />
+        {/* The app-wide ChatDock (mounted once in StockChat) portals to <body>
+            at z-[90], above this z-[80] overlay, so fullscreen needs no copy. */}
         {showOnboarding && (
           <DashboardOnboarding open onComplete={(r) => handleOnboard(r)} />
         )}
@@ -339,9 +337,6 @@ export function DashboardScreen() {
           workspace. The single Customize button drives all three, cards drag
           between them, and the left/right panels can be removed from Customize. */}
       {workspaceEl}
-
-      {/* Floating chat assistant — overlays the board (does not reserve space). */}
-      <ChatDock />
 
       {/* Onboarding */}
       {showOnboarding && (

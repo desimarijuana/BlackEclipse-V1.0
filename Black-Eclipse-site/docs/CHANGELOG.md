@@ -43,6 +43,23 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Charts / chart toolbar de-greened** — The selected timeframe, chart type,
+  refresh cadence, active menu triggers, drawing-tool/menu selection, volume
+  toggle and the provider dropdown were highlighted with the theme's green
+  `primary`, which clashed with the dark chrome. Replaced those selection states
+  with neutral greys (`bg-muted-foreground/20`, `bg-accent/60`, `bg-foreground/70`)
+  and dropped the emerald/rose provider dots for muted grey. No contracts changed.
+  no doc change — pure styling, contracts unchanged.
+
+- **Assistant / app-wide ChatDock** — The floating `ChatDock` assistant was
+  mounted only on the Command Center. Moved it to the app shell
+  (`stock-chat.tsx`), where it now appears on every tab. It is suppressed (via a
+  new `visible` prop, no unmount) on the ChatBot tab — it would duplicate the
+  full chat composer — and while the Settings modal is open. The standalone
+  `/alerts` route mounts its own dock; Command Center fullscreen is covered by
+  the shell dock. `tsc` clean, 1349 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Customization / live preview + draft editing** — The Customization panel now
   edits a local **draft theme**. A sticky bar offers **Live preview** (pushes the
   draft to the whole document without persisting) plus **Apply changes** /
@@ -56,6 +73,13 @@ proves the documentation obligation was considered rather than skipped.
   `commitPreview`) added to the theme store, unpersisted and SSR-safe. 2 new
   store tests; 1349 tests pass, `tsc` clean, 0 lint errors.
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Journal / Add Trade dialog width + spacing** — The add-trade dialog collapsed
+  to 384px on desktop: `DialogContent`'s base `sm:max-w-sm` beat the passed
+  `max-w-3xl` (unprefixed vs `sm:` variant), so it rendered in a tight box with
+  cramped inputs. Passed `sm:max-w-5xl` and widened the form grid/spacing
+  (`gap-x-5 gap-y-4`, roomier inputs, 2-column Tags/Mistakes, roomier footer).
+  no doc change — UI layout fix, contracts unchanged.
 
 - **Market Screener / hidden-section restore** — The "Sections" show/hide manager
   was gated behind `screenerTab !== 'markets'`, so on the default Global Market

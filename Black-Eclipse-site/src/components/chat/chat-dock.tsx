@@ -1,8 +1,11 @@
 'use client';
 
 // ── ChatDock — the floating bottom composer ──────────────────────────────────
-// A Gemini-style assistant bar that floats at the bottom-centre of a screen
-// (currently the Command Center). Collapsed it is just the composer; once it has
+// A Gemini-style assistant bar that floats at the bottom-centre of the app.
+// Mounted once in the app shell (`stock-chat.tsx`) so it appears on every tab
+// EXCEPT the ChatBot and while the Settings modal is open (the shell passes
+// `visible={false}` there — see `ChatDockProps.visible`); the standalone
+// `/alerts` route mounts its own. Collapsed it is just the composer; once it has
 // a conversation (or the user focuses it) the transcript expands ABOVE it in the
 // same floating stack.
 //
@@ -16,7 +19,8 @@
 // always on screen, so marking it a blocking dialog would disable every page
 // shortcut permanently; the input already blocks shortcuts while focused. It IS
 // `data-nodrag` so the workspace drag engine ignores it, and sits at z-[90]
-// above the Command Center fullscreen overlay (z-[80]).
+// above the Command Center fullscreen overlay (z-[80]) — so the shell's single
+// instance also covers fullscreen and no per-overlay copy is needed.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -110,12 +114,20 @@ export interface ChatDockProps {
   placeholder?: string;
   /** Accessible label. */
   title?: string;
+  /**
+   * Whether this surface is allowed to show the dock. The host passes `false`
+   * on the ChatBot tab and while the Settings modal is open; the dock still
+   * gates on its host panel's own display. Kept mounted (not conditionally
+   * rendered) so the conversation/expansion survives a suppress → restore.
+   */
+  visible?: boolean;
 }
 
 export function ChatDock({
   className,
   placeholder = 'Ask a question or start a project…',
   title = 'Assistant',
+  visible = true,
 }: ChatDockProps) {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -326,7 +338,7 @@ export function ChatDock({
 
   const canSend = query.trim().length > 0 && !busy;
 
-  const dock = hostVisible && mounted && typeof document !== 'undefined' && createPortal(
+  const dock = hostVisible && visible && mounted && typeof document !== 'undefined' && createPortal(
     <div
       className={cn(
         'pointer-events-none fixed inset-x-0 bottom-3 z-[90] flex flex-col items-center px-3',

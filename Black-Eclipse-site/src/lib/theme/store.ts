@@ -175,6 +175,14 @@ export interface ThemeStore {
   userPresets: UserThemePreset[];
   /** When set, the document is showing a non-persisted preview of this theme. */
   previewTheme: EclipseTheme | null;
+  /**
+   * Full-screen preview mode: the Settings modal is closed so the user can
+   * interact with the REAL app already wearing the preview, with a floating
+   * Apply / Discard bar. Ephemeral — never persisted.
+   */
+  previewMode: boolean;
+  /** Enter/leave full-screen preview mode. */
+  setPreviewMode: (v: boolean) => void;
   hydrate: () => void;
   /** Patch top-level fields (appName, fonts, radius, density, toggles, …). */
   setTheme: (patch: Partial<Omit<EclipseTheme, 'colors'>>) => void;
@@ -222,6 +230,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   customized: false,
   userPresets: [],
   previewTheme: null,
+  previewMode: false,
+
+  setPreviewMode: (v) => set({ previewMode: v }),
 
   hydrate: () => {
     const stored = loadTheme();
@@ -274,13 +285,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     applyThemeToDocument(current);
     applyFavicon(current);
     applyDocumentTitle(current);
-    set({ previewTheme: null });
+    set({ previewTheme: null, previewMode: false });
   },
 
   commitPreview: () => {
     const preview = get().previewTheme;
     if (!preview) return;
-    set({ theme: commit(preview), customized: true, previewTheme: null });
+    set({ theme: commit(preview), customized: true, previewTheme: null, previewMode: false });
   },
 
   saveUserPreset: (label) => {

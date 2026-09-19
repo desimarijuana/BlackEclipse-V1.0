@@ -9,6 +9,7 @@ import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
+import { ChatDock } from '@/components/chat/chat-dock';
 import { Message } from '@/types/chat';
 
 // Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
@@ -72,7 +73,7 @@ import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
-import { useHydrateTheme } from '@/lib/theme';
+import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -688,6 +689,13 @@ function StockChatContent() {
               </div>
             </div>
           )}
+
+          {/* App-wide floating assistant — present on every tab except the
+              ChatBot (it would be a second composer next to the full chat) and
+              while the Settings modal is open. Mounted once here rather than
+              per-screen; the dock gates on this panel's own display so it never
+              floats over an inactive keep-alive tab. */}
+          <ChatDock visible={activeTab !== 'chat' && !settingsOpen} />
         </div>
       </div>
 
