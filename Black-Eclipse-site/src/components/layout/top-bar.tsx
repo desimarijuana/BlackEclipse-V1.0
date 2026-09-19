@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Sparkles, Menu, Search, Command } from 'lucide-react';
+import { Menu, Search, Command } from 'lucide-react';
 import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
 import { useT } from '@/lib/i18n';
-import { useThemeStore } from '@/lib/theme';
+import { useThemeStore, BRAND_WORDMARK_SRC } from '@/lib/theme';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -35,6 +35,7 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
   const appName = useThemeStore((s) => s.theme.appName);
   const logoUrl = useThemeStore((s) => s.theme.logoUrl);
   const logoText = useThemeStore((s) => s.theme.logoText);
+  const logoScale = useThemeStore((s) => s.theme.logoScale);
   const [modKey, setModKey] = useState('Ctrl');
   const [indexed, setIndexed] = useState(0);
 
@@ -68,14 +69,21 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
            </button>
          )}
           <div className="flex md:hidden items-center gap-2 text-primary font-medium">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 overflow-hidden">
-              {logoUrl
-                ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
-                : logoText
-                  ? <span className="text-[11px] font-bold leading-none">{logoText}</span>
-                  : <Sparkles size={14} />}
-            </div>
-            <span className="text-foreground text-xs font-mono font-bold tracking-tight">{appName}</span>
+            {logoUrl || logoText ? (
+              <>
+                <div
+                  className="rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 overflow-hidden"
+                  style={{ width: `${1.75 * logoScale}rem`, height: `${1.75 * logoScale}rem` }}
+                >
+                  {logoUrl
+                    ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
+                    : <span className="font-bold leading-none" style={{ fontSize: `${0.7 * logoScale}rem` }}>{logoText}</span>}
+                </div>
+                <span className="text-foreground text-xs font-mono font-bold tracking-tight">{appName}</span>
+              </>
+            ) : (
+              <img src={BRAND_WORDMARK_SRC} alt={appName} className="w-auto max-w-[150px] object-contain" style={{ height: `${1.5 * logoScale}rem` }} />
+            )}
           </div>
        </div>
 

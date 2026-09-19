@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Sparkles, Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
+import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
 import { useT, navLabelKey } from '@/lib/i18n';
-import { useThemeStore } from '@/lib/theme';
+import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
@@ -51,6 +51,8 @@ export function Sidebar({
   const appName = useThemeStore((s) => s.theme.appName);
   const logoUrl = useThemeStore((s) => s.theme.logoUrl);
   const logoText = useThemeStore((s) => s.theme.logoText);
+  const logoScale = useThemeStore((s) => s.theme.logoScale);
+  const logoBox = { width: `${2 * logoScale}rem`, height: `${2 * logoScale}rem` };
 
   // User-customized menu: order, visibility, and shortcuts come from the
   // shared store (edited in Settings › Sidebar). Hydrate once on mount.
@@ -89,16 +91,23 @@ export function Sidebar({
         isCollapsed ? 'justify-center' : 'justify-between gap-2 px-1'
       }`}>
         <div className="flex items-center gap-2 overflow-hidden">
-          <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
-            {/* Brand logo (custom image or mark) — hidden on hover when collapsed */}
-            <div className={`w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 transition-all duration-200 overflow-hidden ${
-              isCollapsed ? 'group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75' : ''
-            }`}>
+          {/* Custom mark, or the shipped mark when collapsed (the wordmark below
+              already contains the mark, so we don't duplicate it when expanded). */}
+          {(isCollapsed || logoUrl || logoText) && (
+          <div className="relative flex items-center justify-center shrink-0" style={logoBox}>
+            <div
+              style={logoBox}
+              className={`rounded-xl flex items-center justify-center transition-all duration-200 overflow-hidden ${
+                logoUrl || logoText ? 'bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-sm shadow-primary/20' : ''
+              } ${
+                isCollapsed ? 'group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75' : ''
+              }`}
+            >
               {logoUrl
                 ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
                 : logoText
-                  ? <span className="text-xs font-bold leading-none">{logoText}</span>
-                  : <Sparkles size={14} className="animate-pulse" />}
+                  ? <span className="font-bold leading-none" style={{ fontSize: `${0.75 * logoScale}rem` }}>{logoText}</span>
+                  : <img src={BRAND_MARK_SRC} alt="" className="h-full w-full object-contain" />}
             </div>
             
             {/* Expand Slide Icon (shows on hover when collapsed) */}
@@ -112,12 +121,20 @@ export function Sidebar({
               </button>
             )}
           </div>
+          )}
           {!isCollapsed && (
-            <span className={`text-sm font-semibold tracking-tight truncate transition-all duration-300 ${
-              isCollapsed ? 'opacity-0 translate-x-2' : 'opacity-100 translate-x-0'
-            }`}>
-              {appName}
-            </span>
+            logoUrl ? (
+              <span className="text-sm font-semibold tracking-tight truncate transition-all duration-300">
+                {appName}
+              </span>
+            ) : (
+               <img
+                 src={BRAND_WORDMARK_SRC}
+                 alt={appName}
+                 className="w-auto max-w-[190px] object-contain transition-all duration-300"
+                 style={{ height: `${1.85 * logoScale}rem` }}
+               />
+            )
           )}
         </div>
 
@@ -230,12 +247,16 @@ export function Sidebar({
         {isCollapsed ? (
           <div className="flex justify-center">
             <div 
-              className="w-9 h-9 rounded-xl bg-accent border border-border flex justify-center items-center font-bold text-xs text-muted-foreground overflow-hidden"
+              className={`w-9 h-9 rounded-xl flex justify-center items-center font-bold text-xs text-muted-foreground overflow-hidden ${
+                logoUrl || logoText ? 'bg-accent border border-border' : ''
+              }`}
               title={appName}
             >
               {logoUrl
                 ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
-                : (logoText || appName.charAt(0) || 'E')}
+                : logoText
+                  ? (logoText || appName.charAt(0) || 'E')
+                  : <img src={BRAND_MARK_SRC} alt="" className="h-full w-full object-contain" />}
             </div>
           </div>
         ) : (

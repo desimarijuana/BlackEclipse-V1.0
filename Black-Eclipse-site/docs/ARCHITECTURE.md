@@ -107,7 +107,29 @@ Two mechanisms:
    - Provenance is explicit: `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED |
      UNAVAILABLE`.
 2. **Zustand stores** for UI state (sidebar config, dashboard layouts, search,
-   market-workspace, aurora palette) — persisted to `localStorage`, not the DB.
+   market-workspace, aurora palette, i18n/a11y, centralized theme) — persisted to
+   `localStorage`, not the DB.
+   - **Centralized theming.** `src/lib/theme/` owns one serializable
+     `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
+     glow/animation). The store flattens it to CSS custom properties and injects
+     them via a managed `<style id="eclipse-theme-overrides">`; color tokens are
+     scoped to `html.dark` so the General › Theme light/dark switch keeps working,
+     while typography/shape/scale tokens apply globally. Because components and
+     charts already read `--primary` / `--font-mono` / `--radius` / `--bullish` /
+     `--bearish` / `--font-scale`, one theme object recolors the whole app with no
+     per-component wiring. `themeFromBrandColor()` is the white-label entry point:
+     it derives a coordinated primary/accent/bullish palette from a single brand
+     color (ServiceNow-style), with bearish overridable. The Settings panel is
+     tabbed (Theme · Aurora · Charts · Language & Access) and embeds the existing
+     Aurora and Chart panels, so all appearance controls live under Customization.
+     The `bridge.ts` helper copies the theme's market colors into the native chart
+     palette only on explicit user edits — never on hydration, so a separately
+     saved chart palette survives reload. The shipped brand lives in
+     `public/branding/` (`FAVICON.svg` mark, `LOGO-WORDMARK.svg` lockup), exported
+     as `BRAND_MARK_SRC` / `BRAND_WORDMARK_SRC` from `tokens.ts`. They are the
+     defaults for the sidebar/header mark, the wordmark, and the favicon; a
+     user-uploaded `logoUrl` / `faviconUrl` always overrides them. This is a
+     presentation-only layer; it never touches stored financial data.
 3. **Portfolio engine** (`src/hooks/use-portfolio-engine.ts`) — pure FIFO/LIFO
    cost-basis and stats logic, consumed by both the portfolio screens and the
    dashboard portfolio widgets. There is **no broker integration yet**: every

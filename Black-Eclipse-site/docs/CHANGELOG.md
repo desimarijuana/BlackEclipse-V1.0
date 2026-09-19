@@ -43,6 +43,45 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Customization / brand theming + embedded Aurora & Charts** — Extended the
+  centralized theme into a full white-label flow. The `EclipseTheme` model gained
+  `fontScale` (global text size) and `logoScale` (sidebar/header mark size), both
+  clamped and emitted as `--font-scale` / `--logo-scale` structural tokens;
+  `globals.css` scales the root font-size through `--font-scale`, composing with
+  the a11y large-text class. Added `themeFromBrandColor()`, a ServiceNow-style
+  generator deriving primary, accent and bullish from a single organisation brand
+  color (bearish overridable) while keeping neutral surfaces. The Customization
+  panel is now tabbed — **Theme · Aurora · Charts · Language & Access** — reusing
+  the existing `AuroraSettingsPanel` and `ChartSettingsPanel` so glow and chart
+  palettes live inside Customization, not only as separate Settings sections.
+  Added a Brand-color generator card plus Text size / Logo size sliders. 4 new
+  tests; 1336 tests pass, `tsc` clean, 0 lint errors.
+  docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Branding** — Added the official BlackEclipse logo assets (`public/branding/FAVICON.svg`
+  mark, `public/branding/LOGO-WORDMARK.svg` lockup) and wired them in as the default
+  brand: sidebar/header mark, expanded-sidebar wordmark, mobile top-bar wordmark, and
+  the document favicon (`BRAND_MARK_SRC` / `BRAND_WORDMARK_SRC` in `src/lib/theme/`).
+  A user-uploaded logo/favicon in Settings › Customization still overrides them.
+  docs updated: `docs/ARCHITECTURE.md`
+- **Customization / centralized theming** — The Settings › Customization page is
+  now a full theme system, not just language/a11y. New `src/lib/theme/` holds a
+  serializable `EclipseTheme` (branding: app name, logo, favicon; typography:
+  UI/heading/mono fonts; colors: primary, accent, background, surface, border,
+  text, bullish, bearish; radius; density; glow/animation toggles), six shipped
+  Eclipse-family presets, and a persisted zustand store (`be_theme_v1`). The
+  store flattens the theme to CSS design tokens and injects them through a managed
+  `<style id="eclipse-theme-overrides">` — colors scoped to `html.dark` (so the
+  General › Theme light/dark switch still works) and typography/shape global.
+  `globals.css` now routes its hard-coded greens/reds (scrollbars, hover borders,
+  legacy emerald/rose remaps, sliders, inputs) through `--brand`/`--bullish`/
+  `--bearish` tokens, and `.dark` card surfaces use `var(--card)`. Sidebar,
+  top-bar and document title read the custom app name/logo. A bridge syncs the
+  theme's market colors into the native chart palette on explicit edits (never on
+  hydration, so a saved chart palette survives reload). 10 new tests; 1332 tests
+  pass, `tsc` clean, 0 lint errors.
+  docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **i18n / completeness pass** — Fixed the language layer so no locale silently
   falls back to English. All 21 registered languages now translate all 70 UI
   keys (previously 22 keys were missing or stale, and `nav.ts` was missing the

@@ -9,6 +9,7 @@ import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 export const metadata: Metadata = {
   title: 'BlackEclipse — AI Stock Research & Screening Platform',
   description: 'Advanced glassmorphic stock screening tables, live sectors treemap heatmap, portfolio watchlist, and financial news, backed by an autonomous AI research analyst.',
+  icons: { icon: '/branding/FAVICON.svg' },
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

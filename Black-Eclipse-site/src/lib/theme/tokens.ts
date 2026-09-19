@@ -29,6 +29,14 @@ export interface ThemeColors {
   bearish: string;
 }
 
+/**
+ * Shipped brand assets (in `public/branding/`). These are the default logo and
+ * favicon; a user-uploaded `logoUrl` / `faviconUrl` in Settings › Customization
+ * takes precedence over them.
+ */
+export const BRAND_MARK_SRC = '/branding/FAVICON.svg';
+export const BRAND_WORDMARK_SRC = '/branding/LOGO-WORDMARK.svg';
+
 export interface EclipseTheme {
   /** App / workspace name shown in the sidebar, header and page title. */
   appName: string;
@@ -46,6 +54,10 @@ export interface EclipseTheme {
   /** Base corner radius in rem. */
   radius: number;
   density: ThemeDensity;
+  /** Global text scale (multiplies the root font size). 1 = shipped default. */
+  fontScale: number;
+  /** Sidebar / header logo scale. 1 = shipped default. */
+  logoScale: number;
   /** Ambient Aurora glow on/off. */
   glow: boolean;
   /** Interface animations on/off. */
@@ -54,7 +66,7 @@ export interface EclipseTheme {
 
 export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   appName: 'BlackEclipse',
-  logoText: 'B',
+  logoText: '',
   logoUrl: '',
   faviconUrl: '',
   fontUi: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -72,6 +84,8 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   },
   radius: 0.6,
   density: 'comfortable',
+  fontScale: 1,
+  logoScale: 1,
   glow: true,
   animations: true,
 };
@@ -142,6 +156,13 @@ function preset(
 }
 
 /** Shipped Eclipse-family looks. The first is the brand default. */
+/**
+ * Neutral backgrounds shipped with the brand-color generator when the user
+ * asks to derive a full theme from a single brand color (ServiceNow-style).
+ */
+export const BRAND_GENERATOR_BACKGROUND = '#000000';
+export const BRAND_GENERATOR_SURFACE = '#0f0f0f';
+
 export const THEME_PRESETS: ThemePreset[] = [
   { id: 'eclipse', label: 'Eclipse', description: 'The default green-on-black terminal.', theme: DEFAULT_ECLIPSE_THEME },
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
@@ -243,6 +264,12 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
   const radiusNum = typeof value.radius === 'number' && Number.isFinite(value.radius)
     ? Math.min(1.6, Math.max(0, value.radius))
     : d.radius;
+  const fontScaleNum = typeof value.fontScale === 'number' && Number.isFinite(value.fontScale)
+    ? Math.min(1.4, Math.max(0.8, value.fontScale))
+    : d.fontScale;
+  const logoScaleNum = typeof value.logoScale === 'number' && Number.isFinite(value.logoScale)
+    ? Math.min(1.8, Math.max(0.6, value.logoScale))
+    : d.logoScale;
   return {
     appName: str(value.appName, d.appName, 48),
     logoText: str(value.logoText, d.logoText, 4),
@@ -263,9 +290,39 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
     },
     radius: radiusNum,
     density,
+    fontScale: fontScaleNum,
+    logoScale: logoScaleNum,
     glow: value.glow !== false,
     animations: value.animations !== false,
   };
+}
+
+/**
+ * Derive a complete, coordinated theme from a single brand color. Mirrors the
+ * "bring your brand color" flow enterprise consoles offer: the brand becomes
+ * primary + bullish, the bearish color is a hue-shifted complement unless the
+ * caller supplies one, and surfaces/text stay neutral so charts remain legible.
+ */
+export function themeFromBrandColor(
+  brand: string,
+  base: EclipseTheme = DEFAULT_ECLIPSE_THEME,
+  overrides: Partial<ThemeColors> = {},
+): EclipseTheme {
+  const primary = normalizeHex(brand) ?? base.colors.primary;
+  const accent = mixHex(primary, '#ffffff', 0.72);
+  return normalizeTheme({
+    ...base,
+    colors: {
+      ...base.colors,
+      background: base.colors.background || BRAND_GENERATOR_BACKGROUND,
+      surface: base.colors.surface || BRAND_GENERATOR_SURFACE,
+      primary,
+      accent,
+      bullish: primary,
+      bearish: overrides.bearish ?? base.colors.bearish,
+      ...overrides,
+    },
+  });
 }
 
 /** True when `theme` can no longer be described by a shipped preset. */
@@ -294,6 +351,7 @@ const DENSITY_SPACING: Record<ThemeDensity, string> = {
  */
 export const STRUCTURAL_THEME_VARS: ReadonlySet<string> = new Set([
   '--font-sans', '--font-serif', '--font-mono', '--radius', '--spacing',
+  '--font-scale', '--logo-scale',
 ]);
 
 /**
@@ -337,7 +395,7 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     '--muted': muted,
     '--muted-foreground': mutedForeground,
     '--accent': subtleAccent,
-    '--accent-foreground': accent,
+    '--accent-foreground': text,
     '--border': border,
     '--input': border,
     '--sidebar': surface,
@@ -364,6 +422,8 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     // Shape + density
     '--radius': `${n.radius}rem`,
     '--spacing': DENSITY_SPACING[n.density],
+    '--font-scale': `${n.fontScale}`,
+    '--logo-scale': `${n.logoScale}`,
   };
 }
 

@@ -94,6 +94,7 @@ Black-Eclipse-site/
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
+| Change app theming / branding / design tokens | `src/lib/theme/` (`tokens.ts` model + presets + `themeFromBrandColor`, `store.ts` persisted overrides, `bridge.ts` chart sync) → tabbed panel `src/components/screens/customization-settings.tsx` (embeds `aurora-settings.tsx` + `chart-settings.tsx`); token defaults in `src/app/globals.css` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
 | Add/change a provider API key | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) → `/api/provider-keys` → `src/components/screens/api-keys-panel.tsx` (filtered by `categories` prop); LLM keys render under `settings.ai`, financial/data keys under `settings.investor-eye` |
@@ -116,6 +117,7 @@ Black-Eclipse-site/
 | `agent/` | Provider abstraction, tool loop, multi-agent research, journal tools |
 | `alerts/` | Condition evaluator, feeds, notifier, alert monitor |
 | `aurora/` | Aurora palette store + theme |
+| `theme/` | Centralized customization: `EclipseTheme` model + presets + brand-color generator + validation (`tokens.ts`), persisted zustand store + CSS-token injection (`store.ts`), chart-palette bridge (`bridge.ts`) |
 | `chart/` | Chart types, data hooks, indicators, drawings, structure, providers |
 | `connectors/` | Universal Data Connector Layer: provider catalog, capability resolver, custom REST connectors, SSRF/secret security, custom datasets, scheduled refresh |
 | `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |

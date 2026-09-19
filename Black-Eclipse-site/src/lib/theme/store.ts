@@ -16,8 +16,8 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import {
   DEFAULT_ECLIPSE_THEME,
+  BRAND_MARK_SRC,
   STRUCTURAL_THEME_VARS,
-  buildFaviconDataUrl,
   normalizeTheme,
   themeCssVars,
   type EclipseTheme,
@@ -81,7 +81,7 @@ function clearThemeFromDocument() {
 
 function applyFavicon(theme: EclipseTheme) {
   if (typeof document === 'undefined') return;
-  const href = theme.faviconUrl || buildFaviconDataUrl(theme);
+  const href = theme.faviconUrl || BRAND_MARK_SRC;
   let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
   if (!link) {
     link = document.createElement('link');

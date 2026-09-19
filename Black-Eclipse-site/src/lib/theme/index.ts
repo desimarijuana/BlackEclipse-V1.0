@@ -1,6 +1,10 @@
 // Eclipse theme — public surface.
 export {
   DEFAULT_ECLIPSE_THEME,
+  BRAND_MARK_SRC,
+  BRAND_WORDMARK_SRC,
+  BRAND_GENERATOR_BACKGROUND,
+  BRAND_GENERATOR_SURFACE,
   STRUCTURAL_THEME_VARS,
   THEME_PRESETS,
   UI_FONT_OPTIONS,
@@ -16,6 +20,7 @@ export {
   luminance,
   readableOn,
   themeCssVars,
+  themeFromBrandColor,
   themeMatchesPreset,
   themePresetId,
   buildFaviconDataUrl,

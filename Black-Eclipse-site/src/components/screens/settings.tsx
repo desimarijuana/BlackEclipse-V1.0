@@ -446,7 +446,7 @@ export function Settings({
     terms: string[];
   }[] = [
     { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
-    { id: "customization", label: "Customization", desc: "Language & accessibility", icon: SlidersHorizontal, group: "Personalize", terms: ["language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "font size", "text size", "screen reader", "rtl"] },
+    { id: "customization", label: "Customization", desc: "Theme, branding & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
     { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles, group: "Personalize", terms: ["aurora", "glow", "sentiment", "colors", "palette"] },
     { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity, group: "Personalize", terms: ["charts", "candles", "colors", "palette", "series", "positive", "negative"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
@@ -789,7 +789,7 @@ export function Settings({
                 <SectionHeader
                   icon={SlidersHorizontal}
                   title="Customization"
-                  description="Make the interface yours — choose your language and tune motion, contrast and text size for how you see and navigate."
+                  description="Centralized theming — branding (name, logo, favicon), typography, colors, radius, density and motion. Changes apply live across the whole app through shared design tokens, and persist on this device."
                 />
                 <CustomizationSettingsPanel />
               </div>

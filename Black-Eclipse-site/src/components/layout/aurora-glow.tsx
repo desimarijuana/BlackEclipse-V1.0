@@ -54,6 +54,7 @@ export function AuroraGlow({ className }: { className?: string }) {
   const score = useAuroraSentiment();
   return (
     <div
+      data-aurora-glow
       className={cn('absolute top-0 left-0 right-0 h-56 z-0 pointer-events-none overflow-hidden', className)}
       style={{
         maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 70%, rgba(0,0,0,0) 100%)',

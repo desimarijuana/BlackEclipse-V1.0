@@ -1119,9 +1119,16 @@ html:not(.dark) .a11y-high-contrast .ws-glass {
 }
 
 /* Larger text: scale the root font-size; rem-based Tailwind sizes follow.
- * Capped at 118% so layouts do not break. */
+ * Capped at 118% so layouts do not break. Composes with the Customization
+ * font-scale token when set. */
 html.a11y-large-text {
-  font-size: 118%;
+  font-size: calc(118% * var(--font-scale, 1));
+}
+
+/* Customization › Text size. Defaults to 1, so this is a no-op until the user
+ * changes it in Settings › Customization. */
+html {
+  font-size: calc(100% * var(--font-scale, 1));
 }
 
 /* Skip link — visible only when keyboard-focused (first Tab on a page). */

@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
+  Wand2, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,8 +29,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/lib/i18n";
 import {
   DENSITY_OPTIONS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
-  isValidHex, normalizeHex, syncChartPaletteFromTheme, useThemeStore, type ThemeColors,
+  isValidHex, normalizeHex, syncChartPaletteFromTheme, themeFromBrandColor, useThemeStore, type ThemeColors,
 } from "@/lib/theme";
+import { AuroraSettingsPanel } from "./aurora-settings";
+import { ChartSettingsPanel } from "./chart-settings";
+
+type CustomTab = "theme" | "aurora" | "charts" | "access";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -208,6 +213,31 @@ export function CustomizationSettingsPanel() {
   const applyPreset = useThemeStore((s) => s.applyPreset);
   const resetTheme = useThemeStore((s) => s.reset);
 
+  const [tab, setTab] = useState<CustomTab>("theme");
+  const [brandColor, setBrandColor] = useState(theme.colors.primary);
+
+  // Keep native charts in step with the theme's market colors when the user
+  // explicitly recolors (presets, color edits, reset) — never on hydration.
+  const changePreset = (next: typeof theme) => {
+    applyPreset(next);
+    syncChartPaletteFromTheme(next);
+  };
+  const changeColor = (key: keyof ThemeColors, hex: string) => {
+    setColor(key, hex);
+    syncChartPaletteFromTheme(useThemeStore.getState().theme);
+  };
+  const resetAll = () => {
+    resetTheme();
+    syncChartPaletteFromTheme(useThemeStore.getState().theme);
+  };
+  // ServiceNow-style "build a theme from your brand color": derive primary,
+  // accent and market colors, then sync charts.
+  const generateFromBrand = (hex: string) => {
+    const next = themeFromBrandColor(hex, theme);
+    applyPreset(next);
+    syncChartPaletteFromTheme(next);
+  };
+
   const activePreset = THEME_PRESETS.find(
     (p) => JSON.stringify(theme) === JSON.stringify(p.theme),
   )?.id ?? null;
@@ -223,8 +253,158 @@ export function CustomizationSettingsPanel() {
     { key: "bearish", label: "Bearish", hint: "Losses & down candles" },
   ];
 
+  const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
+    { id: "theme", label: "Theme", icon: Palette },
+    { id: "aurora", label: "Aurora", icon: Sparkles },
+    { id: "charts", label: "Charts", icon: Activity },
+    { id: "access", label: "Language & Access", icon: Accessibility },
+  ];
+
   return (
     <div className="space-y-6">
+      {/* Sub-navigation: one Customization home for theme, Aurora, charts and
+          language/accessibility so everything that shapes the look lives here. */}
+      <div className="flex flex-wrap gap-2">
+        {TABS.map((item) => {
+          const Icon = item.icon;
+          const active = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-medium transition-all cursor-pointer",
+                active
+                  ? "bg-primary/10 text-foreground border-primary/40 shadow-sm shadow-primary/10"
+                  : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60",
+              )}
+            >
+              <Icon size={14} className={active ? "text-primary" : "text-muted-foreground"} />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "aurora" && (
+        <div className="animate-fade-in-up">
+          <AuroraSettingsPanel />
+        </div>
+      )}
+
+      {tab === "charts" && (
+        <div className="animate-fade-in-up">
+          <ChartSettingsPanel />
+        </div>
+      )}
+
+      {tab === "access" && (
+        <div className="animate-fade-in-up space-y-6">
+          {/* ── Language ──────────────────────────────────────────────── */}
+          <Card icon={Languages} title={t("settings.customization.language")}>
+            <div className="flex flex-col gap-1.5">
+              <Select value={locale} onValueChange={(v) => v && setLocale(v as LocaleCode)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {LOCALES.map((l) => (
+                    <SelectItem key={l.code} value={l.code}>
+                      <span className="inline-flex items-center gap-2">
+                        {l.nativeName}
+                        <span className="text-muted-foreground/60 text-[10px]">{l.name}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                {t("settings.customization.languageHint")}
+              </p>
+            </div>
+          </Card>
+
+          {/* ── Accessibility ─────────────────────────────────────────── */}
+          <Card icon={Accessibility} title={t("settings.accessibility.description")}>
+            <Row
+              label={t("settings.accessibility.reduceMotion")}
+              hint={t("settings.accessibility.reduceMotionHint")}
+              checked={a11y.reduceMotion}
+              onChange={(v) => setA11y({ reduceMotion: v })}
+            />
+            <Row
+              label={t("settings.accessibility.highContrast")}
+              hint={t("settings.accessibility.highContrastHint")}
+              checked={a11y.highContrast}
+              onChange={(v) => setA11y({ highContrast: v })}
+            />
+            <Row
+              label={t("settings.accessibility.largeText")}
+              hint={t("settings.accessibility.largeTextHint")}
+              checked={a11y.largeText}
+              onChange={(v) => setA11y({ largeText: v })}
+            />
+            <div className="flex justify-end pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="cursor-pointer rounded-xl"
+                onClick={() => setA11y(DEFAULT_A11Y)}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" /> {t("settings.accessibility.reset")}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {tab === "theme" && (
+      <div className="animate-fade-in-up space-y-6">
+      {/* ── Brand color generator ─────────────────────────────────────── */}
+      <Card icon={Wand2} title="Build Theme From Brand Color">
+        <p className="text-[10px] text-muted-foreground -mt-2">
+          Pick your organisation&apos;s brand color and Eclipse derives a coordinated
+          palette — primary, accent and market colors — around it.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label
+            className="relative h-9 w-9 shrink-0 rounded-xl border border-white/15 cursor-pointer overflow-hidden shadow-sm"
+            style={{ backgroundColor: brandColor }}
+          >
+            <input
+              type="color"
+              value={normalizeHex(brandColor) ?? theme.colors.primary}
+              onChange={(e) => setBrandColor(e.target.value)}
+              className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+              aria-label="Brand color picker"
+            />
+          </label>
+          <input
+            value={brandColor}
+            onChange={(e) => {
+              setBrandColor(e.target.value);
+              const n = normalizeHex(e.target.value);
+              if (n) generateFromBrand(n);
+            }}
+            spellCheck={false}
+            className="w-[120px] rounded-lg border border-border/40 bg-transparent px-2 py-1 font-mono text-[11px] uppercase outline-none focus-visible:border-primary/50"
+            aria-label="Brand hex value"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl cursor-pointer"
+            onClick={() => generateFromBrand(normalizeHex(brandColor) ?? theme.colors.primary)}
+          >
+            <Wand2 className="w-3.5 h-3.5 mr-1" /> Generate theme
+          </Button>
+          <span
+            className="h-5 w-32 shrink-0 rounded-md border border-white/15"
+            style={{ background: `linear-gradient(90deg, ${theme.colors.bearish} 0%, ${theme.colors.primary} 50%, ${theme.colors.accent} 100%)` }}
+            aria-hidden
+          />
+        </div>
+      </Card>
+
       {/* ── Theme presets + reset ─────────────────────────────────────── */}
       <Card icon={Palette} title="Eclipse Themes">
         <div className="grid gap-2 sm:grid-cols-2">
@@ -234,7 +414,7 @@ export function CustomizationSettingsPanel() {
               <button
                 key={preset.id}
                 type="button"
-                onClick={() => applyPreset(preset.theme)}
+                onClick={() => changePreset(preset.theme)}
                 aria-pressed={active}
                 title={preset.description}
                 className={cn(
@@ -279,7 +459,7 @@ export function CustomizationSettingsPanel() {
           </div>
         </div>
         <div className="flex justify-end">
-          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetTheme}>
+          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={resetAll}>
             <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Eclipse Default
           </Button>
         </div>
@@ -351,6 +531,40 @@ export function CustomizationSettingsPanel() {
             </Select>
           </div>
         </div>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground font-medium">Text size</Label>
+              <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.fontScale * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0.8}
+              max={1.4}
+              step={0.05}
+              value={theme.fontScale}
+              onChange={(e) => setTheme({ fontScale: Number(e.target.value) })}
+              className="w-full cursor-pointer"
+              aria-label="Text size"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground font-medium">Logo size</Label>
+              <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.logoScale * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0.6}
+              max={1.8}
+              step={0.05}
+              value={theme.logoScale}
+              onChange={(e) => setTheme({ logoScale: Number(e.target.value) })}
+              className="w-full cursor-pointer"
+              aria-label="Logo size"
+            />
+          </div>
+        </div>
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs text-muted-foreground font-medium">Border radius</Label>
@@ -399,7 +613,7 @@ export function CustomizationSettingsPanel() {
               label={c.label}
               hint={c.hint}
               value={theme.colors[c.key]}
-              onChange={(hex) => setColor(c.key, hex)}
+              onChange={(hex) => changeColor(c.key, hex)}
             />
           ))}
         </div>
@@ -424,60 +638,8 @@ export function CustomizationSettingsPanel() {
           onChange={(v) => setTheme({ animations: v })}
         />
       </Card>
-
-      {/* ── Language ──────────────────────────────────────────────────── */}
-      <Card icon={Languages} title={t("settings.customization.language")}>
-        <div className="flex flex-col gap-1.5">
-          <Select value={locale} onValueChange={(v) => v && setLocale(v as LocaleCode)}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {LOCALES.map((l) => (
-                <SelectItem key={l.code} value={l.code}>
-                  <span className="inline-flex items-center gap-2">
-                    {l.nativeName}
-                    <span className="text-muted-foreground/60 text-[10px]">{l.name}</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-            {t("settings.customization.languageHint")}
-          </p>
-        </div>
-      </Card>
-
-      {/* ── Accessibility ─────────────────────────────────────────────── */}
-      <Card icon={Accessibility} title={t("settings.accessibility.description")}>
-        <Row
-          label={t("settings.accessibility.reduceMotion")}
-          hint={t("settings.accessibility.reduceMotionHint")}
-          checked={a11y.reduceMotion}
-          onChange={(v) => setA11y({ reduceMotion: v })}
-        />
-        <Row
-          label={t("settings.accessibility.highContrast")}
-          hint={t("settings.accessibility.highContrastHint")}
-          checked={a11y.highContrast}
-          onChange={(v) => setA11y({ highContrast: v })}
-        />
-        <Row
-          label={t("settings.accessibility.largeText")}
-          hint={t("settings.accessibility.largeTextHint")}
-          checked={a11y.largeText}
-          onChange={(v) => setA11y({ largeText: v })}
-        />
-        <div className="flex justify-end pt-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="cursor-pointer rounded-xl"
-            onClick={() => setA11y(DEFAULT_A11Y)}
-          >
-            <RotateCcw className="w-3.5 h-3.5 mr-1" /> {t("settings.accessibility.reset")}
-          </Button>
-        </div>
-      </Card>
+      </div>
+      )}
     </div>
   );
 }
