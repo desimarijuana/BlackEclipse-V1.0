@@ -43,6 +43,12 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Branding** — Sidebar header no longer duplicates the mark: the shipped
+  wordmark (`LOGO-WORDMARK.svg`, which already contains the mark) renders alone
+  with no green-gradient tile behind it, and is larger (1.85rem, max-w 190px).
+  The gradient tile/collapsed footer box now appear only for a custom logo or
+  monogram.
+  no doc change — presentation tweak, branding contract unchanged.
 - **Customization / brand theming + embedded Aurora & Charts** — Extended the
   centralized theme into a full white-label flow. The `EclipseTheme` model gained
   `fontScale` (global text size) and `logoScale` (sidebar/header mark size), both
