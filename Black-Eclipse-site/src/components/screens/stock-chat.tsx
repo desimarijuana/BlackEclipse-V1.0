@@ -91,6 +91,9 @@ function StockChatContent() {
   // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
   useHydrateTheme();
   const t = useT();
+  // Full-screen theme preview (Settings › Customization) hides the modal so the
+  // real app can be auditioned; the panel stays mounted to keep its draft.
+  const themePreviewMode = useThemeStore((s) => s.previewMode);
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
@@ -699,8 +702,22 @@ function StockChatContent() {
         </div>
       </div>
 
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong shadow-2xl text-foreground">
+      <Dialog
+        open={settingsOpen}
+        // While previewing, the floating bar owns exit/apply/discard; ignore any
+        // close request (Esc/backdrop) so the mounted panel keeps its draft.
+        onOpenChange={(o) => { if (!o && themePreviewMode) return; setSettingsOpen(o); }}
+        modal={!themePreviewMode}
+      >
+        <DialogContent
+          overlayClassName={cn(themePreviewMode && 'hidden')}
+          className={cn(
+            'w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong shadow-2xl text-foreground',
+            // Full-screen preview: keep the panel MOUNTED (draft state survives)
+            // but hidden, so the real app is visible behind the floating bar.
+            themePreviewMode && 'hidden',
+          )}
+        >
           <DialogTitle className="sr-only">{t('common.settings')}</DialogTitle>
           {/* Keyed so a palette `settings.<section>` request remounts into the
               requested section even while the modal is already open. */}
