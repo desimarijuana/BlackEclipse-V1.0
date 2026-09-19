@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
+import { sound } from "@/lib/sounds";
 
 // ─── Site design system (matches my-portfolio / market-overview) ──────────
 // Frost glass — the default glass panel style used across every screen.
@@ -142,12 +143,30 @@ export function AlertsClient() {
     } catch {}
   }, []);
 
+  // Track the newest fired event id so a genuinely new alert can sound once
+  // (never on every 5s poll). Seeded on first load so existing history is mute.
+  const lastEventIdRef = useRef<string | null>(null);
+  const eventSeededRef = useRef(false);
+
   useEffect(() => {
     loadAll();
     loadLive();
     const t = setInterval(loadLive, 5000);
     return () => clearInterval(t);
   }, [loadAll, loadLive]);
+
+  useEffect(() => {
+    const newest = events[0]?.id ?? null;
+    if (!eventSeededRef.current) {
+      eventSeededRef.current = true;
+      lastEventIdRef.current = newest;
+      return;
+    }
+    if (newest && newest !== lastEventIdRef.current) {
+      lastEventIdRef.current = newest;
+      sound.notification();
+    }
+  }, [events]);
 
   // Re-list whenever a watch is created elsewhere (e.g. the command palette's
   // `alert SYMBOL`). The Alerts tab is keep-alive (display:none), so switching

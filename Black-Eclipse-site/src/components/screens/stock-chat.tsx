@@ -72,6 +72,7 @@ import { getAgentProvider } from '@/lib/agent/registry';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
+import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
@@ -370,6 +371,7 @@ function StockChatContent() {
         content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
       };
       appendAssistantReply(chatId, thinkingMsg);
+      sound.tick();
 
       try {
         const res = await fetch('/api/agent/research', {
@@ -386,6 +388,7 @@ function StockChatContent() {
             : `Research failed: ${data.error || 'unknown error'}`,
         };
         appendAssistantReply(chatId, replyMsg);
+        if (data.success) sound.success(); else sound.error();
       } catch (err) {
         const replyMsg: Message = {
           id: (Date.now() + 2).toString(),
@@ -393,6 +396,7 @@ function StockChatContent() {
           content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
         };
         appendAssistantReply(chatId, replyMsg);
+        sound.error();
       }
       return;
     }
@@ -422,6 +426,7 @@ function StockChatContent() {
       content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
     };
     appendAssistantReply(chatId, thinkingMsg);
+    sound.tick();
     try {
       const res = await fetch('/api/agent/research', {
         method: 'POST',
@@ -437,6 +442,7 @@ function StockChatContent() {
           : `Research failed: ${data.error || 'unknown error'}`,
       };
       appendAssistantReply(chatId, replyMsg);
+      if (data.success) sound.success(); else sound.error();
     } catch (err) {
       const replyMsg: Message = {
         id: (Date.now() + 2).toString(),
@@ -444,6 +450,7 @@ function StockChatContent() {
         content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
       };
       appendAssistantReply(chatId, replyMsg);
+      sound.error();
     }
   };
 

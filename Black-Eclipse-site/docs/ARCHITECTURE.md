@@ -133,7 +133,13 @@ Two mechanisms:
      exported/imported as JSON. The panel uses a **draft + preview** model: edits
      go to a local draft, `preview()` applies it to the document without
      persisting, and Apply/Discard commit or revert (uncommitted previews are
-     cancelled on unmount). A page-level `.app-page-bg` class carries the
+     cancelled on unmount). Auditioning is **full-screen on the real app**: the
+     "Enter full-screen preview" action sets `previewMode`, which hides (not
+     unmounts) the Settings dialog in `stock-chat.tsx` so the live-themed app is
+     visible and interactive, with a portaled floating **Apply / Discard / Exit**
+     bar (the panel keeps its draft because it stays mounted; dialog close is
+     suppressed while previewing). The old tiny inline mock was removed. A
+     page-level `.app-page-bg` class carries the
      `gradient`/`grid` background treatment onto the app shell (the pattern would
      otherwise be hidden behind the shell's opaque `bg-background`). The Settings
      panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
@@ -676,7 +682,11 @@ on the command bus; the trailing gear opens a portaled customization popover
 Presentation: **no background** (bare text, reads as market chrome), and the
 marquee (`.price-ribbon` / `.price-ribbon-track` in `globals.css`) renders two
 copies and translates `from -50% to 0` for continuous **left→right** motion,
-pausing on hover and disabled under `prefers-reduced-motion`.
+pausing on hover. The ticker is deliberately **EXEMPT from reduce-motion /
+animations-off**: motion is its whole purpose, so `.price-ribbon-track` keeps
+`infinite` duration against the global `.a11y-reduce-motion` / `.theme-no-anim`
+rules and the `prefers-reduced-motion` media query (a higher-specificity,
+`!important` override). Without that exemption the global rules froze the ticker.
 
 ## The Universal Data Connector Layer
 
@@ -1169,6 +1179,24 @@ market tabs). There are hard rules about `backdrop-filter`, tint opacity, and
 backdrop roots — see the
 [`black-eclipse-ui` skill](../../.opencode/skills/black-eclipse-ui/SKILL.md).
 Do not introduce raw `backdrop-blur-*` or flat fills for cards.
+
+**UI sounds.** Optional terminal-style audio feedback lives in
+`src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over Howler.js
+(lazy-loaded on first gesture so autoplay policies are respected and it stays out
+of the server bundle; every failure path is a silent no-op). The cue set is
+declared once in `config.ts` (`click`, `tick`, `toggle`, `success`, `error`,
+`notification`) with per-cue gain and throttle; assets are local WAVs in
+`public/sounds/`. `SoundProvider` (mounted once in `src/app/layout.tsx`) hydrates
+the persisted preferences, unlocks audio on the first pointer/key interaction,
+and runs one delegated listener that plays `toggle` for `role="switch"` /
+checkbox / radio and `click` for buttons, links and menu options. Anything can
+opt into a precise cue with `data-sound="tick|click|…"`; `sound.*() ` or the
+`eclipse:sound` CustomEvent covers async outcomes (agent run finished, alert
+fired). Deliberately excluded: hover, typing, scrolling, chart movement and
+constantly updating market data. The on/off + volume preference
+(`be_sounds_v1`, default ON at 35%) is edited in Settings › Customization ›
+Language & Access ("UI Sounds") and persisted through the client zustand
+`useSoundStore`.
 
 ## Architectural rules (short list)
 

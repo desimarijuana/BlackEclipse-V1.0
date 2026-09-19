@@ -5,6 +5,7 @@ import { AgentationToolbar } from "@/components/layout/agentation-toolbar";
 import { GlobalLoader } from "@/components/ui/global-loader";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { SoundProvider } from "@/lib/sounds";
 
 export const metadata: Metadata = {
   title: 'BlackEclipse — AI Stock Research & Screening Platform',
@@ -21,6 +22,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         {process.env.NEXT_PUBLIC_AGENTATION === '1' && <AgentationToolbar />}
         <GlobalSearch />
         <KeyboardShortcuts />
+        <SoundProvider />
       </body>
     </html>
   );

@@ -91,6 +91,7 @@ export function TabBar({
         return (
           <button
             key={item.id}
+            data-sound="tick"
             onClick={() => onChange(item.id)}
             onDoubleClick={onItemDoubleClick ? () => onItemDoubleClick(item.id) : undefined}
             draggable={Boolean(onReorder) && !item.editing}

@@ -198,6 +198,7 @@ export function Sidebar({
             return (
               <button
                 key={tab.id}
+                data-sound="tick"
                 onClick={() => handleTabClick(tab.id)}
                 title={isCollapsed ? (tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label) : undefined}
                 className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden ${

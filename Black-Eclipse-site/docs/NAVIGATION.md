@@ -38,6 +38,7 @@ Black-Eclipse-site/
 | Change sidebar defaults / shortcuts | `src/lib/sidebar/config.ts` |
 | Add a language / translate UI chrome | `src/lib/i18n/` (`locales.ts` = registry + RTL, `dictionaries/en.ts` = canonical keys, `dictionaries/index.ts` = translations, `translate.ts` = lookup, `store.ts` = persisted choice + `<html lang/dir>`, `use-t.ts` = hook) |
 | Add an accessibility option | `src/lib/i18n/store.ts` (`A11yPreferences` + document classes), `src/app/globals.css` (`a11y-*` rules), `src/components/screens/customization-settings.tsx` |
+| Change UI sounds / add a cue | `src/lib/sounds/` (`config.ts` = cue catalogue + gain/throttle, `sound-manager.ts` = Howler singleton, `store.ts` = persisted prefs, `sound-provider.tsx` = delegated listener), assets `public/sounds/`; opt in with `data-sound="…"` or `sound.*()` |
 | Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-format.ts` (price/cap/time formatting), `market-loaders.tsx` (table loaders) |
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
@@ -134,6 +135,7 @@ Black-Eclipse-site/
 | `scraper/` | Price/universe scraping, scheduler, fetchers, CSV |
 | `search/` | Global search registry, intent, query grammar/operators, ranking, resolver, calculator/commands, stores |
 | `sidebar/` | Sidebar config + store |
+| `sounds/` | Terminal-style UI audio feedback: cue catalogue, Howler manager, persisted pref store, delegated listener provider |
 | `workspace/` | The widget workspace kernel (DataHub, ops, persistence, canvas) |
 
 ## By API route group

@@ -43,6 +43,41 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **UI / subtle terminal sound system** — Added an optional Howler.js-backed UI
+  feedback layer (`src/lib/sounds/`: cue catalogue, defensive manager, persisted
+  pref store, delegated `SoundProvider` mounted once in `layout.tsx`) with six
+  local cues (`click`, `tick`, `toggle`, `success`, `error`, `notification`)
+  under `public/sounds/`. Sound fires only on meaningful interactions
+  (navigation, tabs, buttons, switches, menus, command selections, settings
+  saves, agent start/finish, new alert events) and is debounced/throttled;
+  hover, typing and live price updates stay silent. Audio unlocks on first
+  gesture and every failure path is a no-op. New "UI Sounds" card
+  (on/off + volume, default ON at 35%) in Settings › Customization › Language &
+  Access, persisted via `useSoundStore` (`be_sounds_v1`). Added `howler` +
+  `@types/howler`. `tsc` clean, 1349 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Customization / full-screen theme preview** — Replaced the tiny inline mock
+  desktop in Settings › Customization with a **full-screen preview of the real
+  app**. "Enter full-screen preview" sets a new `previewMode` in the theme store,
+  which hides (without unmounting) the Settings dialog so the live-themed app is
+  visible and interactive, with a portaled floating **Apply / Discard / Exit**
+  bar. The panel keeps its draft (it stays mounted); dialog close is suppressed
+  while previewing. Added `overlayClassName` to the shared `DialogContent` to
+  hide the backdrop. `tsc` clean, 1349 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Header / price ribbon frozen fix** — The ticker's marquee stopped moving
+  because the global reduce-motion / animations-off rules (`.a11y-reduce-motion`,
+  `.theme-no-anim`, and `prefers-reduced-motion`) blanket-set
+  `animation-duration` on every element, freezing `.price-ribbon-track` despite
+  the documented intent that the ticker always runs. Added a higher-specificity
+  `!important` exemption so the track stays `infinite`. Motion is the ticker's
+  whole purpose, so it is the one intentional exception. ARCHITECTURE.md was
+  corrected (it previously claimed the marquee was disabled under
+  `prefers-reduced-motion`).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Charts / chart toolbar de-greened** — The selected timeframe, chart type,
   refresh cadence, active menu triggers, drawing-tool/menu selection, volume
   toggle and the provider dropdown were highlighted with the theme's green

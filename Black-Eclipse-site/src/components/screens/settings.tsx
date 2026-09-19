@@ -32,6 +32,7 @@ import { CustomizationSettingsPanel } from "./customization-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
+import { sound } from "@/lib/sounds";
 
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -343,14 +344,17 @@ export function Settings({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setToast({ kind: "error", text: data.error || "Failed to save" });
+        sound.error();
         return;
       }
       if (data.llm) setLlm({ ...data.llm, apiKey: "" });
       if (Array.isArray(data.newsFeeds)) setFeeds(data.newsFeeds);
       if (data.preferences) setPrefs(data.preferences);
       setToast({ kind: "ok", text: "Saved" });
+      sound.success();
     } catch {
       setToast({ kind: "error", text: "Failed to save" });
+      sound.error();
     } finally {
       setSaving(false);
     }
@@ -443,7 +447,7 @@ export function Settings({
     terms: string[];
   }[] = [
     { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
-    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
+    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "sound", "sounds", "audio", "volume", "click", "tick", "feedback"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
@@ -590,6 +594,7 @@ export function Settings({
                   return (
                     <button
                       key={item.id}
+                      data-sound="tick"
                       onClick={() => setSection(item.id)}
                       className={cn(
                         "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
@@ -637,6 +642,7 @@ export function Settings({
                   return (
                     <button
                       key={item.id}
+                      data-sound="tick"
                       onClick={() => setSection(item.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer",
