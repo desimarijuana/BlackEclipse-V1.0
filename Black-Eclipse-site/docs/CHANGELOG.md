@@ -43,6 +43,32 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **Customization / glass mode + theme designer** — Added a **Glass & Surfaces**
+  tab and deeper theme-design controls. `EclipseTheme` gained `glass`
+  (`enabled`, `blur`, `opacity`, `tint`), `shadow`
+  (`none|soft|medium|dramatic`) and `background` (`solid|gradient|grid`). New
+  tokens (`--glass-blur`, `--glass-opacity`, `--glass-tint`, `--glass-tint-light`,
+  `--glass-shadow`, `--glass-enabled`, `--page-bg-image`, `--page-bg-size`) drive
+  every `.glass-*` recipe from one place: `globals.css` overrides all glass tiers
+  so users can retune blur/tint or turn frosted glass off entirely (opaque, no
+  backdrop-filter; `theme-glass-off` class). Tint is a color token scoped to
+  `html.dark` with a light-mode counterpart, so custom dark tints never leak into
+  light mode. Added four glass presets (Frosted/Crystal/Smoked/Solid),
+  shadow-depth and page-background treatments, and four new theme presets
+  (Crystal, Blueprint, Smoked + glass variants). 5 new tests; 1341 tests pass,
+  `tsc` clean, 0 lint errors.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Branding** — Collapsed sidebar now shows the brand **favicon glyph bare** (no
+  circle/tile) in both the header and the footer settings button; the expanded
+  state keeps the text-monogram tile. Mobile top-bar likewise shows the bare
+  favicon. Fixes the "logo inside a circle" the user reported when collapsed.
+  no doc change — presentation tweak, branding contract unchanged.
+- **Branding** — Sidebar and mobile top-bar now use a **text monogram** (B / BE /
+  custom `logoText`), never a logo image; the logo asset remains only as the
+  favicon. Collapsed footer monogram became the clickable settings button, and the
+  expanded footer was retidied into a stable `[mark] [name] …… [gear]` row.
+  no doc change — presentation tweak, branding contract unchanged.
 - **Branding** — Sidebar header no longer duplicates the mark: the shipped
   wordmark (`LOGO-WORDMARK.svg`, which already contains the mark) renders alone
   with no green-gradient tile behind it, and is larger (1.85rem, max-w 190px).
@@ -59,9 +85,18 @@ proves the documentation obligation was considered rather than skipped.
   color (bearish overridable) while keeping neutral surfaces. The Customization
   panel is now tabbed — **Theme · Aurora · Charts · Language & Access** — reusing
   the existing `AuroraSettingsPanel` and `ChartSettingsPanel` so glow and chart
-  palettes live inside Customization, not only as separate Settings sections.
-  Added a Brand-color generator card plus Text size / Logo size sliders. 4 new
-  tests; 1336 tests pass, `tsc` clean, 0 lint errors.
+  palettes live inside Customization. Added a Brand-color generator card plus
+  Text size / Logo size sliders. 4 new tests; 1336 tests pass, `tsc` clean,
+  0 lint errors.
+  docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
+- **Customization / IA cleanup** — Removed the now-redundant standalone
+  **Aurora** and **Charts** Settings rail entries (sections, nav items, render
+  branches, imports, and the `settings.aurora` / `settings.charts` palette
+  sub-pages). Both remain fully reachable as tabs inside Customization, and their
+  keywords moved onto the Customization rail entry / palette page so search still
+  finds "aurora", "glow", "chart colors", etc. `SectionId` / `SETTINGS_SECTIONS`
+  drop the two ids. 1336 tests pass, `tsc` clean, 0 lint errors.
   docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
 
 - **Branding** — Added the official BlackEclipse logo assets (`public/branding/FAVICON.svg`

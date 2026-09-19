@@ -9,6 +9,20 @@
 // import from server code. The live store lives in `store.ts`.
 
 export type ThemeDensity = 'compact' | 'comfortable' | 'spacious';
+export type ThemeShadow = 'none' | 'soft' | 'medium' | 'dramatic';
+export type ThemeBackground = 'solid' | 'gradient' | 'grid';
+
+/** Frosted-glass controls (Settings › Customization › Glass). */
+export interface ThemeGlass {
+  /** When false, glass surfaces become solid — no blur, opaque fill. */
+  enabled: boolean;
+  /** Backdrop blur radius in px. */
+  blur: number;
+  /** Surface tint opacity (0–1). Higher hides the blur behind a solid fill. */
+  opacity: number;
+  /** Surface tint color. */
+  tint: string;
+}
 
 export interface ThemeColors {
   /** Brand / interactive accent (buttons, highlights, chart line 1). */
@@ -58,6 +72,12 @@ export interface EclipseTheme {
   fontScale: number;
   /** Sidebar / header logo scale. 1 = shipped default. */
   logoScale: number;
+  /** Frosted-glass surface controls. */
+  glass: ThemeGlass;
+  /** Surface drop-shadow weight. */
+  shadow: ThemeShadow;
+  /** Page background treatment. */
+  background: ThemeBackground;
   /** Ambient Aurora glow on/off. */
   glow: boolean;
   /** Interface animations on/off. */
@@ -86,6 +106,9 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   density: 'comfortable',
   fontScale: 1,
   logoScale: 1,
+  glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' },
+  shadow: 'soft',
+  background: 'solid',
   glow: true,
   animations: true,
 };
@@ -125,6 +148,27 @@ export const DENSITY_OPTIONS: { id: ThemeDensity; label: string; hint: string }[
   { id: 'compact', label: 'Compact', hint: 'Tighter spacing, more on screen' },
   { id: 'comfortable', label: 'Comfortable', hint: 'Balanced default' },
   { id: 'spacious', label: 'Spacious', hint: 'Roomier controls and gaps' },
+];
+
+export const SHADOW_OPTIONS: { id: ThemeShadow; label: string; hint: string }[] = [
+  { id: 'none', label: 'Flat', hint: 'No surface shadows' },
+  { id: 'soft', label: 'Soft', hint: 'Subtle depth (default)' },
+  { id: 'medium', label: 'Medium', hint: 'More pronounced lift' },
+  { id: 'dramatic', label: 'Dramatic', hint: 'Heavy, floating panels' },
+];
+
+export const BACKGROUND_OPTIONS: { id: ThemeBackground; label: string; hint: string }[] = [
+  { id: 'solid', label: 'Solid', hint: 'Single flat color' },
+  { id: 'gradient', label: 'Gradient', hint: 'Soft vertical wash' },
+  { id: 'grid', label: 'Grid', hint: 'Faint technical grid' },
+];
+
+/** Ready-made glass presets users can apply and then fine-tune. */
+export const GLASS_PRESETS: { id: string; label: string; hint: string; glass: ThemeGlass }[] = [
+  { id: 'frosted', label: 'Frosted', hint: 'The shipped recipe', glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' } },
+  { id: 'clear', label: 'Crystal', hint: 'Low tint, heavy blur', glass: { enabled: true, blur: 30, opacity: 0.32, tint: '#101014' } },
+  { id: 'heavy', label: 'Smoked', hint: 'Opaque, dark glass', glass: { enabled: true, blur: 14, opacity: 0.80, tint: '#0a0a0c' } },
+  { id: 'solid', label: 'Solid', hint: 'No blur — flat surfaces', glass: { enabled: false, blur: 18, opacity: 0.95, tint: '#0f0f0f' } },
 ];
 
 // ── Presets ──────────────────────────────────────────────────────────────────
@@ -176,7 +220,17 @@ export const THEME_PRESETS: ThemePreset[] = [
   preset('crimson', 'Crimson', 'Rose-forward brand for a warmer terminal.',
     { primary: '#fb7185', accent: '#f43f5e', background: '#0d0508', surface: '#190c12', border: '#3f1622', text: '#fdeef2', bullish: '#fb7185', bearish: '#ff2d55' }),
   preset('mono', 'Mono', 'Neutral greyscale with a white brand.',
-    { primary: '#e5e5e5', accent: '#a3a3a3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#fafafa', bullish: '#e5e5e5', bearish: '#737373' }),
+    { primary: '#e5e5e5', accent: '#a3a3a3', background: '#000000', surface: '#0f0f0f', border: '#2a2a2e', text: '#fafafa', bullish: '#e5e5e5', bearish: '#737373' },
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0f0f0f' }, shadow: 'none' }),
+  preset('crystal', 'Crystal', 'Bright, high-blur glass over a soft gradient.',
+    { primary: '#60a5fa', accent: '#93c5fd', background: '#05070f', surface: '#0b1020', border: '#243047', text: '#eaf1ff', bullish: '#60a5fa', bearish: '#fb7185' },
+    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic' }),
+  preset('blueprint', 'Blueprint', 'Technical grid, tight radius and flat surfaces.',
+    { primary: '#38bdf8', accent: '#0ea5e9', background: '#03070d', surface: '#0a1119', border: '#183042', text: '#e0f2fe', bullish: '#38bdf8', bearish: '#f87171' },
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25 }),
+  preset('smoked', 'Smoked', 'Opaque dark glass with heavy depth.',
+    { primary: '#f59e0b', accent: '#fbbf24', background: '#0a0805', surface: '#141009', border: '#3a2c14', text: '#fdf4e3', bullish: '#f59e0b', bearish: '#ef4444' },
+    { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' }),
 ];
 
 // ── Color helpers ────────────────────────────────────────────────────────────
@@ -270,6 +324,27 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
   const logoScaleNum = typeof value.logoScale === 'number' && Number.isFinite(value.logoScale)
     ? Math.min(1.8, Math.max(0.6, value.logoScale))
     : d.logoScale;
+  const glassRaw = value.glass && typeof value.glass === 'object' && !Array.isArray(value.glass)
+    ? (value.glass as Record<string, unknown>)
+    : {};
+  const glass: ThemeGlass = {
+    enabled: glassRaw.enabled !== false,
+    blur: typeof glassRaw.blur === 'number' && Number.isFinite(glassRaw.blur)
+      ? Math.min(48, Math.max(0, glassRaw.blur))
+      : d.glass.blur,
+    opacity: typeof glassRaw.opacity === 'number' && Number.isFinite(glassRaw.opacity)
+      ? Math.min(1, Math.max(0, glassRaw.opacity))
+      : d.glass.opacity,
+    tint: color(glassRaw.tint, d.glass.tint),
+  };
+  const shadow: ThemeShadow =
+    value.shadow === 'none' || value.shadow === 'medium' || value.shadow === 'dramatic' || value.shadow === 'soft'
+      ? value.shadow
+      : d.shadow;
+  const background: ThemeBackground =
+    value.background === 'gradient' || value.background === 'grid' || value.background === 'solid'
+      ? value.background
+      : d.background;
   return {
     appName: str(value.appName, d.appName, 48),
     logoText: str(value.logoText, d.logoText, 4),
@@ -292,6 +367,9 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
     density,
     fontScale: fontScaleNum,
     logoScale: logoScaleNum,
+    glass,
+    shadow,
+    background,
     glow: value.glow !== false,
     animations: value.animations !== false,
   };
@@ -345,6 +423,25 @@ const DENSITY_SPACING: Record<ThemeDensity, string> = {
 };
 
 /**
+ * A CSS `background-image` value for the page treatment. `none` for a flat
+ * color; a subtle vertical wash for `gradient`; a faint technical grid for
+ * `grid` (brand-tinted so it tracks the theme).
+ */
+export function pageBackgroundImage(kind: ThemeBackground, brand: string): string {
+  const rgb = hexToRgbTriplet(brand);
+  if (kind === 'gradient') {
+    return `radial-gradient(1200px 600px at 50% -10%, rgb(${rgb} / 0.10), transparent 70%)`;
+  }
+  if (kind === 'grid') {
+    return (
+      `linear-gradient(rgb(${rgb} / 0.05) 1px, transparent 1px), ` +
+      `linear-gradient(90deg, rgb(${rgb} / 0.05) 1px, transparent 1px)`
+    );
+  }
+  return 'none';
+}
+
+/**
  * Custom properties that are mode-independent: typography, shape and density.
  * These are applied under `:root`; the color tokens are applied under `.dark`
  * so the General › Theme light/dark switch keeps working.
@@ -352,7 +449,12 @@ const DENSITY_SPACING: Record<ThemeDensity, string> = {
 export const STRUCTURAL_THEME_VARS: ReadonlySet<string> = new Set([
   '--font-sans', '--font-serif', '--font-mono', '--radius', '--spacing',
   '--font-scale', '--logo-scale',
+  '--glass-blur', '--glass-opacity', '--glass-shadow', '--glass-enabled',
+  '--glass-tint-light', '--page-bg-image', '--page-bg-size',
 ]);
+// NOTE: `--glass-tint` is deliberately a COLOR token (scoped to `html.dark`), so
+// a custom dark tint never leaks into light mode — light keeps the shipped white
+// frosted recipe unless the user switches to light and recolors there.
 
 /**
  * Flatten a theme to the CSS custom properties that drive the app. Injected
@@ -368,6 +470,21 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
   const muted = mixHex(surface, background, 0.72);
   const mutedForeground = mixHex(text, background, 0.45);
   const subtleAccent = mixHex(accent, background, 0.16);
+
+  // Glass surfaces: when disabled the tint becomes (near) opaque and blur 0,
+  // so every `.glass-*` recipe reads as a solid panel with no backdrop filter.
+  const glass = n.glass;
+  const glassOpacity = glass.enabled ? glass.opacity : 0.95;
+  const glassBlur = glass.enabled ? glass.blur : 0;
+  const glassTint = hexToRgbTriplet(glass.tint);
+
+  // Surface shadow tiers. `none` keeps a hairline box for edge definition.
+  const SHADOW: Record<ThemeShadow, string> = {
+    none: '0 0 0 rgba(0,0,0,0)',
+    soft: '0 8px 30px rgba(0,0,0,0.30)',
+    medium: '0 14px 44px rgba(0,0,0,0.45)',
+    dramatic: '0 24px 70px rgba(0,0,0,0.60)',
+  };
 
   return {
     // Brand
@@ -424,6 +541,21 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     '--spacing': DENSITY_SPACING[n.density],
     '--font-scale': `${n.fontScale}`,
     '--logo-scale': `${n.logoScale}`,
+
+    // Glass surfaces
+    '--glass-blur': `${glassBlur}px`,
+    '--glass-opacity': `${glassOpacity}`,
+    '--glass-tint': glassTint,
+    '--glass-shadow': SHADOW[n.shadow],
+    '--glass-enabled': glass.enabled ? '1' : '0',
+    // Light-mode tint: default white, or a lightened version of the custom tint.
+    '--glass-tint-light': glass.enabled && glass.tint !== DEFAULT_ECLIPSE_THEME.glass.tint
+      ? hexToRgbTriplet(mixHex(glass.tint, '#ffffff', 0.12))
+      : '255 255 255',
+
+    // Page background treatment (image layers over the `--background` color)
+    '--page-bg-image': pageBackgroundImage(n.background, primary),
+    '--page-bg-size': n.background === 'grid' ? '22px 22px' : 'auto',
   };
 }
 

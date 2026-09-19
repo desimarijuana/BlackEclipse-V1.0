@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
-  Sparkles, ChevronRight, Cpu, Server,
+  ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, SlidersHorizontal,
 } from "lucide-react";
@@ -27,8 +27,6 @@ import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/li
 import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
-import { AuroraSettingsPanel } from "./aurora-settings";
-import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
@@ -105,19 +103,18 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   investor-eye   — every financial/data provider, grouped by purpose
 //   market         — supported markets, exchanges, JDDS data
 //   news           — RSS feeds + news providers
-//   charts         — chart colors & preferences
 //   sidebar        — navigation order & shortcuts
 //   alerts         — notification channels
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "customization" | "aurora" | "ai" | "investor-eye" | "economics" | "market" | "news"
-  | "charts" | "sidebar" | "alerts" | "data" | "system";
+  | "general" | "customization" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "sidebar" | "alerts" | "data" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "customization", "aurora", "ai", "investor-eye", "economics", "market", "news",
-  "charts", "sidebar", "alerts", "data", "system",
+  "general", "customization", "ai", "investor-eye", "economics", "market", "news",
+  "sidebar", "alerts", "data", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
@@ -446,9 +443,7 @@ export function Settings({
     terms: string[];
   }[] = [
     { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
-    { id: "customization", label: "Customization", desc: "Theme, branding & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
-    { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles, group: "Personalize", terms: ["aurora", "glow", "sentiment", "colors", "palette"] },
-    { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity, group: "Personalize", terms: ["charts", "candles", "colors", "palette", "series", "positive", "negative"] },
+    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
@@ -795,8 +790,6 @@ export function Settings({
               </div>
             )}
 
-            {section === "aurora" && <AuroraSettingsPanel />}
-
             {/* ── AI / LLM ────────────────────────────────────────────────
                 Every LLM concern lives here — providers, keys, base URLs,
                 model selection, active provider, test, status. Nothing else
@@ -974,8 +967,6 @@ export function Settings({
                 <ProviderRegistry home="economics" title="Economics & macro providers" />
               </div>
             )}
-
-            {section === "charts" && <ChartSettingsPanel />}
 
             {section === "sidebar" && <SidebarSettingsPanel />}
 

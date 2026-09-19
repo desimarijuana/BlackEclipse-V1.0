@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
-  Wand2, Activity,
+  Wand2, Activity, Layers, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,13 +28,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/lib/i18n";
 import {
-  DENSITY_OPTIONS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
-  isValidHex, normalizeHex, syncChartPaletteFromTheme, themeFromBrandColor, useThemeStore, type ThemeColors,
+  BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
+  SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
+  isValidHex, normalizeHex, syncChartPaletteFromTheme, themeFromBrandColor, useThemeStore,
+  type ThemeColors, type ThemeGlass,
 } from "@/lib/theme";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 
-type CustomTab = "theme" | "aurora" | "charts" | "access";
+type CustomTab = "theme" | "glass" | "aurora" | "charts" | "access";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -210,6 +212,7 @@ export function CustomizationSettingsPanel() {
   const customized = useThemeStore((s) => s.customized);
   const setTheme = useThemeStore((s) => s.setTheme);
   const setColor = useThemeStore((s) => s.setColor);
+  const setGlass = useThemeStore((s) => s.setGlass);
   const applyPreset = useThemeStore((s) => s.applyPreset);
   const resetTheme = useThemeStore((s) => s.reset);
 
@@ -253,8 +256,16 @@ export function CustomizationSettingsPanel() {
     { key: "bearish", label: "Bearish", hint: "Losses & down candles" },
   ];
 
+  // Glass preset is "active" when every field matches (so the chip highlights).
+  const glassMatches = (g: ThemeGlass) =>
+    theme.glass.enabled === g.enabled &&
+    theme.glass.blur === g.blur &&
+    theme.glass.opacity === g.opacity &&
+    theme.glass.tint === g.tint;
+
   const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
     { id: "theme", label: "Theme", icon: Palette },
+    { id: "glass", label: "Glass & Surfaces", icon: Layers },
     { id: "aurora", label: "Aurora", icon: Sparkles },
     { id: "charts", label: "Charts", icon: Activity },
     { id: "access", label: "Language & Access", icon: Accessibility },
@@ -286,6 +297,160 @@ export function CustomizationSettingsPanel() {
           );
         })}
       </div>
+
+      {tab === "glass" && (
+        <div className="animate-fade-in-up space-y-6">
+          {/* ── Glass mode ───────────────────────────────────────────── */}
+          <Card icon={Layers} title="Glass Mode">
+            <Row
+              label="Frosted glass surfaces"
+              hint="When off, every card, panel and menu becomes solid with no blur."
+              checked={theme.glass.enabled}
+              onChange={(v) => setGlass({ enabled: v })}
+            />
+            <div className="grid gap-2 sm:grid-cols-4">
+              {GLASS_PRESETS.map((p) => {
+                const active = glassMatches(p.glass);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setGlass(p.glass)}
+                    aria-pressed={active}
+                    title={p.hint}
+                    className={cn(
+                      "flex flex-col gap-2 rounded-xl border p-3 text-left transition-all cursor-pointer",
+                      active
+                        ? "border-primary/40 bg-primary/10"
+                        : "border-border/20 glass-card-subtle hover:border-border/40",
+                    )}
+                  >
+                    <span
+                      className="h-8 w-full rounded-lg border border-white/10"
+                      style={{
+                        backgroundColor: p.glass.enabled
+                          ? `rgb(${normalizeHex(p.glass.tint)?.slice(1).match(/../g)?.map((h) => parseInt(h, 16)).join(' ') ?? '18 18 20'} / ${p.glass.opacity})`
+                          : p.glass.tint,
+                        backdropFilter: p.glass.enabled ? `blur(${p.glass.blur}px)` : 'none',
+                      }}
+                      aria-hidden
+                    />
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      {p.label}
+                      {active && <Check className="w-3 h-3 text-primary" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* ── Fine-tune ────────────────────────────────────────────── */}
+          <Card icon={SlidersHorizontal} title="Fine-tune Glass">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground font-medium">Blur radius</Label>
+                <span className="text-[10px] font-mono text-muted-foreground">{theme.glass.blur}px</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={48}
+                step={1}
+                value={theme.glass.blur}
+                disabled={!theme.glass.enabled}
+                onChange={(e) => setGlass({ blur: Number(e.target.value) })}
+                className="w-full cursor-pointer disabled:opacity-40"
+                aria-label="Glass blur radius"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground font-medium">Tint opacity</Label>
+                <span className="text-[10px] font-mono text-muted-foreground">{Math.round(theme.glass.opacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={1}
+                step={0.01}
+                value={theme.glass.opacity}
+                onChange={(e) => setGlass({ opacity: Number(e.target.value) })}
+                className="w-full cursor-pointer"
+                aria-label="Glass tint opacity"
+              />
+            </div>
+            <ColorField
+              label="Tint color"
+              hint="Base color of every glass surface"
+              value={theme.glass.tint}
+              onChange={(hex) => setGlass({ tint: hex })}
+            />
+            <div className="flex items-start gap-3 rounded-xl border border-border/20 glass-card-subtle p-3">
+              <span
+                className="mt-0.5 h-10 w-16 shrink-0 rounded-lg border border-white/10"
+                style={{
+                  backgroundColor: `rgb(${normalizeHex(theme.glass.tint)?.slice(1).match(/../g)?.map((h) => parseInt(h, 16)).join(' ') ?? '18 18 20'} / ${theme.glass.enabled ? theme.glass.opacity : 0.96})`,
+                  backdropFilter: theme.glass.enabled ? `blur(${theme.glass.blur}px)` : 'none',
+                }}
+                aria-hidden
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Live preview of a themed surface. Frosted glass only reads correctly when the
+                tint is translucent — a high opacity hides the blur and looks solid.
+              </p>
+            </div>
+          </Card>
+
+          {/* ── Depth ────────────────────────────────────────────────── */}
+          <Card icon={Square} title="Depth & Shadow">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {SHADOW_OPTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setTheme({ shadow: s.id })}
+                  title={s.hint}
+                  className={cn(
+                    "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                    theme.shadow === s.id
+                      ? "bg-primary/10 text-primary border-primary/40"
+                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          {/* ── Page background ──────────────────────────────────────── */}
+          <Card icon={Palette} title="Page Background">
+            <div className="grid grid-cols-3 gap-2">
+              {BACKGROUND_OPTIONS.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setTheme({ background: b.id })}
+                  title={b.hint}
+                  className={cn(
+                    "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
+                    theme.background === b.id
+                      ? "bg-primary/10 text-primary border-primary/40"
+                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              The pattern is tinted with your primary color and sits over the Background
+              token, so it always matches the theme.
+            </p>
+          </Card>
+        </div>
+      )}
 
       {tab === "aurora" && (
         <div className="animate-fade-in-up">

@@ -111,17 +111,24 @@ Two mechanisms:
    `localStorage`, not the DB.
    - **Centralized theming.** `src/lib/theme/` owns one serializable
      `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
-     glow/animation). The store flattens it to CSS custom properties and injects
-     them via a managed `<style id="eclipse-theme-overrides">`; color tokens are
-     scoped to `html.dark` so the General › Theme light/dark switch keeps working,
-     while typography/shape/scale tokens apply globally. Because components and
+     glass, shadow, background, glow/animation). The store flattens it to CSS
+     custom properties and injects them via a managed
+     `<style id="eclipse-theme-overrides">`; color tokens are scoped to
+     `html.dark` so the General › Theme light/dark switch keeps working, while
+     typography/shape/scale/glass tokens apply globally. Because components and
      charts already read `--primary` / `--font-mono` / `--radius` / `--bullish` /
      `--bearish` / `--font-scale`, one theme object recolors the whole app with no
      per-component wiring. `themeFromBrandColor()` is the white-label entry point:
      it derives a coordinated primary/accent/bullish palette from a single brand
-     color (ServiceNow-style), with bearish overridable. The Settings panel is
-     tabbed (Theme · Aurora · Charts · Language & Access) and embeds the existing
-     Aurora and Chart panels, so all appearance controls live under Customization.
+     color (ServiceNow-style), with bearish overridable. **Glass mode** is driven
+     by `--glass-blur/-opacity/-tint` tokens that all `.glass-*` recipes consume;
+     the `theme-glass-off` root class removes blur and makes surfaces opaque, so
+     users can disable frosted glass app-wide from Settings (no component reads the
+     preference). `--glass-tint` is a dark-scoped color with a `--glass-tint-light`
+     counterpart, so a custom dark tint never leaks into light mode. The Settings
+     panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
+     Access**) and embeds the existing Aurora and Chart panels, so all appearance
+     controls live under Customization.
      The `bridge.ts` helper copies the theme's market colors into the native chart
      palette only on explicit user edits — never on hydration, so a separately
      saved chart palette survives reload. The shipped brand lives in
@@ -614,7 +621,7 @@ scroll + ResizeObserver), so overflow is visible without a permanent shadow.
 
 **Sub-route routing (sub-pages).** A `Destination.subroute` is how the palette
 targets an internal view (`economics.calendar`, `journal.analytics`,
-`discovery.crypto`, `alerts.create`, `settings.aurora`). The shell's `apply()`
+`discovery.crypto`, `alerts.create`, `settings.customization`). The shell's `apply()`
 publishes it to `useCommandStore.requestSubroute(tab, subroute, focus)` — a
 *channel*, not a single slot, so two screens never steal each other's request.
 The owning screen consumes it with `useSubroute(tab, handler)`; both live in

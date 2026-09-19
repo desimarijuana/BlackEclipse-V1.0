@@ -6,6 +6,7 @@ import {
   buildFaviconDataUrl,
   normalizeHex,
   normalizeTheme,
+  pageBackgroundImage,
   themeCssVars,
   themeFromBrandColor,
   themeMatchesPreset,
@@ -97,6 +98,44 @@ describe('themeFromBrandColor', () => {
     const t = normalizeTheme({ fontScale: 9, logoScale: 0.1 });
     expect(t.fontScale).toBe(1.4);
     expect(t.logoScale).toBe(0.6);
+  });
+});
+
+describe('glass, shadow and background', () => {
+  it('defaults to the shipped frosted recipe', () => {
+    const t = normalizeTheme({});
+    expect(t.glass).toEqual(DEFAULT_ECLIPSE_THEME.glass);
+    expect(t.shadow).toBe('soft');
+    expect(t.background).toBe('solid');
+  });
+
+  it('clamps glass blur and opacity', () => {
+    const t = normalizeTheme({ glass: { blur: 999, opacity: 5, tint: 'nope' } });
+    expect(t.glass.blur).toBe(48);
+    expect(t.glass.opacity).toBe(1);
+    expect(t.glass.tint).toBe(DEFAULT_ECLIPSE_THEME.glass.tint);
+  });
+
+  it('rejects unknown shadow/background values', () => {
+    const t = normalizeTheme({ shadow: 'huge', background: 'plaid' });
+    expect(t.shadow).toBe('soft');
+    expect(t.background).toBe('solid');
+  });
+
+  it('emits glass tokens, disabling blur when off', () => {
+    const on = themeCssVars(DEFAULT_ECLIPSE_THEME);
+    expect(on['--glass-blur']).toBe('18px');
+    expect(on['--glass-opacity']).toBe('0.55');
+    expect(on['--glass-enabled']).toBe('1');
+    const off = themeCssVars(normalizeTheme({ glass: { enabled: false } }));
+    expect(off['--glass-blur']).toBe('0px');
+    expect(off['--glass-enabled']).toBe('0');
+  });
+
+  it('builds a tinted page background image per treatment', () => {
+    expect(pageBackgroundImage('solid', '#7aff78')).toBe('none');
+    expect(pageBackgroundImage('gradient', '#7aff78')).toContain('radial-gradient');
+    expect(pageBackgroundImage('grid', '#7aff78')).toContain('linear-gradient');
   });
 });
 

@@ -11,6 +11,9 @@ export {
   HEADING_FONT_OPTIONS,
   MONO_FONT_OPTIONS,
   DENSITY_OPTIONS,
+  SHADOW_OPTIONS,
+  BACKGROUND_OPTIONS,
+  GLASS_PRESETS,
   isValidHex,
   normalizeHex,
   normalizeTheme,
@@ -23,12 +26,16 @@ export {
   themeFromBrandColor,
   themeMatchesPreset,
   themePresetId,
+  pageBackgroundImage,
   buildFaviconDataUrl,
 } from './tokens';
 export type {
   EclipseTheme,
   ThemeColors,
   ThemeDensity,
+  ThemeShadow,
+  ThemeBackground,
+  ThemeGlass,
   ThemePreset,
   FontOption,
 } from './tokens';

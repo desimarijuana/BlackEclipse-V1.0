@@ -22,6 +22,7 @@ import {
   themeCssVars,
   type EclipseTheme,
   type ThemeColors,
+  type ThemeGlass,
 } from './tokens';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
@@ -70,13 +71,14 @@ export function applyThemeToDocument(theme: EclipseTheme) {
   const root = document.documentElement;
   root.classList.toggle('theme-no-anim', !theme.animations);
   root.classList.toggle('theme-no-glow', !theme.glow);
+  root.classList.toggle('theme-glass-off', !theme.glass.enabled);
 }
 
 /** Remove overrides so globals.css defaults take over again. */
 function clearThemeFromDocument() {
   if (typeof document === 'undefined') return;
   document.getElementById(STYLE_ELEMENT_ID)?.remove();
-  document.documentElement.classList.remove('theme-no-anim', 'theme-no-glow');
+  document.documentElement.classList.remove('theme-no-anim', 'theme-no-glow', 'theme-glass-off');
 }
 
 function applyFavicon(theme: EclipseTheme) {
@@ -117,6 +119,8 @@ export interface ThemeStore {
   setTheme: (patch: Partial<Omit<EclipseTheme, 'colors'>>) => void;
   /** Patch a single color token. */
   setColor: (key: keyof ThemeColors, value: string) => void;
+  /** Patch the glass surface settings. */
+  setGlass: (patch: Partial<ThemeGlass>) => void;
   /** Replace the theme wholesale (preset application). */
   applyPreset: (theme: EclipseTheme) => void;
   /** Restore the shipped Eclipse default and drop inline overrides. */
@@ -158,6 +162,14 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const next = normalizeTheme({
       ...get().theme,
       colors: { ...get().theme.colors, [key]: value },
+    });
+    set({ theme: commit(next), customized: true });
+  },
+
+  setGlass: (patch) => {
+    const next = normalizeTheme({
+      ...get().theme,
+      glass: { ...get().theme.glass, ...patch },
     });
     set({ theme: commit(next), customized: true });
   },

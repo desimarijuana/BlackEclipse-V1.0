@@ -1060,6 +1060,111 @@ html:not(.dark) .glass-button-add:hover {
   background: rgb(var(--brand-rgb) / 0.22);
 }
 
+/* ── Customization-driven glass surfaces ─────────────────────────────────────
+ * Settings › Customization › Glass writes --glass-* tokens on <html>. These
+ * rules (declared after the hardcoded recipes) let the user retune or disable
+ * frosted glass app-wide. Defaults match the shipped recipe, so nothing changes
+ * until the user opts in. `--glass-enabled: 0` removes the blur entirely and
+ * makes the tint opaque, turning every tier into a solid panel. */
+.glass-card,
+.glass-card-strong,
+.glass-card-subtle,
+.glass-drawer,
+.glass-button,
+.ws-glass,
+.tab-bar-glass,
+.tab-bar-subtle,
+.fund-tabs-glass,
+.glass-ticker,
+.fund-menu-glass,
+.command-glass,
+.command-glass-bar {
+  background-color: rgb(var(--glass-tint) / var(--glass-opacity)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+/* Light mode keeps its white frost (or a lightened custom tint). */
+html:not(.dark) .glass-card,
+html:not(.dark) .glass-card-strong,
+html:not(.dark) .glass-card-subtle,
+html:not(.dark) .glass-drawer,
+html:not(.dark) .glass-button,
+html:not(.dark) .ws-glass,
+html:not(.dark) .tab-bar-glass,
+html:not(.dark) .tab-bar-subtle,
+html:not(.dark) .fund-tabs-glass,
+html:not(.dark) .glass-ticker,
+html:not(.dark) .fund-menu-glass,
+html:not(.dark) .command-glass,
+html:not(.dark) .command-glass-bar {
+  background-color: rgb(var(--glass-tint-light) / var(--glass-opacity)) !important;
+}
+
+/* The drawer/menu tiers keep their gradient when glass is on; a solid fill would
+ * hide the blur they exist to show. */
+.glass-drawer,
+.fund-menu-glass,
+.command-glass {
+  background-color: transparent !important;
+  background-image: linear-gradient(
+    180deg,
+    rgb(var(--glass-tint) / var(--glass-opacity)),
+    rgb(var(--glass-tint) / calc(var(--glass-opacity) + 0.08))
+  ) !important;
+}
+html:not(.dark) .glass-drawer,
+html:not(.dark) .fund-menu-glass,
+html:not(.dark) .command-glass {
+  background-image: linear-gradient(
+    180deg,
+    rgb(var(--glass-tint-light) / var(--glass-opacity)),
+    rgb(var(--glass-tint-light) / calc(var(--glass-opacity) + 0.08))
+  ) !important;
+}
+
+/* Glass disabled: solid, no blur, everywhere. */
+html.theme-glass-off .glass-card,
+html.theme-glass-off .glass-card-strong,
+html.theme-glass-off .glass-card-subtle,
+html.theme-glass-off .glass-drawer,
+html.theme-glass-off .glass-button,
+html.theme-glass-off .ws-glass,
+html.theme-glass-off .tab-bar-glass,
+html.theme-glass-off .tab-bar-subtle,
+html.theme-glass-off .fund-tabs-glass,
+html.theme-glass-off .glass-ticker,
+html.theme-glass-off .fund-menu-glass,
+html.theme-glass-off .command-glass,
+html.theme-glass-off .command-glass-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-image: none !important;
+  background-color: rgb(var(--glass-tint) / 0.96) !important;
+}
+html:not(.dark).theme-glass-off .glass-card,
+html:not(.dark).theme-glass-off .glass-card-strong,
+html:not(.dark).theme-glass-off .glass-card-subtle,
+html:not(.dark).theme-glass-off .glass-drawer,
+html:not(.dark).theme-glass-off .glass-button,
+html:not(.dark).theme-glass-off .tab-bar-glass,
+html:not(.dark).theme-glass-off .tab-bar-subtle,
+html:not(.dark).theme-glass-off .fund-tabs-glass,
+html:not(.dark).theme-glass-off .glass-ticker,
+html:not(.dark).theme-glass-off .fund-menu-glass,
+html:not(.dark).theme-glass-off .command-glass,
+html:not(.dark).theme-glass-off .command-glass-bar {
+  background-color: rgb(var(--glass-tint-light) / 0.92) !important;
+}
+
+/* Page background treatment (Customization › Background). The color token still
+ * paints `bg-background`; these layers sit over it on the body. */
+body {
+  background-image: var(--page-bg-image, none);
+  background-size: var(--page-bg-size, auto);
+  background-attachment: fixed;
+}
+
 /* ── Accessibility preferences ───────────────────────────────────────────────
  * Classes toggled on <html> by the locale/a11y store (Settings › Accessibility).
  * Kept here so components never read the preference — the document root adapts.
