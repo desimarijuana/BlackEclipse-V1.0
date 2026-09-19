@@ -15,7 +15,7 @@ import {
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
   Sparkles, ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
-  Loader2, Search, AlertCircle,
+  Loader2, Search, AlertCircle, SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { CustomizationSettingsPanel } from "./customization-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
@@ -110,12 +111,12 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "aurora" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "customization" | "aurora" | "ai" | "investor-eye" | "economics" | "market" | "news"
   | "charts" | "sidebar" | "alerts" | "data" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "aurora", "ai", "investor-eye", "economics", "market", "news",
+  "general", "customization", "aurora", "ai", "investor-eye", "economics", "market", "news",
   "charts", "sidebar", "alerts", "data", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
@@ -444,7 +445,8 @@ export function Settings({
     group: "Personalize" | "Intelligence" | "System";
     terms: string[];
   }[] = [
-    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh", "language"] },
+    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
+    { id: "customization", label: "Customization", desc: "Language & accessibility", icon: SlidersHorizontal, group: "Personalize", terms: ["language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "font size", "text size", "screen reader", "rtl"] },
     { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles, group: "Personalize", terms: ["aurora", "glow", "sentiment", "colors", "palette"] },
     { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity, group: "Personalize", terms: ["charts", "candles", "colors", "palette", "series", "positive", "negative"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
@@ -779,6 +781,17 @@ export function Settings({
                     <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {section === "customization" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={SlidersHorizontal}
+                  title="Customization"
+                  description="Make the interface yours — choose your language and tune motion, contrast and text size for how you see and navigate."
+                />
+                <CustomizationSettingsPanel />
               </div>
             )}
 

@@ -7,6 +7,7 @@ import { canHandleKeyboardEvent, isKeyboardEventAvailable, isKeyboardScopeVisibl
 import { DEFAULT_SIDEBAR_SECTIONS } from '@/lib/sidebar/config';
 import { useHydrateSidebarConfig, useSidebarConfigStore } from '@/lib/sidebar/store';
 import { useCommandStore } from '@/lib/search/store';
+import { useT, navLabelKey } from '@/lib/i18n';
 
 const GLOBAL_SHORTCUTS = [
   { id: 'help', label: 'Toggle keyboard shortcuts', keys: 'Ctrl / Cmd + /', context: 'Global, outside other dialogs' },
@@ -20,6 +21,7 @@ const GLOBAL_SHORTCUTS = [
 
 export function KeyboardShortcuts() {
   useHydrateSidebarConfig();
+  const t = useT();
   const config = useSidebarConfigStore((state) => state.config);
   const { scopes, helpOpen, setHelpOpen } = useKeyboardShortcutsStore();
   const searchOpen = useCommandStore((state) => state.open);
@@ -59,13 +61,16 @@ export function KeyboardShortcuts() {
     },
     {
       id: 'navigation', label: 'Sidebar navigation', current: false,
-      rows: config.sections.map((section) => ({
-        id: section.id,
-        label: DEFAULT_SIDEBAR_SECTIONS.find((item) => item.id === section.id)?.label ?? section.id,
-        keys: section.shortcut || 'None',
-        context: 'Main application sidebar; assignments editable in Settings',
-        enabled: section.enabled && Boolean(section.shortcut),
-      })),
+      rows: config.sections.map((section) => {
+        const key = navLabelKey(section.id);
+        return {
+          id: section.id,
+          label: key ? t(key) : (DEFAULT_SIDEBAR_SECTIONS.find((item) => item.id === section.id)?.label ?? section.id),
+          keys: section.shortcut || t('common.none'),
+          context: 'Main application sidebar; assignments editable in Settings',
+          enabled: section.enabled && Boolean(section.shortcut),
+        };
+      }),
     },
     ...scopes.map((scope, index) => ({
       id: `scope-${index}`,
@@ -78,19 +83,19 @@ export function KeyboardShortcuts() {
   return (
     <Dialog open={helpOpen && !searchOpen} onOpenChange={setHelpOpen}>
       <DialogContent className="glass-card-strong grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] rounded-xl sm:max-w-2xl max-h-[85dvh] overflow-hidden">
-        <DialogTitle className="pr-8">Keyboard shortcuts</DialogTitle>
+        <DialogTitle className="pr-8">{t('keyboard.title')}</DialogTitle>
         <DialogDescription>
           Page shortcuts use the visible scope; focused nested scopes take priority. Shortcuts pause while typing or behind dialogs.
         </DialogDescription>
         <input
-          aria-label="Search keyboard shortcuts"
-          placeholder="Search actions, keys, or pages"
+          aria-label={t('keyboard.searchPlaceholder')}
+          placeholder={t('keyboard.searchPlaceholder')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="w-full rounded-md border border-border bg-background/60 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <div className="min-h-0 overflow-y-auto overscroll-contain pr-2 space-y-5" tabIndex={0} aria-label="Shortcut results">
-          {groups.length === 0 && <p className="text-muted-foreground" role="status">No matching shortcuts.</p>}
+          {groups.length === 0 && <p className="text-muted-foreground" role="status">{t('keyboard.noMatches')}</p>}
           {groups.map((group) => (
             <section key={group.id} aria-label={group.label}>
               <h2 className="mb-2 text-sm font-medium">

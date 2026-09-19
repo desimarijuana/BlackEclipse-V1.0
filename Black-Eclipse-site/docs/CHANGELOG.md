@@ -41,7 +41,36 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-19
+
+- **i18n / Accessibility** — Added the interface-localization foundation and an
+  accessibility layer. New `src/lib/i18n/` (locale registry with RTL metadata for
+  Arabic/Urdu/Persian/Hebrew, a canonical English dictionary, translations for
+  21 languages, a pure translator with English fallback, a persisted zustand
+  store that also drives `<html lang/dir>` and a11y classes, and `useT`/`useLocale`
+  hooks). Added a new **Customization** page to the Settings modal (Personalize
+  group) that owns the language picker and the accessibility toggles, and
+  registered it for ⌘K (`settings.customization`); translated sidebar nav,
+  chat-history chrome, keyboard-shortcut dialog and the top-bar search
+  placeholder. Added skip-to-content link + `<main>` landmark,
+  `prefers-reduced-motion` support, and reduce-motion / high-contrast /
+  larger-text toggles. Scope is UI chrome only — financial data, news and AI
+  output are never translated. 9 new tests; `tsc` clean.
+  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 ## 2026-09-18
+
+- **Earnings** — Promoted the Command Center Earnings Calendar widget to a
+  full-page screen (`earnings` tab, sidebar "Earnings", palette + action). The
+  month grid + selected-day detail are now one shared component
+  (`components/screens/earnings-calendar.tsx`) rendered both densely in the
+  widget and roomily on the full page, so they cannot drift. The widget gained
+  an expand affordance that dispatches `be:navigate` → the `earnings` tab (the
+  same mechanism the Screener panel uses), instead of the old inline clone in
+  `widgets.tsx`. Adding the tab shifted default F-key assignments by one
+  (earnings = F9, alerts = F12); tests updated. 1312 tests pass, `tsc` clean,
+  build clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 
 - **Journal / Quick Add Trade** — Added a single Add-Trade entry point on the
   Journal header (`QuickAddTrade`), reachable from every sub-tab, with a global

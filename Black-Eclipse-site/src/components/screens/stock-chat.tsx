@@ -24,6 +24,10 @@ const MarketBubbles = dynamic(() => import('./market-bubbles').then((m) => m.Mar
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const EarningsScreen = dynamic(() => import('./earnings-screen').then((m) => m.EarningsScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 const MarketNews = dynamic(() => import('./market-news').then((m) => m.MarketNews), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
@@ -71,6 +75,7 @@ import { getAgentProvider } from '@/lib/agent/registry';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
+import { useHydrateI18n, useT } from '@/lib/i18n';
 import type { Destination } from '@/lib/search/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -83,6 +88,9 @@ function ScreenSkeleton() {
 }
 
 function StockChatContent() {
+  // Hydrate interface language + accessibility prefs from localStorage once.
+  useHydrateI18n();
+  const t = useT();
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
@@ -504,6 +512,10 @@ function StockChatContent() {
   return (
     <TooltipProvider delay={0}>
     <div ref={appRootRef} className="relative flex flex-col md:flex-row h-[100dvh] w-full bg-background text-foreground font-sans selection:bg-primary/30 overflow-hidden">
+      {/* Keyboard users can jump straight past the sidebar to the main content. */}
+      <a href="#main-content" className="skip-to-content">
+        {t('a11y.skipToContent')}
+      </a>
       {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
       <AuroraGlow />
 
@@ -526,7 +538,7 @@ function StockChatContent() {
           activeTab={activeTab}
         />
 
-        <div className="flex-1 overflow-y-auto relative w-full h-full z-10">
+        <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10" tabIndex={-1}>
           {/* Keep-alive tabs: a tab mounts on first visit (visited set) and
               then stays mounted hidden — revisits are instant with no chunk
               reload, no refetch, no loader flash. Unvisited tabs render
@@ -633,6 +645,12 @@ function StockChatContent() {
             </div>
           )}
 
+          {visited.has('earnings') && (
+            <div className={cn('w-full h-full', activeTab === 'earnings' ? '' : 'hidden')}>
+              <EarningsScreen />
+            </div>
+          )}
+
           {visited.has('alerts') && (
             <div className={cn('w-full h-full', activeTab === 'alerts' ? '' : 'hidden')}>
               <div className="flex-1 overflow-y-auto">
@@ -681,7 +699,7 @@ function StockChatContent() {
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="w-[calc(100%-2rem)] max-w-6xl sm:max-w-6xl h-[min(90dvh,880px)] p-0 gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong shadow-2xl text-foreground">
-          <DialogTitle className="sr-only">Settings</DialogTitle>
+          <DialogTitle className="sr-only">{t('common.settings')}</DialogTitle>
           {/* Keyed so a palette `settings.<section>` request remounts into the
               requested section even while the modal is already open. */}
           <Settings

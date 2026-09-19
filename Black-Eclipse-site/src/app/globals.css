@@ -1089,3 +1089,82 @@ html:not(.dark) .glass-button-add {
 html:not(.dark) .glass-button-add:hover {
   background: rgba(4, 120, 87, 0.22);
 }
+
+/* ── Accessibility preferences ───────────────────────────────────────────────
+ * Classes toggled on <html> by the locale/a11y store (Settings › Accessibility).
+ * Kept here so components never read the preference — the document root adapts.
+ * Motion is also honoured from the OS via the media query below. */
+.a11y-reduce-motion *,
+.a11y-reduce-motion *::before,
+.a11y-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast: strengthen text/border tokens so faint muted text and hairline
+ * borders become clearly legible in both themes. */
+.a11y-high-contrast {
+  --muted-foreground: oklch(0.78 0.02 260);
+  --border: oklch(0.62 0.02 260 / 60%);
+  --input: oklch(0.62 0.02 260 / 70%);
+}
+html:not(.dark).a11y-high-contrast {
+  --muted-foreground: oklch(0.34 0.02 260);
+  --border: oklch(0.30 0.02 260 / 55%);
+  --input: oklch(0.30 0.02 260 / 65%);
+}
+.a11y-high-contrast .glass-card,
+.a11y-high-contrast .glass-card-strong,
+.a11y-high-contrast .glass-card-subtle,
+.a11y-high-contrast .ws-glass {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+html:not(.dark) .a11y-high-contrast .glass-card,
+html:not(.dark) .a11y-high-contrast .glass-card-strong,
+html:not(.dark) .a11y-high-contrast .glass-card-subtle,
+html:not(.dark) .a11y-high-contrast .ws-glass {
+  border-color: rgba(0, 0, 0, 0.22);
+}
+
+/* Larger text: scale the root font-size; rem-based Tailwind sizes follow.
+ * Capped at 118% so layouts do not break. */
+html.a11y-large-text {
+  font-size: 118%;
+}
+
+/* Skip link — visible only when keyboard-focused (first Tab on a page). */
+.skip-to-content {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  transform: translateY(-200%);
+  transition: transform 0.15s ease;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.5rem 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.skip-to-content:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+

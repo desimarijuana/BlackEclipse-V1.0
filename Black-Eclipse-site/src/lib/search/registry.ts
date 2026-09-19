@@ -175,6 +175,7 @@ registerPage({ id: 'page-journal', kind: 'page', title: 'Trading Journal', alias
 registerPage({ id: 'page-news', kind: 'page', title: 'Market News', aliases: ['news', 'bulletin', 'headlines'], keywords: ['news', 'market news', 'headlines'], icon: 'news', tab: 'news' });
 registerPage({ id: 'page-heatmap', kind: 'page', title: 'Market Bubbles', aliases: ['heatmap', 'bubbles', 'market map', 'treemap'], keywords: ['heatmap', 'bubbles', 'treemap'], icon: 'orbit', tab: 'heatmap' });
 registerPage({ id: 'page-economics', kind: 'page', title: 'Economics', aliases: ['economics', 'economic calendar', 'macro', 'calendar', 'events'], keywords: ['economics', 'macro', 'calendar', 'indicators'], icon: 'globe', tab: 'economics' });
+registerPage({ id: 'page-earnings', kind: 'page', title: 'Earnings Calendar', aliases: ['earnings', 'earnings calendar', 'company earnings', 'results', 'reports', 'bmo', 'amc'], keywords: ['earnings', 'calendar', 'reports', 'results', 'companies'], icon: 'calendar', tab: 'earnings', rankBoost: 1.1 });
 registerPage({ id: 'page-alerts', kind: 'page', title: 'Price Alerts', aliases: ['alerts', 'price alerts', 'notifications'], keywords: ['alerts', 'price', 'notifications'], icon: 'bell', tab: 'alerts' });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
@@ -216,9 +217,10 @@ registerPage({ id: 'sub-alerts-history', kind: 'page', title: 'Alert History', a
 
 // Settings — modal sections (the shell opens the Settings modal for these).
 // Sections are named for WHAT is configured, not backend concepts:
-//   General · Aurora · AI / LLM · Investor Eye · Market Data · News ·
-//   Charts · Sidebar & Navigation · Alerts · Data & Storage · System.
+//   General · Customization · Aurora · AI / LLM · Investor Eye · Market Data ·
+//   News · Charts · Sidebar & Navigation · Alerts · Data & Storage · System.
 registerPage({ id: 'sub-set-general', kind: 'page', title: 'General', aliases: ['appearance', 'theme', 'dark mode', 'preferences', 'general', 'currency', 'timezone', 'refresh'], keywords: ['settings', 'general', 'appearance', 'theme', 'currency', 'timezone'], icon: 'settings', tab: 'settings', subroute: 'settings.general', group: 'settings', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-set-customization', kind: 'page', title: 'Customization', aliases: ['language', 'translate', 'locale', 'accessibility', 'a11y', 'reduce motion', 'high contrast', 'text size', 'font size', 'rtl'], keywords: ['settings', 'customization', 'language', 'accessibility', 'motion', 'contrast', 'text size'], icon: 'settings', tab: 'settings', subroute: 'settings.customization', group: 'settings', child: true, rankBoost: 1.2 });
 registerPage({ id: 'sub-set-aurora', kind: 'page', title: 'Aurora', aliases: ['aurora', 'glow colors', 'aurora palette'], keywords: ['settings', 'aurora', 'glow', 'colors'], icon: 'settings', tab: 'settings', subroute: 'settings.aurora', group: 'settings', child: true, rankBoost: 1.1 });
 registerPage({ id: 'sub-set-ai', kind: 'page', title: 'AI / LLM', aliases: ['llm provider', 'ai model', 'agent settings', 'openai', 'anthropic', 'ollama', 'api key', 'model'], keywords: ['settings', 'ai', 'llm', 'model', 'provider', 'openai', 'anthropic', 'ollama', 'key'], icon: 'settings', tab: 'settings', subroute: 'settings.ai', group: 'settings', child: true, rankBoost: 1.3 });
 registerPage({ id: 'sub-set-investor-eye', kind: 'page', title: 'Investor Eye', aliases: ['investor eye settings', 'world state sources', 'gdelt', 'usgs', 'firms', 'event sources'], keywords: ['settings', 'investor eye', 'world state', 'sources', 'gdelt', 'usgs', 'events'], icon: 'settings', tab: 'settings', subroute: 'settings.investor-eye', group: 'settings', child: true, rankBoost: 1.25 });
@@ -366,6 +368,14 @@ registerAction({
   keywords: ['open settings', 'settings', 'preferences'],
   icon: 'settings',
   run: () => ({ tab: 'settings' }),
+});
+registerAction({
+  id: 'act-open-earnings',
+  verb: 'open',
+  title: 'Open Earnings Calendar',
+  keywords: ['open earnings', 'earnings calendar', 'company earnings', 'results', 'reports'],
+  icon: 'calendar',
+  run: () => ({ tab: 'earnings' }),
 });
 registerAction({
   id: 'act-open-heatmap',

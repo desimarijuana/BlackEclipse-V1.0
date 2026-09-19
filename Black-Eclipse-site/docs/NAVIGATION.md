@@ -36,9 +36,12 @@ Black-Eclipse-site/
 |---|---|
 | Change the app shell / add a tab | `src/components/screens/stock-chat.tsx`, `src/components/layout/sidebar.tsx` |
 | Change sidebar defaults / shortcuts | `src/lib/sidebar/config.ts` |
+| Add a language / translate UI chrome | `src/lib/i18n/` (`locales.ts` = registry + RTL, `dictionaries/en.ts` = canonical keys, `dictionaries/index.ts` = translations, `translate.ts` = lookup, `store.ts` = persisted choice + `<html lang/dir>`, `use-t.ts` = hook) |
+| Add an accessibility option | `src/lib/i18n/store.ts` (`A11yPreferences` + document classes), `src/app/globals.css` (`a11y-*` rules), `src/components/screens/customization-settings.tsx` |
 | Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-format.ts` (price/cap/time formatting), `market-loaders.tsx` (table loaders) |
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
+| Work on the Earnings calendar | `src/components/screens/earnings-calendar.tsx` (shared grid + day detail), `src/components/screens/earnings-screen.tsx` (full-page tab), `src/lib/earnings.ts` + `src/app/api/earnings/route.ts` (Alpha Vantage → Nasdaq), widget wrapper `EarningsCalendarWidget` in `src/lib/dashboard/widgets.tsx` |
 | Work on Fundamentals | `src/lib/fundamentals/` (`types`=Eclipse schema, `providers/`=SEC/FMP/Yahoo, `normalize`, `compute`=metrics+risks, `format`), `src/components/screens/fundamentals/` (`panel.tsx`=presentational sections, `use-fundamentals.ts`=data hook), route `src/app/api/fundamentals/route.ts`; Yahoo bridge `scripts/yfinance_fundamentals.py`. Rendered ONLY as the Market Screener popup's **Fundamentals** tab (`src/components/screens/tradingview-chart.tsx`) — there is no standalone page |
 | Add a fundamentals provider | One `FundamentalsProvider` file in `src/lib/fundamentals/providers/` + a line in `PROVIDER_ORDER` (`providers/index.ts`); add its key to `PROVIDER_KEYS` if it needs one |
 | Work on portfolio | `src/components/screens/portfolio/`, `src/lib/portfolio/`, `src/hooks/use-portfolio-engine.ts` |
@@ -118,6 +121,7 @@ Black-Eclipse-site/
 | `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |
 | `providers/` | Provider directory: purpose / used-by / tier metadata + the Investor Eye feature→provider map (client-safe) |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
+| `i18n/` | Interface localization: locale registry + RTL, dictionaries, translator, persisted language/accessibility store |
 | `economics/` | Macro fetching, sources, calendar, snapshot |
 | `fundamentals/` | Investor financial-analysis tier: provider abstraction (SEC/FMP/Yahoo), Eclipse schema normalization, derived metrics + data-driven risks, JDDS cache — see `ARCHITECTURE.md` › Fundamentals |
 | `investor-eye/` | World-state tier: event sources (GDELT/USGS/FIRMS/news), normalization/clustering, map layers, source governance catalog, geographic boundary lookup, risk/exposure/transmission analytics, ingestion + cache |
@@ -134,7 +138,7 @@ Black-Eclipse-site/
 
 `stocks` · `quote` · `price-history` · `asset-details` · `symbols` ·
 `markets`(+`global`) · `indices` · `forex` · `commodities` · `heatmap` ·
-`news`(+`status`,`alert`) · `economics`(+`snapshot`,`calendar`) ·
+`earnings` · `news`(+`status`,`alert`) · `economics`(+`snapshot`,`calendar`) ·
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`,`test`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·

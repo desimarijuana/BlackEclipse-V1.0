@@ -32,6 +32,7 @@ import {
   ScanEye,
   Settings,
   Sparkles,
+  CalendarClock,
   type LucideIcon,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -77,6 +78,7 @@ const NAME_ICON: Record<string, LucideIcon> = {
   /** Investor Eye — a scanning eye, distinct from the generic globe glyph. */
   eye: ScanEye,
   bell: Bell,
+  calendar: CalendarClock,
   settings: Settings,
 };
 
@@ -98,6 +100,7 @@ const TOP_LEVEL_PAGE_IDS = [
   'page-portfolio',
   'page-journal',
   'page-news',
+  'page-earnings',
   'page-heatmap',
   'page-economics',
   'page-alerts',

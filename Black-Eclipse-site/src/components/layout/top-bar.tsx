@@ -5,6 +5,7 @@ import { Sparkles, Menu, Search, Command } from 'lucide-react';
 import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
+import { useT } from '@/lib/i18n';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -29,6 +30,7 @@ const TAB_PLACEHOLDER: Record<string, string> = {
 };
 
 export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
+  const t = useT();
   const [modKey, setModKey] = useState('Ctrl');
   const [indexed, setIndexed] = useState(0);
 
@@ -47,7 +49,7 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
     return unsub;
   }, []);
 
-  const placeholder = (activeTab && TAB_PLACEHOLDER[activeTab]) || 'Search instruments, indicators, commands…';
+  const placeholder = (activeTab && TAB_PLACEHOLDER[activeTab]) || t('topbar.searchPlaceholder');
 
   return (
     <div className="w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0">

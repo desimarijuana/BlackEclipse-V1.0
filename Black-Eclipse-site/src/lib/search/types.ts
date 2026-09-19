@@ -11,6 +11,7 @@ export type AppTab =
   | 'heatmap'
   | 'chart'
   | 'economics'
+  | 'earnings'
   | 'portfolio'
   | 'journal'
   | 'settings'

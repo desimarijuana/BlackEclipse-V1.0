@@ -169,6 +169,19 @@ Two design notes that matter:
   a `User` relation can be added later without a rewrite. There are no accounts
   today — the app is a guest app.
 
+### Earnings: one calendar, two surfaces
+
+The month-grid earnings calendar is a single component
+(`src/components/screens/earnings-calendar.tsx`), rendered in two layouts: dense
+inside the Command Center `earnings-calendar` widget, roomy on the full-page
+`earnings` tab. The widget's expand button dispatches the `be:navigate` DOM
+event (`{ tab: 'earnings' }`), which the SPA shell listens for in
+`stock-chat.tsx` and switches tabs — the same mechanism the market-workspace
+Screener panel uses, so a widget can host a full page without a router. Data
+comes from the `earnings:calendar` DataHub topic (`GET /api/earnings`, Alpha
+Vantage server-side with a Nasdaq fallback; explicit UNAVAILABLE when neither is
+reachable).
+
 ### One Add-Trade entry point
 
 The Journal header mounts a single `QuickAddTrade` dialog

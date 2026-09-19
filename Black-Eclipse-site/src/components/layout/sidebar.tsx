@@ -5,10 +5,11 @@ import { Sparkles, Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings } 
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
+import { useT, navLabelKey } from '@/lib/i18n';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye';
+export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'earnings' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye';
 
 export interface Conversation {
   id: string;
@@ -43,6 +44,7 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const t = useT();
 
   // User-customized menu: order, visibility, and shortcuts come from the
   // shared store (edited in Settings › Sidebar). Hydrate once on mount.
@@ -53,7 +55,9 @@ export function Sidebar({
     .filter((s) => cfgMap.get(s.id)?.enabled !== false)
     .map((s) => {
       const def = NAV_DEF.get(s.id);
-      return def ? { ...def, shortcut: s.shortcut } : null;
+      if (!def) return null;
+      const key = navLabelKey(s.id);
+      return { ...def, label: key ? t(key) : def.label, shortcut: s.shortcut };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
@@ -128,11 +132,11 @@ export function Sidebar({
         {activeTab === 'chat' && !isCollapsed && (
           <div className="flex flex-col gap-3 pb-4">
             <div className="flex items-center justify-between px-1">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Chat History</span>
+              <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
               <button
                 onClick={onNewChat}
                 className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1 cursor-pointer transition-all border border-border/5"
-                title="New Chat"
+                title={t('sidebar.newChat')}
               >
                 <Plus size={12} />
               </button>
@@ -151,7 +155,7 @@ export function Sidebar({
                         : 'bg-transparent text-muted-foreground hover:bg-accent/25 hover:text-foreground'
                     }`}
                   >
-                    <span className="truncate max-w-[130px]">{c.title || 'Untitled Session'}</span>
+                    <span className="truncate max-w-[130px]">{c.title || t('sidebar.untitledSession')}</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -166,16 +170,19 @@ export function Sidebar({
               })}
 
               {conversations.length === 0 && (
-                <span className="text-[10px] text-muted-foreground italic text-center py-2">No active sessions</span>
+                <span className="text-[10px] text-muted-foreground italic text-center py-2">{t('sidebar.noSessions')}</span>
               )}
             </div>
           </div>
         )}
 
         {/* Navigation list (divider line on top of icons) */}
-        <div className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
-          isCollapsed ? 'items-center px-2' : ''
-        }`}>
+        <nav
+          aria-label={t('a11y.mainNavigation')}
+          className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
+            isCollapsed ? 'items-center px-2' : ''
+          }`}
+        >
           {navItems.map((tab) => {
             const isSelected = activeTab === tab.id;
             const Icon = tab.icon;
@@ -203,7 +210,7 @@ export function Sidebar({
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       {/* Footer */}
@@ -225,7 +232,7 @@ export function Sidebar({
           }`}>
             <div className="flex flex-col truncate max-w-[130px]">
               <span className="font-semibold text-foreground truncate">BlackEclipse</span>
-              <span className="text-[9px] text-muted-foreground uppercase">Terminal</span>
+              <span className="text-[9px] text-muted-foreground uppercase">{t('sidebar.terminal')}</span>
             </div>
             {/* Settings gear button — bottom-right of the Terminal footer */}
             <button
@@ -233,8 +240,8 @@ export function Sidebar({
               className={`p-1.5 rounded-none text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
                 activeTab === 'settings' ? 'text-primary bg-primary/10' : ''
               }`}
-              title="Settings"
-              aria-label="Open Settings"
+              title={t('sidebar.openSettings')}
+              aria-label={t('sidebar.openSettings')}
             >
               <Settings size={16} />
             </button>
