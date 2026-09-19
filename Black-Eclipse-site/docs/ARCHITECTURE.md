@@ -719,7 +719,16 @@ debounced 500–600ms for prefs/LLM, immediate for feed toggles. A status strip
 reports "Saving…", the real result, or the real error. The rail groups sections
 under Personalize / Intelligence / System and carries a keyword search (each
 section declares `terms`). Long registries filter, sort configured-first, and
-collapse past 8 rows.
+collapse past 8 rows. A status header shows `N ready · M need a key`, and rail
+sections with unresolved providers show an amber dot.
+
+**One LLM key.** The AI section's key is edited through the provider-key vault
+(keyed by the selected preset's env var), not a separate `llm.apiKey` field.
+`getLLMConfig()` resolves the effective key as raw config → env var → vault
+(`storedProviderKey`) for the matching preset; `setLLMConfig` merges over the
+RAW config so a vault-owned key is never copied into the plaintext row. "Used
+by" labels in the registry are clickable and navigate to the consuming page
+(`consumingPage` in `lib/providers/directory.ts`).
 
 **AI presets are one source of truth.** `src/lib/agent/presets.ts` declares every
 OpenAI-compatible provider (base URL + default model). The AI Agent picker and

@@ -22,6 +22,8 @@
 // only supplies the "why / where" metadata, keyed by env var (vault keys) or by
 // catalog provider id (built-in providers).
 
+import type { AppTab } from "@/lib/search/types";
+
 export type ProviderTier = "builtin" | "free" | "free-tier" | "paid";
 
 /** The one Settings section a provider belongs to. */
@@ -141,6 +143,41 @@ export const TIER_LABEL: Record<ProviderTier, string> = {
   "free-tier": "Free tier",
   paid: "Paid",
 };
+
+// ── "Used by" → consuming page ───────────────────────────────────────────────
+// Lets the registry turn a "Used by: X" label into a link to the actual page
+// that consumes the provider, closing the why → where loop.
+
+export interface ConsumingPage {
+  /** AppTab value to navigate to. */
+  tab: AppTab;
+  /** Optional deep-link params for the destination. */
+  params?: Record<string, string>;
+}
+
+const CONSUMING_PAGES: Record<string, ConsumingPage> = {
+  chat: { tab: "chat" },
+  research: { tab: "chat" },
+  "investor eye analyst": { tab: "investor-eye" },
+  "investor eye": { tab: "investor-eye" },
+  "investor eye macro": { tab: "investor-eye" },
+  "investor eye sentiment": { tab: "investor-eye" },
+  "market screener": { tab: "discovery" },
+  screener: { tab: "discovery" },
+  charts: { tab: "chart" },
+  chart: { tab: "chart" },
+  economics: { tab: "economics" },
+  news: { tab: "news" },
+  "news analysis": { tab: "news" },
+  fundamentals: { tab: "discovery" },
+  earnings: { tab: "discovery" },
+  "custom widgets": { tab: "dashboard" },
+};
+
+/** The page that consumes a "Used by" label, or null when it is a concept only. */
+export function consumingPage(label: string): ConsumingPage | null {
+  return CONSUMING_PAGES[label.trim().toLowerCase()] ?? null;
+}
 
 // ── Investor Eye feature map ────────────────────────────────────────────────
 // Which provider powers each Investor Eye capability. This is the "show which

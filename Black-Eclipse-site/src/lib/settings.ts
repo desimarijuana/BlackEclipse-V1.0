@@ -7,7 +7,17 @@
 // news feeds, app preferences, and data hygiene.
 
 import { prisma } from "@/lib/db";
-import { isLocalBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
+import { isLocalBaseUrl, presetForBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
+import { storedProviderKey } from "@/lib/provider-keys";
+
+/**
+ * The env var that holds the key for a given LLM base URL, when it matches a
+ * known preset. Used so a key pasted in the provider-key vault is honoured by
+ * the LLM runtime without re-entering it in the LLM config.
+ */
+function llmKeyEnvVar(baseUrl: string): string | undefined {
+  return presetForBaseUrl(baseUrl)?.envVar;
+}
 
 // ─── Low-level key/value helpers ───────────────────────────────────────
 
@@ -65,8 +75,10 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
 
 const LLM_KEY = "llm_config";
 
-// Effective LLM config = DB overrides on top of env defaults.
-export async function getLLMConfig(): Promise<LLMConfig> {
+// Raw LLM config = DB overrides on top of env defaults, WITHOUT the vault
+// fallback. Used for persistence so a vault-owned key is never copied into the
+// plaintext llm_config row.
+async function readLLMConfigRaw(): Promise<LLMConfig> {
   const dbCfg = await getConfigJSON<LLMConfig>(LLM_KEY, DEFAULT_LLM_CONFIG);
   const envProvider: LLMProviderName =
     process.env.OLLAMA_BASE_URL ? "ollama"
@@ -99,8 +111,25 @@ export async function getLLMConfig(): Promise<LLMConfig> {
   return { ...dbCfg, baseUrl, model, apiKey };
 }
 
+/**
+ * Effective LLM config for RUNTIME use: the raw config, plus a vault fallback
+ * for the key. When the LLM config has no key of its own, the provider-key
+ * vault entry for the matching preset is used — so a key entered once (in the
+ * AI provider list) powers the runtime with no second key field to sync.
+ */
+export async function getLLMConfig(): Promise<LLMConfig> {
+  const cfg = await readLLMConfigRaw();
+  if (cfg.apiKey) return cfg;
+  const envVar = llmKeyEnvVar(cfg.baseUrl);
+  if (!envVar) return cfg;
+  const apiKey = process.env[envVar] || (await storedProviderKey(envVar)) || "";
+  return { ...cfg, apiKey };
+}
+
 export async function setLLMConfig(config: Partial<LLMConfig>): Promise<LLMConfig> {
-  const next = await getLLMConfig();
+  // Merge over the RAW config so persisting never folds a vault key into the
+  // plaintext row; only values the caller actually sends change.
+  const next = await readLLMConfigRaw();
   const merged: LLMConfig = {
     ...next,
     ...config,

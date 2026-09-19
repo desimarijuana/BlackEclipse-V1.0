@@ -20,8 +20,8 @@
 // runs the real endpoint and reports the real result. The key is NEVER rendered
 // back — the field starts empty and shows only a masked hint.
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Search, Trash2, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Search, Trash2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,7 @@ import {
   providerLabel,
   providerHome,
   providerHomeForLabel,
+  consumingPage,
   TIER_LABEL,
   INVESTOR_EYE_FEATURES,
   type SettingsHome,
@@ -77,6 +78,52 @@ function useKeyStatuses(): { keys: Record<string, KeyStatus>; reload: () => void
     };
   }, []);
   return { keys: map, reload };
+}
+
+/**
+ * Per-home provider health, for the Settings status header and the rail's
+ * attention dots. A provider is "available" when it is built-in or its key
+ * resolves; "needsKey" when it is key-gated and unresolved.
+ */
+export interface HomeHealth {
+  available: number;
+  needsKey: number;
+  total: number;
+  /** Key-gated providers whose key is missing, by name (for the header). */
+  missing: string[];
+}
+
+export function useProviderHealth(): { health: Record<SettingsHome, HomeHealth>; loading: boolean } {
+  const catalog = useProviderCatalog();
+  const { keys } = useKeyStatuses();
+
+  const health = useMemo(() => {
+    const empty: HomeHealth = { available: 0, needsKey: 0, total: 0, missing: [] };
+    const out = {
+      ai: { ...empty, missing: [] as string[] },
+      "investor-eye": { ...empty, missing: [] as string[] },
+      economics: { ...empty, missing: [] as string[] },
+      news: { ...empty, missing: [] as string[] },
+      market: { ...empty, missing: [] as string[] },
+    } as Record<SettingsHome, HomeHealth>;
+    if (!catalog) return out;
+    for (const cat of catalog.categories) {
+      for (const p of cat.providers) {
+        const home = providerHome(p.id, p.envVar, p.category);
+        out[home].total++;
+        const keyOk = p.envVar ? Boolean(keys[p.envVar]?.configured) : true;
+        const up = p.status === "builtin" || p.status === "connected";
+        if (up && keyOk) out[home].available++;
+        else if (p.envVar) {
+          out[home].needsKey++;
+          out[home].missing.push(p.name);
+        }
+      }
+    }
+    return out;
+  }, [catalog, keys]);
+
+  return { health, loading: !catalog };
 }
 
 function goConfigure(provider: CatalogProvider, onOpenWizard?: () => void) {
@@ -190,7 +237,28 @@ function ProviderRegistryRow({
           </p>
           <p className="text-[10px] text-primary/90 mt-0.5">{meta.purpose}</p>
           {meta.usedBy.length > 0 && (
-            <p className="text-[9px] text-muted-foreground/80 mt-0.5">Used by: {meta.usedBy.join(", ")}</p>
+            <p className="text-[9px] text-muted-foreground/80 mt-0.5 flex items-center gap-1 flex-wrap">
+              <span>Used by:</span>
+              {meta.usedBy.map((label, i) => {
+                const dest = consumingPage(label);
+                return (
+                  <span key={label} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-muted-foreground/40">,</span>}
+                    {dest ? (
+                      <button
+                        onClick={() => useCommandStore.getState().dispatch({ tab: dest.tab, ...(dest.params ? { params: dest.params } : {}) })}
+                        className="underline decoration-dotted underline-offset-2 hover:text-primary cursor-pointer"
+                        title={`Open ${label}`}
+                      >
+                        {label}
+                      </button>
+                    ) : (
+                      <span>{label}</span>
+                    )}
+                  </span>
+                );
+              })}
+            </p>
           )}
           {provider.envVar && (
             <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
@@ -418,6 +486,191 @@ export function ProviderRegistry({
         >
           {showAll ? "Show fewer" : `Show all ${filtered.length} providers`}
         </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact vault-backed key editor for one env var. Used by the AI section so
+ * the selected provider's key lives in the provider-key vault (a single source
+ * of truth) rather than a second `llm.apiKey` field. The value is never
+ * returned; the field starts empty and only a masked hint is shown.
+ */
+export function ProviderKeyEditor({ envVar, label }: { envVar: string; label?: string }) {
+  const { keys, reload } = useKeyStatuses();
+  const status = keys[envVar];
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [reveal, setReveal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<TestResult | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/provider-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ envVar, value: draft.trim() }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setNote(data.error ?? "Failed to save the key");
+        return;
+      }
+      setDraft("");
+      setEditing(false);
+      setNote(draft.trim() === "" ? "Cleared." : "Saved.");
+      reload();
+    } catch {
+      setNote("Failed to save the key");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/provider-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ envVar, action: "test" }),
+      });
+      const data = (await res.json()) as TestResult & { error?: string };
+      setResult(data.error ? { ok: false, message: data.error } : { ok: data.ok, message: data.message, latencyMs: data.latencyMs });
+    } catch {
+      setResult({ ok: false, message: "Test request failed" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const envOwned = Boolean(status?.fromEnv);
+  const configured = Boolean(status?.configured);
+
+  return (
+    <div className="rounded-xl border border-border/25 glass-card-subtle px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+            {label ?? envVar} key
+            <span className="text-[9px] font-mono text-muted-foreground/60">{envVar}</span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold border",
+                configured
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : "border-border/40 text-muted-foreground"
+              )}
+            >
+              {configured ? (envOwned ? "ENV" : "STORED") : "NOT SET"}
+            </span>
+          </p>
+          {status?.hint && <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">{status.hint}</p>}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!envOwned && (
+            <Button variant="outline" size="sm" className="cursor-pointer rounded-lg text-[9px] h-6 px-2" onClick={() => setEditing((v) => !v)}>
+              <KeyRound className="w-3 h-3 mr-1" /> {configured ? "Replace" : "Add key"}
+            </Button>
+          )}
+          {status?.testable && configured && (
+            <Button variant="outline" size="sm" className="cursor-pointer rounded-lg text-[9px] h-6 px-2" disabled={testing} onClick={test}>
+              {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : "Test"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {editing && !envOwned && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Input
+              type={reveal || status?.publicValue ? "text" : "password"}
+              value={draft}
+              autoFocus
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              placeholder={status?.publicValue ? "http://localhost:11434/v1" : "Paste the key…"}
+              className="h-8 text-xs font-mono pr-9"
+            />
+            {!status?.publicValue && (
+              <button
+                type="button"
+                onClick={() => setReveal((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-primary cursor-pointer"
+              >
+                {reveal ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            )}
+          </div>
+          <Button size="sm" className="cursor-pointer rounded-xl text-[11px]" disabled={busy} onClick={() => void save()}>
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+            Save
+          </Button>
+          <span className="text-[9px] text-muted-foreground">Encrypted at rest · never returned</span>
+        </div>
+      )}
+
+      {envOwned && (
+        <p className="mt-2 text-[10px] text-muted-foreground/80 flex items-center gap-1.5">
+          <Check size={11} className="text-emerald-400 shrink-0" />
+          Set by the {envVar} environment variable — authoritative; the browser cannot change it.
+        </p>
+      )}
+
+      {(result || note) && (
+        <p className={cn("mt-2 text-[10px] flex items-center gap-1.5", (result ?? note === "Saved.") ? (result?.ok ? "text-emerald-400" : result ? "text-rose-400" : "text-muted-foreground") : "text-muted-foreground")}>
+          {result ? (result.ok ? <Check size={10} /> : <AlertCircle size={10} />) : <Check size={10} className="text-primary" />}
+          {result?.message ?? note}
+          {result?.latencyMs !== undefined && <span className="text-muted-foreground/60">· {result.latencyMs} ms</span>}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Settings status header — a one-line control-center summary so the user can
+ * tell at a glance whether the app is wired up, without opening every section.
+ */
+export function SettingsStatusHeader() {
+  const { health, loading } = useProviderHealth();
+  const homes: SettingsHome[] = ["ai", "investor-eye", "economics", "news", "market"];
+  const total = homes.reduce((n, h) => n + health[h].total, 0);
+  const available = homes.reduce((n, h) => n + health[h].available, 0);
+  const needsKey = homes.reduce((n, h) => n + health[h].needsKey, 0);
+
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border border-border/20 glass-card px-4 py-3">
+      <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary flex items-center gap-1.5">
+        <Activity size={11} /> Status
+      </span>
+      {loading ? (
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3 h-3 animate-spin" /> Checking providers…
+        </span>
+      ) : (
+        <>
+          <span className="text-[11px] text-foreground/80">
+            <span className="font-semibold text-emerald-400">{available}</span> provider{available === 1 ? "" : "s"} ready
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-[11px] text-foreground/80">
+            <span className={cn("font-semibold", needsKey > 0 ? "text-amber-400" : "text-muted-foreground")}>{needsKey}</span> need a key
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-[11px] text-foreground/80">{total} total</span>
+        </>
       )}
     </div>
   );

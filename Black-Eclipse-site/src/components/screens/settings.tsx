@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
-  Trash2, RotateCcw, Check, Eye, EyeOff, Activity, ShieldCheck,
-  Sparkles, ChevronRight, Cpu, Server, KeyRound,
+  Trash2, RotateCcw, Check, Activity, ShieldCheck,
+  Sparkles, ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle,
 } from "lucide-react";
@@ -21,7 +21,7 @@ import { SidebarSettingsPanel } from "./sidebar-settings";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
-import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
+import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 
 
@@ -228,7 +228,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
   const [llm, setLlm] = useState<LLMConfig>({
     provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
   });
-  const [showApiKey, setShowApiKey] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
   const [llmTest, setLlmTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
 
@@ -398,7 +397,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
       const res = await fetch("/api/agent/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl: llm.baseUrl, model: llm.model, apiKey: llm.apiKey }),
+        body: JSON.stringify({ baseUrl: llm.baseUrl, model: llm.model }),
       });
       const data = (await res.json()) as { ok: boolean; message: string; latencyMs?: number; error?: string };
       setLlmTest(data.error ? { ok: false, message: data.error } : { ok: data.ok, message: data.message, latencyMs: data.latencyMs });
@@ -449,6 +448,20 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
   ];
 
   const GROUPS: Array<"Personalize" | "Intelligence" | "System"> = ["Personalize", "Intelligence", "System"];
+
+  // The vault env var that stores the selected provider's key (if it is a
+  // known preset). The AI section's key editor is keyed off this.
+  const activeKeyEnvVar = presetForBaseUrl(llm.baseUrl)?.envVar;
+
+  // Rail attention dots: sections whose providers still need a key.
+  const { health: homeHealth } = useProviderHealth();
+  const ATTENTION: Record<string, number> = {
+    ai: homeHealth.ai.needsKey,
+    "investor-eye": homeHealth["investor-eye"].needsKey,
+    economics: homeHealth.economics.needsKey,
+    news: homeHealth.news.needsKey,
+    market: homeHealth.market.needsKey,
+  };
 
   const needle = query.trim().toLowerCase();
   const visibleNav = useMemo(() => {
@@ -519,7 +532,15 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       <span className="flex items-center gap-3 min-w-0">
                         <Icon size={15} className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")} />
                         <span className="flex flex-col items-start leading-tight">
-                          <span>{item.label}</span>
+                          <span className="flex items-center gap-1.5">
+                            {item.label}
+                            {ATTENTION[item.id] > 0 && !active && (
+                              <span
+                                className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                                title={`${ATTENTION[item.id]} provider${ATTENTION[item.id] === 1 ? "" : "s"} need a key`}
+                              />
+                            )}
+                          </span>
                           <span className="text-[9px] text-muted-foreground font-normal tracking-wide hidden lg:block">{item.desc}</span>
                         </span>
                       </span>
@@ -537,17 +558,37 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto scrollbar-hide p-5 md:p-8">
           <div className="max-w-3xl mx-auto">
-            <div className="md:hidden mb-5">
-              <Label htmlFor="settings-section" className="text-xs text-muted-foreground mb-2">Settings section</Label>
-              <Select value={section} onValueChange={(value) => { if (value && SETTINGS_SECTIONS.includes(value as SectionId)) setSection(value as SectionId); }}>
-                <SelectTrigger id="settings-section" className="w-full">
-                  <SelectValue>{NAV.find((item) => item.id === section)?.label}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {NAV.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+            {/* Mobile: horizontal, scrollable pill row (thumb-friendly) instead
+                of a dropdown, so switching sections is one tap. */}
+            <div className="md:hidden -mx-5 px-5 mb-4 overflow-x-auto scrollbar-hide">
+              <div className="flex gap-2 w-max">
+                {NAV.map((item) => {
+                  const Icon = item.icon;
+                  const active = section === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setSection(item.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer",
+                        active
+                          ? "bg-primary/10 text-foreground border-primary/30"
+                          : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
+                      )}
+                    >
+                      <Icon size={13} className={active ? "text-primary" : "text-muted-foreground"} />
+                      {item.label}
+                      {ATTENTION[item.id] > 0 && !active && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            <SettingsStatusHeader />
+
             {section === "general" && (
               <div className="animate-fade-in-up">
                 <SectionHeader
@@ -647,6 +688,25 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     </Select>
                   </Field>
                 </Panel>
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="cursor-pointer rounded-xl"
+                    onClick={() => {
+                      const next: AppPreferences = { theme: "dark", defaultMarket: "US", refreshMs: 15000 };
+                      document.documentElement.classList.toggle("dark", true);
+                      setDisplayCurrency("USD");
+                      setCurrency("USD");
+                      setDisplayTimeZone("UTC");
+                      setTimeZone("UTC");
+                      setPrefs(next);
+                      void persist({ preferences: next });
+                    }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -717,7 +777,6 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       <span className="font-mono text-primary">{llm.model}</span>
                       {" · "}
                       <span className="text-muted-foreground">{PROVIDER_LABELS[llm.provider]}</span>
-                      {llm.hasApiKey && <span className="text-emerald-400/90"> · key stored</span>}
                     </p>
                   </div>
 
@@ -758,38 +817,21 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     </div>
                   </Field>
 
-                  <Field
-                    label="API Key"
-                    hint={
-                      isLocalBaseUrl(llm.baseUrl)
-                        ? "Not needed — local endpoints ignore the key."
-                        : "Stored in local JDDS. Never sent to the frontend bundle."
-                    }
-                  >
-                    <div className="relative">
-                      <KeyRound className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5" />
-                      <Input
-                        type={showApiKey ? "text" : "password"}
-                        value={llm.apiKey}
-                        onChange={(e) => updateLlm({ apiKey: e.target.value })}
-                        placeholder={
-                          llm.hasApiKey
-                            ? "Key stored — leave blank to keep it"
-                            : isLocalBaseUrl(llm.baseUrl)
-                            ? "Not required for local endpoints"
-                            : "sk-..."
-                        }
-                        className="pl-8 pr-9 font-mono"
-                      />
-                      <button
-                        onClick={() => setShowApiKey((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary cursor-pointer p-1 rounded-md hover:bg-primary/10"
-                        type="button"
-                      >
-                        {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                  </Field>
+                  {/* One key, one home: the API key lives in the provider-key
+                      vault (keyed by the selected provider's env var), and the
+                      LLM runtime reads it. No second key field to keep in sync. */}
+                  {isLocalBaseUrl(llm.baseUrl) ? (
+                    <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                      <Server size={12} className="text-primary shrink-0" />
+                      No API key needed — local endpoints ignore it.
+                    </p>
+                  ) : activeKeyEnvVar ? (
+                    <ProviderKeyEditor envVar={activeKeyEnvVar} label={presetForBaseUrl(llm.baseUrl)?.name} />
+                  ) : (
+                    <Field label="API Key" hint="This custom endpoint has no known key variable. Use a preset above to store its key in the vault.">
+                      <Input value="" disabled placeholder="Use a known provider preset to manage its key" className="font-mono" />
+                    </Field>
+                  )}
 
                   {/* Test connection — makes a real request to the endpoint. */}
                   <div className="flex flex-wrap items-center gap-3 pt-1">

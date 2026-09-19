@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Settings / UX phase 3 (P1)** — Added a provider status header
+  (`N ready · M need a key`), amber attention dots on rail sections whose
+  providers need keys, clickable "Used by" labels that navigate to the consuming
+  page, a mobile horizontal pill row instead of the section dropdown, and a
+  Reset-to-defaults control in General. Unified the LLM key: the AI section's
+  key now lives in the provider-key vault (keyed by the selected preset's env
+  var) and `getLLMConfig` falls back to it — no second `llm.apiKey` field to
+  keep in sync; persistence merges over the raw config so a vault key is never
+  copied into the plaintext row. 1307 tests pass, `tsc` clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Settings / UX phase 2** — Unified persistence: every Settings control now
   applies instantly (debounced POST for preferences/LLM, immediate for news
   toggles), the Save/Discard bar is replaced by a status strip that reports the
