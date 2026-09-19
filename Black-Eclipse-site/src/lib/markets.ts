@@ -104,3 +104,29 @@ export const MARKET_FULL_NAME: Record<string, string> = {
 export function marketDisplayName(marketId: string): string {
   return MARKET_FULL_NAME[marketId] || marketId;
 }
+
+// Reverse index: full country name / display name / id → canonical market id.
+// JDDS `Asset.country` is inconsistent (both "US" and "United States" appear),
+// so any country-bearing surface (fundamentals, asset details) must normalize
+// through here rather than string-matching on its own.
+const COUNTRY_TO_MARKET_ID: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const [id, name] of Object.entries(MARKET_FULL_NAME)) {
+    map[name.toLowerCase()] = id;
+  }
+  for (const key of Object.keys(MARKET_ID_MAP)) {
+    map[key.toLowerCase()] = MARKET_ID_MAP[key];
+  }
+  return map;
+})();
+
+/**
+ * Resolve a country name, display name, or market code to a canonical market id
+ * ("United States" → "US", "Pakistan" → "PK"). Unknown values pass through
+ * upper-cased so a caller never silently falls back to the wrong market.
+ */
+export function countryToMarketId(raw: string | null | undefined): string {
+  if (!raw) return "US";
+  const key = raw.trim().toLowerCase();
+  return COUNTRY_TO_MARKET_ID[key] || raw.trim().toUpperCase();
+}

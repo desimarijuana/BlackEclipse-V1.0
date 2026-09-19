@@ -67,7 +67,13 @@ const LEGACY_DEFAULT_ORDER: AppTab[] = [
 export function defaultSidebarConfig(): SidebarConfig {
   return {
     shortcutVersion: 2,
-    sections: DEFAULT_SIDEBAR_SECTIONS.map((s, index) => ({ id: s.id, enabled: true, shortcut: `F${index < 10 ? index + 1 : 12}` })),
+    // F1..F12, unique per section. (The old scheme folded every section past
+    // the tenth onto F12, which collided once the list grew.)
+    sections: DEFAULT_SIDEBAR_SECTIONS.map((s, index) => ({
+      id: s.id,
+      enabled: true,
+      shortcut: index < 12 ? `F${index + 1}` : '',
+    })),
   };
 }
 

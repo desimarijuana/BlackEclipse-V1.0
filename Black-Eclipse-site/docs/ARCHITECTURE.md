@@ -721,6 +721,85 @@ every result states provenance.
 **Deferred:** webhooks, POST/PUT bodies, pagination beyond value lists, OAuth,
 `~` dataset search, AI-generated connectors, multi-user credentials.
 
+## Fundamentals (the investor-analysis surface)
+
+Fundamentals is the **filings-backed analysis** rendered inside the Market
+Screener's stock detail popup — not a standalone sidebar tab. A stock row opens
+the popup, whose **Fundamentals** tab shows the provider snapshot *and* the live
+quote metrics on one page. It is a **separate provider tier** from the connector
+layer: rather than picking one connector for a capability, it MERGES
+complementary sources into one normalized document.
+
+```
+Provider → Normalization → JDDS → Fundamentals UI (Market Screener popup tab)
+```
+
+**The UI depends only on the Eclipse schema.** `src/lib/fundamentals/types.ts`
+defines `FundamentalsSnapshot` (company, periods, metrics, growth, earnings,
+ownership, insights, timeline). The panel in
+`src/components/screens/fundamentals/` talks only to `/api/fundamentals` — it
+never imports a Yahoo/SEC/FMP module.
+
+| File | Owns |
+|---|---|
+| `fundamentals/types.ts` | The Eclipse schema (`FundamentalPeriod`, `FundamentalMetric`, `FundamentalsSnapshot`, `FundamentalsProvider`) |
+| `fundamentals/normalize.ts` | Provider rows → one period shape; derives per-period ratios |
+| `fundamentals/compute.ts` | Metric assembly, CAGRs, valuation, **data-driven insights/risks** |
+| `fundamentals/format.ts` | Display formatting (percent metrics are FRACTIONS everywhere) |
+| `fundamentals/providers/` | `sec-edgar`, `financialmodelingprep`, `yahoo` + precedence registry |
+| `fundamentals/index.ts` | `getFundamentals(symbol, market)` — merge, cache, persist |
+| `components/screens/fundamentals/panel.tsx` | The shared presentational sections (`FundamentalsBody`, `TickerHeader`, metric tiles, charts, states) |
+| `components/screens/fundamentals/use-fundamentals.ts` | The client data hook |
+| `scripts/yfinance_fundamentals.py` | The Yahoo statements/profile/estimates bridge |
+
+**Precedence and merging.** `PROVIDER_ORDER` is
+`sec-edgar → financialmodelingprep → yahoo`. The **first provider that returns
+statement periods is the primary source**; quote, valuation multiples, earnings
+and ownership are filled from whichever provider has them. A missing source is
+never a fatal error — it fills what it can and marks the rest `UNAVAILABLE`.
+
+- **SEC EDGAR** — preferred for US issuers, keyless. Ticker → CIK via the cached
+  `company_tickers.json` map, then `companyfacts.json`. Only `10-K`/`20-F`/`40-F`
+  annual values are read (latest filing wins per end date); **tag families are
+  unioned** so a preferred tag that stops being reported (e.g. NVIDIA's revenue
+  tag after FY2022) cannot blank a newer period, and sub-annual windows that
+  share a fiscal end date are ignored. **EBITDA is derived** (operating income +
+  D&A) and explicitly labelled, because the SEC does not tag it. Non-US markets
+  skip this provider (`supports()` gates it).
+- **Yahoo Finance** (`yfinance` bridge) — the universal fallback and the only
+  source for non-US markets when no vendor key exists. Returns up to 5 fiscal
+  years of real statements plus profile/ratios.
+- **Financial Modeling Prep** — optional; enabled only when
+  `FINANCIALMODELINGPREP_API_KEY` is set in Settings › API Keys or env. This is
+  the reference secondary provider; Alpha Vantage can be added as another
+  `FundamentalsProvider` with one file and one registry line.
+
+**Caching / JDDS.** `getFundamentals` fronts the `FundamentalsCache` table
+(`@@unique([symbol, market])`, `payload` = JSON snapshot) with an in-memory map.
+A fresh entry (< 24h) is served directly; a stale one is served immediately while
+a background refresh runs (stale-while-revalidate); beyond 7 days the request
+blocks so the UI cannot present years-old data as current. Concurrent requests
+for the same symbol share one in-flight fetch. Provider failures return the stale
+copy rather than blanking the screen.
+
+**Honesty rules.** Percent metrics are stored as fractions; a metric with no
+inputs is `null` and renders `UNAVAILABLE` (never 0). Every metric carries
+`value`, `period`, `yoy`, `source` (`sec-edgar` / `financialmodelingprep` /
+`yahoo` / `derived`) and `updatedAt`. Insights are synthesized only from actual
+statement inputs and list the metric keys they are grounded in. The valuation
+history chart reconstructs multiples from the CURRENT price and each year's
+reported EPS/revenue — it says so in the caption.
+
+**Route:** `GET /api/fundamentals?symbol=…&market=…[&refresh=1]` (rate-limited).
+**UI:** the Market Screener popup (`tradingview-chart.tsx`) **Fundamentals** tab,
+which renders the shared `panel.tsx` sections — Overview (insight strip, metric
+grid, revenue/EPS/FCF/margin/debt/valuation charts), Statements (period tabs +
+statement table + growth), Valuation (multiples, earnings, ownership), Timeline
+(filings + profile) — followed by the live price-history/performance/quote
+sections of the old "All Metrics" tab. The market id is derived with
+`countryToMarketId()` from `src/lib/markets.ts` because JDDS `Asset.country` is
+inconsistent ("United States" vs "US").
+
 ## Investor Eye (the world-state surface)
 
 `investor-eye` is a sidebar tab (keep-alive, `next/dynamic`-split like every

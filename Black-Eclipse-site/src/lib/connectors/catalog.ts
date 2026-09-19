@@ -163,6 +163,26 @@ const STATIC_PROVIDERS: StaticProvider[] = [
     configure: { target: "integrations" },
     docsUrl: "https://marketstack.com/product",
   },
+  {
+    id: "sec-edgar",
+    name: "SEC EDGAR",
+    description: "Authoritative US filings and XBRL fundamentals. Keyless; the preferred source for the Fundamentals page.",
+    category: "market",
+    auth: "builtin",
+    configure: { target: "none" },
+    recommended: true,
+    docsUrl: "https://www.sec.gov/edgar/sec-api-documentation",
+  },
+  {
+    id: "financialmodelingprep",
+    name: "Financial Modeling Prep",
+    description: "Normalized fundamentals, ratios and analyst estimates. Optional key.",
+    category: "market",
+    auth: "env",
+    envVar: "FINANCIALMODELINGPREP_API_KEY",
+    configure: { target: "integrations" },
+    docsUrl: "https://site.financialmodelingprep.com/developer/docs",
+  },
 
   // Crypto — the built-in connector registered by the connector layer.
   {

@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-09-16
+last-verified: 2026-09-18
 ---
 
 # Data Flow
@@ -76,6 +76,32 @@ request per value, capped at 25 with the overflow reported. Datasets with
 to the scraper's whole-market jobs. See
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The Universal Data Connector Layer"
 and ADR-010.
+
+## Fundamentals (the merging provider tier)
+
+Fundamentals is a second, additive provider tier. Where the connector tier picks
+one connector per capability, fundamentals MERGES complementary providers:
+
+```
+GET /api/fundamentals?symbol=AAPL&market=US
+  → fundamentals.get()                     (src/lib/fundamentals/index.ts)
+     → configuredProviders()  SEC → FMP → Yahoo (authority order)
+     → buildSnapshot()        first provider with periods = primary statements,
+                              others fill quote / valuation / earnings / ownership
+     → normalize + compute    Eclipse schema + derived metrics + insights
+  → FundamentalsCache (JDDS, @@unique([symbol, market]))  + in-memory map
+  → FundamentalsSnapshot → Fundamentals UI
+```
+
+**Caching:** fresh (< 24h) served directly; stale served immediately with a
+background refresh (stale-while-revalidate); > 7 days blocks. A provider outage
+returns the stale snapshot, never a blank page. `FundamentalsCache.payload` is
+the full UI-ready JSON document; `primarySource` records the statement provider.
+
+**Sources:** SEC EDGAR (US, keyless, authoritative filings + XBRL), Yahoo
+(yfinance bridge, global fallback), Financial Modeling Prep (optional key,
+normalized fundamentals + estimates). Non-US markets skip SEC. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Fundamentals".
 
 ## Ingestion — how data gets into JDDS
 

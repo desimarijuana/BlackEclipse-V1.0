@@ -14,10 +14,10 @@ beforeEach(() => {
 });
 
 describe('defaultSidebarConfig', () => {
-  it('assigns F1..F10 then F12 in canonical section order', () => {
+  it('assigns unique F1..F12 in canonical section order', () => {
     const config = defaultSidebarConfig();
     expect(config.shortcutVersion).toBe(2);
-    expect(config.sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F12']);
+    expect(config.sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11']);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
 });
@@ -51,7 +51,7 @@ describe('v1 migration', () => {
       ],
     };
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(untouched));
-    expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F12']);
+    expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11']);
   });
 
   it('adopts v2 defaults for an untouched current-order v1 save', () => {
@@ -142,7 +142,9 @@ describe('shortcutTab', () => {
   it('returns the first enabled section bound to the key code', () => {
     const config = defaultSidebarConfig();
     expect(shortcutTab(config, 'F1')).toBe('chat');
-    expect(shortcutTab(config, 'F11')).toBeNull();
+    // Every default shortcut now maps to a section; an unassigned code is null.
+    expect(shortcutTab(config, 'F11')).not.toBeNull();
+    expect(shortcutTab(config, '')).toBeNull();
     const disabled = { ...config, sections: config.sections.map((s) => (s.id === 'chat' ? { ...s, enabled: false } : s)) };
     expect(shortcutTab(disabled, 'F1')).toBeNull();
   });

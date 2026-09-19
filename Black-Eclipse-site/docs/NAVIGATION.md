@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-17
+last-verified: 2026-09-18
 ---
 
 # Navigation — Where Things Live
@@ -39,6 +39,8 @@ Black-Eclipse-site/
 | Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-format.ts` (price/cap/time formatting), `market-loaders.tsx` (table loaders) |
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
+| Work on Fundamentals | `src/lib/fundamentals/` (`types`=Eclipse schema, `providers/`=SEC/FMP/Yahoo, `normalize`, `compute`=metrics+risks, `format`), `src/components/screens/fundamentals/` (`panel.tsx`=presentational sections, `use-fundamentals.ts`=data hook), route `src/app/api/fundamentals/route.ts`; Yahoo bridge `scripts/yfinance_fundamentals.py`. Rendered ONLY as the Market Screener popup's **Fundamentals** tab (`src/components/screens/tradingview-chart.tsx`) — there is no standalone page |
+| Add a fundamentals provider | One `FundamentalsProvider` file in `src/lib/fundamentals/providers/` + a line in `PROVIDER_ORDER` (`providers/index.ts`); add its key to `PROVIDER_KEYS` if it needs one |
 | Work on portfolio | `src/components/screens/portfolio/`, `src/lib/portfolio/`, `src/hooks/use-portfolio-engine.ts` |
 | Work on portfolio risk/correlation math | `src/lib/portfolio/matrix.ts` (date-aligned correlation + Euler risk decomposition), `src/lib/portfolio/risk.ts` |
 | Work on portfolio widgets | `src/components/screens/portfolio/widgets.tsx` (registry + renderers), `use-fund-data.ts` (data bundle) |
@@ -113,6 +115,7 @@ Black-Eclipse-site/
 | `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
 | `economics/` | Macro fetching, sources, calendar, snapshot |
+| `fundamentals/` | Investor financial-analysis tier: provider abstraction (SEC/FMP/Yahoo), Eclipse schema normalization, derived metrics + data-driven risks, JDDS cache — see `ARCHITECTURE.md` › Fundamentals |
 | `investor-eye/` | World-state tier: event sources (GDELT/USGS/FIRMS/news), normalization/clustering, map layers, source governance catalog, geographic boundary lookup, risk/exposure/transmission analytics, ingestion + cache |
 | `journal/` | Journal data access, trade math, analytics suite, CSV import |
 | `market-workspace/` | The market-panel workspace engine |
@@ -131,7 +134,7 @@ Black-Eclipse-site/
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
-`data/[capability]` · `providers` · `provider-keys` · `investor-eye/*` (state, events, countries,
+`data/[capability]` · `providers` · `provider-keys` · `fundamentals` · `investor-eye/*` (state, events, countries,
 markets, layers, economy, companies, portfolio, risk, analogues, query, graph,
 health).
 
@@ -143,6 +146,8 @@ health).
 | Widget registry (dashboard) | `src/lib/dashboard/registry.tsx` |
 | DataHub topic/entry | `src/lib/workspace/data-hub.ts` |
 | Connector contract | `src/lib/connectors/types.ts` |
+| Fundamentals provider contract | `src/lib/fundamentals/types.ts` (`FundamentalsProvider`) |
+| Fundamentals Eclipse schema | `src/lib/fundamentals/types.ts` (`FundamentalsSnapshot`, `FundamentalPeriod`, `FundamentalMetric`) |
 | Investor Eye event-source contract | `src/lib/investor-eye/types.ts` (`EventSource`) |
 | Investor Eye source-governance contract | `src/lib/investor-eye/source-catalog.ts` (`SourceCatalogEntry`) |
 | Investor Eye map-layer contract | `src/lib/investor-eye/types.ts` (`MapLayer`) + `layers.ts` |
@@ -167,6 +172,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/api-guard.ts`, auth/env behavior | `ARCHITECTURE.md`, `QUICKSTART.md` |
 | `src/lib/connectors/`, `src/lib/provider-keys.ts`, `src/app/api/data-sources/`, `src/app/api/provider-keys/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer + operator credentials), `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/investor-eye/`, `src/components/investor-eye/`, `src/app/api/investor-eye/` | `ARCHITECTURE.md` (Investor Eye), `investor-eye-architecture.md`, `DATA-FLOW.md`, `DECISIONS.md` |
+| `src/lib/fundamentals/`, `src/components/screens/fundamentals/`, `src/app/api/fundamentals/`, `scripts/yfinance_fundamentals.py` | `ARCHITECTURE.md` (Fundamentals), `DATA-FLOW.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |

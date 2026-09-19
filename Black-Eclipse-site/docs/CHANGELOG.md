@@ -43,6 +43,63 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **UI / Chat** — Shrank the floating assistant dock: width `760px` → `560px`
+  and transcript max height `min(60vh,520px)` → `min(45vh,360px)` so the popup
+  no longer dominates the dashboard. Pure sizing change.
+  no doc change — cosmetic sizing, contracts unchanged.
+
+- **Fundamentals / Screener** — Removed the standalone **Fundamentals** sidebar
+  tab (`fundamentals.tsx`, `AppTab`, sidebar config, search registry, top-bar,
+  shell keep-alive). Fundamentals now lives ONLY in the Market Screener stock
+  popup, and its two tabs were merged: the old **All Metrics** and
+  **Fundamentals** are a single **Fundamentals** tab showing the filings-backed
+  snapshot (Overview/Statements/Valuation/Timeline) followed by the live price
+  history, performance, core metrics and profile. Default sidebar shortcuts
+  revert to the original unique F1–F11 (no more F12 dup). The shared panel in
+  `src/components/screens/fundamentals/panel.tsx` is now the only UI surface.
+  Verified live: NVDA popup Fundamentals tab renders fundamentals + live metrics
+  together with 8 charts, 0 page errors. 1307 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Fundamentals / Screener popup** — The Market Screener stock detail popup now
+  has a **Fundamentals** tab that renders the same normalized analysis as the
+  full page (Overview / Statements / Valuation / Timeline, metric tiles with
+  value+period+YoY+source, charts). The presentational sections were extracted to
+  `src/components/screens/fundamentals/panel.tsx` so the screen and popup share
+  one implementation; the old "All Metrics" tab is preserved unchanged. New
+  `countryToMarketId()` in `src/lib/markets.ts` normalizes JDDS's inconsistent
+  country values ("United States" / "US") to a market id. Fixed a real SEC bug
+  the popup surfaced: **tag families now union instead of stopping at the first
+  tag with any data**, so a preferred revenue tag that stops being reported
+  (NVIDIA after FY2022) no longer blanks the latest revenue; sub-annual windows
+  sharing a fiscal end date are ignored. Verified live: NVDA popup → SEC + Yahoo,
+  revenue $215.94B / +65.5% YoY, 6 charts. 3 new tests.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Fundamentals** — New investor-focused **Fundamentals** sidebar tab backed by
+  a multi-provider layer (`src/lib/fundamentals/`): `Provider → Normalization →
+  JDDS → UI`, with the UI depending only on the Eclipse schema. Providers in
+  authority order: **SEC EDGAR** (US, keyless, preferred XBRL filings; EBITDA
+  derived and labelled), **Financial Modeling Prep** (optional key, first
+  secondary vendor), **Yahoo Finance** (yfinance bridge, global fallback; new
+  `scripts/yfinance_fundamentals.py` returns 5 years of real statements). New
+  `FundamentalsCache` JDDS model + in-memory map (stale-while-revalidate; 24h
+  fresh / 7d hard), `GET /api/fundamentals`, and a screen with Overview /
+  Statements / Valuation / Timeline sections covering revenue, margins, ROE/ROA/
+  ROIC, debt ratios, growth + 3Y/5Y CAGR, valuation multiples, dividends,
+  earnings/ownership, charts (revenue, EPS, FCF, margins, debt vs cash, valuation
+  history) and data-driven insights/risks. Every metric shows value, period, YoY,
+  source and last-updated. Funds/ETFs with no statements still render their real
+  profile + multiples rather than a blank page. Verified live: AAPL 8 periods /
+  39 metrics / 6 insights from SEC+Yahoo; RELIANCE (IN) via Yahoo in INR; SPY
+  profile + multiples; unknown symbols return an honest UNAVAILABLE. 16 new tests.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`
+- **Scheduler / Sidebar** — Default sidebar shortcuts are now unique F1–F12
+  (the old scheme folded every section past the tenth onto F12, which collided
+  when the Fundamentals section was added); `doctor.js` already auto-applies the
+  additive `FundamentalsCache` table on boot, so zero-config is preserved.
+  no doc change — covered by the Fundamentals entry above.
+
 - **Command Center / Earnings** — The Earnings Calendar widget now renders a
   **month grid calendar** instead of a list: 6×7 Sunday-first cells with per-day
   ticker chips (+N overflow), a highlighted today and selected day, month

@@ -42,6 +42,7 @@ const EconomicsScreen = dynamic(() => import('./economics/economics').then((m) =
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+
 const PortfolioScreen = dynamic(() => import('./portfolio').then((m) => m.PortfolioScreen), {
   ssr: false,
   loading: () => <ScreenSkeleton />,

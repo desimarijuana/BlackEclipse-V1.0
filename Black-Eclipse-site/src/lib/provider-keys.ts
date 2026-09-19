@@ -100,6 +100,8 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     test: { url: 'https://api.twelvedata.com/price?symbol=AAPL', auth: { kind: 'query', name: 'apikey' } } },
   { envVar: 'MARKETSTACK_API_KEY', label: 'Marketstack', provider: 'Marketstack', category: 'market', description: 'End-of-day and intraday prices.', docsUrl: 'https://marketstack.com/dashboard',
     test: { url: 'https://api.marketstack.com/v1/tickers', auth: { kind: 'query', name: 'access_key' } } },
+  { envVar: 'FINANCIALMODELINGPREP_API_KEY', label: 'Financial Modeling Prep', provider: 'Financial Modeling Prep', category: 'market', description: 'Normalized fundamentals, ratios and analyst estimates for the Fundamentals page.', docsUrl: 'https://site.financialmodelingprep.com/developer/docs',
+    test: { url: 'https://financialmodelingprep.com/api/v3/quote/AAPL', auth: { kind: 'query', name: 'apikey' } } },
 
   // ── Crypto ────────────────────────────────────────────────────────────────
   { envVar: 'COINGECKO_API_KEY', label: 'CoinGecko', provider: 'CoinGecko', category: 'crypto', description: 'Higher rate limits for crypto market data.', docsUrl: 'https://www.coingecko.com/en/developers/dashboard',

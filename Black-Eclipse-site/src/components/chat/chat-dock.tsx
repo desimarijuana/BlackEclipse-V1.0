@@ -334,7 +334,7 @@ export function ChatDock({
       )}
       data-nodrag
     >
-      <div className="pointer-events-auto flex w-[min(760px,100%)] flex-col gap-2">
+      <div className="pointer-events-auto flex w-[min(560px,100%)] flex-col gap-2">
         {minimized ? (
           // Minimized: a compact pill. Click restores; drag repositions (the
           // position is persisted). Defaults to the bottom-right corner, and
@@ -363,7 +363,7 @@ export function ChatDock({
           <div
             role="dialog"
             aria-label={title}
-            className="flex max-h-[min(60vh,520px)] flex-col overflow-hidden rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card-strong shadow-2xl shadow-black/50 animate-fade-in"
+            className="flex max-h-[min(45vh,360px)] flex-col overflow-hidden rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card-strong shadow-2xl shadow-black/50 animate-fade-in"
           >
             <div className="flex shrink-0 items-center gap-2 border-b border-border/10 px-4 py-2.5">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/15 text-primary">

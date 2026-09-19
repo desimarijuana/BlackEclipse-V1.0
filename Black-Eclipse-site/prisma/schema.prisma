@@ -177,6 +177,25 @@ model MacroSeries {
   @@index([source])
 }
 
+// Cached normalized fundamentals snapshot per symbol. The full Eclipse
+// snapshot (statements + derived metrics + insights) is stored as JSON so the
+// Fundamentals page loads instantly from JDDS and providers are hit only when
+// the cache is stale. `primarySource` records which provider supplied the
+// statements; `payload` is the provider-merged, UI-ready document.
+model FundamentalsCache {
+  id            String   @id @default(cuid())
+  symbol        String
+  market        String
+  primarySource String
+  payload       String // JSON: FundamentalsSnapshot
+  fetchedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([symbol, market])
+  @@index([primarySource])
+  @@index([updatedAt])
+}
+
 // Key-value system/user config.
 model SystemConfig {
   key   String @id

@@ -13,6 +13,16 @@ import { TabBar } from '@/components/ui/tab-bar';
 import { ChartWidget } from '@/components/chart/chart-widget';
 import { cn, getTradingViewSymbol } from '@/lib/utils';
 import { formatPriceWithCurrency } from '@/lib/market-currency';
+import { countryToMarketId } from '@/lib/markets';
+import { useFundamentals } from '@/components/screens/fundamentals/use-fundamentals';
+import {
+  FundamentalsBody,
+  TickerHeader,
+  LoadingState as FundamentalsLoading,
+  UnavailableState as FundamentalsUnavailable,
+  ErrorState as FundamentalsError,
+  type FundamentalSectionId,
+} from '@/components/screens/fundamentals/panel';
 
 // Full detail record served by /api/asset-details — superset of the screener
 // row so the overlay can render complete data for ANY asset type.
@@ -169,6 +179,7 @@ export function TradingViewChart({
   const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals'>('chart');
   const [showGlossary, setShowGlossary] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [fundSection, setFundSection] = useState<FundamentalSectionId>('overview');
 
   useEffect(() => {
     setMounted(true);
@@ -176,6 +187,14 @@ export function TradingViewChart({
 
   const isCrypto = symbol.endsWith('USD') || symbol.endsWith('USDT') || symbol.includes('-');
   const isCryptoAsset = isCrypto || country === 'CRYPTO';
+
+  // The screener row carries a country name ("United States") or code ("US");
+  // normalize to the JDDS market id the fundamentals providers key off.
+  const fundamentalsMarket = countryToMarketId(country);
+
+  // Provider → Normalization → JDDS snapshot. Fetched only while the
+  // Fundamentals tab is open so the screener click stays fast by default.
+  const fund = useFundamentals(activeTab === 'fundamentals' ? symbol : '', fundamentalsMarket);
 
   // ── Full asset details ──────────────────────────────────────────────────
   // The screener row only carries partial data. Fetch the COMPLETE record
@@ -348,7 +367,7 @@ export function TradingViewChart({
               )}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-              Interactive terminal node for stocks &amp; digital assets.
+              Interactive chart, filings-backed fundamentals &amp; key metrics.
             </p>
           </div>
         </div>
@@ -388,7 +407,7 @@ export function TradingViewChart({
               className="mb-0"
               items={[
                 { id: 'chart', label: 'Interactive Chart' },
-                { id: 'fundamentals', label: 'All Metrics' },
+                { id: 'fundamentals', label: 'Fundamentals' },
               ]}
               activeId={activeTab}
               onChange={(id) => setActiveTab(id as 'chart' | 'fundamentals')}
@@ -429,7 +448,28 @@ export function TradingViewChart({
 
             {activeTab === 'fundamentals' && (
               <div className="p-4 md:p-6 space-y-5 text-xs">
-                {/* ── Real price history chart (ECharts) ─────────────────── */}
+                {/* ── Filings-backed fundamentals (provider snapshot) ──────── */}
+                {fund.loading && <FundamentalsLoading />}
+                {!fund.loading && fund.unavailable && (
+                  <FundamentalsUnavailable symbol={symbol} market={fundamentalsMarket} reason={fund.error} />
+                )}
+                {!fund.loading && fund.error && !fund.unavailable && (
+                  <FundamentalsError message={fund.error} onRetry={fund.refresh} />
+                )}
+                {!fund.loading && fund.data && (
+                  <div className="flex flex-col gap-5">
+                    <TickerHeader data={fund.data} />
+                    <FundamentalsBody
+                      data={fund.data}
+                      section={fundSection}
+                      onSectionChange={setFundSection}
+                      compact
+                    />
+                  </div>
+                )}
+
+                {/* ── Live metrics (chart, performance, quote stats) ───────── */}
+                {/* Real price history chart (ECharts) */}
                 <div className="rounded-2xl border border-border/40 glass-card p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <h2 className="font-serif text-sm font-bold border-b border-border/20 pb-2 flex items-center gap-2">

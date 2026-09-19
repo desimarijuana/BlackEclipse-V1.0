@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { resolveQuery } from './resolver';
-import { marketDisplayName, MARKET_FULL_NAME } from '@/lib/markets';
+import { marketDisplayName, MARKET_FULL_NAME, countryToMarketId } from '@/lib/markets';
+
+describe('countryToMarketId', () => {
+  it('normalizes full country names and codes to a market id', () => {
+    expect(countryToMarketId('United States')).toBe('US');
+    expect(countryToMarketId('US')).toBe('US');
+    expect(countryToMarketId('Pakistan')).toBe('PK');
+    expect(countryToMarketId('China')).toBe('CN');
+    expect(countryToMarketId('United Kingdom')).toBe('UK');
+  });
+
+  it('is case-insensitive and trims, defaulting empty to US', () => {
+    expect(countryToMarketId(' united states ')).toBe('US');
+    expect(countryToMarketId('')).toBe('US');
+    expect(countryToMarketId(null)).toBe('US');
+  });
+
+  it('passes an unknown value through upper-cased (never a wrong fallback)', () => {
+    expect(countryToMarketId('Narnia')).toBe('NARNIA');
+  });
+});
 
 describe('market display names', () => {
   it('returns full country names', () => {
