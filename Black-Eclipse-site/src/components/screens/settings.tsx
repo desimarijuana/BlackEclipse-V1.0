@@ -32,6 +32,7 @@ import { ChartSettingsPanel } from "./chart-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
+import { getUserMarket, setUserMarket } from "@/lib/user-market";
 
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -300,7 +301,14 @@ export function Settings({
         setLlm({ ...s.llm, apiKey: "" });
       }
       if (s.newsFeeds) setFeeds(s.newsFeeds);
-      if (s.preferences) setPrefs(s.preferences);
+      if (s.preferences) {
+        setPrefs(s.preferences);
+        // Seed the shared market preference from the saved default, but never
+        // override a market the user already picked on a market surface.
+        if (s.preferences.defaultMarket && !getUserMarket()) {
+          setUserMarket(s.preferences.defaultMarket);
+        }
+      }
       if (s.integrations) setIntegrations(s.integrations);
 
       if (Array.isArray(m.markets)) {

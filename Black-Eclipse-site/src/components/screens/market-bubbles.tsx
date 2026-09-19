@@ -24,6 +24,7 @@ import {
   HEATMAP_MARKETS, heatmapMeta, isNotionalVolume, turnoverFor,
   type HeatmapPayload, type HeatmapStock, type VolumeSummary,
 } from '@/lib/heatmap';
+import { resolveUserMarket, setUserMarket } from '@/lib/user-market';
 
 interface BubbleData {
   symbol: string;
@@ -330,8 +331,11 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   const [volumeSummary, setVolumeSummary] = useState<VolumeSummary | null>(null);
   // True when the market genuinely has no priced instruments in JDDS.
   const [unavailable, setUnavailable] = useState(false);
-  // Selected market id — the heatmap market list is the source of truth.
-  const [selectedMarket, setSelectedMarket] = useState<string>('CRYPTO');
+  // Selected market id — the heatmap market list is the source of truth. The
+  // initial value follows the user's shared market preference (last explicit
+  // choice → locale), NOT a hard-coded CRYPTO, so the Bubbles page agrees with
+  // whatever country the user picked on the Screener.
+  const [selectedMarket, setSelectedMarket] = useState<string>(() => resolveUserMarket());
 
   // Advanced filters
   const [selectedSector, setSelectedSector] = useState<string>('All');
@@ -427,6 +431,7 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
 
   // Switch market and reload data.
   const handleMarketChange = (market: string) => {
+    setUserMarket(market);
     setSelectedMarket(market);
     setSearchQuery('');
     setSelectedSector('All');

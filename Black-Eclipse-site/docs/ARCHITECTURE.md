@@ -726,6 +726,12 @@ providers show an amber dot. Keyboard: `/` focuses the rail search, ↑/↓ move
 between sections, Esc blurs. Deep links may carry a block anchor
 (`settings.market#priority`) which scrolls to the matching `data-anchor`.
 
+**One user market.** `src/lib/user-market.ts` holds a single persisted
+"which market is the user looking at" value (`eclipse_user_market`), shared by
+the Screener and Market Bubbles. Resolution: explicit hint → stored choice →
+Settings `defaultMarket` → browser locale → `US`. The Screener writes it on
+market select; Bubbles opens on it instead of a hard-coded `CRYPTO`.
+
 **One LLM key.** The AI section's key is edited through the provider-key vault
 (keyed by the selected preset's env var), not a separate `llm.apiKey` field.
 `getLLMConfig()` resolves the effective key as raw config → env var → vault

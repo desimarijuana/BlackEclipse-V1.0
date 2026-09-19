@@ -29,6 +29,7 @@ import { StockCryptoTables } from './market-stock-tables';
 import { FundEtfTables } from './market-fund-etf-tables';
 import { TableLoading } from './market-loaders';
 import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
+import { resolveUserMarket, setUserMarket } from '@/lib/user-market';
 import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 
 // Pure formatting helpers live in ./market-format.ts (extracted to keep this
@@ -422,6 +423,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     // Market cards carry DB ids (e.g. "US"); the <select> uses "USA" — normalize.
     const normalized = market === 'US' ? 'USA' : market;
     setUserCountry(normalized);
+    // Share the choice with the other market surfaces (Market Bubbles), which
+    // read the heatmap market ids (US, not USA).
+    setUserMarket(market === 'USA' ? 'US' : market);
     if (normalized === 'GLOBAL') {
       handleTabChange('markets');
       return;

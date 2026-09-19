@@ -11,6 +11,7 @@
 // "squares" became large rectangles.
 
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import type { DayAggregate } from '@/lib/journal/types';
 import { intensityFor } from '@/lib/journal/intensity';
@@ -251,28 +252,35 @@ export function MiniCalendar({
         <span className="ml-auto text-muted-foreground/50">darker = bigger move</span>
       </div>
 
-      {/* Hover tooltip */}
-      {hovered?.day && hoverPos && (
-        <div
-          className="pointer-events-none fixed z-50 w-48 rounded-xl border border-white/10 glass-card-strong p-3 shadow-2xl shadow-black/50"
-          style={{
-            left: Math.min(hoverPos.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 210),
-            top: Math.min(hoverPos.y + 12, (typeof window !== 'undefined' ? window.innerHeight : 800) - 190),
-          }}
-        >
-          <p className="font-mono text-[10px] font-bold text-foreground">{hovered.date}</p>
-          <div className="mt-2 space-y-1 font-mono text-[10px]">
-            <Row label="Net R" value={fmtR(hovered.day.netR)} tone={hovered.day.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
-            <Row label="Net P&L" value={fmtMoney(hovered.day.netPnl)} tone={hovered.day.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
-            <Row label="Trades" value={String(hovered.day.trades)} />
-            <Row
-              label="Win rate"
-              value={hovered.day.trades > 0 ? `${Math.round((hovered.day.wins / hovered.day.trades) * 100)}%` : '—'}
-            />
-            <Row label="Best / Worst" value={`${fmtR(hovered.day.bestR)} / ${fmtR(hovered.day.worstR)}`} />
-          </div>
-        </div>
-      )}
+      {/* Hover tooltip.
+          Rendered through a portal to <body>: `position: fixed` is relative to
+          the nearest ancestor with a transform/filter/backdrop-filter, and the
+          frosted-glass card around this chart sets one — so without the portal
+          the tooltip anchored to the card and drifted down instead of following
+          the cursor. The portal restores true viewport positioning. */}
+      {hovered?.day && hoverPos && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[100] w-48 rounded-xl border border-white/10 glass-card-strong p-3 shadow-2xl shadow-black/50"
+            style={{
+              left: Math.max(8, Math.min(hoverPos.x + 12, window.innerWidth - 210)),
+              top: Math.max(8, Math.min(hoverPos.y + 12, window.innerHeight - 190)),
+            }}
+          >
+            <p className="font-mono text-[10px] font-bold text-foreground">{hovered.date}</p>
+            <div className="mt-2 space-y-1 font-mono text-[10px]">
+              <Row label="Net R" value={fmtR(hovered.day.netR)} tone={hovered.day.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+              <Row label="Net P&L" value={fmtMoney(hovered.day.netPnl)} tone={hovered.day.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+              <Row label="Trades" value={String(hovered.day.trades)} />
+              <Row
+                label="Win rate"
+                value={hovered.day.trades > 0 ? `${Math.round((hovered.day.wins / hovered.day.trades) * 100)}%` : '—'}
+              />
+              <Row label="Best / Worst" value={`${fmtR(hovered.day.bestR)} / ${fmtR(hovered.day.worstR)}`} />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

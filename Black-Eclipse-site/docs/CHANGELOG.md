@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Journal / Market Bubbles fixes** — (1) The MiniCalendar ("Last 39 Weeks")
+  hover tooltip drifted down instead of following the cursor: `position: fixed`
+  is relative to the nearest ancestor with a `backdrop-filter`, and the frosted
+  glass-card wrapper set one. The tooltip is now rendered through a portal to
+  `<body>`, restoring true viewport positioning. (2) Market Bubbles always
+  opened on CRYPTO, ignoring the country the user selected elsewhere. Added
+  `lib/user-market.ts` (one persisted market preference: last explicit choice →
+  Settings default → browser locale → US); the Screener writes it, the Bubbles
+  page and Settings seed from it. 1312 tests pass, `tsc` clean, build clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Settings / UX phase 4 (P2)** — Economics providers are now sub-grouped
   (Central banks / Multilateral / Official statistics / Market data) instead of
   one 44-row list. Added keyboard navigation (`/` focuses search, ↑/↓ switch
