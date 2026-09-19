@@ -6,6 +6,7 @@ import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
 import { useT } from '@/lib/i18n';
+import { useThemeStore } from '@/lib/theme';
 
 interface TopBarProps {
   onToggleMenu?: () => void;
@@ -31,6 +32,9 @@ const TAB_PLACEHOLDER: Record<string, string> = {
 
 export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
   const t = useT();
+  const appName = useThemeStore((s) => s.theme.appName);
+  const logoUrl = useThemeStore((s) => s.theme.logoUrl);
+  const logoText = useThemeStore((s) => s.theme.logoText);
   const [modKey, setModKey] = useState('Ctrl');
   const [indexed, setIndexed] = useState(0);
 
@@ -63,12 +67,16 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
              <Menu size={20} />
            </button>
          )}
-         <div className="flex md:hidden items-center gap-2 text-primary font-medium">
-           <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20">
-             <Sparkles size={14} />
-           </div>
-           <span className="text-foreground text-xs font-mono font-bold tracking-tight">BlackEclipse</span>
-         </div>
+          <div className="flex md:hidden items-center gap-2 text-primary font-medium">
+            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 overflow-hidden">
+              {logoUrl
+                ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
+                : logoText
+                  ? <span className="text-[11px] font-bold leading-none">{logoText}</span>
+                  : <Sparkles size={14} />}
+            </div>
+            <span className="text-foreground text-xs font-mono font-bold tracking-tight">{appName}</span>
+          </div>
        </div>
 
        {/* Live price ribbon (flexible, fills the middle) + frosted search bar */}

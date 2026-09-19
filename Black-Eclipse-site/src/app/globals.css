@@ -82,6 +82,19 @@ html:not(.dark) .ws-glass {
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Brand + market tokens. Defaults here; Settings › Customization overrides
+   * them through the managed `#eclipse-theme-overrides` stylesheet. Everything
+   * below (scrollbars, hover borders, sliders, legacy color remaps) reads
+   * these instead of hard-coded greens so one theme recolors the whole UI. */
+  --brand: #047857;
+  --brand-rgb: 4 120 87;
+  --brand-accent: #34d399;
+  --brand-accent-rgb: 52 211 153;
+  --brand-hover: #06966c;
+  --bullish: #22c55e;
+  --bullish-rgb: 34 197 94;
+  --bearish: #ff3e3e;
+  --bearish-rgb: 255 62 62;
   --background: oklch(0.93 0.01 240);
   --foreground: oklch(0.15 0.015 240);
   --card: oklch(0.96 0.005 240);
@@ -137,6 +150,15 @@ html:not(.dark) .ws-glass {
 }
 
 .dark {
+  --brand: #7aff78;
+  --brand-rgb: 122 255 120;
+  --brand-accent: #34d399;
+  --brand-accent-rgb: 52 211 153;
+  --brand-hover: #a3ffa2;
+  --bullish: #7aff78;
+  --bullish-rgb: 122 255 120;
+  --bearish: #ff3e3e;
+  --bearish-rgb: 255 62 62;
   --background: oklch(0 0 0);
   --foreground: oklch(0.9551 0 0);
   --card: oklch(0.1448 0 0);
@@ -333,43 +355,43 @@ html:not(.dark) .ws-glass {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(122, 255, 120, 0.2);
+  background: rgb(var(--brand-rgb) / 0.2);
   border-radius: 9999px;
   border: 1.5px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(122, 255, 120, 0.8);
+  background: rgb(var(--brand-rgb) / 0.8);
 }
 
 /* Firefox global scrollbar support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(122, 255, 120, 0.2) transparent;
+  scrollbar-color: rgb(var(--brand-rgb) / 0.2) transparent;
 }
 
 /* Stock-detail metrics rail: always-visible, wider scrollbar so the rail is
    clearly scrollable (the global 6px thumb was too easy to miss). */
 .tv-metrics-rail {
   scrollbar-width: thin;
-  scrollbar-color: rgba(122, 255, 120, 0.45) rgba(122, 255, 120, 0.06);
+  scrollbar-color: rgb(var(--brand-rgb) / 0.45) rgb(var(--brand-rgb) / 0.06);
 }
 .tv-metrics-rail::-webkit-scrollbar {
   width: 10px;
 }
 .tv-metrics-rail::-webkit-scrollbar-track {
-  background: rgba(122, 255, 120, 0.06);
+  background: rgb(var(--brand-rgb) / 0.06);
   border-radius: 9999px;
 }
 .tv-metrics-rail::-webkit-scrollbar-thumb {
-  background: rgba(122, 255, 120, 0.45);
+  background: rgb(var(--brand-rgb) / 0.45);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .tv-metrics-rail::-webkit-scrollbar-thumb:hover {
-  background: rgba(122, 255, 120, 0.8);
+  background: rgb(var(--brand-rgb) / 0.8);
 }
 
 /* News category tabs: 1px dark-grey scrollbar matching the site's other
@@ -467,8 +489,8 @@ html:not(.dark) .ws-glass {
 .dark {
   .bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), 
   [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
-    background: #0f0f0f !important; /* Solid deep gray (#0f0f0f) for dark mode */
-    border: 2px solid rgba(255, 255, 255, 0.05) !important;
+    background: var(--card) !important; /* Solid card surface for dark mode */
+    border: 2px solid rgb(var(--brand-rgb) / 0.05) !important;
   }
 }
 
@@ -476,15 +498,7 @@ html:not(.dark) .ws-glass {
 a.bg-card:hover, 
 .bg-card.cursor-pointer:hover,
 .interactive-card:hover {
-  border-color: #047857 !important; /* Deep green for light mode */
-}
-
-.dark {
-  a.bg-card:hover, 
-  .bg-card.cursor-pointer:hover,
-  .interactive-card:hover {
-    border-color: #7aff78 !important; /* Lime green for dark mode */
-  }
+  border-color: var(--brand) !important;
 }
 
 /* Premium Button Styles matching button.png (Pill shape, dark background, subtle border, white text) */
@@ -570,7 +584,7 @@ a.text-primary,
   transition: color 0.25s ease;
   
   &:hover {
-    color: #047857 !important; /* Deep green hover in light mode */
+    color: var(--brand) !important;
   }
 }
 
@@ -584,7 +598,7 @@ a.text-primary,
     color: oklch(0.70 0.01 240) !important; /* Elegant gray highlight for dark mode */
     
     &:hover {
-      color: #7aff78 !important; /* Lime green hover in dark mode */
+      color: var(--brand) !important;
     }
   }
 }
@@ -592,37 +606,30 @@ a.text-primary,
 /* Keep structural elements like SVGs and text icons matching the primary green color */
 svg.text-primary,
 .text-primary svg {
-  color: #047857 !important; /* Light mode */
+  color: var(--brand) !important;
 }
 
-.dark {
-  svg.text-primary,
-  .text-primary svg {
-    color: #7aff78 !important; /* Dark mode */
-  }
-}
-
-/* Global Remap: Translate legacy Tailwind emerald classes directly to readable green */
+/* Global Remap: legacy Tailwind emerald classes follow the theme brand color. */
 [class*="text-emerald-"],
 .text-emerald-400,
 .text-emerald-500,
 .text-emerald-300,
 .text-emerald-200 {
-  color: #047857 !important; /* Light mode */
+  color: var(--brand) !important;
 }
 
 [class*="bg-emerald-500"],
 .bg-emerald-400,
 .bg-emerald-500,
 .bg-emerald-600 {
-  background-color: #047857 !important; /* Light mode */
+  background-color: var(--brand) !important;
 }
 
 [class*="bg-emerald-500/"],
 [class*="bg-emerald-500\/10"],
 [class*="bg-emerald-500\/15"],
 [class*="bg-emerald-500\/20"] {
-  background-color: rgba(4, 120, 87, 0.12) !important; /* Light mode */
+  background-color: rgb(var(--brand-rgb) / 0.12) !important;
 }
 
 [class*="border-emerald-500/"],
@@ -631,71 +638,34 @@ svg.text-primary,
 .border-emerald-500\/20,
 .border-emerald-500\/30,
 .border-emerald-500\/35 {
-  border-color: rgba(4, 120, 87, 0.2) !important; /* Light mode */
+  border-color: rgb(var(--brand-rgb) / 0.2) !important;
 }
 
 .accent-emerald-500 {
-  accent-color: #047857 !important; /* Light mode */
+  accent-color: var(--brand) !important;
 }
 
-.dark {
-  [class*="text-emerald-"],
-  .text-emerald-400,
-  .text-emerald-500,
-  .text-emerald-300,
-  .text-emerald-200 {
-    color: #7aff78 !important; /* Dark mode */
-  }
-
-  [class*="bg-emerald-500"],
-  .bg-emerald-400,
-  .bg-emerald-500,
-  .bg-emerald-600 {
-    background-color: #7aff78 !important; /* Dark mode */
-  }
-
-  [class*="bg-emerald-500/"],
-  [class*="bg-emerald-500\/10"],
-  [class*="bg-emerald-500\/15"],
-  [class*="bg-emerald-500\/20"] {
-    background-color: rgba(122, 255, 120, 0.12) !important; /* Dark mode */
-  }
-
-  [class*="border-emerald-500/"],
-  .border-emerald-500\/10,
-  .border-emerald-500\/15,
-  .border-emerald-500\/20,
-  .border-emerald-500\/30,
-  .border-emerald-500\/35 {
-    border-color: rgba(122, 255, 120, 0.2) !important; /* Dark mode */
-  }
-
-  .accent-emerald-500 {
-    accent-color: #7aff78 !important; /* Dark mode */
-  }
-}
-
-/* Global Remap: Translate legacy Tailwind rose/red classes to complementary vibrant red (#ff3e3e) */
+/* Global Remap: translate legacy Tailwind rose/red classes to the bearish token. */
 [class*="text-rose-"],
 .text-rose-400,
 .text-rose-500,
 .text-rose-300,
 .text-rose-200 {
-  color: #ff3e3e !important;
+  color: var(--bearish) !important;
 }
 
 [class*="bg-rose-500"],
 .bg-rose-400,
 .bg-rose-500,
 .bg-rose-600 {
-  background-color: #ff3e3e !important;
+  background-color: var(--bearish) !important;
 }
 
 [class*="bg-rose-500/"],
 [class*="bg-rose-500\/10"],
 [class*="bg-rose-500\/15"],
 [class*="bg-rose-500\/20"] {
-  background-color: rgba(255, 62, 62, 0.12) !important;
+  background-color: rgb(var(--bearish-rgb) / 0.12) !important;
 }
 
 [class*="border-rose-500/"],
@@ -703,7 +673,7 @@ svg.text-primary,
 .border-rose-500\/15,
 .border-rose-500\/20,
 .border-rose-500\/30 {
-  border-color: rgba(255, 62, 62, 0.2) !important;
+  border-color: rgb(var(--bearish-rgb) / 0.2) !important;
 }
 
 /* Global outer container margin spacing to let pages breathe */
@@ -736,7 +706,7 @@ div.group\/sidebar,
   border: 2px solid #0a0a0a;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #7aff78;
+  background: var(--brand);
 }
 
 /* Custom Firefox Scrollbar */
@@ -750,10 +720,10 @@ input[type="date"],
 input[type="datetime-local"],
 input[type="month"],
 input[type="time"] {
-  accent-color: #7aff78;
+  accent-color: var(--brand);
   color-scheme: dark;
   background-color: rgba(10, 10, 10, 0.6);
-  border: 1px solid rgba(122, 255, 120, 0.2);
+  border: 1px solid rgb(var(--brand-rgb) / 0.2);
   border-radius: 0.375rem;
   padding: 0.5rem;
   color: #ffffff;
@@ -763,17 +733,17 @@ input[type="date"]:focus,
 input[type="datetime-local"]:focus,
 input[type="month"]:focus,
 input[type="time"]:focus {
-  border-color: #7aff78;
-  box-shadow: 0 0 0 1px #7aff78;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
 }
 
 /* Checkboxes and Toggles */
 input[type="checkbox"] {
-  accent-color: #7aff78;
+  accent-color: var(--brand);
   cursor: pointer;
 }
 input[type="radio"] {
-  accent-color: #7aff78;
+  accent-color: var(--brand);
   cursor: pointer;
 }
 
@@ -786,12 +756,12 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
   background-color: rgba(10, 10, 10, 0.6);
-  border: 1px solid rgba(122, 255, 120, 0.2);
+  border: 1px solid rgb(var(--brand-rgb) / 0.2);
   border-radius: 0.375rem;
   color: #ffffff;
 }
 input[type="number"]:focus {
-  border-color: #7aff78;
+  border-color: var(--brand);
   outline: none;
 }
 
@@ -813,17 +783,17 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   margin-top: -6px; /* Centers the thumb on the track */
-  background-color: #7aff78;
+  background-color: var(--brand);
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(122, 255, 120, 0.5);
+  box-shadow: 0 0 10px rgb(var(--brand-rgb) / 0.5);
   transition: transform 0.1s ease, background-color 0.1s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-  background-color: #a3ffa2;
+  background-color: var(--brand-hover);
 }
 
 input[type="range"]::-moz-range-track {
@@ -833,19 +803,19 @@ input[type="range"]::-moz-range-track {
 }
 
 input[type="range"]::-moz-range-thumb {
-  background-color: #7aff78;
+  background-color: var(--brand);
   border: none;
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(122, 255, 120, 0.5);
+  box-shadow: 0 0 10px rgb(var(--brand-rgb) / 0.5);
   transition: transform 0.1s ease, background-color 0.1s ease;
   cursor: pointer;
 }
 
 input[type="range"]::-moz-range-thumb:hover {
   transform: scale(1.2);
-  background-color: #a3ffa2;
+  background-color: var(--brand-hover);
 }
 
 
@@ -1070,24 +1040,24 @@ html:not(.dark) .glass-button:hover {
 /* Primary-action variant — same frosted recipe, tinted with the brand green so
  * an "add"/"transaction" button stays emphasised while remaining real glass. */
 .glass-button-add {
-  background: rgba(4, 120, 87, 0.28);
+  background: rgb(var(--brand-rgb) / 0.28);
   backdrop-filter: blur(16px) saturate(1.5);
   color: var(--primary);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(122, 255, 120, 0.14);
+    inset 0 1px 0 rgb(var(--brand-rgb) / 0.14);
 }
 .glass-button-add:hover {
-  background: rgba(4, 120, 87, 0.42);
+  background: rgb(var(--brand-rgb) / 0.42);
 }
 html:not(.dark) .glass-button-add {
-  background: rgba(4, 120, 87, 0.14);
+  background: rgb(var(--brand-rgb) / 0.14);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
 html:not(.dark) .glass-button-add:hover {
-  background: rgba(4, 120, 87, 0.22);
+  background: rgb(var(--brand-rgb) / 0.22);
 }
 
 /* ── Accessibility preferences ───────────────────────────────────────────────
@@ -1096,11 +1066,20 @@ html:not(.dark) .glass-button-add:hover {
  * Motion is also honoured from the OS via the media query below. */
 .a11y-reduce-motion *,
 .a11y-reduce-motion *::before,
-.a11y-reduce-motion *::after {
+.a11y-reduce-motion *::after,
+.theme-no-anim *,
+.theme-no-anim *::before,
+.theme-no-anim *::after {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
+}
+
+/* Customization › Glow off — hide the ambient Aurora glow without unmounting
+ * it, so the preference needs no prop drilling into the app shell. */
+.theme-no-glow [data-aurora-glow] {
+  display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

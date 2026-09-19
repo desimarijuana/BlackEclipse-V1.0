@@ -72,6 +72,7 @@ import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
+import { useHydrateTheme } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -86,6 +87,8 @@ function ScreenSkeleton() {
 function StockChatContent() {
   // Hydrate interface language + accessibility prefs from localStorage once.
   useHydrateI18n();
+  // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
+  useHydrateTheme();
   const t = useT();
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [query, setQuery] = useState('');

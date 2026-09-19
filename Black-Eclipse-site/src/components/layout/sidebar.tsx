@@ -6,6 +6,7 @@ import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
 import { useT, navLabelKey } from '@/lib/i18n';
+import { useThemeStore } from '@/lib/theme';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
@@ -45,6 +46,11 @@ export function Sidebar({
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const t = useT();
+  // Centralized branding (Settings › Customization). Falls back to the shipped
+  // Eclipse mark/name when not customized.
+  const appName = useThemeStore((s) => s.theme.appName);
+  const logoUrl = useThemeStore((s) => s.theme.logoUrl);
+  const logoText = useThemeStore((s) => s.theme.logoText);
 
   // User-customized menu: order, visibility, and shortcuts come from the
   // shared store (edited in Settings › Sidebar). Hydrate once on mount.
@@ -84,11 +90,15 @@ export function Sidebar({
       }`}>
         <div className="flex items-center gap-2 overflow-hidden">
           <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
-            {/* Sparkles Logo (hidden on hover when collapsed) */}
-            <div className={`w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 transition-all duration-200 ${
+            {/* Brand logo (custom image or mark) — hidden on hover when collapsed */}
+            <div className={`w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-sm shadow-primary/20 transition-all duration-200 overflow-hidden ${
               isCollapsed ? 'group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75' : ''
             }`}>
-              <Sparkles size={14} className="animate-pulse" />
+              {logoUrl
+                ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
+                : logoText
+                  ? <span className="text-xs font-bold leading-none">{logoText}</span>
+                  : <Sparkles size={14} className="animate-pulse" />}
             </div>
             
             {/* Expand Slide Icon (shows on hover when collapsed) */}
@@ -106,7 +116,7 @@ export function Sidebar({
             <span className={`text-sm font-semibold tracking-tight truncate transition-all duration-300 ${
               isCollapsed ? 'opacity-0 translate-x-2' : 'opacity-100 translate-x-0'
             }`}>
-              BlackEclipse
+              {appName}
             </span>
           )}
         </div>
@@ -220,10 +230,12 @@ export function Sidebar({
         {isCollapsed ? (
           <div className="flex justify-center">
             <div 
-              className="w-9 h-9 rounded-xl bg-accent border border-border flex justify-center items-center font-bold text-xs text-muted-foreground"
-              title="BlackEclipse"
+              className="w-9 h-9 rounded-xl bg-accent border border-border flex justify-center items-center font-bold text-xs text-muted-foreground overflow-hidden"
+              title={appName}
             >
-              B
+              {logoUrl
+                ? <img src={logoUrl} alt="" className="h-full w-full object-contain" />
+                : (logoText || appName.charAt(0) || 'E')}
             </div>
           </div>
         ) : (
@@ -231,7 +243,7 @@ export function Sidebar({
             isCollapsed ? 'opacity-0' : 'opacity-100'
           }`}>
             <div className="flex flex-col truncate max-w-[130px]">
-              <span className="font-semibold text-foreground truncate">BlackEclipse</span>
+              <span className="font-semibold text-foreground truncate">{appName}</span>
               <span className="text-[9px] text-muted-foreground uppercase">{t('sidebar.terminal')}</span>
             </div>
             {/* Settings gear button — bottom-right of the Terminal footer */}

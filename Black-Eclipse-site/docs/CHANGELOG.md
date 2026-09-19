@@ -71,15 +71,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Earnings (fixed)** — The embedded Market Screener calendar was invisible:
+  the `earnings:calendar` DataHub topic was only registered in the dashboard
+  registry, which the Screener never imports, so `useTopic` hung on "Loading…"
+  forever. The topic is now registered at module scope in
+  `earnings-calendar.tsx` (idempotent), so any consumer works. Also redesigned
+  the screener embed: a proper section header (CalendarClock icon + serif title
+  + Hide) matching Sectors/Shifters, and the roomy layout splits into month grid
+  (left) + selected-day detail (right) instead of one tall column. Removed the
+  orphaned `earnings` i18n nav key. 1322 tests pass, `tsc` clean, build clean.
+  docs updated: `docs/CHANGELOG.md`
+
 - **Earnings (revised)** — Removed the standalone `earnings` tab/screen added
-  earlier: it cluttered the sidebar with another page. The month-grid earnings
-  calendar (shared `components/screens/earnings-calendar.tsx`) is now embedded
-  at the TOP of the Market Screener as a hideable section, and the Command
-  Center widget renders the same component densely. One calendar, two embeds,
-  no extra page; default F-keys revert to F1–F11. Removed `earnings-screen.tsx`,
-  the AppTab/Sidebar/palette/action entries, and the widget expand affordance.
-  1321 tests pass, `tsc` clean, build clean.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 
 - **Journal / Quick Add Trade** — Added a single Add-Trade entry point on the
   Journal header (`QuickAddTrade`), reachable from every sub-tab, with a global

@@ -6,7 +6,7 @@ import {
   ScanSearch,
   Layers, Award, TrendingUp, Sliders, X, Coins, ChevronDown,
   Info, Briefcase, Building2, Globe, RefreshCw, ArrowLeft,
-  Eye
+  Eye, CalendarClock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
@@ -1151,10 +1151,19 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
 
       {/* Earnings Calendar — embedded at the top of the screener (no separate page). */}
       {sectionVisible('earnings') && (
-        <div className="animate-fade-in-up">
-          <div className="p-5 rounded-2xl glass-card border border-white/10 dark:border-white/5">
-            <EarningsCalendar title="Earnings Calendar" />
+        <div className="animate-fade-in-up p-5 rounded-2xl glass-card border border-white/10 dark:border-white/5 flex flex-col">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarClock className="text-primary w-5 h-5" />
+            <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Earnings Calendar</h2>
+            <button
+              onClick={() => toggleSection('earnings')}
+              className="ml-auto text-[10px] font-bold text-muted-foreground hover:text-rose-400 uppercase tracking-wider cursor-pointer transition-colors"
+              title="Hide this section"
+            >
+              Hide
+            </button>
           </div>
+          <EarningsCalendar />
         </div>
       )}
 
