@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
   Trash2, RotateCcw, Check, Eye, EyeOff, Activity, ShieldCheck,
-  Save, Sparkles, ChevronRight, Cpu, Server, KeyRound,
+  Sparkles, ChevronRight, Cpu, Server, KeyRound,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
-  Loader2,
+  Loader2, Search, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -219,9 +219,10 @@ function StatusDot({ ok }: { ok: boolean | undefined }) {
 export function Settings({ initialSection }: { initialSection?: SectionId } = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // Transient result toast shown in the footer status area.
+  const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [section, setSection] = useState<SectionId>(initialSection ?? "general");
+  const [query, setQuery] = useState("");
 
   // LLM
   const [llm, setLlm] = useState<LLMConfig>({
@@ -291,7 +292,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
         if (enabled.length > 0) setSelectedMarkets(enabled);
       }
     } catch {
-      setMessage("Failed to load settings. Is the server running?");
+      setToast({ kind: "error", text: "Failed to load settings. Is the server running?" });
     } finally {
       setLoading(false);
     }
@@ -301,49 +302,95 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     fetchAll();
   }, []);
 
-  const saveSettings = async (sections?: string[]) => {
+  /**
+   * Persist a partial settings payload. Every server-backed control applies
+   * instantly (there is no Save button), so this is called on change — debounced
+   * by the callers below to coalesce rapid keystrokes/toggles. It reports the
+   * real result via the transient toast and never claims success on failure.
+   */
+  const persist = useCallback(async (body: Record<string, unknown>) => {
     setSaving(true);
-    setSaved(false);
-    setMessage(null);
+    setToast(null);
     try {
-      const body: Record<string, unknown> = {};
-      const should = (n: string) => !sections || sections.includes(n);
-
-      if (should("llm")) body.llm = llm;
-      if (should("feeds")) body.newsFeeds = feeds;
-      if (should("prefs")) body.preferences = prefs;
-
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setSaved(true);
-        setMessage("Settings saved.");
-        setTimeout(() => setSaved(false), 2000);
-      } else {
-        setMessage(data.error || "Failed to save settings");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ kind: "error", text: data.error || "Failed to save" });
+        return;
       }
+      if (data.llm) setLlm({ ...data.llm, apiKey: "" });
+      if (Array.isArray(data.newsFeeds)) setFeeds(data.newsFeeds);
+      if (data.preferences) setPrefs(data.preferences);
+      setToast({ kind: "ok", text: "Saved" });
     } catch {
-      setMessage("Failed to save settings");
+      setToast({ kind: "error", text: "Failed to save" });
     } finally {
       setSaving(false);
     }
+  }, []);
+
+  // Debounced preference persistence (currency/timezone are local-only, but
+  // theme/market/refresh live server-side). One timer coalesces rapid changes.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuePrefs = useCallback(
+    (next: AppPreferences) => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => void persist({ preferences: next }), 500);
+    },
+    [persist],
+  );
+  useEffect(() => () => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+  }, []);
+
+  const updatePrefs = (patch: Partial<AppPreferences>) => {
+    setPrefs((p) => {
+      const next = { ...p, ...patch };
+      queuePrefs(next);
+      return next;
+    });
   };
+
+  // LLM config persists on change too, debounced so typing a model id or key
+  // does not fire a request per keystroke. The server keeps the stored key when
+  // `apiKey` is blank, so a masked field never wipes it.
+  const llmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (llmTimer.current) clearTimeout(llmTimer.current);
+  }, []);
+  const updateLlm = (patch: Partial<LLMConfig>, debounce = 600) => {
+    setLlm((p) => {
+      const next = { ...p, ...patch };
+      if (llmTimer.current) clearTimeout(llmTimer.current);
+      llmTimer.current = setTimeout(() => void persist({ llm: next }), debounce);
+      return next;
+    });
+  };
+
+  // Auto-dismiss a success toast after a beat; keep errors until replaced.
+  useEffect(() => {
+    if (!toast || toast.kind === "error") return;
+    const t = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const clearStorage = (keys: string[]) => {
     keys.forEach((k) => localStorage.removeItem(k));
-    setMessage(`Cleared ${keys.length} local data item${keys.length > 1 ? "s" : ""}.`);
+    setToast({ kind: "ok", text: `Cleared ${keys.length} local data item${keys.length > 1 ? "s" : ""}.` });
   };
 
   const applyTheme = (theme: "dark" | "light") => {
-    setPrefs((p) => ({ ...p, theme }));
     document.documentElement.classList.toggle("dark", theme === "dark");
+    updatePrefs({ theme });
   };
 
-  // Test the in-progress LLM config (before saving) against the live endpoint.
+  // Test the current LLM config against the live endpoint. The in-progress
+  // values are sent with the request, so it tests what the field shows even if
+  // the debounced save has not landed yet.
   const testLlm = async () => {
     setTestingLlm(true);
     setLlmTest(null);
@@ -375,20 +422,42 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
     );
   }
 
-  const NAV: { id: SectionId; label: string; desc: string; icon: React.ElementType }[] = [
-    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette },
-    { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles },
-    { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot },
-    { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon },
-    { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity },
-    { id: "market", label: "Market Data", desc: "Screener, charts & markets", icon: Globe2 },
-    { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper },
-    { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity },
-    { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft },
-    { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck },
-    { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database },
-    { id: "system", label: "System", desc: "Health & integrations", icon: Cpu },
+  // Rail items carry extra `terms` so the search box can match the words a
+  // user would actually type ("dark", "key", "fred", "rss") — not just labels.
+  const NAV: {
+    id: SectionId;
+    label: string;
+    desc: string;
+    icon: React.ElementType;
+    group: "Personalize" | "Intelligence" | "System";
+    terms: string[];
+  }[] = [
+    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh", "language"] },
+    { id: "aurora", label: "Aurora", desc: "Glow colors", icon: Sparkles, group: "Personalize", terms: ["aurora", "glow", "sentiment", "colors", "palette"] },
+    { id: "charts", label: "Charts", desc: "Chart colors", icon: Activity, group: "Personalize", terms: ["charts", "candles", "colors", "palette", "series", "positive", "negative"] },
+    { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
+
+    { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
+    { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon, group: "Intelligence", terms: ["investor eye", "world state", "gdelt", "usgs", "firms", "events", "geopolitics", "map", "sources"] },
+    { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity, group: "Intelligence", terms: ["economics", "macro", "fred", "bea", "bls", "calendar", "indicators", "yield", "inflation"] },
+    { id: "market", label: "Market Data", desc: "Screener, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
+    { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub"] },
+
+    { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck, group: "System", terms: ["alerts", "notifications", "channels", "email", "webhook", "telegram", "discord", "slack"] },
+    { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database, group: "System", terms: ["data", "storage", "clear", "reset", "chats", "watchlist", "portfolio", "cache"] },
+    { id: "system", label: "System", desc: "Health & integrations", icon: Cpu, group: "System", terms: ["system", "health", "database", "jdds", "integrations", "status", "diagnostics"] },
   ];
+
+  const GROUPS: Array<"Personalize" | "Intelligence" | "System"> = ["Personalize", "Intelligence", "System"];
+
+  const needle = query.trim().toLowerCase();
+  const visibleNav = useMemo(() => {
+    if (!needle) return NAV;
+    return NAV.filter((item) => {
+      const hay = [item.label, item.desc, ...item.terms].join(" ").toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [needle, NAV]);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
@@ -404,30 +473,61 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
           </div>
         </div>
 
+        {/* Rail search — answers "where do I change X?" without scanning. */}
+        <div className="px-3 pt-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search settings…"
+              className="w-full h-9 rounded-xl border border-border/30 bg-transparent pl-8 pr-2.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+            />
+          </div>
+        </div>
+
         <nav className="flex-1 overflow-y-auto scrollbar-hide p-3 space-y-1.5">
-          {NAV.map((item) => {
-            const Icon = item.icon;
-            const active = section === item.id;
+          {visibleNav.length === 0 && (
+            <p className="px-3 py-6 text-[10px] text-muted-foreground text-center">
+              No settings match “{query}”.
+            </p>
+          )}
+          {GROUPS.map((group) => {
+            const items = visibleNav.filter((i) => i.group === group);
+            if (items.length === 0) return null;
             return (
-              <button
-                key={item.id}
-                onClick={() => setSection(item.id)}
-                className={cn(
-                  "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
-                  active
-                    ? "bg-primary/10 text-foreground border-primary/25 shadow-sm shadow-primary/5"
-                    : "text-muted-foreground border-transparent hover:bg-accent/50 hover:text-foreground hover:border-border/20"
+              <div key={group} className="space-y-1.5">
+                {!needle && (
+                  <p className="px-3 pt-2 pb-0.5 text-[9px] uppercase tracking-[0.18em] font-bold text-muted-foreground/60">
+                    {group}
+                  </p>
                 )}
-              >
-                <span className="flex items-center gap-3 min-w-0">
-                  <Icon size={15} className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")} />
-                  <span className="flex flex-col items-start leading-tight">
-                    <span>{item.label}</span>
-                    <span className="text-[9px] text-muted-foreground font-normal tracking-wide hidden lg:block">{item.desc}</span>
-                  </span>
-                </span>
-                {active && <ChevronRight size={13} className="text-primary shrink-0" />}
-              </button>
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const active = section === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setSection(item.id)}
+                      className={cn(
+                        "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border",
+                        active
+                          ? "bg-primary/10 text-foreground border-primary/25 shadow-sm shadow-primary/5"
+                          : "text-muted-foreground border-transparent hover:bg-accent/50 hover:text-foreground hover:border-border/20"
+                      )}
+                    >
+                      <span className="flex items-center gap-3 min-w-0">
+                        <Icon size={15} className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+                        <span className="flex flex-col items-start leading-tight">
+                          <span>{item.label}</span>
+                          <span className="text-[9px] text-muted-foreground font-normal tracking-wide hidden lg:block">{item.desc}</span>
+                        </span>
+                      </span>
+                      {active && <ChevronRight size={13} className="text-primary shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
@@ -482,7 +582,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                   </Field>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Default Market">
-                      <Select value={prefs.defaultMarket} onValueChange={(v) => setPrefs((p) => ({ ...p, defaultMarket: v ?? "US" }))}>
+                      <Select value={prefs.defaultMarket} onValueChange={(v) => updatePrefs({ defaultMarket: v ?? "US" })}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
@@ -498,7 +598,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       </Select>
                     </Field>
                     <Field label="Live Refresh" hint="How often dashboards re-fetch prices.">
-                      <Select value={String(prefs.refreshMs)} onValueChange={(v) => setPrefs((p) => ({ ...p, refreshMs: Number(v) }))}>
+                      <Select value={String(prefs.refreshMs)} onValueChange={(v) => updatePrefs({ refreshMs: Number(v) })}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
@@ -575,7 +675,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       <button
                         key={preset.id}
                         onClick={() =>
-                          setLlm((p) => ({ ...p, baseUrl: preset.baseUrl, model: preset.model }))
+                          updateLlm({ baseUrl: preset.baseUrl, model: preset.model }, 0)
                         }
                         className={cn(
                           "text-left rounded-xl border px-3.5 py-3 transition-all cursor-pointer",
@@ -625,13 +725,13 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                     <Field label="Model" hint="The exact model id this provider expects.">
                       <Input
                         value={llm.model}
-                        onChange={(e) => setLlm((p) => ({ ...p, model: e.target.value }))}
+                        onChange={(e) => updateLlm({ model: e.target.value })}
                         placeholder="gpt-4o-mini / llama3.1"
                         className="font-mono"
                       />
                     </Field>
                     <Field label="Mode" hint="Auto follows environment variables.">
-                      <Select value={llm.provider} onValueChange={(v) => setLlm((p) => ({ ...p, provider: v as LLMProviderName }))}>
+                      <Select value={llm.provider} onValueChange={(v) => updateLlm({ provider: v as LLMProviderName }, 0)}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
@@ -651,7 +751,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5" />
                       <Input
                         value={llm.baseUrl}
-                        onChange={(e) => setLlm((p) => ({ ...p, baseUrl: e.target.value }))}
+                        onChange={(e) => updateLlm({ baseUrl: e.target.value })}
                         placeholder="https://api.openai.com/v1"
                         className="pl-8 font-mono"
                       />
@@ -671,7 +771,7 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                       <Input
                         type={showApiKey ? "text" : "password"}
                         value={llm.apiKey}
-                        onChange={(e) => setLlm((p) => ({ ...p, apiKey: e.target.value }))}
+                        onChange={(e) => updateLlm({ apiKey: e.target.value })}
                         placeholder={
                           llm.hasApiKey
                             ? "Key stored — leave blank to keep it"
@@ -864,7 +964,11 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
                         </span>
                         <Toggle
                           checked={f.enabled}
-                          onChange={(v) => setFeeds((prev) => prev.map((x) => (x.id === f.id ? { ...x, enabled: v } : x)))}
+                          onChange={(v) => {
+                            const next = feeds.map((x) => (x.id === f.id ? { ...x, enabled: v } : x));
+                            setFeeds(next);
+                            void persist({ newsFeeds: next });
+                          }}
                         />
                       </div>
                     </div>
@@ -940,27 +1044,41 @@ export function Settings({ initialSection }: { initialSection?: SectionId } = {}
           </div>
         </div>
 
-        {/* Save bar — only shown for sections whose edits are server-persisted
-            (General preferences, AI/LLM config, News feeds). Everything else
-            persists instantly to localStorage or its own endpoint. */}
-        <div className={cn("shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3", !["general", "ai", "news"].includes(section) && "hidden")}>
-          {message ? (
-            <span className="text-xs text-primary flex items-center gap-1.5">
-              {saved && <Check className="w-3.5 h-3.5" />}
-              {message}
+        {/* Status strip — there is no Save button: every control applies
+            instantly. This line reports the real save state (or the last
+            error) so the user always knows whether their change persisted. */}
+        <div className="shrink-0 border-t border-border/10 glass-card px-6 md:px-8 py-3 flex items-center justify-between gap-3">
+          {toast ? (
+            <span
+              className={cn(
+                "text-xs flex items-center gap-1.5",
+                toast.kind === "error" ? "text-rose-400" : "text-primary"
+              )}
+            >
+              {toast.kind === "error" ? <AlertCircle className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
+              {toast.text}
+            </span>
+          ) : saving ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> Saving…
             </span>
           ) : (
             <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-primary" /> Changes take effect immediately.
+              <Activity className="w-3.5 h-3.5 text-primary" /> Changes save automatically.
             </span>
           )}
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={() => fetchAll()}>
-              <RefreshCcw className="w-4 h-4 mr-1" /> Discard
-            </Button>
-            <Button size="sm" className="cursor-pointer rounded-xl" onClick={() => saveSettings()} disabled={saving}>
-              <Save className="w-4 h-4 mr-1" />
-              {saving ? "Saving..." : "Save All"}
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {feeds.filter((f) => f.enabled).length}/{feeds.length} feeds live
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer rounded-xl"
+              onClick={() => { setToast(null); void fetchAll(); }}
+              title="Reload from the server"
+            >
+              <RefreshCcw className="w-4 h-4 mr-1" /> Reload
             </Button>
           </div>
         </div>

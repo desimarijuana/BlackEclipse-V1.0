@@ -713,6 +713,14 @@ chips deep-link to each provider's home section. Provider buckets currently:
 AI/LLM (14), Economics (44), News (Finnhub), Market (15), Investor Eye (GDELT/
 USGS/FIRMS, keyless).
 
+**Persistence is instant and uniform.** There is no Save button. Server-backed
+controls (`preferences`, `llm`, `newsFeeds`) POST to `/api/settings` on change —
+debounced 500–600ms for prefs/LLM, immediate for feed toggles. A status strip
+reports "Saving…", the real result, or the real error. The rail groups sections
+under Personalize / Intelligence / System and carries a keyword search (each
+section declares `terms`). Long registries filter, sort configured-first, and
+collapse past 8 rows.
+
 **AI presets are one source of truth.** `src/lib/agent/presets.ts` declares every
 OpenAI-compatible provider (base URL + default model). The AI Agent picker and
 the catalog's AI entries are both derived from it, so adding a provider is one

@@ -21,7 +21,7 @@
 // back — the field starts empty and shows only a masked hint.
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Trash2, Wrench } from "lucide-react";
+import { AlertCircle, Check, ExternalLink, Eye, EyeOff, KeyRound, Loader2, Plug, Save, Search, Trash2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -339,6 +339,8 @@ export function ProviderRegistry({
 }) {
   const catalog = useProviderCatalog();
   const { keys, reload } = useKeyStatuses();
+  const [filter, setFilter] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   if (!catalog) {
     return (
@@ -348,26 +350,55 @@ export function ProviderRegistry({
     );
   }
 
-  const providers = catalog.categories
+  const all = catalog.categories
     .flatMap((c) => c.providers)
     .filter((p) => providerHome(p.id, p.envVar, p.category) === home);
 
-  if (providers.length === 0) return null;
+  if (all.length === 0) return null;
 
-  const available = providers.filter((p) => p.status === "builtin" || p.status === "connected").length;
+  // Configured/available providers float to the top so the list opens on what
+  // is working, not on a wall of "not configured".
+  const isUp = (p: CatalogProvider) => p.status === "builtin" || p.status === "connected";
+  const needle = filter.trim().toLowerCase();
+  const matches = (p: CatalogProvider) => {
+    if (!needle) return true;
+    const meta = providerMeta(p.id, p.category);
+    return [p.name, meta.purpose, p.envVar ?? "", ...meta.usedBy].join(" ").toLowerCase().includes(needle);
+  };
+  const filtered = all
+    .filter(matches)
+    .sort((a, b) => Number(isUp(b)) - Number(isUp(a)) || a.name.localeCompare(b.name));
+
+  const available = all.filter(isUp).length;
+  const COLLAPSE_AT = 8;
+  const collapsible = !needle && filtered.length > COLLAPSE_AT;
+  const shown = collapsible && !showAll ? filtered.slice(0, COLLAPSE_AT) : filtered;
 
   return (
     <div className="rounded-2xl border border-border/20 glass-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border/10">
-        <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary flex items-center gap-1.5">
-          <Plug size={11} /> {title}
-        </p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">
-          {available} of {providers.length} available · keys are encrypted in JDDS, never returned
-        </p>
+      <div className="px-4 py-3 border-b border-border/10 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary flex items-center gap-1.5">
+            <Plug size={11} /> {title}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {available} of {all.length} available · keys encrypted in JDDS, never returned
+          </p>
+        </div>
+        {all.length > COLLAPSE_AT && (
+          <div className="relative shrink-0">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter…"
+              className="w-36 h-7 rounded-lg border border-border/30 bg-transparent pl-7 pr-2 text-[10px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+            />
+          </div>
+        )}
       </div>
       <div className="divide-y divide-border/10">
-        {providers.map((p) => (
+        {shown.map((p) => (
           <ProviderRegistryRow
             key={p.id}
             provider={p}
@@ -376,7 +407,18 @@ export function ProviderRegistry({
             onOpenWizard={onOpenWizard}
           />
         ))}
+        {filtered.length === 0 && (
+          <p className="px-4 py-4 text-[10px] text-muted-foreground">No providers match “{filter}”.</p>
+        )}
       </div>
+      {collapsible && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="w-full px-4 py-2.5 border-t border-border/10 text-[10px] font-semibold text-primary hover:bg-accent/20 transition-colors cursor-pointer"
+        >
+          {showAll ? "Show fewer" : `Show all ${filtered.length} providers`}
+        </button>
+      )}
     </div>
   );
 }

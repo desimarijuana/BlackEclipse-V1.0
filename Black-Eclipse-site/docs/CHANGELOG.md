@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-18
 
+- **Settings / UX phase 2** — Unified persistence: every Settings control now
+  applies instantly (debounced POST for preferences/LLM, immediate for news
+  toggles), the Save/Discard bar is replaced by a status strip that reports the
+  real save state or error, and no section claims "changes take effect
+  immediately" while requiring Save. Also: grouped rail under Personalize /
+  Intelligence / System, added a settings search box (keyword `terms` per
+  section), and provider registries now filter, sort configured-first, and
+  collapse past 8 rows with "Show all N". 1307 tests pass, `tsc` clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Settings / UI polish** — Removed the section eyebrow labels, removed the
   "Powered by JDDS" rail footer, and aligned the Settings rail + section icons
   with the app's page-icon language (`rounded-2xl border border-primary/25
