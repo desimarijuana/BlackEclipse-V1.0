@@ -15,7 +15,7 @@ import {
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
   ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
-  Loader2, Search, AlertCircle, SlidersHorizontal,
+  Loader2, Search, AlertCircle, SlidersHorizontal, Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { CustomizationSettingsPanel } from "./customization-settings";
+import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
@@ -109,12 +110,12 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "customization" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "customization" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
   | "sidebar" | "alerts" | "data" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "customization", "ai", "investor-eye", "economics", "market", "news",
+  "general", "customization", "sound", "ai", "investor-eye", "economics", "market", "news",
   "sidebar", "alerts", "data", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
@@ -447,7 +448,8 @@ export function Settings({
     terms: string[];
   }[] = [
     { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
-    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "sound", "sounds", "audio", "volume", "click", "tick", "feedback"] },
+    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
+    { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
@@ -793,6 +795,17 @@ export function Settings({
                   description="Centralized theming — branding (name, logo, favicon), typography, colors, radius, density and motion. Changes apply live across the whole app through shared design tokens, and persist on this device."
                 />
                 <CustomizationSettingsPanel />
+              </div>
+            )}
+
+            {section === "sound" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={Volume2}
+                  title="UI Sounds"
+                  description="Terminal-style audio feedback for navigation, actions and alerts. Pick a voice pack, fine-tune every cue, or upload your own clips — all stored on this device."
+                />
+                <SoundSettingsPanel />
               </div>
             )}
 

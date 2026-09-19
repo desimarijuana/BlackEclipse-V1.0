@@ -1181,22 +1181,32 @@ backdrop roots — see the
 Do not introduce raw `backdrop-blur-*` or flat fills for cards.
 
 **UI sounds.** Optional terminal-style audio feedback lives in
-`src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over Howler.js
-(lazy-loaded on first gesture so autoplay policies are respected and it stays out
-of the server bundle; every failure path is a silent no-op). The cue set is
-declared once in `config.ts` (`click`, `tick`, `toggle`, `success`, `error`,
-`notification`) with per-cue gain and throttle; assets are local WAVs in
-`public/sounds/`. `SoundProvider` (mounted once in `src/app/layout.tsx`) hydrates
-the persisted preferences, unlocks audio on the first pointer/key interaction,
-and runs one delegated listener that plays `toggle` for `role="switch"` /
-checkbox / radio and `click` for buttons, links and menu options. Anything can
-opt into a precise cue with `data-sound="tick|click|…"`; `sound.*() ` or the
-`eclipse:sound` CustomEvent covers async outcomes (agent run finished, alert
-fired). Deliberately excluded: hover, typing, scrolling, chart movement and
-constantly updating market data. The on/off + volume preference
-(`be_sounds_v1`, default ON at 35%) is edited in Settings › Customization ›
-Language & Access ("UI Sounds") and persisted through the client zustand
-`useSoundStore`.
+`src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over Howler.js;
+`SoundProvider` (mounted once in `src/app/layout.tsx`) **preloads** the module on
+mount, then merely *arms playback* on the first pointer/key interaction and
+explicitly resumes `Howler.ctx` before each play. That ordering is deliberate:
+Howler registers its own AudioContext-unlock listeners during module init, so it
+must be present before the gesture or the context stays suspended and audio is
+silent. Every failure path is a silent no-op. The cue set is declared once in
+`config.ts` (`click`, `tick`, `toggle`, `success`, `error`, `notification`) with
+per-cue gain, throttle, and an `essential` flag. One delegated listener plays
+`toggle` for `role="switch"` / checkbox / radio and `click` for buttons, links
+and menu options. Anything can opt into a precise cue with
+`data-sound="tick|click|…"`; `sound.*()` or the `eclipse:sound` CustomEvent
+covers async outcomes (agent run finished, alert fired). Deliberately excluded:
+hover, typing, scrolling, chart movement and constantly updating market data.
+
+Sound is **fully customizable** through a dedicated Settings › Sound tab
+(`src/components/screens/sound-settings.tsx`), not a nested card. It exposes
+master on/off + volume, a **mode** (`all` vs `essential`, where essential mutes
+confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
+upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
+`eclipse` (organic modal-synthesis ticks, the default), `mechanical`, `soft`,
+`glass`, `retro` — each providing all six cues. The manager resolves a cue's
+source per play: a user-uploaded `custom` data URL wins, otherwise the active
+pack asset; changing either rebuilds that Howl lazily and unloads the old one.
+All of it persists through the client zustand `useSoundStore` (`be_sounds_v1`;
+defaults: ON, 60%, mode `all`, pack `eclipse`).
 
 ## Architectural rules (short list)
 

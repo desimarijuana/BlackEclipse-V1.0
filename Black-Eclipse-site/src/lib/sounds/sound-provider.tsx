@@ -27,13 +27,16 @@ function isDisabled(el: Element): boolean {
 export function SoundProvider() {
   const hydrate = useSoundStore((s) => s.hydrate);
 
-  // Hydrate persisted preferences (no-op on first render to keep SSR stable).
+  // Hydrate persisted preferences (no-op on first render to keep SSR stable)
+  // and preload/decode the cue set. Preloading on mount is important: Howler
+  // registers its context-unlock listeners during module init, so it must be
+  // present before the first gesture for the AudioContext to actually resume.
   useEffect(() => {
     hydrate();
+    sound.preload();
   }, [hydrate]);
 
-  // Unlock audio on the first pointer or key interaction. `once` listeners are
-  // registered so this is cheap and self-cleaning.
+  // Arm playback on the first pointer or key interaction.
   useEffect(() => {
     const unlock = () => sound.unlock();
     window.addEventListener('pointerdown', unlock, { once: true, capture: true });

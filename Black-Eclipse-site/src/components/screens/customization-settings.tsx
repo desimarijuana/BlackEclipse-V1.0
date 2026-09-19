@@ -22,7 +22,7 @@ import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
-  Eye, EyeOff, Save, Maximize2, X, Volume2,
+  Eye, EyeOff, Save, Maximize2, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,6 @@ import {
 } from "@/lib/theme";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
-import { sound, useSoundStore } from "@/lib/sounds";
 
 type CustomTab = "theme" | "glass" | "aurora" | "charts" | "access";
 
@@ -324,9 +323,6 @@ export function CustomizationSettingsPanel() {
   const setLocale = useLocaleStore((s) => s.setLocale);
   const a11y = useLocaleStore((s) => s.a11y);
   const setA11y = useLocaleStore((s) => s.setA11y);
-  const soundPrefs = useSoundStore((s) => s.prefs);
-  const setSoundEnabled = useSoundStore((s) => s.setEnabled);
-  const setSoundVolume = useSoundStore((s) => s.setVolume);
 
   const theme = useThemeStore((s) => s.theme);
   const userPresets = useThemeStore((s) => s.userPresets);
@@ -703,43 +699,6 @@ export function CustomizationSettingsPanel() {
               <p className="text-[10px] text-muted-foreground/70 mt-0.5">
                 {t("settings.customization.languageHint")}
               </p>
-            </div>
-          </Card>
-
-          <Card icon={Volume2} title="UI Sounds">
-            <Row
-              label="UI sounds"
-              hint="Short terminal-style ticks for navigation, buttons and toggles."
-              checked={soundPrefs.enabled}
-              onChange={(v) => {
-                setSoundEnabled(v);
-                if (v) sound.click();
-              }}
-            />
-            <Slider
-              label="Volume"
-              value={Math.round(soundPrefs.volume * 100)}
-              min={0}
-              max={100}
-              step={1}
-              format={(v) => `${v}%`}
-              disabled={!soundPrefs.enabled}
-              onChange={(v) => setSoundVolume(v / 100)}
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] text-muted-foreground/70">
-                Sounds play only after your first interaction, and never on hover, typing or live price updates.
-              </p>
-              <Button
-                data-sound="success"
-                variant="outline"
-                size="sm"
-                className="cursor-pointer rounded-xl shrink-0"
-                disabled={!soundPrefs.enabled}
-                onClick={() => sound.success()}
-              >
-                Test
-              </Button>
             </div>
           </Card>
 
