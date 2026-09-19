@@ -724,10 +724,7 @@ export function CustomizationSettingsPanel() {
               step={1}
               format={(v) => `${v}%`}
               disabled={!soundPrefs.enabled}
-              onChange={(v) => {
-                setSoundVolume(v / 100);
-                sound.tick();
-              }}
+              onChange={(v) => setSoundVolume(v / 100)}
             />
             <div className="flex items-center justify-between gap-3">
               <p className="text-[10px] text-muted-foreground/70">

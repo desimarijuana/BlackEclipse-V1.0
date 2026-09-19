@@ -43,6 +43,12 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **UI / sound cues for keyboard + volume drag** — `SoundProvider` now mirrors
+  its pointer cues on keyboard activation (Enter/Space on focused buttons,
+  switches, links, menu items, tabs) and the volume slider no longer fires a
+  `tick` on every drag step, so adjusting volume stays silent until released.
+  no doc change — internal behavior, cue contracts and API unchanged.
+
 - **UI / subtle terminal sound system** — Added an optional Howler.js-backed UI
   feedback layer (`src/lib/sounds/`: cue catalogue, defensive manager, persisted
   pref store, delegated `SoundProvider` mounted once in `layout.tsx`) with six

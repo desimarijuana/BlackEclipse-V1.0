@@ -85,7 +85,26 @@ export function SoundProvider() {
     };
 
     window.addEventListener('pointerdown', onPointerDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', onPointerDown, { capture: true });
+
+    // Keyboard activation of a focused control mirrors the pointer cues.
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const target = e.target as Element | null;
+      if (!target || typeof target.closest !== 'function') return;
+      if (target.closest(SILENT_SELECTOR)) return;
+      const explicit = target.closest('[data-sound]') as HTMLElement | null;
+      if (explicit?.getAttribute('data-sound') === 'off') return;
+      const control = target.closest('[role="switch"], button, a[href], [role="menuitem"], [role="option"], [role="tab"]');
+      if (!control || isDisabled(control)) return;
+      if (control.getAttribute('role') === 'switch' || control instanceof HTMLInputElement) sound.toggle();
+      else sound.click();
+    };
+
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      window.removeEventListener('keydown', onKeyDown, { capture: true });
+    };
   }, []);
 
   return null;
