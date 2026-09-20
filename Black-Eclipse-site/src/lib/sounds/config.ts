@@ -50,7 +50,9 @@ export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
 
 // ── Voice packs ─────────────────────────────────────────────────────────────
 
-export type SoundPackId = 'eclipse' | 'mechanical' | 'soft' | 'glass' | 'retro';
+export type SoundPackId =
+  | 'eclipse' | 'mechanical' | 'soft' | 'glass' | 'retro'
+  | 'marimba' | 'typewriter' | 'digital' | 'crisp';
 
 export interface SoundPack {
   id: SoundPackId;
@@ -61,8 +63,12 @@ export interface SoundPack {
 export const SOUND_PACKS: readonly SoundPack[] = [
   { id: 'eclipse', label: 'Eclipse', description: 'Organic wooden ticks — the default terminal voice' },
   { id: 'mechanical', label: 'Mechanical', description: 'Crisp keyboard-switch clicks' },
+  { id: 'crisp', label: 'Crisp', description: 'Ultra-short dry ticks — the quietest voice' },
+  { id: 'typewriter', label: 'Typewriter', description: 'Heavy key thocks with a bright return' },
   { id: 'soft', label: 'Soft', description: 'Mellow, low-key taps for quiet workspaces' },
+  { id: 'marimba', label: 'Marimba', description: 'Warm wooden mallet notes' },
   { id: 'glass', label: 'Glass', description: 'Bright crystalline chimes' },
+  { id: 'digital', label: 'Digital', description: 'Clean, minimal electronic blips' },
   { id: 'retro', label: 'Retro', description: 'Chiptune blips for a classic feel' },
 ] as const;
 

@@ -43,6 +43,15 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-19
 
+- **UI / sound defaults off, quieter, more packs** — UI sounds are now
+  **opt-in**: `DEFAULT_SOUND_PREFERENCES` flips `enabled` to `false` and drops
+  the default master volume from 60% to **8%** (within the requested 5–10%
+  subtle range). Added four more voice packs — `crisp` (ultra-short dry tick),
+  `typewriter` (heavy key thock), `marimba` (warm wooden mallet) and `digital`
+  (minimal electronic blip) — giving nine selectable packs total, each with all
+  six cues. `tsc` clean, 1349 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Customization / full-screen preview button disabled** — "Enter full-screen
   preview" was gated on `disabled={!active && !dirty}`, so on a fresh Settings
   open (no unsaved changes) the button was dead and the mode appeared broken.

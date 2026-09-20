@@ -59,8 +59,10 @@ function defaultCues(): Record<SoundName, SoundCueSettings> {
 }
 
 export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
-  enabled: true,
-  volume: 0.6,
+  // Off by default — UI audio is opt-in. When enabled it starts quiet (8%),
+  // within the 5–10% range that reads as a subtle terminal tick.
+  enabled: false,
+  volume: 0.08,
   mode: 'all',
   pack: DEFAULT_PACK,
   cues: defaultCues(),

@@ -1201,12 +1201,14 @@ Sound is **fully customizable** through a dedicated Settings › Sound tab
 master on/off + volume, a **mode** (`all` vs `essential`, where essential mutes
 confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
 upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
-`eclipse` (organic modal-synthesis ticks, the default), `mechanical`, `soft`,
-`glass`, `retro` — each providing all six cues. The manager resolves a cue's
-source per play: a user-uploaded `custom` data URL wins, otherwise the active
-pack asset; changing either rebuilds that Howl lazily and unloads the old one.
-All of it persists through the client zustand `useSoundStore` (`be_sounds_v1`;
-defaults: ON, 60%, mode `all`, pack `eclipse`).
+`eclipse` (organic modal-synthesis ticks, the default), `mechanical`, `crisp`,
+`typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each providing
+all six cues. The manager resolves a cue's source per play: a user-uploaded
+`custom` data URL wins, otherwise the active pack asset; changing either
+rebuilds that Howl lazily and unloads the old one. All of it persists through
+the client zustand `useSoundStore` (`be_sounds_v1`). Sound is **opt-in**:
+defaults are OFF, 8% volume (a deliberately subtle tick), mode `all`, pack
+`eclipse`.
 
 ## Architectural rules (short list)
 
