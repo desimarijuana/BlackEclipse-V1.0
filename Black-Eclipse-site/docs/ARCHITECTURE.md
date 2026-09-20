@@ -1217,7 +1217,8 @@ upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
 all six cues. The manager resolves a cue's source per play: a user-uploaded
 `custom` data URL wins, otherwise the active pack asset; changing either
 rebuilds that Howl lazily and unloads the old one. All of it persists through
-the client zustand `useSoundStore` (`be_sounds_v1`). Sound is **opt-in**:
+the client zustand `useSoundStore` (`be_sounds_v2`; bumped from `_v1` when UI
+audio became opt-in, so existing installs drop the old always-on value). Sound is **opt-in**:
 defaults are OFF, 8% volume (a deliberately subtle tick), mode `all`, pack
 `eclipse`.
 

@@ -1,8 +1,8 @@
 // ── UI sound preferences ────────────────────────────────────────────────────
 // Client-only zustand store for the "UI Sounds" settings, persisted to
 // localStorage and hydrated after mount — mirroring the locale/a11y and
-// sidebar stores so SSR output stays stable. Defaults to ON at a moderate
-// volume using the Eclipse pack.
+// sidebar stores so SSR output stays stable. UI audio is **opt-in**: defaults
+// are OFF at 8% volume on the Eclipse pack.
 //
 // Customization model:
 //   * One active voice `pack`.
@@ -10,6 +10,10 @@
 //   * Per-cue `muted` toggle.
 //   * Per-cue `custom` data-URL override (user-uploaded audio), which takes
 //     precedence over the pack asset. Kept small and stored in localStorage.
+//
+// Storage is versioned: the key was bumped to `_v2` when UI audio flipped from
+// on-by-default to opt-in, so installs carrying the old always-on value pick up
+// the new OFF/8% defaults exactly once.
 
 'use client';
 
@@ -22,7 +26,9 @@ import {
   type SoundPackId,
 } from './config';
 
-export const SOUND_STORAGE_KEY = 'be_sounds_v1';
+// v2: UI audio became opt-in (OFF/8%). Bumping the key retires the old
+// always-on stored value so the new defaults apply for existing installs.
+export const SOUND_STORAGE_KEY = 'be_sounds_v2';
 
 /**
  * Sound modes:

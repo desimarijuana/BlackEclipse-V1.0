@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-20
 
+- **UI / sound opt-in default now actually takes effect** — After the previous
+  release the sound tab still opened enabled at the old volume because the
+  persisted `be_sounds_v1` value (written while UI audio was on-by-default)
+  overrode the new OFF/8% defaults, so existing browsers never picked them up.
+  Bumped the storage key to `be_sounds_v2` to retire the stale value exactly
+  once; verified in a browser that seeds the old key that the master toggle is
+  OFF and volume reads 8%. Corrected the store header comment. `tsc` clean,
+  1362 tests pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Customization / live preview no longer ignores charts & heatmaps; presets
   carry chart colors; brand generator seeds a preset; all color tokens editable**
   — Fixed three related gaps in Settings › Customization. (1) Live/draft preview
