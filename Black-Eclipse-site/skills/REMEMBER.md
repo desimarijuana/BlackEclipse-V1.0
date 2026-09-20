@@ -52,7 +52,7 @@
 - **`cn()` helper** from `src/lib/utils.ts` for class merging.
 - **Barrel exports** via `index.ts` in component folders.
 - **Single page** — tab switching via `activeTab` state in `stock-chat.tsx`, not URL routes.
-- **Demo data** lives in `src/components/screens/market-data.ts`.
+- **Demo data** lives in `src/lib/screener/data.ts` (moved out of `components/screens/` so backend routes don't import from the component tree).
 - **Filter/sort logic** is a pure hook: `src/components/screens/use-screener-filters.ts`.
 - **Skeletons** use the neutral black/grey primitives in `src/components/ui/skeleton.tsx`.
 
@@ -88,7 +88,7 @@
 ## Temporary Decisions / Workarounds
 
 - `next.config.ts` sets `eslint.ignoreDuringBuilds: true` because the large codebase has pre-existing lint warnings. Lint is run separately.
-- `market-data.ts` and `use-screener-filters.ts` were extracted specifically to reduce compile memory — keep this pattern.
+- `src/lib/screener/data.ts` and `use-screener-filters.ts` were extracted specifically to reduce compile memory — keep this pattern.
 - The dev server needs ~5GB free RAM to compile the large codebase; run it when other apps are closed.
 
 ## Future Plans

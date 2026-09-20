@@ -33,8 +33,6 @@ const eslintConfig = [
       // One-off Node import/utility scripts (plain JS, not part of the app).
       "scripts/**",
       "bin/**",
-      "check-browser.ts",
-      "check-gf.ts",
     ],
   },
 ];

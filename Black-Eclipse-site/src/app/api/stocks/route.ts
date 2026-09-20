@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSimulatedDashboard, type StockItem } from "@/components/screens/market-data";
+import { getSimulatedDashboard, type StockItem } from "@/lib/screener/data";
 import { MARKET_SEEDS } from "@/lib/scraper";
 import { toMarketId } from "@/lib/markets";
 

@@ -5,14 +5,14 @@ import { createPortal } from 'react-dom';
 import { Globe, GripVertical, Sliders, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TableLoading } from './market-loaders';
-import { priceWithCurrency, formatUsdPrice, fmtCap } from './market-format';
+import { priceWithCurrency, formatUsdPrice, fmtCap } from '@/lib/screener/format';
 import {
   GM_COLUMN_ORDER, GM_COLUMN_LABELS, GM_DEFAULTS, reorderList,
   type GmLayout, type GmConfig, type OverviewGroup,
 } from './use-global-markets';
 import type { ForexPair } from './use-market-tabs';
 import type { CommodityItem } from './use-market-tabs';
-import type { StockItem } from './market-data';
+import type { StockItem } from '@/lib/screener/data';
 
 // ── Global Markets overview ─────────────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal). This

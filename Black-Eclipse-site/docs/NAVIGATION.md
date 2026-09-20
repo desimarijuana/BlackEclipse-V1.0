@@ -39,7 +39,7 @@ Black-Eclipse-site/
 | Add a language / translate UI chrome | `src/lib/i18n/` (`locales.ts` = registry + RTL, `dictionaries/en.ts` = canonical keys, `dictionaries/index.ts` = translations, `translate.ts` = lookup, `store.ts` = persisted choice + `<html lang/dir>`, `use-t.ts` = hook) |
 | Add an accessibility option | `src/lib/i18n/store.ts` (`A11yPreferences` + document classes), `src/app/globals.css` (`a11y-*` rules), `src/components/screens/customization-settings.tsx` |
 | Change UI sounds / add a cue / add a voice pack | `src/lib/sounds/` (`config.ts` = cues + `SOUND_PACKS` + asset path helper, `sound-manager.ts` = Howler singleton with per-source cache, `store.ts` = persisted prefs incl. pack + per-cue volume/mute/custom, `sound-provider.tsx` = delegated listener), assets `public/sounds/<pack>/<cue>.wav`, UI `src/components/screens/sound-settings.tsx`; opt in with `data-sound="…"` or `sound.*()` |
-| Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-format.ts` (price/cap/time formatting), `market-loaders.tsx` (table loaders) |
+| Work on the screener | `src/components/screens/market-overview.tsx` (shell: state, fetches, filters), `use-screener-filters.ts` (pure filter/sort), `use-global-markets.ts` + `market-overview-global-markets.tsx` (Global Markets tab), `use-market-tabs.ts` (forex/commodities state), `market-stock-tables.tsx` / `market-fund-etf-tables.tsx` / `market-tables.tsx` (tables), `market-loaders.tsx` (table loaders); shared screener logic/types/placeholders live in `src/lib/screener/` (`data.ts`, `format.ts`) |
 | Work on heatmaps / volume analytics | `src/lib/heatmap.ts` (turnover math + payload contract), `src/app/api/heatmap/route.ts`, `src/lib/dashboard/heatmap-widget.tsx`, `src/components/screens/volume-analytics.tsx` |
 | Work on Market Bubbles | `src/components/screens/market-bubbles.tsx` (consumes `/api/heatmap?volume=1`) |
 | Work on the Earnings calendar | `src/components/screens/earnings-calendar.tsx` (shared grid + day detail), embedded at the top of the Market Screener (`market-overview.tsx`, `earnings` section key) and as the `EarningsCalendarWidget` (`src/lib/dashboard/widgets.tsx`); `src/lib/earnings.ts` + `src/app/api/earnings/route.ts` (Alpha Vantage → Nasdaq). No standalone page |
@@ -122,6 +122,7 @@ Black-Eclipse-site/
 | `chart/` | Chart types, data hooks, indicators, drawings, structure, providers |
 | `connectors/` | Universal Data Connector Layer: provider catalog, capability resolver, custom REST connectors, SSRF/secret security, custom datasets, scheduled refresh |
 | `provider-keys.ts` (`lib/`) | The API-key vault: registry of every operator credential + AES-GCM encrypted storage + env resolution/apply |
+| `navigation-history.ts` (`lib/`) | Capped in-memory tab-visit stack (`recordVisit`/`backTarget`) backing `Alt+←`; framework-free, no React |
 | `providers/` | Provider directory: purpose / used-by / tier metadata + the Investor Eye feature→provider map (client-safe) |
 | `dashboard/` | Widget catalog/definitions, renderers, market views, intelligence, dashboard + portfolio stores |
 | `i18n/` | Interface localization: locale registry + RTL, dictionaries, translator, persisted language/accessibility store |
@@ -134,6 +135,7 @@ Black-Eclipse-site/
 | `portfolio/` | Portfolio types + risk math |
 | `scraper/` | Price/universe scraping, scheduler, fetchers, CSV |
 | `search/` | Global search registry, intent, query grammar/operators, ranking, resolver, calculator/commands, stores |
+| `screener/` | Market-screener shared logic: instrument record types + zero-valued demo/placeholder rows (`data.ts`), price/cap/time formatting (`format.ts`). Consumed by the screener UI **and** `/api/stocks` |
 | `sidebar/` | Sidebar config + store |
 | `sounds/` | Terminal-style UI audio feedback: cue catalogue, Howler manager, persisted pref store, delegated listener provider |
 | `workspace/` | The widget workspace kernel (DataHub, ops, persistence, canvas) |

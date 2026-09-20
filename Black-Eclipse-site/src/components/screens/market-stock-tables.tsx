@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
 import { TableSkeleton } from './market-loaders';
-import type { StockItem } from './market-data';
+import type { StockItem } from '@/lib/screener/data';
 
 // ── Stocks & Crypto tables ──────────────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal): the

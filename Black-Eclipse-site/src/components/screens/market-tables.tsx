@@ -5,10 +5,10 @@ import { ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './market-loaders';
-import { formatUsdPrice } from './market-format';
+import { formatUsdPrice } from '@/lib/screener/format';
 import type { ForexPair } from './use-market-tabs';
 import type { CommodityItem } from './use-market-tabs';
-import type { StockItem } from './market-data';
+import type { StockItem } from '@/lib/screener/data';
 
 // ── Forex & Commodities tables ──────────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal): the

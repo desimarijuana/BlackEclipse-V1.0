@@ -19,7 +19,7 @@ import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
 import {
   IndexCard, SectorPerformance, ShifterItem, StockItem, FundItem, ETFItem, BlueChipItem,
-} from './market-data';
+} from '@/lib/screener/data';
 import { useScreenerFilters } from './use-screener-filters';
 import { useGlobalMarkets } from './use-global-markets';
 import { useForex, useCommodities } from './use-market-tabs';
@@ -33,10 +33,10 @@ import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
 import { resolveUserMarket, setUserMarket } from '@/lib/user-market';
 import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 
-// Pure formatting helpers live in ./market-format.ts (extracted to keep this
+// Pure formatting helpers live in @/lib/screener/format (extracted to keep this
 // file small). Currency rules: dollar assets keep "$", everything else shows
 // its native ISO code ("PKR 327.43"); commodities/forex are always USD.
-import { priceWithCurrency, timeAgo } from './market-format';
+import { priceWithCurrency, timeAgo } from '@/lib/screener/format';
 
 interface MarketOverviewScreenProps {
   onAnalyzeTicker: (ticker: string, customContextPrompt?: string) => void;

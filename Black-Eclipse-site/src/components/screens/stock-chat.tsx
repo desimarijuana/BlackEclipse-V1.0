@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
-import { backTarget, recordVisit } from './navigation-history';
+import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';

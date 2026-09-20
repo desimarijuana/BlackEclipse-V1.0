@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import type {
   StockItem, FundItem, ETFItem, BlueChipItem,
-} from './market-data';
+} from '@/lib/screener/data';
 import {
   getRegionalFunds, getRegionalEtfs, getRegionalDividendStocks,
-} from './market-data';
+} from '@/lib/screener/data';
 
 export interface ScreenerFilterState {
   apiStocks: StockItem[];

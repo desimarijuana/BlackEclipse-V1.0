@@ -251,7 +251,7 @@ coordinate through mutex flags so two heavy SQLite write storms never collide.
   is this relational edge table, aggregated by a pure builder — no graph DB.
 
 Client-side shapes:
-- `StockItem` — demo/screener record (`market-data.ts`).
+- `StockItem` — demo/screener record (`src/lib/screener/data.ts`).
 - `Message` (`src/types/chat.ts`) — chat messages.
 - Portfolio/transaction shapes come from `use-portfolio-engine.ts`; persisted client-side.
 
@@ -266,7 +266,7 @@ Client-side shapes:
    DataHub topic that wraps it.
 3. `use-screener-filters.ts` applies filter/sort logic as a pure hook; the
    screener filters/paginates **server-side**.
-4. Demo data (`market-data.ts`) is the fallback when no universe is loaded.
+4. Demo data (`src/lib/screener/data.ts`) is the fallback when no universe is loaded.
 
 ### Symbol/universe management
 - `getTradingViewSymbol()` maps raw symbols → TradingView format (crypto, indices, PSX `.KA`, India `.NS`, etc.).

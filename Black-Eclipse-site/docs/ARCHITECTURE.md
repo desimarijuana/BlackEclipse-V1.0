@@ -71,7 +71,7 @@ listeners:
   tracks selection by stable id, not index, so sorting or a refresh cannot move
   the selection. Screens opt in with their existing root scope.
 - **Sub-tabs and history.** `Alt+1..9`/`Alt+0` select sub-tabs (Journal,
-  Economics). Because there is no router, `src/components/screens/navigation-history.ts`
+  Economics). Because there is no router, `src/lib/navigation-history.ts`
   keeps a capped in-memory stack of visited tabs that `Alt+←` walks back through.
 
 ## Layer 1 — Screens & components
@@ -1231,6 +1231,46 @@ audio became opt-in, so existing installs drop the old always-on value). Sound i
 defaults are OFF, 8% volume (a deliberately subtle tick), mode `all`, pack
 `eclipse`.
 
+## Module boundaries (terminal · shared · backend · harness)
+
+The repository is organized by **layer**, not by feature silo. Every file belongs
+to exactly one of these four zones; a change that blurs them is a boundary
+violation and should be corrected before it lands.
+
+| Zone | Lives in | Owns |
+|---|---|---|
+| **Frontend / terminal UI** | `src/components/` | Screens, layout, chat, chart, journal, workspace/UI shells. Client-only; `'use client'` where stateful. |
+| **Shared infrastructure** | `src/lib/`, `src/hooks/`, `src/types/` | Pure logic, data access, domain modules, React hooks, shared types. Imported by both frontend and backend. |
+| **Backend** | `src/app/api/**/route.ts`, `src/app/api/**` handlers, `scripts/`, `prisma/` | Thin route handlers, background workers (`src/instrumentation.ts`), importers, schema/DB. |
+| **Harness (future)** | `src/lib/agent/` today | The agent runtime: providers, tool loop, research pipeline. See below. |
+
+**Rules that follow from this:**
+- A backend route may import from `src/lib/`, `src/hooks/`, `src/types/` — but
+  **never** from `src/components/`. Pure logic that a route needs belongs in
+  `src/lib/` (this is why screener data/formatting moved to `src/lib/screener/`).
+- A component may import from `src/lib/`, `src/hooks/`, `src/types/` and other
+  components. Server-only code must never be reachable from a client component.
+- `src/hooks/` holds only React hooks; framework-free helpers live in `src/lib/`.
+- Prefer `@/` path aliases over deep relative paths across zones.
+
+### Future harness placement (NOT built yet — reserve the boundaries)
+
+The agentic finance harness will extend the existing `src/lib/agent/` seed, not
+replace it. When it is built, each concern gets its own **subfolder** under
+`src/lib/` so it has a clean contract boundary:
+
+| Harness concern | Future home | Notes |
+|---|---|---|
+| Agents (run loop, roles) | `src/lib/agent/` (**exists**) | `loop.ts`, `registry.ts`, `types.ts`, `presets.ts` are the seed. Do not duplicate the tool loop. |
+| Tools / MCP tools | `src/lib/agent/*-tools.ts` (**exists**) | `tools.ts` (`ToolDefinition`), `dataset-tools.ts`, `investor-eye-tools.ts`, `journal-tools.ts`. New capability families are added here. |
+| Skills | `src/lib/skills/` (reserved) | Agent-facing skill manifests — distinct from repo `/skills/*.md` engineering docs. Do not conflate the two. |
+| Workflows | `src/lib/workflows/` (reserved) | Multi-step orchestration graphs over tools/skills. |
+| Memory | `src/lib/agent/` + JDDS (**exists**) | `ResearchReport` / `AgentRun` / `ResearchFinding` models persist runs. |
+| Orchestration | `src/lib/orchestration/` (reserved) | Scheduler/planner coordinating agents, workflows and background workers. |
+
+Reserved folders are **documentation only** until the harness is built — create
+the folder when the first real module lands, not before.
+
 ## Architectural rules (short list)
 
 1. Reuse existing hooks/services/primitives before writing new ones.
@@ -1241,4 +1281,7 @@ defaults are OFF, 8% volume (a deliberately subtle tick), mode `all`, pack
 5. Do not add a dependency without justification; prefer the lighter option.
 6. Keep files small — memory is the top constraint on this machine.
 7. Simulated data is always labeled; missing data is `UNAVAILABLE`, never faked.
+8. Respect the module boundaries: backend routes import `src/lib`/`src/hooks`/
+   `src/types`, never `src/components`; framework-free logic belongs in `src/lib`,
+   not in a component folder.
 

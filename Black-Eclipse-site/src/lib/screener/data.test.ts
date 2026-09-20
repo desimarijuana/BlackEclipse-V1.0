@@ -3,7 +3,7 @@ import {
   INDEX_DATA, SECTOR_PERFORMANCE, ETFS_DATA, NEW_STOCKS_DATA, BLUE_CHIPS_DATA,
   TOP_GAINERS, TOP_LOSERS, getSimulatedDashboard,
   getRegionalEtfs, getRegionalNewListings, getRegionalBlueChips, getRegionalFunds, getRegionalDividendStocks,
-} from './market-data';
+} from './data';
 
 describe('market-data', () => {
   it('has index data for the default market', () => {

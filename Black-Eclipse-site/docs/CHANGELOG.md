@@ -43,6 +43,27 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-20
 
+- **Repo organization / module boundaries before the agentic harness** —
+  Conservative, verified reorg of the terminal codebase with no feature changes:
+  (1) removed four dead modules with zero references anywhere in `src`/`scripts`/
+  `docs` — `lib/alerts-evaluator.ts` (stale `/api/portfolio-alerts` concept),
+  `lib/chart-colors.ts` (superseded by `theme/bridge.ts`), `lib/numeric-tickers.ts`
+  (never wired), and the duplicate `lib/yfinance.ts` wrapper;
+  (2) moved misplaced pure modules out of the component tree —
+  `components/screens/market-data.ts` → `lib/screener/data.ts` and
+  `market-format.ts` → `lib/screener/format.ts` (a backend route, `/api/stocks`,
+  was importing screener data straight out of `components/` — a boundary
+  violation), and `components/screens/navigation-history.ts` →
+  `lib/navigation-history.ts` (framework-free, no React);
+  (3) moved root `check-browser.ts` / `check-gf.ts` into `scripts/` and dropped
+  them from the eslint ignore list; updated every import to `@/` aliases; added a
+  "Module boundaries" section documenting the terminal/shared/backend/harness
+  zones and reserving the future harness homes (`lib/skills/`, `lib/workflows/`,
+  `lib/orchestration/`; the existing `lib/agent/` seed stays authoritative). No
+  harness code was built. `tsc`, lint (pre-existing `tokens.ts` error aside),
+  1394 tests and `next build` all pass.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`,
+  `skills/REMEMBER.md`, `skills/ARCHITECT.md`
 - **UI / color picker drag no longer stalls the app (throttled commits)** — The
   native `<input type="color">` fires `input` continuously while dragging, and
   each tick applied the whole theme (an app-wide style recalc/repaint of the

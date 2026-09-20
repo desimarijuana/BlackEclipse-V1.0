@@ -5,7 +5,7 @@ import { ArrowUp, ArrowDown, Info, Sparkles, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './market-loaders';
-import type { FundItem, ETFItem, BlueChipItem } from './market-data';
+import type { FundItem, ETFItem, BlueChipItem } from '@/lib/screener/data';
 
 // ── ETF / Funds / Dividend tables ───────────────────────────────────────────
 // Extracted from market-overview.tsx (memory/simplicity standing goal): the
