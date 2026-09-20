@@ -109,50 +109,61 @@ Two mechanisms:
 2. **Zustand stores** for UI state (sidebar config, dashboard layouts, search,
    market-workspace, aurora palette, i18n/a11y, centralized theme) — persisted to
    `localStorage`, not the DB.
-   - **Centralized theming.** `src/lib/theme/` owns one serializable
-     `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
-     glass, shadow, background, glow/animation). The store flattens it to CSS
-     custom properties and injects them via a managed
-     `<style id="eclipse-theme-overrides">`; color tokens are scoped to
-     `html.dark` so the General › Theme light/dark switch keeps working, while
-     typography/shape/scale/glass tokens apply globally. Because components and
-     charts already read `--primary` / `--font-mono` / `--radius` / `--bullish` /
-     `--bearish` / `--font-scale`, one theme object recolors the whole app with no
-     per-component wiring. `themeFromBrandColor()` is the white-label entry point:
-     it derives a coordinated primary/accent/bullish palette from a single brand
-     color (ServiceNow-style), with bearish overridable. **Glass mode** is driven
-     by `--glass-blur/-opacity/-tint` tokens that all `.glass-*` recipes consume;
-     the `theme-glass-off` root class removes blur and makes surfaces opaque, so
-     users can disable frosted glass app-wide from Settings (no component reads the
-     preference). `--glass-tint` is a dark-scoped color with a `--glass-tint-light`
-     counterpart, so a custom dark tint never leaks into light mode. The token
-     glass override is gated by the `theme-glass-active` root class, which is only
-     added once the user changes a glass/shadow setting — so the shipped per-tier
-     glass hierarchy is preserved untouched by default. **User themes** are saved
-     by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
-     exported/imported as JSON. The panel uses a **draft + preview** model: edits
-     go to a local draft, `preview()` applies it to the document without
-     persisting, and Apply/Discard commit or revert (uncommitted previews are
-     cancelled on unmount). Auditioning is **full-screen on the real app**: the
-     "Enter full-screen preview" action sets `previewMode`, which hides (not
-     unmounts) the Settings dialog in `stock-chat.tsx` so the live-themed app is
-     visible and interactive, with a portaled floating **Apply / Discard / Exit**
-     bar (the panel keeps its draft because it stays mounted; dialog close is
-     suppressed while previewing). The old tiny inline mock was removed. A
-     page-level `.app-page-bg` class carries the
-     `gradient`/`grid` background treatment onto the app shell (the pattern would
-     otherwise be hidden behind the shell's opaque `bg-background`). The Settings
-     panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
-     Access**) and embeds the existing Aurora and Chart panels, so all appearance
-     controls live under Customization.
-     The `bridge.ts` helper copies the theme's market colors into the native chart
-     palette only on explicit user edits — never on hydration, so a separately
-     saved chart palette survives reload. The shipped brand lives in
-     `public/branding/` (`FAVICON.svg` mark, `LOGO-WORDMARK.svg` lockup), exported
-     as `BRAND_MARK_SRC` / `BRAND_WORDMARK_SRC` from `tokens.ts`. They are the
-     defaults for the sidebar/header mark, the wordmark, and the favicon; a
-     user-uploaded `logoUrl` / `faviconUrl` always overrides them. This is a
-     presentation-only layer; it never touches stored financial data.
+     - **Centralized theming.** `src/lib/theme/` owns one serializable
+      `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
+      glass, shadow, background, glow/animation). The store flattens it to CSS
+      custom properties and injects them via a managed
+      `<style id="eclipse-theme-overrides">`; color tokens are scoped to
+      `html.dark` so the General › Theme light/dark switch keeps working, while
+      typography/shape/scale/glass tokens apply globally. Because components and
+      charts already read `--primary` / `--font-mono` / `--radius` / `--bullish` /
+      `--bearish` / `--font-scale`, one theme object recolors the whole app with no
+      per-component wiring. `ThemeColors` exposes the eight core tokens plus four
+      **optional derived tokens** (`secondary`, `muted`, `mutedForeground`,
+      `accentSurface`); when a user pins one it wins, otherwise
+      `deriveThemeColors()` mixes it from the core colors (single source of truth
+      for `themeCssVars`). `themeFromBrandColor()` is the white-label entry point:
+      it derives a coordinated primary/accent/bullish palette from a single brand
+      color (ServiceNow-style), with bearish overridable. **Glass mode** is driven
+      by `--glass-blur/-opacity/-tint` tokens that all `.glass-*` recipes consume;
+      the `theme-glass-off` root class removes blur and makes surfaces opaque, so
+      users can disable frosted glass app-wide from Settings (no component reads the
+      preference). `--glass-tint` is a dark-scoped color with a `--glass-tint-light`
+      counterpart, so a custom dark tint never leaks into light mode. The token
+      glass override is gated by the `theme-glass-active` root class, which is only
+      added once the user changes a glass/shadow setting — so the shipped per-tier
+      glass hierarchy is preserved untouched by default. **User themes** are saved
+      by name into `be_theme_presets_v1` (save / rename / update / delete) and can be
+      exported/imported as JSON. A saved preset also captures the chart/heatmap
+      palette in effect (via `bridge.ts`), and re-applying it restores both the
+      theme and chart colors. The panel uses a **draft + preview** model: edits
+      go to a local draft, `preview()` applies it to the document without
+      persisting, and Apply/Discard commit or revert (uncommitted previews are
+      cancelled on unmount). Live/draft preview also overlays the chart palette
+      (`useChartPaletteStore.setPreview`) so candles and market heatmaps recolor
+      instantly without persisting. Auditioning is **full-screen on the real app**:
+      the "Enter full-screen preview" action sets `previewMode`, which hides (not
+      unmounts) the Settings dialog in `stock-chat.tsx` so the live-themed app is
+      visible and interactive, with a portaled floating **Apply / Discard / Exit**
+      bar (the panel keeps its draft because it stays mounted; dialog close is
+      suppressed while previewing). The old tiny inline mock was removed. A
+      page-level `.app-page-bg` class carries the
+      `gradient`/`grid` background treatment onto the app shell (the pattern would
+      otherwise be hidden behind the shell's opaque `bg-background`). The Settings
+      panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
+      Access**) and embeds the existing Aurora and Chart panels, so all appearance
+      controls live under Customization.
+      The `bridge.ts` helper derives the native chart palette from the theme: on
+      explicit user edits it persists (`syncChartPaletteFromTheme`) and during
+      preview it overlays without persisting (`previewChartPaletteFromTheme`),
+      never on hydration, so a separately-saved chart palette survives reload. The
+      categorical series palette is always preserved across theme edits. The
+      shipped brand lives in
+      `public/branding/` (`FAVICON.svg` mark, `LOGO-WORDMARK.svg` lockup), exported
+      as `BRAND_MARK_SRC` / `BRAND_WORDMARK_SRC` from `tokens.ts`. They are the
+      defaults for the sidebar/header mark, the wordmark, and the favicon; a
+      user-uploaded `logoUrl` / `faviconUrl` always overrides them. This is a
+      presentation-only layer; it never touches stored financial data.
 3. **Portfolio engine** (`src/hooks/use-portfolio-engine.ts`) — pure FIFO/LIFO
    cost-basis and stats logic, consumed by both the portfolio screens and the
    dashboard portfolio widgets. There is **no broker integration yet**: every

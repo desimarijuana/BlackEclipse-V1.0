@@ -41,6 +41,29 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-20
+
+- **Customization / live preview no longer ignores charts & heatmaps; presets
+  carry chart colors; brand generator seeds a preset; all color tokens editable**
+  — Fixed three related gaps in Settings › Customization. (1) Live/draft preview
+  only recolored chrome; charts and the market heatmap waited for Apply. Added a
+  non-persisting `previewPalette` overlay to `chart-palette-store` (`setPreview`,
+  effective-palette reads in `useChartPalette`/`getChartPalette`/
+  `subscribeChartPalette`) plus `previewChartPaletteFromTheme` /
+  `clearChartPalettePreview` in `bridge.ts`, wired into the panel's live-preview
+  effect, so candles and heatmaps recolor as the draft changes and revert on
+  Discard. (2) Selecting a preset now also stages its market colors, so the Charts
+  tab and market heatmap reflect it immediately (live) and on Apply. (3) User
+  presets now capture the in-effect chart palette (`UserThemePreset.chartPalette`,
+  persisted/rehydrated; legacy presets stay theme-only), and `applyUserPreset`
+  restores theme + charts together. Also: the Colors card now exposes the four
+  optional derived tokens (`secondary`, `muted`, `mutedForeground`,
+  `accentSurface`) via `deriveThemeColors()` — pinned values override the derived
+  mix in `themeCssVars`; and generating from a brand color pre-fills a saveable
+  preset name. Tests added: `bridge.test.ts`, plus derived-color, preview-overlay,
+  and preset-chart cases.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 ## 2026-09-19
 
 - **UI / sound defaults off, quieter, more packs** — UI sounds are now

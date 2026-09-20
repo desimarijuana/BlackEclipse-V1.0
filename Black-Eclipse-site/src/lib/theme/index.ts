@@ -17,6 +17,7 @@ export {
   isValidHex,
   normalizeHex,
   normalizeTheme,
+  deriveThemeColors,
   hexToRgb,
   hexToRgbTriplet,
   mixHex,
@@ -32,6 +33,7 @@ export {
 export type {
   EclipseTheme,
   ThemeColors,
+  ResolvedThemeColors,
   ThemeDensity,
   ThemeShadow,
   ThemeBackground,
@@ -48,3 +50,8 @@ export {
 } from './store';
 export type { ThemeStore, UserThemePreset } from './store';
 export { syncChartPaletteFromTheme } from './bridge';
+export {
+  chartPaletteFromTheme,
+  previewChartPaletteFromTheme,
+  clearChartPalettePreview,
+} from './bridge';

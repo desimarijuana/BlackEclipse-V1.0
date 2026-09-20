@@ -41,6 +41,18 @@ export interface ThemeColors {
   bullish: string;
   /** Negative market color (candles down, losses, bearish). */
   bearish: string;
+  /**
+   * Optional derived tokens. When omitted they are computed from the core
+   * colors (see `deriveThemeColors`). Exposing them lets a user pin them
+   * manually without fighting the auto-derivation.
+   */
+  secondary?: string;
+  /** Muted surface fill (`--muted`). */
+  muted?: string;
+  /** Secondary / muted text (`--muted-foreground`). */
+  mutedForeground?: string;
+  /** Subtle accent wash used for `--accent` (hover backgrounds). */
+  accentSurface?: string;
 }
 
 /**
@@ -303,6 +315,31 @@ function color(raw: unknown, fallback: string): string {
   return normalizeHex(raw) ?? fallback;
 }
 
+/** Emit `{ [key]: hex }` only when the raw value supplied a valid hex. */
+function optionalColor<K extends keyof ThemeColors>(key: K, raw: unknown): Partial<ThemeColors> {
+  const n = normalizeHex(raw);
+  return n ? ({ [key]: n } as Partial<ThemeColors>) : {};
+}
+
+/** All theme colors with derivation resolved — every key is present. */
+export interface ResolvedThemeColors extends Required<ThemeColors> {}
+
+/**
+ * Resolve the optional derived tokens. Explicit user overrides win; otherwise
+ * the neutrals are mixed from the core colors so the palette stays internally
+ * consistent. Single source of truth for both `themeCssVars` and the editors.
+ */
+export function deriveThemeColors(colors: ThemeColors): ResolvedThemeColors {
+  const { primary, accent, background, surface, border, text, bullish, bearish } = colors;
+  return {
+    primary, accent, background, surface, border, text, bullish, bearish,
+    secondary: colors.secondary ?? mixHex(surface, background, 0.62),
+    muted: colors.muted ?? mixHex(surface, background, 0.72),
+    mutedForeground: colors.mutedForeground ?? mixHex(text, background, 0.45),
+    accentSurface: colors.accentSurface ?? mixHex(accent, background, 0.16),
+  };
+}
+
 export function normalizeTheme(raw: unknown): EclipseTheme {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? (raw as Record<string, unknown>)
@@ -362,6 +399,13 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
       text: color(colorsRaw.text, d.colors.text),
       bullish: color(colorsRaw.bullish, d.colors.bullish),
       bearish: color(colorsRaw.bearish, d.colors.bearish),
+      // Optional derived tokens: kept only when the input actually supplied a
+      // valid value, so an untouched theme stays equal to the shipped default
+      // (which omits them) and derivation remains the default behavior.
+      ...optionalColor('secondary', colorsRaw.secondary),
+      ...optionalColor('muted', colorsRaw.muted),
+      ...optionalColor('mutedForeground', colorsRaw.mutedForeground),
+      ...optionalColor('accentSurface', colorsRaw.accentSurface),
     },
     radius: radiusNum,
     density,
@@ -465,11 +509,13 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
   const n = normalizeTheme(theme);
   const { primary, accent, background, surface, border, text, bullish, bearish } = n.colors;
 
-  // Derived neutrals so the theme stays internally consistent.
-  const secondary = mixHex(surface, background, 0.62);
-  const muted = mixHex(surface, background, 0.72);
-  const mutedForeground = mixHex(text, background, 0.45);
-  const subtleAccent = mixHex(accent, background, 0.16);
+  // Derived neutrals so the theme stays internally consistent — unless the user
+  // pinned them explicitly (then `deriveThemeColors` returns the override).
+  const derived = deriveThemeColors(n.colors);
+  const secondary = derived.secondary;
+  const muted = derived.muted;
+  const mutedForeground = derived.mutedForeground;
+  const subtleAccent = derived.accentSurface;
 
   // Glass surfaces: when disabled the tint becomes (near) opaque and blur 0,
   // so every `.glass-*` recipe reads as a solid panel with no backdrop filter.

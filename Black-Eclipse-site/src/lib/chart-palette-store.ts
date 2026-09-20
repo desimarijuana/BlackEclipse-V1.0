@@ -6,11 +6,19 @@ import {
   normalizeChartColor,
   normalizeChartPalette,
   normalizeSection,
+  type ChartPalette,
   type PaletteSection,
 } from "./chart-palette";
 
 interface ChartPaletteStore {
   palette: ReturnType<typeof normalizeChartPalette>;
+  /**
+   * Non-persisting overlay used by Settings › Customization's live theme
+   * preview. When set, every consumer sees this instead of `palette`, so a
+   * draft theme recolors charts and market heatmaps instantly. It is never
+   * written to localStorage, and any explicit chart edit clears it.
+   */
+  previewPalette: ChartPalette | null;
   hydrated: boolean;
   storageAvailable: boolean;
   setPalette: (palette: unknown) => void;
@@ -18,6 +26,8 @@ interface ChartPaletteStore {
   setSeriesColor: (index: number, value: string) => void;
   reset: () => void;
   resetSection: (section: PaletteSection) => void;
+  /** Show a non-persisted palette overlay (theme draft preview). */
+  setPreview: (palette: unknown | null) => void;
   hydrate: () => void;
 }
 
@@ -62,6 +72,7 @@ function listenToStorage() {
 
 export const useChartPaletteStore = create<ChartPaletteStore>((set, get) => ({
   palette: normalizeChartPalette(null),
+  previewPalette: null,
   hydrated: false,
   storageAvailable: true,
   hydrate: () => {
@@ -81,7 +92,12 @@ export const useChartPaletteStore = create<ChartPaletteStore>((set, get) => ({
     get().hydrate();
     const palette = normalizeChartPalette(raw);
     const storageAvailable = persistPalette(palette);
-    set({ palette, storageAvailable });
+    // An explicit edit ends any theme preview overlay so the user's own chart
+    // choices are what they see.
+    set({ palette, previewPalette: null, storageAvailable });
+  },
+  setPreview: (raw) => {
+    set({ previewPalette: raw === null ? null : normalizeChartPalette(raw) });
   },
   setSection: (section, value) => {
     if (!SECTIONS.includes(section)) return;
@@ -106,20 +122,25 @@ export const useChartPaletteStore = create<ChartPaletteStore>((set, get) => ({
 }));
 
 export function useChartPalette() {
-  const palette = useChartPaletteStore((state) => state.palette);
+  const palette = useChartPaletteStore((state) => state.previewPalette ?? state.palette);
   const hydrate = useChartPaletteStore((state) => state.hydrate);
   useEffect(() => hydrate(), [hydrate]);
   return palette;
 }
 
+/** The palette every consumer should render — the preview overlay if active. */
+function effectivePalette(state: { palette: ChartPalette; previewPalette: ChartPalette | null }): ChartPalette {
+  return state.previewPalette ?? state.palette;
+}
+
 export function getChartPalette() {
   useChartPaletteStore.getState().hydrate();
-  return useChartPaletteStore.getState().palette;
+  return effectivePalette(useChartPaletteStore.getState());
 }
 
 export function subscribeChartPalette(listener: () => void): () => void {
   const unsubscribe = useChartPaletteStore.subscribe((state, previous) => {
-    if (state.palette !== previous.palette) listener();
+    if (effectivePalette(state) !== effectivePalette(previous)) listener();
   });
   useChartPaletteStore.getState().hydrate();
   return unsubscribe;

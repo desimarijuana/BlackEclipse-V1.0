@@ -32,7 +32,7 @@ beforeEach(() => {
   values.clear();
   const root = makeElement();
   const head = { appendChild: vi.fn(), children: [] as unknown[] };
-  vi.stubGlobal('window', { localStorage: storage });
+  vi.stubGlobal('window', { localStorage: storage, addEventListener: vi.fn() });
   vi.stubGlobal('document', {
     documentElement: root,
     head,
@@ -114,6 +114,34 @@ describe('user theme presets', () => {
     expect(useThemeStore.getState().customized).toBe(false);
     expect(useThemeStore.getState().userPresets.map((p) => p.id)).toEqual([id]);
     expect(values.has(THEME_KEY)).toBe(false);
+  });
+
+  it('captures the chart palette with a preset and restores it on apply', async () => {
+    const { useThemeStore } = await import('./store');
+    const { useChartPaletteStore } = await import('@/lib/chart-palette-store');
+    useThemeStore.getState().hydrate();
+    useChartPaletteStore.getState().setSection('candles', { up: '#abcdef' });
+    const id = useThemeStore.getState().saveUserPreset('With charts');
+    expect(useThemeStore.getState().userPresets[0].chartPalette?.candles.up).toBe('#abcdef');
+
+    // Change both theme and charts away, then re-apply the preset.
+    useThemeStore.getState().setColor('primary', '#000000');
+    useChartPaletteStore.getState().setSection('candles', { up: '#111111' });
+    useThemeStore.getState().applyUserPreset(id);
+    expect(useChartPaletteStore.getState().palette.candles.up).toBe('#abcdef');
+  });
+
+  it('persists and rehydrates a preset chart palette', async () => {
+    const { useThemeStore } = await import('./store');
+    const { useChartPaletteStore } = await import('@/lib/chart-palette-store');
+    useThemeStore.getState().hydrate();
+    useChartPaletteStore.getState().setSection('heatmap', { down: '#abc123' });
+    useThemeStore.getState().saveUserPreset('Heat');
+
+    vi.resetModules();
+    const again = await import('./store');
+    again.useThemeStore.getState().hydrate();
+    expect(again.useThemeStore.getState().userPresets[0].chartPalette?.heatmap.down).toBe('#abc123');
   });
 });
 

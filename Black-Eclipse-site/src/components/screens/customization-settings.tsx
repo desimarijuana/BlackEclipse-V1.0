@@ -33,9 +33,13 @@ import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/
 import {
   BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
   SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
-  isValidHex, normalizeHex, normalizeTheme, syncChartPaletteFromTheme,
-  themeFromBrandColor, useThemeStore, type EclipseTheme, type ThemeColors, type ThemeGlass,
+  clearChartPalettePreview, deriveThemeColors, isValidHex, normalizeHex, normalizeTheme,
+  syncChartPaletteFromTheme, themeFromBrandColor,
+  useThemeStore, type EclipseTheme, type ThemeColors, type ThemeGlass,
+  chartPaletteFromTheme,
 } from "@/lib/theme";
+import { useChartPaletteStore } from "@/lib/chart-palette-store";
+import type { ChartPalette } from "@/lib/chart-palette";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 
@@ -343,6 +347,7 @@ export function CustomizationSettingsPanel() {
   const userPresets = useThemeStore((s) => s.userPresets);
   const saveUserPreset = useThemeStore((s) => s.saveUserPreset);
   const updateUserPreset = useThemeStore((s) => s.updateUserPreset);
+  const applyUserPreset = useThemeStore((s) => s.applyUserPreset);
   const renameUserPreset = useThemeStore((s) => s.renameUserPreset);
   const deleteUserPreset = useThemeStore((s) => s.deleteUserPreset);
   const applyPreset = useThemeStore((s) => s.applyPreset);
@@ -352,8 +357,19 @@ export function CustomizationSettingsPanel() {
   const previewMode = useThemeStore((s) => s.previewMode);
   const setPreviewMode = useThemeStore((s) => s.setPreviewMode);
 
+  // The saved chart palette is read imperatively inside the effect (not
+  // subscribed) so that manual edits made on the Charts tab don't retrigger —
+  // and clobber — the theme preview. Only draft/preset changes re-derive
+  // chart colors. These action selectors are stable, so they never re-render.
+  const setChartPreview = useChartPaletteStore((s) => s.setPreview);
+  const setChartPalette = useChartPaletteStore((s) => s.setPalette);
+
   const [tab, setTab] = useState<CustomTab>("theme");
   const [draft, setDraft] = useState<EclipseTheme>(theme);
+  // When a saved preset carried its own chart/heatmap palette, hold it here so
+  // Apply restores that exact palette (including custom series colors) instead
+  // of re-deriving it from the theme. Cleared by any manual color edit.
+  const [pendingChartPalette, setPendingChartPalette] = useState<ChartPalette | null>(null);
   const [livePreview, setLivePreview] = useState(true);
   const [presetName, setPresetName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -370,39 +386,77 @@ export function CustomizationSettingsPanel() {
   const dirty = JSON.stringify(draft) !== JSON.stringify(theme);
 
   // Keep the document showing the draft while live preview is on; when it is
-  // turned off, restore the saved theme to the document.
+  // turned off, restore the saved theme AND chart palette to the document.
+  // Reads the current saved palette lazily so Charts-tab edits are never
+  // overwritten by this effect.
   useEffect(() => {
-    if (livePreview) previewTheme(draft);
-    else cancelPreview();
-  }, [draft, livePreview, previewTheme, cancelPreview]);
+    if (livePreview) {
+      previewTheme(draft);
+      const base = useChartPaletteStore.getState().palette;
+      // A preset with its own chart palette previews that exact palette;
+      // otherwise derive market colors from the draft theme.
+      setChartPreview(pendingChartPalette ?? chartPaletteFromTheme(draft, base));
+    } else {
+      cancelPreview();
+      clearChartPalettePreview();
+    }
+  }, [draft, pendingChartPalette, livePreview, previewTheme, cancelPreview, setChartPreview]);
 
   // Leaving the panel cancels an uncommitted preview so the saved theme wins.
-  useEffect(() => () => { cancelPreview(); }, [cancelPreview]);
+  useEffect(() => () => { cancelPreview(); clearChartPalettePreview(); }, [cancelPreview]);
 
   // ── Draft mutators ──────────────────────────────────────────────────────
   const patch = (p: Partial<Omit<EclipseTheme, "colors">>) =>
     setDraft((d) => normalizeTheme({ ...d, ...p }));
-  const patchColor = (key: keyof ThemeColors, hex: string) =>
+  const patchColor = (key: keyof ThemeColors, hex: string) => {
+    // A manual color edit supersedes a preset's captured chart palette, so the
+    // market colors re-derive from what the user just typed.
+    setPendingChartPalette(null);
     setDraft((d) => normalizeTheme({ ...d, colors: { ...d.colors, [key]: hex } }));
+  };
   const patchGlass = (p: Partial<ThemeGlass>) =>
     setDraft((d) => normalizeTheme({ ...d, glass: { ...d.glass, ...p } }));
 
   const applyDraft = () => {
     applyPreset(draft);
-    syncChartPaletteFromTheme(draft);
+    // A preset's captured palette wins; otherwise derive from the theme onto
+    // whatever chart colors are currently saved.
+    const base = useChartPaletteStore.getState().palette;
+    setChartPalette(pendingChartPalette ?? chartPaletteFromTheme(draft, base));
+    setPendingChartPalette(null);
   };
   const discardDraft = () => {
     setDraft(theme);
     cancelPreview();
+    clearChartPalettePreview();
   };
   const resetAll = () => {
+    setPendingChartPalette(null);
     resetTheme();
     syncChartPaletteFromTheme(useThemeStore.getState().theme);
   };
 
-  // ServiceNow-style "build a theme from your brand color".
+  // ServiceNow-style "build a theme from your brand color". Because editing the
+  // generated colors by hand is fiddly, generating always offers a saveable name
+  // and immediately registers the derived look as the visible "unsaved" draft.
   const generateFromBrand = (hex: string) => {
     setDraft((d) => themeFromBrandColor(hex, d));
+    if (!presetName.trim()) setPresetName(`Brand ${hex.toUpperCase()}`);
+  };
+
+  // Selecting a preset replaces the draft theme AND prepares its chart/heatmap
+  // colors, so the Charts tab, market heatmap and native charts all reflect the
+  // choice immediately (live) and on Apply (persisted).
+  const selectShippedPreset = (presetTheme: EclipseTheme) => {
+    const next = normalizeTheme(presetTheme);
+    setPendingChartPalette(null);
+    setDraft(next);
+  };
+  const selectUserPreset = (id: string) => {
+    const preset = userPresets.find((p) => p.id === id);
+    if (!preset) return;
+    setPendingChartPalette(preset.chartPalette ?? null);
+    setDraft(normalizeTheme(preset.theme));
   };
 
   const handleSavePreset = () => {
@@ -453,7 +507,15 @@ export function CustomizationSettingsPanel() {
     { key: "text", label: "Text", hint: "Primary text" },
     { key: "bullish", label: "Bullish", hint: "Gains & up candles" },
     { key: "bearish", label: "Bearish", hint: "Down candles & losses" },
+    { key: "secondary", label: "Secondary", hint: "Muted surfaces & sidebar" },
+    { key: "muted", label: "Muted", hint: "Quiet fills" },
+    { key: "mutedForeground", label: "Muted text", hint: "Labels & captions" },
+    { key: "accentSurface", label: "Accent surface", hint: "Hover washes" },
   ];
+
+  // Resolve optional tokens so the swatches show the effective value (the
+  // derived mix when the user has not pinned one).
+  const resolvedColors = deriveThemeColors(draft.colors);
 
   const glassMatches = (g: ThemeGlass) =>
     draft.glass.enabled === g.enabled &&
@@ -808,7 +870,7 @@ export function CustomizationSettingsPanel() {
                   <button
                     key={preset.id}
                     type="button"
-                    onClick={() => setDraft(normalizeTheme(preset.theme))}
+                    onClick={() => selectShippedPreset(preset.theme)}
                     aria-pressed={active}
                     title={preset.description}
                     className={cn(
@@ -871,7 +933,7 @@ export function CustomizationSettingsPanel() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setDraft(normalizeTheme(preset.theme))}
+                        onClick={() => selectUserPreset(preset.id)}
                         className="flex flex-col min-w-0 flex-1 text-left cursor-pointer"
                       >
                         <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -1089,14 +1151,17 @@ export function CustomizationSettingsPanel() {
                   key={c.key}
                   label={c.label}
                   hint={c.hint}
-                  value={draft.colors[c.key]}
+                  value={resolvedColors[c.key]}
                   onChange={(hex) => patchColor(c.key, hex)}
                 />
               ))}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
               <Sun className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span>Light/dark mode still follows General › Theme. Custom colors apply in dark mode.</span>
+              <span>
+                The last four are derived automatically until you edit them. Charts, heatmaps and
+                candles live on the Charts tab. Light/dark mode still follows General › Theme.
+              </span>
             </div>
           </Card>
 

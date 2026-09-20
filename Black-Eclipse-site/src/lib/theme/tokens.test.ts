@@ -4,6 +4,7 @@ import {
   STRUCTURAL_THEME_VARS,
   THEME_PRESETS,
   buildFaviconDataUrl,
+  deriveThemeColors,
   normalizeHex,
   normalizeTheme,
   pageBackgroundImage,
@@ -77,6 +78,40 @@ describe('themeCssVars', () => {
     const vars = themeCssVars(normalizeTheme({ fontScale: 1.2, logoScale: 1.4 }));
     expect(vars['--font-scale']).toBe('1.2');
     expect(vars['--logo-scale']).toBe('1.4');
+  });
+});
+
+describe('deriveThemeColors', () => {
+  it('derives neutrals from the core colors when unpinned', () => {
+    const d = deriveThemeColors(DEFAULT_ECLIPSE_THEME.colors);
+    expect(d.secondary).toBeDefined();
+    expect(d.muted).toBeDefined();
+    expect(d.mutedForeground).toBeDefined();
+    expect(d.accentSurface).toBeDefined();
+    expect(d.primary).toBe(DEFAULT_ECLIPSE_THEME.colors.primary);
+  });
+
+  it('honours explicit overrides for derived tokens', () => {
+    const d = deriveThemeColors({ ...DEFAULT_ECLIPSE_THEME.colors, muted: '#101010' });
+    expect(d.muted).toBe('#101010');
+  });
+
+  it('drops an invalid optional override without failing', () => {
+    const t = normalizeTheme({ colors: { muted: 'not-a-color' } });
+    expect(t.colors.muted).toBeUndefined();
+    const d = deriveThemeColors(t.colors);
+    expect(d.muted).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it('lets a pinned derived token override the computed CSS value', () => {
+    const t = normalizeTheme({ colors: { mutedForeground: '#ff00ff' } });
+    expect(themeCssVars(t)['--muted-foreground']).toBe('#ff00ff');
+  });
+
+  it('keeps the default theme equal after normalization (optional tokens omitted)', () => {
+    const t = normalizeTheme(DEFAULT_ECLIPSE_THEME);
+    expect(t).toEqual(DEFAULT_ECLIPSE_THEME);
+    expect(t.colors.secondary).toBeUndefined();
   });
 });
 

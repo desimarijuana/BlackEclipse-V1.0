@@ -119,6 +119,31 @@ describe("chart palette storage lifecycle", () => {
     expect(useChartPaletteStore.getState().storageAvailable).toBe(true);
   });
 
+  it("overlays a non-persisted preview without touching storage and clears on edit", async () => {
+    const { getChartPalette, useChartPaletteStore } = await import("./chart-palette-store");
+    useChartPaletteStore.getState().setPreview({ candles: { up: "#abc" } });
+    expect(getChartPalette().candles.up).toBe("#aabbcc");
+    expect(storage.setItem).not.toHaveBeenCalled();
+    // An explicit edit ends the preview overlay and persists the edit.
+    useChartPaletteStore.getState().setSection("candles", { down: "#def" });
+    expect(useChartPaletteStore.getState().previewPalette).toBeNull();
+    expect(getChartPalette().candles.down).toBe("#ddeeff");
+    expect(getChartPalette().candles.up).toBe(DEFAULT_CHART_PALETTE.candles.up);
+    expect(storage.setItem).toHaveBeenCalled();
+  });
+
+  it("notifies subscribers when a preview is set and cleared", async () => {
+    const { subscribeChartPalette, useChartPaletteStore } = await import("./chart-palette-store");
+    const listener = vi.fn();
+    const unsubscribe = subscribeChartPalette(listener);
+    listener.mockClear();
+    useChartPaletteStore.getState().setPreview({ candles: { up: "#abc" } });
+    expect(listener).toHaveBeenCalledTimes(1);
+    useChartPaletteStore.getState().setPreview(null);
+    expect(listener).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
   it("does not mark server reads as hydrated or prevent later client hydration", async () => {
     const browser = window;
     vi.stubGlobal("window", undefined);

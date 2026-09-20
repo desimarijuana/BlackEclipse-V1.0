@@ -24,6 +24,8 @@ import {
   type ThemeColors,
   type ThemeGlass,
 } from './tokens';
+import { DEFAULT_CHART_PALETTE, normalizeChartPalette, type ChartPalette } from '@/lib/chart-palette';
+import { useChartPaletteStore } from '@/lib/chart-palette-store';
 
 export const THEME_STORAGE_KEY = 'be_theme_v1';
 export const THEME_PRESETS_STORAGE_KEY = 'be_theme_presets_v1';
@@ -34,6 +36,12 @@ export interface UserThemePreset {
   id: string;
   label: string;
   theme: EclipseTheme;
+  /**
+   * The chart/heatmap palette captured alongside the theme, so re-applying a
+   * preset restores candles, line primary and heatmap colors too. Optional for
+   * presets saved before this field existed.
+   */
+  chartPalette?: ChartPalette;
   createdAt: number;
 }
 
@@ -62,6 +70,7 @@ function loadUserPresets(): UserThemePreset[] {
         label: String(p.label ?? 'Custom'),
         createdAt: Number(p.createdAt) || Date.now(),
         theme: normalizeTheme(p.theme),
+        chartPalette: p.chartPalette ? normalizeChartPalette(p.chartPalette) : undefined,
       }))
       .filter((p) => p.id.length > 0);
   } catch {
@@ -80,6 +89,12 @@ function persistUserPresets(presets: UserThemePreset[]) {
 
 function makePresetId(): string {
   return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** The chart/heatmap palette currently in effect (preview overlay included). */
+function currentChartPalette(): ChartPalette {
+  const s = useChartPaletteStore.getState();
+  return s.previewPalette ?? s.palette ?? DEFAULT_CHART_PALETTE;
 }
 
 function buildOverrideCss(theme: EclipseTheme): string {
@@ -205,6 +220,11 @@ export interface ThemeStore {
   saveUserPreset: (label: string) => string;
   /** Overwrite an existing user preset with the current theme. */
   updateUserPreset: (id: string) => void;
+  /**
+   * Apply a saved user preset in one step — its theme AND the chart/heatmap
+   * palette captured with it (falls back to theme-only for legacy presets).
+   */
+  applyUserPreset: (id: string) => void;
   /** Rename a user preset. */
   renameUserPreset: (id: string, label: string) => void;
   /** Delete a user preset. */
@@ -300,6 +320,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       id,
       label: label.trim() || 'My Theme',
       theme: normalizeTheme(get().theme),
+      chartPalette: currentChartPalette(),
       createdAt: Date.now(),
     };
     const userPresets = [preset, ...get().userPresets];
@@ -310,10 +331,21 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
   updateUserPreset: (id) => {
     const userPresets = get().userPresets.map((p) =>
-      p.id === id ? { ...p, theme: normalizeTheme(get().theme), createdAt: Date.now() } : p,
+      p.id === id
+        ? { ...p, theme: normalizeTheme(get().theme), chartPalette: currentChartPalette(), createdAt: Date.now() }
+        : p,
     );
     persistUserPresets(userPresets);
     set({ userPresets });
+  },
+
+  applyUserPreset: (id) => {
+    const preset = get().userPresets.find((p) => p.id === id);
+    if (!preset) return;
+    get().applyPreset(preset.theme);
+    if (preset.chartPalette) {
+      useChartPaletteStore.getState().setPalette(preset.chartPalette);
+    }
   },
 
   renameUserPreset: (id, label) => {
