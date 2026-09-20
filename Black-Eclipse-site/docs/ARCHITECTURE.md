@@ -164,6 +164,15 @@ Two mechanisms:
       defaults for the sidebar/header mark, the wordmark, and the favicon; a
       user-uploaded `logoUrl` / `faviconUrl` always overrides them. This is a
       presentation-only layer; it never touches stored financial data.
+      **Continuous controls are throttled.** A native `<input type="color">` (and
+      sliders) emit far faster than the app can repaint; committing every event
+      makes the picker stall the main thread. The shared `useThrottledCommit`
+      hook (`src/hooks/use-throttled-commit.ts`, with a pure
+      `createThrottledCommit` core for tests) applies the first value immediately,
+      then coalesces to at most one commit per interval with the latest value
+      (trailing + unmount flush), and is used by the theme, Charts and Aurora
+      color pickers. `applyThemeToDocument` and the chart `setPreview` additionally
+      skip no-op writes.
 3. **Portfolio engine** (`src/hooks/use-portfolio-engine.ts`) — pure FIFO/LIFO
    cost-basis and stats logic, consumed by both the portfolio screens and the
    dashboard portfolio widgets. There is **no broker integration yet**: every

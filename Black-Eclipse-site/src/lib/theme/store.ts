@@ -115,8 +115,12 @@ function buildOverrideCss(theme: EclipseTheme): string {
 
 /**
  * Apply tokens through a managed <style> element so custom colors override the
- * shipped tokens while remaining scoped to dark mode.
+ * shipped tokens while remaining scoped to dark mode. The last-applied CSS is
+ * remembered so repeated applies with no change (e.g. a color picker emitting
+ * the same value) skip the expensive app-wide restyle entirely.
  */
+let lastAppliedCss: string | null = null;
+
 export function applyThemeToDocument(theme: EclipseTheme) {
   if (typeof document === 'undefined') return;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
@@ -125,7 +129,11 @@ export function applyThemeToDocument(theme: EclipseTheme) {
     el.id = STYLE_ELEMENT_ID;
     document.head.appendChild(el);
   }
-  el.textContent = buildOverrideCss(theme);
+  const css = buildOverrideCss(theme);
+  if (css !== lastAppliedCss) {
+    el.textContent = css;
+    lastAppliedCss = css;
+  }
   const root = document.documentElement;
   root.classList.add('theme-customized');
   root.classList.toggle('theme-no-anim', !theme.animations);
@@ -148,6 +156,7 @@ export function applyThemeToDocument(theme: EclipseTheme) {
 function clearThemeFromDocument() {
   if (typeof document === 'undefined') return;
   document.getElementById(STYLE_ELEMENT_ID)?.remove();
+  lastAppliedCss = null;
   document.documentElement.classList.remove(
     'theme-customized', 'theme-no-anim', 'theme-no-glow', 'theme-glass-active', 'theme-glass-off',
   );

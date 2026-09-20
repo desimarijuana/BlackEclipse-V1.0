@@ -9,7 +9,7 @@
 // The sentiment model itself is untouched — this only swaps the palette that
 // `resolveAuroraVisuals(score, palette)` interpolates between.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Palette, Sparkles, RotateCcw, Check, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   type AuroraColorPair, type AuroraMarketState, type AuroraPalette,
 } from "@/lib/aurora/theme";
 import { useAuroraPaletteStore } from "@/lib/aurora/store";
+import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 
 const STATE_ICON: Record<AuroraMarketState, React.ElementType> = {
   bullish: TrendingUp,
@@ -53,10 +54,16 @@ function ColorField({
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   const valid = isValidHex(text);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  // Dragging the picker fires continuously; the Aurora is WebGL, so applying on
+  // every tick stalls the main thread. Rate-limit to the latest value per tick
+  // window and flush on blur.
+  const { emit, flush } = useThrottledCommit<string>((hex) => onChangeRef.current(hex), 100);
 
   const handleText = (next: string) => {
     setText(next);
-    if (isValidHex(next)) onChange(next.trim().toLowerCase());
+    if (isValidHex(next)) emit(next.trim().toLowerCase());
   };
 
   return (
@@ -69,7 +76,8 @@ function ColorField({
         <input
           type="color"
           value={valid ? text : value}
-          onChange={(e) => { setText(e.target.value); onChange(e.target.value); }}
+          onChange={(e) => { setText(e.target.value); emit(e.target.value); }}
+          onBlur={flush}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           aria-label={`${label} color picker`}
         />

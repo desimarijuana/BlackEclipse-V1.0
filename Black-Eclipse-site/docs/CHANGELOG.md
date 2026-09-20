@@ -43,6 +43,24 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-20
 
+- **UI / color picker drag no longer stalls the app (throttled commits)** — The
+  native `<input type="color">` fires `input` continuously while dragging, and
+  each tick applied the whole theme (an app-wide style recalc/repaint of the
+  glass-heavy UI plus a chart re-render), so events queued faster than frames and
+  the picker appeared to hang. Added a shared `createThrottledCommit` /
+  `useThrottledCommit` hook (`src/hooks/use-throttled-commit.ts`): leading-edge
+  immediate apply, then at most one commit per 100 ms using the latest value, with
+  a trailing flush and an unmount flush so the final color is never lost. Wired
+  into the three color pickers in Customization — theme `ColorField`
+  (`customization-settings.tsx`), Charts `ColorPicker` (`chart-settings.tsx`), and
+  Aurora `ColorField` (`aurora-settings.tsx`). Also: `applyThemeToDocument` now
+  skips the DOM write when the built CSS is unchanged, `setPreview` in
+  `chart-palette-store` skips identical previews, and `patchColor` no-ops on an
+  unchanged value. Measured on a high-frequency drag: app-wide style writes fell
+  from ~126 to ~20 per 2 s and median event-loop lag dropped to ~1 ms. Verified
+  all three pickers still apply the dragged final color on blur.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **UI / sound opt-in default now actually takes effect** — After the previous
   release the sound tab still opened enabled at the old volume because the
   persisted `be_sounds_v1` value (written while UI audio was on-by-default)

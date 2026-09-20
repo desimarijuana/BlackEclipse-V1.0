@@ -97,7 +97,12 @@ export const useChartPaletteStore = create<ChartPaletteStore>((set, get) => ({
     set({ palette, previewPalette: null, storageAvailable });
   },
   setPreview: (raw) => {
-    set({ previewPalette: raw === null ? null : normalizeChartPalette(raw) });
+    const next = raw === null ? null : normalizeChartPalette(raw);
+    const current = get().previewPalette;
+    // Skip identical previews so rapid theme-drag ticks don't re-render every
+    // chart consumer when the derived market colors did not actually change.
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+    set({ previewPalette: next });
   },
   setSection: (section, value) => {
     if (!SECTIONS.includes(section)) return;

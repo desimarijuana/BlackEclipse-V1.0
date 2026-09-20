@@ -13,6 +13,7 @@ import {
   type CandleColors,
 } from "@/lib/chart-palette";
 import { useChartPalette, useChartPaletteStore } from "@/lib/chart-palette-store";
+import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 
 const CANDLE_PRESETS: { name: string; colors: CandleColors }[] = [
   { name: "Eclipse", colors: DEFAULT_CHART_PALETTE.candles },
@@ -65,6 +66,10 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
     setDraft(null);
     setInvalid(false);
   };
+  // The native picker fires on every drag tick; rate-limit the store write so
+  // charts don't re-render faster than they can paint. `flush` applies the last
+  // value on blur without losing it.
+  const { emit, flush } = useThrottledCommit<string>(onChange, 100);
   return (
     <div className="space-y-1.5 min-w-0">
       <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
@@ -75,10 +80,11 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
           value={value}
           className="h-9 w-11 shrink-0 cursor-pointer p-1"
           onChange={(event) => {
-            onChange(event.target.value);
+            emit(event.target.value);
             setDraft(null);
             setInvalid(false);
           }}
+          onBlur={flush}
         />
         <Input
           id={id}

@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/lib/i18n";
+import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 import {
   BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
   SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
@@ -138,10 +139,21 @@ function ColorField({
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   const valid = isValidHex(text);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // A native color picker fires `input` continuously while the user drags — far
+  // more often than the app can repaint. Applying the theme on every event
+  // restyles the whole glass-heavy UI each time, so events pile up faster than
+  // frames are produced and the picker appears to stick. The shared hook keeps
+  // the swatch local (instant) and rate-limits the app-wide preview, always
+  // applying the latest value, so work can never queue.
+  const { emit, flush } = useThrottledCommit<string>((hex) => onChangeRef.current(hex), 100);
+
   const handleText = (next: string) => {
     setText(next);
     const n = normalizeHex(next);
-    if (n) onChange(n);
+    if (n) emit(n);
   };
   return (
     <div className="flex items-center gap-3 min-w-0">
@@ -152,7 +164,8 @@ function ColorField({
         <input
           type="color"
           value={normalizeHex(text) ?? value}
-          onChange={(e) => { setText(e.target.value); onChange(e.target.value); }}
+          onChange={(e) => { setText(e.target.value); emit(e.target.value); }}
+          onBlur={flush}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           aria-label={`${label} color picker`}
         />
@@ -410,7 +423,9 @@ export function CustomizationSettingsPanel() {
     setDraft((d) => normalizeTheme({ ...d, ...p }));
   const patchColor = (key: keyof ThemeColors, hex: string) => {
     // A manual color edit supersedes a preset's captured chart palette, so the
-    // market colors re-derive from what the user just typed.
+    // market colors re-derive from what the user just typed. Skip when nothing
+    // changed so a color picker re-emitting the same value never restyles the app.
+    if (draft.colors[key] === hex) return;
     setPendingChartPalette(null);
     setDraft((d) => normalizeTheme({ ...d, colors: { ...d.colors, [key]: hex } }));
   };
