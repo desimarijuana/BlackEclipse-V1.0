@@ -52,7 +52,9 @@ Two boundaries, both deliberate:
 | `agents.py` | agent definitions + presets (**authored in Python**) |
 | `models.py` | universal provider catalog + LangChain chat-model factory |
 | `tools.py` | tool registry: validation, permission, risk, timeout, execute |
-| `finance_tools.py` | the financial tools (JDdS-backed, read-only, honest) |
+| `finance_tools.py` | the Phase-1 JDdS-backed tools (kept for compatibility) |
+| `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
+| `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |
@@ -71,6 +73,57 @@ The front door does **not** carry a prompt copy. It sends only `agentId`, and
 allowlist + limits) from the runtime's own presets. `GET /api/harness/agents`
 proxies the runtime's `/agents`. This is what keeps one source of truth: updating
 the prompt is a one-file change in `prompts.py`.
+
+### The Financial Retrieval Layer (Phase 2)
+
+The agent requests an **objective + data type**, not a provider:
+
+```
+tool → Financial Retrieval Layer → planner (task-aware source selection)
+     → cache (freshness policy) → parallel/sequential sources
+     → normalization → validation → conflict resolution → evidence → tool result
+```
+
+`retrieval/` owns this and is the only place that knows a provider exists:
+
+| Module | Owns |
+|---|---|
+| `contract.py` | the provider-agnostic request/result/evidence models |
+| `policies.py` | per-data-type freshness + cache TTL + tier trust ranks |
+| `sources.py` | the `RetrievalSource` contract every provider implements |
+| `structured.py` | JDdS (vault) + live structured providers (yfinance etc.) |
+| `web.py` | first-class web research (search → rank → retrieve → evidence) |
+| `normalize.py` | provider payloads → one `NormalizedFinancialObject` |
+| `cache.py` | TTL cache + in-flight deduplication |
+| `parallel.py` | concurrency, per-task timeout, error isolation, cancellation |
+| `validate.py` | valid / warning / invalid / unknown (negative earnings stay valid) |
+| `conflicts.py` | preserve discrepancies; resolve only with a stated reason |
+| `aggregate.py` | `EvidenceSet` keeping evidence kinds distinct |
+| `planner.py` | deterministic, explainable source selection |
+| `layer.py` | the orchestrator the tools call |
+
+**Source selection is task-aware, not "JDdS first" or "web first".** It is data
+in `planner.py`; e.g. a current quote prefers a structured provider, a 5-year
+Sharpe prefers structured history, "why did NVDA move" combines market data and
+web research, and a historical series never uses web at all. The selected
+strategy is recorded on every result (`strategy`) and emitted as an event.
+
+**Precise data is never web-sourced.** `historical_prices`, `macro_series` and
+`derived_metric` remove WEB from the plan; when no structured dataset exists the
+layer returns `UNAVAILABLE` rather than a web guess.
+
+Tools: `market.get_quote`, `market.get_ohlcv`,
+`fundamentals.get_company_profile`, `fundamentals.get_financials`,
+`research.search`, `research.retrieve_source`, `research.search_news`,
+`macro.get_series` (registered as `*_*` names — the registry allows
+`[A-Za-z0-9_]` only).
+
+### Web research is one shared system
+
+`src/lib/web-research.ts` is the single search + page-retrieval implementation.
+It backs the `web_search`/`web_fetch` bridge capabilities the retrieval layer
+calls, and the legacy `search_web` agent tool now delegates to it. There is no
+second search system.
 
 ### Universal model coverage
 
@@ -155,6 +208,12 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
   `http://127.0.0.1:8765`), `HARNESS_CALLBACK_URL`, `AGENT_MEMORY_DB_PATH`.
 - The runtime is spawned automatically on first use. If it cannot start, agent
   runs return **503 "runtime unavailable"** — never a fake agent.
+- **Stale-runtime detection.** The spawned Python child outlives a Next.js
+  restart (an orphan holding the port), so `ensurePythonRuntime()` compares the
+  runtime's `/health` `startedAtMs` against the newest mtime in
+  `python/harness/*.py`. If the process predates the code, it is ours and it is
+  killed and respawned — otherwise every harness edit would silently keep
+  serving old code until the port was cleared by hand.
 
 ## Extension points
 
@@ -162,6 +221,9 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
 | A tool that needs JDdS data | Add a capability to `data-bridge.ts` + a `DataCapability` union member; call `ctx.data_bridge.fetch(...)`. |
+| A retrieval data type | Add a row to `retrieval/planner.py` (`_PLAN`), `policies.py` (`DEFAULT_FRESHNESS`, `CACHE_TTL_SECONDS`) and the `DataType` literal in `contract.py`. |
+| A retrieval provider | Implement `RetrievalSource` in `retrieval/`; register it in `FinancialRetrievalLayer.__init__`. Add its name to the planner's order. |
+| A capability the retrieval layer needs | Add a capability to `data-bridge.ts` + the `DataCapability` union + the API route whitelist. |
 | An agent | Add a prompt to `python/harness/prompts.py` and an `AgentConfig` to `AGENT_PRESETS` in `python/harness/agents.py` (update `DEFAULT_AGENT_ID` if it should be the default). |
 | A model provider | Add a `ProviderSpec` to `PROVIDER_CATALOG`; add its package to `requirements.txt` if it needs a native integration. |
 | Durable knowledge | Use `store.remember` / `store.recall` or `store.propose_skill`. |

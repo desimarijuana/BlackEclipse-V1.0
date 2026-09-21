@@ -15,6 +15,9 @@ from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
 from .persistence import AgentMemoryStore
+from .retrieval import FinancialRetrievalLayer
+from .retrieval.cache import RetrievalCache
+from .retrieval_tools import register_retrieval_tools
 from .schemas import HarnessError, RunRequest, RunResult
 from .tools import DataBridge, ToolRegistry
 
@@ -53,23 +56,36 @@ class AgenticService:
     def __init__(self, store: Optional[AgentMemoryStore] = None) -> None:
         self.store = store or AgentMemoryStore()
         self.registry = ToolRegistry()
+        # The legacy JDdS-only tools remain for compatibility; the Phase-2
+        # retrieval tools are the provider-agnostic path the agent should prefer.
         register_finance_tools(self.registry)
+        register_retrieval_tools(self.registry)
         self.bus = EventBus()
         self._active: dict[str, asyncio.Task[Any]] = {}
+        # ONE process-wide retrieval cache. It is safe to share: in-flight
+        # deduplication is keyed per retrieval, so two runs asking for the same
+        # dataset at the same moment share a single provider call (Milestone 2H),
+        # and a fresh cached result is reused across runs.
+        self.retrieval_cache = RetrievalCache()
 
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
-        return await execute_run(request, self.registry, bridge, self.store, self.bus)
+        _layer = FinancialRetrievalLayer(bridge, cache=self.retrieval_cache)
+        return await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
 
     async def run_background(self, request: RunRequest) -> None:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
 
         async def _task() -> None:
-            await execute_run(request, self.registry, bridge, self.store, self.bus)
+            await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
 
         task = asyncio.create_task(_task())
         self._active[request.runId] = task
         task.add_done_callback(lambda _t: self._active.pop(request.runId, None))
+
+    def retrieval_metrics(self) -> dict[str, Any]:
+        """Performance counters from the shared retrieval cache/layer."""
+        return {"cache": self.retrieval_cache.stats()}
 
     def cancel(self, run_id: str) -> bool:
         task = self._active.get(run_id)

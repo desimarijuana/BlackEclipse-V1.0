@@ -51,6 +51,11 @@ class ToolContext:
     log: Callable[[str, Optional[dict[str, Any]]], None]
     # Accessor for JDdS-backed data; wired to the TS bridge by the service.
     data_bridge: "DataBridge | None" = None
+    # Lazily-attached per-run retrieval layer (set by retrieval tools). Typed as
+    # Any to keep this core module free of a circular import on the layer.
+    retrieval: Any = None
+    # Lazily-attached per-run retrieval cache, shared by the layer and tools.
+    retrieval_cache: Any = None
 
 
 class DataBridge:

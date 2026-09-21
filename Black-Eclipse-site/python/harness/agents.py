@@ -11,11 +11,29 @@ from __future__ import annotations
 from .prompts import ECLIPSE_AGENT_SYSTEM_PROMPT
 from .schemas import AgentConfig
 
+# Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
+# (the agent asks for the *objective*; the retrieval layer picks the source).
+# The legacy JDdS-only tools are kept for compatibility.
 ECLIPSE_AGENT = AgentConfig(
     id="eclipse-agent",
     name="Eclipse Agent",
     systemPrompt=ECLIPSE_AGENT_SYSTEM_PROMPT,
-    tools=["get_market_snapshot", "get_fundamentals", "get_news", "get_source_health"],
+    tools=[
+        # Phase-2 unified retrieval tools
+        "market_get_quote",
+        "market_get_ohlcv",
+        "fundamentals_get_company_profile",
+        "fundamentals_get_financials",
+        "research_search",
+        "research_retrieve_source",
+        "research_search_news",
+        "macro_get_series",
+        # Phase-1 JDdS tools (still available)
+        "get_market_snapshot",
+        "get_fundamentals",
+        "get_news",
+        "get_source_health",
+    ],
     maxSteps=8,
     toolTimeoutMs=20_000,
     runTimeoutMs=120_000,

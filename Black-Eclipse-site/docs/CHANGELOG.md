@@ -43,6 +43,28 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Harness Phase 2 — Hybrid Financial Data & Web Research Layer** — Added a
+  provider-agnostic `python/harness/retrieval/` layer: a unified
+  request/result/evidence contract, a deterministic task-aware source-selection
+  planner, structured sources (JDdS vault + live providers behind one
+  `RetrievalSource` interface), first-class web research (search → rank →
+  retrieve → provenanced evidence), normalization, a freshness-policy cache with
+  in-flight deduplication, parallel retrieval with per-task timeout and error
+  isolation, data-quality validation (negative earnings stay valid), explicit
+  source-conflict preservation/resolution, and evidence aggregation. New tools
+  (`market.get_quote`, `market.get_ohlcv`, `fundamentals.get_*`, `research.*`,
+  `macro.get_series`) call the layer, never a provider. The TS bridge gained
+  read-only `live_quote`/`price_history`/`macro_series`/`web_search`/`web_fetch`
+  capabilities, and `src/lib/web-research.ts` is now the single shared
+  search+fetch implementation (the legacy `search_web` tool delegates to it).
+  Precise data (historical prices, macro series, derived metrics) is never
+  web-sourced; the layer returns UNAVAILABLE instead of inventing a number. 83
+  Python + 1456 TS tests pass; the 10 required scenarios are covered.
+  docs updated: `docs/harness/phase-2-progress.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md`,
+  `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`
+
 - **Chat — tables made minimal, header larger, no chrome** — The table
   rendered inside a glass container with an uppercase muted header, which read
   as a UI card bolted into the reply. Dropped the container/fill entirely: the

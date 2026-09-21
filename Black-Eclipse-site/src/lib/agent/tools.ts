@@ -4,6 +4,7 @@
 
 import { prisma } from "@/lib/db";
 import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
+import { webSearch } from "@/lib/web-research";
 import { DATASET_TOOLS } from "./dataset-tools";
 import { INVESTOR_EYE_TOOLS } from "./investor-eye-tools";
 
@@ -111,34 +112,12 @@ async function getSourceHealth(): Promise<string> {
 }
 
 async function searchWeb(query: string): Promise<string> {
-  // Lightweight web search via DuckDuckGo HTML (no key required).
-  try {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return `Web search failed (HTTP ${res.status}).`;
-    const html = await res.text();
-    // Extract result titles + snippets from the HTML result blocks.
-    const results: string[] = [];
-    const blockRe = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-    let m: RegExpExecArray | null;
-    let count = 0;
-    while ((m = blockRe.exec(html)) !== null && count < 5) {
-      const href = m[1];
-      const title = m[2].replace(/<[^>]+>/g, "").trim();
-      const snippet = m[3].replace(/<[^>]+>/g, "").trim();
-      results.push(`${title}\n  ${snippet}\n  ${href}`);
-      count++;
-    }
-    if (results.length === 0) {
-      return `No web results parsed for "${query}".`;
-    }
-    return results.join("\n\n");
-  } catch (err) {
-    return `Web search error: ${err instanceof Error ? err.message : String(err)}`;
-  }
+  // Delegates to the ONE shared web-research module (no second search system).
+  const results = await webSearch(query, 5);
+  if (results.length === 0) return `No web results parsed for "${query}".`;
+  return results
+    .map((r) => `${r.title}\n  ${r.snippet}\n  ${r.url}`)
+    .join("\n\n");
 }
 
 export const TOOLS: ToolDefinition[] = [

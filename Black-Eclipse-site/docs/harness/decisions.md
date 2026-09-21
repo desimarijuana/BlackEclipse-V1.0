@@ -125,6 +125,61 @@ and simultaneously state how many runs did not report usage. Adding a provider
 requires no change — `_extract_usage` reads the standard LangChain
 `usage_metadata` first, then the OpenAI/Anthropic metadata blocks.
 
+## ADR-H10 — A provider-agnostic retrieval layer sits between tools and providers
+
+**Decision.** Agents request an *objective + data type*, never a provider. A
+dedicated `python/harness/retrieval/` package (`FinancialRetrievalLayer`) plans
+the source(s), retrieves them (cache-aware, possibly in parallel), normalizes,
+validates, resolves conflicts, and returns provenance-carrying evidence. Tools
+call the layer; the layer is the only place that knows JDdS, yfinance or the web
+exist.
+
+**Why.** The Phase-2 objective is "what information do I need → what is the best
+source → structured/cache/web/multiple → fresh and reliable?": that is a
+decision, and a decision belongs in one explainable place, not scattered across
+tools. It also keeps the agent decoupled from any single data source and keeps
+JDdS and yfinance as *sources*, not mandates.
+
+**Consequences.** Adding a provider means implementing the `RetrievalSource`
+contract and adding its name to the planner — no tool changes. Source-selection
+policy is data (`planner.py`), so new data types are new rows. Precise data
+types (historical prices, macro series, derived metrics) remove WEB from the plan
+entirely: the layer returns `UNAVAILABLE` rather than web-sourcing a number.
+
+## ADR-H11 — One shared in-process retrieval cache, no new database
+
+**Decision.** The retrieval layer caches with per-data-type TTLs in-process.
+The runtime owns ONE `RetrievalCache` shared across runs, with in-flight
+deduplication keyed per retrieval.
+
+**Why.** Caching is short-lived operational state; `agent-memory.db` stays the
+only harness-owned store and no new database is introduced. Sharing one cache is
+safe because deduplication is keyed per retrieval: two concurrent runs asking for
+the same dataset share a single provider call (the "multiple agents request the
+same data" requirement).
+
+**Consequences.** The cache does not survive a process restart — acceptable for
+market data, which is re-fetchable. `GET /retrieval/metrics` reports cache
+hits/misses/in-flight honestly. A durable cache would need a later ADR.
+
+## ADR-H12 — Web research is one system and precise data is never web-sourced
+
+**Decision.** `src/lib/web-research.ts` is the single web search + page
+retrieval implementation, backing both the retrieval layer's `web_search`/
+`web_fetch` capabilities and the legacy `search_web` agent tool (which now
+delegates to it). The retrieval planner forbids web for `historical_prices`,
+`macro_series` and `derived_metric`.
+
+**Why.** A second search system was explicitly forbidden, and using search
+results to answer a precise quantitative question (e.g. "AAPL's 5-year Sharpe
+ratio") is fabrication by another name. The honesty rule that governs JDdS
+(UNAVAILABLE over a fake number) applies to web research too.
+
+**Consequences.** Web evidence always carries provenance
+(`source/sourceType/url/title/publishedAt/query/validationStatus`); missing
+metadata is `null`, never guessed, and a result that could not be fetched is
+marked `unverified` rather than presented as read.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

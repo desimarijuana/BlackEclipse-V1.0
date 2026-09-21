@@ -1264,8 +1264,10 @@ for the existing chat/research surfaces.
 | Agents, tools, model providers, LangGraph loop, events | `python/harness/` (**built**) | FastAPI + LangChain + LangGraph. The runtime owns execution; TS never runs an agent loop. |
 | Run persistence + agent memory/skills | `python/harness/persistence.py` (**built**) | Separate `agent-memory.db` (runs, events, tool executions, `AgentMemory`, `AgentSkill`) — NOT JDdS. See `harness/decisions.md` ADR-H5. |
 | Front door (validation, vault resolution, proxy) | `src/lib/harness/` (**built**) | `run-service.ts` resolves agent + LLM config; `python-client.ts`/`python-runtime.ts` proxy and spawn the service. |
-| JDdS data access for tools | `src/lib/harness/data-bridge.ts` (**built**) | Read-only capability bridge; keeps one market-data layer. |
-| Existing chat/research pipeline | `src/lib/agent/` (**exists**) | Unchanged; its provider/tools remain for the pre-harness surfaces. |
+| Hybrid financial data + web research (Phase 2) | `python/harness/retrieval/` (**built**) | Provider-agnostic retrieval layer: task-aware source selection, structured + web research, normalization, freshness cache, parallel retrieval, validation, conflict handling, evidence aggregation. |
+| Data access for retrieval/tools | `src/lib/harness/data-bridge.ts` (**built**) | Read-only capability bridge: JDdS plus live providers (scraper chain, Yahoo bridge, economics sources) and the shared web-research transport. Still one market-data layer. |
+| Web search + page retrieval | `src/lib/web-research.ts` (**built**) | The ONE shared search+fetch implementation (SSRF-hardened transport); backs the bridge and the legacy agent tool. |
+| Existing chat/research pipeline | `src/lib/agent/` (**exists**) | Unchanged; its provider/tools remain for the pre-harness surfaces. `search_web` now delegates to `web-research.ts`. |
 | Workflows | `src/lib/workflows/` (reserved) | Multi-step orchestration graphs over tools/skills. |
 | Orchestration | `src/lib/orchestration/` (reserved) | Scheduler/planner coordinating agents, workflows and background workers. |
 

@@ -97,6 +97,15 @@ def registry() -> ToolRegistry:
     return reg
 
 
+def registry_with_retrieval() -> ToolRegistry:
+    from harness.retrieval_tools import register_retrieval_tools
+
+    reg = ToolRegistry()
+    register_finance_tools(reg)
+    register_retrieval_tools(reg)
+    return reg
+
+
 def test_agent_id_resolves_python_side_prompt():
     # Python is authoritative: an agentId alone must yield the full Eclipse
     # prompt, not a caller-supplied copy.
@@ -274,6 +283,38 @@ async def test_tool_loop_grounds_answer_and_persists(store, monkeypatch):
     tools = store.list_tool_executions("run_test")
     assert tools[0]["name"] == "get_market_snapshot"
     assert tools[0]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_retrieval_tool_runs_through_the_graph(store, monkeypatch):
+    """Phase-2: a retrieval tool is bound, executed and routed through the layer.
+
+    The tool calls the Financial Retrieval Layer, which calls the (fake) bridge.
+    Proves the harness executes the provider-agnostic tools end to end.
+    """
+    tool_call = AIMessage(
+        content="",
+        tool_calls=[{"id": "c1", "name": "market_get_quote", "args": {"symbol": "AAPL"}}],
+    )
+    model = ScriptedModel([tool_call, AIMessage(content="AAPL is at 240.10 (retrieval layer).")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    bridge = FakeBridge(
+        {
+            "status": "OK",
+            "symbol": "AAPL",
+            "updatedAt": "2026-09-21T14:00:00.000Z",
+            "priceSource": "scraper",
+            "price": {"price": 240.10, "changePct": 1.1, "volume": 1000, "marketCap": None, "peRatio": None},
+        }
+    )
+    result = await graph_module.execute_run(request(), registry_with_retrieval(), bridge, store)
+    assert result.status == "completed"
+    assert result.toolCalls == 1 and result.toolErrors == 0
+    tools = store.list_tool_executions("run_test")
+    assert tools[0]["name"] == "market_get_quote"
+    assert tools[0]["ok"] is True
+    assert "Retrieval status: OK" in tools[0]["text"]
 
 
 @pytest.mark.asyncio

@@ -135,9 +135,22 @@ export interface HarnessEvent {
   data?: Record<string, unknown>;
 }
 
-/** A JDdS data capability the Python runtime can request over the bridge. */
+/**
+ * A capability the Python runtime can request over the read-only bridge.
+ *
+ * `market_snapshot`/`fundamentals`/`news`/`source_health` read JDdS. The Phase-2
+ * additions (`live_quote`, `price_history`, `macro_series`, `web_search`,
+ * `web_fetch`) are still read-only but reach the existing live providers and the
+ * shared web-research transport — they do NOT introduce a second data layer or
+ * a second search system.
+ */
 export type DataCapability =
   | "market_snapshot"
   | "fundamentals"
   | "news"
-  | "source_health";
+  | "source_health"
+  | "live_quote"
+  | "price_history"
+  | "macro_series"
+  | "web_search"
+  | "web_fetch";

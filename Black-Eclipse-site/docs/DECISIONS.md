@@ -330,7 +330,33 @@ committed JDdS snapshot.
 coverage is a provider catalog plus the OpenAI-compatible protocol. The earlier
 TypeScript Phase-1 kernel was retired. See
 [`harness/architecture.md`](./harness/architecture.md) and
-[`harness/decisions.md`](./harness/decisions.md) (ADR-H1…H7).
+[`harness/decisions.md`](./harness/decisions.md) (ADR-H1…H12).
+
+---
+
+## ADR-019 — Provider-agnostic financial retrieval layer; web research is first-class (2026)
+**Decision:** The agent requests an **objective + data type**, not a provider. A
+dedicated `python/harness/retrieval/` package (`FinancialRetrievalLayer`) plans
+the source(s) with a deterministic, explainable planner, retrieves them
+(cache-aware, possibly in parallel), normalizes to one
+`NormalizedFinancialObject`, validates, resolves source conflicts, and returns
+provenance-carrying evidence. Tools call the layer; the layer is the only place
+that knows JDdS, yfinance or the web exist. Web research
+(`src/lib/web-research.ts`, the single shared search+fetch implementation) is a
+first-class selectable path, not merely a fallback. A precise quantitative
+request (historical prices, macro series, derived metrics) **never** uses web:
+with no structured dataset the layer returns `UNAVAILABLE`.
+**Why:** The Phase-2 objective is "what information do I need → what is the best
+source → structured/cache/web/multiple → is the evidence fresh and reliable?" —
+a decision that belongs in one explainable place, not scattered across tools.
+It keeps the agent decoupled from every individual data source and keeps JDdS and
+yfinance as *sources*, not mandates.
+**Impact:** Adding a provider means implementing the `RetrievalSource` contract
+and adding its name to the planner; source-selection policy is data. The
+retrieval cache is in-process and shared across runs with in-flight
+deduplication (no new database). See
+[`harness/architecture.md`](./harness/architecture.md) and
+[`harness/decisions.md`](./harness/decisions.md) (ADR-H10…H12).
 
 ---
 

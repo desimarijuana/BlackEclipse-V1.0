@@ -98,6 +98,7 @@ def build_graph(
     emitter: RunEmitter,
     bus: Optional[EventBus] = None,
     cancel_event: Optional[asyncio.Event] = None,
+    retrieval_cache: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -110,7 +111,15 @@ def build_graph(
     lc_tools = registry.langchain_tools(allowed)
     model_with_tools = model.bind_tools(lc_tools) if lc_tools else model
 
-    ctx = ToolContext(run_id=request.runId, log=lambda m, d=None: None, data_bridge=data_bridge)
+    # The retrieval layer is built lazily by the retrieval tools from `ctx`;
+    # the shared process-wide cache is attached here so concurrent runs reuse
+    # each other's in-flight/cached retrievals (Milestone 2H).
+    ctx = ToolContext(
+        run_id=request.runId,
+        log=lambda m, d=None: None,
+        data_bridge=data_bridge,
+        retrieval_cache=retrieval_cache,
+    )
     registry.set_active_context(ctx)
 
     seen_calls: dict[str, int] = {}
@@ -272,6 +281,7 @@ async def execute_run(
     store: AgentMemoryStore,
     bus: Optional[EventBus] = None,
     cancel_event: Optional[asyncio.Event] = None,
+    retrieval_cache: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     agent = resolve_agent(request)
@@ -296,7 +306,7 @@ async def execute_run(
     ]
 
     try:
-        app = build_graph(request, registry, data_bridge, store, emitter, bus, cancel_event)
+        app = build_graph(request, registry, data_bridge, store, emitter, bus, cancel_event, retrieval_cache)
         final_state = await app.ainvoke(
             {
                 "messages": messages,

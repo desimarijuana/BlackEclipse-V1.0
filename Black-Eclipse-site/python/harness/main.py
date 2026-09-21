@@ -17,6 +17,7 @@ The service never trusts the caller: pydantic validates every body.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -33,6 +34,11 @@ logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(nam
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0")
 service = AgenticService()
 
+# Process start time (epoch ms). The TS launcher compares this against the
+# build time of `python/harness/` to detect an orphaned runtime from an earlier
+# `npm run dev` that is still holding the port and serving stale code.
+_STARTED_AT_MS = int(time.time() * 1000)
+
 
 class StartRunResponse(BaseModel):
     success: bool
@@ -45,11 +51,19 @@ def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "harness-runtime",
+        "startedAtMs": _STARTED_AT_MS,
         "tools": service.registry.names(),
         "agents": list(AGENT_PRESETS.keys()),
         "defaultAgentId": DEFAULT_AGENT_ID,
         "providers": [p["id"] for p in list_providers()],
+        "retrieval": service.retrieval_metrics(),
     }
+
+
+@app.get("/retrieval/metrics")
+def retrieval_metrics() -> dict[str, Any]:
+    """Retrieval-layer performance counters (cache hits/misses, in-flight)."""
+    return {"success": True, **service.retrieval_metrics()}
 
 
 @app.get("/models")

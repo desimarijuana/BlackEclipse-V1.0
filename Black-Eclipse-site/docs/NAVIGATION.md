@@ -58,6 +58,10 @@ Black-Eclipse-site/
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md` |
 | Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
+| Work on hybrid financial retrieval / source selection | `python/harness/retrieval/` (`planner.py` = source selection, `layer.py` = orchestrator, `structured.py`/`web.py` = providers, `cache.py`, `parallel.py`, `validate.py`, `conflicts.py`, `aggregate.py`); tools in `python/harness/retrieval_tools.py` |
+| Add/edit a retrieval data type or provider | `retrieval/contract.py` (`DataType`), `retrieval/planner.py` (`_PLAN`), `retrieval/policies.py` (freshness + TTL) — new provider implements `retrieval/sources.py` `RetrievalSource` |
+| Change web search / page retrieval | `src/lib/web-research.ts` (the one shared implementation) + the `web_search`/`web_fetch` capabilities in `src/lib/harness/data-bridge.ts` |
+| Give the retrieval layer a new data source | `src/lib/harness/data-bridge.ts` capability + `DataCapability` in `src/lib/harness/types.ts` + the route whitelist |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
 | Work on token usage / analytics | capture in `python/harness/graph.py` (`_extract_usage`), columns + `usage_summary()` in `python/harness/persistence.py`, `GET /usage` in `main.py`; proxy `src/app/api/harness/usage/route.ts` + `getUsageSummaryFromRuntime`; UI `src/components/screens/analytics-settings.tsx` (Settings › Analytics) |
 | Give a Python tool JDdS data | `src/lib/harness/data-bridge.ts` (capability) + `DataCapability` in `src/lib/harness/types.ts`; the Python tool calls `ctx.data_bridge.fetch(...)` |
@@ -184,7 +188,10 @@ health).
 | Market workspace ops | `src/lib/market-workspace/ops.ts` |
 | Agent provider interface | `src/lib/agent/types.ts` |
 | Agent tool contract | `src/lib/agent/tools.ts` (`ToolDefinition`) |
-| Harness front-door contracts | `src/lib/harness/types.ts` (proxy shapes only) |
+| Harness front-door contracts | `src/lib/harness/types.ts` (proxy shapes + `DataCapability`) |
+| Financial retrieval contract | `python/harness/retrieval/contract.py` (`FinancialRetrievalRequest`/`Result`, `NormalizedFinancialObject`, `EvidenceSet`) |
+| Retrieval provider contract | `python/harness/retrieval/sources.py` (`RetrievalSource`, `SourceOutcome`) |
+| Source-selection policy | `python/harness/retrieval/planner.py` (`_PLAN`) |
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |
 | Harness tool contract | `python/harness/tools.py` (`ToolDefinition`, `ToolRegistry`) |
@@ -207,7 +214,8 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/connectors/`, `src/lib/provider-keys.ts`, `src/app/api/data-sources/`, `src/app/api/provider-keys/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer + operator credentials), `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/investor-eye/`, `src/components/investor-eye/`, `src/app/api/investor-eye/` | `ARCHITECTURE.md` (Investor Eye), `investor-eye-architecture.md`, `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/fundamentals/`, `src/components/screens/fundamentals/`, `src/app/api/fundamentals/`, `scripts/yfinance_fundamentals.py` | `ARCHITECTURE.md` (Fundamentals), `DATA-FLOW.md` |
-| `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `DECISIONS.md`, `QUICKSTART.md` |
+| `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `harness/phase-2-progress.md`, `DECISIONS.md`, `QUICKSTART.md` |
+| `python/harness/retrieval/`, `python/harness/retrieval_tools.py`, `src/lib/web-research.ts` | `harness/architecture.md` (retrieval layer), `harness/phase-2-progress.md`, `ARCHITECTURE.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |

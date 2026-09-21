@@ -10,7 +10,17 @@ export const dynamic = "force-dynamic";
 // `Authorization: Bearer <CRON_SECRET>` (or from loopback in dev). It performs
 // only the whitelisted read capabilities and never writes.
 
-const CAPABILITIES: DataCapability[] = ["market_snapshot", "fundamentals", "news", "source_health"];
+const CAPABILITIES: DataCapability[] = [
+  "market_snapshot",
+  "fundamentals",
+  "news",
+  "source_health",
+  "live_quote",
+  "price_history",
+  "macro_series",
+  "web_search",
+  "web_fetch",
+];
 
 export async function POST(request: Request) {
   const blocked = guardMutation(request, "harness-data");
