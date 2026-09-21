@@ -125,12 +125,14 @@ export const ECON_SOURCES: EconSource[] = [
       if (!res.ok) throw new Error(`HTTP ${res.status} from FRED CSV`);
       const csv = await res.text();
       const lines = csv.trim().split("\n");
-      const header = (lines[0] || "").split(",");
+      // FRED's header is `observation_date,<SERIES_ID>` — the value column is
+      // named after the series (GDP, CPIAUCSL, …). Emit the canonical
+      // `{ date, value }` shape every other source produces; returning the raw
+      // dynamic-header rows meant the normalizer found no date/value keys and
+      // silently yielded ZERO observations.
       return lines.slice(1).map((line) => {
-        const cells = line.split(",");
-        const row: Record<string, string> = {};
-        header.forEach((h, i) => { row[h.trim() || "value"] = (cells[i] ?? "").trim(); });
-        return row;
+        const [date, value] = line.split(",");
+        return { date: (date ?? "").trim(), value: (value ?? "").trim() };
       });
     },
   },

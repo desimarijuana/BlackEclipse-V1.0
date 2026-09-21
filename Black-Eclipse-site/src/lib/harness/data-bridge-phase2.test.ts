@@ -16,10 +16,12 @@ vi.mock("@/lib/scraper/fetchers", () => ({
 vi.mock("@/lib/scraper/fetchers/yfinance", () => ({
   fetchYahooBatchRaw: (...a: unknown[]) => fetchYahooBatchRaw(...a),
 }));
-vi.mock("@/lib/economics/fetch", () => ({
-  normalizeEconomicSeries: () => [{ date: "2026-08", value: 3.1 }],
-  sortByDate: (x: unknown) => x,
-}));
+// Use the REAL normalizer so the test catches the { date, value } contract
+// between the macro sources and the normalizer (the FRED-analytics regression).
+vi.mock("@/lib/economics/fetch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/economics/fetch")>();
+  return actual;
+});
 vi.mock("@/lib/economics/sources", () => ({
   getSource: (id: string) =>
     id === "fred-analytics"
@@ -27,7 +29,8 @@ vi.mock("@/lib/economics/sources", () => ({
           id,
           label: "FRED Analytics",
           controls: [{ name: "seriesId", defaultValue: "GDP" }],
-          fetch: async () => [{ observation_date: "2026-08-01", GDP: "3.1" }],
+          // Mirrors the real source's canonical { date, value } output.
+          fetch: async () => [{ date: "2026-08-01", value: "3.1" }],
         }
       : undefined,
 }));
@@ -91,6 +94,24 @@ describe("fetchCapability — macro_series", () => {
   it("rejects an unknown macro source", async () => {
     const result = await fetchCapability("macro_series", { source: "nope" });
     expect(result.status).toBe("UNAVAILABLE");
+  });
+});
+
+describe("macro source ↔ normalizer contract", () => {
+  it("the real normalizer accepts the canonical { date, value } shape", async () => {
+    const { normalizeEconomicSeries } = await import("@/lib/economics/fetch");
+    // What every macro source now emits (FRED-analytics previously emitted
+    // dynamic-header rows that normalized to zero observations).
+    const rows = normalizeEconomicSeries(
+      [
+        { date: "2026-06-01", value: "3.1" },
+        { date: "2026-07-01", value: "3.2" },
+      ],
+      "fred-analytics"
+    );
+    expect(rows.length).toBe(2);
+    expect(rows[0].value).toBe(3.1);
+    expect(rows[1].date).toBe("2026-07-01");
   });
 });
 

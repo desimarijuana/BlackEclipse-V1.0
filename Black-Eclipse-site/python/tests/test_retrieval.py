@@ -135,6 +135,72 @@ def test_normalize_history_one_object_per_bar_field():
     assert closes[0].period == "1d"
 
 
+def test_params_for_does_not_confuse_range_with_interval():
+    """Regression: passing a range ("6mo") as an interval silently disabled the
+    whole historical path — the bridge ran the quote path, not history."""
+    from harness.retrieval.structured import _params_for
+
+    history = _params_for(
+        FinancialRetrievalRequest(
+            objective="h", dataType="historical_prices", instrument="AAPL", quantity="6mo"
+        )
+    )
+    assert history["range"] == "6mo"
+    assert "interval" not in history  # 6mo is a range, never an interval
+    assert "period" not in history
+
+    intraday = _params_for(
+        FinancialRetrievalRequest(
+            objective="h", dataType="historical_prices", instrument="AAPL", quantity="5m"
+        )
+    )
+    assert intraday["interval"] == "5m"
+    assert "range" not in intraday
+
+
+def test_params_for_maps_macro_series_and_source():
+    from harness.retrieval.structured import _params_for
+
+    params = _params_for(
+        FinancialRetrievalRequest(
+            objective="m",
+            dataType="macro_series",
+            quantity="CPIAUCSL",
+            metadata={"source": "bls"},
+        )
+    )
+    assert params["series"] == "CPIAUCSL"
+    assert params["source"] == "bls"
+
+
+@pytest.mark.asyncio
+async def test_company_profile_keeps_non_numeric_fields():
+    """Regression: non-numeric facts were dropped by numeric-only conflict
+    resolution, so company_profile returned five valid objects as an empty body."""
+    bridge = FakeBridge(
+        {
+            "fundamentals": {
+                "status": "OK",
+                "symbol": "AAPL",
+                "name": "Apple Inc.",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "securityType": "Stock",
+                "country": "US",
+                "price": 338.96,
+            }
+        }
+    )
+    layer = FinancialRetrievalLayer(bridge)
+    result = await layer.retrieve(
+        FinancialRetrievalRequest(objective="p", dataType="company_profile", instrument="AAPL")
+    )
+    assert result.status == "OK"
+    assert result.data["name"] == "Apple Inc."
+    assert result.data["sector"] == "Technology"
+    assert result.data["country"] == "US"
+
+
 @pytest.mark.asyncio
 async def test_structured_source_returns_unavailable_without_inventing():
     bridge = FakeBridge({"market_snapshot": {"status": "UNAVAILABLE"}})
@@ -295,12 +361,29 @@ def test_validation_flags_missing_value():
     assert validate_object(NormalizedFinancialObject(name="price", value=None, source=ref)) == "warning"
 
 
-def test_validation_flags_stale_data():
+def test_validation_flags_stale_dataset_once_not_per_row():
+    """Staleness is a dataset property. Flagging every historical bar as a
+    'quality issue' was noise — the per-row check must not fire."""
     ref = SourceReference(source="JDDS")
-    old = NormalizedFinancialObject(
-        name="price", value=1.0, source=ref, dataTimestamp="2000-01-01T00:00:00"
+    series = [
+        NormalizedFinancialObject(name="close", value=1.0, source=ref, dataTimestamp="2000-01-01T00:00:00"),
+        NormalizedFinancialObject(name="close", value=2.0, source=ref, dataTimestamp="2000-01-02T00:00:00"),
+    ]
+    # Per-object: no stale warning (a historical bar is valid).
+    assert validate_object(series[0]) == "valid"
+    # Dataset-level: exactly one stale warning, naming the reason.
+    _, warnings = validate_objects(series, "daily")
+    assert len([w for w in warnings if "stale" in w]) == 1
+    assert all("close" not in w for w in warnings), "no per-row noise"
+
+
+def test_validation_warning_names_the_reason():
+    ref = SourceReference(source="JDDS")
+    _, warnings = validate_objects(
+        [NormalizedFinancialObject(name="price", value=-1.0, source=ref)], "any"
     )
-    assert validate_object(old, "daily") == "warning"
+    assert len(warnings) == 1
+    assert "price" in warnings[0] and "non-negative" in warnings[0]
 
 
 # ── 2K conflicts ────────────────────────────────────────────────────────────

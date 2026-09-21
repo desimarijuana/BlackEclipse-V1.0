@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Harness Phase 2 — retrieval defect fixes (historical prices, macro, profile,
+  warnings)** — End-to-end testing against the live bridge found four defects.
+  (1) `market_get_ohlcv` passed its range ("6mo") to the bridge as an interval,
+  so yfinance never ran the history path and every historical request returned
+  UNAVAILABLE — fixed by classifying `quantity` into range vs interval in
+  `retrieval/structured.py`. (2) The `fred-analytics` macro source emitted
+  dynamic-header rows the normalizer could not read, yielding zero observations —
+  now emits canonical `{ date, value }` (verified 318 rows). (3)
+  `company_profile` returned an empty body because numeric-only conflict
+  resolution dropped string facts — non-numeric objects now pass through. (4)
+  Quality warnings were a blanket per-row staleness flag; staleness is now a
+  dataset-level check and value warnings name the metric and reason. Verified
+  live: AAPL history 126/251/1254 bars for 6mo/1y/5y. 98 Python + 1457 TS tests.
+  docs updated: `docs/harness/phase-2-progress.md`, `docs/CHANGELOG.md`
+
 - **Harness Phase 2 — Hybrid Financial Data & Web Research Layer** — Added a
   provider-agnostic `python/harness/retrieval/` layer: a unified
   request/result/evidence contract, a deterministic task-aware source-selection

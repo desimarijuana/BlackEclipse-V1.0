@@ -190,6 +190,16 @@ class LiveStructuredSource:
         )
 
 
+# Interval/range vocabularies the bridge understands (mirrors the yfinance
+# bridge's VALID_INTERVALS / VALID_PERIODS). A `quantity` is classified against
+# these so the layer never confuses an interval ("1d") with a range ("6mo") —
+# a real bug that silently disabled the entire historical path.
+_INTERVALS = {
+    "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo",
+}
+_RANGES = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+
+
 def _params_for(request: FinancialRetrievalRequest) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if request.instrument:
@@ -198,9 +208,22 @@ def _params_for(request: FinancialRetrievalRequest) -> dict[str, Any]:
         params["market"] = request.market
     if request.dateRange:
         params["range"] = request.dateRange.get("range") or request.dateRange.get("start")
-    if request.quantity:
-        params["period"] = request.quantity
+    # `quantity` is overloaded by data type: for price history it is a range
+    # ("6mo"); for macro it is a series id. Map it to the right bridge param.
+    if request.quantity and request.dataType == "macro_series":
         params["series"] = request.quantity
+        # A macro source id is an implementation hint passed through metadata,
+        # not part of the agent-facing contract.
+        if request.metadata and request.metadata.get("source"):
+            params["source"] = request.metadata["source"]
+    elif request.quantity:
+        q = request.quantity.strip().lower()
+        if q in _RANGES:
+            params["range"] = q
+        elif q in _INTERVALS:
+            params["interval"] = q
+        else:
+            params["range"] = q
     if request.query:
         params["query"] = request.query
     return params

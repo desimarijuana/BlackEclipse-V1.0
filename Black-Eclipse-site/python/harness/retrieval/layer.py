@@ -314,11 +314,19 @@ class FinancialRetrievalLayer:
         caught (a 20-bar series resolved to a single bar).
         """
         groups: dict[str, list[NormalizedFinancialObject]] = {}
+        passthrough: list[NormalizedFinancialObject] = []
         for obj in objects:
-            key = f"{obj.name}@{obj.dataTimestamp or ''}@{obj.period or ''}"
-            groups.setdefault(key, []).append(obj)
+            # Non-numeric facts (sector, industry, description, exchange…) can
+            # never "disagree" numerically. Passing them through untouched is
+            # what was missing when company_profile returned five valid objects
+            # as an empty body.
+            if isinstance(obj.value, (int, float)) and not isinstance(obj.value, bool):
+                key = f"{obj.name}@{obj.dataTimestamp or ''}@{obj.period or ''}"
+                groups.setdefault(key, []).append(obj)
+            else:
+                passthrough.append(obj)
         chosen, warnings, unresolved = detect_conflicts(groups)
-        return list(chosen.values()), warnings, unresolved
+        return [*passthrough, *chosen.values()], warnings, unresolved
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 

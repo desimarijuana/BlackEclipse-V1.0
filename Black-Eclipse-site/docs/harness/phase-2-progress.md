@@ -92,6 +92,32 @@ web, web evidence is provenance-tagged and snippet-only results are marked
 `unverified`, no-number-is-invented holds for historical/macro requests, and
 concurrent identical requests share one provider call.
 
+## Post-completion defect fixes (2026-09-21)
+
+Three defects surfaced by end-to-end testing against the live bridge:
+
+1. **Historical prices were completely unavailable (blocker).** `market_get_ohlcv`
+   passed its `period` argument ("6mo") straight through as the bridge's
+   `interval`, so yfinance received an invalid interval and never ran the history
+   path. Fixed by classifying `quantity` against the interval/range vocabularies
+   in `retrieval/structured.py` (`_params_for`): a range → `range`, an interval →
+   `interval`. Verified live: 126 / 251 / 1254 bars for 6mo / 1y / 5y.
+2. **Macro series returned zero observations.** The `fred-analytics` source built
+   rows keyed by FRED's dynamic value header (`{ observation_date, GDP }`), which
+   the normalizer's key lists did not recognize. Fixed to emit the canonical
+   `{ date, value }` shape; verified live at 318 rows.
+3. **`company_profile` returned an empty body despite valid quality.** Conflict
+   resolution is numeric-only and dropped every string fact (sector, industry,
+   description). Fixed in `retrieval/layer.py` `_resolve` to pass non-numeric
+   objects through untouched.
+4. **Blanket, uninformative quality warnings.** The validator applied a per-row
+   age check, so every bar in a 5-year series (and every macro observation) was
+   flagged "possible quality issue". Staleness is a dataset property: it is now
+   checked once against the series' newest timestamp, and value warnings name the
+   metric and the specific reason.
+
+Regression tests added for all four (Python + TS).
+
 ## Known limitations
 
 - **Cache is in-process.** It survives across runs within one runtime process but
