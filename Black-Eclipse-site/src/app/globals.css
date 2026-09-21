@@ -371,6 +371,29 @@ html:not(.dark) .ws-glass {
   scrollbar-color: rgb(var(--brand-rgb) / 0.2) transparent;
 }
 
+/* Chat composer: the only visible scrollbar sits inside the glass input, so it
+   needs its own inset, low-contrast treatment — otherwise the 6px global thumb
+   crowds the text and the action buttons. Keep it short and hugging the right
+   edge with breathing room above/below. */
+.chat-composer-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--brand-rgb) / 0.35) transparent;
+}
+.chat-composer-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.chat-composer-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 10px 0;
+}
+.chat-composer-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--brand-rgb) / 0.35);
+  border-radius: 9999px;
+}
+.chat-composer-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--brand-rgb) / 0.6);
+}
+
 /* Stock-detail metrics rail: always-visible, wider scrollbar so the rail is
    clearly scrollable (the global 6px thumb was too easy to miss). */
 .tv-metrics-rail {

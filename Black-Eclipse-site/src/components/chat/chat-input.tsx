@@ -39,7 +39,11 @@ export function ChatInput({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
+    const needed = el.scrollHeight;
+    el.style.height = `${Math.min(needed, MAX_HEIGHT)}px`;
+    // Only show a scrollbar once the content truly exceeds the cap; otherwise a
+    // 1px rounding gap would render a full-height thumb next to the buttons.
+    el.style.overflowY = needed > MAX_HEIGHT ? 'auto' : 'hidden';
   }, []);
 
   useEffect(() => { resize(); }, [query, resize]);
@@ -71,7 +75,7 @@ export function ChatInput({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-auto placeholder:text-muted-foreground text-foreground px-3 sm:px-4 py-3 text-base sm:text-lg leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
+        className="chat-composer-scroll flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-hidden placeholder:text-muted-foreground text-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-3 text-base sm:text-lg leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
       />
       
       <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-1">

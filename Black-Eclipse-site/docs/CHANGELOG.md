@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — composer scrollbar restyled and shown only when needed** — The
+  auto-growing composer revealed the global 6px thumb full-height against the
+  text and action buttons as soon as content overflowed. Gave the composer its
+  own `.chat-composer-scroll` treatment (5px, low-contrast brand tint, inset
+  10px top/bottom margin, transparent track) and made the resize logic switch
+  `overflow-y` to `auto` only when the content truly exceeds the cap, so no
+  scrollbar flashes for content that fits. Verified: `tsc`, eslint, 1442 TS +
+  45 Python tests pass.
+  no doc change — UI-only change, contracts unchanged.
+
 - **Chat — composer auto-grows and scrolls for long prompts** — The full-page
   `ChatInput` used a single-line `<input>`, so a long prompt stayed clipped with
   no way to review it. Replaced it with an auto-resizing `<textarea>` that grows
