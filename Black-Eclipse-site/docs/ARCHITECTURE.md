@@ -532,6 +532,41 @@ band. The shell and fullscreen both use it, so the sentiment model stays in one
 place (`src/lib/aurora-sentiment.ts`). Any future full-viewport overlay must do
 the same — the shell's glow does not reach above it.
 
+### Chat session workspaces (context documents + agent output)
+
+Each chat conversation owns a real folder on disk holding the documents the user
+attaches as context and the answers the agent produces:
+
+```
+<Black-Eclipse-site>/.black-eclipse/sessions/<chatId>/
+  context/   files the user added (extracted to text, injected into runs)
+  output/    files the agent produced (one `answer-<stamp>.md` per run)
+```
+
+- **The front door owns the filesystem; the Python runtime stays read-only.**
+  Every harness tool is `permission="read"` and `tools.py` hard-rejects writes,
+  so documents reach the agent by *extraction*, not filesystem access:
+  `src/lib/chat/extract.ts` turns a stored file into text and
+  `loadContextDocuments` feeds it into `RunInput.documents`. `python/harness/
+  graph.py` (`_user_message`) wraps them as `<document name="...">` blocks in the
+  user turn — user-supplied evidence, clearly attributed, never presented as
+  retrieved JDdS data.
+- **Storage lives in `src/lib/chat/session-store.ts`** (server-only) and the
+  routes `api/chat/session` (list/upload/delete) + `api/chat/session/file`
+  (download). The chat id is a path segment, so it is validated against
+  `^[A-Za-z0-9_-]{1,64}$` and every resolved path is re-checked to stay inside
+  the session root; file names reject traversal and dotfiles.
+- **`/api/harness/chat` does the wiring** when given a `chatId`: it loads the
+  context documents, passes them to the agent, and best-effort writes the output
+  to `output/`. A session failure never fails the chat and never fabricates
+  output.
+- **Root is gitignored** (`.black-eclipse/`), the same tier as `agent-memory.db`.
+  Override with `BLACK_ECLIPSE_SESSION_ROOT` (used by tests).
+- **UI:** `src/components/chat/session-bar.tsx`, under the composer — shows the
+  folder path, a file list (Context / Output) with download + remove, and an
+  "Add docs" picker. Supported types: txt/md/csv/json/log/yml/yaml/xml/html/sql/
+  ini/toml and simple text-stream PDFs; binary types are rejected at extraction.
+
 ### ChatDock (the Command Center assistant composer)
 
 `src/components/chat/chat-dock.tsx` is the floating, **bottom-centre** assistant

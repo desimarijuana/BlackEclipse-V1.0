@@ -34,6 +34,8 @@ import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
+/** Stable workspace-folder id for the dock, so its runs also persist output. */
+const SESSION_KEY = 'be_chat_dock_session_v1';
 /** Persisted collapse preference — the user decides small vs big. */
 const MINIMIZED_KEY = 'be_chat_dock_minimized_v1';
 /** Persisted position of the minimized pill (viewport px, top-left corner). */
@@ -98,6 +100,20 @@ function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** A stable, server-valid session id for the dock (created once, persisted). */
+function loadDockSessionId(): string {
+  if (typeof window === 'undefined') return 'dock-temp';
+  try {
+    const existing = window.localStorage.getItem(SESSION_KEY);
+    if (existing && /^[A-Za-z0-9_-]{1,64}$/.test(existing)) return existing;
+    const created = `dock-${Date.now().toString(36)}`;
+    window.localStorage.setItem(SESSION_KEY, created);
+    return created;
+  } catch {
+    return `dock-${Date.now().toString(36)}`;
+  }
+}
+
 /** The configured provider's real label (never a fabricated model name). */
 function useProviderLabel(): string {
   return React.useMemo(() => getAgentProvider().label, []);
@@ -139,6 +155,7 @@ export function ChatDock({
   const [pillPos, setPillPos] = useState<PillPos | null>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef = useRef<string>('dock-temp');
   const providerLabel = useProviderLabel();
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
@@ -155,6 +172,7 @@ export function ChatDock({
     setMessages(loadMessages());
     setMinimized(loadMinimized());
     setPillPos(loadPillPos());
+    sessionIdRef.current = loadDockSessionId();
   }, []);
 
   // Re-clamp the pill if the window shrinks under it.
@@ -316,7 +334,11 @@ export function ChatDock({
       const history = messagesRef.current
         .slice(0, -1)
         .map(m => ({ role: m.role, content: m.content }));
-      const reply = await getAgentProvider().chat([...history, { role: 'user', content: text }]);
+      const reply = await getAgentProvider().chat(
+        [...history, { role: 'user', content: text }],
+        undefined,
+        { chatId: sessionIdRef.current },
+      );
       pushAssistant(reply);
     } catch (err) {
       pushAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);

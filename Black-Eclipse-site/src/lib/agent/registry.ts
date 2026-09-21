@@ -1,4 +1,4 @@
-import type { AgentProvider, ChatMessage } from './types';
+import type { AgentProvider, AgentTool, ChatMessage, ChatOptions } from './types';
 
 /**
  * Registry of agent providers (client-safe: no server imports).
@@ -15,7 +15,7 @@ const eclipseAgent: AgentProvider = {
   id: 'eclipse-agent',
   label: 'Eclipse Agent',
   isConfigured: () => true,
-  chat: async (messages: ChatMessage[]) => {
+  chat: async (messages: ChatMessage[], _tools?: AgentTool[], options?: ChatOptions) => {
     const last = [...messages].reverse().find((m) => m.role === 'user');
     const query = last?.content ?? '';
     const history = messages
@@ -25,7 +25,7 @@ const eclipseAgent: AgentProvider = {
     const res = await fetch('/api/harness/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, history }),
+      body: JSON.stringify({ query, history, chatId: options?.chatId }),
     });
 
     const data = await res.json().catch(() => ({}));

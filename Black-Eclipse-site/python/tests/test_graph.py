@@ -174,6 +174,34 @@ def test_history_is_bounded():
     assert sum(len(m.content) for m in msgs) <= graph_module.MAX_HISTORY_CHARS + 5000
 
 
+def test_attached_documents_are_injected_into_the_user_message():
+    req = RunRequest(
+        runId="r",
+        input=RunInput(
+            query="summarize",
+            documents=[{"name": "report.md", "text": "Revenue rose 4%."}],
+        ),
+        agentId="eclipse-agent",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    text = graph_module._user_message(req)
+    assert "summarize" in text
+    assert "report.md" in text
+    assert "Revenue rose 4%." in text
+
+
+def test_no_documents_leaves_the_user_message_clean():
+    req = RunRequest(
+        runId="r",
+        input=RunInput(query="hi"),
+        agentId="eclipse-agent",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    assert graph_module._user_message(req) == "hi"
+
+
 def test_default_agent_used_when_no_id_given():
     req = RunRequest(
         runId="r",

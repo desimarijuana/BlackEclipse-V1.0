@@ -13,6 +13,11 @@ export interface ConversationTurn {
   content: string;
 }
 
+export interface RunDocument {
+  name: string;
+  text: string;
+}
+
 export interface RunInput {
   query: string;
   ticker?: string;
@@ -20,6 +25,12 @@ export interface RunInput {
   context?: Record<string, unknown>;
   /** Prior turns, oldest first, so a chat follow-up has context. */
   history?: ConversationTurn[];
+  /**
+   * Extracted text of documents the user attached to this conversation. The
+   * front door (not the runtime) performs extraction, because the Python agent
+   * has no filesystem access by design.
+   */
+  documents?: RunDocument[];
 }
 
 export interface HarnessErrorJson {

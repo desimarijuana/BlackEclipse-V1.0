@@ -28,10 +28,11 @@ export interface StartRunOptions {
  */
 export async function chatWithAgent(
   query: string,
-  history: Array<{ role: "user" | "assistant"; content: string }> = []
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
+  documents: Array<{ name: string; text: string }> = []
 ): Promise<{ output: string; runId: string; status: "completed" | "failed"; error?: string }> {
   const result = await startRun({
-    input: { query, history },
+    input: { query, history, documents: documents.length ? documents : undefined },
     agentId: "eclipse-agent",
   });
 

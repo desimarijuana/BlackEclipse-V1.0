@@ -367,6 +367,20 @@ def _user_message(request: RunRequest) -> str:
         text += f"\n\nTicker: {request.input.ticker}"
     if request.input.market:
         text += f"\n\nMarket: {request.input.market}"
+    documents = request.input.documents or []
+    if documents:
+        # Attached documents are user-provided context, not tool output: they
+        # are wrapped and clearly attributed so the model can distinguish them
+        # from authoritative JDdS data it retrieves itself.
+        parts = [
+            f'<document name="{doc.name}">\n{doc.text}\n</document>'
+            for doc in documents
+        ]
+        text += (
+            "\n\nAttached documents (user-provided context; treat as evidence "
+            "the user supplied, and do not claim to have retrieved them):\n"
+            + "\n\n".join(parts)
+        )
     return text
 
 

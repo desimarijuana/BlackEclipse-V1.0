@@ -17,6 +17,9 @@ const MAX_QUERY_LENGTH = 4000;
 const MAX_CONTEXT_KEYS = 50;
 const MAX_HISTORY_TURNS = 20;
 const MAX_HISTORY_CONTENT = 20_000;
+const MAX_DOCUMENTS = 20;
+const MAX_DOCUMENT_CHARS = 20_000;
+const MAX_TOTAL_DOCUMENT_CHARS = 60_000;
 
 export function validateRunInput(raw: unknown): InputValidationResult {
   const issues: string[] = [];
@@ -81,8 +84,48 @@ export function validateRunInput(raw: unknown): InputValidationResult {
     }
   }
 
+  let documents: RunInput["documents"];
+  if (body.documents !== undefined && body.documents !== null) {
+    if (!Array.isArray(body.documents)) {
+      issues.push("documents must be an array");
+    } else {
+      const docs: RunInput["documents"] = [];
+      let total = 0;
+      for (const [i, rawDoc] of body.documents.entries()) {
+        if (rawDoc === null || typeof rawDoc !== "object") {
+          issues.push(`documents[${i}] must be an object`);
+          continue;
+        }
+        const doc = rawDoc as Record<string, unknown>;
+        const name = typeof doc.name === "string" ? doc.name.trim().slice(0, 128) : "";
+        const text = typeof doc.text === "string" ? doc.text : "";
+        if (!name) {
+          issues.push(`documents[${i}].name is required`);
+          continue;
+        }
+        if (!text.trim()) {
+          issues.push(`documents[${i}].text is required`);
+          continue;
+        }
+        if (docs.length >= MAX_DOCUMENTS) {
+          issues.push(`too many documents (max ${MAX_DOCUMENTS})`);
+          break;
+        }
+        const remaining = MAX_TOTAL_DOCUMENT_CHARS - total;
+        if (remaining <= 0) {
+          issues.push(`documents exceed the ${MAX_TOTAL_DOCUMENT_CHARS} char limit`);
+          break;
+        }
+        const bounded = text.slice(0, Math.min(MAX_DOCUMENT_CHARS, remaining));
+        total += bounded.length;
+        docs.push({ name, text: bounded });
+      }
+      documents = docs.length ? docs : undefined;
+    }
+  }
+
   if (issues.length > 0) return { ok: false, issues };
-  return { ok: true, value: { query, ticker, market, context, history }, issues: [] };
+  return { ok: true, value: { query, ticker, market, context, history, documents }, issues: [] };
 }
 
 /** Throwing wrapper for callers that prefer exceptions. */

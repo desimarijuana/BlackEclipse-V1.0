@@ -32,6 +32,30 @@ describe("validateRunInput (front door)", () => {
     expect(result.issues).toContain("context must be an object");
   });
 
+  it("accepts and bounds attached documents", () => {
+    const result = validateRunInput({
+      query: "summarize this",
+      documents: [{ name: "a.md", text: "# Heading" }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value?.documents).toEqual([{ name: "a.md", text: "# Heading" }]);
+  });
+
+  it("rejects a document without a name or text", () => {
+    expect(validateRunInput({ query: "hi", documents: [{ text: "x" }] }).ok).toBe(false);
+    expect(validateRunInput({ query: "hi", documents: [{ name: "a.md" }] }).ok).toBe(false);
+  });
+
+  it("caps the combined document size", () => {
+    const documents = Array.from({ length: 5 }, (_, i) => ({
+      name: `d${i}.txt`,
+      text: "x".repeat(20_000),
+    }));
+    const result = validateRunInput({ query: "hi", documents });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.includes("char limit"))).toBe(true);
+  });
+
   it("assertRunInput throws a structured HarnessError", () => {
     expect(() => assertRunInput({})).toThrow(HarnessError);
     try {

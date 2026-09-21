@@ -43,6 +43,26 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — session workspaces, attached docs, full-width prompt bubbles and
+  prompt editing** — Four linked changes to the Eclipse Agent chat surfaces.
+  (1) User bubbles are now `w-fit max-w-full`, so a long prompt fills the
+  column instead of wrapping early inside a fixed-size bubble. (2) Every user
+  message gets an Edit affordance that truncates the thread at that turn and
+  re-sends the edited prompt. (3) Each conversation now owns a real folder
+  on disk (`.black-eclipse/sessions/<chatId>/{context,output}`): the new
+  `session-bar.tsx` under the composer shows the path and a Context/Output
+  file list with add/download/remove, backed by `api/chat/session` +
+  `session-store.ts` (chat id validated as a path segment; traversal and
+  dotfiles rejected). (4) "Add docs" is functional: `extract.ts` turns
+  txt/md/csv/json/html/pdf into text, `/api/harness/chat` loads the
+  conversation's context documents, injects them into `RunInput.documents`,
+  and Python (`graph.py` `_user_message`) wraps them as attributed
+  `<document>` blocks — the runtime stays read-only. The agent's answer is
+  saved back as an output file. Root is gitignored. Verified: `tsc`, eslint,
+  1477 TS + 89 Python tests pass.
+  docs updated: `docs/ARCHITECTURE.md` (§ Chat session workspaces),
+  `docs/NAVIGATION.md`
+
 - **Harness Phase 2 — retrieval defect fixes (historical prices, macro, profile,
   warnings)** — End-to-end testing against the live bridge found four defects.
   (1) `market_get_ohlcv` passed its range ("6mo") to the bridge as an interval,

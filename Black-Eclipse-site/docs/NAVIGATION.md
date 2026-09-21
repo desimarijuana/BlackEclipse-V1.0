@@ -63,6 +63,7 @@ Black-Eclipse-site/
 | Change web search / page retrieval | `src/lib/web-research.ts` (the one shared implementation) + the `web_search`/`web_fetch` capabilities in `src/lib/harness/data-bridge.ts` |
 | Give the retrieval layer a new data source | `src/lib/harness/data-bridge.ts` capability + `DataCapability` in `src/lib/harness/types.ts` + the route whitelist |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
+| Work on chat session workspaces (attached docs, agent output folders) | `src/lib/chat/session-store.ts` (server fs), `session-types.ts`, `extract.ts`, `session-client.ts`; routes `src/app/api/chat/session/`; UI `src/components/chat/session-bar.tsx`; context injection `python/harness/graph.py` (`_user_message`) — see `docs/ARCHITECTURE.md` § Chat session workspaces |
 | Work on token usage / analytics | capture in `python/harness/graph.py` (`_extract_usage`), columns + `usage_summary()` in `python/harness/persistence.py`, `GET /usage` in `main.py`; proxy `src/app/api/harness/usage/route.ts` + `getUsageSummaryFromRuntime`; UI `src/components/screens/analytics-settings.tsx` (Settings › Analytics) |
 | Give a Python tool JDdS data | `src/lib/harness/data-bridge.ts` (capability) + `DataCapability` in `src/lib/harness/types.ts`; the Python tool calls `ctx.data_bridge.fetch(...)` |
 | Change harness persistence / the agent-memory DB | `python/harness/persistence.py` — separate `agent-memory.db`, NOT `prisma/schema.prisma` |

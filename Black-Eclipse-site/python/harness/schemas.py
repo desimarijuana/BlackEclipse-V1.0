@@ -44,6 +44,17 @@ class ConversationTurn(BaseModel):
     content: str = Field(max_length=20_000)
 
 
+class RunDocument(BaseModel):
+    """Extracted text of a document the user attached to the conversation.
+
+    The front door performs extraction (the runtime has no filesystem access);
+    this is the already-readable text, injected into the user turn.
+    """
+
+    name: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=20_000)
+
+
 class RunInput(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     ticker: Optional[str] = None
@@ -52,6 +63,8 @@ class RunInput(BaseModel):
     # Prior conversation turns (oldest first). Bounded so a long chat cannot
     # blow the context window; the runtime keeps the most recent MAX_HISTORY.
     history: Optional[list[ConversationTurn]] = None
+    # Attached documents, already extracted to text by the front door.
+    documents: Optional[list[RunDocument]] = None
 
     @field_validator("query")
     @classmethod

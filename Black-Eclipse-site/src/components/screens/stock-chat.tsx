@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ChatDock } from '@/components/chat/chat-dock';
+import { SessionBar } from '@/components/chat/session-bar';
 import { Message } from '@/types/chat';
 
 // Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
@@ -108,6 +109,8 @@ function StockChatContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Bumped when a run finishes so the session bar re-lists output files.
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
 
   // Refs mirror the two pieces of state an async send handler reads AFTER an
   // await. React state setters do not update the render closure, so reading
@@ -455,13 +458,18 @@ function StockChatContent() {
     sound.tick();
 
     try {
-      const reply = await provider.chat([...history, { role: 'user', content: userText }]);
+      const reply = await provider.chat(
+        [...history, { role: 'user', content: userText }],
+        undefined,
+        { chatId }
+      );
       // Replace the in-flight note with the real answer.
       replaceAssistantReply(chatId, thinkingMsg.id, {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
         content: reply,
       });
+      setSessionRefreshKey((k) => k + 1);
       sound.success();
     } catch (err) {
       replaceAssistantReply(chatId, thinkingMsg.id, {
@@ -471,6 +479,35 @@ function StockChatContent() {
       });
       sound.error();
     }
+  };
+
+  /**
+   * Edit a previously-sent prompt: drop that message and everything after it
+   * (the thread is a linear transcript, so later turns depended on it), then
+   * re-send the edited text. This is the standard "edit and branch" behavior
+   * without introducing branching state.
+   */
+  const handleEditMessage = (id: string, content: string) => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    const chat = conversationsRef.current.find((c) => c.id === chatId);
+    if (!chat) return;
+
+    const idx = chat.messages.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+
+    const truncated = chat.messages.slice(0, idx);
+    const updatedConvs = conversationsRef.current.map((c) =>
+      c.id === chatId ? { ...c, messages: truncated, timestamp: Date.now() } : c
+    );
+    conversationsRef.current = updatedConvs;
+    saveConversations(updatedConvs);
+    if (activeConversationIdRef.current === chatId) setMessages(truncated);
+
+    // Re-run the edited prompt through the agent.
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
+    const newChatId = addMessageToActiveChat(userMsg);
+    void runAgentPrompt(newChatId, content);
   };
 
   /** Inject a prompt and run it through the Eclipse Agent (the harness) so the
@@ -490,12 +527,17 @@ function StockChatContent() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const reply = await getAgentProvider().chat([...history, { role: 'user', content: userText }]);
+      const reply = await getAgentProvider().chat(
+        [...history, { role: 'user', content: userText }],
+        undefined,
+        { chatId }
+      );
       replaceAssistantReply(chatId, thinkingMsg.id, {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
         content: reply,
       });
+      setSessionRefreshKey((k) => k + 1);
       sound.success();
     } catch (err) {
       replaceAssistantReply(chatId, thinkingMsg.id, {
@@ -642,7 +684,10 @@ function StockChatContent() {
                   />
                 ) : (
                   <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
-                    <ChatHistory messages={messages} />
+                    <ChatHistory
+                      messages={messages}
+                      onEditMessage={handleEditMessage}
+                    />
                     <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-2 md:pb-4">
                       <ChatInput
                         query={query}
@@ -651,6 +696,12 @@ function StockChatContent() {
                         placeholder="Ask a follow-up..."
                         showModelSelect={false}
                       />
+                      <div className="mt-2">
+                        <SessionBar
+                          chatId={activeConversationId}
+                          refreshKey={sessionRefreshKey}
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
