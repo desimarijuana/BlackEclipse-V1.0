@@ -11,6 +11,7 @@ import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
+import { useSession } from '@/lib/chat/use-session';
 import { Message } from '@/types/chat';
 
 // Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
@@ -111,6 +112,13 @@ function StockChatContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   // Bumped when a run finishes so the session bar re-lists output files.
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
+  // True while the agent is working — swaps the submit arrow for a pause button.
+  const [agentBusy, setAgentBusy] = useState(false);
+  // The in-flight run id, so pause can cancel it.
+  const currentRunIdRef = useRef<string | null>(null);
+  // Shared session controller: the composer's "+" uploads and the bar displays.
+  const sessionController = useSession(activeConversationId, sessionRefreshKey);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Refs mirror the two pieces of state an async send handler reads AFTER an
   // await. React state setters do not update the render closure, so reading
@@ -428,21 +436,23 @@ function StockChatContent() {
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim() || agentBusy) return;
 
     const userText = query;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userText };
     setQuery('');
     
     const chatId = addMessageToActiveChat(userMsg);
+    await runAgent(chatId, userText, userMsg);
+  };
 
-    // EVERY message goes through the harness, so the chat IS the Eclipse Agent
-    // (system prompt + JDdS tools + persisted run). The agent chooses its own
-    // tools, so a research-flavored ask no longer needs a separate engine, and
-    // a plain greeting costs one model call with no tool round-trip.
-    //
-    // History is read from the ref (not state) because this runs after `await`.
-    const provider = getAgentProvider();
+  /**
+   * Run one turn through the harness and track cancellation. EVERY message goes
+   * through the harness, so the chat IS the Eclipse Agent (system prompt + JDdS
+   * tools + persisted run). History is read from the ref (not state) because
+   * this runs after `await`.
+   */
+  const runAgent = async (chatId: string, userText: string, userMsg: Message) => {
     const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [userMsg];
     const history: { role: 'user' | 'assistant'; content: string }[] = existing
       .slice(0, -1)
@@ -455,20 +465,34 @@ function StockChatContent() {
       content: 'Eclipse Agent is working…',
     };
     appendAssistantReply(chatId, thinkingMsg);
+    setAgentBusy(true);
+    currentRunIdRef.current = null;
     sound.tick();
 
     try {
-      const reply = await provider.chat(
+      const reply = await getAgentProvider().chat(
         [...history, { role: 'user', content: userText }],
         undefined,
-        { chatId }
+        {
+          chatId,
+          onRunId: (runId) => { currentRunIdRef.current = runId; },
+        }
       );
-      // Replace the in-flight note with the real answer.
-      replaceAssistantReply(chatId, thinkingMsg.id, {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: reply,
-      });
+      // A cancelled run returns no reply — keep the placeholder honest rather
+      // than replacing it with an empty bubble.
+      if (!reply) {
+        replaceAssistantReply(chatId, thinkingMsg.id, {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: 'Run stopped.',
+        });
+      } else {
+        replaceAssistantReply(chatId, thinkingMsg.id, {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: reply,
+        });
+      }
       setSessionRefreshKey((k) => k + 1);
       sound.success();
     } catch (err) {
@@ -478,6 +502,21 @@ function StockChatContent() {
         content: `Chat failed: ${err instanceof Error ? err.message : String(err)}`,
       });
       sound.error();
+    } finally {
+      setAgentBusy(false);
+      currentRunIdRef.current = null;
+    }
+  };
+
+  /** Stop the in-flight run (cooperative cancel in the Python runtime). */
+  const handleCancel = async () => {
+    const runId = currentRunIdRef.current;
+    if (!runId) return;
+    try {
+      await fetch(`/api/harness/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
+      sound.tick();
+    } catch {
+      // The run may have finished a moment ago; nothing to do.
     }
   };
 
@@ -507,46 +546,14 @@ function StockChatContent() {
     // Re-run the edited prompt through the agent.
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
     const newChatId = addMessageToActiveChat(userMsg);
-    void runAgentPrompt(newChatId, content);
+    void runAgent(newChatId, content, userMsg);
   };
 
   /** Inject a prompt and run it through the Eclipse Agent (the harness) so the
    *  answer is grounded in JDdS tools — never a canned fabricated reply. */
   const runAgentPrompt = async (chatId: string, userText: string) => {
-    const thinkingMsg: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: 'Eclipse Agent is working…',
-    };
-    appendAssistantReply(chatId, thinkingMsg);
-    sound.tick();
-
-    const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [];
-    const history = existing
-      .filter((m) => m.id !== thinkingMsg.id)
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    try {
-      const reply = await getAgentProvider().chat(
-        [...history, { role: 'user', content: userText }],
-        undefined,
-        { chatId }
-      );
-      replaceAssistantReply(chatId, thinkingMsg.id, {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: reply,
-      });
-      setSessionRefreshKey((k) => k + 1);
-      sound.success();
-    } catch (err) {
-      replaceAssistantReply(chatId, thinkingMsg.id, {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
-      });
-      sound.error();
-    }
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userText };
+    await runAgent(chatId, userText, userMsg);
   };
 
   const handleInjectPrompt = (ticker: string, promptType: 'research' | 'discuss', customContext?: string) => {
@@ -674,13 +681,16 @@ function StockChatContent() {
 
           {visited.has('chat') && (
             <div ref={chatRootRef} data-keyboard-scope="Chat" className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
-              <div className="w-full h-full flex flex-col items-center justify-between py-4 md:py-6 relative min-w-0">
+              <div className="w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0">
                 {messages.length === 0 ? (
                   <EmptyState
                     query={query}
                     setQuery={setQuery}
                     onSend={handleSend}
                     onViewMarketOverview={() => setActiveTab('discovery')}
+                    onAttach={() => fileInputRef.current?.click()}
+                    busy={agentBusy}
+                    onCancel={handleCancel}
                   />
                 ) : (
                   <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
@@ -688,23 +698,42 @@ function StockChatContent() {
                       messages={messages}
                       onEditMessage={handleEditMessage}
                     />
-                    <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-2 md:pb-4">
+                    <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
                       <ChatInput
                         query={query}
                         setQuery={setQuery}
                         onSend={handleSend}
                         placeholder="Ask a follow-up..."
                         showModelSelect={false}
+                        busy={agentBusy}
+                        onCancel={handleCancel}
+                        onAttach={() => fileInputRef.current?.click()}
+                        attaching={sessionController.busy}
+                        contextLabel={sessionController.session && sessionController.session.contextChars > 0
+                          ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars`
+                          : undefined}
+                        contextFraction={sessionController.session
+                          ? sessionController.session.contextChars / sessionController.session.contextLimitChars
+                          : 0}
                       />
-                      <div className="mt-2">
-                        <SessionBar
-                          chatId={activeConversationId}
-                          refreshKey={sessionRefreshKey}
-                        />
+                      <div className="mt-1.5">
+                        <SessionBar session={sessionController} />
                       </div>
                     </div>
                   </div>
                 )}
+                {/* One hidden picker serves the "+" in both the empty state and
+                    the running conversation. */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void sessionController.uploadFiles(e.target.files ?? []);
+                    e.target.value = '';
+                  }}
+                />
               </div>
             </div>
           )}

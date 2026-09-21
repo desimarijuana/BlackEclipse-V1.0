@@ -23,6 +23,11 @@ export interface ChatOptions {
    * workspace folder as run context and saves the answer back into it.
    */
   chatId?: string;
+  /**
+   * Called with the harness run id as soon as it is known, so the caller can
+   * offer cancellation before the reply arrives.
+   */
+  onRunId?: (runId: string) => void;
 }
 
 export interface AgentProvider {

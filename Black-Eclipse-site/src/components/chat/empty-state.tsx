@@ -9,9 +9,14 @@ interface EmptyStateProps {
   setQuery: (val: string) => void;
   onSend: (e: React.FormEvent) => void;
   onViewMarketOverview?: () => void;
+  /** Opens the document picker — the composer "+" attaches context. */
+  onAttach?: () => void;
+  /** The assistant is working (rare here, but keeps the composer consistent). */
+  busy?: boolean;
+  onCancel?: () => void;
 }
 
-export function EmptyState({ query, setQuery, onSend, onViewMarketOverview }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onViewMarketOverview, onAttach, busy, onCancel }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center w-full max-w-4xl mx-auto px-4 md:px-6 z-10 relative">
       <h1 
@@ -27,7 +32,10 @@ export function EmptyState({ query, setQuery, onSend, onViewMarketOverview }: Em
           query={query} 
           setQuery={setQuery} 
           onSend={onSend} 
-          showModelSelect={true} 
+          showModelSelect={true}
+          onAttach={onAttach}
+          busy={busy}
+          onCancel={onCancel}
         />
       </div>
 

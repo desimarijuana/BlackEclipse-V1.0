@@ -562,10 +562,22 @@ attaches as context and the answers the agent produces:
   output.
 - **Root is gitignored** (`.black-eclipse/`), the same tier as `agent-memory.db`.
   Override with `BLACK_ECLIPSE_SESSION_ROOT` (used by tests).
-- **UI:** `src/components/chat/session-bar.tsx`, under the composer — shows the
-  folder path, a file list (Context / Output) with download + remove, and an
-  "Add docs" picker. Supported types: txt/md/csv/json/log/yml/yaml/xml/html/sql/
-  ini/toml and simple text-stream PDFs; binary types are rejected at extraction.
+- **UI:** adding documents is the composer's **"+" button** (there is one attach
+  affordance, not two). `src/lib/chat/use-session.ts` is the shared client
+  controller — the "+" uploads into it and `src/components/chat/session-bar.tsx`
+  displays the folder path, a Context/Output file list with download + remove,
+  and a "context used" meter (`contextChars / contextLimitChars` — a real
+  measurement from extraction, never an estimate). The bar is display-only and
+  renders nothing until the conversation has files. Supported types: txt/md/csv/
+  json/log/yml/yaml/xml/html/sql/ini/toml and simple text-stream PDFs; binary
+  types are rejected at extraction.
+- **The composer tracks the run.** The client generates the run id
+  (`crypto.randomUUID`) and passes it with the chat request, because the server
+  only reports a run id once the run is already finished. That id drives the
+  **pause button** (shown while `busy`), which POSTs to
+  `api/harness/runs/[id]/cancel` — the runtime's cooperative cancellation. The
+  client-side run id is validated server-side (`^run_[A-Za-z0-9-]{1,64}$`) and
+  ignored when malformed.
 
 ### ChatDock (the Command Center assistant composer)
 

@@ -50,6 +50,12 @@ export async function POST(request: Request) {
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+    // Client-supplied run id so cancellation is possible mid-run; ignored when
+    // absent, in which case the server mints one.
+    const rawRunId = (body as Record<string, unknown>).runId;
+    const runId = typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId)
+      ? rawRunId
+      : undefined;
 
     // Documents live in the conversation's session folder and are extracted
     // here — never handed to the read-only runtime as files.
@@ -62,7 +68,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await chatWithAgent(query, history, documents);
+    const result = await chatWithAgent(query, history, documents, runId);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

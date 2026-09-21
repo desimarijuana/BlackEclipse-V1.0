@@ -21,6 +21,13 @@ export interface SessionInfo {
   /** Absolute on-disk path, for display in the session bar. */
   path: string;
   files: SessionFile[];
+  /**
+   * Extracted characters across all *context* files — the amount of document
+   * text actually available to inject into a run right now.
+   */
+  contextChars: number;
+  /** The cap that `contextChars` is measured against. */
+  contextLimitChars: number;
 }
 
 /** A document whose text is injected into the agent run as context. */

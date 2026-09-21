@@ -109,14 +109,44 @@ async function listKind(chatId: string, kind: SessionFileKind): Promise<SessionF
   return files.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
+/**
+ * Extracted characters available across the context files, capped the same way
+ * a real run caps them (per-doc limit, then the combined limit). This is what
+ * the UI reports as "context used" — a measurement, never an estimate: a file
+ * whose text cannot be extracted contributes nothing.
+ */
+export async function measureContextChars(chatId: string): Promise<number> {
+  const files = await listKind(chatId, "context");
+  let total = 0;
+  for (const file of files) {
+    if (total >= SESSION_LIMITS.maxTotalDocChars) break;
+    try {
+      const bytes = await readSessionFile(chatId, "context", file.name);
+      const result = extractText(file.name, bytes);
+      if (!result.ok || !result.text) continue;
+      total += Math.min(result.text.length, SESSION_LIMITS.maxDocChars, SESSION_LIMITS.maxTotalDocChars - total);
+    } catch {
+      // Unreadable file — contributes nothing.
+    }
+  }
+  return total;
+}
+
 /** Full session view for the UI (creates the folders on first look). */
 export async function getSession(chatId: string): Promise<SessionInfo> {
   const dir = await ensureSessionDirs(chatId);
-  const [context, output] = await Promise.all([
+  const [context, output, contextChars] = await Promise.all([
     listKind(chatId, "context"),
     listKind(chatId, "output"),
+    measureContextChars(chatId),
   ]);
-  return { chatId, path: dir, files: [...context, ...output] };
+  return {
+    chatId,
+    path: dir,
+    files: [...context, ...output],
+    contextChars,
+    contextLimitChars: SESSION_LIMITS.maxTotalDocChars,
+  };
 }
 
 export interface WriteFileOptions {

@@ -25,11 +25,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowUp, Maximize2, Mic, Minimize2, Minus, Plus, Sparkles, SquarePen, Trash2,
+  ArrowUp, Maximize2, Mic, Minimize2, Minus, Pause, Plus, Sparkles, SquarePen, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { uploadSessionFile } from '@/lib/chat/session-client';
+import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
 
@@ -156,6 +158,8 @@ export function ChatDock({
   const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>('dock-temp');
+  const runIdRef = useRef<string | null>(null);
+  const attachRef = useRef<HTMLInputElement>(null);
   const providerLabel = useProviderLabel();
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
@@ -327,6 +331,7 @@ export function ChatDock({
     append([...messagesRef.current, userMsg]);
 
     setBusy(true);
+    runIdRef.current = null;
     try {
       // Everything goes through the harness so the chat IS the Eclipse Agent
       // (system prompt + JDdS tools + persisted run). It picks its own tools,
@@ -337,13 +342,41 @@ export function ChatDock({
       const reply = await getAgentProvider().chat(
         [...history, { role: 'user', content: text }],
         undefined,
-        { chatId: sessionIdRef.current },
+        {
+          chatId: sessionIdRef.current,
+          onRunId: (id) => { runIdRef.current = id; },
+        },
       );
-      pushAssistant(reply);
+      pushAssistant(reply || 'Run stopped.');
     } catch (err) {
       pushAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cancel = async () => {
+    const id = runIdRef.current;
+    if (!id) return;
+    try {
+      await fetch(`/api/harness/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+    } catch {
+      // Run may have finished already.
+    }
+  };
+
+  // Upload attached documents into the dock's own session folder, where the
+  // front door picks them up as context for the next run.
+  const handleAttach = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    for (const file of Array.from(files)) {
+      if (file.size > SESSION_LIMITS.maxFileBytes) continue;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      try {
+        await uploadSessionFile(sessionIdRef.current, 'context', file.name, bytes);
+      } catch {
+        // Surface nothing inline here; the session bar lists what succeeded.
+      }
     }
   };
 
@@ -460,10 +493,10 @@ export function ChatDock({
           <div className="flex items-center gap-1.5 px-1">
             <button
               type="button"
-              onClick={() => textareaRef.current?.focus()}
+              onClick={() => attachRef.current?.click()}
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-              title="Add context (coming soon)"
-              aria-label="Add context"
+              title="Add documents as context"
+              aria-label="Add documents as context"
             >
               <Plus size={17} />
             </button>
@@ -509,25 +542,45 @@ export function ChatDock({
               >
                 <Mic size={17} />
               </button>
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={!canSend}
-                className={cn(
-                  'flex h-9 w-9 items-center justify-center rounded-full transition-all cursor-pointer',
-                  canSend
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'bg-accent/40 text-muted-foreground disabled:opacity-50 cursor-not-allowed',
-                )}
-                title="Send"
-                aria-label="Send"
-              >
-                {busy
-                  ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground" />
-                  : <ArrowUp size={17} />}
-              </button>
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={() => void cancel()}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/90 text-background transition-colors hover:bg-foreground cursor-pointer"
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                >
+                  <Pause size={14} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={!canSend}
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full transition-all cursor-pointer',
+                    canSend
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'bg-accent/40 text-muted-foreground disabled:opacity-50 cursor-not-allowed',
+                  )}
+                  title="Send"
+                  aria-label="Send"
+                >
+                  <ArrowUp size={17} />
+                </button>
+              )}
             </div>
           </div>
+          <input
+            ref={attachRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void handleAttach(e.target.files);
+              e.target.value = '';
+            }}
+          />
         </div>
           </>
         )}

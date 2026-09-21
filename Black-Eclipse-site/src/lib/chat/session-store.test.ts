@@ -40,6 +40,15 @@ describe('session-store chat id guard', () => {
 });
 
 describe('session-store file handling', () => {
+  it('reports context characters available for injection', async () => {
+    await writeSessionFile('c1', { name: 'a.md', bytes: Buffer.from('# hi'), kind: 'context' });
+    await writeSessionFile('c1', { name: 'b.png', bytes: Buffer.from([1, 2, 3]), kind: 'context' });
+    const session = await getSession('c1');
+    // Only the extractable file contributes; the binary one adds nothing.
+    expect(session.contextChars).toBe(4);
+    expect(session.contextChars).toBeLessThanOrEqual(session.contextLimitChars);
+  });
+
   it('writes, lists, reads and deletes a context file', async () => {
     await writeSessionFile('c1', { name: 'notes.md', bytes: Buffer.from('# hi'), kind: 'context' });
     const session = await getSession('c1');

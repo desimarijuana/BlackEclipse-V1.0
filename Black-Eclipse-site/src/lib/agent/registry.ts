@@ -22,10 +22,18 @@ const eclipseAgent: AgentProvider = {
       .filter((m) => m !== last && (m.role === 'user' || m.role === 'assistant'))
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
+    // The client owns the run id so it can offer cancellation while the run is
+    // still in flight — the server never reports a run id early enough for that.
+    const runId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `run_${crypto.randomUUID()}`
+        : `run_${Date.now().toString(36)}`;
+    options?.onRunId?.(runId);
+
     const res = await fetch('/api/harness/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, history, chatId: options?.chatId }),
+      body: JSON.stringify({ query, history, chatId: options?.chatId, runId }),
     });
 
     const data = await res.json().catch(() => ({}));

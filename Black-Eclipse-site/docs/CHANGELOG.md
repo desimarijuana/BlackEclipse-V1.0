@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — attach moved to "+", pause button mid-run, context meter, tighter
+  footer** — Four fixes to the chat surfaces. (1) "Add docs" is no longer a
+  separate button: the composer's "+" is the one attach affordance (both the
+  full chat and the ChatDock), backed by a shared `use-session.ts` controller;
+  the session bar is now display-only and hidden until files exist. (2) While
+  the agent is running the submit arrow becomes a **pause** button: the client
+  generates the run id and sends it with the request (the server only knows it
+  after completion), then POSTs to `/api/harness/runs/[id]/cancel` for
+  cooperative cancellation. (3) Added a **context-used meter** under the
+  composer — `contextChars / contextLimitChars`, measured from real extraction
+  (`measureContextChars`), never estimated. (4) Removed the extra bottom
+  padding on the chat column so there is no dead gap under the session bar.
+  Verified: `tsc`, eslint, 1478 TS + 89 Python tests pass.
+  docs updated: `docs/ARCHITECTURE.md` (§ Chat session workspaces)
+
 - **Chat — session workspaces, attached docs, full-width prompt bubbles and
   prompt editing** — Four linked changes to the Eclipse Agent chat surfaces.
   (1) User bubbles are now `w-fit max-w-full`, so a long prompt fills the
