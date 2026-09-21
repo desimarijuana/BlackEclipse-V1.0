@@ -9,6 +9,7 @@
 
 import type { EChartsOption } from 'echarts';
 import { LAYER_META, layerColor, layerSymbol, severityColor, type LayerId, type LayerSymbol } from './layers';
+import { COUNTRIES } from './countries';
 import type { MapLayer, LayerDatum } from './types';
 
 /** Legend symbol → ECharts symbol name. Keeps shapes readable on the dark map. */
@@ -175,6 +176,62 @@ const GLOBE_HALO_OPACITY = 0.22;
 export type MapMode = '2d' | 'globe';
 export type MapSkin = 'black' | 'glow';
 
+/**
+ * Globe surface radius in world units. Purely a modelling constant — the camera
+ * distance is derived from it plus the container box so the sphere fills the
+ * view. Not a pixel size.
+ */
+export const GLOBE_RADIUS = 100;
+
+/** Perspective camera vertical field of view (echarts-gl default is 50°). */
+const GLOBE_FOV_DEG = 50;
+const GLOBE_HALF_FOV_TAN = Math.tan((GLOBE_FOV_DEG / 2) * (Math.PI / 180));
+
+/**
+ * Camera distance (measured from the globe SURFACE — echarts-gl adds the radius
+ * itself) so the sphere fills `fill` of the container's SHORTER dimension.
+ *
+ * WHY THE BOX IS NEEDED: the old option hard-coded `globeRadius: 86` and
+ * `distance: 200`. A sphere projects to a circle whose screen radius is
+ * `R / ((distance + R) · tan(fov/2))` of the viewport's half-height, so that
+ * pair rendered the globe at ~65% of the viewport height regardless of size —
+ * small on a wide desktop map. Deriving the distance from the real box makes the
+ * globe fill the map instead of floating in it.
+ *
+ * A sphere projects to the same pixel radius on both axes (perspective is
+ * isotropic), so the limiting dimension is `min(width, height)`; the
+ * `height / min` factor corrects for a non-square box.
+ */
+export function globeViewDistance(width: number, height: number, radius = GLOBE_RADIUS, fill = 0.92): number {
+  // A sphere of radius R whose centre is D from the camera has silhouette angular
+  // radius `asin(R/D)`; its screen radius as a fraction of the viewport half-height
+  // is `tan(asin(R/D)) / tan(fov/2) = R / (√(D²−R²) · tan(fov/2))`. Solving that
+  // for the target fill (fraction of the SHORTER viewport dimension) gives the
+  // centre distance below. A sphere images isotropically, so only the shorter
+  // dimension constrains it — hence the `height / min` correction for a
+  // non-square box. echarts-gl measures `distance` from the SURFACE, so R is
+  // subtracted at the end.
+  const safeW = width > 0 ? width : height;
+  const safeH = height > 0 ? height : width;
+  if (!(safeW > 0) || !(safeH > 0)) {
+    // No box yet (SSR / pre-layout): a default that still fits.
+    const d = radius / (fill * GLOBE_HALF_FOV_TAN);
+    return Math.max(radius * 0.25, Math.sqrt(radius * radius + d * d) - radius);
+  }
+  const min = Math.min(safeW, safeH);
+  const projected = (radius * safeH) / (fill * GLOBE_HALF_FOV_TAN * min);
+  const centreDistance = Math.sqrt(radius * radius + projected * projected);
+  return Math.max(radius * 0.25, centreDistance - radius);
+}
+
+/**
+ * Countries to label, from the gazetteer centroids. Natural Earth's raw ADMIN
+ * names are not always what a user expects ("United States of America"), and the
+ * geo component cannot hide overlapping labels, so the curated gazetteer is used
+ * for both projections — short names, stable centroids, one code path.
+ */
+const COUNTRY_LABELS = COUNTRIES.map((c) => ({ name: c.name, lon: c.lon, lat: c.lat }));
+
 const GEO_BY_SKIN = {
   black: {
     itemStyle: {
@@ -246,6 +303,22 @@ export interface MapOptionOptions {
    * visibly respond even when no event pins exist there.
    */
   highlightPoints?: Array<{ iso2: string; name: string; lon: number; lat: number }>;
+  /**
+   * Live container size in CSS pixels. Used to derive the globe camera distance
+   * so the sphere fills the view (see `globeViewDistance`). Optional so pure
+   * tests and SSR can omit it; a sane default is used when absent.
+   */
+  width?: number;
+  height?: number;
+  /** Draw country names. Defaults to true. */
+  showCountryLabels?: boolean;
+  /**
+   * Hovered/highlighted country OUTLINE, as `[lon, lat]` rings. The 2D `geo`
+   * component highlights a country natively on hover, but the 3D globe is a
+   * texture with no per-country geometry — so the globe draws the picked
+   * country's rings as a `lines3D` polyline to give the same feedback.
+   */
+  highlightCountryRings?: Array<Array<[number, number]>>;
   /** Presentation mode. Defaults to the flat map. */
   mode?: MapMode;
   /**
@@ -265,6 +338,33 @@ export interface MapOptionOptions {
    * instead of an atmosphere shell (which can only ever draw a ring).
    */
   globeGlowTexture?: string;
+}
+
+/**
+ * The globe's hovered-country outline series.
+ *
+ * Extracted so `WorldMap` can push a new outline on hover WITHOUT rebuilding the
+ * whole option (`setOption({ series: [...] })` merges by id). `polyline: true`
+ * tells `lines3D` to treat each item's `coords` as one continuous path rather
+ * than a single segment between two points.
+ */
+export function buildCountryOutlineSeries(rings: Array<Array<[number, number]>>) {
+  return {
+    id: 'country-outline',
+    name: 'Country',
+    type: 'lines3D',
+    coordinateSystem: 'globe',
+    polyline: true,
+    z: 90,
+    silent: true,
+    // A bright, thick stroke with a dark under-halo reads over both the blue
+    // `glow` surface and the grey `black` one. `lines3D` has no shadow, so the
+    // width carries the contrast — 3px is the thinnest that still stands out
+    // against the glowing coastline at a normal zoom.
+    lineStyle: { color: '#e0f2fe', width: 3, opacity: 1 },
+    data: rings.filter((r) => r.length >= 3).map((ring) => ({ coords: ring })),
+    tooltip: { show: false },
+  };
 }
 
 /** Convert ISO2 → the ECharts map feature name is handled via `nameMap`. */
@@ -521,9 +621,79 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
     } as never);
   }
 
+  // Country names, plotted at the gazetteer centroid as a scatter series whose
+  // only visible element is the label. A separate series (rather than
+  // `geo.label`) is used because it works IDENTICALLY in both projections: the
+  // 2D geo component and the 3D globe both accept a point series, whereas the
+  // globe has no component-level label support at all. It sits at a high z so
+  // the names read over the land but under the event pins.
+  if (options.showCountryLabels !== false && COUNTRY_LABELS.length > 0) {
+    series.push({
+      id: 'country-labels',
+      name: 'Countries',
+      type: isGlobe ? 'scatter3D' : 'scatter',
+      coordinateSystem: coordSystem,
+      z: 4,
+      silent: true,
+      symbolSize: 1,
+      // The marker dot is hidden by a TRANSPARENT FILL, never by
+      // `itemStyle.opacity: 0` and never by `symbol: 'none'`. Both of those drop
+      // the label with it: the label inherits the item's visual opacity (so the
+      // text rendered at alpha 0), and ECharts' `SymbolDraw`/`PointsBuilder`
+      // skip label creation entirely for `symbol: 'none'`. A zero-alpha fill
+      // leaves the symbol invisible while the label keeps its own colour, and
+      // `label.opacity: 1` overrides the inherited visual opacity outright.
+      itemStyle: { color: 'rgba(0,0,0,0)', opacity: 1 },
+      label: {
+        show: true,
+        position: 'inside',
+        opacity: 1,
+        formatter: (p: { name?: string }) => p.name ?? '',
+        // SMALL and light, matching the reference: a country name is background
+        // context, not a headline. The app's own sans stack is named explicitly
+        // so the labels match the terminal chrome instead of the browser default.
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: 9,
+        fontWeight: 500,
+        color: isGlow ? 'rgba(190,222,248,0.82)' : 'rgba(210,216,224,0.82)',
+        // A SOFT SHADOW, not a stroke. `textBorderColor` paints a hard outline
+        // around every glyph, which at 9px reads as a smeared halo and makes the
+        // text look worse, not more legible. A small shadow separates the name
+        // from the land underneath without deforming the letterforms.
+        textShadowColor: 'rgba(2,8,20,0.85)',
+        textShadowBlur: 3,
+        textShadowOffsetX: 0,
+        textShadowOffsetY: 1,
+      },
+      emphasis: { label: { show: false } },
+      tooltip: { show: false },
+      data: COUNTRY_LABELS.map((c) => ({
+        name: c.name,
+        // Same altitude rule as every other globe point: exactly [lon, lat].
+        value: isGlobe ? [c.lon, c.lat] : [c.lon, c.lat],
+      })),
+    } as never);
+  }
+
+  // Hovered-country outline on the GLOBE. `lines3D` with `polyline: true` draws
+  // each ring as a closed path on the sphere. In 2D the geo component already
+  // highlights a hovered country, so this series is globe-only. The series is
+  // also emitted (empty) so `updateGlobeOutline` can mutate it in place on hover.
+  if (isGlobe) {
+    series.push(buildCountryOutlineSeries(options.highlightCountryRings ?? []) as never);
+  }
+
   // Highlighted countries from NL search render as a ring of markers at their
   // centroids so the map visibly responds to a query even with no pin data.
   const highlightPoints = options.highlightPoints ?? [];
+
+  // The camera distance is derived from the live container box so the sphere
+  // fills the map (see `globeViewDistance`). echarts-gl measures `distance` from
+  // the globe SURFACE and adds the radius itself, so the returned value is used
+  // directly. The zoom-out floor is generous enough to let a user pull back.
+  const globeDistance = globeViewDistance(options.width ?? 0, options.height ?? 0);
+  const globeMinDistance = Math.max(1, globeDistance * 0.25);
+  const globeMaxDistance = globeDistance * 2.5;
 
   const base = mode === 'globe'
     ? {
@@ -539,7 +709,7 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
            * Callers pass it in because it is produced asynchronously.
            */
           baseTexture: options.globeTexture,
-          globeRadius: 86,
+          globeRadius: GLOBE_RADIUS,
           // `lambert` keeps the land/shadows legible; `color` ignored the texture.
           shading: 'lambert' as const,
           // The sphere's untextured base. The texture supplies every visible
@@ -602,9 +772,12 @@ export function buildMapOption(options: MapOptionOptions): EChartsOption {
             rotateSensitivity: 4,
             zoomSensitivity: 2,
             panSensitivity: 0,
-            distance: 200,
-            minDistance: 120,
-            maxDistance: 400,
+            // Both are surface-relative (echarts-gl adds the radius), so this is
+            // not a magic pixel number: it is derived from the container box so
+            // the globe fills the map on any screen.
+            distance: globeDistance,
+            minDistance: globeMinDistance,
+            maxDistance: globeMaxDistance,
           },
         },
       }

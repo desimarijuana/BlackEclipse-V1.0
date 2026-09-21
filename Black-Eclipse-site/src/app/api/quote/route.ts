@@ -167,6 +167,7 @@ export async function GET(request: Request) {
               symbol: true,
               name: true,
               marketId: true,
+              sector: true,
               price: { select: { price: true, changePct: true, source: true, updatedAt: true } },
             },
           })
@@ -273,6 +274,7 @@ export async function GET(request: Request) {
         changePercent: r.price.changePct,
         currency: MARKET_CURRENCY[r.marketId] || "$",
         marketId: r.marketId,
+        sector: r.sector ?? undefined,
         source: r.price.source,
         updatedAt: r.price.updatedAt,
         found: true,

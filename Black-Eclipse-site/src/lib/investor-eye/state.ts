@@ -127,12 +127,16 @@ async function runSource(
       };
     }
     const accepted = events.length;
+    // A source may AGGREGATE: FIRMS ships one CSV batch that `normalize`
+    // expands into hundreds of clusters, so accepted can exceed received. A
+    // negative "rejected" is nonsense, so it is clamped rather than reported.
+    const rejected = Math.max(0, received - accepted);
     return {
       events,
       summary: {
         source: source.id, startedAt, finishedAt: new Date().toISOString(),
         durationMs: Date.now() - started, recordsReceived: received,
-        recordsAccepted: accepted, recordsRejected: received - accepted,
+        recordsAccepted: accepted, recordsRejected: rejected,
         status: accepted > 0 ? 'ok' : 'empty',
         provenance: accepted > 0 ? 'LIVE' : 'UNAVAILABLE',
       },

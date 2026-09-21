@@ -12,7 +12,7 @@
 // option in place: no data refetch, no chart rebuild (except the projection
 // switch, which legitimately swaps the base component).
 
-import { Layers2, Sparkles, Sun } from 'lucide-react';
+import { Layers2, Sparkles, Sun, Type } from 'lucide-react';
 import { MAP_SKINS, useInvestorEyeStore, type MapMode } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +34,8 @@ export function MapViewControls({ className, compact = false }: MapViewControlsP
   const setMapSkin = useInvestorEyeStore((s) => s.setMapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const setShowStars = useInvestorEyeStore((s) => s.setShowStars);
+  const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
+  const setShowCountryLabels = useInvestorEyeStore((s) => s.setShowCountryLabels);
 
   return (
     <div className={cn('glass-button flex items-center gap-0.5 rounded-lg p-0.5', className)}>
@@ -95,6 +97,22 @@ export function MapViewControls({ className, compact = false }: MapViewControlsP
       >
         <Sparkles size={11} />
         {!compact && (showStars ? 'STARS ON' : 'STARS OFF')}
+      </button>
+
+      {/* Country names are a readability aid, so they are an independent toggle
+          too — a dense pin view is cleaner without them. */}
+      <button
+        type="button"
+        onClick={() => setShowCountryLabels(!showCountryLabels)}
+        title={showCountryLabels ? 'Hide country names' : 'Show country names'}
+        aria-pressed={showCountryLabels}
+        className={cn(
+          'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
+          showCountryLabels ? 'bg-sky-500/25 text-sky-100' : 'text-muted-foreground hover:text-foreground',
+        )}
+      >
+        <Type size={11} />
+        {!compact && (showCountryLabels ? 'NAMES ON' : 'NAMES OFF')}
       </button>
     </div>
   );

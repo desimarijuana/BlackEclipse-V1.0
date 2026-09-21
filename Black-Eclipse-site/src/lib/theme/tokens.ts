@@ -243,6 +243,12 @@ export const THEME_PRESETS: ThemePreset[] = [
   preset('smoked', 'Smoked', 'Opaque dark glass with heavy depth.',
     { primary: '#f59e0b', accent: '#fbbf24', background: '#0a0805', surface: '#141009', border: '#3a2c14', text: '#fdf4e3', bullish: '#f59e0b', bearish: '#ef4444' },
     { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' }),
+  preset('bloomberg', 'Bloomberg', 'Dense amber-on-black trading terminal with blue selection.',
+    { primary: '#ffa028', accent: '#2d7ff9', background: '#000000', surface: '#0a0a0a', border: '#2b2b2b', text: '#e8e8e8', bullish: '#4ade80', bearish: '#ff4438' },
+    { glass: { enabled: false, blur: 0, opacity: 0.96, tint: '#0a0a0a' }, shadow: 'none', density: 'compact', radius: 0.2 }),
+  preset('bubudoll', 'Bubudoll', 'Soft candy pink with a cute, rounded ambient glow.',
+    { primary: '#ff9ecb', accent: '#ffd1e8', background: '#170b14', surface: '#261323', border: '#4d2540', text: '#ffeaf5', bullish: '#ff9ecb', bearish: '#ff4d6d' },
+    { glass: { enabled: true, blur: 24, opacity: 0.45, tint: '#2a1426' }, background: 'gradient', shadow: 'medium', radius: 1 }),
 ];
 
 // ── Color helpers ────────────────────────────────────────────────────────────
@@ -322,7 +328,7 @@ function optionalColor<K extends keyof ThemeColors>(key: K, raw: unknown): Parti
 }
 
 /** All theme colors with derivation resolved — every key is present. */
-export interface ResolvedThemeColors extends Required<ThemeColors> {}
+export type ResolvedThemeColors = Required<ThemeColors>;
 
 /**
  * Resolve the optional derived tokens. Explicit user overrides win; otherwise

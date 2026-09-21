@@ -29,7 +29,10 @@ export async function GET() {
         (acc, r) => ({
           received: acc.received + r.recordsReceived,
           accepted: acc.accepted + r.recordsAccepted,
-          rejected: acc.rejected + r.recordsRejected,
+          // Aggregating sources expand one raw record into many accepted events
+          // (FIRMS: 1 CSV → up to 400 clusters), so a per-run "rejected" can be
+          // negative and would corrupt the total. Clamp each contribution.
+          rejected: acc.rejected + Math.max(0, r.recordsRejected),
         }),
         { received: 0, accepted: 0, rejected: 0 },
       );

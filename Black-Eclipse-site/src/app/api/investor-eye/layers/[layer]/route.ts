@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { assembleState } from "@/lib/investor-eye/state";
 import {
   buildConflictLayer, buildEnergyLayer, buildTradeLayer, buildWeatherLayer,
+  buildFiresLayer, buildShippingLayer, buildCommoditiesLayer,
   buildCountryEventFill, LAYER_META, ALL_LAYER_IDS,
 } from "@/lib/investor-eye/layers";
 import { checkMutationAllowed, rateLimit, clientKey } from "@/lib/api-guard";
@@ -78,6 +79,12 @@ function buildLayer(layerId: string, state: Awaited<ReturnType<typeof assembleSt
       return buildTradeLayer(state.events, state.countries);
     case "weather":
       return buildWeatherLayer(state.events);
+    case "fires":
+      return buildFiresLayer(state.events);
+    case "shipping":
+      return buildShippingLayer(state.events);
+    case "commodities":
+      return buildCommoditiesLayer(state.events);
     case "risk":
       return buildCountryEventFill(state.countries, "risk", "Event Density", false);
     default:

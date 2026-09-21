@@ -43,6 +43,34 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Investor Eye — big globe, country-name labels, 3D hover/click, new layers
+  and skins** — Phase 17 presentation work plus source wiring. The globe camera
+  is now derived from the live container box (`globeViewDistance`) instead of the
+  hard-coded `globeRadius/distance`, so the sphere fills the shorter viewport
+  dimension on any screen; `GLOBE_RADIUS` is the only modelling constant. Country
+  names render as a shared label series (a `scatter3D`/`scatter` series at the
+  curated `COUNTRIES` centroids) valid in both projections, toggled by a new
+  persisted `showCountryLabels` flag (default on) with a `NAMES ON/OFF` control.
+  The 3D globe gained per-country hover/click via a raycast onto the sphere
+  (`countryIsoForPoint` + `countryOutlineRings`, `buildCountryIndex` bbox index),
+  since echarts-gl's globe has no per-country geometry. Surface/emission textures
+  are now 4096×2048 to kill zoom pixelation. Fires/shipping/commodities layers
+  are wired to the layer route, the provider directory documents the keyless
+  GDELT/USGS/FIRMS sources, quotes carry `Asset.sector` through to portfolio
+  exposure, aggregated sources no longer report negative rejects, and two new
+  theme presets (Bloomberg, Bubudoll) were added.
+  docs updated: `docs/investor-eye-architecture.md`
+
+- **Harness — restart a stale Python runtime on dev boot** — `ensurePythonRuntime`
+  now reads `/health`'s `startedAtMs` and compares it to the newest mtime of
+  `python/harness/*.py`. An orphaned uvicorn from a previous `npm run dev` (Windows
+  child that survives the Next restart and holds the port) is detected only when
+  the service identifies itself as `harness-runtime`, then killed via
+  `netstat`/`taskkill` (or `lsof`/`kill` on POSIX) before respawn — so harness code
+  changes take effect without clearing the port by hand. Unrelated services are
+  never touched.
+  no doc change — internal dev-runtime repair, contracts unchanged.
+
 - **Chat — attach moved to "+", pause button mid-run, context meter, tighter
   footer** — Four fixes to the chat surfaces. (1) "Add docs" is no longer a
   separate button: the composer's "+" is the one attach affordance (both the

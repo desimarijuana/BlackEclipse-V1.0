@@ -1234,6 +1234,105 @@ flat there: a terminal surface should still be readable. Its palette lives in
 
 ---
 
+## 5o. Phase 17 — a globe that fills the map, and country names on both projections
+
+Two presentation requests: make the globe **big**, and **show country names** the
+way the reference screenshot does.
+
+### The globe was small because the camera was a magic number
+
+The option hard-coded `globeRadius: 86` and `distance: 200`. Those are independent
+of the container, so the sphere projected to ~65% of the viewport height on any
+screen — a small ball floating in a large map.
+
+The fix derives the camera distance from the live container box
+(`globeViewDistance` in `map-echarts.ts`). The geometry: a sphere of radius `R`
+whose centre is `D` from the camera has silhouette half-angle `asin(R/D)`, so its
+screen radius as a fraction of the viewport half-height is
+
+    R / (√(D² − R²) · tan(fov/2))
+
+Solving that for a target fill (fraction of the **shorter** viewport dimension)
+gives `D`; echarts-gl measures `distance` from the **surface**, so `R` is
+subtracted. A sphere images isotropically, so only the shorter dimension
+constrains it — which is why the framing is **resolution-independent** and depends
+only on the aspect ratio. `WorldMap` feeds the box from the same `ResizeObserver`
+that already drives `resize()`, so the globe re-frames when the hero/full-page
+layout changes.
+
+`GLOBE_RADIUS` (100) is now the only globe modelling constant; the camera is
+always derived.
+
+### Country names via a shared label series, not `geo.label`
+
+`geo.label` would only label the 2D projection — echarts-gl's `globe` component
+has no component-level label support at all. So country names are a **scatter
+series** at the gazetteer centroids whose only visible element is the label
+(`scatter3D` on the globe, `scatter` in 2D). One series, both projections.
+
+- Data comes from `COUNTRIES` (curated short names + stable centroids), not the
+  raw Natural Earth `ADMIN` names, so a label reads "United States", not "United
+  States of America", and the same centroid is used everywhere.
+- `silent: true` so the labels never steal a click from the pins underneath.
+- The series sits at `z: 4` — above the land, below the event pins.
+
+`showCountryLabels` (default `true`) turns it off, and a test asserts the series
+is emitted in both projections with exactly `[lon, lat]` on the globe (the same
+altitude rule every globe point follows).
+
+### Label styling, and two traps that made them invisible
+
+Names are deliberately **small (9px) and light**: they are background context, not
+headlines. The font names the app's own sans stack so they match the terminal
+chrome. Legibility comes from a **soft shadow**, not a stroke — `textBorderColor`
+paints a hard outline around every glyph, which at 9px smears the letterforms and
+looks worse, not better.
+
+Two separate bugs made the first attempt render **nothing**, and both are worth
+recording because the failures were silent:
+
+1. **`itemStyle.opacity: 0` hides the label too.** The marker dot was hidden that
+   way, but the label inherits the item's visual opacity, so the text existed in
+   the display list at alpha 0. The fix is a transparent FILL
+   (`color: 'rgba(0,0,0,0)'`) plus an explicit `label.opacity: 1`.
+2. **`symbol: 'none'` skips the label entirely.** ECharts' `SymbolDraw` (2D) and
+   echarts-gl's `PointsBuilder` (globe) both refuse to build a label when the
+   symbol is `none` — the label is attached to the symbol, so removing the symbol
+   removes it too.
+
+### Globe zoom pixelation
+
+At high zoom the sphere magnifies a small region of the surface texture, so a
+2048×1024 texture stair-stepped once the camera pushed in. The surface and
+emission textures are now **4096×2048** (the largest size WebGL guarantees, and
+power-of-two so claygl keeps its mip chain), and the stroke widths, bloom blur,
+graticule and stipple are scaled with the resolution so the on-screen weight is
+unchanged while the geometry underneath is twice as fine.
+
+### Globe country highlighting (hover + click)
+
+The 2D `geo` component highlights a hovered country natively, but the 3D `globe`
+is a single textured sphere with **no per-country geometry** — it emits no geo
+hover or click event at all. To give the globe the same behaviour:
+
+1. a screen point is raycast onto the sphere (`viewGL.castRay`),
+2. the hit is converted to lon/lat with the globe's own `pointToData`, and
+3. the point is tested against the loaded GeoJSON (`countryIsoForPoint`).
+
+The hovered country's rings are drawn as a `lines3D` **polyline** outline, and a
+click selects the country (opening the same country panel the 2D map does).
+
+A sharp edge: `ViewGL.castRay(x, y, out)` merely forwards `out` to the camera and
+returns that same value — passing `undefined` yields `undefined`, not a ray. So a
+minimal ray object is supplied and filled in place, and the sphere intersection is
+done directly (`|o + t·d|² = R²`) rather than importing claygl's `Ray` for four
+lines of algebra.
+
+`NAMES ON/OFF` sits in the map view controls beside the projection, skin and
+starfield toggles, and is persisted in the store and saved views.
+
+---
+
 ## 6. Conflicts with the spec, and how they were resolved
 
 | Spec assumption | Repository reality | Resolution |

@@ -75,6 +75,8 @@ interface InvestorEyeStore {
   mapSkin: MapSkin;
   /** Draw the animated starfield behind the map. Purely decorative. */
   showStars: boolean;
+  /** Draw country names on the map/globe. */
+  showCountryLabels: boolean;
   /**
    * Immersive full-page mode: the world fills the viewport and only a minimal
    * control strip remains. View state, not a preference — deliberately NOT
@@ -106,6 +108,7 @@ interface InvestorEyeStore {
   setMapMode: (mode: MapMode) => void;
   setMapSkin: (skin: MapSkin) => void;
   setShowStars: (on: boolean) => void;
+  setShowCountryLabels: (on: boolean) => void;
   setFullPage: (on: boolean) => void;
   setEconomicMetric: (id: string) => void;
   setSearchQuery: (q: string) => void;
@@ -133,6 +136,7 @@ interface Persisted {
   mapMode: MapMode;
   mapSkin: MapSkin;
   showStars: boolean;
+  showCountryLabels: boolean;
   /** Operator-saved intelligence postures (layer + window + metric presets). */
   views?: SavedView[];
 }
@@ -150,6 +154,7 @@ export interface SavedView {
   mapMode: MapMode;
   mapSkin: MapSkin;
   showStars: boolean;
+  showCountryLabels: boolean;
   economicMetric: string;
   portfolioOverlay: boolean;
   createdAt: string;
@@ -178,6 +183,7 @@ function loadPersisted(): Partial<Persisted> {
       mapMode: parsed.mapMode === 'globe' ? 'globe' : '2d',
       mapSkin: parsed.mapSkin === 'black' ? 'black' : 'glow',
       showStars: typeof parsed.showStars === 'boolean' ? parsed.showStars : true,
+      showCountryLabels: typeof parsed.showCountryLabels === 'boolean' ? parsed.showCountryLabels : true,
       views: Array.isArray(parsed.views)
         ? parsed.views.filter((v): v is SavedView => Boolean(v && typeof v.name === 'string')).slice(0, MAX_VIEWS)
         : undefined,
@@ -200,6 +206,7 @@ function persist(state: InvestorEyeStore) {
         mapMode: state.mapMode,
         mapSkin: state.mapSkin,
         showStars: state.showStars,
+        showCountryLabels: state.showCountryLabels,
         views: state.views,
       } satisfies Persisted),
     );
@@ -222,6 +229,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     mapMode: persisted.mapMode ?? '2d',
     mapSkin: persisted.mapSkin ?? 'glow',
     showStars: persisted.showStars ?? true,
+    showCountryLabels: persisted.showCountryLabels ?? true,
     fullPage: false,
     economicMetric: persisted.economicMetric ?? 'inflation',
     searchQuery: '',
@@ -266,6 +274,10 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
       set({ showStars: on });
       persist(get());
     },
+    setShowCountryLabels: (on) => {
+      set({ showCountryLabels: on });
+      persist(get());
+    },
     setFullPage: (on) => set({ fullPage: on }),
     setEconomicMetric: (id) => {
       set({ economicMetric: id });
@@ -291,6 +303,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         mapMode: s.mapMode,
         mapSkin: s.mapSkin,
         showStars: s.showStars,
+        showCountryLabels: s.showCountryLabels,
         economicMetric: s.economicMetric,
         portfolioOverlay: s.portfolioOverlay,
         createdAt: new Date().toISOString(),
@@ -314,6 +327,7 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         mapMode: view.mapMode,
         mapSkin: view.mapSkin ?? 'glow',
         showStars: view.showStars ?? true,
+        showCountryLabels: view.showCountryLabels ?? true,
         economicMetric: view.economicMetric,
         portfolioOverlay: view.portfolioOverlay,
       });

@@ -33,13 +33,17 @@ export function PortfolioPanel({ onExposureReady }: { onExposureReady?: (rows: A
   const [loading, setLoading] = useState(false);
 
   const holdings = useMemo(() => {
-    const marketBySymbol = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q.marketId]));
+    const bySymbol = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q]));
     const total = stats.holdings.reduce((sum, h) => sum + (h.valueUsd || 0), 0) || 1;
-    return stats.holdings.map((h) => ({
-      symbol: h.symbol,
-      weight: (h.valueUsd || 0) / total,
-      country: iso2ForMarket(marketBySymbol.get(h.symbol.toUpperCase())),
-    }));
+    return stats.holdings.map((h) => {
+      const quote = bySymbol.get(h.symbol.toUpperCase());
+      return {
+        symbol: h.symbol,
+        weight: (h.valueUsd || 0) / total,
+        country: iso2ForMarket(quote?.marketId),
+        sector: quote?.sector,
+      };
+    });
   }, [stats.holdings, quotes]);
 
   useEffect(() => {

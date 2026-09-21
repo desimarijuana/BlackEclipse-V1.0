@@ -23,6 +23,8 @@ export interface QuoteRow {
   changePercent: number;
   currency: string;
   marketId?: string;
+  /** JDDS `Asset.sector`, when the instrument has one. */
+  sector?: string;
   found: boolean;
 }
 

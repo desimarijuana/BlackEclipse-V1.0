@@ -54,6 +54,135 @@ export function iso2ForFeatureName(features: GeoFeature[], name: string): string
   return f?.properties.iso2;
 }
 
+// ── Client-side point-in-country ─────────────────────────────────────────────
+// The 3D `globe` is a single textured sphere with NO per-country geometry, so it
+// emits no geo feature on hover or click — unlike the 2D `geo` component. To make
+// the globe behave like the map (highlight/select the country under the cursor),
+// a screen point is raycast onto the sphere to lon/lat and then tested against the
+// SAME GeoJSON the 2D map uses. This is done in the browser because the geometry
+// is already loaded there; nothing is sent to the server.
+
+type Ring = number[][];
+
+/** Ray-casting point-in-ring test (mirrors the server-side predicate). */
+function pointInRing(lon: number, lat: number, ring: Ring): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    const crosses = (yi > lat) !== (yj > lat)
+      && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+/** Normalize a (Multi)Polygon into `[outerRing, ...holes]` parts. */
+function boundaryParts(geometry: unknown): Ring[][] {
+  const g = geometry as { type?: string; coordinates?: unknown };
+  if (!g || !g.coordinates) return [];
+  if (g.type === 'Polygon') return [g.coordinates as Ring[]];
+  if (g.type === 'MultiPolygon') return g.coordinates as Ring[][];
+  return [];
+}
+
+/** A country flattened for cheap hit-testing (see `buildCountryIndex`). */
+interface IndexedCountry {
+  iso2: string;
+  /** Outer rings with their computed bounding box, so most are rejected by bbox. */
+  outer: Array<{ ring: Ring; minLon: number; minLat: number; maxLon: number; maxLat: number }>;
+  holes: Ring[];
+}
+
+/**
+ * Flatten GeoJSON into a structure that makes a point test cheap.
+ *
+ * WHY THIS EXISTS: the naive `countryIsoForPoint` re-walked the nested geometry
+ * of all 177 features on EVERY call, and the globe calls it on mousemove. The
+ * rings are also long (thousands of points), so a pure ray-cast per country is
+ * far too slow to run per pointer event. Precomputing a bounding box per outer
+ * ring means a point rejects almost every country with four comparisons before
+ * any edge test, turning a full-world scan into a handful of cheap ring tests.
+ *
+ * Built once per feature array (WeakMap-cached), so switching skin/mode reuses it.
+ */
+const indexCache = new WeakMap<GeoFeature[], IndexedCountry[]>();
+
+function buildCountryIndex(features: GeoFeature[]): IndexedCountry[] {
+  const cached = indexCache.get(features);
+  if (cached) return cached;
+  const out: IndexedCountry[] = [];
+  for (const f of features) {
+    const iso2 = (f.properties.iso2 ?? '').toUpperCase();
+    if (!iso2 || iso2 === '-99') continue;
+    const outer: IndexedCountry['outer'] = [];
+    const holes: Ring[] = [];
+    for (const part of boundaryParts(f.geometry)) {
+      const [ring, ...partHoles] = part;
+      if (!ring || ring.length < 3) continue;
+      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+      for (const [lon, lat] of ring as Array<[number, number]>) {
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+      outer.push({ ring, minLon, minLat, maxLon, maxLat });
+      for (const h of partHoles) if (h.length >= 3) holes.push(h);
+    }
+    if (outer.length > 0) out.push({ iso2, outer, holes });
+  }
+  indexCache.set(features, out);
+  return out;
+}
+
+/**
+ * Resolve the ISO2 of the country containing a lon/lat point, using the already
+ * loaded GeoJSON features. Holes are respected so an enclave is not swallowed by
+ * its surrounding country. Returns undefined at sea or over a feature with no
+ * ISO2 — a genuine ocean click stays unlabelled rather than guessing.
+ */
+export function countryIsoForPoint(features: GeoFeature[], lon: number, lat: number): string | undefined {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return undefined;
+  for (const c of buildCountryIndex(features)) {
+    for (const o of c.outer) {
+      // bbox reject first — this is what makes the per-mousemove scan viable.
+      if (lon < o.minLon || lon > o.maxLon || lat < o.minLat || lat > o.maxLat) continue;
+      if (!pointInRing(lon, lat, o.ring)) continue;
+      if (c.holes.some((h) => pointInRing(lon, lat, h))) continue;
+      return c.iso2;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Every ring of a country as `[lon, lat]` polylines, for drawing an OUTLINE of
+ * the hovered country on the globe. The 3D globe is a flat texture with no
+ * per-country geometry, so this outline is how a hovered country is made visible
+ * there — the equivalent of the 2D `geo` component's `emphasis` fill.
+ */
+export function countryOutlineRings(
+  features: GeoFeature[],
+  iso2: string | null | undefined,
+): Array<Array<[number, number]>> {
+  if (!iso2) return [];
+  const want = iso2.toUpperCase();
+  const feature = features.find((f) => (f.properties.iso2 ?? '').toUpperCase() === want);
+  if (!feature) return [];
+  const rings: Array<Array<[number, number]>> = [];
+  for (const part of boundaryParts(feature.geometry)) {
+    for (const ring of part) {
+      if (Array.isArray(ring) && ring.length >= 3) {
+        rings.push(ring as Array<[number, number]>);
+      }
+    }
+  }
+  return rings;
+}
+
 // ── Globe surface texture ────────────────────────────────────────────────────
 // `echarts-gl`'s `globe` component has NO `map`/`geo` property — it takes a
 // raster `baseTexture`. Its built-in default is a bright photographic world
@@ -66,8 +195,18 @@ export function iso2ForFeatureName(features: GeoFeature[], name: string): string
 // Equirectangular projection (lon → x, lat → y) is exactly what a globe texture
 // expects. Drawn once and cached; no asset to ship, no extra network request.
 
-const TEXTURE_W = 2048;
-const TEXTURE_H = 1024;
+// Power-of-two so claygl can build a mip chain (a non-POT texture silently
+// drops mipmaps and shimmers when the sphere shrinks). 4096×2048 is the largest
+// size WebGL guarantees everywhere, and doubles the texel density of the old
+// 2048×1024 surface — which is what removed the stair-stepped coastlines that
+// appeared once the camera zoomed into the globe (magnification of a 1–2px
+// stroke). Stroke widths below are in TEXTURE pixels, so they are scaled with
+// the resolution to keep the same on-screen weight while the underlying
+// geometry is twice as fine.
+const TEXTURE_W = 4096;
+const TEXTURE_H = 2048;
+/** Stroke widths are authored against this reference width, then scaled. */
+const TEXTURE_SCALE = TEXTURE_W / 2048;
 
 /** Surface palettes. `MapSkin` lives in the store; kept structural here so this
  *  module stays free of UI-state imports. */
@@ -235,7 +374,7 @@ export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glo
 
     // ── Graticule: drawn UNDER the land so it never cuts across a continent ──
     ctx.strokeStyle = palette.graticule;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = TEXTURE_SCALE;
     for (let lon = -180; lon <= 180; lon += 20) {
       ctx.beginPath();
       ctx.moveTo(x(lon), 0);
@@ -256,9 +395,9 @@ export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glo
     if (palette.bloom) {
       ctx.save();
       ctx.shadowColor = palette.bloom.color;
-      ctx.shadowBlur = palette.bloom.blur;
+      ctx.shadowBlur = palette.bloom.blur * TEXTURE_SCALE;
       ctx.strokeStyle = palette.bloom.color;
-      ctx.lineWidth = palette.bloom.width;
+      ctx.lineWidth = palette.bloom.width * TEXTURE_SCALE;
       for (const f of features) {
         for (const polygon of geometryPolygons(f.geometry)) {
           ctx.beginPath();
@@ -284,7 +423,7 @@ export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glo
         // A crisp bright coastline on top of the bloom — this is the single
         // strongest "this is a lit planet" cue in the whole texture.
         ctx.strokeStyle = palette.coastline;
-        ctx.lineWidth = palette.coastlineWidth;
+        ctx.lineWidth = palette.coastlineWidth * TEXTURE_SCALE;
         ctx.stroke();
       }
     }
@@ -305,7 +444,7 @@ export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glo
       ctx.save();
       const allPolys: number[][][][] = [];
       for (const f of features) for (const p of geometryPolygons(f.geometry)) allPolys.push(p);
-      for (let i = 0; i < stipple.count; i++) {
+      for (let i = 0; i < stipple.count * TEXTURE_SCALE; i++) {
         const lon = rand() * 360 - 180;
         const lat = rand() * 150 - 75;
         const px = x(lon);
@@ -318,7 +457,9 @@ export function buildGlobeTexture(features: GeoFeature[], skin: GlobeSkin = 'glo
         if (!onLand) continue;
         const alpha = stipple.minAlpha + rand() * (stipple.maxAlpha - stipple.minAlpha);
         ctx.fillStyle = `rgba(186,230,253,${alpha})`;
-        ctx.fillRect(px, py, 1.4, 1.4);
+        // Scale both the dot and the sample count with the texture so the
+        // speckle keeps the same visual density on the higher-resolution canvas.
+        ctx.fillRect(px, py, 1.4 * TEXTURE_SCALE, 1.4 * TEXTURE_SCALE);
       }
       ctx.restore();
     }
@@ -376,8 +517,11 @@ export async function worldGlobeTexture(skin: GlobeSkin = 'glow'): Promise<strin
 // The emission texture is coastlines only, on a transparent field, so the glow
 // traces the continents and leaves the ocean dark.
 
-const GLOW_W = 2048;
-const GLOW_H = 1024;
+// Matches the surface texture resolution so the emitted coastline stays sharp
+// under the same zoom (see `TEXTURE_W`).
+const GLOW_W = 4096;
+const GLOW_H = 2048;
+const GLOW_SCALE = GLOW_W / 2048;
 
 let glowPromise: Promise<string> | null = null;
 
@@ -414,9 +558,9 @@ export function buildGlobeGlowTexture(features: GeoFeature[]): Promise<string> {
     // gives a coastline that glows without washing out the land.
     ctx.save();
     ctx.strokeStyle = 'rgba(56,189,248,0.28)';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 5 * GLOW_SCALE;
     ctx.shadowColor = 'rgba(56,189,248,0.55)';
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 12 * GLOW_SCALE;
     for (const f of features) {
       for (const polygon of geometryPolygons(f.geometry)) {
         ctx.beginPath();
@@ -427,7 +571,7 @@ export function buildGlobeGlowTexture(features: GeoFeature[]): Promise<string> {
     ctx.restore();
 
     ctx.strokeStyle = 'rgba(186,230,253,0.55)';
-    ctx.lineWidth = 1.1;
+    ctx.lineWidth = 1.1 * GLOW_SCALE;
     for (const f of features) {
       for (const polygon of geometryPolygons(f.geometry)) {
         ctx.beginPath();

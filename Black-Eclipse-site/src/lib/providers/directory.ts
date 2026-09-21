@@ -71,6 +71,11 @@ const ENTRIES: Record<string, ProviderDirectoryEntry> = {
   // ── News (its own section) ────────────────────────────────────────────────
   FINNHUB_API_KEY: { purpose: "Market news & headlines", usedBy: ["News", "Investor Eye sentiment"], tier: "free-tier", home: "news" },
 
+  // ── Investor Eye (keyless world-state event sources) ──────────────────────
+  gdelt: { purpose: "Geopolitical news events (CAMEO-coded)", usedBy: ["Investor Eye"], tier: "free", home: "investor-eye" },
+  usgs: { purpose: "Seismic events (earthquakes)", usedBy: ["Investor Eye"], tier: "free", home: "investor-eye" },
+  firms: { purpose: "Satellite fire & thermal detections", usedBy: ["Investor Eye"], tier: "free", home: "investor-eye" },
+
   // ── Market Screener (prices, fundamentals, crypto) ────────────────────────
   tradingview: { purpose: "Market + price data", usedBy: ["Market Screener", "Investor Eye", "Charts"], tier: "builtin", home: "market" },
   yfinance: { purpose: "Market + price data", usedBy: ["Market Screener", "Charts"], tier: "free", home: "market" },
@@ -220,7 +225,7 @@ export const INVESTOR_EYE_FEATURES: InvestorEyeFeature[] = [
     id: "events",
     label: "Global event map",
     description: "Geopolitical and market events plotted by region.",
-    providers: ["gdelt", "news-feeds"],
+    providers: ["gdelt", "usgs", "firms", "news-feeds"],
   },
   {
     id: "conflict",
@@ -270,6 +275,8 @@ export const INVESTOR_EYE_FEATURES: InvestorEyeFeature[] = [
 export function providerLabel(id: string): string {
   const labels: Record<string, string> = {
     gdelt: "GDELT",
+    usgs: "USGS",
+    firms: "NASA FIRMS",
     "news-feeds": "RSS news feeds",
     "econ:economic-calendar": "Economic Calendar",
     "sec-edgar": "SEC EDGAR",

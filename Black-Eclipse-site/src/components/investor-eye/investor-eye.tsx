@@ -55,6 +55,7 @@ export function InvestorEyeScreen() {
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
   const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
+  const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
   const fullPage = useInvestorEyeStore((s) => s.fullPage);
   const highlightedCountries = useInvestorEyeStore((s) => s.highlightedCountries);
   const highlightNote = useInvestorEyeStore((s) => s.highlightNote);
@@ -422,6 +423,7 @@ export function InvestorEyeScreen() {
             mode={mapMode}
             skin={mapSkin}
             showStars={showStars}
+            showCountryLabels={showCountryLabels}
             onModeUnavailable={() => setMapMode('2d')}
           />
           {/* Map is the hero; a subtle frame label keeps provenance in view. */}

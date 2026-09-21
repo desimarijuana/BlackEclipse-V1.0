@@ -17,9 +17,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import {
-  ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture, worldGlobeGlowTexture, type GeoFeature,
+  ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture, worldGlobeGlowTexture,
+  countryIsoForPoint, countryOutlineRings, type GeoFeature,
 } from '@/lib/investor-eye/app-geo';
-import { bindLayerEvents, buildMapOption, hasDrawableBox, type MapMode, type MapSkin } from '@/lib/investor-eye/map-echarts';
+import {
+  bindLayerEvents, buildMapOption, buildCountryOutlineSeries, hasDrawableBox,
+  type MapMode, type MapSkin,
+} from '@/lib/investor-eye/map-echarts';
 import type { MapLayer } from '@/lib/investor-eye/types';
 import { Starfield } from './starfield';
 
@@ -32,6 +36,8 @@ interface WorldMapProps {
   skin?: MapSkin;
   /** Draw the animated starfield behind the map. Purely decorative. */
   showStars?: boolean;
+  /** Draw country names on the map/globe. */
+  showCountryLabels?: boolean;
   /** Called when the globe can't load, so the parent can revert the toggle. */
   onModeUnavailable?: () => void;
   className?: string;
@@ -58,18 +64,33 @@ function ensureGlobeSupport(): Promise<boolean> {
 /** Hard ceiling on globe initialisation before falling back to the flat map. */
 const GLOBE_INIT_TIMEOUT_MS = 20_000;
 
-export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, onModeUnavailable, className }: WorldMapProps) {
+export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, showCountryLabels = true, onModeUnavailable, className }: WorldMapProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const featuresRef = useRef<GeoFeature[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [glReady, setGlReady] = useState(false);
   /**
+   * Live container box (CSS px). The globe camera distance is derived from it so
+   * the sphere fills the map; without re-rendering the option on resize the globe
+   * would keep its first size after the layout changes.
+   */
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  /**
    * Bumped every time a globe texture finishes drawing. The option-update effect
    * depends on it so switching SKIN re-renders the sphere with the new surface
    * without tearing down and rebuilding the chart.
    */
   const [texVersion, setTexVersion] = useState(0);
+  /**
+   * Bumped each time a chart instance is CREATED or disposed. The chart is built
+   * asynchronously (world geometry is awaited), so effects that need the live
+   * instance cannot rely on `mode`/`glReady` alone — they can run a frame before
+   * `chartRef.current` is populated, and a later `setOption` on a null ref is
+   * silently lost. This nonce makes those effects re-run once the instance
+   * genuinely exists.
+   */
+  const [chartNonce, setChartNonce] = useState(0);
 
   // Keep the latest handlers/layers for the stable ECharts event callback, so
   // the init effect can run exactly once without depending on caller closures.
@@ -187,8 +208,13 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
 
         chart = echarts.init(ref.current, undefined, { renderer: 'canvas' });
         chartRef.current = chart;
+        setChartNonce((n) => n + 1);
         bindLayerEvents(chart, layersRef.current, { onCountryClick: handleCountryClick });
-        chart.setOption(buildMapOption({ layers: layersRef.current, highlightPoints, mode, skin, globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current }));
+        chart.setOption(buildMapOption({
+          layers: layersRef.current, highlightPoints, mode, skin, showCountryLabels,
+          globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
+          width: ref.current.clientWidth, height: ref.current.clientHeight,
+        }));
         setStatus('ready');
       } catch (err) {
         console.error('[investor-eye] world map init failed:', err);
@@ -197,6 +223,13 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     };
 
     ro = new ResizeObserver(() => {
+      const el = ref.current;
+      if (el) {
+        setBox((prev) => {
+          const next = { width: el.clientWidth, height: el.clientHeight };
+          return prev.width === next.width && prev.height === next.height ? prev : next;
+        });
+      }
       if (chart) chart.resize();
       else void initChart();
     });
@@ -224,10 +257,180 @@ export function WorldMap({ layers, highlightPoints, onSelectCountry, mode = '2d'
     // regardless of which base component (geo or globe) is active. The skin's
     // base component (geo/globe) is merged by id, so it updates in place too.
     chart.setOption(
-      buildMapOption({ layers, highlightPoints, mode, skin, globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current }),
+      buildMapOption({
+        layers, highlightPoints, mode, skin, showCountryLabels,
+        globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
+        width: box.width, height: box.height,
+      }),
       { replaceMerge: ['series'] } as never,
     );
-  }, [layers, highlightPoints, mode, skin, glReady, texVersion, handleCountryClick]);
+  }, [layers, highlightPoints, mode, skin, showCountryLabels, glReady, texVersion, box, handleCountryClick]);
+
+  /**
+   * GLOBE country picking.
+   *
+   * The 3D `globe` is one textured sphere with no per-country geometry, so it
+   * emits no geo hover/click — unlike the 2D `geo` component, which highlights a
+   * country natively. To give the globe the same behaviour, a screen point is
+   * raycast onto the sphere (`viewGL.castRay` + `Ray.intersectSphere`), converted
+   * to lon/lat with the globe's own `pointToData`, then tested against the loaded
+   * GeoJSON. The hovered country's rings are drawn as a `lines3D` outline and a
+   * click selects it, so the globe is as interactive as the flat map.
+   */
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || mode !== 'globe' || !glReady) return;
+    const zr = chart.getZr();
+    const el = ref.current;
+    if (!el) return;
+
+    type GlobeLike = {
+      dataToPoint: (d: number[]) => number[];
+      pointToData: (p: number[], out?: number[]) => number[];
+      viewGL: { castRay: (x: number, y: number, out: unknown) => unknown };
+      radius: number;
+    };
+
+    const getCoordSys = (): GlobeLike | null => {
+      try {
+        // `getModel` is marked private in the typings but is the documented way
+        // to reach a component's coordinate system at runtime; cast through the
+        // public surface rather than forking ECharts' types.
+        const model = (chart as unknown as {
+          getModel: () => { getComponent: (t: string) => { coordinateSystem?: GlobeLike } | undefined };
+        }).getModel();
+        const globe = model.getComponent('globe');
+        const cs = globe?.coordinateSystem;
+        return cs && cs.viewGL ? cs : null;
+      } catch {
+        return null;
+      }
+    };
+
+    /**
+     * Ray-cast a screen point onto the globe and resolve the country there.
+     *
+     * `ViewGL.castRay(x, y, out)` merely forwards `out` to the camera and then
+     * returns that SAME `out` — passing `undefined` yields `undefined`, not a ray
+     * (a real gotcha; the camera would build an internal `Ray`, but it is never
+     * handed back). So a minimal ray is supplied and filled in place: the camera
+     * writes `origin.array` / `direction.array`. The sphere intersection is then
+     * done directly (|o + t·d|² = R²) instead of importing claygl's `Ray` just
+     * for `intersectSphere` — no extra bundle weight for four lines of algebra.
+     */
+    const pick = (offsetX: number, offsetY: number): string | undefined => {
+      const cs = getCoordSys();
+      if (!cs) return undefined;
+      try {
+        const ray = { origin: { array: [0, 0, 0] }, direction: { array: [0, 0, 0] } };
+        cs.viewGL.castRay(offsetX, offsetY, ray);
+        const o = ray.origin.array;
+        const d = ray.direction.array;
+        const R = cs.radius;
+        // a = 1 (d is normalized). b = 2·d·o, c = |o|² − R².
+        const b = 2 * (d[0] * o[0] + d[1] * o[1] + d[2] * o[2]);
+        const c = o[0] * o[0] + o[1] * o[1] + o[2] * o[2] - R * R;
+        const disc = b * b - 4 * c;
+        if (disc < 0) return undefined; // ray misses the sphere (clicked space)
+        const t = (-b - Math.sqrt(disc)) / 2; // near intersection
+        if (t < 0) return undefined;
+        const point = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
+        const [lon, lat] = cs.pointToData(point);
+        return countryIsoForPoint(featuresRef.current, lon, lat);
+      } catch {
+        return undefined;
+      }
+    };
+
+    // The outline series is only touched when the hovered country CHANGES, and
+    // only on an animation frame. `setOption` is synchronous and re-runs the
+    // whole series pipeline, so calling it per pointer event (as the first cut
+    // did) competed with the orbit control every frame and made rotation stutter.
+    let lastIso: string | undefined;
+    let pending = false;
+    let lastOffset = { x: 0, y: 0 };
+    let raf = 0;
+
+    const applyOutline = (iso: string | undefined) => {
+      if (iso === lastIso) return;
+      lastIso = iso;
+      if (!iso) {
+        zr.setCursorStyle('default');
+        chart.setOption({ series: [buildCountryOutlineSeries([])] });
+        return;
+      }
+      zr.setCursorStyle('pointer');
+      chart.setOption({ series: [buildCountryOutlineSeries(countryOutlineRings(featuresRef.current, iso))] });
+    };
+
+    const flush = () => {
+      raf = 0;
+      if (!pending) return;
+      pending = false;
+      applyOutline(pick(lastOffset.x, lastOffset.y));
+    };
+
+    const onMove = (e: {
+      offsetX: number; offsetY: number; target?: unknown;
+      buttons?: number; which?: number; event?: { buttons?: number };
+    }) => {
+      // A hit on a pin/tooltip target is not a country pick — the pins own it.
+      if (e.target) return;
+      // While a mouse button is down the user is ROTATING the globe. Picking
+      // mid-drag would run a point-in-polygon scan and possibly rebuild the
+      // outline every frame, which is exactly the stutter being fixed — so the
+      // pick is deferred until the drag ends (see `onUp`).
+      //
+      // zrender's event packet does NOT copy `buttons`; it keeps the native
+      // event under `e.event` and a `which` shorthand. Reading only one of these
+      // silently disables the guard (the first version read `e.event.buttons`
+      // but zrender's `which` is the more reliably populated field), so all
+      // three are checked.
+      const dragging = (e.event?.buttons ?? 0) > 0 || e.buttons === 1 || e.buttons === 2 || e.which === 1 || e.which === 3;
+      lastOffset = { x: e.offsetX, y: e.offsetY };
+      if (dragging) {
+        pending = true;
+        return;
+      }
+      pending = true;
+      if (!raf) raf = requestAnimationFrame(flush);
+    };
+
+    const onClick = (e: { offsetX: number; offsetY: number; target?: unknown }) => {
+      if (e.target) return;
+      const iso = pick(e.offsetX, e.offsetY);
+      if (!iso) return;
+      const name = featuresRef.current.find((f) => f.properties.iso2?.toUpperCase() === iso)?.properties.name ?? iso;
+      onSelectCountryRef.current?.(iso, name);
+    };
+
+    const onLeave = () => {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      pending = false;
+      lastIso = undefined;
+      zr.setCursorStyle('default');
+      chart.setOption({ series: [buildCountryOutlineSeries([])] });
+    };
+
+    // On button-up, re-pick once so the outline matches the settled view (the
+    // drag itself skipped picking).
+    const onUp = () => {
+      pending = true;
+      if (!raf) raf = requestAnimationFrame(flush);
+    };
+
+    zr.on('mousemove', onMove);
+    zr.on('click', onClick);
+    zr.on('globalout', onLeave);
+    zr.on('mouseup', onUp);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      zr.off('mousemove', onMove);
+      zr.off('click', onClick);
+      zr.off('globalout', onLeave);
+      zr.off('mouseup', onUp);
+    };
+  }, [mode, glReady, chartNonce, handleCountryClick]);
 
   const overlay = useMemo(() => {
     // A SCOPED loader, never `TopLoader`. TopLoader portals to `document.body`
