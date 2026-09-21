@@ -52,6 +52,16 @@ next-env.d.ts
 # database (seed snapshot jdds.db IS committed; ignore runtime WAL/side files)
 jdds.db-*
 
+# Harness agent-memory database (separate from JDdS; runtime operational state)
+agent-memory.db
+agent-memory.db-*
+
+# Python agent-runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+python/**/*.egg-info/
+
 # rolling DB backups created by scripts/db-guard.js
 /backups/
 

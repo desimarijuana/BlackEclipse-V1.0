@@ -1,49 +1,42 @@
 import type { AgentProvider, ChatMessage } from './types';
-import { MockProvider } from './mock-provider';
 
 /**
- * Registry of available agent providers (client-safe: no server imports).
+ * Registry of agent providers (client-safe: no server imports).
  *
- * The first CONFIGURED provider wins; the built-in mock is the last-resort
- * fallback so the UI always works. The OpenAI/Ollama provider runs on the
- * server (it needs the settings vault), so the client reaches it through
- * POST /api/agent/chat.
+ * Chat is routed through the HARNESS (`/api/harness/chat`), so the assistant is
+ * the Eclipse Agent — system prompt, JDdS tools, persisted run — not a bare
+ * completion. The server owns provider configuration (settings vault), so this
+ * client layer never decides whether an LLM exists; it forwards and reports the
+ * server's answer honestly (a 503 means the runtime is unavailable, never a
+ * silently faked reply).
  */
-const providers: AgentProvider[] = [
-  {
-    id: 'openai-compatible',
-    label: 'OpenAI / Ollama',
-    isConfigured: () => Boolean(
-      process.env.OPENAI_API_KEY ||
-      process.env.OLLAMA_BASE_URL ||
-      process.env.ANTHROPIC_API_KEY ||
-      // Bundled client build cannot read server env; this flag is set at
-      // startup (instrumentation) when a real provider is available.
-      process.env.NEXT_PUBLIC_LLM_CONFIGURED === '1'
-    ),
-    // Proxy to the server-side provider (registry + settings vault live there).
-    chat: async (messages: ChatMessage[]) => {
-      const res = await fetch('/api/agent/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `chat failed (${res.status})`);
-      }
-      const data = await res.json();
-      return data.content as string;
-    },
+
+const eclipseAgent: AgentProvider = {
+  id: 'eclipse-agent',
+  label: 'Eclipse Agent',
+  isConfigured: () => true,
+  chat: async (messages: ChatMessage[]) => {
+    const last = [...messages].reverse().find((m) => m.role === 'user');
+    const query = last?.content ?? '';
+    const history = messages
+      .filter((m) => m !== last && (m.role === 'user' || m.role === 'assistant'))
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    const res = await fetch('/api/harness/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, history }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // Never fabricate a reply: surface why the run could not happen.
+      throw new Error(data.error || `Agent run failed (${res.status})`);
+    }
+    return data.content as string;
   },
-  new MockProvider(),
-];
+};
 
 export function getAgentProvider(): AgentProvider {
-  const configured = providers.find((p) => p.isConfigured());
-  return configured ?? providers[providers.length - 1];
-}
-
-export function listProviders(): AgentProvider[] {
-  return providers;
+  return eclipseAgent;
 }

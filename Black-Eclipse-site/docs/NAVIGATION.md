@@ -55,6 +55,13 @@ Black-Eclipse-site/
 | Work on Live Intelligence (live news streams) | `src/lib/dashboard/live-intelligence-widget.tsx` (player + states + channel manager), `live-channels.ts` (channel registry + embed/safety helpers), `live-intelligence-store.ts` (persisted selection), `live-resolver.ts` + `src/app/api/live-streams/route.ts` (server-side cached current-live-id resolver) |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
+| Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md` |
+| Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
+| Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
+| Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
+| Give a Python tool JDdS data | `src/lib/harness/data-bridge.ts` (capability) + `DataCapability` in `src/lib/harness/types.ts`; the Python tool calls `ctx.data_bridge.fetch(...)` |
+| Change harness persistence / the agent-memory DB | `python/harness/persistence.py` — separate `agent-memory.db`, NOT `prisma/schema.prisma` |
+| Install / repair the Python runtime | `python/requirements.txt`, `scripts/setup-python.js` (`npm run setup:python`), `scripts/doctor.js`, `scripts/test-python.js` |
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |
 | Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
 | Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) **and** a governance entry in `src/lib/investor-eye/source-catalog.ts` (a test fails without one) |
@@ -116,6 +123,8 @@ Black-Eclipse-site/
 | Folder | Owns |
 |---|---|
 | `agent/` | Provider abstraction, tool loop, multi-agent research, journal tools |
+| `src/lib/harness/` | Harness **front door**: input validation, vault/agent resolution, Python-runtime client + launcher, read-only JDdS data bridge |
+| `python/harness/` (repo root) | The **agentic runtime**: agents, tools, model providers, LangGraph loop, events, `agent-memory.db` persistence |
 | `alerts/` | Condition evaluator, feeds, notifier, alert monitor |
 | `aurora/` | Aurora palette store + theme |
 | `theme/` | Centralized customization: `EclipseTheme` model + presets + brand-color generator + derived-color resolution + validation (`tokens.ts`), persisted zustand store + CSS-token injection + user presets w/ chart palette (`store.ts`), chart-palette bridge + preview (`bridge.ts`) |
@@ -172,6 +181,12 @@ health).
 | Market workspace ops | `src/lib/market-workspace/ops.ts` |
 | Agent provider interface | `src/lib/agent/types.ts` |
 | Agent tool contract | `src/lib/agent/tools.ts` (`ToolDefinition`) |
+| Harness front-door contracts | `src/lib/harness/types.ts` (proxy shapes only) |
+| Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
+| Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |
+| Harness tool contract | `python/harness/tools.py` (`ToolDefinition`, `ToolRegistry`) |
+| Harness model-provider contract | `python/harness/models.py` (`ProviderSpec`, `PROVIDER_CATALOG`) |
+| Harness run persistence | `python/harness/persistence.py` (`agent-memory.db`) |
 | Mutation guard | `src/lib/api-guard.ts` |
 | Tab ids | `AppTab` in `src/components/layout/sidebar.tsx` |
 
@@ -188,6 +203,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/connectors/`, `src/lib/provider-keys.ts`, `src/app/api/data-sources/`, `src/app/api/provider-keys/`, `src/app/api/data/`, `src/app/api/datasets/`, `src/app/api/providers/` | `ARCHITECTURE.md` (connector layer + operator credentials), `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/investor-eye/`, `src/components/investor-eye/`, `src/app/api/investor-eye/` | `ARCHITECTURE.md` (Investor Eye), `investor-eye-architecture.md`, `DATA-FLOW.md`, `DECISIONS.md` |
 | `src/lib/fundamentals/`, `src/components/screens/fundamentals/`, `src/app/api/fundamentals/`, `scripts/yfinance_fundamentals.py` | `ARCHITECTURE.md` (Fundamentals), `DATA-FLOW.md` |
+| `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `DECISIONS.md`, `QUICKSTART.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |

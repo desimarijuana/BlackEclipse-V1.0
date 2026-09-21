@@ -20,7 +20,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "messages are required" }, { status: 400 });
     }
     const provider = new OpenAICompatibleProvider();
-    if (!provider.isConfigured()) {
+    // Check the resolved runtime config (settings vault + env + local servers),
+    // not just env — a provider configured in the UI has no env var.
+    if (!(await provider.isConfiguredAsync())) {
       return NextResponse.json({ error: "no LLM provider configured" }, { status: 503 });
     }
     const { content } = await provider.chat(messages, []);

@@ -1,0 +1,31 @@
+# BlackEclipse harness runtime — Python agent service.
+#
+# Installed by scripts/setup-python.js (and checked by scripts/doctor.js).
+# The app's agent runtime is Python + LangChain + LangGraph; the Next.js side
+# owns the HTTP API, JDdS tool execution, and run/event persistence.
+#
+# Keep this list minimal. Provider integrations are additive: adding one is a
+# line here plus a catalog entry in harness/models.py.
+
+# Service
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+pydantic>=2.7
+
+# Agent runtime
+langchain>=1.0
+langchain-core>=1.0
+langgraph>=1.0
+
+# Model providers (universal coverage).
+# langchain-openai also powers EVERY OpenAI-compatible endpoint (Ollama, LM
+# Studio, OpenRouter, DeepSeek, xAI, Perplexity, Together, Fireworks, custom).
+langchain-openai>=1.0
+langchain-anthropic>=0.3
+langchain-google-genai>=2.0
+langchain-mistralai>=0.2
+langchain-groq>=0.2
+
+# Tests
+pytest>=8.0
+pytest-asyncio>=0.24

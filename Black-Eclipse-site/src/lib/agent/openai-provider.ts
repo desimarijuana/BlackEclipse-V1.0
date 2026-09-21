@@ -4,6 +4,7 @@
 
 import type { ChatMessage, ToolCall } from "./loop";
 import { getLLMConfig } from "@/lib/settings";
+import { isLocalBaseUrl } from "./presets";
 
 interface ChatCompletionResponse {
   choices?: {
@@ -22,12 +23,31 @@ export class OpenAICompatibleProvider {
   readonly id = "openai-compatible";
   readonly label = "OpenAI / Ollama";
 
+  /**
+   * Synchronous env-only check. Kept for callers that cannot await; prefer
+   * `isConfiguredAsync()`, which also honours the settings vault (a provider
+   * configured in the UI has no env var, so this alone would report false).
+   */
   isConfigured(): boolean {
     return Boolean(
       process.env.OPENAI_API_KEY ||
         process.env.OLLAMA_BASE_URL ||
         process.env.ANTHROPIC_API_KEY
     );
+  }
+
+  /**
+   * True when the runtime can actually reach a model: either a key is resolved
+   * (vault or env) or the base URL is a keyless local server (Ollama, LM Studio).
+   */
+  async isConfiguredAsync(): Promise<boolean> {
+    try {
+      const cfg = await getLLMConfig();
+      if (cfg.provider === "mock") return false;
+      return Boolean(cfg.apiKey) || isLocalBaseUrl(cfg.baseUrl);
+    } catch {
+      return false;
+    }
   }
 
   async chat(

@@ -115,8 +115,21 @@ if (py) {
   if (run(`"${py}" -c "import yfinance"`, { timeout: 15000 }).status !== 0) {
     fix("Python yfinance bridge", `"${py}" -m pip install yfinance`);
   }
+
+  // 5b. Harness agent runtime (FastAPI + LangChain + LangGraph). The agentic
+  //     harness delegates to this service, so a missing stack means runs are
+  //     unavailable — install it, and report honestly if that fails.
+  if (run(`"${py}" -c "import langgraph"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python agent runtime", `"${py}" -m pip install -r "${requirements}"`);
+    }
+  }
 } else {
-  console.log("[setup] Python not found — live prices disabled. Install from https://python.org, then: pip install yfinance");
+  console.log("[setup] Python not found — live prices and the agent runtime are disabled.");
+  console.log("        Install from https://python.org, then:");
+  console.log("          pip install yfinance");
+  console.log("          pip install -r python/requirements.txt");
 }
 
 if (fixed > 0) console.log(`[setup] done — ${fixed} item(s) fixed.`);

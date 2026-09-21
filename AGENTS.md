@@ -68,9 +68,19 @@ If docs and code disagree, **the code wins** — then fix the doc.
 - **Run the checks after every change:** `npm run test` **and**
   `npx tsc --noEmit` (from `Black-Eclipse-site/`). Both must pass.
 - **Never fabricate financial data.** Unavailable data renders an `UNAVAILABLE`
-  state; simulated/stale data is always labeled.
+  state; simulated/stale data is always labeled. All market data is read through
+  JDdS (`jdds.db`) — the agentic layer never queries a second data source.
+- **The agentic runtime is Python.** Agents, tools, model providers, harness
+  events and run persistence live in `Black-Eclipse-site/python/harness/`
+  (FastAPI + LangChain + LangGraph). Next.js is the front door: it validates
+  input, resolves LLM config from the settings vault, serves the read-only JDdS
+  data bridge, and proxies. Do not rebuild an agent loop, tool registry, or
+  model adapter in TypeScript.
 - **Zero-config must keep working.** `npm install && npm run dev` must never
-  require setup.
+  require manual setup. `postinstall` installs the Python agent stack
+  automatically; `doctor.js` repairs it on boot. If Python is genuinely
+  unavailable, agent runs must fail honestly (503 "runtime unavailable") — never
+  silently fall back to a fake agent.
 - **Never commit, push, or open a PR unless the user explicitly asks.** When
   asked, inspect `git status`/`git diff` first and never commit secrets.
 - **Do not commit `jdds.db` on routine changes** — it is a seed snapshot updated

@@ -309,6 +309,29 @@ first thing to check when a widget renders empty. See
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "Dashboard layout grammar (personas +
 track board)".
 
+## ADR-018 — Agentic runtime is Python (LangChain + LangGraph); separate agent-memory DB (2026)
+**Decision:** The agentic harness runtime is **Python** — FastAPI + LangChain +
+LangGraph in `python/harness/` — owning agents, tools, model providers, harness
+events and run persistence. Next.js (`src/lib/harness/`, `src/app/api/harness/`)
+is a thin front door: it validates input, resolves the agent preset + LLM config
+from the settings vault, assigns the run id, and proxies to the runtime. It also
+serves a guarded, read-only JDdS **data bridge** for the Python tools. Run state
+and agent memory/skills live in a **separate SQLite database**
+(`agent-memory.db`), not JDdS.
+**Why:** The requirement was that the agentic side not be written in TypeScript,
+and that it connect every model. Python is where the LangChain/LangGraph
+ecosystem and provider integrations live, making "all models" and agent
+authoring configuration rather than bespoke TS adapters. The vault and Prisma
+are the two things Python cannot own, which is exactly why the front door keeps
+those two jobs. A separate DB keeps high-churn operational state off the
+committed JDdS snapshot.
+**Impact:** Agent runs require the Python stack (installed by `postinstall` /
+`doctor.js`); without it runs return 503 — never a fake agent. Universal model
+coverage is a provider catalog plus the OpenAI-compatible protocol. The earlier
+TypeScript Phase-1 kernel was retired. See
+[`harness/architecture.md`](./harness/architecture.md) and
+[`harness/decisions.md`](./harness/decisions.md) (ADR-H1…H7).
+
 ---
 
 ## Decisions implied by the code (not yet formal ADRs)

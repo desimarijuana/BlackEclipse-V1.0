@@ -1,0 +1,390 @@
+"""Agent-memory persistence — owned by the Python runtime.
+
+The SEPARATE SQLite database `agent-memory.db` holds runs, events, tool
+executions, long-lived agent memory (user/agent/market facts) and skills. It is
+deliberately NOT JDdS (`jdds.db`), which stays the committed market-data vault.
+
+Uses the stdlib `sqlite3`, so there is no dependency and no migration step: the
+idempotent DDL is applied on first use. The schema mirrors the TS
+`src/lib/harness/persistence/schema.ts`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import time
+import uuid
+from typing import Any, Optional
+
+SCHEMA = """
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS HarnessRun (
+  id          TEXT PRIMARY KEY,
+  agentId     TEXT NOT NULL,
+  userId      TEXT,
+  status      TEXT NOT NULL,
+  input       TEXT NOT NULL,
+  output      TEXT,
+  error       TEXT,
+  modelSteps  INTEGER NOT NULL DEFAULT 0,
+  toolCalls   INTEGER NOT NULL DEFAULT 0,
+  toolErrors  INTEGER NOT NULL DEFAULT 0,
+  provider    TEXT,
+  model       TEXT,
+  createdAt   TEXT NOT NULL,
+  updatedAt   TEXT NOT NULL,
+  startedAt   TEXT,
+  finishedAt  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_harness_run_status  ON HarnessRun(status);
+CREATE INDEX IF NOT EXISTS idx_harness_run_user    ON HarnessRun(userId);
+CREATE INDEX IF NOT EXISTS idx_harness_run_created ON HarnessRun(createdAt);
+
+CREATE TABLE IF NOT EXISTS HarnessEvent (
+  id     TEXT PRIMARY KEY,
+  runId  TEXT NOT NULL,
+  type   TEXT NOT NULL,
+  seq    INTEGER NOT NULL,
+  at     TEXT NOT NULL,
+  data   TEXT,
+  FOREIGN KEY (runId) REFERENCES HarnessRun(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_harness_event_run ON HarnessEvent(runId, seq);
+
+CREATE TABLE IF NOT EXISTS HarnessToolExecution (
+  id          TEXT PRIMARY KEY,
+  runId       TEXT NOT NULL,
+  toolCallId  TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  ok          INTEGER NOT NULL,
+  durationMs  INTEGER NOT NULL,
+  args        TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  error       TEXT,
+  createdAt   TEXT NOT NULL,
+  FOREIGN KEY (runId) REFERENCES HarnessRun(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_harness_tool_run  ON HarnessToolExecution(runId);
+CREATE INDEX IF NOT EXISTS idx_harness_tool_name ON HarnessToolExecution(name);
+
+CREATE TABLE IF NOT EXISTS AgentMemory (
+  id         TEXT PRIMARY KEY,
+  scope      TEXT NOT NULL,
+  userId     TEXT,
+  agentId    TEXT,
+  subject    TEXT,
+  kind       TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  source     TEXT,
+  confidence REAL NOT NULL DEFAULT 0.5,
+  createdAt  TEXT NOT NULL,
+  updatedAt  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_scope   ON AgentMemory(scope, userId);
+CREATE INDEX IF NOT EXISTS idx_memory_subject ON AgentMemory(subject);
+CREATE INDEX IF NOT EXISTS idx_memory_agent   ON AgentMemory(agentId);
+
+CREATE TABLE IF NOT EXISTS AgentSkill (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  definition  TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'proposed',
+  originRunId TEXT,
+  successCount INTEGER NOT NULL DEFAULT 0,
+  failCount    INTEGER NOT NULL DEFAULT 0,
+  createdAt   TEXT NOT NULL,
+  updatedAt   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_status ON AgentSkill(status);
+"""
+
+DB_FILENAME = "agent-memory.db"
+
+
+def now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + f".{int(time.time() % 1 * 1000):03d}Z"
+
+
+def new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4()}"
+
+
+def default_db_path() -> str:
+    override = os.environ.get("AGENT_MEMORY_DB_PATH")
+    if override:
+        return os.path.abspath(override)
+    return os.path.join(os.getcwd(), DB_FILENAME)
+
+
+class AgentMemoryStore:
+    def __init__(self, path: Optional[str] = None) -> None:
+        self.path = path or default_db_path()
+        self._db = sqlite3.connect(self.path, check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._db.executescript(SCHEMA)
+        self._db.commit()
+
+    # ── Runs ────────────────────────────────────────────────────────────────
+    def create_run(
+        self,
+        run_id: str,
+        agent_id: str,
+        input_data: dict[str, Any],
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> None:
+        now = now_iso()
+        self._db.execute(
+            """INSERT INTO HarnessRun
+               (id, agentId, userId, status, input, modelSteps, toolCalls, toolErrors,
+                provider, model, createdAt, updatedAt)
+               VALUES (?, ?, ?, 'created', ?, 0, 0, 0, ?, ?, ?, ?)""",
+            (run_id, agent_id, user_id, json.dumps(input_data), provider, model, now, now),
+        )
+        self._db.commit()
+
+    def update_run(self, run_id: str, **patch: Any) -> None:
+        allowed = {
+            "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
+            "provider", "model", "startedAt", "finishedAt",
+        }
+        sets, params = [], []
+        for key, value in patch.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key} = ?")
+            params.append(json.dumps(value) if key == "error" and value is not None else value)
+        if not sets:
+            return
+        sets.append("updatedAt = ?")
+        params.append(now_iso())
+        params.append(run_id)
+        self._db.execute(f"UPDATE HarnessRun SET {', '.join(sets)} WHERE id = ?", params)
+        self._db.commit()
+
+    def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM HarnessRun WHERE id = ?", (run_id,)).fetchone()
+        return _run_row(row) if row else None
+
+    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        rows = self._db.execute(
+            "SELECT * FROM HarnessRun ORDER BY createdAt DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [_run_row(r) for r in rows]
+
+    # ── Events ──────────────────────────────────────────────────────────────
+    def append_event(self, run_id: str, event_type: str, seq: int, data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        event = {
+            "id": new_id("evt"),
+            "runId": run_id,
+            "type": event_type,
+            "seq": seq,
+            "at": now_iso(),
+            "data": data or {},
+        }
+        self._db.execute(
+            "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, ?, ?, ?, ?)",
+            (event["id"], run_id, event_type, seq, event["at"], json.dumps(event["data"])),
+        )
+        self._db.commit()
+        return event
+
+    def list_events(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM HarnessEvent WHERE runId = ? ORDER BY seq ASC", (run_id,)
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "runId": r["runId"],
+                "type": r["type"],
+                "seq": r["seq"],
+                "at": r["at"],
+                "data": json.loads(r["data"]) if r["data"] else {},
+            }
+            for r in rows
+        ]
+
+    # ── Tool executions ─────────────────────────────────────────────────────
+    def record_tool_execution(self, run_id: str, result: Any) -> None:
+        self._db.execute(
+            """INSERT INTO HarnessToolExecution
+               (id, runId, toolCallId, name, ok, durationMs, args, text, error, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                new_id("tex"),
+                run_id,
+                result.tool_call_id,
+                result.name,
+                1 if result.ok else 0,
+                result.duration_ms,
+                json.dumps(getattr(result, "args", {}) or {}),
+                result.text[:4000],
+                result.error.model_dump_json() if result.error else None,
+                now_iso(),
+            ),
+        )
+        self._db.commit()
+
+    def list_tool_executions(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM HarnessToolExecution WHERE runId = ? ORDER BY createdAt ASC", (run_id,)
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "runId": r["runId"],
+                "toolCallId": r["toolCallId"],
+                "name": r["name"],
+                "ok": bool(r["ok"]),
+                "durationMs": r["durationMs"],
+                "args": json.loads(r["args"]) if r["args"] else {},
+                "text": r["text"],
+                "error": json.loads(r["error"]) if r["error"] else None,
+                "createdAt": r["createdAt"],
+            }
+            for r in rows
+        ]
+
+    # ── Agent memory ────────────────────────────────────────────────────────
+    def remember(
+        self,
+        scope: str,
+        kind: str,
+        content: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        subject: Optional[str] = None,
+        source: Optional[str] = None,
+        confidence: float = 0.5,
+    ) -> dict[str, Any]:
+        record = {
+            "id": new_id("mem"),
+            "scope": scope,
+            "userId": user_id,
+            "agentId": agent_id,
+            "subject": subject,
+            "kind": kind,
+            "content": content,
+            "source": source,
+            "confidence": max(0.0, min(float(confidence), 1.0)),
+            "createdAt": now_iso(),
+        }
+        record["updatedAt"] = record["createdAt"]
+        self._db.execute(
+            """INSERT INTO AgentMemory
+               (id, scope, userId, agentId, subject, kind, content, source, confidence, createdAt, updatedAt)
+               VALUES (:id, :scope, :userId, :agentId, :subject, :kind, :content, :source, :confidence, :createdAt, :updatedAt)""",
+            record,
+        )
+        self._db.commit()
+        return record
+
+    def recall(
+        self,
+        scope: Optional[str] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        subject: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        where, params = [], []
+        for column, value in (("scope", scope), ("userId", user_id), ("agentId", agent_id), ("subject", subject)):
+            if value is not None:
+                where.append(f"{column} = ?")
+                params.append(value)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        limit = max(1, min(int(limit), 100))
+        rows = self._db.execute(
+            f"SELECT * FROM AgentMemory {clause} ORDER BY updatedAt DESC LIMIT ?", [*params, limit]
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Skills ──────────────────────────────────────────────────────────────
+    def propose_skill(
+        self,
+        name: str,
+        description: str,
+        definition: dict[str, Any],
+        origin_run_id: Optional[str] = None,
+        status: str = "proposed",
+    ) -> dict[str, Any]:
+        existing = self._db.execute("SELECT * FROM AgentSkill WHERE name = ?", (name,)).fetchone()
+        if existing:
+            self._db.execute(
+                "UPDATE AgentSkill SET description = ?, definition = ?, updatedAt = ? WHERE name = ?",
+                (description, json.dumps(definition), now_iso(), name),
+            )
+            self._db.commit()
+            return self.get_skill(name)  # type: ignore[return-value]
+        now = now_iso()
+        self._db.execute(
+            """INSERT INTO AgentSkill
+               (id, name, description, definition, status, originRunId, successCount, failCount, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)""",
+            (new_id("skill"), name, description, json.dumps(definition), status, origin_run_id, now, now),
+        )
+        self._db.commit()
+        return self.get_skill(name)  # type: ignore[return-value]
+
+    def get_skill(self, name: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM AgentSkill WHERE name = ?", (name,)).fetchone()
+        if not row:
+            return None
+        record = dict(row)
+        record["definition"] = json.loads(record["definition"])
+        return record
+
+    def list_skills(self, status: Optional[str] = None) -> list[dict[str, Any]]:
+        if status:
+            rows = self._db.execute("SELECT * FROM AgentSkill WHERE status = ? ORDER BY updatedAt DESC", (status,)).fetchall()
+        else:
+            rows = self._db.execute("SELECT * FROM AgentSkill ORDER BY updatedAt DESC").fetchall()
+        out = []
+        for row in rows:
+            record = dict(row)
+            record["definition"] = json.loads(record["definition"])
+            out.append(record)
+        return out
+
+    def record_skill_outcome(self, name: str, ok: bool) -> None:
+        column = "successCount" if ok else "failCount"
+        self._db.execute(
+            f"UPDATE AgentSkill SET {column} = {column} + 1, updatedAt = ? WHERE name = ?", (now_iso(), name)
+        )
+        self._db.commit()
+
+    def close(self) -> None:
+        self._db.close()
+
+
+def _run_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "agentId": row["agentId"],
+        "userId": row["userId"],
+        "status": row["status"],
+        "input": json.loads(row["input"]) if row["input"] else {},
+        "output": row["output"],
+        "error": json.loads(row["error"]) if row["error"] else None,
+        "modelSteps": row["modelSteps"],
+        "toolCalls": row["toolCalls"],
+        "toolErrors": row["toolErrors"],
+        "provider": row["provider"],
+        "model": row["model"],
+        "createdAt": row["createdAt"],
+        "updatedAt": row["updatedAt"],
+        "startedAt": row["startedAt"],
+        "finishedAt": row["finishedAt"],
+    }
+
+
+__all__ = ["AgentMemoryStore", "SCHEMA", "DB_FILENAME", "default_db_path", "now_iso", "new_id"]

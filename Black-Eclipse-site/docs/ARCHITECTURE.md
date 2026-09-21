@@ -1242,7 +1242,7 @@ violation and should be corrected before it lands.
 | **Frontend / terminal UI** | `src/components/` | Screens, layout, chat, chart, journal, workspace/UI shells. Client-only; `'use client'` where stateful. |
 | **Shared infrastructure** | `src/lib/`, `src/hooks/`, `src/types/` | Pure logic, data access, domain modules, React hooks, shared types. Imported by both frontend and backend. |
 | **Backend** | `src/app/api/**/route.ts`, `src/app/api/**` handlers, `scripts/`, `prisma/` | Thin route handlers, background workers (`src/instrumentation.ts`), importers, schema/DB. |
-| **Harness (future)** | `src/lib/agent/` today | The agent runtime: providers, tool loop, research pipeline. See below. |
+| **Harness** | `python/harness/` (runtime) + `src/lib/harness/` (front door) | The agent runtime (agents, tools, providers, loop, events, persistence) is Python; Next.js validates/resolves/proxies and serves the read-only JDdS bridge. See below and `docs/harness/architecture.md`. |
 
 **Rules that follow from this:**
 - A backend route may import from `src/lib/`, `src/hooks/`, `src/types/` — but
@@ -1253,23 +1253,24 @@ violation and should be corrected before it lands.
 - `src/hooks/` holds only React hooks; framework-free helpers live in `src/lib/`.
 - Prefer `@/` path aliases over deep relative paths across zones.
 
-### Future harness placement (NOT built yet — reserve the boundaries)
+### Harness placement — Python runtime + TS front door
 
-The agentic finance harness will extend the existing `src/lib/agent/` seed, not
-replace it. When it is built, each concern gets its own **subfolder** under
-`src/lib/` so it has a clean contract boundary:
+The agentic harness is a **Python** runtime. Next.js is the front door and the
+JDdS data bridge. The pre-existing research pipeline in `src/lib/agent/` remains
+for the existing chat/research surfaces.
 
-| Harness concern | Future home | Notes |
+| Harness concern | Home | Notes |
 |---|---|---|
-| Agents (run loop, roles) | `src/lib/agent/` (**exists**) | `loop.ts`, `registry.ts`, `types.ts`, `presets.ts` are the seed. Do not duplicate the tool loop. |
-| Tools / MCP tools | `src/lib/agent/*-tools.ts` (**exists**) | `tools.ts` (`ToolDefinition`), `dataset-tools.ts`, `investor-eye-tools.ts`, `journal-tools.ts`. New capability families are added here. |
-| Skills | `src/lib/skills/` (reserved) | Agent-facing skill manifests — distinct from repo `/skills/*.md` engineering docs. Do not conflate the two. |
+| Agents, tools, model providers, LangGraph loop, events | `python/harness/` (**built**) | FastAPI + LangChain + LangGraph. The runtime owns execution; TS never runs an agent loop. |
+| Run persistence + agent memory/skills | `python/harness/persistence.py` (**built**) | Separate `agent-memory.db` (runs, events, tool executions, `AgentMemory`, `AgentSkill`) — NOT JDdS. See `harness/decisions.md` ADR-H5. |
+| Front door (validation, vault resolution, proxy) | `src/lib/harness/` (**built**) | `run-service.ts` resolves agent + LLM config; `python-client.ts`/`python-runtime.ts` proxy and spawn the service. |
+| JDdS data access for tools | `src/lib/harness/data-bridge.ts` (**built**) | Read-only capability bridge; keeps one market-data layer. |
+| Existing chat/research pipeline | `src/lib/agent/` (**exists**) | Unchanged; its provider/tools remain for the pre-harness surfaces. |
 | Workflows | `src/lib/workflows/` (reserved) | Multi-step orchestration graphs over tools/skills. |
-| Memory | `src/lib/agent/` + JDDS (**exists**) | `ResearchReport` / `AgentRun` / `ResearchFinding` models persist runs. |
 | Orchestration | `src/lib/orchestration/` (reserved) | Scheduler/planner coordinating agents, workflows and background workers. |
 
-Reserved folders are **documentation only** until the harness is built — create
-the folder when the first real module lands, not before.
+Reserved folders are **documentation only** until their first real module lands.
+Full harness detail: [`docs/harness/architecture.md`](./harness/architecture.md).
 
 ## Architectural rules (short list)
 

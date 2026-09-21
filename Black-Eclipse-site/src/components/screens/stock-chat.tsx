@@ -108,6 +108,16 @@ function StockChatContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // Refs mirror the two pieces of state an async send handler reads AFTER an
+  // await. React state setters do not update the render closure, so reading
+  // `conversations` there returns the pre-send value and a reply to a
+  // just-created chat would be silently dropped. The refs are kept current
+  // synchronously by every write below.
+  const conversationsRef = useRef<Conversation[]>([]);
+  conversationsRef.current = conversations;
+  const activeConversationIdRef = useRef<string | null>(null);
+  activeConversationIdRef.current = activeConversationId;
   
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -244,11 +254,14 @@ function StockChatContent() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        conversationsRef.current = parsed;
         setConversations(parsed);
         if (parsed.length > 0) {
+          activeConversationIdRef.current = parsed[0].id;
           setActiveConversationId(parsed[0].id);
           setMessages(parsed[0].messages);
         } else {
+          activeConversationIdRef.current = null;
           setActiveConversationId(null);
           setMessages([]);
         }
@@ -256,39 +269,46 @@ function StockChatContent() {
         console.error('Error loading conversations:', err);
       }
     } else {
+      conversationsRef.current = [];
       setConversations([]);
+      activeConversationIdRef.current = null;
       setActiveConversationId(null);
       setMessages([]);
     }
   }, [mounted]);
 
   const saveConversations = (updated: Conversation[]) => {
+    conversationsRef.current = updated;
     setConversations(updated);
     const key = 'chats_guest';
     localStorage.setItem(key, JSON.stringify(updated));
   };
 
   const handleSelectConversation = (id: string) => {
+    activeConversationIdRef.current = id;
     setActiveConversationId(id);
-    const chat = conversations.find(c => c.id === id);
+    const chat = conversationsRef.current.find(c => c.id === id);
     if (chat) {
       setMessages(chat.messages);
     }
   };
 
   const handleNewChat = () => {
+    activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setMessages([]);
   };
 
   const handleDeleteConversation = (id: string) => {
-    const updated = conversations.filter(c => c.id !== id);
+    const updated = conversationsRef.current.filter(c => c.id !== id);
     saveConversations(updated);
-    if (activeConversationId === id) {
+    if (activeConversationIdRef.current === id) {
       if (updated.length > 0) {
+        activeConversationIdRef.current = updated[0].id;
         setActiveConversationId(updated[0].id);
         setMessages(updated[0].messages);
       } else {
+        activeConversationIdRef.current = null;
         setActiveConversationId(null);
         setMessages([]);
       }
@@ -296,9 +316,11 @@ function StockChatContent() {
   };
 
   const addMessageToActiveChat = (userMsg: Message) => {
-    let currentId = activeConversationId;
-    let updatedConvs = [...conversations];
-    
+    // Read through the refs, not the closure: two sends in the same tick (or a
+    // send followed by an injected prompt) must see each other's writes.
+    let currentId = activeConversationIdRef.current;
+    let updatedConvs = [...conversationsRef.current];
+
     if (!currentId) {
       currentId = 'chat_' + Date.now();
       const firstLine = userMsg.content;
@@ -310,6 +332,7 @@ function StockChatContent() {
         timestamp: Date.now()
       };
       updatedConvs = [newChat, ...updatedConvs];
+      activeConversationIdRef.current = currentId;
       setActiveConversationId(currentId);
       setMessages([userMsg]);
     } else {
@@ -325,33 +348,80 @@ function StockChatContent() {
         const [activeChat] = updatedConvs.splice(idx, 1);
         updatedConvs = [activeChat, ...updatedConvs];
         setMessages(newMsgList);
+      } else {
+        // Active id points at a conversation that no longer exists (e.g. it was
+        // deleted) — start a fresh one instead of dropping the message.
+        currentId = 'chat_' + Date.now();
+        const newChat: Conversation = {
+          id: currentId,
+          title: userMsg.content.slice(0, 24),
+          messages: [userMsg],
+          timestamp: Date.now()
+        };
+        updatedConvs = [newChat, ...updatedConvs];
+        activeConversationIdRef.current = currentId;
+        setActiveConversationId(currentId);
+        setMessages([userMsg]);
       }
     }
-    
+
+    // Keep the ref in lockstep so an immediately-following append sees this.
+    conversationsRef.current = updatedConvs;
     saveConversations(updatedConvs);
     return currentId;
   };
 
   const appendAssistantReply = (chatId: string, replyMsg: Message) => {
-    const updatedConvs = [...conversations];
+    // IMPORTANT: use the ref, not `conversations`. This runs after `await`, so
+    // the closure holds pre-send state and a reply to a brand-new chat would
+    // otherwise be silently discarded.
+    const updatedConvs = [...conversationsRef.current];
     const idx = updatedConvs.findIndex(c => c.id === chatId);
-    if (idx !== -1) {
-      const chat = updatedConvs[idx];
-      const newMsgList = [...chat.messages, replyMsg];
-      updatedConvs[idx] = {
-        ...chat,
-        messages: newMsgList,
-        timestamp: Date.now()
+    if (idx === -1) {
+      // Never drop a reply: recreate the conversation if it vanished.
+      const recovered: Conversation = {
+        id: chatId,
+        title: replyMsg.content.slice(0, 24),
+        messages: [replyMsg],
+        timestamp: Date.now(),
       };
-      saveConversations(updatedConvs);
-      if (activeConversationId === chatId) {
-        setMessages(newMsgList);
-      }
+      const next = [recovered, ...updatedConvs];
+      conversationsRef.current = next;
+      saveConversations(next);
+      setMessages([replyMsg]);
+      return;
+    }
+    const chat = updatedConvs[idx];
+    const newMsgList = [...chat.messages, replyMsg];
+    updatedConvs[idx] = {
+      ...chat,
+      messages: newMsgList,
+      timestamp: Date.now()
+    };
+    conversationsRef.current = updatedConvs;
+    saveConversations(updatedConvs);
+    if (activeConversationIdRef.current === chatId) {
+      setMessages(newMsgList);
     }
   };
 
-  const isResearchQuery = (text: string) =>
-    /research|analy|report|invest|tell me about|fundamental|technical|sentiment|outlook|should i|worth|evaluate|deep dive|psx|kse/i.test(text);
+  /** Swap an in-flight placeholder for its final message (same position). */
+  const replaceAssistantReply = (chatId: string, placeholderId: string, replyMsg: Message) => {
+    const updatedConvs = [...conversationsRef.current];
+    const idx = updatedConvs.findIndex(c => c.id === chatId);
+    if (idx === -1) {
+      appendAssistantReply(chatId, replyMsg);
+      return;
+    }
+    const chat = updatedConvs[idx];
+    const newMsgList = chat.messages.map(m => (m.id === placeholderId ? replyMsg : m));
+    updatedConvs[idx] = { ...chat, messages: newMsgList, timestamp: Date.now() };
+    conversationsRef.current = updatedConvs;
+    saveConversations(updatedConvs);
+    if (activeConversationIdRef.current === chatId) {
+      setMessages(newMsgList);
+    }
+  };
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -363,93 +433,76 @@ function StockChatContent() {
     
     const chatId = addMessageToActiveChat(userMsg);
 
-    // Research intents go through the multi-agent research engine.
-    if (isResearchQuery(userText)) {
-      const thinkingMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
-      };
-      appendAssistantReply(chatId, thinkingMsg);
-      sound.tick();
-
-      try {
-        const res = await fetch('/api/agent/research', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: userText }),
-        });
-        const data = await res.json();
-        const replyMsg: Message = {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: data.success
-            ? data.answer
-            : `Research failed: ${data.error || 'unknown error'}`,
-        };
-        appendAssistantReply(chatId, replyMsg);
-        if (data.success) sound.success(); else sound.error();
-      } catch (err) {
-        const replyMsg: Message = {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
-        };
-        appendAssistantReply(chatId, replyMsg);
-        sound.error();
-      }
-      return;
-    }
-
-    // Otherwise ask the configured agent provider (falls back to the built-in mock).
+    // EVERY message goes through the harness, so the chat IS the Eclipse Agent
+    // (system prompt + JDdS tools + persisted run). The agent chooses its own
+    // tools, so a research-flavored ask no longer needs a separate engine, and
+    // a plain greeting costs one model call with no tool round-trip.
+    //
+    // History is read from the ref (not state) because this runs after `await`.
     const provider = getAgentProvider();
-    const history: { role: 'user' | 'assistant'; content: string }[] = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    const reply = await provider.chat([...history, { role: 'user', content: userText }]);
+    const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [userMsg];
+    const history: { role: 'user' | 'assistant'; content: string }[] = existing
+      .slice(0, -1)
+      .map((m) => ({ role: m.role, content: m.content }));
 
-    const replyMsg: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: reply,
-    };
-    appendAssistantReply(chatId, replyMsg);
-  };
-
-  /** Inject a prompt and get a REAL answer from the research engine
-   *  (/api/agent/research) — never a canned fabricated reply. */
-  const runResearchPrompt = async (chatId: string, userText: string) => {
+    // A visible in-flight note: harness runs can take a few seconds (tool calls).
     const thinkingMsg: Message = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
-      content: 'Running multi-agent research... dispatching news, fundamentals, technical, and risk agents.',
+      content: 'Eclipse Agent is working…',
     };
     appendAssistantReply(chatId, thinkingMsg);
     sound.tick();
+
     try {
-      const res = await fetch('/api/agent/research', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userText }),
+      const reply = await provider.chat([...history, { role: 'user', content: userText }]);
+      // Replace the in-flight note with the real answer.
+      replaceAssistantReply(chatId, thinkingMsg.id, {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: reply,
       });
-      const data = await res.json();
-      const replyMsg: Message = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: data.success
-          ? data.answer
-          : `Research failed: ${data.error || 'unknown error'}`,
-      };
-      appendAssistantReply(chatId, replyMsg);
-      if (data.success) sound.success(); else sound.error();
+      sound.success();
     } catch (err) {
-      const replyMsg: Message = {
+      replaceAssistantReply(chatId, thinkingMsg.id, {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
-        content: `Research error: ${err instanceof Error ? err.message : String(err)}`,
-      };
-      appendAssistantReply(chatId, replyMsg);
+        content: `Chat failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      sound.error();
+    }
+  };
+
+  /** Inject a prompt and run it through the Eclipse Agent (the harness) so the
+   *  answer is grounded in JDdS tools — never a canned fabricated reply. */
+  const runAgentPrompt = async (chatId: string, userText: string) => {
+    const thinkingMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: 'Eclipse Agent is working…',
+    };
+    appendAssistantReply(chatId, thinkingMsg);
+    sound.tick();
+
+    const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [];
+    const history = existing
+      .filter((m) => m.id !== thinkingMsg.id)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    try {
+      const reply = await getAgentProvider().chat([...history, { role: 'user', content: userText }]);
+      replaceAssistantReply(chatId, thinkingMsg.id, {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: reply,
+      });
+      sound.success();
+    } catch (err) {
+      replaceAssistantReply(chatId, thinkingMsg.id, {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
+      });
       sound.error();
     }
   };
@@ -474,7 +527,7 @@ function StockChatContent() {
       };
       appendAssistantReply(chatId, ctxMsg);
     }
-    void runResearchPrompt(chatId, customContext ? `${customPrompt}\n\nContext data: ${customContext}` : customPrompt);
+    void runAgentPrompt(chatId, customContext ? `${customPrompt}\n\nContext data: ${customContext}` : customPrompt);
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -485,7 +538,7 @@ function StockChatContent() {
 
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: prompt };
     const chatId = addMessageToActiveChat(userMsg);
-    void runResearchPrompt(chatId, prompt);
+    void runAgentPrompt(chatId, prompt);
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -579,7 +632,7 @@ function StockChatContent() {
 
           {visited.has('chat') && (
             <div ref={chatRootRef} data-keyboard-scope="Chat" className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
-              <div className="w-full h-full flex flex-col items-center justify-between p-4 md:p-6 relative min-w-0">
+              <div className="w-full h-full flex flex-col items-center justify-between py-4 md:py-6 relative min-w-0">
                 {messages.length === 0 ? (
                   <EmptyState
                     query={query}
@@ -590,7 +643,7 @@ function StockChatContent() {
                 ) : (
                   <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
                     <ChatHistory messages={messages} />
-                    <div className="w-full max-w-4xl relative group mt-auto shrink-0 pb-2 md:pb-4">
+                    <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-2 md:pb-4">
                       <ChatInput
                         query={query}
                         setQuery={setQuery}

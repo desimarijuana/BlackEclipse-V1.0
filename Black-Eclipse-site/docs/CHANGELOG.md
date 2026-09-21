@@ -41,6 +41,114 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-21
+
+- **Chat — the chatbot is now the Eclipse Agent (routed through the harness)** —
+  The chat surfaces were calling `/api/agent/chat`, a bare completion passthrough
+  (no system prompt, no tools), so replies were ungrounded and the Eclipse Agent
+  was never used. Both chat surfaces (`stock-chat.tsx`, `chat-dock.tsx`) and the
+  provider registry now route through the harness via a new `POST
+  /api/harness/chat`, which runs the Eclipse Agent (prompt + JDdS tools + a
+  persisted run) and returns its final text. The research-intent classifier and
+  the separate `/api/agent/research` chat branch were removed for chat — the
+  agent selects its own tools. Added multi-turn context: `RunInput.history`
+  (TS + Python), bounded to 20 turns / 40k chars, threaded into the LangGraph
+  message list; `chatWithAgent()` on the front door; a chat-appropriate rate
+  limit (60/5min vs the run limit). Verified: "AAPL price" returned real JDdS
+  data with provenance ($338.96, source JDdS/yfinance) via `get_market_snapshot`,
+  and a follow-up recalled the prior turn. `tsc`, lint, 1426 TS + 38 Python
+  tests pass.
+  docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`
+
+- **ChatBot UI — wide layout, bubble-free assistant replies** — The Eclipse
+  ChatBot page was a narrow centered `max-w-4xl` column and every assistant
+  reply sat in a rounded glass bubble, unlike opencode/Hermes-style agents.
+  Removed the width caps entirely: the transcript, composer and empty-state
+  column now fill the full main-content width (only small edge padding), and in
+  the full-page layout assistant text renders full-width with no bubble
+  background/border (user messages keep their bubble). Compact ChatDock is
+  unchanged. Follow-up: the composer is narrow (`max-w-3xl`, centered) in the
+  empty state and goes full width once the conversation starts, while
+  transcripts remain full width.
+  Verified: `tsc`, 1426 TS tests, 38 pytest tests pass.
+  no doc change — UI-only change, contracts unchanged.
+
+- **Chat / Agent — fix "no LLM provider configured" for vault & local providers** —
+  The chatbox (`POST /api/agent/chat`) always returned 503 when the LLM was
+  configured through the Settings UI or was a keyless local server: both
+  `OpenAICompatibleProvider.isConfigured()` and the startup flag in
+  `instrumentation.ts` tested only `OPENAI_API_KEY`/`OLLAMA_BASE_URL`/
+  `ANTHROPIC_API_KEY` env vars, ignoring the settings vault. Added
+  `isConfiguredAsync()` (resolves the real config: vault key, env key, or a
+  local base URL) and made the chat route use it; startup now resolves the
+  actual config so the client picks the real provider instead of the mock.
+  Verified: chat returns real completions and the research path runs against
+  Ollama. No doc change — bug fix, contracts unchanged.
+
+- **Harness — Eclipse Agent prompt installed; agents made Python-authoritative** —
+  Added `python/harness/prompts.py` holding the full Eclipse Agent system prompt
+  (Black Orbit Technologies identity; agent operating models, research,
+  investment analysis, coding/financial engineering, execution discipline). The
+  default agent is now `eclipse-agent` / "Eclipse Agent". Fixed a real defect:
+  the front door previously sent its own `systemPrompt` copy, so the Python
+  prompt was dead code and the two could drift — the front door now sends only
+  `agentId`, and `resolve_agent()` in `graph.py` resolves the full `AgentConfig`
+  (prompt + allowlist + limits) from Python presets. `GET /api/harness/agents`
+  proxies the runtime; the TS side fetches + caches presets rather than defining
+  them. Verified end-to-end that an `agentId`-only run delivers the
+  23,687-character prompt to the model. `tsc`, lint, 1426 TS tests, 36 pytest
+  tests and `next build` pass.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H8), `docs/harness/phase-1-progress.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`
+
+- **Harness revised — agentic runtime moved to Python (LangChain + LangGraph)** —
+  Retired the TypeScript Phase-1 kernel (`src/lib/harness/{types,models,tools,runtime,events,persistence,agents}`)
+  and rebuilt the agentic side in `python/harness/` as a FastAPI service:
+  LangGraph `StateGraph` agent⇄tools loop, a universal model factory covering
+  native LangChain integrations (Anthropic/Gemini/Mistral/Groq) plus every
+  OpenAI-compatible endpoint (Ollama/LM Studio/OpenRouter/DeepSeek/xAI/
+  Perplexity/Together/Fireworks/custom), a pydantic-validated tool registry
+  (permission/risk/timeout/duplicate-call), JDdS-backed read-only finance tools
+  with honest UNAVAILABLE states, an event emitter + live bus, and
+  `agent-memory.db` persistence (runs, events, tool executions, agent memory,
+  skills). Next.js is now a thin front door: input validation, agent + LLM
+  config resolution from the vault, a spawn/health-check launcher, a typed
+  runtime client, and a guarded read-only JDdS **data bridge**
+  (`/api/harness/data`) that keeps exactly one market-data layer. New routes:
+  `/api/harness/{runs,runs/[id],runs/[id]/events,runs/[id]/cancel,models,agents,data}`.
+  Zero-config preserved: `postinstall` + `doctor.js` install the Python stack;
+  without it runs return 503 rather than a fake agent. `npm test` now also runs
+  the pytest suite (skips cleanly if the stack is absent). Verified end-to-end:
+  auto-spawned runtime served a 14-provider catalog, the data bridge returned
+  real AAPL JDdS data, and a run completed with a 9-event trace and a real tool
+  execution. `tsc`, lint, 1424 TS tests, 34 pytest tests and `next build` pass.
+  docs updated: `AGENTS.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md`, `docs/harness/phase-1-progress.md`,
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md`,
+  `skills/ARCHITECT.md`, `docs/CHANGELOG.md`
+
+- **Harness Phase 1 — execution kernel + separate agent-memory database** —
+  Built the agentic harness kernel in `src/lib/harness/`: provider-agnostic
+  contracts (`types/contracts.ts`), a model adapter over the existing
+  `OpenAICompatibleProvider` (no second HTTP client), a tool registry with
+  runtime input validation / permission / risk / timeout / duplicate-call
+  protection that adapts the existing agent tools, a bounded execution loop
+  (`runtime/run.ts` with max-step, run-tool timeout and one cooperative
+  cancellation path), structured `run.*`/`model.*`/`tool.*` events + a live bus,
+  and four guarded API routes under `/api/harness/`. Persistence lives in a
+  **separate** SQLite `agent-memory.db` (runs, events, tool executions,
+  `AgentMemory` for user/agent/market facts, `AgentSkill` for future
+  self-improvement) — deliberately NOT JDdS, so harness writes never touch the
+  committed market-data snapshot. Read-only only: `execute` refuses non-`read`
+  tools. Vertical slice `get_market_snapshot` reads JDdS and returns explicit
+  provenance/freshness or an `UNAVAILABLE` state. No new dependencies.
+  `tsc`, lint, 1468 tests (74 new) and `next build` all pass.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`,
+  `docs/harness/phase-1-progress.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md`, `docs/CHANGELOG.md`
+
 ## 2026-09-20
 
 - **Repo organization / module boundaries before the agentic harness** —
@@ -64,6 +172,64 @@ proves the documentation obligation was considered rather than skipped.
   1394 tests and `next build` all pass.
   docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`,
   `skills/REMEMBER.md`, `skills/ARCHITECT.md`
+- **Investor Eye / globe country hover + click, label styling, and zoom clarity** —
+  The globe is a textured sphere with no per-country geometry, so it emitted no
+  geo hover/click; the 2D map's country highlight/selection did not exist on the
+  globe. Added raycast picking (`viewGL.castRay` → globe `pointToData` → GeoJSON
+  point-in-polygon via new `countryIsoForPoint`) with a `lines3D` polyline
+  outline on hover and country selection on click. Country labels were made small
+  (9px) and light with a soft shadow instead of a hard text stroke; they had been
+  rendering invisibly because `itemStyle.opacity: 0` and `symbol: 'none'` both
+  drop the label. Globe surface/emission textures raised 2048×1024 → 4096×2048
+  (power-of-two, stroke widths scaled) to remove coastline pixelation at zoom.
+  Added a persisted `NAMES ON/OFF` toggle to the map view controls. New tests:
+  `app-geo.test.ts`, extended `map-labels.test.ts`.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/CHANGELOG.md`
+- **Investor Eye / globe now fills the map, and country names show on both
+  projections** — The globe option hard-coded `globeRadius: 86` + `distance: 200`,
+  so the sphere rendered at ~65% of the viewport regardless of size. The camera
+  distance is now derived from the live container box via `globeViewDistance()`
+  (sphere silhouette geometry: `R / (√(D²−R²)·tan(fov/2))` = target fill of the
+  shorter dimension), fed from the existing `ResizeObserver`. Country names are a
+  shared scatter/scatter3D label series at the gazetteer centroids (echarts-gl's
+  globe has no component-level labels, so `geo.label` could not work on both) —
+  `showCountryLabels` defaults true. New tests in `map-labels.test.ts`.
+  docs updated: `docs/investor-eye-architecture.md`, `docs/CHANGELOG.md`
+- **Investor Eye / single-layer API returned empty for hazard & flow layers** —
+  `GET /api/investor-eye/layers/:layer` had no `fires`, `shipping` or
+  `commodities` case, so it fell through to a false `UNAVAILABLE` ("Layer has no
+  data in this window") even though `/state` carried the events — notably the
+  FIRMS satellite fire clusters, which made it look like satellite data had
+  stopped. Wired all three builders into `buildLayer` so the endpoint matches
+  what the map already renders.
+  no doc change — bug fix, layer contract unchanged (`buildAllLayers` already
+  produced these layers).
+- **Investor Eye / portfolio sector exposure was always empty** — the panel
+  posted only `symbol/weight/country`, so `computeExposure` never saw a sector
+  and the UI permanently read "Sector data unavailable". `/api/quote` now
+  selects and returns `Asset.sector`, `QuoteRow` carries it, and
+  `portfolio-panel.tsx` attaches it to each holding. Country + sector
+  intersections now populate.
+  no doc change — additive field on an existing response; portfolio exposure
+  contract unchanged.
+- **Investor Eye / FIRMS run accounting showed negative rejects** — FIRMS ships
+  one CSV batch that `normalize` expands into up to 400 clusters, so accepted >
+  received and `recordsRejected` went negative in the Data Sources panel.
+  `runSource` now clamps rejected at zero.
+  no doc change — observability bug fix, no contract change.
+- **Settings / FIRMS and USGS now discoverable in the Investor Eye feature map** —
+  the "Global event map" chips listed only GDELT + RSS, so the keyless USGS and
+  NASA FIRMS event sources were not surfaced anywhere in Settings even though
+  they power hazards and satellites. Added `usgs`/`firms` (+ `gdelt`) directory
+  entries and wired them into the feature map.
+  docs updated: `docs/CHANGELOG.md`
+
+- **Customization / two new shipped themes** — Added **Bloomberg** (dense
+  amber-on-black trading terminal with blue selection, flat surfaces, compact
+  density, tight radius) and **Bubudoll** (soft candy-pink brand with a rounded
+  ambient gradient glow and high border radius) to `THEME_PRESETS`. They appear in
+  Settings › Customization › Themes and apply via the normal preset path.
+  docs updated: `docs/CHANGELOG.md`
 - **UI / color picker drag no longer stalls the app (throttled commits)** — The
   native `<input type="color">` fires `input` continuously while dragging, and
   each tick applied the whole theme (an app-wide style recalc/repaint of the

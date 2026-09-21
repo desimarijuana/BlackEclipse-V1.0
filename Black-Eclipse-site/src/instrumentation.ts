@@ -12,7 +12,26 @@ export async function register() {
       Boolean(process.env.OPENAI_API_KEY) ||
       Boolean(process.env.OLLAMA_BASE_URL) ||
       Boolean(process.env.ANTHROPIC_API_KEY);
-    process.env.NEXT_PUBLIC_LLM_CONFIGURED = llmConfigured ? "1" : "0";
+    if (llmConfigured) {
+      process.env.NEXT_PUBLIC_LLM_CONFIGURED = "1";
+    } else {
+      // No env key — but the settings vault may hold one, and a keyless local
+      // server (Ollama/LM Studio) is a valid provider. Resolve the real config
+      // so a provider configured in the UI is not hidden from the chat UI.
+      try {
+        const { getLLMConfig } = await import("@/lib/settings");
+        const { isLocalBaseUrl } = await import("@/lib/agent/presets");
+        const cfg = await getLLMConfig();
+        const usable =
+          cfg.provider !== "mock" && (Boolean(cfg.apiKey) || isLocalBaseUrl(cfg.baseUrl));
+        process.env.NEXT_PUBLIC_LLM_CONFIGURED = usable ? "1" : "0";
+        if (usable) {
+          console.log(`[startup] LLM configured (${cfg.provider}) — chat uses the real provider`);
+        }
+      } catch {
+        process.env.NEXT_PUBLIC_LLM_CONFIGURED = "0";
+      }
+    }
     // Dynamic import keeps this out of the client bundle.
     const { startScheduler, warmUpAllMarkets, startUniverseSync } = await import("@/lib/scraper/scheduler");
     const { seedUniverse } = await import("@/lib/scraper/price-scraper");

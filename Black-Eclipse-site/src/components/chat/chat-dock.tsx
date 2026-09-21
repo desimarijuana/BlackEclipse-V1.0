@@ -98,10 +98,6 @@ function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** Same intent heuristic the ChatBot tab uses, so "research X" behaves alike. */
-const isResearchQuery = (text: string) =>
-  /research|analy|report|invest|tell me about|fundamental|technical|sentiment|outlook|should i|worth|evaluate|deep dive|psx|kse/i.test(text);
-
 /** The configured provider's real label (never a fabricated model name). */
 function useProviderLabel(): string {
   return React.useMemo(() => getAgentProvider().label, []);
@@ -314,21 +310,14 @@ export function ChatDock({
 
     setBusy(true);
     try {
-      if (isResearchQuery(text)) {
-        const res = await fetch('/api/agent/research', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: text }),
-        });
-        const data = await res.json();
-        pushAssistant(data.success ? data.answer : `Research failed: ${data.error || 'unknown error'}`);
-      } else {
-        const history = messagesRef.current
-          .slice(0, -1)
-          .map(m => ({ role: m.role, content: m.content }));
-        const reply = await getAgentProvider().chat([...history, { role: 'user', content: text }]);
-        pushAssistant(reply);
-      }
+      // Everything goes through the harness so the chat IS the Eclipse Agent
+      // (system prompt + JDdS tools + persisted run). It picks its own tools,
+      // so a research-flavored ask no longer needs a separate engine.
+      const history = messagesRef.current
+        .slice(0, -1)
+        .map(m => ({ role: m.role, content: m.content }));
+      const reply = await getAgentProvider().chat([...history, { role: 'user', content: text }]);
+      pushAssistant(reply);
     } catch (err) {
       pushAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
