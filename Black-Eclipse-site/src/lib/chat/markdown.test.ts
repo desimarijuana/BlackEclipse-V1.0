@@ -62,6 +62,39 @@ describe('parseMarkdown block parsing', () => {
   it('parses horizontal rules', () => {
     expect(parseMarkdown('---')).toEqual([{ type: 'hr' }]);
   });
+
+  it('parses a pipe table with alignment and rows', () => {
+    const [table] = parseMarkdown(
+      '| Symbol | Price | Change |\n| :--- | ---: | :---: |\n| AAPL | 338 | +1.2% |\n| MSFT | 412 | -0.4% |',
+    );
+    expect(table.type).toBe('table');
+    if (table.type !== 'table') return;
+    expect(table.align).toEqual(['left', 'right', 'center']);
+    expect(table.header).toHaveLength(3);
+    expect(table.rows).toHaveLength(2);
+    expect(table.rows[0][0]).toEqual([{ type: 'text', value: 'AAPL' }]);
+  });
+
+  it('parses a table without outer pipes and inline formatting in cells', () => {
+    const [table] = parseMarkdown('Name | Qty\n--- | ---\n**Gold** | 3');
+    expect(table.type).toBe('table');
+    if (table.type !== 'table') return;
+    expect(table.rows[0][0]).toEqual([
+      { type: 'strong', children: [{ type: 'text', value: 'Gold' }] },
+    ]);
+  });
+
+  it('does not mistake a paragraph with a pipe for a table', () => {
+    const blocks = parseMarkdown('a | b');
+    expect(blocks[0].type).toBe('paragraph');
+  });
+
+  it('honours escaped pipes inside table cells', () => {
+    const [table] = parseMarkdown('| A |\n| --- |\n| x \\| y |');
+    expect(table.type).toBe('table');
+    if (table.type !== 'table') return;
+    expect(table.rows[0][0]).toEqual([{ type: 'text', value: 'x | y' }]);
+  });
 });
 
 describe('parseInline', () => {

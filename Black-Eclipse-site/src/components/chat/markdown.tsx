@@ -115,6 +115,47 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
     case 'hr':
       return <hr className="border-white/10 dark:border-white/5" />;
 
+    case 'table':
+      return (
+        <div className="glass-card-subtle my-1 w-full overflow-hidden rounded-2xl border border-white/10 dark:border-white/5">
+          <div className="w-full overflow-x-auto scrollbar-hide">
+            <table className="w-full border-collapse text-left text-[0.92em]">
+              <thead>
+                <tr className="bg-white/[0.04]">
+                  {block.header.map((cell, ci) => (
+                    <th
+                      key={ci}
+                      className="whitespace-nowrap border-b border-white/10 px-3.5 py-2.5 text-[0.72em] font-semibold uppercase tracking-wider text-muted-foreground dark:border-white/10"
+                      style={{ textAlign: block.align[ci] ?? undefined }}
+                    >
+                      {renderInline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row, ri) => (
+                  <tr
+                    key={ri}
+                    className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
+                  >
+                    {row.map((cell, ci) => (
+                      <td
+                        key={ci}
+                        className="whitespace-nowrap px-3.5 py-2.5 align-top text-foreground/90"
+                        style={{ textAlign: block.align[ci] ?? undefined }}
+                      >
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+
     case 'list': {
       const List = block.ordered ? 'ol' : 'ul';
       return (

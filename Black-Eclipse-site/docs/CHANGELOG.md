@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — GFM pipe tables now render, with a designed table surface** —
+  Markdown tables were explicitly out of scope in the parser, so agent answers
+  containing `| col | col |` rows showed as raw text. Added a GFM pipe-table
+  branch to `src/lib/chat/markdown.ts` (header + `---|:---:` delimiter row,
+  per-column left/center/right alignment, escaped `\|` support, inline
+  formatting inside cells, and rows that stop at the first non-pipe line), 4
+  new unit tests, and a styled renderer in `components/chat/markdown.tsx`
+  (glass-card-subtle rounded container, uppercase muted header, row dividers,
+  row hover, horizontal scroll for wide tables). Verified: `tsc`, eslint,
+  1446 TS + 45 Python tests pass.
+  no doc change — rendering change, contracts unchanged.
+
 - **Chat — composer scrollbar restyled and shown only when needed** — The
   auto-growing composer revealed the global 6px thumb full-height against the
   text and action buttons as soon as content overflowed. Gave the composer its

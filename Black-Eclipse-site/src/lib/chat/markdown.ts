@@ -11,7 +11,7 @@
 // unclosed fence or trailing `**` is just text). Supported: headings (ATX),
 // fenced + indented code, blockquotes, ordered/unordered lists, horizontal
 // rules, paragraphs, and inline bold / italic / strikethrough / inline code /
-// links. Tables are intentionally out of scope.
+// links, plus GFM pipe tables (with alignment).
 
 export type InlineNode =
   | { type: 'text'; value: string }
@@ -21,12 +21,15 @@ export type InlineNode =
   | { type: 'code'; value: string }
   | { type: 'link'; href: string; children: InlineNode[] };
 
+export type TableAlign = 'left' | 'center' | 'right' | null;
+
 export type BlockNode =
   | { type: 'paragraph'; children: InlineNode[] }
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; children: InlineNode[] }
   | { type: 'code'; language: string | null; value: string }
   | { type: 'blockquote'; children: BlockNode[] }
   | { type: 'list'; ordered: boolean; items: InlineNode[][] }
+  | { type: 'table'; align: TableAlign[]; header: InlineNode[][]; rows: InlineNode[][][] }
   | { type: 'hr' };
 
 type InlineMatch =
@@ -43,6 +46,45 @@ const HR_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const UL_RE = /^ {0,3}[-*+][ \t]+(.*)$/;
 const OL_RE = /^ {0,3}\d{1,9}[.)][ \t]+(.*)$/;
 const BLOCKQUOTE_RE = /^ {0,3}>[ \t]?(.*)$/;
+const TABLE_DELIM_CELL_RE = /^:?-{1,}:?$/;
+
+function isTableDelimiterRow(line: string): boolean {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => TABLE_DELIM_CELL_RE.test(cell));
+}
+
+// Splits a pipe-table row, honouring `\|` escapes. Leading/trailing empty cells
+// from the boundary pipes are dropped; the `|---|---|` form relies on that.
+function splitTableRow(line: string): string[] {
+  let trimmed = line.trim();
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith('|') && !trimmed.endsWith('\\|')) trimmed = trimmed.slice(0, -1);
+
+  const cells: string[] = [];
+  let current = '';
+  for (let i = 0; i < trimmed.length; i += 1) {
+    if (trimmed[i] === '\\' && trimmed[i + 1] === '|') {
+      current += '|';
+      i += 1;
+    } else if (trimmed[i] === '|') {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += trimmed[i];
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function tableAlign(cell: string): TableAlign {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return null;
+}
 
 // Finds the closing delimiter of an inline span starting at `open`, skipping
 // backtick runs so `**a `code` b**` nests correctly. Returns -1 when
@@ -252,6 +294,20 @@ export function parseMarkdown(src: string): BlockNode[] {
       continue;
     }
 
+    // GFM pipe table: a header row followed by a `---|:---:` delimiter row.
+    if (line.includes('|') && i + 1 < lines.length && isTableDelimiterRow(lines[i + 1])) {
+      const align = splitTableRow(lines[i + 1]).map(tableAlign);
+      const header = splitTableRow(line).map(parseInline);
+      const rows: InlineNode[][][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+        rows.push(splitTableRow(lines[i]).map(parseInline));
+        i += 1;
+      }
+      blocks.push({ type: 'table', align, header, rows });
+      continue;
+    }
+
     const isUl = UL_RE.test(line);
     const isOl = OL_RE.test(line);
     if (isUl || isOl) {
@@ -294,3 +350,5 @@ export function isBlockStart(line: string): boolean {
     OL_RE.test(line)
   );
 }
+
+export { splitTableRow };
