@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
+import { Markdown } from './markdown';
 
 interface ChatHistoryProps {
   messages: Message[];
   /**
-   * `false` (default) is the full-page ChatBot layout (centered 4xl column).
+   * `false` (default) is the full-page ChatBot layout (centered wide column,
+   * user bubbles only — assistant text renders wide like a code agent).
    * `true` fills a narrow container (e.g. the floating ChatDock) edge-to-edge.
    */
   compact?: boolean;
@@ -22,7 +24,7 @@ export function ChatHistory({ messages, compact = false }: ChatHistoryProps) {
   return (
     <div className={cn(
       'flex-1 w-full overflow-y-auto scrollbar-hide min-h-0',
-      compact ? 'space-y-3 p-3' : 'max-w-4xl pr-2 space-y-6 pb-6',
+      compact ? 'space-y-3 p-3' : 'px-4 md:px-6 space-y-6 pb-6',
     )}>
       <div className={compact ? 'space-y-3' : 'space-y-6'}>
         {messages.map((msg) => (
@@ -35,17 +37,18 @@ export function ChatHistory({ messages, compact = false }: ChatHistoryProps) {
                 <Sparkles size={14} />
               </div>
             )}
-            <div className={cn(
-              'leading-relaxed break-words whitespace-pre-wrap',
-              compact
-                ? 'px-3 py-2 max-w-[90%] text-[13px] rounded-2xl'
-                : 'px-4 py-3 md:px-5 md:py-3.5 max-w-[92%] sm:max-w-[85%] text-[14px] md:text-[15px] rounded-[1.5rem] md:rounded-[2rem]',
-              msg.role === 'user'
-                ? 'bg-card text-foreground border border-border'
-                : 'text-foreground glass-card border border-white/10 dark:border-white/5 shadow-lg shadow-black/10'
-            )}>
-              {msg.content}
-            </div>
+            {msg.role === 'assistant' ? (
+              <Markdown content={msg.content} compact={compact} className="w-full" />
+            ) : (
+              <div className={cn(
+                'leading-relaxed break-words whitespace-pre-wrap bg-card text-foreground border border-border',
+                compact
+                  ? 'px-3 py-2 max-w-[90%] text-[13px] rounded-2xl'
+                  : 'px-4 py-3 md:px-5 md:py-3.5 max-w-[92%] sm:max-w-[85%] text-[14px] md:text-[15px] rounded-[1.5rem] md:rounded-[2rem]',
+              )}>
+                {msg.content}
+              </div>
+            )}
           </div>
         ))}
         <div ref={bottomRef} />

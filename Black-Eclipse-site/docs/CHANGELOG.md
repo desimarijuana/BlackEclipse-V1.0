@@ -43,6 +43,20 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — assistant replies render Markdown instead of raw text** — The
+  transcript printed `msg.content` verbatim (`whitespace-pre-wrap`), so the
+  model's `**bold**`, `### headings`, lists and fenced code appeared literally;
+  no Markdown renderer existed anywhere in the app. Added a dependency-free
+  subset parser (`src/lib/chat/markdown.ts`, pure + unit-tested) and a view
+  layer (`src/components/chat/markdown.tsx`) wired only for assistant messages
+  in `chat-history.tsx` (user text stays raw). Handles headings, fenced /
+  indented code, blockquotes, ordered/unordered lists, `hr`, links, and inline
+  bold/italic/strikethrough/code. Degrades gracefully on partial streaming
+  input (unclosed fences/markers stay text). Styled with the frosted-glass
+  system, no new dependencies. Verified: `tsc`, eslint, 1442 TS + 45 Python
+  tests pass.
+  no doc change — UI/rendering change, no contract or architecture change.
+
 - **Chat — the chatbot is now the Eclipse Agent (routed through the harness)** —
   The chat surfaces were calling `/api/agent/chat`, a bare completion passthrough
   (no system prompt, no tools), so replies were ungrounded and the Eclipse Agent
