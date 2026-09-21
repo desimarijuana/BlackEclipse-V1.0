@@ -10,6 +10,10 @@ export type {
   HarnessEvent,
   HarnessErrorJson,
   DataCapability,
+  UsageSummary,
+  UsageDay,
+  UsageModel,
+  UsageRecentRun,
 } from "./types";
 export { HarnessError, toHarnessErrorJson, redactSecrets } from "./errors";
 export type { HarnessErrorCode } from "./errors";
@@ -27,6 +31,7 @@ export {
   runViaRuntime,
   getRunFromRuntime,
   listRunsFromRuntime,
+  getUsageSummaryFromRuntime,
   getEventsFromRuntime,
   cancelRunInRuntime,
   HarnessRuntimeUnavailable,

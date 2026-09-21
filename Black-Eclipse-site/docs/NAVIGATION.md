@@ -59,6 +59,7 @@ Black-Eclipse-site/
 | Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
+| Work on token usage / analytics | capture in `python/harness/graph.py` (`_extract_usage`), columns + `usage_summary()` in `python/harness/persistence.py`, `GET /usage` in `main.py`; proxy `src/app/api/harness/usage/route.ts` + `getUsageSummaryFromRuntime`; UI `src/components/screens/analytics-settings.tsx` (Settings › Analytics) |
 | Give a Python tool JDdS data | `src/lib/harness/data-bridge.ts` (capability) + `DataCapability` in `src/lib/harness/types.ts`; the Python tool calls `ctx.data_bridge.fetch(...)` |
 | Change harness persistence / the agent-memory DB | `python/harness/persistence.py` — separate `agent-memory.db`, NOT `prisma/schema.prisma` |
 | Install / repair the Python runtime | `python/requirements.txt`, `scripts/setup-python.js` (`npm run setup:python`), `scripts/doctor.js`, `scripts/test-python.js` |
@@ -158,7 +159,9 @@ Black-Eclipse-site/
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`,`test`) ·
 `journal/*` · `alerts/*` · `scraper`(+`import`) · `refresh` · `settings` ·
 `cron`(+`run`,`refresh-news`) · `data-sources`(+`test`) · `datasets` ·
-`data/[capability]` · `providers` · `provider-keys` · `fundamentals` · `investor-eye/*` (state, events, countries,
+`data/[capability]` · `providers` · `provider-keys` · `fundamentals` ·
+`harness/*` (runs, chat, models, agents, data, usage) ·
+`investor-eye/*` (state, events, countries,
 markets, layers, economy, companies, portfolio, risk, analogues, query, graph,
 health).
 
@@ -187,6 +190,7 @@ health).
 | Harness tool contract | `python/harness/tools.py` (`ToolDefinition`, `ToolRegistry`) |
 | Harness model-provider contract | `python/harness/models.py` (`ProviderSpec`, `PROVIDER_CATALOG`) |
 | Harness run persistence | `python/harness/persistence.py` (`agent-memory.db`) |
+| Harness usage analytics | `src/lib/harness/types.ts` (`UsageSummary`), route `src/app/api/harness/usage/route.ts` |
 | Mutation guard | `src/lib/api-guard.ts` |
 | Tab ids | `AppTab` in `src/components/layout/sidebar.tsx` |
 

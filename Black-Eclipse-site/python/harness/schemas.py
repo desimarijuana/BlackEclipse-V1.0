@@ -113,6 +113,9 @@ class RunResult(BaseModel):
     modelSteps: int = 0  # noqa: N815
     toolCalls: int = 0  # noqa: N815
     toolErrors: int = 0  # noqa: N815
+    promptTokens: int = 0  # noqa: N815
+    completionTokens: int = 0  # noqa: N815
+    totalTokens: int = 0  # noqa: N815
 
 
 EventLiteral = Literal[

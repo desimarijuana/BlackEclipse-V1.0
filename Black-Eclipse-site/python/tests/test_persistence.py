@@ -28,12 +28,93 @@ def test_run_round_trip_and_update(store):
     run = store.get_run("run_1")
     assert run["status"] == "created"
     assert run["input"]["query"] == "hi"
+    assert run["totalTokens"] == 0
 
-    store.update_run("run_1", status="completed", output="done", modelSteps=2)
+    store.update_run(
+        "run_1",
+        status="completed",
+        output="done",
+        modelSteps=2,
+        promptTokens=100,
+        completionTokens=25,
+        totalTokens=125,
+    )
     run = store.get_run("run_1")
     assert run["status"] == "completed"
     assert run["output"] == "done"
     assert run["modelSteps"] == 2
+    assert run["promptTokens"] == 100
+    assert run["completionTokens"] == 25
+    assert run["totalTokens"] == 125
+
+
+def test_usage_summary_aggregates_by_model_and_day(store):
+    for run_id, model, prompt, completion in (
+        ("r1", "gpt-4o-mini", 100, 20),
+        ("r2", "gpt-4o-mini", 50, 10),
+        ("r3", "claude-3-5", 80, 40),
+    ):
+        store.create_run(run_id, "eclipse-agent", {"query": "x"}, provider="openai", model=model)
+        store.update_run(
+            run_id,
+            status="completed",
+            promptTokens=prompt,
+            completionTokens=completion,
+            totalTokens=prompt + completion,
+        )
+    summary = store.usage_summary(days=30)
+    assert summary["totals"]["runs"] == 3
+    assert summary["totals"]["promptTokens"] == 230
+    assert summary["totals"]["completionTokens"] == 70
+    assert summary["totals"]["totalTokens"] == 300
+    assert summary["totals"]["runsWithUsage"] == 3
+    assert summary["totals"]["completed"] == 3
+    by_model = {row["model"]: row for row in summary["byModel"]}
+    assert by_model["gpt-4o-mini"]["totalTokens"] == 180
+    assert by_model["claude-3-5"]["totalTokens"] == 120
+    assert sum(day["totalTokens"] for day in summary["byDay"]) == 300
+    assert len(summary["recent"]) == 3
+
+
+def test_usage_summary_counts_runs_without_reported_tokens(store):
+    store.create_run("no_usage", "eclipse-agent", {"query": "x"}, provider="ollama", model="llama3.1")
+    store.update_run("no_usage", status="completed")
+    summary = store.usage_summary(days=30)
+    assert summary["totals"]["runs"] == 1
+    assert summary["totals"]["totalTokens"] == 0
+    assert summary["totals"]["runsWithUsage"] == 0
+
+
+def test_migration_adds_token_columns_to_legacy_db(tmp_path):
+    # An old agent-memory.db has no token columns; opening it must not fail and
+    # must add the columns rather than silently losing usage on upgrade.
+    import sqlite3
+
+    legacy = tmp_path / "legacy.db"
+    db = sqlite3.connect(legacy)
+    db.executescript(
+        """CREATE TABLE HarnessRun (
+             id TEXT PRIMARY KEY, agentId TEXT NOT NULL, userId TEXT, status TEXT NOT NULL,
+             input TEXT NOT NULL, output TEXT, error TEXT,
+             modelSteps INTEGER NOT NULL DEFAULT 0, toolCalls INTEGER NOT NULL DEFAULT 0,
+             toolErrors INTEGER NOT NULL DEFAULT 0, provider TEXT, model TEXT,
+             createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, startedAt TEXT, finishedAt TEXT);"""
+    )
+    db.execute(
+        "INSERT INTO HarnessRun (id, agentId, status, input, createdAt, updatedAt) VALUES ('old','a','created','{}','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')"
+    )
+    db.commit()
+    db.close()
+
+    s = AgentMemoryStore(str(legacy))
+    try:
+        run = s.get_run("old")
+        assert run is not None
+        assert run["totalTokens"] == 0
+        s.update_run("old", totalTokens=42)
+        assert s.get_run("old")["totalTokens"] == 42
+    finally:
+        s.close()
 
 
 def test_events_are_ordered_by_sequence(store):

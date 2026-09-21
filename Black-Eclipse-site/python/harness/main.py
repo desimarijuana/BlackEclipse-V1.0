@@ -9,6 +9,7 @@ Endpoints (called by the thin TS front door):
     GET  /runs                   — list runs
     GET  /runs/{id}              — one run
     GET  /runs/{id}/events       — persisted trace
+    GET  /usage                  — token-consumption analytics
 
 The service never trusts the caller: pydantic validates every body.
 """
@@ -91,6 +92,17 @@ def get_run(run_id: str) -> dict[str, Any]:
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"success": True, "run": run}
+
+
+@app.get("/usage")
+def usage(days: int = 30) -> dict[str, Any]:
+    """Token-consumption analytics over the agent-memory database.
+
+    `byDay`/`byModel`/`recent` rows may total 0 when a provider omitted usage;
+    `totals.runsWithUsage` says how many runs actually reported tokens, so the
+    UI can be honest instead of showing a fabricated figure.
+    """
+    return {"success": True, **service.usage_summary(days)}
 
 
 @app.get("/runs/{run_id}/events")

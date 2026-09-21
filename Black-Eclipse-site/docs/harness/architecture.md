@@ -55,7 +55,7 @@ Two boundaries, both deliberate:
 | `finance_tools.py` | the financial tools (JDdS-backed, read-only, honest) |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
-| `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) |
+| `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …) |
 
@@ -104,6 +104,20 @@ read-only enforcement, cooperative cancellation, and exactly one terminal
 status. Events (`run.*`, `model.*`, `tool.*`) are emitted and persisted by the
 Python runtime.
 
+### Token accounting
+
+Every `agent` node reads the model response's token usage — LangChain's
+`usage_metadata`, or the `response_metadata["token_usage"]`/`["usage"]` block
+that OpenAI-compatible and Anthropic endpoints use — and sums
+`promptTokens`/`completionTokens`/`totalTokens` onto the run. The per-step counts
+also ride on the `model.completed` event.
+
+Providers are not uniform: a local Ollama/LM Studio server commonly omits a usage
+block. A missing block records **0**, never an estimate. `GET /usage` therefore
+exposes `totals.runsWithUsage` next to the token totals so the UI can distinguish
+"no usage reported" from "no activity" — the same honesty rule as UNAVAILABLE
+market data.
+
 ## Next.js front door (`src/lib/harness/`)
 
 | Module | Role |
@@ -125,7 +139,10 @@ There is **no** run loop, tool registry or model adapter on the TS side.
 The Python runtime owns **`agent-memory.db`** (SQLite via stdlib `sqlite3`),
 distinct from JDdS (`jdds.db`). Tables: `HarnessRun`, `HarnessEvent`,
 `HarnessToolExecution`, `AgentMemory` (user/agent/market facts), `AgentSkill`
-(self-improvement). DDL is idempotent on first use — no migration step.
+(self-improvement). DDL is idempotent, and `_migrate()` adds post-release columns
+(e.g. the token columns) to an existing database on open — no manual migration
+step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
+`usage_summary()` aggregates them for analytics (`GET /usage`).
 
 ## Setup / operations
 

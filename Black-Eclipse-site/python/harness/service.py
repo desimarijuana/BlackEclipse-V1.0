@@ -90,6 +90,9 @@ class AgenticService:
     def list_tool_executions(self, run_id: str) -> list[dict[str, Any]]:
         return self.store.list_tool_executions(run_id)
 
+    def usage_summary(self, days: int = 30) -> dict[str, Any]:
+        return self.store.usage_summary(days)
+
     def remember(self, **kwargs: Any) -> dict[str, Any]:
         return self.store.remember(**kwargs)
 

@@ -46,12 +46,37 @@ class GraphState(TypedDict, total=False):
     step: int
     tool_calls: int
     tool_errors: int
+    prompt_tokens: int
+    completion_tokens: int
     final: Optional[str]
     error: Optional[dict[str, Any]]
 
 
 def _stable_key(name: str, args: dict[str, Any]) -> str:
     return f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+
+
+def _extract_usage(message: Any) -> tuple[int, int]:
+    """Best-effort (prompt, completion) token counts from a LangChain message.
+
+    Providers expose usage differently: `usage_metadata` is the LangChain
+    standard; OpenAI-compatible endpoints (incl. Ollama) put it in
+    `response_metadata["token_usage"]`; Anthropic uses `response_metadata["usage"]`.
+    A missing block yields (0, 0) — the run honestly reports "usage not
+    reported" rather than inventing a count.
+    """
+    prompt = completion = 0
+    usage = getattr(message, "usage_metadata", None)
+    if isinstance(usage, dict):
+        prompt = int(usage.get("input_tokens") or 0)
+        completion = int(usage.get("output_tokens") or 0)
+    meta = getattr(message, "response_metadata", None) or {}
+    if isinstance(meta, dict):
+        raw = meta.get("token_usage") or meta.get("usage") or {}
+        if isinstance(raw, dict):
+            prompt = prompt or int(raw.get("prompt_tokens") or raw.get("input_tokens") or 0)
+            completion = completion or int(raw.get("completion_tokens") or raw.get("output_tokens") or 0)
+    return prompt, completion
 
 
 def resolve_agent(request: RunRequest) -> AgentConfig:
@@ -105,16 +130,39 @@ def build_graph(
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
 
         tool_calls = getattr(response, "tool_calls", None) or []
+        step_prompt, step_completion = _extract_usage(response)
+        total_prompt = state.get("prompt_tokens", 0) + step_prompt
+        total_completion = state.get("completion_tokens", 0) + step_completion
         await emitter.emit(
             "model.completed",
-            {"step": step, "hasToolCalls": bool(tool_calls)},
+            {
+                "step": step,
+                "hasToolCalls": bool(tool_calls),
+                "promptTokens": step_prompt,
+                "completionTokens": step_completion,
+                "totalTokens": step_prompt + step_completion,
+            },
         )
-        store.update_run(request.runId, modelSteps=step)
+        store.update_run(
+            request.runId,
+            modelSteps=step,
+            promptTokens=total_prompt,
+            completionTokens=total_completion,
+            totalTokens=total_prompt + total_completion,
+        )
+
+        usage_state = {"prompt_tokens": total_prompt, "completion_tokens": total_completion}
 
         if not tool_calls:
-            return {**state, "step": step, "messages": [*state["messages"], response], "final": _text(response)}
+            return {
+                **state,
+                **usage_state,
+                "step": step,
+                "messages": [*state["messages"], response],
+                "final": _text(response),
+            }
 
-        return {**state, "step": step, "messages": [*state["messages"], response]}
+        return {**state, **usage_state, "step": step, "messages": [*state["messages"], response]}
 
     async def tools_node(state: GraphState) -> GraphState:
         last = state["messages"][-1]
@@ -250,7 +298,15 @@ async def execute_run(
     try:
         app = build_graph(request, registry, data_bridge, store, emitter, bus, cancel_event)
         final_state = await app.ainvoke(
-            {"messages": messages, "step": 0, "tool_calls": 0, "tool_errors": 0, "final": None},
+            {
+                "messages": messages,
+                "step": 0,
+                "tool_calls": 0,
+                "tool_errors": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "final": None,
+            },
         )
     except asyncio.CancelledError:
         store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
@@ -314,6 +370,9 @@ def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[d
         modelSteps=run.get("modelSteps", 0),
         toolCalls=run.get("toolCalls", 0),
         toolErrors=run.get("toolErrors", 0),
+        promptTokens=run.get("promptTokens", 0),
+        completionTokens=run.get("completionTokens", 0),
+        totalTokens=run.get("totalTokens", 0),
     )
 
 

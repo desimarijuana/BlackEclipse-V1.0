@@ -11,6 +11,7 @@ idempotent DDL is applied on first use. The schema mirrors the TS
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import sqlite3
@@ -34,6 +35,9 @@ CREATE TABLE IF NOT EXISTS HarnessRun (
   modelSteps  INTEGER NOT NULL DEFAULT 0,
   toolCalls   INTEGER NOT NULL DEFAULT 0,
   toolErrors  INTEGER NOT NULL DEFAULT 0,
+  promptTokens     INTEGER NOT NULL DEFAULT 0,
+  completionTokens INTEGER NOT NULL DEFAULT 0,
+  totalTokens      INTEGER NOT NULL DEFAULT 0,
   provider    TEXT,
   model       TEXT,
   createdAt   TEXT NOT NULL,
@@ -115,11 +119,30 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4()}"
 
 
+def _iso_days_ago(days: int) -> str:
+    """UTC ISO timestamp `days` ago, matching the `now_iso` format so string
+    comparison against `createdAt` is chronological."""
+    then = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+    return then.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+
+
 def default_db_path() -> str:
     override = os.environ.get("AGENT_MEMORY_DB_PATH")
     if override:
         return os.path.abspath(override)
     return os.path.join(os.getcwd(), DB_FILENAME)
+
+
+# Columns added after the first release. `CREATE TABLE IF NOT EXISTS` does not
+# alter an existing table, so an older `agent-memory.db` needs an explicit
+# idempotent ADD COLUMN — otherwise upgrades would silently lose token data.
+_ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "HarnessRun": [
+        ("promptTokens", "INTEGER NOT NULL DEFAULT 0"),
+        ("completionTokens", "INTEGER NOT NULL DEFAULT 0"),
+        ("totalTokens", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+}
 
 
 class AgentMemoryStore:
@@ -128,7 +151,19 @@ class AgentMemoryStore:
         self._db = sqlite3.connect(self.path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        self._migrate()
         self._db.commit()
+
+    def _migrate(self) -> None:
+        """Add any post-release columns to an existing database (idempotent)."""
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {
+                row["name"]
+                for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for name, ddl in columns:
+                if name not in existing:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     # ── Runs ────────────────────────────────────────────────────────────────
     def create_run(
@@ -153,6 +188,7 @@ class AgentMemoryStore:
     def update_run(self, run_id: str, **patch: Any) -> None:
         allowed = {
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
+            "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt",
         }
         sets, params = [], []
@@ -179,6 +215,102 @@ class AgentMemoryStore:
             "SELECT * FROM HarnessRun ORDER BY createdAt DESC LIMIT ?", (limit,)
         ).fetchall()
         return [_run_row(r) for r in rows]
+
+    # ── Usage analytics ─────────────────────────────────────────────────────
+    # Token consumption is real, persisted data. `totalTokens` can legitimately
+    # be 0 when a provider (e.g. a local Ollama server) omits a usage block — the
+    # UI must render that honestly as "not reported", never as a fabricated
+    # number. Hence `runsWithUsage` alongside the totals.
+    def usage_summary(self, days: int = 30) -> dict[str, Any]:
+        days = max(1, min(int(days), 365))
+        since = _iso_days_ago(days)
+
+        totals = self._db.execute(
+            """SELECT
+                 COUNT(*)                        AS runs,
+                 COALESCE(SUM(promptTokens), 0)     AS promptTokens,
+                 COALESCE(SUM(completionTokens), 0) AS completionTokens,
+                 COALESCE(SUM(totalTokens), 0)      AS totalTokens,
+                 COALESCE(SUM(modelSteps), 0)       AS modelSteps,
+                 COALESCE(SUM(toolCalls), 0)        AS toolCalls,
+                 COALESCE(SUM(toolErrors), 0)       AS toolErrors,
+                 COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0)    AS failed,
+                 COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled,
+                 COALESCE(SUM(CASE WHEN totalTokens > 0 THEN 1 ELSE 0 END), 0)      AS runsWithUsage
+               FROM HarnessRun WHERE createdAt >= ?""",
+            (since,),
+        ).fetchone()
+
+        by_model = self._db.execute(
+            """SELECT COALESCE(provider, 'unknown') AS provider,
+                      COALESCE(model, 'unknown')    AS model,
+                      COUNT(*)                      AS runs,
+                      COALESCE(SUM(promptTokens), 0)     AS promptTokens,
+                      COALESCE(SUM(completionTokens), 0) AS completionTokens,
+                      COALESCE(SUM(totalTokens), 0)      AS totalTokens
+               FROM HarnessRun WHERE createdAt >= ?
+               GROUP BY provider, model
+               ORDER BY totalTokens DESC, runs DESC""",
+            (since,),
+        ).fetchall()
+
+        by_day = self._db.execute(
+            """SELECT substr(createdAt, 1, 10) AS date,
+                      COUNT(*)                 AS runs,
+                      COALESCE(SUM(promptTokens), 0)     AS promptTokens,
+                      COALESCE(SUM(completionTokens), 0) AS completionTokens,
+                      COALESCE(SUM(totalTokens), 0)      AS totalTokens
+               FROM HarnessRun WHERE createdAt >= ?
+               GROUP BY date ORDER BY date ASC""",
+            (since,),
+        ).fetchall()
+
+        recent = self._db.execute(
+            """SELECT id, agentId, status, provider, model, modelSteps, toolCalls,
+                      toolErrors, promptTokens, completionTokens, totalTokens, createdAt
+               FROM HarnessRun ORDER BY createdAt DESC LIMIT 20"""
+        ).fetchall()
+
+        return {
+            "windowDays": days,
+            "since": since,
+            "totals": {
+                "runs": totals["runs"],
+                "promptTokens": totals["promptTokens"],
+                "completionTokens": totals["completionTokens"],
+                "totalTokens": totals["totalTokens"],
+                "modelSteps": totals["modelSteps"],
+                "toolCalls": totals["toolCalls"],
+                "toolErrors": totals["toolErrors"],
+                "completed": totals["completed"],
+                "failed": totals["failed"],
+                "cancelled": totals["cancelled"],
+                "runsWithUsage": totals["runsWithUsage"],
+            },
+            "byModel": [
+                {
+                    "provider": r["provider"],
+                    "model": r["model"],
+                    "runs": r["runs"],
+                    "promptTokens": r["promptTokens"],
+                    "completionTokens": r["completionTokens"],
+                    "totalTokens": r["totalTokens"],
+                }
+                for r in by_model
+            ],
+            "byDay": [
+                {
+                    "date": r["date"],
+                    "runs": r["runs"],
+                    "promptTokens": r["promptTokens"],
+                    "completionTokens": r["completionTokens"],
+                    "totalTokens": r["totalTokens"],
+                }
+                for r in by_day
+            ],
+            "recent": [dict(r) for r in recent],
+        }
 
     # ── Events ──────────────────────────────────────────────────────────────
     def append_event(self, run_id: str, event_type: str, seq: int, data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -378,6 +510,9 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "modelSteps": row["modelSteps"],
         "toolCalls": row["toolCalls"],
         "toolErrors": row["toolErrors"],
+        "promptTokens": row["promptTokens"],
+        "completionTokens": row["completionTokens"],
+        "totalTokens": row["totalTokens"],
         "provider": row["provider"],
         "model": row["model"],
         "createdAt": row["createdAt"],

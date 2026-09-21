@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Agent / Analytics — token-consumption tracking + a Settings › Analytics page** —
+  The harness discarded every LLM `usage` block, so token consumption was
+  invisible. The Python runtime now reads usage per model call (`usage_metadata`,
+  falling back to the OpenAI/Anthropic `response_metadata` blocks), sums
+  `promptTokens`/`completionTokens`/`totalTokens` onto `HarnessRun` (new columns,
+  added by an idempotent `_migrate()` on an existing DB), emits them on
+  `model.completed`, and exposes `GET /usage` (totals, by-model, by-day, recent
+  runs). A provider that omits usage records 0 and is counted in
+  `totals.runsWithUsage` — never estimated (honesty rule). New Next.js proxy
+  `/api/harness/usage` + `getUsageSummaryFromRuntime`, and a new Settings ›
+  Analytics section (`analytics-settings.tsx`) showing windowed totals, a daily
+  bar chart, per-model breakdown, and recent runs, with an explicit note when
+  some runs did not report usage.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/NAVIGATION.md`
+
 - **Chat — assistant replies render Markdown instead of raw text** — The
   transcript printed `msg.content` verbatim (`whitespace-pre-wrap`), so the
   model's `**bold**`, `### headings`, lists and fenced code appeared literally;

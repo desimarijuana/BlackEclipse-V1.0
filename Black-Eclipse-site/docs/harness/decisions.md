@@ -108,6 +108,23 @@ briefly and validates ids against them. Sending a full `agent` object is still
 accepted as an explicit override for bespoke callers, but the normal path is an
 id.
 
+## ADR-H9 — Token usage is captured honestly, never estimated
+
+**Decision.** The runtime reads each model response's token usage and persists
+`promptTokens`/`completionTokens`/`totalTokens` on the run. When a provider omits
+a usage block, the run records 0 and reports itself as not having usage
+(`totals.runsWithUsage`), rather than estimating from text length.
+
+**Why.** Token consumption is a financial fact for an operator paying per token,
+and providers are not uniform — local Ollama/LM Studio commonly omit usage. The
+same rule that makes market data honest (UNAVAILABLE over a fake number) applies
+here: an estimate presented as a measurement is a lie.
+
+**Consequences.** Analytics (`GET /usage`, Settings › Analytics) can show totals
+and simultaneously state how many runs did not report usage. Adding a provider
+requires no change — `_extract_usage` reads the standard LangChain
+`usage_metadata` first, then the OpenAI/Anthropic metadata blocks.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

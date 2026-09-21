@@ -36,6 +36,10 @@ export interface RunResult {
   modelSteps: number;
   toolCalls: number;
   toolErrors: number;
+  /** LLM token counts reported by the provider; 0 when it omitted usage. */
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export interface RunRecord {
@@ -49,12 +53,77 @@ export interface RunRecord {
   modelSteps: number;
   toolCalls: number;
   toolErrors: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
   provider: string | null;
   model: string | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+/** One day of token consumption (the analytics chart series). */
+export interface UsageDay {
+  date: string;
+  runs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/** Token consumption grouped by the provider/model that served the runs. */
+export interface UsageModel {
+  provider: string;
+  model: string;
+  runs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface UsageRecentRun {
+  id: string;
+  agentId: string;
+  status: RunStatus;
+  provider: string | null;
+  model: string | null;
+  modelSteps: number;
+  toolCalls: number;
+  toolErrors: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  createdAt: string;
+}
+
+/**
+ * Token-consumption analytics from the runtime's `agent-memory.db`.
+ *
+ * `runsWithUsage` is the honesty signal: providers that omit a usage block
+ * (e.g. a local Ollama server) contribute 0 tokens while still counting as a
+ * run, so the UI can distinguish "no usage reported" from "no activity".
+ */
+export interface UsageSummary {
+  windowDays: number;
+  since: string;
+  totals: {
+    runs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    modelSteps: number;
+    toolCalls: number;
+    toolErrors: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    runsWithUsage: number;
+  };
+  byModel: UsageModel[];
+  byDay: UsageDay[];
+  recent: UsageRecentRun[];
 }
 
 export interface HarnessEvent {

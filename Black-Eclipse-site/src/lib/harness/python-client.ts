@@ -3,7 +3,7 @@
 // talks to the runtime; it adds no agentic logic of its own.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
-import type { HarnessErrorJson, HarnessEvent, RunRecord, RunResult } from "./types";
+import type { HarnessErrorJson, HarnessEvent, RunRecord, RunResult, UsageSummary } from "./types";
 import { redactSecrets } from "./errors";
 
 export class HarnessRuntimeUnavailable extends Error {
@@ -99,6 +99,10 @@ export async function getRunFromRuntime(runId: string): Promise<RunRecord | null
 export async function listRunsFromRuntime(limit = 50): Promise<RunRecord[]> {
   const body = await request<{ runs: RunRecord[] }>(`/runs?limit=${limit}`, { method: "GET" });
   return body.runs ?? [];
+}
+
+export async function getUsageSummaryFromRuntime(days = 30): Promise<UsageSummary> {
+  return request<UsageSummary>(`/usage?days=${days}`, { method: "GET" });
 }
 
 export async function getEventsFromRuntime(

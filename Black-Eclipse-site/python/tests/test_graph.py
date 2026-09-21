@@ -37,6 +37,16 @@ class ScriptedModel:
         return self._responses.pop(0)
 
 
+def _usage(message: AIMessage, prompt: int, completion: int) -> AIMessage:
+    """Attach a usage_metadata block the way LangChain providers do."""
+    message.usage_metadata = {
+        "input_tokens": prompt,
+        "output_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+    return message
+
+
 class FakeBridge(DataBridge):
     def __init__(self, payload):
         self.payload = payload
@@ -177,6 +187,62 @@ async def test_completes_with_plain_answer(store, monkeypatch):
     assert result.output == "AAPL trades at 237.42."
     events = [e["type"] for e in store.list_events("run_test")]
     assert events == ["run.created", "run.started", "model.requested", "model.completed", "run.completed"]
+
+
+@pytest.mark.asyncio
+async def test_token_usage_is_captured_and_persisted(store, monkeypatch):
+    # A provider that reports usage must have its tokens summed across steps and
+    # stored on the run; a provider that omits usage must stay at 0 (honest).
+    model = ScriptedModel([_usage(AIMessage(content="AAPL is 237."), 1200, 40)])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed"
+    assert result.promptTokens == 1200
+    assert result.completionTokens == 40
+    assert result.totalTokens == 1240
+    run = store.get_run("run_test")
+    assert run["totalTokens"] == 1240
+    completed = [e["data"] for e in store.list_events("run_test") if e["type"] == "model.completed"]
+    assert completed[0]["totalTokens"] == 1240
+
+
+@pytest.mark.asyncio
+async def test_token_usage_sums_across_tool_steps(store, monkeypatch):
+    tool_call = _usage(
+        AIMessage(content="", tool_calls=[{"id": "c1", "name": "get_market_snapshot", "args": {"symbol": "AAPL"}}]),
+        500,
+        15,
+    )
+    model = ScriptedModel([tool_call, _usage(AIMessage(content="AAPL is 237."), 700, 25)])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed"
+    assert result.promptTokens == 1200
+    assert result.completionTokens == 40
+    assert store.get_run("run_test")["totalTokens"] == 1240
+
+
+@pytest.mark.asyncio
+async def test_token_usage_absent_reports_zero(store, monkeypatch):
+    model = ScriptedModel([AIMessage(content="No usage metadata here.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.totalTokens == 0
+    assert store.get_run("run_test")["totalTokens"] == 0
+
+
+def test_extract_usage_reads_openai_compatible_metadata():
+    msg = AIMessage(content="x")
+    msg.response_metadata = {"token_usage": {"prompt_tokens": 30, "completion_tokens": 7}}
+    assert graph_module._extract_usage(msg) == (30, 7)
 
 
 @pytest.mark.asyncio
