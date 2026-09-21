@@ -43,6 +43,15 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — tables made minimal, header larger, no chrome** — The table
+  rendered inside a glass container with an uppercase muted header, which read
+  as a UI card bolted into the reply. Dropped the container/fill entirely: the
+  table is now full-width and borderless except for a single hairline under a
+  larger (`1.05em`), quieter header and faint row dividers — so it reads as
+  part of the chat text. Verified: `tsc`, eslint, 1446 TS + 45 Python tests
+  pass.
+  no doc change — UI-only change, contracts unchanged.
+
 - **Chat — GFM pipe tables now render, with a designed table surface** —
   Markdown tables were explicitly out of scope in the parser, so agent answers
   containing `| col | col |` rows showed as raw text. Added a GFM pipe-table
