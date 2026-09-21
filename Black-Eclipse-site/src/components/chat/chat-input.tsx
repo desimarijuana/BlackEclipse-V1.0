@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Mic, ChevronDown, ArrowUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,6 +9,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+// Grow the composer to roughly six lines, then scroll instead of growing.
+const MAX_HEIGHT = 176;
 
 interface ChatInputProps {
   query: string;
@@ -28,28 +31,50 @@ export function ChatInput({
   showModelSelect = true 
   }: ChatInputProps) {
   const [selectedModel, setSelectedModel] = useState('Flash-Lite');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer with its content up to a cap, then scroll. A long
+  // prompt no longer stays clipped on one line.
+  const resize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
+  }, []);
+
+  useEffect(() => { resize(); }, [query, resize]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends; Shift+Enter inserts a newline. Ignore IME composition.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      onSend(e);
+    }
+  };
 
   return (
-    <form onSubmit={onSend} className="relative flex items-center w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
+    <form onSubmit={onSend} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
       <Button 
         type="button" 
         variant="ghost" 
         size="icon" 
-        className="hidden sm:flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-10 w-10 focus-visible:ring-0 focus-visible:outline-none"
+        className="hidden sm:flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-10 w-10 mb-1 focus-visible:ring-0 focus-visible:outline-none"
       >
         <Plus size={20} />
       </Button>
       
-      <input 
-        type="text"
+      <textarea 
+        ref={textareaRef}
+        rows={1}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="flex-1 bg-transparent border-0 outline-none placeholder:text-muted-foreground text-foreground px-3 sm:px-4 text-base sm:text-lg min-w-0 w-full h-11 md:h-12 focus:outline-none focus:ring-0"
+        className="flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-auto placeholder:text-muted-foreground text-foreground px-3 sm:px-4 py-3 text-base sm:text-lg leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
       />
       
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-1">
         {showModelSelect && (
           <DropdownMenu>
             <DropdownMenuTrigger

@@ -43,6 +43,15 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-21
 
+- **Chat — composer auto-grows and scrolls for long prompts** — The full-page
+  `ChatInput` used a single-line `<input>`, so a long prompt stayed clipped with
+  no way to review it. Replaced it with an auto-resizing `<textarea>` that grows
+  with its content up to ~6 lines (`MAX_HEIGHT`), then scrolls; Enter sends,
+  Shift+Enter inserts a newline, and the action buttons align to the bottom.
+  The dock composer already behaved this way, so the two now match. Verified:
+  `tsc`, eslint, 1442 TS + 45 Python tests pass.
+  no doc change — UI-only change, contracts unchanged.
+
 - **Agent / Analytics — token-consumption tracking + a Settings › Analytics page** —
   The harness discarded every LLM `usage` block, so token consumption was
   invisible. The Python runtime now reads usage per model call (`usage_metadata`,
