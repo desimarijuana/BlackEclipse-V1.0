@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
 import { ResponseStatusLine } from './response-status';
+import { ActivityFeed } from './activity-feed';
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -108,10 +109,14 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                 </div>
               )}
 
-              {msg.role === 'assistant' && msg.status != null && (
+              {msg.role === 'assistant' && msg.status != null && !(msg.activities && msg.activities.length > 0) && (
                 <div className={cn(msg.content ? 'mb-2' : '')}>
                   <ResponseStatusLine status={msg.status} activities={msg.activities} compact={compact} />
                 </div>
+              )}
+
+              {msg.role === 'assistant' && msg.activities && msg.activities.length > 0 && (
+                <ActivityFeed activities={msg.activities} status={msg.status} compact={compact} />
               )}
 
               {msg.role === 'assistant' ? (

@@ -32,6 +32,12 @@ export interface ActivityItem {
   durationMs?: number;
   /** Failure code (`TOOL_ERROR`, `TOOL_FORBIDDEN`, …) — detail, not the label. */
   code?: string;
+  /**
+   * A short, user-safe result summary when the runtime provides one (e.g. a
+   * retrieval source reporting "3 records"). Absent when the backend does not
+   * report a result — never inferred.
+   */
+  summary?: string;
 }
 
 /** A recoverable failure attached to an assistant turn. */

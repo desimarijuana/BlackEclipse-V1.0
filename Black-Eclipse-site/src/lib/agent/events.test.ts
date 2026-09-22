@@ -96,6 +96,26 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
+  it('reports a retrieval record count only when the runtime sends one', () => {
+    const withCount = normalizeHarnessEvent('retrieval.source_ok', {
+      type: 'retrieval.source_ok',
+      data: { source: 'jdds', dataType: 'quote', objects: 3 },
+    });
+    expect(withCount).toMatchObject({ kind: 'activity_end', summary: '3 records' });
+
+    const one = normalizeHarnessEvent('retrieval.source_ok', {
+      type: 'retrieval.source_ok',
+      data: { source: 'jdds', dataType: 'quote', objects: 1 },
+    });
+    expect(one).toMatchObject({ kind: 'activity_end', summary: '1 record' });
+
+    const unknown = normalizeHarnessEvent('retrieval.source_ok', {
+      type: 'retrieval.source_ok',
+      data: { source: 'jdds', dataType: 'quote' },
+    });
+    expect((unknown as { summary?: string }).summary).toBeUndefined();
+  });
+
   it('maps client.final to the authoritative output', () => {
     const e = normalizeHarnessEvent('client.final', { runId: 'r', status: 'completed', output: 'Answer' });
     expect(e).toEqual({ kind: 'final', output: 'Answer', error: undefined, status: 'completed' });

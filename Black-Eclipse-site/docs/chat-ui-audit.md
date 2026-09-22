@@ -440,11 +440,47 @@ still lack a `toolCallId`, so correlation to their parent tool falls back to
 
 ---
 
-## 15. Phase 3 — next
+## 15. Phase 3 — Agent activity & tool-execution UI (implemented 2026-09-22)
 
-Agent activity & tool-execution UI: an `activity-feed` built from the typed
-activity model already produced in Phase 1 (tool start/done/failure, retrieval
-sources), with expandable details and no raw JSON. Subagent delegation stays
-blocked on a backend capability (R4).
+### What changed
+
+- **`activity-item.tsx`** — one tool/retrieval operation, compact by default:
+  category icon, human label, status, optional duration, optional result
+  summary. Expandable only when there is something safe to show (operation name,
+  retrieval source, failure code). Never raw JSON, credentials, or reasoning.
+- **`activity-feed.tsx`** — groups a turn's activities into one collapsible
+  card. Collapsed it is a single summary line (`Activity · 4 steps · 2 sources ·
+  1 failed`); it auto-expands while the run is live and collapses when it ends,
+  unless the user has toggled it. The expanded list scrolls at a fixed max
+  height so a long tool list cannot push the answer off screen.
+- **Result summaries** — the normalizer now reads `objects` off
+  `retrieval.source_ok` and attaches a user-safe `"N records"` summary. When the
+  runtime sends no count, no summary is shown (never inferred).
+- **Both presentation modes** — the same components render in the floating dock
+  (`compact`) and the full-page Chat tab (detailed). Density is the only
+  difference; there is no second rendering system.
+
+### Delegation (still blocked)
+
+There are no `agent.*` / subagent events in the runtime (Risk R4), so no
+delegation card was built and none was faked. This remains backend-gated.
+
+### Verification
+
+- `npx tsc --noEmit` — pass.
+- `npx eslint` (touched files) — 0 errors/warnings.
+- `npx vitest run` — 1513 passed (adds a retrieval-summary test).
+- Dev server recompiled the new components with no UI errors. A pre-existing
+  Python data-bridge `SyntaxError` appears in the harness log; it is unrelated to
+  this phase (no API route changed).
+
+---
+
+## 16. Phase 4 — next
+
+Financial-native response rendering: metric blocks, table formatting/copy
+(partly in place), and source/citation presentation — only for content that
+genuinely contains them, with explicit unavailable states for missing data.
+
 
 

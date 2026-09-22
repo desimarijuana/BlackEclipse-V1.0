@@ -24,6 +24,8 @@ export type HarnessUiEvent =
       status: 'completed' | 'failed';
       durationMs?: number;
       code?: string;
+      /** Short user-safe result summary (e.g. "3 records") when reported. */
+      summary?: string;
     }
   | { kind: 'final'; output?: string; error?: string; status?: string }
   | { kind: 'error'; message: string; code?: string };
@@ -128,12 +130,15 @@ export function normalizeHarnessEvent(
     const source = str(payload.source) ?? 'source';
     const dataType = str(payload.dataType) ?? '';
     const failed = event === 'retrieval.source_unavailable';
+    const objects = num(payload.objects);
     return {
       kind: 'activity_end',
       id: `retrieval:${source}:${dataType}`,
       name: source,
       status: failed ? 'failed' : 'completed',
       code: failed ? str(payload.error) : undefined,
+      // Only report a count when the runtime actually sent one.
+      summary: !failed && objects != null ? `${objects} record${objects === 1 ? '' : 's'}` : undefined,
     };
   }
 

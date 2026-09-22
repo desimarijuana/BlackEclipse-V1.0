@@ -128,6 +128,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
               status: event.status,
               durationMs: event.durationMs ?? t.activities[idx].durationMs,
               code: event.code ?? t.activities[idx].code,
+              summary: event.summary ?? t.activities[idx].summary,
             };
             t.activities[idx] = item;
           } else {
@@ -139,6 +140,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
               status: event.status,
               durationMs: event.durationMs,
               code: event.code,
+              summary: event.summary,
             });
           }
           publish(true);

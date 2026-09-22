@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 3 agent activity & tool-execution UI** — Each assistant turn
+  now shows what the agent did. A collapsible `ActivityFeed` renders every
+  tool/retrieval step (human label, status, duration, result summary, failure
+  code on expand); it auto-expands while the run is live and collapses to a
+  summary line when done, with the expanded list capped so long tool runs cannot
+  push the answer off screen. Retrieval result counts are shown only when the
+  runtime reports them. The same components serve the dock (compact) and the
+  full-page chat. No subagent/delegation card — the runtime emits no `agent.*`
+  events (verified, not faked). Verified: tsc, eslint, vitest 1513, dev reload.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 2 modern chat UX (copy, feedback, real provider, empty state)** —
   Code blocks now have a hover copy button and tables copy as TSV (spreadsheet-
   aligned). Assistant turns gained a persisted thumbs up/down. The composer's
