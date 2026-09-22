@@ -77,7 +77,12 @@ class AgenticService:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
 
         async def _task() -> None:
-            await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
+            try:
+                await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
+            finally:
+                # Signal live SSE consumers that the run is over, whatever the
+                # terminal status, so their streams close promptly.
+                self.bus.end_stream(request.runId)
 
         task = asyncio.create_task(_task())
         self._active[request.runId] = task
@@ -93,6 +98,10 @@ class AgenticService:
             return False
         task.cancel()
         return True
+
+    def is_active(self, run_id: str) -> bool:
+        task = self._active.get(run_id)
+        return task is not None and not task.done()
 
     def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
         return self.store.get_run(run_id)

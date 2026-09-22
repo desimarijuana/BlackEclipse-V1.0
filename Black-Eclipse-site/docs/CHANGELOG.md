@@ -41,7 +41,49 @@ proves the documentation obligation was considered rather than skipped.
 
 ---
 
+## 2026-09-22
+
+- **Harness — the agent now streams its answer and always reaches one** — Two
+  failures made the assistant look broken. (1) A research question returned
+  `MAX_STEPS_EXCEEDED` after ~140s: local models loop on tools (even
+  hallucinating a `terminal` tool) and never produce a final answer. The last
+  allowed step now unbinds tools, appends an in-band "answer now" instruction,
+  and strips residual tool calls; a forced turn with no text fails honestly
+  instead of reporting a blank success. The same question now completes in
+  ~44s with a full answer. (2) The chat was a blank spinner — the runtime now
+  streams `model.astream` tokens as transient `model.delta` events over SSE
+  (`/runs/{id}/stream` → `/api/harness/runs/[id]/stream` →
+  `POST /api/harness/chat/stream`), and the UI shows live steps (`Thinking…`,
+  `Using market_get_quote…`, `Writing…`) plus the answer as it is written.
+  Verified live: 43 delta frames + a completed answer.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H13), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Chat — conversation checkpoints (save/restore, like editor save points)** —
+  You can snapshot a conversation at any point and roll back to it. Snapshots
+  are JSON files under the session folder (gitignored), created/read/deleted via
+  `/api/chat/checkpoints`; the chat state lives in the browser, so save/restore
+  is client-driven. UI: a checkpoint control in both chat surfaces.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H14), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Git — in-app plan → stage → commit → push** — Settings › Git reviews changes,
+  stages individual files, drafts a commit message from the real staged diff,
+  commits, and pushes — with push a separate, explicit action. The service runs
+  git via `execFile` (argument arrays, never a shell string), resolves the real
+  repo root so pathspecs are correct, refuses secret-looking staged paths
+  (.env, keys, `*.db`, credentials), and never force-pushes.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H14), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 ## 2026-09-21
+
+- **Analytics — daily consumption chart rendered no bars** — The bars used a
+  percentage `height` inside an `items-end` flex row, whose columns are
+  content-sized, so every bar collapsed to 0px. Columns are now full-height flex
+  columns (`items-stretch` + `justify-end`) that give the percentage a definite
+  parent, with a muted baseline for zero-token days.
+  no doc change — layout bug fix, no contract or behavior change.
 
 - **Investor Eye — big globe, country-name labels, 3D hover/click, new layers
   and skins** — Phase 17 presentation work plus source wiring. The globe camera

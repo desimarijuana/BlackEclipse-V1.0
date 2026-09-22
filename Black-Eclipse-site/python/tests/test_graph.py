@@ -23,18 +23,27 @@ from harness.finance_tools import register_finance_tools
 
 
 class ScriptedModel:
-    """Mimics a LangChain chat model: invoke/ainvoke, bind_tools."""
+    """Mimics a LangChain chat model: invoke/ainvoke, bind_tools, astream."""
 
     def __init__(self, responses):
         self._responses = list(responses)
+        self.bound_tools = None
 
     def bind_tools(self, tools):
+        self.bound_tools = tools
         return self
 
     async def ainvoke(self, messages):
         if not self._responses:
             return AIMessage(content="(exhausted)")
         return self._responses.pop(0)
+
+    async def astream(self, messages):
+        """Stream the next message once, routed through `ainvoke` so subclasses
+        that override it (capture calls, attach usage) still apply. Models one
+        provider that streams whole messages, which the runtime must tolerate."""
+        message = await self.ainvoke(messages)
+        yield message
 
 
 def _usage(message: AIMessage, prompt: int, completion: int) -> AIMessage:
@@ -311,6 +320,61 @@ async def test_tool_loop_grounds_answer_and_persists(store, monkeypatch):
     tools = store.list_tool_executions("run_test")
     assert tools[0]["name"] == "get_market_snapshot"
     assert tools[0]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_final_step_forbids_tools_and_forces_an_answer(store, monkeypatch):
+    """Regression: a tool-looping model must still produce an answer.
+
+    Previously a model that kept calling tools hit MAX_STEPS_EXCEEDED with no
+    answer. On the last allowed step tools are unbound, so the model must answer
+    from what it gathered.
+    """
+    seen_models: list[object] = []
+
+    def looping():
+        return AIMessage(
+            content="",
+            tool_calls=[{"id": f"c{id(object())}", "name": "get_market_snapshot", "args": {"symbol": "AAPL"}}],
+        )
+
+    class TrackingModel(ScriptedModel):
+        def bind_tools(self, tools):
+            self.bound_tools = tools
+            return self
+
+    model = TrackingModel([looping(), looping(), AIMessage(content="Final answer from gathered data.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    seen_models.append(model)
+
+    three_step = AgentConfig(id="three-step", name="Three Step", systemPrompt="sys", tools=["get_market_snapshot"], maxSteps=3)
+    bridge = FakeBridge({"status": "OK", "symbol": "AAPL", "priceSource": "scraper", "price": {"price": 1.0, "changePct": 0.0}})
+    result = await graph_module.execute_run(request(agent=three_step), registry(), bridge, store)
+    assert result.status == "completed", result.error
+    assert result.output == "Final answer from gathered data."
+    # The final invocation used the tools-unbound model, so the loop could not
+    # continue; the terminal answer was reached on the last step.
+    assert result.modelSteps == 3
+
+
+@pytest.mark.asyncio
+async def test_model_deltas_are_streamed_but_not_persisted(store, monkeypatch):
+    """Live token streaming emits transient `model.delta` events that never land
+    in the persisted trace (only real lifecycle events do)."""
+    model = ScriptedModel([AIMessage(content="Hello world")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    bus = graph_module.EventBus()
+    live: list[str] = []
+    bus.subscribe(lambda e: live.append(e["type"]))
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store, bus
+    )
+    assert result.status == "completed"
+    assert "model.delta" in live
+    persisted = [e["type"] for e in store.list_events("run_test")]
+    assert "model.delta" not in persisted
+    assert "model.completed" in persisted
 
 
 @pytest.mark.asyncio

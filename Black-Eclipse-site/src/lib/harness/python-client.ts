@@ -87,6 +87,15 @@ export async function runViaRuntime(
   });
 }
 
+/**
+ * Start a run in the background so its SSE stream can be observed live.
+ * Returns the run id; the caller then streams `/api/harness/runs/:id/stream`.
+ */
+export async function startRunBackground(payload: RunRequestPayload): Promise<string> {
+  const body = await runViaRuntime(payload, { background: true });
+  return (body as { runId: string }).runId;
+}
+
 export async function getRunFromRuntime(runId: string): Promise<RunRecord | null> {
   try {
     const body = await request<{ run: RunRecord }>(`/runs/${encodeURIComponent(runId)}`, { method: "GET" });

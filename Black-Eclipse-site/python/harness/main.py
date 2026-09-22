@@ -16,12 +16,14 @@ The service never trusts the caller: pydantic validates every body.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
@@ -129,6 +131,44 @@ def get_events(run_id: str) -> dict[str, Any]:
         "events": service.list_events(run_id),
         "toolExecutions": service.list_tool_executions(run_id),
     }
+
+
+@app.get("/runs/{run_id}/stream")
+async def stream_run(run_id: str) -> StreamingResponse:
+    """Server-Sent Events for one run: live status + token deltas.
+
+    Emits `event: <type>` frames. Token deltas arrive as transient event types
+    (e.g. `model.delta`) and are NOT persisted. If the run already finished,
+    the persisted trace is replayed first so a late subscriber still sees it.
+    A keep-alive comment every 15s prevents proxy timeouts.
+    """
+    queue = service.bus.open_stream(run_id)
+
+    async def _frames() -> AsyncIterator[str]:
+        try:
+            # Replay what already happened (a client may connect after the run
+            # started, or after it ended).
+            for event in service.list_events(run_id):
+                yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+            if not service.get_run(run_id) or service.is_active(run_id):
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    if event is None:
+                        break
+                    yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+            yield "event: stream.end\ndata: {}\n\n"
+        finally:
+            service.bus.close_stream(run_id, queue)
+
+    return StreamingResponse(
+        _frames(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 class CancelResponse(BaseModel):

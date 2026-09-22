@@ -17,6 +17,18 @@ export interface AgentTool {
   execute: (args: Record<string, unknown>) => Promise<string>;
 }
 
+/** A live step the agent is taking, surfaced to the UI while a run is in flight. */
+export interface AgentStatusEvent {
+  /** Coarse phase for the working indicator. */
+  phase: "starting" | "thinking" | "tool" | "writing" | "done";
+  /** Human-readable label, e.g. "Checking AAPL price…". */
+  label: string;
+  /** Raw harness event type that produced this. */
+  eventType: string;
+  /** Tool name, when the phase is `tool`. */
+  tool?: string;
+}
+
 export interface ChatOptions {
   /**
    * Conversation id. When present the front door loads that conversation's
@@ -28,6 +40,10 @@ export interface ChatOptions {
    * offer cancellation before the reply arrives.
    */
   onRunId?: (runId: string) => void;
+  /** Called with each streamed token fragment as the answer is written. */
+  onDelta?: (text: string) => void;
+  /** Called with each coarse agent step, so the UI shows it is working. */
+  onStatus?: (event: AgentStatusEvent) => void;
 }
 
 export interface AgentProvider {

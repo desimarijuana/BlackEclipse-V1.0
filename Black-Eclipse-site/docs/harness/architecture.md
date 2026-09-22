@@ -157,6 +157,34 @@ read-only enforcement, cooperative cancellation, and exactly one terminal
 status. Events (`run.*`, `model.*`, `tool.*`) are emitted and persisted by the
 Python runtime.
 
+**Forced final answer.** On the last allowed step the agent node unbinds tools,
+appends an in-band instruction to answer now, and strips any residual tool calls.
+A tool-looping model (common with local models, which will even hallucinate a
+tool that does not exist) therefore produces an answer from the evidence it
+gathered instead of `MAX_STEPS_EXCEEDED`. If the forced turn still yields no
+text, the run fails honestly rather than reporting a blank "completed".
+
+### Live streaming (SSE)
+
+The runtime streams tokens as the model writes:
+
+```
+model.astream → transient `model.delta` events (event bus, NOT persisted)
+             → GET /runs/{id}/stream (SSE)
+             → GET /api/harness/runs/[id]/stream   (relay proxy)
+             → POST /api/harness/chat/stream        (starts the run + relays)
+             → chat UI (live status + partial answer)
+```
+
+`model.delta` frames are *transient*: they ride the in-process bus to live
+subscribers but are never written to the trace (thousands of fragments would
+bloat `agent-memory.db`); the assembled message is still persisted by
+`model.completed`. A run is started with `background=true` so its stream can be
+observed, and the front door sends the terminal `client.final` with the
+authoritative answer when the stream ends. If SSE is unavailable the client
+falls back to the one-shot `/api/harness/chat` — a run always yields an answer
+or an honest error.
+
 ### Token accounting
 
 Every `agent` node reads the model response's token usage — LangChain's
@@ -186,6 +214,40 @@ market data.
 | `errors.ts`, `ids.ts` | structured errors, run id |
 
 There is **no** run loop, tool registry or model adapter on the TS side.
+
+### Streaming chat routes
+
+| Route | Role |
+|---|---|
+| `POST /api/harness/chat/stream` | start a run in the background + relay its SSE stream; emit `client.final` with the answer |
+| `GET /api/harness/runs/[id]/stream` | relay the runtime's SSE frames to the browser |
+| `GET /runs/{id}/stream` (Python) | the source: replay + live bus, keep-alives, `stream.end` |
+
+The client provider (`src/lib/agent/registry.ts`) parses the SSE frames, maps
+them to coarse UI status (`Thinking…`, `Using market_get_quote…`, `Writing…`),
+accumulates `model.delta` into the answer bubble, and prefers the authoritative
+`client.final` text.
+
+### Conversation checkpoints
+
+A checkpoint is a restorable JSON snapshot of a conversation's turns
+(`src/lib/chat/checkpoint-store.ts`), stored under the session folder
+(`.black-eclipse/sessions/<chatId>/checkpoints/`, gitignored). The chat state
+lives in the browser, so the client sends the snapshot to save and applies a
+returned snapshot to restore — the Python runtime stays out of it. Routes:
+`/api/chat/checkpoints` (GET list/read, POST create, DELETE). UI:
+`src/components/chat/checkpoint-bar.tsx` in both chat surfaces.
+
+### Git workflow
+
+`src/lib/git/service.ts` wraps the repo's git CLI via `execFile` (argument
+arrays, never a shell string). It resolves the repo root once (so pathspecs are
+correct regardless of the app's cwd), refuses secret-looking staged paths
+(`.env`, keys, `*.db`, credentials), never force-pushes, and keeps `push` a
+separate explicit action from `commit`. `draftCommitMessage()` builds a subject
+from the *actual* staged diff. Routes: `/api/git` (GET status/diff/log/draft;
+POST stage/unstage/commit/push). UI: `src/components/screens/git-panel.tsx`,
+surfaced as Settings › Git.
 
 ## Persistence — a separate database
 

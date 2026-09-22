@@ -63,6 +63,9 @@ Black-Eclipse-site/
 | Change web search / page retrieval | `src/lib/web-research.ts` (the one shared implementation) + the `web_search`/`web_fetch` capabilities in `src/lib/harness/data-bridge.ts` |
 | Give the retrieval layer a new data source | `src/lib/harness/data-bridge.ts` capability + `DataCapability` in `src/lib/harness/types.ts` + the route whitelist |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
+| Work on live streaming (SSE) | `python/harness/{events,graph,main}.py` (`model.delta` + `/runs/{id}/stream`), `src/app/api/harness/runs/[id]/stream/route.ts`, `src/app/api/harness/chat/stream/route.ts`, `src/lib/agent/registry.ts` |
+| Work on conversation checkpoints | `src/lib/chat/checkpoint-store.ts`, `src/app/api/chat/checkpoints/route.ts`, `src/components/chat/checkpoint-bar.tsx` |
+| Work on the git workflow (commit/push) | `src/lib/git/service.ts`, `src/lib/git/client.ts`, `src/app/api/git/route.ts`, `src/components/screens/git-panel.tsx` (Settings › Git) |
 | Work on chat session workspaces (attached docs, agent output folders) | `src/lib/chat/session-store.ts` (server fs), `session-types.ts`, `extract.ts`, `session-client.ts`; routes `src/app/api/chat/session/`; UI `src/components/chat/session-bar.tsx`; context injection `python/harness/graph.py` (`_user_message`) — see `docs/ARCHITECTURE.md` § Chat session workspaces |
 | Work on token usage / analytics | capture in `python/harness/graph.py` (`_extract_usage`), columns + `usage_summary()` in `python/harness/persistence.py`, `GET /usage` in `main.py`; proxy `src/app/api/harness/usage/route.ts` + `getUsageSummaryFromRuntime`; UI `src/components/screens/analytics-settings.tsx` (Settings › Analytics) |
 | Give a Python tool JDdS data | `src/lib/harness/data-bridge.ts` (capability) + `DataCapability` in `src/lib/harness/types.ts`; the Python tool calls `ctx.data_bridge.fetch(...)` |
@@ -199,6 +202,9 @@ health).
 | Harness model-provider contract | `python/harness/models.py` (`ProviderSpec`, `PROVIDER_CATALOG`) |
 | Harness run persistence | `python/harness/persistence.py` (`agent-memory.db`) |
 | Harness usage analytics | `src/lib/harness/types.ts` (`UsageSummary`), route `src/app/api/harness/usage/route.ts` |
+| Streaming status labels | `src/lib/agent/registry.ts` (`statusFromEvent`) |
+| Checkpoint wire shapes | `src/lib/chat/session-types.ts` (`Checkpoint`, `CheckpointSnapshot`) |
+| Git service contracts | `src/lib/git/service.ts` (`GitStatus`, `GitFileChange`, `GitCommitInfo`) |
 | Mutation guard | `src/lib/api-guard.ts` |
 | Tab ids | `AppTab` in `src/components/layout/sidebar.tsx` |
 

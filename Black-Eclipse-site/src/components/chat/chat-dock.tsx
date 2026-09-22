@@ -34,6 +34,7 @@ import { uploadSessionFile } from '@/lib/chat/session-client';
 import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
+import { CheckpointBar } from './checkpoint-bar';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -147,6 +148,7 @@ export function ChatDock({
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
   // Manual expand/collapse of the transcript (independent of focus, so the user
   // can scroll back through an answer without the panel collapsing).
   const [expanded, setExpanded] = useState(false);
@@ -328,10 +330,22 @@ export function ChatDock({
     setExpanded(true);
 
     const userMsg: Message = { id: newId(), role: 'user', content: text };
-    append([...messagesRef.current, userMsg]);
+    const assistantId = newId();
+    // Seed an empty assistant message that deltas stream into, so the answer
+    // appears as it is written rather than all at once at the end.
+    append([...messagesRef.current, userMsg, { id: assistantId, role: 'assistant', content: '' }]);
 
     setBusy(true);
+    setStatus('Thinking…');
     runIdRef.current = null;
+    const streamedRef = { text: '' };
+    const patchAssistant = (content: string) => {
+      setMessages(prev => {
+        const next = prev.map(m => (m.id === assistantId ? { ...m, content } : m));
+        saveMessages(next);
+        return next;
+      });
+    };
     try {
       // Everything goes through the harness so the chat IS the Eclipse Agent
       // (system prompt + JDdS tools + persisted run). It picks its own tools,
@@ -345,13 +359,20 @@ export function ChatDock({
         {
           chatId: sessionIdRef.current,
           onRunId: (id) => { runIdRef.current = id; },
+          onStatus: (s) => { if (s.phase !== 'done') setStatus(s.label); },
+          onDelta: (chunk) => {
+            streamedRef.text += chunk;
+            patchAssistant(streamedRef.text);
+          },
         },
       );
-      pushAssistant(reply || 'Run stopped.');
+      // Final authoritative text (falls back to the assembled deltas).
+      patchAssistant(reply || streamedRef.text || 'Run stopped.');
     } catch (err) {
-      pushAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      patchAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
+      setStatus('');
     }
   };
 
@@ -426,6 +447,11 @@ export function ChatDock({
                 <Sparkles size={12} />
               </span>
               <p className="min-w-0 flex-1 truncate font-serif text-sm font-semibold text-foreground">{title}</p>
+              <CheckpointBar
+                chatId={sessionIdRef.current}
+                messages={messages}
+                onRestore={(restored) => append(restored)}
+              />
               <button
                 type="button"
                 onClick={newChat}
@@ -466,7 +492,7 @@ export function ChatDock({
 
             {busy && (
               <p className="flex shrink-0 items-center gap-1.5 border-t border-border/10 px-4 py-2 text-[10px] font-mono text-muted-foreground/80">
-                <Sparkles size={10} className="animate-pulse text-primary" /> thinking…
+                <Sparkles size={10} className="animate-pulse text-primary" /> {status || 'thinking…'}
               </p>
             )}
           </div>

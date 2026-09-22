@@ -19,7 +19,7 @@ export { HarnessError, toHarnessErrorJson, redactSecrets } from "./errors";
 export type { HarnessErrorCode } from "./errors";
 export { validateRunInput, assertRunInput } from "./validation";
 export { newRunId } from "./ids";
-export { startRun, chatWithAgent } from "./run-service";
+export { startRun, chatWithAgent, startChatRun } from "./run-service";
 export type { StartRunOptions } from "./run-service";
 export { loadAgentPresets, getAgentPreset, DEFAULT_AGENT_ID } from "./agent-presets";
 export type { AgentPreset } from "./agent-presets";
@@ -29,6 +29,7 @@ export {
   listModelProviders,
   listAgentsFromRuntime,
   runViaRuntime,
+  startRunBackground,
   getRunFromRuntime,
   listRunsFromRuntime,
   getUsageSummaryFromRuntime,

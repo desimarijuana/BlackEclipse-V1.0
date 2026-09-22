@@ -16,8 +16,10 @@ import {
   ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, SlidersHorizontal, Volume2, BarChart3,
+  GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GitPanel } from "./git-panel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -112,12 +114,12 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
   | "general" | "customization" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
-  | "analytics" | "sidebar" | "alerts" | "data" | "system";
+  | "analytics" | "sidebar" | "alerts" | "data" | "git" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "general", "customization", "sound", "ai", "investor-eye", "economics", "market", "news",
-  "analytics", "sidebar", "alerts", "data", "system",
+  "analytics", "sidebar", "alerts", "data", "git", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
@@ -462,6 +464,7 @@ export function Settings({
 
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck, group: "System", terms: ["alerts", "notifications", "channels", "email", "webhook", "telegram", "discord", "slack"] },
     { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database, group: "System", terms: ["data", "storage", "clear", "reset", "chats", "watchlist", "portfolio", "cache"] },
+    { id: "git", label: "Git", desc: "Plan, commit & push", icon: GitBranch, group: "System", terms: ["git", "commit", "push", "branch", "stage", "diff", "version control", "repo"] },
     { id: "system", label: "System", desc: "Health & integrations", icon: Cpu, group: "System", terms: ["system", "health", "database", "jdds", "integrations", "status", "diagnostics"] },
   ];
 
@@ -1150,6 +1153,20 @@ export function Settings({
                     <CircleDashed className="w-3 h-3" /> Cleared data is removed from this browser only.
                   </p>
                 </Panel>
+              </div>
+            )}
+
+            {/* ── Git ─────────────────────────────────────────────────────
+                Plan → review → commit → push. Commits and pushes are explicit
+                actions; the server refuses secret-looking paths. */}
+            {section === "git" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={GitBranch}
+                  title="Git"
+                  description="Review changes, stage what you mean, write a message (or draft one from the real diff), commit, then push. Push is always manual."
+                />
+                <GitPanel />
               </div>
             )}
 

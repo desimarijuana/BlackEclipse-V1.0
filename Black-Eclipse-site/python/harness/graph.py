@@ -127,9 +127,24 @@ def build_graph(
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
         await emitter.emit("model.requested", {"step": step, "messages": len(state["messages"])})
+        # On the last allowed step, forbid tools so the model MUST answer from the
+        # evidence it already gathered. Without this a tool-calling model can loop
+        # until max steps and produce MAX_STEPS_EXCEEDED instead of an answer —
+        # the exact failure that made the agent "unable to answer".
+        finalizing = step >= max_steps
+        active_model = model if finalizing else model_with_tools
+        # A local model often ignores an empty tool list and keeps emitting tool
+        # calls from the conversation's momentum (observed hallucinating a
+        # `terminal` tool that does not exist). Unbinding tools is necessary but
+        # not sufficient: also tell it, in-band, that this is the answer turn.
+        model_messages = (
+            [*state["messages"], HumanMessage(content=_FINALIZE_INSTRUCTION)]
+            if finalizing
+            else state["messages"]
+        )
         try:
-            response = await asyncio.wait_for(
-                model_with_tools.ainvoke(state["messages"]), timeout=run_timeout_s
+            response = await _ainvoke_streaming(
+                active_model, model_messages, run_timeout_s, emitter, finalizing
             )
         except asyncio.TimeoutError:
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}})
@@ -139,6 +154,15 @@ def build_graph(
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
 
         tool_calls = getattr(response, "tool_calls", None) or []
+        # On the final step we do NOT execute tools — the model must answer. If a
+        # provider still returned tool calls, drop them so routing falls through
+        # to the final answer instead of looping into MAX_STEPS_EXCEEDED.
+        if finalizing and tool_calls:
+            try:
+                response.tool_calls = []
+            except Exception:  # noqa: BLE001
+                pass
+            tool_calls = []
         step_prompt, step_completion = _extract_usage(response)
         total_prompt = state.get("prompt_tokens", 0) + step_prompt
         total_completion = state.get("completion_tokens", 0) + step_completion
@@ -163,12 +187,19 @@ def build_graph(
         usage_state = {"prompt_tokens": total_prompt, "completion_tokens": total_completion}
 
         if not tool_calls:
+            final_text = _text(response)
+            # A forced final turn that produced no text is not an answer. Report
+            # the honest failure rather than a blank "completed".
+            if finalizing and not final_text.strip():
+                message = f"Reached the maximum of {max_steps} steps without a final answer."
+                await emitter.emit("run.failed", {"error": {"code": "MAX_STEPS_EXCEEDED", "message": message}})
+                return {**state, **usage_state, "step": step, "error": {"code": "MAX_STEPS_EXCEEDED", "message": message}}
             return {
                 **state,
                 **usage_state,
                 "step": step,
                 "messages": [*state["messages"], response],
-                "final": _text(response),
+                "final": final_text,
             }
 
         return {**state, **usage_state, "step": step, "messages": [*state["messages"], response]}
@@ -257,6 +288,87 @@ def build_graph(
     graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", "exhausted": "exhausted"})
     graph.add_edge("exhausted", END)
     return graph.compile()
+
+
+async def _ainvoke_streaming(
+    model: Any,
+    messages: list[BaseMessage],
+    timeout_s: float,
+    emitter: RunEmitter,
+    finalizing: bool,
+) -> Any:
+    """Invoke the model, streaming tokens live when it supports it.
+
+    Streaming is best-effort: a provider/model that cannot stream falls back to
+    a single `ainvoke`. Token deltas are emitted as transient `model.delta`
+    events so the UI shows the agent working and writing, without persisting
+    every fragment. The assembled message is what the graph stores, so tool
+    calls and usage metadata still work exactly as before.
+
+    On the final step (`finalizing`) tools are unbound upstream, so this only
+    ever yields the closing answer.
+    """
+    async def _stream() -> Any:
+        aggregated: Any = None
+        last_with_tools: Any = None
+        last_with_usage: Any = None
+        async for chunk in model.astream(messages):
+            aggregated = chunk if aggregated is None else _merge_chunks(aggregated, chunk)
+            if getattr(chunk, "tool_calls", None):
+                last_with_tools = chunk
+            if getattr(chunk, "usage_metadata", None):
+                last_with_usage = chunk
+            text = _text(chunk) if getattr(chunk, "content", "") else ""
+            if text:
+                emitter.emit_transient(
+                    "model.delta", {"text": text, "finalizing": finalizing}
+                )
+        # Some providers/tests stream full AIMessage objects, whose `+` drops
+        # tool_calls/usage. Carry those forward so the graph still sees them.
+        if aggregated is not None:
+            if not getattr(aggregated, "tool_calls", None) and last_with_tools is not None:
+                try:
+                    aggregated.tool_calls = last_with_tools.tool_calls
+                except Exception:  # noqa: BLE001
+                    pass
+            if not getattr(aggregated, "usage_metadata", None) and last_with_usage is not None:
+                try:
+                    aggregated.usage_metadata = last_with_usage.usage_metadata
+                except Exception:  # noqa: BLE001
+                    pass
+        return aggregated
+
+    try:
+        aggregated = await asyncio.wait_for(_stream(), timeout=timeout_s)
+        if aggregated is None:
+            # An empty stream is not an answer; fall back to a plain call.
+            return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+        return aggregated
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        raise
+    except Exception:  # noqa: BLE001 - not all models implement astream
+        return await asyncio.wait_for(model.ainvoke(messages), timeout=timeout_s)
+
+
+_FINALIZE_INSTRUCTION = (
+    "You have reached the last allowed step. Tools are no longer available. "
+    "Answer the user's request NOW using only the information already gathered "
+    "above. Do not call tools, do not describe what you would do, and do not ask "
+    "for permission. If some data was unavailable, say so plainly in the answer."
+)
+
+
+def _merge_chunks(a: Any, b: Any) -> Any:
+    """Merge two stream chunks, tolerating providers that yield full messages.
+
+    LangChain's `AIMessageChunk + AIMessageChunk` is correct; a full `AIMessage`
+    addition is not (it drops tool_calls and can raise). Fall back to keeping the
+    richer object so a non-conforming provider cannot crash the run.
+    """
+    try:
+        return a + b
+    except Exception:  # noqa: BLE001
+        return b if getattr(b, "content", None) or getattr(b, "tool_calls", None) else a
 
 
 def _text(message: Any) -> str:

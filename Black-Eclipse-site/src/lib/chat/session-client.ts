@@ -1,7 +1,7 @@
 // Client helpers for a conversation's session workspace. Thin wrappers over
 // /api/chat/session — no logic beyond request shaping and honest errors.
 
-import type { SessionFile, SessionFileKind, SessionInfo } from "./session-types";
+import type { Checkpoint, CheckpointSnapshot, SessionFile, SessionFileKind, SessionInfo } from "./session-types";
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -56,4 +56,39 @@ export async function deleteSessionFile(
 export function sessionFileUrl(chatId: string, kind: SessionFileKind, name: string): string {
   const params = new URLSearchParams({ chatId, kind, name });
   return `/api/chat/session/file?${params.toString()}`;
+}
+
+// ── Checkpoints ──────────────────────────────────────────────────────────────
+
+export async function listCheckpoints(chatId: string): Promise<Checkpoint[]> {
+  const res = await fetch(`/api/chat/checkpoints?chatId=${encodeURIComponent(chatId)}`, { cache: "no-store" });
+  const body = await json<{ checkpoints: Checkpoint[] }>(res);
+  return body.checkpoints;
+}
+
+export async function createCheckpoint(
+  chatId: string,
+  label: string,
+  messages: Array<{ id: string; role: string; content: string }>
+): Promise<Checkpoint> {
+  const res = await fetch("/api/chat/checkpoints", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, label, messages }),
+  });
+  const body = await json<{ checkpoint: Checkpoint }>(res);
+  return body.checkpoint;
+}
+
+export async function readCheckpoint(chatId: string, id: string): Promise<CheckpointSnapshot> {
+  const params = new URLSearchParams({ chatId, id });
+  const res = await fetch(`/api/chat/checkpoints?${params.toString()}`, { cache: "no-store" });
+  const body = await json<{ snapshot: CheckpointSnapshot }>(res);
+  return body.snapshot;
+}
+
+export async function deleteCheckpoint(chatId: string, id: string): Promise<void> {
+  const params = new URLSearchParams({ chatId, id });
+  const res = await fetch(`/api/chat/checkpoints?${params.toString()}`, { method: "DELETE" });
+  await json<{ success: true }>(res);
 }

@@ -11,6 +11,7 @@ import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
+import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { useSession } from '@/lib/chat/use-session';
 import { Message } from '@/types/chat';
 
@@ -114,6 +115,7 @@ function StockChatContent() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   // True while the agent is working — swaps the submit arrow for a pause button.
   const [agentBusy, setAgentBusy] = useState(false);
+  const [agentStatus, setAgentStatus] = useState('');
   // The in-flight run id, so pause can cancel it.
   const currentRunIdRef = useRef<string | null>(null);
   // Shared session controller: the composer's "+" uploads and the bar displays.
@@ -459,6 +461,7 @@ function StockChatContent() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     // A visible in-flight note: harness runs can take a few seconds (tool calls).
+    // Its content is replaced by streamed deltas as soon as the answer starts.
     const thinkingMsg: Message = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
@@ -466,9 +469,11 @@ function StockChatContent() {
     };
     appendAssistantReply(chatId, thinkingMsg);
     setAgentBusy(true);
+    setAgentStatus('Eclipse Agent is working…');
     currentRunIdRef.current = null;
     sound.tick();
 
+    let streamed = '';
     try {
       const reply = await getAgentProvider().chat(
         [...history, { role: 'user', content: userText }],
@@ -476,6 +481,15 @@ function StockChatContent() {
         {
           chatId,
           onRunId: (runId) => { currentRunIdRef.current = runId; },
+          onStatus: (s) => { if (s.phase !== 'done') setAgentStatus(s.label); },
+          onDelta: (chunk) => {
+            streamed += chunk;
+            replaceAssistantReply(chatId, thinkingMsg.id, {
+              id: thinkingMsg.id,
+              role: 'assistant',
+              content: streamed,
+            });
+          },
         }
       );
       // A cancelled run returns no reply — keep the placeholder honest rather
@@ -504,6 +518,7 @@ function StockChatContent() {
       sound.error();
     } finally {
       setAgentBusy(false);
+      setAgentStatus('');
       currentRunIdRef.current = null;
     }
   };
@@ -716,8 +731,29 @@ function StockChatContent() {
                           ? sessionController.session.contextChars / sessionController.session.contextLimitChars
                           : 0}
                       />
-                      <div className="mt-1.5">
-                        <SessionBar session={sessionController} />
+                      {agentBusy && agentStatus ? (
+                        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/80">
+                          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+                          {agentStatus}
+                        </p>
+                      ) : null}
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <SessionBar session={sessionController} />
+                        </div>
+                        <CheckpointBar
+                          chatId={activeConversationId}
+                          messages={messages}
+                          onRestore={(restored) => {
+                            setMessages(restored);
+                            if (activeConversationId) {
+                              const updated = conversationsRef.current.map((c) =>
+                                c.id === activeConversationId ? { ...c, messages: restored } : c
+                              );
+                              saveConversations(updated);
+                            }
+                          }}
+                        />
                       </div>
                     </div>
                   </div>

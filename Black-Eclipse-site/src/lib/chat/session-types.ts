@@ -36,6 +36,32 @@ export interface RunDocument {
   text: string;
 }
 
+/**
+ * A checkpoint: a restorable snapshot of one conversation's turns at a point in
+ * time. Like an editor's save point — the user can roll the conversation back to
+ * a known-good state before a change, and compare from there.
+ */
+export interface Checkpoint {
+  id: string;
+  chatId: string;
+  /** Human label, e.g. "Before asking about AAPL". */
+  label: string;
+  /** ISO timestamp when it was taken. */
+  createdAt: string;
+  /** Number of turns captured (for the UI, without loading the payload). */
+  messageCount: number;
+  /** Bytes of the snapshot payload. */
+  bytes: number;
+}
+
+/** The checkpoint payload — the conversation state to restore. */
+export interface CheckpointSnapshot {
+  chatId: string;
+  label: string;
+  createdAt: string;
+  messages: Array<{ id: string; role: string; content: string }>;
+}
+
 /** Limits, shared so the UI can warn before a request is rejected. */
 export const SESSION_LIMITS = {
   /** Max size of a single uploaded file. */

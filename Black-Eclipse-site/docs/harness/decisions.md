@@ -180,6 +180,49 @@ ratio") is fabrication by another name. The honesty rule that governs JDdS
 metadata is `null`, never guessed, and a result that could not be fetched is
 marked `unverified` rather than presented as read.
 
+## ADR-H13 — The run streams, and the final step always answers
+
+**Decision.** The agent node streams tokens via `model.astream`, emitting
+transient `model.delta` events that reach the UI over SSE but are never
+persisted. On the last allowed step, tools are unbound, an in-band instruction
+forces a text answer, and any residual tool calls are stripped; a forced turn
+that still produces no text fails honestly as `MAX_STEPS_EXCEEDED`.
+
+**Why.** Two real failures drove this. (1) The chat was a blank spinner for up
+to ~2 minutes — the user could not tell the agent was working or what it was
+doing. (2) A tool-calling model (notably local Ollama models) would loop until
+max steps and return `MAX_STEPS_EXCEEDED` instead of an answer, including
+hallucinating tools that do not exist; the agent was, in practice, "unable to
+answer" research questions. Unbinding tools alone was insufficient — the model
+kept emitting tool calls from the conversation's momentum — so the fix is
+threefold: unbind, instruct in-band, and strip residuals.
+
+**Consequences.** Token deltas are high-frequency and worthless after the run,
+so they ride the bus and are not written to SQLite; the persisted trace still
+ends with the full `model.completed`. The front door can start a run in the
+background and relay its stream; a streaming failure falls back to the one-shot
+route, so a run always yields an answer or an honest error. `GET
+/retrieval/metrics` and the per-run event trace remain the source of truth for
+what actually happened.
+
+## ADR-H14 — Checkpoints and git workflow live in the front door
+
+**Decision.** Conversation checkpoints (`src/lib/chat/checkpoint-store.ts`) and
+the git workflow (`src/lib/git/service.ts`) are Next.js front-door features, not
+Python-runtime ones. Checkpoints are JSON snapshots under the session folder;
+git runs through `execFile` with argument arrays, refuses secret-looking staged
+paths, and never force-pushes.
+
+**Why.** Both are filesystem/process concerns, and the Python runtime is
+deliberately read-only with no filesystem access. Keeping them in the front door
+preserves that boundary. The git service must run against the real repo root
+(paths from `git status` are repo-relative), which is why it resolves the root
+once rather than assuming the app's cwd.
+
+**Consequences.** Chat state lives in the browser, so checkpoint save/restore is
+client-driven (the server only stores snapshots). `push` is always a separate,
+explicit action from `commit`; there is no auto-commit or auto-push.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack
