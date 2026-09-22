@@ -34,11 +34,13 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
     if status != "OK":
         # Derive wording from the failure class (B2), never a single generic line.
         detail = payload.get("error", "")
-        if failure_class == "market_unknown" or status == "AMBIGUOUS":
+        if failure_class == "ambiguous" or status == "AMBIGUOUS":
             msg = (
                 f"AMBIGUOUS — {detail}\n"
                 "Ask the user to specify the market/venue (and share class); do NOT guess."
             )
+        elif failure_class == "not_covered":
+            msg = f"NOT COVERED — {detail}"
         elif failure_class == "not_found":
             msg = f"UNAVAILABLE — {detail}"
         else:
@@ -189,7 +191,7 @@ def register_finance_tools(registry: ToolRegistry) -> None:
                 "type": "object",
                 "properties": {
                     "symbol": {"type": "string", "description": "Ticker symbol, e.g. AAPL, SYS, BTC."},
-                    "market": {"type": "string", "description": "Market code (US, PK, IN, CRYPTO). Default US."},
+                    "market": {"type": "string", "description": "Market/venue code (US, PK, PSX, IN, CRYPTO). Required when the ticker is listed on more than one market; there is no default."},
                 },
                 "required": ["symbol"],
             },

@@ -334,3 +334,44 @@ def test_conflict_flag_fires_on_a_two_source_disagreement():
     assert values == [100.0, 101.0]
     assert sources == ["JDDS", "LIVE_STRUCTURED"]
 
+
+# -- #1/#2: no Python tool may inject a default market -----------------------
+@pytest.mark.asyncio
+async def test_no_tool_injects_a_default_market():
+    """An omitted `market` must reach the bridge as absent (None), so the shared
+    gate can return AMBIGUOUS. Injecting "US" here was the real leak on the agent path - the bridge never saw an unqualified request.
+    """
+    from harness.retrieval_tools import (
+        fundamentals_get_company_profile,
+        fundamentals_get_financials,
+        market_get_ohlcv,
+        market_get_quote,
+    )
+
+    seen: list[dict[str, Any]] = []
+
+    class RecordingBridge(DataBridge):
+        async def fetch(self, capability: str, params: dict[str, Any]) -> dict[str, Any]:
+            seen.append(params)
+            # Return AMBIGUOUS as the real bridge would for an unqualified
+            # multi-listed ticker � proving the tool passed market=None through.
+            return {"status": "AMBIGUOUS", "failureClass": "ambiguous", "error": "ambiguous", "candidates": ["US", "PK"]}
+
+    tools = [
+        market_get_quote,
+        market_get_ohlcv,
+        fundamentals_get_company_profile,
+        fundamentals_get_financials,
+    ]
+    for fn in tools:
+        bridge = RecordingBridge()
+        ctx = ToolContext(run_id="r", log=lambda *_: None, data_bridge=bridge)
+        try:
+            await fn({"symbol": "FFC"}, ctx)
+        except Exception:  # noqa: BLE001
+            pass
+        assert seen, f"{fn.__name__} never reached the bridge"
+        # The market must be absent/None, never defaulted to "US".
+        assert seen[-1].get("market") in (None, ""), (
+            f"{fn.__name__} injected market={seen[-1].get('market')!r} � a hidden default"
+        )

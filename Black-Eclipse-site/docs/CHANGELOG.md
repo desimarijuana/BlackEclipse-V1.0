@@ -53,6 +53,17 @@ proves the documentation obligation was considered rather than skipped.
   message changes.
   no doc change — UI affordance only; no architecture, contract, or data shape changed.
 
+- **Retrieval — remove the residual US default in the agent tool path (#1/#2)** —
+  The four retrieval tool handlers (`market_get_quote`, `market_get_ohlcv`,
+  `fundamentals_get_company_profile`, `fundamentals_get_financials`) injected
+  `market="US"` when the agent omitted it, so the bridge's ambiguity gate never
+  saw an unqualified request — the real leak on the common agent path. They now
+  pass `market=None`, and the tool descriptions no longer say "Default US."
+  Regression test `test_no_tool_injects_a_default_market` asserts no resolving
+  tool injects a market. Verified live: agent "price of FFC" returns both
+  instruments and refuses to guess.
+  docs updated: `docs/CHANGELOG.md`
+
 - **Retrieval — unify resolution, remove every default, FX/crypto, source health,
   statements (#1–#9)** — The identity gate previously covered only the quote
   fallback path, so the defect survived on the common (unqualified) path and on
