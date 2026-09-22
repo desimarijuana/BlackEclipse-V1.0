@@ -35,12 +35,20 @@ class SkillLoadError(Exception):
 
 @dataclass
 class LoadedSkill:
-    """One library entry: a validated manifest + where its prose lives."""
+    """One library entry: a validated manifest + where its prose lives.
+
+    `folder` may be empty for a user-authored skill persisted in eclipse-memory;
+    its procedure comes from `instructions_text` instead of a file.
+    """
 
     manifest: SkillManifest
     folder: str
     instructions_path: Optional[str]
     cases_path: Optional[str] = None
+    # Inline procedure for user-authored (DB-backed) skills. When set, it takes
+    # precedence over any file path.
+    instructions_text: Optional[str] = None
+    authored: bool = False
 
     def load_cases(self) -> list[dict[str, Any]]:
         """Read deterministic evaluation cases (`tests/cases.json`).
@@ -72,6 +80,8 @@ class LoadedSkill:
     def load_instructions(self, max_chars: int = 20_000) -> str:
         """Read the procedure text. Bounded so a runaway file cannot blow the
         prompt. Returns "" when the skill is manifest-only."""
+        if self.instructions_text is not None:
+            return self.instructions_text[:max_chars]
         if not self.instructions_path or not os.path.isfile(self.instructions_path):
             return ""
         with open(self.instructions_path, "r", encoding="utf-8") as handle:

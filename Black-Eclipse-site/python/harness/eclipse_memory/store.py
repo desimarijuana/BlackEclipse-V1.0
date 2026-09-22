@@ -772,6 +772,57 @@ class EclipseMemoryStore:
                     pass
         return record
 
+    # ── User-authored skills ────────────────────────────────────────────────
+
+    def save_user_skill(self, skill: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a user-authored skill. The `UserSkill` row is the
+        authoritative source for a user skill (re-materialised into the Skill/
+        SkillVersion tables on load)."""
+        now = now_iso()
+        existing = self._db.execute("SELECT id, createdAt FROM UserSkill WHERE id=?", (skill["id"],)).fetchone()
+        created_at = existing["createdAt"] if existing else (skill.get("createdAt") or now)
+        self._db.execute(
+            """INSERT INTO UserSkill
+               (id, name, description, category, tags, instructions, manifest, version, status, author, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, description=excluded.description, category=excluded.category,
+                 tags=excluded.tags, instructions=excluded.instructions, manifest=excluded.manifest,
+                 version=excluded.version, status=excluded.status, author=excluded.author,
+                 updatedAt=excluded.updatedAt""",
+            (
+                skill["id"], skill["name"], skill["description"], skill["category"],
+                json.dumps(skill.get("tags") or []), skill["instructions"],
+                json.dumps(skill["manifest"]), skill["version"], skill.get("status", "draft"),
+                skill.get("author"), created_at, now,
+            ),
+        )
+        self._db.commit()
+        return self.get_user_skill(skill["id"])  # type: ignore[return-value]
+
+    def get_user_skill(self, skill_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM UserSkill WHERE id=?", (skill_id,)).fetchone()
+        return _user_skill_row(row) if row else None
+
+    def list_user_skills(self) -> list[dict[str, Any]]:
+        rows = self._db.execute("SELECT * FROM UserSkill ORDER BY updatedAt DESC").fetchall()
+        return [_user_skill_row(r) for r in rows]
+
+    def delete_user_skill(self, skill_id: str) -> bool:
+        cursor = self._db.execute("DELETE FROM UserSkill WHERE id=?", (skill_id,))
+        self._db.commit()
+        return cursor.rowcount > 0
+
+    def delete_skill_records(self, skill_id: str) -> None:
+        """Remove a skill's materialised rows (Skill/SkillVersion/requirements).
+        Execution/evaluation history is intentionally retained where it exists;
+        this is only called for an unreferenced user skill."""
+        for table in ("SkillDependency", "SkillToolRequirement", "SkillPermissionRequirement"):
+            self._db.execute(f"DELETE FROM {table} WHERE skillId=?", (skill_id,))
+        self._db.execute("DELETE FROM SkillVersion WHERE skillId=?", (skill_id,))
+        self._db.execute("DELETE FROM Skill WHERE id=?", (skill_id,))
+        self._db.commit()
+
     # ── Health / lifecycle ──────────────────────────────────────────────────
 
     def migration_status(self) -> dict[str, Any]:
@@ -782,6 +833,17 @@ class EclipseMemoryStore:
 
     def close(self) -> None:
         self.db.close()
+
+
+def _user_skill_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    for key in ("tags", "manifest"):
+        if record.get(key):
+            try:
+                record[key] = json.loads(record[key])
+            except (TypeError, ValueError):
+                pass
+    return record
 
 
 def _memory_row(row: sqlite3.Row) -> dict[str, Any]:

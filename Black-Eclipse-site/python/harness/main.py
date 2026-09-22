@@ -464,6 +464,71 @@ def list_memory_events(limit: int = 100) -> dict[str, Any]:
     }
 
 
+@app.get("/skills/authoring/tools")
+def authorable_tools() -> dict[str, Any]:
+    """Tools a user skill may require, with the safe permission vocabulary."""
+    from .skills.permissions import SAFE_PERMISSIONS
+
+    return {
+        "success": True,
+        "tools": service.registry.names(),
+        "permissions": sorted(SAFE_PERMISSIONS),
+        "categories": ["research", "quality", "finance", "system"],
+        "riskLevels": ["low", "medium"],
+    }
+
+
+@app.post("/skills/author")
+def create_user_skill(payload: dict[str, Any]) -> dict[str, Any]:
+    """Create a user-authored skill (operator-gated)."""
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
+    from .skills.authoring import SkillAuthoringError
+
+    try:
+        result = service.skill_registry.create_user_skill(
+            name=str(payload.get("name") or ""),
+            description=str(payload.get("description") or ""),
+            instructions=str(payload.get("instructions") or ""),
+            category=str(payload.get("category") or "research"),
+            tags=payload.get("tags"),
+            required_tools=payload.get("requiredTools"),
+            permissions=payload.get("permissions"),
+            risk_level=str(payload.get("riskLevel") or "low"),
+            skill_id=payload.get("skillId"),
+        )
+    except SkillAuthoringError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **result}
+
+
+@app.put("/skills/{skill_id}/author")
+def update_user_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
+    from .skills.authoring import SkillAuthoringError
+
+    try:
+        result = service.skill_registry.update_user_skill(skill_id, **payload)
+    except SkillAuthoringError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **result}
+
+
+@app.delete("/skills/{skill_id}/author")
+def delete_user_skill(skill_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
+    from .skills.authoring import SkillAuthoringError
+
+    try:
+        result = service.skill_registry.delete_user_skill(skill_id)
+    except SkillAuthoringError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **result}
+
+
 @app.post("/skills/discover")
 def discover_skills(payload: dict[str, Any]) -> dict[str, Any]:
     results = service.skill_registry.discover(

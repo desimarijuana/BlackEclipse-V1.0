@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, RefreshCcw, Search, ShieldAlert, Sparkles,
+  AlertCircle, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,16 +32,20 @@ export function SkillLibrary({
   error,
   loadErrors,
   duplicates,
+  isOperator = false,
   onOpen,
   onRefresh,
+  onAdd,
 }: {
   skills: SkillSummary[];
   loading: boolean;
   error: string | null;
   loadErrors: string[];
   duplicates: string[];
+  isOperator?: boolean;
   onOpen: (id: string) => void;
   onRefresh: () => void;
+  onAdd: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
@@ -73,13 +77,18 @@ export function SkillLibrary({
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Skills Library</h2>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">
               Versioned financial procedures the agent executes through the same runtime as a chat turn.
-              Enable, evaluate and review them here.
+              Enable, evaluate and review them here — or write your own.
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="cursor-pointer rounded-xl shrink-0" onClick={onRefresh} disabled={loading}>
-          <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onRefresh} disabled={loading}>
+            <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
+          </Button>
+          <Button size="sm" className="cursor-pointer rounded-xl" onClick={onAdd} disabled={!isOperator} title={isOperator ? undefined : "Requires operator authorization"}>
+            <Plus size={13} className="mr-1" /> Add skill
+          </Button>
+        </div>
       </div>
 
       {(loadErrors.length > 0 || duplicates.length > 0) && (
@@ -141,6 +150,11 @@ export function SkillLibrary({
                 <span className="rounded-md border border-border/30 bg-accent/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
                   v{skill.latestVersion ?? skill.version}
                 </span>
+                {skill.origin === "author" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+                    <User size={9} /> Yours
+                  </span>
+                ) : null}
                 <RiskBadge risk={skill.riskLevel} />
                 <EvalBadge status={skill.evaluationStatus} />
               </div>

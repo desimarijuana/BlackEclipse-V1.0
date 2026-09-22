@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
-  FlaskConical, History, Info, Loader2, Play, Power, ScrollText, ShieldCheck, XCircle,
+  FlaskConical, History, Info, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
+  Trash2, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,8 @@ export function SkillDetailPanel({
   onRun,
   onEvaluate,
   onLifecycle,
+  onEdit,
+  onDelete,
 }: {
   skill: SkillDetailType | null;
   loading: boolean;
@@ -61,6 +64,8 @@ export function SkillDetailPanel({
   onRun: (skillId: string, input: Record<string, unknown>, mode: string) => void;
   onEvaluate: (skillId: string, version: string) => void;
   onLifecycle: (skillId: string, action: "enable" | "disable" | "deprecate" | "rollback", version?: string) => void;
+  onEdit?: (skill: SkillDetailType) => void;
+  onDelete?: (skillId: string) => void;
 }) {
   const [runInput, setRunInput] = useState("{}");
   const [runMode, setRunMode] = useState("interactive");
@@ -158,6 +163,20 @@ export function SkillDetailPanel({
             <Button variant="outline" size="sm" className="rounded-xl cursor-pointer text-rose-300" onClick={() => onLifecycle(skill.id, "deprecate")} disabled={!isOperator || skill.status === "deprecated"}>
               <XCircle size={13} className="mr-1" /> Deprecate
             </Button>
+            {skill.origin === "author" && onEdit && (
+              <Button variant="outline" size="sm" className="rounded-xl cursor-pointer" onClick={() => onEdit(skill)} disabled={!isOperator}>
+                <Pencil size={13} className="mr-1" /> Edit
+              </Button>
+            )}
+            {skill.origin === "author" && onDelete && (
+              <Button
+                variant="outline" size="sm" className="rounded-xl cursor-pointer text-rose-300"
+                onClick={() => { if (window.confirm(`Delete ${skill.name}? This cannot be undone.`)) onDelete(skill.id); }}
+                disabled={!isOperator}
+              >
+                <Trash2 size={13} className="mr-1" /> Delete
+              </Button>
+            )}
           </div>
           {!isOperator && (
             <p className="mt-2 flex items-center gap-1 text-[10px] text-amber-300/90">

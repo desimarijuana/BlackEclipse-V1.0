@@ -64,6 +64,7 @@ Black-Eclipse-site/
 | Work on the Eclipse Memory UI / API | `src/components/screens/eclipse-memory/`, `src/lib/harness/eclipse-memory-{browser,client,types}.ts`, routes `src/app/api/eclipse-memory/` |
 | Add/edit a runtime skill | A folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (+ optional `tests/cases.json`); it is loaded at runtime boot by `skills/loader.py` |
 | Work on the Skills UI | `src/components/screens/skills/` (`skills-screen.tsx` shell + library/detail/learning/evaluation/activity/draft panels), browser client `src/lib/harness/skills-browser.ts` |
+| Work on user-authored skills | Python `python/harness/skills/authoring.py` (validation) + `registry.py` (`create/update/delete_user_skill`) + `eclipse_memory/store.py` (`UserSkill`); UI `src/components/screens/skills/skill-author-form.tsx`; routes `src/app/api/skills/author/` |
 | Work on the skill front door / API | `src/lib/harness/skills-client.ts` (server), routes `src/app/api/skills/`, `src/app/api/learning/`, `src/app/api/skill-executions/`, `src/app/api/skill-drafts/`, `src/app/api/evaluations/` |
 | Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |

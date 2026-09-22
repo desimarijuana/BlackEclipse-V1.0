@@ -12,7 +12,7 @@ import { TabBar } from "@/components/ui/tab-bar";
 import {
   listSkills, getSkill, listCandidates, generateDraft, rejectCandidate,
   listSkillExecutions, learnFromRun, evaluateSkill, setSkillLifecycle,
-  executeSkill, approveDraft, rejectDraft, submitDraftReview,
+  executeSkill, approveDraft, rejectDraft, submitDraftReview, deleteUserSkill,
 } from "@/lib/harness/skills-browser";
 import type {
   LearningCandidate, SkillDetail, SkillExecutionRecord, SkillSummary,
@@ -23,6 +23,7 @@ import { LearningQueue } from "./learning-queue";
 import { EvaluationCenter } from "./evaluation-center";
 import { ExecutionActivity, type ExecutionWithSkill } from "./execution-activity";
 import { DraftReview } from "./draft-review";
+import { SkillAuthorForm } from "./skill-author-form";
 
 type Tab = "library" | "learning" | "evaluation" | "activity";
 
@@ -47,6 +48,8 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [executionsError, setExecutionsError] = useState<string | null>(null);
 
   const [toast, setToast] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  // Authoring: null = closed; "new" = create; a SkillDetail = edit that skill.
+  const [authoring, setAuthoring] = useState<"new" | SkillDetail | null>(null);
 
   const flash = useCallback((tone: "ok" | "error", text: string) => {
     setToast({ tone, text });
@@ -134,7 +137,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "execution failed");
     }
-  }, [flash, isOperator, openSkill]);
+  }, [flash, openSkill]);
 
   const handleEvaluate = useCallback(async (skillId: string, version: string) => {
     flash("ok", "Running evaluation…");
@@ -169,7 +172,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "draft failed");
     }
-  }, [flash, isOperator, loadCandidates]);
+  }, [flash, loadCandidates]);
 
   const handleRejectCandidate = useCallback(async (candidateId: string) => {
     try {
@@ -179,7 +182,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "reject failed");
     }
-  }, [flash, isOperator, loadCandidates]);
+  }, [flash, loadCandidates]);
 
   const handleSubmitReview = useCallback(async (skillId: string) => {
     try {
@@ -189,7 +192,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "submit failed");
     }
-  }, [flash, isOperator, openSkill]);
+  }, [flash, openSkill]);
 
   const handleApproveDraft = useCallback(async (skillId: string, requestId: string) => {
     try {
@@ -200,7 +203,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "approve failed");
     }
-  }, [flash, isOperator, openSkill, loadSkills]);
+  }, [flash, openSkill, loadSkills]);
 
   const handleRejectDraft = useCallback(async (skillId: string, requestId: string) => {
     try {
@@ -210,7 +213,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "reject failed");
     }
-  }, [flash, isOperator, openSkill]);
+  }, [flash, openSkill]);
 
   const handleLearn = useCallback(async (runId: string) => {
     try {
@@ -222,7 +225,22 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "learning failed");
     }
-  }, [flash, isOperator, loadCandidates]);
+  }, [flash, loadCandidates]);
+
+  const handleDeleteSkill = useCallback(async (skillId: string) => {
+    try {
+      const result = await deleteUserSkill(skillId);
+      if (result.deleted) {
+        flash("ok", `${skillId} deleted`);
+      } else {
+        flash("ok", result.reason ?? `${skillId} deprecated (retained for history)`);
+      }
+      setDetail(null);
+      await loadSkills();
+    } catch (err) {
+      flash("error", err instanceof Error ? err.message : "delete failed");
+    }
+  }, [flash, loadSkills]);
 
   const tabs = useMemo(() => [
     { id: "library", label: "Skills Library", icon: Library },
@@ -262,6 +280,8 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
             onRun={handleRun}
             onEvaluate={handleEvaluate}
             onLifecycle={handleLifecycle}
+            onEdit={(skill) => setAuthoring(skill)}
+            onDelete={handleDeleteSkill}
           />
         </>
       ) : (
@@ -274,8 +294,10 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
               error={listError}
               loadErrors={loadErrors}
               duplicates={duplicates}
+              isOperator={isOperator}
               onOpen={openSkill}
               onRefresh={loadSkills}
+              onAdd={() => setAuthoring("new")}
             />
           )}
           {tab === "learning" && (
@@ -306,6 +328,19 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
             />
           )}
         </>
+      )}
+
+      {authoring && (
+        <SkillAuthorForm
+          editing={authoring === "new" ? null : authoring}
+          onClose={() => setAuthoring(null)}
+          onSaved={async (skillId) => {
+            setAuthoring(null);
+            flash("ok", authoring === "new" ? "Skill created" : "New skill version saved");
+            await loadSkills();
+            await openSkill(skillId);
+          }}
+        />
       )}
     </div>
   );

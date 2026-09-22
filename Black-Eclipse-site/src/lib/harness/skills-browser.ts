@@ -109,6 +109,50 @@ export async function setSkillLifecycle(skillId: string, action: "enable" | "dis
   );
 }
 
+export interface AuthoringMeta {
+  tools: string[];
+  permissions: string[];
+  categories: string[];
+  riskLevels: string[];
+}
+
+export async function getAuthoringMeta(): Promise<AuthoringMeta> {
+  return api<AuthoringMeta>("/api/skills/authoring/tools");
+}
+
+export interface AuthorSkillInput {
+  name: string;
+  description: string;
+  instructions: string;
+  category?: string;
+  tags?: string[];
+  requiredTools?: string[];
+  permissions?: string[];
+  riskLevel?: string;
+  skillId?: string;
+}
+
+export async function createUserSkill(payload: AuthorSkillInput) {
+  return api<{ success: boolean; skillId: string; version: string; status: string }>("/api/skills/author", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateUserSkill(skillId: string, patch: Partial<AuthorSkillInput>) {
+  return api<{ success: boolean; skillId: string; version: string; status: string }>(
+    `/api/skills/${encodeURIComponent(skillId)}/author`,
+    { method: "PUT", body: JSON.stringify(patch) }
+  );
+}
+
+export async function deleteUserSkill(skillId: string) {
+  return api<{ success: boolean; skillId: string; deleted: boolean; status?: string; reason?: string }>(
+    `/api/skills/${encodeURIComponent(skillId)}/author`,
+    { method: "DELETE", body: JSON.stringify({}) }
+  );
+}
+
 export async function submitDraftReview(skillId: string, reason: string, evaluationId?: string) {
   return api<{ success?: boolean; error?: string; requestId?: string }>(
     `/api/skill-drafts/${encodeURIComponent(skillId)}/submit-review`,

@@ -394,6 +394,34 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 3 — user-authored skills. Separate from the derived `Skill`/
+# `SkillVersion` rows (which are rebuilt from the source): this table is the
+# authoritative source for a user skill, so it can be re-materialised on boot.
+MIGRATIONS.append(
+    (
+        3,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS UserSkill (
+              id           TEXT PRIMARY KEY,
+              name         TEXT NOT NULL,
+              description  TEXT NOT NULL,
+              category     TEXT NOT NULL,
+              tags         TEXT NOT NULL DEFAULT '[]',
+              instructions TEXT NOT NULL,
+              manifest     TEXT NOT NULL,
+              version      TEXT NOT NULL,
+              status       TEXT NOT NULL DEFAULT 'draft',
+              author       TEXT,
+              createdAt    TEXT NOT NULL,
+              updatedAt    TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_userskill_status ON UserSkill(status);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

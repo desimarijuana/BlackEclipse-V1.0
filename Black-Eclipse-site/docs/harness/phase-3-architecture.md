@@ -27,6 +27,27 @@ The skill's `SKILL.md` is composed into an `AgentConfig.systemPrompt`, its
 `requiredTools` become the run's tool allowlist, and its input is serialized
 into the run input. There is deliberately no second execution engine.
 
+## User-authored skills
+
+Users can write their own skills from the **Skills Library** ("Add skill"). A
+user skill is stored in **eclipse-memory** (`UserSkill` table, migration 3) —
+not on disk, because the runtime has no filesystem-write path by design — and is
+materialised into the same `Skill`/`SkillVersion` tables and the same
+`SkillRegistry` as built-ins. It is therefore discovered, validated and executed
+exactly like a built-in, and the agent can use it via `skill_list`/`skill_view`
+once it exists.
+
+Safety, enforced in code:
+
+- The manifest is validated by the same pydantic `SkillManifest`.
+- A user skill may declare **only the safe, read-only permission set**;
+  operator-only and forbidden permissions are rejected at author time.
+- Required tools must exist in the runtime registry.
+- Authoring requires operator authorization (same gate as every mutation).
+- Editing a skill always creates a **new version**; the enabled version is never
+  mutated. Built-ins cannot be edited or deleted. A user skill with execution
+  history is **deprecated, not deleted**, so history is preserved.
+
 ## Where it lives
 
 ```

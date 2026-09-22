@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Skills — user-authored skills** — users can now write their own skills from
+  the Skills Library ("Add skill") and the agent can use them. A user skill is
+  validated by the same pydantic manifest, may declare only the safe read-only
+  permission set, must reference real tools, and is stored in eclipse-memory
+  (`UserSkill`) then materialised into the same registry/`Skill`/`SkillVersion`
+  tables as built-ins — so discovery, validation, execution and `skill_list`/
+  `skill_view` all work unchanged. Editing creates a new version; built-ins are
+  immutable; a skill with execution history is deprecated rather than deleted.
+  New endpoints `GET /skills/authoring/tools`, `POST /skills/author`,
+  `PUT/DELETE /skills/{id}/author` (+ TS routes) and an author form in the UI.
+  docs updated: `docs/harness/phase-3-architecture.md`, `docs/NAVIGATION.md`.
+
 - **UI / Navigation** — the sidebar now has two top-level modes, **Terminal**
   (market tools) and **Agentic** (ChatBot, Skills, Eclipse Memory), switched by a
   segmented control at the top of the menu and by **Alt+T / Alt+A**. The active

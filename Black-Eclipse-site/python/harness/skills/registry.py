@@ -101,20 +101,44 @@ class SkillRegistry:
             for dup in self._duplicates:
                 errors.append(f"duplicate skill id {dup!r} — later definition ignored")
 
-        # First pass: ensure Skill + version rows exist.
-        for loaded in loaded_all:
+        # Materialise user-authored skills (stored in eclipse-memory) into the
+        # SAME registry + Skill/SkillVersion tables, so they are discovered,
+        # validated and executed exactly like built-ins.
+        for user_skill in self.store.list_user_skills():
+            try:
+                manifest = SkillManifest(**user_skill["manifest"])
+            except Exception as exc:  # noqa: BLE001 - a bad row must not kill boot
+                errors.append(f"user skill {user_skill['id']!r} has an invalid manifest: {exc}")
+                continue
+            self.register(LoadedSkill(
+                manifest=manifest,
+                folder="",
+                instructions_path=None,
+                instructions_text=user_skill["instructions"],
+                authored=True,
+            ))
+
+        # Persist Skill + version rows for BOTH built-in and user skills. A user
+        # skill's stored lifecycle status (set via enable/disable) is preserved:
+        # we never reset it back to the manifest default on reload.
+        for loaded in self._skills.values():
             manifest = loaded.manifest
+            existing = self.store.get_skill(manifest.id)
+            status = existing["status"] if existing and loaded.authored else manifest.status
             self.store.upsert_skill(
                 skill_id=manifest.id,
                 name=manifest.name,
                 description=manifest.description,
                 category=manifest.category,
                 latest_version=manifest.version,
-                status=manifest.status,
+                status=status,
                 tags=manifest.tags,
             )
             try:
-                self.store.save_version(manifest.model_dump(), manifest.content_hash())
+                self.store.save_version(
+                    manifest.model_dump(), manifest.content_hash(),
+                    instructions=loaded.instructions_text,
+                )
             except ValueError:
                 pass  # immutable version already stored — fine
             # Persist the skill's deterministic cases (idempotent: replace the
@@ -123,6 +147,136 @@ class SkillRegistry:
             if cases:
                 self.store.replace_evaluation_cases(manifest.id, manifest.version, cases)
         return errors
+
+    # ── User authoring ──────────────────────────────────────────────────────
+
+    def create_user_skill(
+        self,
+        *,
+        name: str,
+        description: str,
+        instructions: str,
+        category: str = "research",
+        tags: Optional[list[str]] = None,
+        required_tools: Optional[list[str]] = None,
+        permissions: Optional[list[str]] = None,
+        risk_level: str = "low",
+        skill_id: Optional[str] = None,
+        author: str = "user",
+    ) -> dict[str, Any]:
+        """Validate and persist a new user skill, then register it live.
+
+        The skill is created `enabled` (a user writing their own procedure should
+        be able to use it), but only after passing the same validation a built-in
+        must pass: safe permissions, real tools, a well-formed manifest.
+        """
+        from .authoring import SkillAuthoringError, build_user_manifest, suggest_skill_id, validate_against_tools
+
+        existing_ids = set(self._skills.keys())
+        resolved_id = skill_id or suggest_skill_id(name, existing_ids=existing_ids)
+        if resolved_id in existing_ids:
+            raise SkillAuthoringError(f"skill id {resolved_id!r} already exists")
+
+        manifest = build_user_manifest(
+            skill_id=resolved_id, name=name, description=description,
+            instructions=instructions, category=category, tags=tags,
+            required_tools=required_tools, permissions=permissions,
+            risk_level=risk_level, status="enabled", author=author,
+        )
+        validate_against_tools(manifest, self._tool_names())
+
+        self.store.save_user_skill({
+            "id": manifest.id, "name": manifest.name, "description": manifest.description,
+            "category": manifest.category, "tags": manifest.tags, "instructions": instructions,
+            "manifest": manifest.model_dump(), "version": manifest.version,
+            "status": "enabled", "author": author,
+        })
+        self._materialise_manifest(manifest, instructions)
+        self._register_user_manifest(manifest, instructions)
+        return {"skillId": manifest.id, "version": manifest.version, "status": "enabled"}
+
+    def update_user_skill(
+        self, skill_id: str, **patch: Any
+    ) -> dict[str, Any]:
+        """Edit a user skill. Always produces a NEW version — an enabled version
+        is never mutated in place. Built-in skills cannot be edited."""
+        from .authoring import SkillAuthoringError, build_user_manifest, next_version, validate_against_tools
+
+        record = self.store.get_user_skill(skill_id)
+        if record is None:
+            raise SkillAuthoringError(f"{skill_id!r} is not a user skill (built-ins cannot be edited)")
+
+        new_version = next_version(record["version"])
+        merged = {
+            "name": patch.get("name", record["name"]),
+            "description": patch.get("description", record["description"]),
+            "instructions": patch.get("instructions", record["instructions"]),
+            "category": patch.get("category", record["category"]),
+            "tags": patch.get("tags", record["tags"]),
+            "required_tools": patch.get("requiredTools", record["manifest"].get("requiredTools")),
+            "permissions": patch.get("permissions", record["manifest"].get("permissions")),
+            "risk_level": patch.get("riskLevel", record["manifest"].get("riskLevel", "low")),
+        }
+        current_status = self.store.get_skill(skill_id)
+        status = current_status["status"] if current_status else record["status"]
+
+        manifest = build_user_manifest(
+            skill_id=skill_id, version=new_version, status=status, author=record.get("author") or "user",
+            **merged,
+        )
+        validate_against_tools(manifest, self._tool_names())
+
+        self.store.save_user_skill({
+            "id": skill_id, "name": manifest.name, "description": manifest.description,
+            "category": manifest.category, "tags": manifest.tags, "instructions": merged["instructions"],
+            "manifest": manifest.model_dump(), "version": new_version,
+            "status": status, "author": record.get("author"),
+        })
+        self._materialise_manifest(manifest, merged["instructions"])
+        self.store.set_latest_version(skill_id, new_version)
+        self.store.append_event("skill.user_updated", skill_id=skill_id, version=new_version)
+        self._register_user_manifest(manifest, merged["instructions"])
+        return {"skillId": skill_id, "version": new_version, "status": status}
+
+    def delete_user_skill(self, skill_id: str) -> dict[str, Any]:
+        """Delete a user skill. Built-ins cannot be deleted. A user skill that
+        has been referenced by a run is retained for audit instead (marked
+        deprecated) — history is never destroyed silently."""
+        from .authoring import SkillAuthoringError
+
+        if self.store.get_user_skill(skill_id) is None:
+            raise SkillAuthoringError(f"{skill_id!r} is not a user skill (built-ins cannot be deleted)")
+        referenced = any(e["skillId"] == skill_id for e in self.store.list_executions(skill_id, limit=1))
+        if referenced:
+            self.store.set_version_status(skill_id, self.resolve_version(skill_id) or "1.0.0", "deprecated")
+            return {"skillId": skill_id, "status": "deprecated", "deleted": False,
+                    "reason": "skill has execution history; deprecated instead of deleted"}
+        self.store.delete_user_skill(skill_id)
+        self.store.delete_skill_records(skill_id)
+        self._skills.pop(skill_id, None)
+        self.store.append_event("skill.user_deleted", skill_id=skill_id)
+        return {"skillId": skill_id, "deleted": True}
+
+    def _materialise_manifest(self, manifest: SkillManifest, instructions: Optional[str]) -> None:
+        """Write a user skill's derived Skill/SkillVersion rows immediately, so
+        it is fully usable in the same session (not only after a reload)."""
+        self.store.upsert_skill(
+            skill_id=manifest.id, name=manifest.name, description=manifest.description,
+            category=manifest.category, latest_version=manifest.version,
+            status=manifest.status, tags=manifest.tags,
+        )
+        try:
+            self.store.save_version(
+                manifest.model_dump(), manifest.content_hash(), instructions=instructions,
+            )
+        except ValueError:
+            pass  # version already materialised
+
+    def _register_user_manifest(self, manifest: SkillManifest, instructions: str) -> None:
+        self._skills[manifest.id] = LoadedSkill(
+            manifest=manifest, folder="", instructions_path=None,
+            instructions_text=instructions, authored=True,
+        )
 
     # ── Lookups ─────────────────────────────────────────────────────────────
 
