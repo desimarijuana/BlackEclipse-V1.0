@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/Harness — fix: a failed turn bricked the conversation (400 on every
+  send)** — Reported as "not getting output, something went wrong". The dev log
+  showed repeated `POST /api/harness/chat[/stream] 400 INVALID_INPUT`. Phase 1
+  changed failed/cancelled assistant turns to `content: ""` (with `status`), but
+  the front door's history validator required non-empty content — so one failed
+  turn made every following request in that conversation fail with 400.
+  `validation.ts` now skips empty history turns (malformed roles still
+  rejected), and `registry.buildPayload` + `stock-chat` omit empty turns client
+  side. Verified live (200 on both chat paths with an empty turn in history);
+  regression tests added.
+  docs updated: `docs/chat-ui-audit.md` §20, `docs/CHANGELOG.md`
+
 - **Harness — fix: retrieval source activity never reached the UI** — The chat
   activity feed could show tool steps but never the sources a retrieval tool
   consulted. Root cause: the run's `ToolContext` was built with a no-op

@@ -32,8 +32,31 @@ describe("validateRunInput (front door)", () => {
     expect(result.issues).toContain("context must be an object");
   });
 
-  it("accepts and bounds attached documents", () => {
+  it("skips empty history turns instead of rejecting the request", () => {
+    // A cancelled/failed assistant turn persists as content:"". It must not
+    // brick later messages: the run is accepted with that turn dropped.
     const result = validateRunInput({
+      query: "follow up",
+      history: [
+        { role: "user", content: "first question" },
+        { role: "assistant", content: "" },
+        { role: "user", content: "  " },
+        { role: "assistant", content: "a real answer" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value?.history).toEqual([
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "a real answer" },
+    ]);
+  });
+
+  it("still rejects a malformed history role", () => {
+    const result = validateRunInput({ query: "hi", history: [{ role: "system", content: "x" }] });
+    expect(result.ok).toBe(false);
+  });
+
+  it("accepts and bounds attached documents", () => {    const result = validateRunInput({
       query: "summarize this",
       documents: [{ name: "a.md", text: "# Heading" }],
     });

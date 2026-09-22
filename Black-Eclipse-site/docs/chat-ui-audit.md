@@ -651,6 +651,29 @@ before they reached the stream.
   feed shows retrieval sources as their own rows, correlated by name when no
   `toolCallId` exists.
 
+### Bug fixed — a failed/cancelled turn bricked the whole conversation
+
+Reported symptom: "not getting output, something went wrong." The dev log showed
+repeated `POST /api/harness/chat 400` / `chat/stream 400` with
+`INVALID_INPUT`.
+
+- **Regression introduced in Phase 1.** Failed and cancelled assistant turns
+  moved from a non-empty string (`Error: …`, `Run stopped.`) to a structured
+  turn with `content: ""` + `status: error|cancelled`. The front door's history
+  validator (`validation.ts`) required every turn to have non-empty content, so
+  the empty turn made **every subsequent request in that conversation** fail
+  with 400 — the user saw "something went wrong" forever after one failure.
+- **Fix (both ends).**
+  - `validation.ts`: an empty history turn is now **skipped**, not an error
+    (`if (!content.trim()) continue;`). A malformed role is still rejected.
+  - `registry.ts` `buildPayload` and `stock-chat.tsx`'s history builder now omit
+    empty turns, so the client does not send them either.
+- **Verified live:** a request whose history contains
+  `{ role: "assistant", content: "" }` returns 200 on both `/api/harness/chat`
+  and `/api/harness/chat/stream`. Regression tests added in
+  `validation.test.ts`.
+
+
 
 
 

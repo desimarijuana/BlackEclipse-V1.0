@@ -480,8 +480,11 @@ function StockChatContent() {
     runInFlightRef.current = true;
 
     const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [userMsg];
+    // Drop empty turns (cancelled/failed replies persist as ""). They carry no
+    // context for the model and the front door would otherwise reject the run.
     const history: { role: 'user' | 'assistant'; content: string }[] = existing
       .slice(0, -1)
+      .filter((m) => m.content.trim().length > 0)
       .map((m) => ({ role: m.role, content: m.content }));
 
     // A placeholder assistant turn. Its fields are filled by the shared run

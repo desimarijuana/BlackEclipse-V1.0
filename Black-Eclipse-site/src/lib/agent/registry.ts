@@ -48,8 +48,11 @@ export function statusFromEvent(type: string, data: Record<string, unknown> | un
 function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
   const last = [...messages].reverse().find((m) => m.role === 'user');
   const query = last?.content ?? '';
+  // Skip empty turns: a cancelled/failed assistant reply is persisted with
+  // `content: ""`, and sending it would make the front door reject the whole
+  // run (400 INVALID_INPUT) — bricking the conversation after one failure.
   const history = messages
-    .filter((m) => m !== last && (m.role === 'user' || m.role === 'assistant'))
+    .filter((m) => m !== last && (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
   // The client owns the run id so cancellation is possible while in flight.
   const runId =

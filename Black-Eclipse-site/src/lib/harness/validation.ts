@@ -73,10 +73,11 @@ export function validateRunInput(raw: unknown): InputValidationResult {
           issues.push(`history[${i}].role must be "user" or "assistant"`);
           continue;
         }
-        if (!content) {
-          issues.push(`history[${i}].content is required`);
-          continue;
-        }
+        // An empty turn is a legitimate partial: a cancelled or failed
+        // assistant reply persists as `content: ""`. Skip it rather than
+        // rejecting the whole request — otherwise one failed turn would poison
+        // every later message in that conversation (front door returns 400).
+        if (!content.trim()) continue;
         turns.push({ role, content: content.slice(0, MAX_HISTORY_CONTENT) });
       }
       if (turns.length > MAX_HISTORY_TURNS) turns.splice(0, turns.length - MAX_HISTORY_TURNS);
