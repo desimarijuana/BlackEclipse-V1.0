@@ -15,8 +15,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAgentProvider } from './registry';
 import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
-import type { ActivityItem, AssistantTurn } from './response-model';
+import type { AssistantTurn } from './response-model';
 import { emptyTurn } from './response-model';
+import { endActivity, initialActivityState, startActivity } from './activity-reducer';
 
 export interface StartRunArgs {
   /** Conversation turns BEFORE the new user message (role + content). */
@@ -60,6 +61,9 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
   const mountedRef = useRef(true);
   const onTurnRef = useRef(options.onTurn);
   onTurnRef.current = options.onTurn;
+  // Activity instance bookkeeping (unique ids + start→end correlation). Kept in
+  // a ref so the reducer state survives the rAF-coalesced publishes.
+  const activityStateRef = useRef(initialActivityState());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -104,45 +108,23 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           break;
         }
         case 'activity_start': {
-          t.activities.push({ ...event.item });
+          const state = activityStateRef.current;
+          startActivity(state, event.item);
+          t.activities = [...state.activities];
           publish(true);
           break;
         }
         case 'activity_end': {
-          // Correlate by id, else fall back to the most recent still-running
-          // item with the same name (retrieval events have no toolCallId).
-          let idx = -1;
-          if (event.id) idx = t.activities.findIndex((a) => a.id === event.id);
-          if (idx === -1) {
-            for (let i = t.activities.length - 1; i >= 0; i -= 1) {
-              const a = t.activities[i];
-              if (a.name === event.name && a.status === 'running') {
-                idx = i;
-                break;
-              }
-            }
-          }
-          if (idx !== -1) {
-            const item: ActivityItem = {
-              ...t.activities[idx],
-              status: event.status,
-              durationMs: event.durationMs ?? t.activities[idx].durationMs,
-              code: event.code ?? t.activities[idx].code,
-              summary: event.summary ?? t.activities[idx].summary,
-            };
-            t.activities[idx] = item;
-          } else {
-            t.activities.push({
-              id: event.id ?? `end:${event.name}`,
-              kind: 'tool',
-              name: event.name,
-              label: event.name,
-              status: event.status,
-              durationMs: event.durationMs,
-              code: event.code,
-              summary: event.summary,
-            });
-          }
+          const state = activityStateRef.current;
+          endActivity(state, {
+            id: event.id,
+            name: event.name,
+            status: event.status,
+            durationMs: event.durationMs,
+            code: event.code,
+            summary: event.summary,
+          });
+          t.activities = [...state.activities];
           publish(true);
           break;
         }
@@ -180,6 +162,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
       // Fresh turn for this request.
       turnRef.current = emptyTurn();
       turnRef.current.status = 'queued';
+      activityStateRef.current = initialActivityState();
       publish(true);
       setActive(true);
       setRunId(null);

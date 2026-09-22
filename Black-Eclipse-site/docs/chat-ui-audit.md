@@ -673,6 +673,23 @@ repeated `POST /api/harness/chat 400` / `chat/stream 400` with
   and `/api/harness/chat/stream`. Regression tests added in
   `validation.test.ts`.
 
+### Bug fixed — duplicate React keys in the activity feed
+
+Reported console error: `Encountered two children with the same key,
+retrieval:LIVE_STRUCTURED:macro_series`.
+
+- **Cause.** The normalizer emits *deterministic* ids
+  (`retrieval:<source>:<dataType>`, `tool:<name>`). A run that consults the same
+  source (or calls the same tool) twice therefore produced two activity items
+  with the same id, so `ActivityFeed` keyed two rows identically — React
+  duplicates or drops them.
+- **Fix.** New pure `lib/agent/activity-reducer.ts`: each activity *instance*
+  gets a unique id (`<logical>#<seq>`) while a logical-id → instance stack keeps
+  start→end correlation LIFO, so overlapping runs of the same operation still
+  resolve correctly. `use-agent-run` delegates to it. A `hasUniqueIds` invariant
+  and five reducer tests (including the exact duplicate-id case) were added.
+
+
 
 
 

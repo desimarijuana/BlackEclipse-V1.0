@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — fix: duplicate React keys in the activity feed** — Console error
+  `Encountered two children with the same key, retrieval:LIVE_STRUCTURED:macro_series`.
+  The normalizer emits deterministic ids, so a run consulting the same source or
+  tool twice produced duplicate activity ids and React duplicated/omitted rows.
+  A new pure reducer (`lib/agent/activity-reducer.ts`) assigns each activity
+  instance a unique id while a logical-id→instance stack preserves start→end
+  correlation (LIFO, so overlapping runs resolve correctly); `use-agent-run`
+  delegates to it. Five reducer tests added, including the exact duplicate case.
+  docs updated: `docs/chat-ui-audit.md` §20, `docs/CHANGELOG.md`
+
 - **Chat/Harness — fix: a failed turn bricked the conversation (400 on every
   send)** — Reported as "not getting output, something went wrong". The dev log
   showed repeated `POST /api/harness/chat[/stream] 400 INVALID_INPUT`. Phase 1
