@@ -15,7 +15,6 @@ from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
 from .persistence import AgentMemoryStore
-from .retrieval import FinancialRetrievalLayer
 from .retrieval.cache import RetrievalCache
 from .retrieval_tools import register_retrieval_tools
 from .schemas import HarnessError, RunRequest, RunResult
@@ -70,7 +69,9 @@ class AgenticService:
 
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
-        _layer = FinancialRetrievalLayer(bridge, cache=self.retrieval_cache)
+        # The retrieval layer is built lazily by the retrieval tools from the
+        # run context (so its events reach the emitter); only the shared cache is
+        # passed here.
         return await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
 
     async def run_background(self, request: RunRequest) -> None:

@@ -616,6 +616,42 @@ All helpers (`isNumericText`, `isNegativeValue`, `isUnavailableText`,
 events); structured metric/chart blocks in chat (no wire contract); retrieval →
 parent-tool correlation is heuristic (R3).
 
+---
+
+## 20. Post-phase fixes (2026-09-22)
+
+### Bug fixed — retrieval activity never reached the UI
+
+The Phase-3 activity feed could show tool steps but **never the sources a tool
+consulted**, because the retrieval layer's `retrieval.*` events were dropped
+before they reached the stream.
+
+- `graph.py` built the run's `ToolContext` with `log=lambda m, d=None: None` — a
+  **no-op**. `retrieval_tools._event_logger` forwarded retrieval events only to
+  that callback, so `retrieval.planned` / `source_start` / `source_ok` /
+  `source_unavailable` were silently discarded (never emitted, never persisted,
+  never streamed).
+- Fix: `ToolContext` gained an `emitter` field; `graph.py` attaches the run's
+  `RunEmitter`; `_event_logger` now `await emitter.emit(...)` when present and
+  falls back to `ctx.log` otherwise (unit tests). The run's per-run
+  `FinancialRetrievalLayer` is now the only one built (an unused layer in
+  `service.run` was removed, which had also been constructed without any event
+  hook).
+- Verified live: a quote query now streams `retrieval.planned` (1),
+  `retrieval.source_start` (1), `retrieval.source_ok` (1) alongside the tool
+  events. A regression test (`test_graph.py`) asserts these reach the bus.
+
+### Also observed
+
+- The transient `SyntaxError: Unexpected end of JSON input` / `/api/forex` 500
+  seen earlier did not reproduce after a clean restart: the data bridge returns
+  200 and forex returns 200. It was Python-bridge start-up churn, not a code
+  defect; left as-is rather than patching a non-reproducing symptom.
+- `R3` (retrieval → parent-tool correlation) is now moot for the live UI: the
+  feed shows retrieval sources as their own rows, correlated by name when no
+  `toolCallId` exists.
+
+
 
 
 

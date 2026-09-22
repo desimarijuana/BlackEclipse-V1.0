@@ -59,8 +59,21 @@ def _layer(ctx: ToolContext) -> FinancialRetrievalLayer:
 
 
 def _event_logger(ctx: ToolContext):
+    """Forward retrieval-layer events to the run's emitter.
+
+    The retrieval layer emits `retrieval.*` events (planned, cache_hit,
+    source_start, source_ok, source_unavailable). These must ride the run's SSE
+    stream so the UI can show which sources were consulted and whether any
+    failed — a plain `ctx.log` no-op would discard them. Falls back to the log
+    callback when no emitter is attached (e.g. unit tests).
+    """
+    emitter = getattr(ctx, "emitter", None)
+
     async def _log(event_type: str, data: dict[str, Any]) -> None:
-        ctx.log(f"retrieval:{event_type}", data)
+        if emitter is not None:
+            await emitter.emit(event_type, data)
+        else:
+            ctx.log(f"retrieval:{event_type}", data)
 
     return _log
 

@@ -400,13 +400,26 @@ async def test_retrieval_tool_runs_through_the_graph(store, monkeypatch):
             "price": {"price": 240.10, "changePct": 1.1, "volume": 1000, "marketCap": None, "peRatio": None},
         }
     )
-    result = await graph_module.execute_run(request(), registry_with_retrieval(), bridge, store)
+    # Capture bus events so we can prove retrieval.* reaches the live stream —
+    # the events were previously swallowed by a no-op log callback, so the UI's
+    # source activity never rendered.
+    from harness.events import EventBus
+
+    bus = EventBus()
+    seen: list[str] = []
+    bus.subscribe(lambda e: seen.append(e["type"]))
+
+    result = await graph_module.execute_run(request(), registry_with_retrieval(), bridge, store, bus=bus)
     assert result.status == "completed"
     assert result.toolCalls == 1 and result.toolErrors == 0
     tools = store.list_tool_executions("run_test")
     assert tools[0]["name"] == "market_get_quote"
     assert tools[0]["ok"] is True
     assert "Retrieval status: OK" in tools[0]["text"]
+    # The retrieval layer's source selection must be observable.
+    assert "retrieval.planned" in seen
+    assert "retrieval.source_start" in seen
+    assert "retrieval.source_ok" in seen
 
 
 @pytest.mark.asyncio

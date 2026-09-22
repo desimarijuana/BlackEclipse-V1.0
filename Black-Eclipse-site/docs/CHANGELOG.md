@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Harness — fix: retrieval source activity never reached the UI** — The chat
+  activity feed could show tool steps but never the sources a retrieval tool
+  consulted. Root cause: the run's `ToolContext` was built with a no-op
+  `log` callback, so the retrieval layer's `retrieval.planned` / `source_start` /
+  `source_ok` / `source_unavailable` events were discarded before reaching the
+  emitter, trace or SSE stream. `ToolContext` now carries the run `emitter`,
+  `retrieval_tools._event_logger` emits through it (falling back to `log` in
+  unit tests), and an unused per-run layer in `service.run` was removed.
+  Verified live: a quote query streams `retrieval.planned` + `source_start` +
+  `source_ok`; a graph regression test asserts the events reach the bus.
+  docs updated: `docs/chat-ui-audit.md` §20, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 6 performance, a11y & quality** — Found and fixed the
   hottest write in the chat: both surfaces serialized the whole transcript to
   localStorage on every streamed frame (~60×/s during a long answer). Streaming

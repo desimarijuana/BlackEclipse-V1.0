@@ -56,6 +56,10 @@ class ToolContext:
     retrieval: Any = None
     # Lazily-attached per-run retrieval cache, shared by the layer and tools.
     retrieval_cache: Any = None
+    # The run's event emitter (RunEmitter). Retrieval tools publish their
+    # `retrieval.*` events through this so they reach the live SSE stream and the
+    # persisted trace — a plain `log` callback would silently discard them.
+    emitter: Any = None
 
 
 class DataBridge:
