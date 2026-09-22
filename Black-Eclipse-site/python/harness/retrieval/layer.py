@@ -45,7 +45,7 @@ from .planner import (
 )
 from .sources import RetrievalSource, SourceOutcome
 from .structured import JddsSource, LiveStructuredSource
-from .validate import validate_objects
+from .validate import detect_incomplete, validate_objects
 from .web import WebResearchSource
 
 # Data types where a single best source is expected (not multi-source synthesis).
@@ -66,6 +66,7 @@ class FinancialRetrievalLayer:
         bridge: Optional[DataBridge],
         cache: Optional[RetrievalCache] = None,
         on_event: Optional[Any] = None,
+        store: Optional[Any] = None,
     ) -> None:
         self._sources: dict[str, RetrievalSource] = {
             STRUCTURED_VAULT: JddsSource(bridge),
@@ -74,10 +75,15 @@ class FinancialRetrievalLayer:
         }
         self.cache = cache or RetrievalCache()
         self._on_event = on_event
+        # D1: a durable retrieval store (agent-memory.db). A parsed result is
+        # persisted and replayed for an identical request, so the same query
+        # yields the same figures and citations instead of re-scraping.
+        self._store = store
         # Performance counters (reported, never fabricated).
         self.metrics: dict[str, int] = {
             "requests": 0,
             "cacheHits": 0,
+            "durableHits": 0,
             "cacheMisses": 0,
             "deduplicated": 0,
             "sourceCalls": 0,
@@ -95,6 +101,16 @@ class FinancialRetrievalLayer:
         plan = plan_retrieval(request, available_sources=self.available_sources(request))
         await self._emit("retrieval.planned", {"dataType": request.dataType, "strategy": plan.sources, "rationale": plan.rationale})
 
+        # ── Durable replay (D1): an identical request returns the stored result.
+        # Deterministic by construction — no read-time re-scrape to drift.
+        durable = self._recall_durable(request)
+        if durable is not None:
+            self.metrics["durableHits"] += 1
+            durable.strategy = plan.sources
+            durable.latencyMs = int((time.monotonic() - started) * 1000)
+            await self._emit("retrieval.durable_hit", {"dataType": request.dataType})
+            return durable
+
         # ── Cache (freshness policy) with in-flight deduplication ──
         async def _do_retrieve() -> FinancialRetrievalResult:
             return await self._execute(request, plan)
@@ -110,6 +126,8 @@ class FinancialRetrievalLayer:
             await self._emit("retrieval.deduplicated", {"dataType": request.dataType})
         else:
             self.metrics["cacheMisses"] += 1
+            # Persist a successful parse for deterministic replay.
+            self._persist_durable(request, result)
 
         result.strategy = plan.sources
         result.latencyMs = int((time.monotonic() - started) * 1000)
@@ -118,6 +136,59 @@ class FinancialRetrievalLayer:
                 if warning not in result.warnings:
                     result.warnings.append(warning)
         return result
+
+    # ── Durable store helpers (D1) ────────────────────────────────────────────
+
+    def _recall_durable(self, request: FinancialRetrievalRequest) -> Optional[FinancialRetrievalResult]:
+        """Return a persisted result for an identical request, if one exists.
+
+        Only replayed when the stored data still satisfies the request's
+        freshness policy — a stale stored result is not silently served.
+        """
+        if self._store is None:
+            return None
+        try:
+            record = self._store.get_retrieval(self.cache.key_for(request))
+        except Exception:  # noqa: BLE001 - a store read failure must not break retrieval
+            return None
+        if not record:
+            return None
+        try:
+            result = FinancialRetrievalResult(**record["result"])
+        except Exception:  # noqa: BLE001
+            return None
+        # Honor freshness: a slow/frozen series is fine; a realtime one is not.
+        if request.dataType in ("current_quote", "historical_prices"):
+            return None
+        return result.model_copy(update={"cached": True})
+
+    def _persist_durable(self, request: FinancialRetrievalRequest, result: FinancialRetrievalResult) -> None:
+        """Persist a successful, non-empty result for replay (D1).
+
+        Only OK/PARTIAL results with data are stored — never an empty answer,
+        which could otherwise be replayed as if it were data.
+        """
+        if self._store is None:
+            return
+        if result.status not in ("OK", "PARTIAL") or (result.data is None and not result.evidence):
+            return
+        try:
+            provenance = {
+                "sources": [r.source for r in result.sourceReferences],
+                "strategy": result.strategy,
+                "retrievedAt": result.retrievedAt,
+                "dataTimestamp": result.dataTimestamp if hasattr(result, "dataTimestamp") else None,
+            }
+            self._store.save_retrieval(
+                self.cache.key_for(request),
+                request.dataType,
+                request.instrument,
+                request.market,
+                result.model_dump(mode="json"),
+                provenance,
+            )
+        except Exception:  # noqa: BLE001 - persistence is best-effort, never fatal
+            pass
 
     # ── Execution ──────────────────────────────────────────────────────────────
 
@@ -273,6 +344,12 @@ class FinancialRetrievalLayer:
         objects, quality_warnings = validate_objects(chosen, request.freshnessRequirement)
         warnings.extend(quality_warnings)
 
+        # D2: detect truncated/partial parses. A partial numeric is never emitted
+        # as a figure — it is marked invalid and the result is flagged incomplete.
+        incomplete_warnings = detect_incomplete(objects)
+        warnings.extend(incomplete_warnings)
+        incomplete = any(o.quality == "invalid" for o in objects) and bool(incomplete_warnings)
+
         quality: QualityStatus = "valid"
         if unresolved:
             quality = "warning"
@@ -294,11 +371,33 @@ class FinancialRetrievalLayer:
         # A precise-data request that only got a web snippet must not claim OK.
         if request.dataType in ("historical_prices", "macro_series", "derived_metric") and outcome.source == WEB:
             status = "UNAVAILABLE"
+        # D2: an incomplete parse is never a successful value.
+        if incomplete:
+            status = "UNAVAILABLE"
 
-        data = _data_payload(request, objects)
+        # Separate invalid (withheld) objects from the payload entirely.
+        usable = [o for o in objects if o.quality != "invalid"]
+        data = _data_payload(request, usable)
         # The canonical identity, when the source supplied one, rides on the
         # result so every consumer can verify which instrument the answer is for.
-        identity = next((o.identity for o in objects if o.identity is not None), None)
+        identity = next((o.identity for o in usable if o.identity is not None), None)
+
+        # C4: conflicting sources produce a structured flag carrying ALL
+        # candidates with provenance — the agent must surface it, not pick one.
+        conflicts = _conflicts_payload(objects) if unresolved else []
+
+        # D3: a value is only presentable when its identity + provenance are
+        # verified. `degraded` is TOP-LEVEL, never nested metadata.
+        provenance_verified = len(refs) > 0 and not incomplete
+        degraded, degradation = _degradation(
+            quality=quality,
+            unresolved=unresolved,
+            incomplete=incomplete,
+            identity_required=request.dataType in ("current_quote", "historical_prices", "company_profile", "financial_statements"),
+            identity=identity,
+            provenance_verified=provenance_verified,
+        )
+
         result = FinancialRetrievalResult(
             status=status,
             objective=request.objective,
@@ -312,6 +411,11 @@ class FinancialRetrievalLayer:
             quality=quality,
             warnings=warnings + plan.warnings,
             strategy=plan.sources,
+            degraded=degraded,
+            degradation=degradation,
+            incomplete=incomplete,
+            conflicts=conflicts,
+            provenanceVerified=provenance_verified,
         )
         # Cache only successful/partial results.
         if status in ("OK", "PARTIAL"):
@@ -319,7 +423,7 @@ class FinancialRetrievalLayer:
                 request,
                 result,
                 source=outcome.source,
-                data_timestamp=objects[0].dataTimestamp if objects else None,
+                data_timestamp=usable[0].dataTimestamp if usable else None,
             )
         return result
 
@@ -368,6 +472,83 @@ class FinancialRetrievalLayer:
             await self._on_event(event_type, data)
         except Exception:  # noqa: BLE001 - telemetry must never break retrieval
             pass
+
+
+def _conflicts_payload(objects: list[NormalizedFinancialObject]) -> list[dict[str, Any]]:
+    """C4: group conflicting observations, carrying every candidate + provenance.
+
+    One entry per (metric, period) with more than one distinct value across
+    sources, listing each value with its source so the agent can surface the
+    disagreement rather than silently choosing.
+    """
+    buckets: dict[tuple[str, Optional[str]], list[NormalizedFinancialObject]] = {}
+    for o in objects:
+        buckets.setdefault((o.name, o.period), []).append(o)
+    out: list[dict[str, Any]] = []
+    for (name, period), group in buckets.items():
+        distinct = {_hashable(o.value) for o in group}
+        if len(distinct) <= 1:
+            continue
+        if len({o.source.source for o in group}) <= 1:
+            continue  # a single source repeating itself is not a conflict
+        out.append(
+            {
+                "metric": name,
+                "period": period,
+                "candidates": [
+                    {
+                        "value": o.value,
+                        "unit": o.unit,
+                        "source": o.source.source,
+                        "sourceType": o.source.sourceType,
+                        "dataTimestamp": o.dataTimestamp,
+                    }
+                    for o in group
+                ],
+            }
+        )
+    return out
+
+
+def _hashable(value: Any) -> Any:
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        return repr(value)
+
+
+def _degradation(
+    *,
+    quality: str,
+    unresolved: bool,
+    incomplete: bool,
+    identity_required: bool,
+    identity: Any,
+    provenance_verified: bool,
+) -> tuple[bool, Optional[str]]:
+    """D3: compute the TOP-LEVEL degradation flag + reason.
+
+    Degraded when quality is not `valid`, identity could not be verified for a
+    data type that requires one, or the provenance chain is incomplete. The
+    reason is user-safe and lives beside the value, never nested.
+    """
+    reasons: list[str] = []
+    if incomplete:
+        reasons.append("data parse incomplete")
+    if unresolved:
+        reasons.append("sources disagree")
+    if quality == "warning":
+        reasons.append("quality warnings present")
+    if quality == "invalid":
+        reasons.append("value failed validation")
+    if identity_required and identity is None:
+        reasons.append("instrument identity not verified")
+    if not provenance_verified:
+        reasons.append("provenance incomplete")
+    if reasons:
+        return True, "; ".join(reasons)
+    return False, None
 
 
 def _data_payload(request: FinancialRetrievalRequest, objects: list[NormalizedFinancialObject]) -> Any:

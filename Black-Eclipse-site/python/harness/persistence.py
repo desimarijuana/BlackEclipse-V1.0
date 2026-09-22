@@ -106,6 +106,21 @@ CREATE TABLE IF NOT EXISTS AgentSkill (
   updatedAt   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_skill_status ON AgentSkill(status);
+
+-- D1: durable retrieval records. A retrieval result is parsed once and persisted
+-- here keyed by the request key, so re-running an identical query returns the
+-- SAME figures and citations instead of re-scraping (which could drift).
+CREATE TABLE IF NOT EXISTS RetrievalRecord (
+  key          TEXT PRIMARY KEY,
+  dataType     TEXT NOT NULL,
+  instrument   TEXT,
+  market       TEXT,
+  result       TEXT NOT NULL,   -- the full FinancialRetrievalResult JSON
+  provenance   TEXT NOT NULL,   -- source + retrieval timestamp, for audit
+  retrievedAt  TEXT NOT NULL,
+  dataTimestamp TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_retrieval_type ON RetrievalRecord(dataType);
 """
 
 DB_FILENAME = "agent-memory.db"
@@ -385,6 +400,54 @@ class AgentMemoryStore:
             }
             for r in rows
         ]
+
+    # ── Durable retrieval records (D1) ──────────────────────────────────────
+    def save_retrieval(
+        self,
+        key: str,
+        data_type: str,
+        instrument: Optional[str],
+        market: Optional[str],
+        result_json: dict[str, Any],
+        provenance: dict[str, Any],
+        data_timestamp: Optional[str] = None,
+    ) -> None:
+        self._db.execute(
+            """INSERT INTO RetrievalRecord
+               (key, dataType, instrument, market, result, provenance, retrievedAt, dataTimestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 result = excluded.result,
+                 provenance = excluded.provenance,
+                 retrievedAt = excluded.retrievedAt,
+                 dataTimestamp = excluded.dataTimestamp""",
+            (
+                key,
+                data_type,
+                instrument,
+                market,
+                json.dumps(result_json),
+                json.dumps(provenance),
+                now_iso(),
+                data_timestamp,
+            ),
+        )
+        self._db.commit()
+
+    def get_retrieval(self, key: str) -> Optional[dict[str, Any]]:
+        r = self._db.execute("SELECT * FROM RetrievalRecord WHERE key = ?", (key,)).fetchone()
+        if r is None:
+            return None
+        return {
+            "key": r["key"],
+            "dataType": r["dataType"],
+            "instrument": r["instrument"],
+            "market": r["market"],
+            "result": json.loads(r["result"]),
+            "provenance": json.loads(r["provenance"]) if r["provenance"] else {},
+            "retrievedAt": r["retrievedAt"],
+            "dataTimestamp": r["dataTimestamp"],
+        }
 
     # ── Agent memory ────────────────────────────────────────────────────────
     def remember(

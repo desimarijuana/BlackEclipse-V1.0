@@ -43,6 +43,33 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Retrieval — deterministic replay, strict macro identity, top-level degradation
+  (sections A4/A8, C4, D1–D3, E1)** —
+  • **D1 determinism**: successful retrievals are persisted to a new
+  `RetrievalRecord` table (`agent-memory.db`) keyed by request; an identical,
+  non-realtime request replays the stored result — same figures, same citations,
+  no read-time re-scrape. Realtime types are excluded by design. Added
+  `save_retrieval`/`get_retrieval` and durable-replay logic in the layer.
+  • **A8 macro identity**: `resolve_macro_series` (Python + TS) resolves a series
+  to geography/institution/measure/adjustment/frequency. A generic measure
+  (`POLICY_RATE`) without geography is AMBIGUOUS and never defaults to US;
+  non-US series route to non-US sources (EA→ECB). New `macro_resolve` capability.
+  • **C4 conflicts**: `_conflicts_payload` returns every candidate value with
+  its source, not just a flag.
+  • **D2 truncation**: `detect_incomplete` withholds partially parsed numerics
+  (`1,23`), marking them invalid and the result `incomplete`/UNAVAILABLE.
+  • **D3 top-level degradation**: `degraded`/`degradation`/`incomplete`/
+  `conflicts`/`provenanceVerified` are result fields, never nested metadata.
+  • **A4**: collision fixtures regenerated with share-class groups (distinct
+  `ABR^D`/`ABR^E`/… lines) spanning 25 markets.
+  • **E1 (report only)**: the store exposes `remember`/`recall`/`propose_skill`
+  but NO tool registers them, so the agent cannot use them — a wiring gap, not
+  a data defect; no code changed.
+  Verified live: `macro_resolve POLICY_RATE` → AMBIGUOUS; `+geography=US` →
+  DFEDTARU; `EA:ECB:DEPOSIT` → ECB source; FFC/PSX still PKR/PK.
+  Tests: vitest 1582, pytest 104 (13 new). tsc clean.
+  docs updated: `docs/DECISIONS.md` (ADR-022), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Retrieval — uniform failure contract, declared coverage, terms-aware identity
   (sections A2–A8, B, C)** — The same underlying miss behaved differently across
   tools; a false "no news" shipped where the truth was an infrastructure miss.

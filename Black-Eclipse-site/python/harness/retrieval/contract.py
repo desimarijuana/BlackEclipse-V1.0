@@ -180,6 +180,20 @@ class FinancialRetrievalResult(BaseModel):
     cached: bool = False
     strategy: list[str] = Field(default_factory=list)  # selected source names
     latencyMs: Optional[int] = None
+    # ── D3: degradation is TOP-LEVEL, never nested metadata. A consumer cannot
+    # miss it, and it is structurally impossible to render a value whose identity
+    # was not verified without the flag being set alongside it.
+    degraded: bool = False
+    degradation: Optional[str] = None  # user-safe reason, when degraded=True
+    # D2: true when a parse was detected as truncated/partial. Such a result is
+    # never emitted with a value; it is UNAVAILABLE + incomplete.
+    incomplete: bool = False
+    # C4: sources that disagree on the same quantity. Present ⇒ the agent must
+    # surface the disagreement rather than choose one.
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    # D3: provenance is REQUIRED for an OK result with a value. This flag is set
+    # by the finalizer when the provenance chain is complete.
+    provenanceVerified: bool = False
 
 
 class EvidenceSet(BaseModel):

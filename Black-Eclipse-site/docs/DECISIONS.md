@@ -409,6 +409,30 @@ request before any source is attempted.
 
 ---
 
+## ADR-022 — Deterministic retrieval, strict macro identity, and top-level degradation (2026)
+**Decision:** Four rules complete the identity contract. (1) **D1 — parse once,
+persist, replay.** A successful retrieval is written to `RetrievalRecord`
+(`agent-memory.db`) keyed by request; an identical, non-realtime request replays
+the stored result, so the same question yields identical figures and citations
+instead of re-scraping (which drifts). (2) **A8 — macro series are identities.**
+`python/harness/macro_identity.py` + `src/lib/harness/macro-identity.ts` resolve a
+series to geography + institution + measure + adjustment + frequency. A generic
+measure (`POLICY_RATE`) without a geography is AMBIGUOUS and never defaults to
+US; non-US series route to non-US sources. (3) **D2 — truncation is withheld.**
+A partial numeric parse (`1,23` from `1,234.56`) is detected and the result is
+UNAVAILABLE + `incomplete`, never a figure. (4) **D3 — degradation is
+top-level.** `degraded`/`degradation`/`incomplete`/`conflicts`/
+`provenanceVerified` are fields on the result itself, not nested metadata, so a
+value whose identity was not verified is structurally flagged.
+**Why:** The same infrastructure produced drifting fundamentals (read-time
+scrapes), conflicting policy-rate values (measure collision), a truncated figure,
+and a wrong instrument — each invisible to the consumer because degradation was
+either absent or buried.
+**Impact:** Extends ADR-020/021. `RetrievalRecord` is idempotent (upsert on key).
+Realtime data types are excluded from durable replay by design.
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

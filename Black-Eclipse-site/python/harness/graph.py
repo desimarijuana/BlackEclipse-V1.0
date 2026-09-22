@@ -120,6 +120,7 @@ def build_graph(
         data_bridge=data_bridge,
         retrieval_cache=retrieval_cache,
         emitter=emitter,
+        memory_store=store,
     )
     registry.set_active_context(ctx)
 

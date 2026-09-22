@@ -11,6 +11,7 @@ period, currency mismatch, stale) are warnings or invalid.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Optional
 
@@ -63,6 +64,83 @@ def validate_object(obj: NormalizedFinancialObject) -> QualityStatus:
         if value < 0 and name not in _NEGATIVE_OK:
             return "warning"
     return "valid"
+
+
+# ── D2: truncation / partial-parse detection ────────────────────────────────
+# A partially parsed numeric must never be emitted as a figure. These are the
+# fingerprints of a truncated scrape/parse that reached us as a "value".
+
+_TRUNCATED_NUMERIC_RE = re.compile(
+    r"""
+    ^\s*[+-]?                    # optional sign
+    (?:
+        \d{1,3}(?:[,\s]\d{3})*   # grouped thousands, possibly incomplete
+        (?:\.[\d]*)?             # optional decimal, possibly empty ("12.")
+      | \.[\d]+                  # leading-dot decimal
+      | \d*\.\d*                 # bare decimal point
+    )
+    \s*$
+    """,
+    re.VERBOSE,
+)
+
+# A number ending in a separator or decimal point is a truncation artefact.
+_TRUNCATION_TAIL_RE = re.compile(r"[.,]\s*$")
+
+
+# A whole-string numeric shape: currency/sign, digits, separators, decimal,
+# optional magnitude/percent. Anything with letters (other than a magnitude
+# suffix) is NOT a numeric candidate and must never be flagged.
+_NUMERICISH_RE = re.compile(r"^[($€£¥]?\s*[+-]?\s*[\d][\d,\s]*(?:\.\d*)?\s*(?:%|[KMBT])?\)?$", re.IGNORECASE)
+
+
+def looks_truncated(value: Any) -> bool:
+    """True when a value looks like a partial/truncated numeric parse.
+
+    Catches the observed case (`1,23` from a cut-off `1,234.56`) and trailing
+    separators (`12.`, `1,`). A well-formed number or any non-numeric string
+    (a name, a date, a label) is never flagged.
+    """
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s:
+        return False
+    # Only a numeric-looking string can be a truncated number.
+    if not _NUMERICISH_RE.match(s):
+        return False
+    # Trailing separator/decimal ⇒ cut off mid-number.
+    if _TRUNCATION_TAIL_RE.search(s):
+        return True
+    # Grouped thousands: check the integer part only (drop any decimal part),
+    # where every group after the first separator must be exactly 3 digits.
+    if "," in s:
+        core = s.strip().strip("()").lstrip("+-").strip()
+        integer_part = core.split(".", 1)[0].strip()
+        head, _, rest = integer_part.partition(",")
+        if not head.isdigit() or len(head) > 3:
+            return True
+        groups = rest.split(",")
+        if any(len(g) != 3 for g in groups if g):
+            return True
+    return False
+
+
+def detect_incomplete(objects: list[NormalizedFinancialObject]) -> list[str]:
+    """Return warnings for objects whose value looks truncated/incomplete (D2).
+
+    Such objects are marked `invalid` so they are never presented as figures.
+    """
+    warnings: list[str] = []
+    for obj in objects:
+        raw = obj.raw.get("value") if isinstance(obj.raw, dict) else None
+        probe = raw if raw is not None else obj.value
+        if isinstance(probe, str) and looks_truncated(probe):
+            obj.quality = "invalid"
+            warnings.append(
+                f"{obj.name}: value {probe!r} looks truncated/partially parsed — withheld"
+            )
+    return warnings
 
 
 def _newest_timestamp(objects: list[NormalizedFinancialObject]) -> Optional[str]:

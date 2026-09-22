@@ -164,5 +164,6 @@ export type DataCapability =
   | "live_quote"
   | "price_history"
   | "macro_series"
+  | "macro_resolve"
   | "web_search"
   | "web_fetch";

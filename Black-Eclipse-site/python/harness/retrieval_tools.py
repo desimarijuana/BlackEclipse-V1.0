@@ -26,6 +26,7 @@ from .retrieval import (
     FinancialRetrievalLayer,
     FinancialRetrievalRequest,
 )
+from .macro_identity import resolve_macro_series
 from .tools import ToolContext, ToolDefinition, ToolRegistry, dumps
 
 # The registry's tool-name validator allows only [A-Za-z0-9_]. These are the
@@ -52,7 +53,10 @@ def _layer(ctx: ToolContext) -> FinancialRetrievalLayer:
     layer = getattr(ctx, "retrieval", None)
     if layer is None:
         cache = getattr(ctx, "retrieval_cache", None)
-        layer = FinancialRetrievalLayer(ctx.data_bridge, cache=cache, on_event=_event_logger(ctx))
+        store = getattr(ctx, "memory_store", None)
+        layer = FinancialRetrievalLayer(
+            ctx.data_bridge, cache=cache, on_event=_event_logger(ctx), store=store
+        )
         ctx.retrieval = layer  # type: ignore[attr-defined]
         ctx.retrieval_cache = layer.cache  # type: ignore[attr-defined]
     return layer
@@ -238,14 +242,35 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
 
 
 async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    series = str(args.get("series", "") or "")
+    geography = str(args.get("geography") or args.get("country") or "").strip() or None
+
+    # A8: resolve the series identity before touching a source. A generic measure
+    # with no geography is AMBIGUOUS and must not default to a US backend.
+    resolved = resolve_macro_series(series, geography)
+    if not resolved["ok"]:
+        reason = resolved["reason"]
+        candidates = resolved.get("candidates")
+        msg = (
+            f"{reason.upper()} — {resolved['message']}"
+            + (f" Candidates: {', '.join(candidates)}." if candidates else "")
+        )
+        return msg, {
+            "status": "AMBIGUOUS" if reason == "ambiguous" else "UNAVAILABLE",
+            "failureClass": reason,
+            "candidates": candidates,
+        }
+
+    identity = resolved["identity"]
     request = FinancialRetrievalRequest(
-        objective=str(args.get("objective") or f"macro series {args.get('series', '')}"),
+        objective=str(args.get("objective") or f"macro series {series}"),
         dataType="macro_series",
-        instrument=(str(args["series"]).strip() if args.get("series") else None),
-        quantity=str(args.get("series", "CPIAUCSL") or "CPIAUCSL"),
+        instrument=identity["id"],
+        quantity=identity.get("providerSeries") or series,
+        market=identity.get("geography"),
         freshnessRequirement="slow",
         allowWeb=False,  # precise macro history is never web-sourced
-        metadata={"source": args.get("source")},
+        metadata={"source": args.get("source") or identity.get("sourceId") or None},
     )
     result = await _layer(ctx).retrieve(request)
     return _summarize(result), result.model_dump()
@@ -407,7 +432,20 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "series": {"type": "string", "description": "Series id, e.g. CPIAUCSL, DGS10."},
+                    "series": {
+                        "type": "string",
+                        "description": (
+                            "Series id (CPIAUCSL, or a canonical id like US:FRED:FEDFUNDS). "
+                            "A generic measure such as 'policy rate' requires `geography`."
+                        ),
+                    },
+                    "geography": {
+                        "type": "string",
+                        "description": (
+                            "Country/market the series is about (US, EA, GB, …). Required to "
+                            "disambiguate a generic measure; never defaults to the US."
+                        ),
+                    },
                     "source": {"type": "string", "description": "Optional macro source id, e.g. fred-analytics."},
                     "objective": {"type": "string", "description": "Why this series is needed."},
                 },

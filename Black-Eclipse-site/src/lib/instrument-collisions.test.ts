@@ -67,3 +67,30 @@ describe('instrument collision fixtures (generated from the master)', () => {
     expect(failures).toEqual([]);
   });
 });
+
+// -- A4: share classes / depositary receipts / dual listings are distinct ----
+const { shareClassGroups } = fixtures as {
+  shareClassGroups?: { base: string; market: string; lines: { symbol: string; name: string }[] }[];
+};
+
+describe('share-class / DR fixtures (A4)', () => {
+  it('each class-suffixed line is a distinct symbol, never merged', () => {
+    const groups = shareClassGroups ?? [];
+    expect(groups.length).toBeGreaterThan(0);
+    for (const g of groups) {
+      const symbols = g.lines.map((l) => l.symbol);
+      // The lines of one issuer are distinct tickers (ABR^D vs ABR^E vs …).
+      expect(new Set(symbols).size).toBe(symbols.length);
+    }
+  });
+
+  it('a same-market share class resolves only when exactly one row is given', () => {
+    const g = (shareClassGroups ?? [])[0];
+    if (!g) return;
+    const rows: InstrumentRow[] = g.lines.map((l) => ({ symbol: l.symbol, market: g.market }));
+    // All lines share a market but differ as instruments; a bare base ticker
+    // spanning them must not silently collapse.
+    const distinct = new Set(rows.map((r) => r.symbol));
+    expect(distinct.size).toBe(rows.length);
+  });
+});

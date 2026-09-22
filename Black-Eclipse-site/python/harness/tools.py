@@ -60,6 +60,9 @@ class ToolContext:
     # `retrieval.*` events through this so they reach the live SSE stream and the
     # persisted trace — a plain `log` callback would silently discard them.
     emitter: Any = None
+    # The harness memory store (AgentMemoryStore), for durable retrieval replay
+    # (D1) and agent memory/skill tools.
+    memory_store: Any = None
 
 
 class DataBridge:

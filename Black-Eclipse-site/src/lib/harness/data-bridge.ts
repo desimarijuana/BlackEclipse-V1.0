@@ -23,6 +23,7 @@ import {
 } from "@/lib/instrument-identity";
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
 import { coverageSummary } from "@/lib/harness/coverage";
+import { resolveMacroSeries } from "@/lib/harness/macro-identity";
 import { resolveMarketId, MARKET_FULL_NAME, currencyIsoFor } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
@@ -151,6 +152,8 @@ export async function fetchCapability(
       return priceHistory(params);
     case "macro_series":
       return macroSeries(params);
+    case "macro_resolve":
+      return Promise.resolve(macroResolve(params));
     case "web_search":
       return webSearchCapability(params);
     case "web_fetch":
@@ -457,10 +460,31 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
 async function macroSeries(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const sourceId = String(params.source ?? "fred-analytics").trim();
   const series = String(params.series ?? params.seriesId ?? "").trim();
-  const source = getSource(sourceId);
-  if (!source) return unavailable(`unknown macro source: ${sourceId}`);
+  // A8: resolve the series identity first. A generic measure with no geography is
+  // AMBIGUOUS and must NOT default to a US backend.
+  const geography = typeof params.geography === "string" ? params.geography
+    : typeof params.country === "string" ? params.country
+    : null;
+  const resolved = resolveMacroSeries(series, geography);
+  if (!resolved.ok) {
+    const cls =
+      resolved.reason === "ambiguous" ? "ambiguous"
+        : resolved.reason === "not_covered" ? "not_covered"
+        : "not_found";
+    return {
+      status: statusForFailure(cls),
+      failureClass: cls,
+      error: resolved.message,
+      ...(resolved.candidates?.length ? { candidates: resolved.candidates } : {}),
+    };
+  }
+  const identity = resolved.identity;
+  // Honor the resolved source unless the caller explicitly named one.
+  const effectiveSource = identity.sourceId || sourceId;
+  const source = getSource(effectiveSource);
+  if (!source) return unavailableClass("not_covered", `no macro source "${effectiveSource}"`);
   if (source.keyRequired && source.keyEnv && !process.env[source.keyEnv]) {
-    return unavailable(`macro source ${sourceId} requires ${source.keyEnv}`);
+    return unavailableClass("source_failure", `macro source ${effectiveSource} requires ${source.keyEnv}`);
   }
   try {
     const fetchParams: Record<string, string> = {};
@@ -469,23 +493,48 @@ async function macroSeries(params: Record<string, unknown>): Promise<DataBridgeR
       if (typeof v === "string" && v) fetchParams[c.name] = v;
       else if (c.defaultValue) fetchParams[c.name] = c.defaultValue;
     }
-    if (series) {
+    const providerSeries = identity.providerSeries || series;
+    if (providerSeries) {
       const seriesControl = source.controls.find((c) => c.name === "series" || c.name === "seriesId");
-      if (seriesControl) fetchParams[seriesControl.name] = series;
+      if (seriesControl) fetchParams[seriesControl.name] = providerSeries;
     }
     const raw = await source.fetch(fetchParams);
-    const rows = sortByDate(normalizeEconomicSeries(raw, sourceId));
-    if (rows.length === 0) return unavailable(`macro source ${sourceId} returned no observations`);
+    const rows = sortByDate(normalizeEconomicSeries(raw, effectiveSource));
+    if (rows.length === 0) return unavailableClass("no_data", `macro source ${effectiveSource} returned no observations`);
     return {
       status: "OK",
-      source: sourceId,
-      seriesKey: series || source.label,
+      source: effectiveSource,
+      seriesKey: identity.id,
+      seriesIdentity: identity,
+      units: identity.unit ?? null,
       rows,
       asOf: rows[rows.length - 1]?.date ?? null,
     };
   } catch (err) {
-    return unavailable(err instanceof Error ? err.message : "macro fetch failed");
+    return unavailableClass("source_failure", err instanceof Error ? err.message : "macro fetch failed");
   }
+}
+
+/** Resolve a macro request to a canonical series identity (no fetch). */
+function macroResolve(params: Record<string, unknown>): DataBridgeResult {
+  const series = String(params.series ?? params.seriesId ?? "").trim();
+  const geography = typeof params.geography === "string" ? params.geography
+    : typeof params.country === "string" ? params.country
+    : null;
+  const resolved = resolveMacroSeries(series, geography);
+  if (!resolved.ok) {
+    const cls =
+      resolved.reason === "ambiguous" ? "ambiguous"
+        : resolved.reason === "not_covered" ? "not_covered"
+        : "not_found";
+    return {
+      status: statusForFailure(cls),
+      failureClass: cls,
+      error: resolved.message,
+      ...(resolved.candidates?.length ? { candidates: resolved.candidates } : {}),
+    };
+  }
+  return { status: "OK", identity: resolved.identity };
 }
 
 // ── Web research (shared transport; no second search system) ────────────────
