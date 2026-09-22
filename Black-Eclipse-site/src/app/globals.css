@@ -308,6 +308,26 @@ html:not(.dark) .ws-glass {
   animation: fadeIn 0.4s ease-out backwards;
 }
 
+/* Hover-revealed controls (message actions, copy buttons, edit).
+   Components keep their Tailwind `opacity-0 group-hover:opacity-100
+   focus-within:opacity-100` classes for pointer devices; `.hover-reveal` adds
+   the two behaviors Tailwind cannot express per-media-query:
+     • on touch (no hover) the control is always visible and tappable, and
+     • reduced-motion users get no opacity transition. */
+.hover-reveal {
+  transition: opacity 0.15s ease;
+}
+@media (hover: none) {
+  .hover-reveal {
+    opacity: 1 !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hover-reveal {
+    transition: none;
+  }
+}
+
 /* Header price ribbon — a seamless, continuously scrolling quote marquee.
    The track holds two identical copies of the quote list; translating from
    -50% (the start of the second copy) back to 0 gives continuous LEFT→RIGHT

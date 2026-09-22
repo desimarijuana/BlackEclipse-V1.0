@@ -153,7 +153,7 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
           <CopyButton
             value={block.value}
             label={block.language ? `${block.language} code` : 'code'}
-            className="absolute right-1.5 top-1.5 bg-background/60 opacity-0 backdrop-blur transition-opacity group-hover/code:opacity-100 focus:opacity-100"
+            className="hover-reveal absolute right-1.5 top-1.5 bg-background/60 opacity-0 backdrop-blur transition-opacity group-hover/code:opacity-100 focus:opacity-100"
           />
         </div>
       );
@@ -218,7 +218,7 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
               </tbody>
             </table>
           </div>
-          <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover/table:opacity-100 focus-within:opacity-100">
+          <div className="hover-reveal mt-1 flex justify-end opacity-0 transition-opacity group-hover/table:opacity-100 focus-within:opacity-100">
             <CopyButton value={tableToTsv(block.header, block.rows)} label="table data" />
           </div>
         </div>

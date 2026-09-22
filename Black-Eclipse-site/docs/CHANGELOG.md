@@ -43,6 +43,16 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 5 polish (touch-reachable controls, responsive toolbar)** —
+  Audit found reduced-motion and frosted-glass already covered globally; the real
+  gap was hover-only controls being unreachable on touch. Added a `.hover-reveal`
+  utility (`@media (hover: none)` forces message actions, Edit, and code/table
+  copy visible and tappable), made the Edit button always rendered instead of
+  `hidden group-hover:flex`, let the action toolbar wrap on narrow bubbles, and
+  gave the message row a stable `group` ancestor. No new animation; no global
+  restyle. Verified: tsc, eslint, vitest 1519, dev reload.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 4 financial-native rendering** — Improved how the agent's
   real Markdown output is presented (no fabricated structured blocks): numeric
   table columns are auto right-aligned with tabular figures and losses render in

@@ -521,11 +521,53 @@ All helpers (`isNumericText`, `isNegativeValue`, `isUnavailableText`,
 
 ---
 
-## 17. Phase 5 — next
+## 17. Phase 5 — UI polish & design system (implemented 2026-09-22)
 
-Polish & design system: responsive pass (wide tables, activity expansion,
-composer), purposeful motion with reduced-motion respect, and consistency with
-the frosted-glass tokens.
+### Audit result
+
+- **Reduced motion** — already covered globally in `globals.css`
+  (`@media (prefers-reduced-motion: reduce)` kills animation/transition
+  durations). No chat-specific work needed there.
+- **Frosted glass** — chat surfaces already use `glass-card` /
+  `glass-card-strong` / `glass-card-subtle`. No raw blur introduced.
+- **The real gap was touch.** Message actions, the code-block copy button, the
+  table copy control, and the Edit affordance all relied on hover
+  (`opacity-0 group-hover:opacity-100` or `hidden group-hover:flex`). On a touch
+  device there is no hover, so those controls were invisible or unreachable.
+
+### What changed
+
+- **`.hover-reveal` utility** (`globals.css`) — keeps the existing Tailwind
+  hover classes for pointer devices, and via `@media (hover: none)` forces the
+  control visible and tappable on touch, plus a reduced-motion override. Applied
+  to the message action toolbar, the Edit button, and both copy buttons.
+- **Edit button** — was `hidden group-hover:flex` (unreachable on touch); now
+  always rendered and revealed by opacity.
+- **Action toolbar** — now `flex-wrap` so Copy / Regenerate / feedback do not
+  overflow on a narrow bubble.
+- **Message row** — a `group` class so hover-revealed controls have a stable
+  ancestor in both compact and full layouts.
+
+### Not done (deliberately)
+
+- No new animation added; motion stays restrained and the global reduced-motion
+  rule applies.
+- No global component restyle — changes are confined to the chat surface.
+
+### Verification
+
+- `npx tsc --noEmit` — pass; `npx eslint src/components/chat` — clean.
+- `npx vitest run` — 1519 passed.
+- Dev server recompiled CSS + components with no errors.
+
+---
+
+## 18. Phase 6 — next
+
+Performance, accessibility & quality: re-render profiling on long
+conversations, keyboard navigation and focus management on the activity feed and
+toolbar, and large-list checks. Then the final definition-of-done pass.
+
 
 
 

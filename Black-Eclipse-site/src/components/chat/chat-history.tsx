@@ -101,7 +101,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
           return (
             <div
               key={msg.id}
-              className={`animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+              className={`group animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
             >
               {msg.role === 'assistant' && !compact && (
                 <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary mb-2 border border-primary/20">
@@ -142,7 +142,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   )}
                   {msg.content && <AssistantContent content={msg.content} compact={compact} />}
                   {!working && msg.content && (
-                    <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="hover-reveal mt-1 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
                         onClick={() => void copyMessage(msg)}
@@ -245,7 +245,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                     <button
                       type="button"
                       onClick={() => startEdit(msg)}
-                      className="mt-1 hidden items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent group-hover:flex transition-colors cursor-pointer"
+                      className="hover-reveal mt-1 flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground hover:bg-accent group-hover:opacity-100 focus-within:opacity-100 cursor-pointer"
                       title="Edit prompt"
                     >
                       <Pencil size={11} /> Edit
