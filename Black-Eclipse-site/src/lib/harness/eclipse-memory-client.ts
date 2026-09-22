@@ -150,3 +150,29 @@ export async function listMemoryEvents() {
     { method: "GET" }
   );
 }
+
+export async function getPolicies(): Promise<{
+  policies: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  bounds: Record<string, [number, number]>;
+  locked: Record<string, unknown>;
+}> {
+  return request("/eclipse-memory/policies", { method: "GET" });
+}
+
+export async function updatePolicies(
+  policies: Record<string, unknown>,
+  operator: boolean
+): Promise<{ success: boolean; applied: unknown[]; policies: Record<string, unknown> }> {
+  return request("/eclipse-memory/policies", {
+    method: "PUT",
+    body: JSON.stringify({ policies, operator }),
+  });
+}
+
+export async function analyzeRun(runId: string): Promise<Record<string, unknown>> {
+  return request(`/eclipse-memory/analyze/${encodeURIComponent(runId)}`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}

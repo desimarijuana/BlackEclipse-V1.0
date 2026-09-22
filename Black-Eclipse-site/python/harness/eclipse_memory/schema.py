@@ -375,6 +375,25 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
     ),
 ]
 
+# Migration 2 — configurable memory/learning policy. Separate from the code
+# defaults in `policy.py`: the table stores only *overrides*, so a new default
+# applies automatically without mutating stored rows.
+MIGRATIONS.append(
+    (
+        2,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemoryPolicy (
+              key        TEXT PRIMARY KEY,
+              value      TEXT NOT NULL,
+              updatedAt  TEXT NOT NULL,
+              updatedBy  TEXT
+            );
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

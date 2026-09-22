@@ -168,6 +168,28 @@ actions re-checked server-side).
 save/review/archive), Activity (retrieval probe diagnostics, corrections,
 mistakes), Health. Reuses the frosted-glass system + `TabBar`.
 
+## Follow-up phases (policy + mistake detection)
+
+After the core subsystem, the two gaps identified in review were closed:
+
+- **P1 Policy layer** (`eclipse_memory/policy.py`, migration 2 `MemoryPolicy`):
+  configurable behaviour with safe defaults, validated bounds, and **locked
+  values** (automatic skill promotion is structurally impossible to enable).
+  Retrieval budget/limit/proposed-inclusion now read policy; an explicit caller
+  value still wins.
+- **P2 Mistake-analysis service** (`eclipse_memory/mistakes.py`): deterministic
+  detection of tool_failure, incorrect_tool_arguments, missing_source,
+  unsupported_claim, missing_data_undisclosed, invalid_output_schema,
+  repeated_failure, unresolved_contradiction, timeout, currency/unit mismatch —
+  each with evidence; idempotent per run; never model-guessed.
+- **P3 Automatic candidate detection** gated by `auto_candidate_detection` +
+  `candidate_confidence_threshold`, wired post-run in `execute_run`. Creates
+  inert candidates only; cannot enable a skill or claim improvement.
+- **P4 APIs**: `GET/PUT /eclipse-memory/policies`, `POST /eclipse-memory/analyze/{runId}`
+  (+ TS proxies).
+- **P5 UI**: a **Policies** tab in the Eclipse Memory screen.
+- Tests: `python/tests/test_memory_policy.py` (18), plus TS client tests.
+
 ## Files created
 
 **Python:** `harness/eclipse_memory/{__init__,config,schema,db,store,service,retrieval}.py`,
@@ -192,8 +214,8 @@ docs.
 |---|---|---|
 | TS typecheck | `npx tsc --noEmit` | Pass (0 errors) |
 | Lint | `npx eslint .` | 0 errors |
-| TS tests | `npx vitest run` | 1606 passed (124 files) |
-| Python tests | `python -m pytest python` | 233 passed |
+| TS tests | `npx vitest run` | 1610 passed (124 files) |
+| Python tests | `python -m pytest python` | 251 passed |
 | Production build | `npm run build` | Pass |
 
 Phase 1 regression: graph/tools/models tests pass. Phase 2 regression:
@@ -215,6 +237,8 @@ missing legacy files.
 - Cross-version skill regression comparison.
 - Promoting the remaining Phase-3 UI sections (draft review) under Eclipse
   Memory if desired (they already exist under Skills).
+- Semantic mistake categories (hallucinated metric) beyond the deterministic
+  signals present today.
 
 ## Completion status
 

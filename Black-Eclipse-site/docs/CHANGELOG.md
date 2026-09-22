@@ -43,6 +43,19 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Eclipse-Memory (Phase 3-M follow-up)** — added the configurable policy layer
+  (`eclipse_memory/policy.py`, `MemoryPolicy` table) with validated bounds and
+  locked safety values (automatic skill promotion can never be enabled);
+  retrieval now honours policy budget/limit. Added a deterministic
+  mistake-analysis service (`eclipse_memory/mistakes.py`) detecting tool
+  failures, bad arguments, missing source, unsupported claims, undisclosed
+  missing data, invalid schema, repeated failure, unresolved contradictions and
+  timeouts. Added policy-gated automatic learning-candidate detection wired
+  post-run (inert candidates only). New `/eclipse-memory/policies` and
+  `/eclipse-memory/analyze/{runId}` endpoints + a Policies UI tab.
+  docs updated: `docs/harness/phase-3-memory-progress.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md`.
+
 - **Eclipse-Memory (Phase 3-M)** — built the dedicated memory subsystem. Added
   `eclipse-memory.db` + `python/harness/eclipse_memory/` (config, migrations,
   store, service, retrieval) as the one control layer for agent memory (typed,

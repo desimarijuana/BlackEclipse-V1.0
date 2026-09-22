@@ -7,8 +7,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity, AlertCircle, Brain, Database, Loader2, Plus, RefreshCcw, Search,
-  ShieldCheck, Trash2, Wrench, X,
+  Activity, AlertCircle, Brain, Database, Loader2, Lock, Plus, RefreshCcw,
+  Search, Settings2, ShieldCheck, Trash2, Wrench, X,
 } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
 import { Button } from "@/components/ui/button";
@@ -17,14 +17,14 @@ import { cn } from "@/lib/utils";
 import {
   memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
   archiveMemory, reviewMemory, listCorrections, listMistakes, retrieveMemories,
-  clientIsOperator,
+  getPolicies, updatePolicies, clientIsOperator,
 } from "@/lib/harness/eclipse-memory-browser";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDetail, MemoryOverview,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "activity" | "health";
+type Tab = "overview" | "memories" | "activity" | "policies" | "health";
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -39,6 +39,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
           { id: "overview", label: "Overview", icon: Brain },
           { id: "memories", label: "Memories", icon: Database },
           { id: "activity", label: "Activity", icon: Activity },
+          { id: "policies", label: "Policies", icon: Settings2 },
           { id: "health", label: "Health", icon: ShieldCheck },
         ]}
         activeId={tab}
@@ -48,6 +49,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       {tab === "overview" && <Overview />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
       {tab === "activity" && <ActivityView />}
+      {tab === "policies" && <Policies isOperator={isOperator} />}
       {tab === "health" && <Health />}
     </div>
   );
@@ -397,6 +399,122 @@ function ActivityView() {
             </div>
           ))}
         </Section>
+      </div>
+    </div>
+  );
+}
+
+// ── Policies ────────────────────────────────────────────────────────────────
+
+const POLICY_LABELS: Record<string, string> = {
+  auto_capture_enabled: "Automatic memory capture",
+  auto_candidate_detection: "Automatic learning-candidate detection",
+  candidate_confidence_threshold: "Candidate confidence threshold",
+  context_budget_chars: "Retrieval context budget (chars)",
+  retrieval_limit: "Max memories per retrieval",
+  retention_days: "Retention review window (days, 0 = never)",
+  include_proposed_in_retrieval: "Inject proposed memory without review",
+  audit_retention_rows: "Audit rows kept (0 = unlimited)",
+  auto_promote_low_risk: "Auto-promote low-risk skills (locked off)",
+};
+
+function Policies({ isOperator }: { isOperator: boolean }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof getPolicies>> | null>(null);
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { const result = await getPolicies(); setData(result); setDraft(result.policies); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const save = async () => {
+    if (!data) return;
+    setSaving(true); setToast(null);
+    const changed: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(draft)) {
+      if (value !== data.policies[key]) changed[key] = value;
+    }
+    if (Object.keys(changed).length === 0) { setToast("No changes"); setSaving(false); return; }
+    try {
+      const result = await updatePolicies(changed);
+      setData({ ...data, policies: result.policies });
+      setDraft(result.policies);
+      setToast("Policies saved");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "save failed");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} />;
+  if (!data) return null;
+
+  const lockedKeys = new Set(Object.keys(data.locked));
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Memory Policies" hint="Configurable behaviour with hard safety floors. Automatic skill promotion is locked off regardless of setting; values are bounded and validated server-side." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+
+      <div className="space-y-2">
+        {Object.entries(draft).map(([key, value]) => {
+          const locked = lockedKeys.has(key);
+          const isBool = typeof data.defaults[key] === "boolean";
+          const numeric = typeof data.defaults[key] === "number";
+          return (
+            <div key={key} className="rounded-2xl border border-white/10 glass-card p-3.5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[12px] text-foreground">{POLICY_LABELS[key] ?? key}</p>
+                <p className="font-mono text-[9px] text-muted-foreground">{key}{locked ? " · locked" : ""}</p>
+              </div>
+              {isBool ? (
+                <button
+                  disabled={!isOperator || locked || saving}
+                  onClick={() => setDraft({ ...draft, [key]: !value })}
+                  className={cn(
+                    "shrink-0 flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10px] font-bold cursor-pointer",
+                    value ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-border/40 text-muted-foreground",
+                    (locked || !isOperator) && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  {locked && <Lock size={10} />}
+                  {value ? "on" : "off"}
+                </button>
+              ) : (
+                <input
+                  type="number"
+                  value={String(value)}
+                  step={numeric && data.defaults[key] !== undefined && !Number.isInteger(data.defaults[key] as number) ? 0.1 : 1}
+                  min={data.bounds[key]?.[0]}
+                  max={data.bounds[key]?.[1]}
+                  disabled={!isOperator || saving}
+                  onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
+                  className="shrink-0 w-28 rounded-xl border border-border/30 bg-background/60 px-2 py-1 text-[11px] text-right outline-none focus:border-primary/40 disabled:opacity-60"
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || saving} onClick={save}>
+          {saving ? <Loader2 size={13} className="mr-1 animate-spin" /> : null} Save changes
+        </Button>
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || saving} onClick={load}>
+          <RefreshCcw size={13} className="mr-1" /> Reload
+        </Button>
+        {!isOperator && <span className="text-[10px] text-amber-300/90">Read-only session — policy changes require operator authorization.</span>}
       </div>
     </div>
   );

@@ -463,12 +463,38 @@ async def execute_run(
     if final_state.get("error"):
         err = final_state["error"]
         store.update_run(request.runId, status="failed", error=err, finishedAt=now_iso())
+        await _post_run_analysis(request.runId, store, memory_service, skill_registry)
         return _result(request.runId, "failed", store, err)
 
     output = final_state.get("final") or ""
     store.update_run(request.runId, status="completed", output=output, finishedAt=now_iso())
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
+    await _post_run_analysis(request.runId, store, memory_service, skill_registry)
     return _result(request.runId, "completed", store, None, output)
+
+
+async def _post_run_analysis(
+    run_id: str,
+    store: AgentMemoryStore,
+    memory_service: Optional[Any],
+    skill_registry: Optional[Any],
+) -> None:
+    """Deterministic, policy-gated post-run analysis (mistakes + candidates).
+
+    Never raises and never blocks the terminal result: analysis is diagnostics,
+    not control flow. It can only create inert records — it cannot enable a
+    skill or claim improvement.
+    """
+    if memory_service is None:
+        return
+    try:
+        skill_store = getattr(skill_registry, "store", None)
+        memory_service.analyze_run(run_id, store, skill_store=skill_store)
+    except Exception:  # noqa: BLE001
+        try:
+            store.append_event(run_id, "memory.analysis_failed", 0, {})
+        except Exception:  # noqa: BLE001
+            pass
 
 
 MAX_HISTORY_TURNS = 20

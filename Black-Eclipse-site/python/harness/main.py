@@ -414,6 +414,47 @@ def create_correction(payload: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, **result}
 
 
+@app.get("/eclipse-memory/policies")
+def get_policies() -> dict[str, Any]:
+    from .eclipse_memory.policy import BOUNDS, DEFAULTS, LOCKED_VALUES
+
+    return {
+        "success": True,
+        "policies": service.memory.policy.get_all(),
+        "defaults": DEFAULTS,
+        "bounds": {k: list(v) for k, v in BOUNDS.items()},
+        "locked": LOCKED_VALUES,
+    }
+
+
+@app.put("/eclipse-memory/policies")
+def update_policies(payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="policy changes require an authorized operator")
+    updates = payload.get("policies") or {}
+    if not isinstance(updates, dict):
+        raise HTTPException(status_code=400, detail="policies must be an object")
+    from .eclipse_memory.policy import PolicyError
+
+    applied: list[dict[str, Any]] = []
+    try:
+        for key, value in updates.items():
+            applied.append(service.memory.policy.set(key, value, updated_by="operator"))
+    except PolicyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "applied": applied, "policies": service.memory.policy.get_all()}
+
+
+@app.post("/eclipse-memory/analyze/{run_id}")
+def analyze_run_endpoint(run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Deterministic post-run analysis: mistakes + (policy-gated) candidates."""
+    payload = payload or {}
+    if service.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    result = service.memory.analyze_run(run_id, service.store, skill_store=service.skill_store)
+    return {"success": True, **result}
+
+
 @app.get("/eclipse-memory/events")
 def list_memory_events(limit: int = 100) -> dict[str, Any]:
     return {

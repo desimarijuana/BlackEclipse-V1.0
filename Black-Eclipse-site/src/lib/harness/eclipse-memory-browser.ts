@@ -124,3 +124,28 @@ export async function listMistakes(): Promise<MistakeRecord[]> {
   const body = await api<{ mistakes: MistakeRecord[] }>("/api/eclipse-memory/mistakes");
   return body.mistakes ?? [];
 }
+
+export interface MemoryPolicies {
+  policies: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  bounds: Record<string, [number, number]>;
+  locked: Record<string, unknown>;
+}
+
+export async function getPolicies(): Promise<MemoryPolicies> {
+  return api<MemoryPolicies>("/api/eclipse-memory/policies");
+}
+
+export async function updatePolicies(policies: Record<string, unknown>) {
+  return api<{ success: boolean; applied: unknown[]; policies: Record<string, unknown> }>(
+    "/api/eclipse-memory/policies",
+    { method: "PUT", body: JSON.stringify({ policies }) }
+  );
+}
+
+export async function analyzeRun(runId: string) {
+  return api<Record<string, unknown>>(`/api/eclipse-memory/analyze/${encodeURIComponent(runId)}`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}

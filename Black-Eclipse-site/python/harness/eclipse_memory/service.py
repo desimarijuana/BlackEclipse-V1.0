@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from .policy import PolicyStore
 from .retrieval import RetrievalResult, retrieve_memories
 from .store import MEMORY_TYPES, EclipseMemoryStore
 
@@ -57,6 +58,7 @@ MAX_CONTENT_CHARS = 4000
 class EclipseMemoryService:
     def __init__(self, store: Optional[EclipseMemoryStore] = None) -> None:
         self.store = store or EclipseMemoryStore()
+        self.policy = PolicyStore(self.store)
 
     # ── Write pipeline ──────────────────────────────────────────────────────
 
@@ -180,16 +182,21 @@ class EclipseMemoryService:
         scope_id: Optional[str] = None,
         subject: Optional[str] = None,
         actor_scope: Optional[str] = None,
-        budget_chars: int = 4000,
-        limit: int = 8,
+        budget_chars: Optional[int] = None,
+        limit: Optional[int] = None,
         run_id: Optional[str] = None,
-        include_proposed: bool = False,
+        include_proposed: Optional[bool] = None,
     ) -> RetrievalResult:
+        # Policy supplies the defaults; an explicit caller value still wins.
+        settings = self.policy.get_all()
         return retrieve_memories(
             self.store, query=query, memory_types=memory_types, scope=scope,
             scope_id=scope_id, subject=subject, actor_scope=actor_scope,
-            budget_chars=budget_chars, limit=limit, run_id=run_id,
-            include_proposed=include_proposed,
+            budget_chars=budget_chars if budget_chars is not None else settings["context_budget_chars"],
+            limit=limit if limit is not None else settings["retrieval_limit"],
+            run_id=run_id,
+            include_proposed=include_proposed if include_proposed is not None
+            else settings["include_proposed_in_retrieval"],
         )
 
     # ── Corrections / mistakes ──────────────────────────────────────────────
@@ -235,6 +242,71 @@ class EclipseMemoryService:
 
     def record_mistake(self, mistake: dict[str, Any]) -> str:
         return self.store.save_mistake(mistake)
+
+    # ── Post-run analysis (policy-gated, deterministic, never auto-enables) ──
+
+    def analyze_run(
+        self,
+        run_id: str,
+        run_store: Any,
+        *,
+        skill_store: Any = None,
+    ) -> dict[str, Any]:
+        """Analyze a finished run per the current policy.
+
+        When `auto_candidate_detection` is enabled, learning candidates are
+        created for qualifying experiences (still inert — promotion is separate).
+        Mistake detection always runs (it is cheap, deterministic and auditable).
+        Never enables a skill, never claims improvement.
+        """
+        from ..skills.learning import analyze_run as learning_analyze, _signature  # type: ignore
+        from .mistakes import capture_mistakes
+
+        store = skill_store or self.store
+        settings = self.policy.get_all()
+        result: dict[str, Any] = {"runId": run_id, "candidatesCreated": 0, "candidatesSkipped": 0, "mistakesCreated": 0}
+
+        # Mistake capture is always on (observation, not promotion).
+        try:
+            mistakes = capture_mistakes(run_id, run_store, store)
+            result["mistakesCreated"] = len(mistakes)
+            result["mistakes"] = [m["category"] for m in mistakes]
+        except Exception as exc:  # noqa: BLE001 - analysis must never break a run
+            result["mistakeError"] = str(exc)
+
+        if not settings["auto_candidate_detection"]:
+            result["candidateDetection"] = "disabled by policy"
+            return result
+
+        threshold = float(settings["candidate_confidence_threshold"])
+        try:
+            drafts = learning_analyze(run_id, run_store)
+        except Exception as exc:  # noqa: BLE001
+            result["candidateError"] = str(exc)
+            return result
+
+        created = 0
+        skipped = 0
+        for draft in drafts:
+            if float(draft.get("confidence", 0)) < threshold:
+                skipped += 1
+                continue
+            signature = _signature(draft["candidateType"], draft["problem"])
+            if store.find_candidate_by_signature(signature):
+                skipped += 1
+                continue
+            from ..persistence import now_iso as _now
+            candidate_id = store.save_candidate({
+                **draft, "id": None, "sourceRunId": run_id, "signature": signature,
+                "status": "detected", "createdAt": _now(),
+            })
+            store.append_event("skill.learning_candidate_created", run_id=run_id,
+                               data={"candidateId": candidate_id, "candidateType": draft["candidateType"],
+                                     "automatic": True})
+            created += 1
+        result["candidatesCreated"] = created
+        result["candidatesSkipped"] = skipped
+        return result
 
     # ── One-time import from the legacy agent-memory.db skill tables ────────
 

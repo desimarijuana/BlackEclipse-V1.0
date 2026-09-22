@@ -59,6 +59,8 @@ Black-Eclipse-site/
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`), `schema.py` (append a migration tuple), `db.py` (runner) |
+| Change memory policy / defaults / bounds | `python/harness/eclipse_memory/policy.py` (`DEFAULTS`, `BOUNDS`, `LOCKED_VALUES`); UI `eclipse-memory-screen.tsx` Policies tab |
+| Change mistake detection | `python/harness/eclipse_memory/mistakes.py` (categories + heuristics) |
 | Work on the Eclipse Memory UI / API | `src/components/screens/eclipse-memory/`, `src/lib/harness/eclipse-memory-{browser,client,types}.ts`, routes `src/app/api/eclipse-memory/` |
 | Add/edit a runtime skill | A folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (+ optional `tests/cases.json`); it is loaded at runtime boot by `skills/loader.py` |
 | Work on the Skills UI | `src/components/screens/skills/` (`skills-screen.tsx` shell + library/detail/learning/evaluation/activity/draft panels), browser client `src/lib/harness/skills-browser.ts` |
