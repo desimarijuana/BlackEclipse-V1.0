@@ -21,6 +21,7 @@ export const en = {
   'nav.heatmap': 'Market Bubbles',
   'nav.economics': 'Economics',
   'nav.alerts': 'Price Alerts',
+  'nav.skills': 'Skills',
 
   // Common actions & nouns
   'common.settings': 'Settings',

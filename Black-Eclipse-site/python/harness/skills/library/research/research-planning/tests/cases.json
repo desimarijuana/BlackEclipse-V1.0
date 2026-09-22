@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "caseId": "accepts-valid-objective",
+      "name": "Accepts a valid objective",
+      "kind": "input_validation",
+      "input": { "objective": "Is ACME a good long-term buy?" },
+      "expected": { "valid": true }
+    },
+    {
+      "caseId": "rejects-missing-objective",
+      "name": "Rejects input without an objective",
+      "kind": "input_validation",
+      "input": {},
+      "expected": { "valid": false }
+    },
+    {
+      "caseId": "output-shape",
+      "name": "Output schema declares the plan fields",
+      "kind": "output_shape",
+      "expected": {
+        "required": ["objective", "questions", "requiredData", "sourcePlan", "expectedDeliverables"]
+      }
+    }
+  ]
+}

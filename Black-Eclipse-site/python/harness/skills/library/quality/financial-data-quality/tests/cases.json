@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "caseId": "accepts-dataset",
+      "name": "Accepts a dataset payload",
+      "kind": "input_validation",
+      "input": { "dataset": { "status": "OK" } },
+      "expected": { "valid": true }
+    },
+    {
+      "caseId": "rejects-missing-dataset",
+      "name": "Rejects input without a dataset",
+      "kind": "input_validation",
+      "input": {},
+      "expected": { "valid": false }
+    },
+    {
+      "caseId": "output-shape",
+      "name": "Output reports usability and issues",
+      "kind": "output_shape",
+      "expected": { "required": ["usable", "missingValues", "issues", "limitations"] }
+    }
+  ]
+}

@@ -67,11 +67,16 @@ const InvestorEyeScreen = dynamic(
   () => import('@/components/investor-eye/investor-eye').then((m) => m.InvestorEyeScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const SkillsScreen = dynamic(
+  () => import('@/components/screens/skills/skills-screen').then((m) => m.SkillsScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
+import { clientIsOperator } from '@/lib/harness/skills-browser';
 import type { AssistantTurn } from '@/lib/agent/response-model';
 import { turnText } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
@@ -884,6 +889,12 @@ function StockChatContent() {
           {visited.has('economics') && (
             <div className={cn('w-full h-full', activeTab === 'economics' ? '' : 'hidden')}>
               <EconomicsScreen />
+            </div>
+          )}
+
+          {visited.has('skills') && (
+            <div className={cn('w-full h-full', activeTab === 'skills' ? '' : 'hidden')}>
+              <SkillsScreen isOperator={clientIsOperator()} />
             </div>
           )}
 

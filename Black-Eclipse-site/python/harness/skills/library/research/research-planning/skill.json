@@ -1,0 +1,61 @@
+{
+  "id": "research.planning",
+  "name": "Research Planning",
+  "version": "1.0.0",
+  "description": "Turn a financial research objective into a structured, source-aware research plan: questions, required data, source strategy, time period, instruments, risks and expected deliverables.",
+  "category": "research",
+  "tags": ["research", "planning", "scoping", "methodology"],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": {
+        "type": "string",
+        "description": "The user's research question or objective."
+      },
+      "instruments": {
+        "type": "array",
+        "description": "Instruments the objective concerns (tickers or names).",
+        "items": { "type": "string" }
+      },
+      "market": {
+        "type": "string",
+        "description": "Market/venue the objective concerns, when known."
+      },
+      "horizon": {
+        "type": "string",
+        "description": "Time period or horizon the objective concerns."
+      },
+      "constraints": {
+        "type": "array",
+        "description": "Constraints the user supplied (budget, exclusions, etc.).",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["objective"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "objective": { "type": "string" },
+      "questions": { "type": "array", "items": { "type": "string" } },
+      "requiredData": { "type": "array", "items": { "type": "object" } },
+      "sourcePlan": { "type": "array", "items": { "type": "object" } },
+      "period": { "type": "string" },
+      "instruments": { "type": "array", "items": { "type": "string" } },
+      "risksAndUncertainties": { "type": "array", "items": { "type": "string" } },
+      "expectedDeliverables": { "type": "array", "items": { "type": "string" } },
+      "assumptions": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["objective", "questions", "requiredData", "sourcePlan", "expectedDeliverables"]
+  },
+  "requiredTools": ["research_search", "research_search_news"],
+  "requiredSkills": [],
+  "permissions": ["data.read", "research.read", "analysis.execute"],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 6, "timeoutMs": 120000, "maxToolCalls": 12 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

@@ -513,3 +513,26 @@ proxy and the data bridge remain in TS. A later phase must add an explicit
 approval path before any non-`read` tool becomes callable. See
 `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H1–H7) and
 `docs/DECISIONS.md` ADR-018.
+
+### ADR-025 — Skills are versioned procedures on the existing runtime; generated skills are inert (2026)
+**Decision:** A Phase-3 "skill" is a versioned, machine-readable procedure
+(`skill.json` + `SKILL.md` under `python/harness/skills/library/`) executed by the
+**existing** Phase-1 `execute_run` graph — not a second runtime, tool registry or
+agent loop. Manifests, permissions and lifecycle live in Python
+(`python/harness/skills/`), persisted in `agent-memory.db`. Permissions are a
+single **default-deny** policy enforced in code; Markdown instructions are data,
+not a security boundary. The learning engine creates inert `LearningCandidate`
+records from run traces; a candidate can only become an active skill through an
+explicit operator-gated promote path, never automatically.
+**Reason:** The brief forbids duplicate infrastructure and unrestricted
+self-modification; a skill must reuse the hardened Phase-1/2 runtime and every
+capability must stay reviewable. Instructions cannot be a boundary because they
+are untrusted prose, so enforcement must be code (permission check + tool
+allowlist on the composed `AgentConfig`).
+**Impact:** New Phase-3 tables in `agent-memory.db` (idempotent DDL, no manual
+migration). Runtime skills live under `python/harness/skills/library/`, distinct
+from the unrelated `Black-Eclipse-site/skills/` *coding-agent* operating system.
+The front door adds `/api/skills/**` + `/api/learning/**` proxies and a Skills
+tab; the browser talks only to those routes (never the Python service or Prisma
+directly). pydantic is reused for schema validation — no Zod. See
+`docs/harness/phase-3-architecture.md` and `docs/DECISIONS.md` ADR-025.

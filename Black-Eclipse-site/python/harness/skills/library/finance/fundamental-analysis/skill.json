@@ -1,0 +1,49 @@
+{
+  "id": "finance.fundamental-analysis",
+  "name": "Fundamental Analysis",
+  "version": "1.0.0",
+  "description": "Analyse a company's financial performance from verified structured data: revenue, earnings, margins, cash flow, balance sheet, debt, growth, valuation inputs and period comparisons — with evidence and explicit data limitations.",
+  "category": "finance",
+  "tags": ["finance", "fundamentals", "analysis", "equity", "valuation"],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": { "type": "string", "description": "Ticker symbol." },
+      "market": { "type": "string", "description": "Market/venue code; required when the ticker is ambiguous." },
+      "periods": {
+        "type": "array",
+        "description": "Reporting periods to compare, when specific.",
+        "items": { "type": "string" }
+      },
+      "focus": {
+        "type": "string",
+        "description": "Optional aspect the user cares about (e.g. margins, debt)."
+      }
+    },
+    "required": ["symbol"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "instrument": { "type": "object" },
+      "periods": { "type": "array", "items": { "type": "string" } },
+      "reported": { "type": "array", "items": { "type": "object" } },
+      "derived": { "type": "array", "items": { "type": "object" } },
+      "comparisons": { "type": "array", "items": { "type": "object" } },
+      "limitations": { "type": "array", "items": { "type": "string" } },
+      "warnings": { "type": "array", "items": { "type": "string" } },
+      "evidence": { "type": "array", "items": { "type": "object" } }
+    },
+    "required": ["instrument", "periods", "reported", "derived", "limitations", "evidence"]
+  },
+  "requiredTools": ["fundamentals_get_financials", "fundamentals_get_company_profile", "market_get_quote"],
+  "requiredSkills": ["quality.financial-data-quality"],
+  "permissions": ["data.read", "analysis.execute"],
+  "riskLevel": "medium",
+  "limits": { "maxSteps": 8, "timeoutMs": 180000, "maxToolCalls": 20 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

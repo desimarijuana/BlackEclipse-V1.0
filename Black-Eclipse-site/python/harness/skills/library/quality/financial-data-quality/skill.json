@@ -1,0 +1,53 @@
+{
+  "id": "quality.financial-data-quality",
+  "name": "Financial Data Quality",
+  "version": "1.0.0",
+  "description": "Review retrieved financial data before analysis: instrument identity, reporting period, units, currency, missing values, duplicates, freshness, source reliability and reported-vs-derived distinction.",
+  "category": "quality",
+  "tags": ["quality", "validation", "financial-data", "integrity"],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataset": {
+        "type": "object",
+        "description": "The retrieved dataset to review (a retrieval result payload)."
+      },
+      "expectedInstrument": {
+        "type": "string",
+        "description": "The instrument the analysis expects the data to be about."
+      },
+      "expectedPeriod": {
+        "type": "string",
+        "description": "The reporting period the analysis expects."
+      }
+    },
+    "required": ["dataset"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "usable": { "type": "boolean" },
+      "instrument": { "type": "object" },
+      "period": { "type": "object" },
+      "currency": { "type": "string" },
+      "units": { "type": "string" },
+      "missingValues": { "type": "array", "items": { "type": "string" } },
+      "duplicates": { "type": "array", "items": { "type": "string" } },
+      "freshness": { "type": "string" },
+      "reportedVsDerived": { "type": "object" },
+      "issues": { "type": "array", "items": { "type": "object" } },
+      "limitations": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["usable", "missingValues", "issues", "limitations"]
+  },
+  "requiredTools": ["get_source_health", "get_coverage"],
+  "requiredSkills": [],
+  "permissions": ["data.read", "analysis.execute"],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 6, "timeoutMs": 120000, "maxToolCalls": 12 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

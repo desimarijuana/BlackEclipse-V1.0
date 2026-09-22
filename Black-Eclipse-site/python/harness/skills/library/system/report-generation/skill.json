@@ -1,0 +1,46 @@
+{
+  "id": "system.report-generation",
+  "name": "Report Generation",
+  "version": "1.0.0",
+  "description": "Produce a structured report from validated research outputs while preserving sources, evidence, assumptions, missing data, uncertainty, reported-vs-derived metrics, periods and currency.",
+  "category": "system",
+  "tags": ["report", "synthesis", "deliverable", "citations"],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string", "description": "Report title." },
+      "sections": {
+        "type": "array",
+        "description": "Validated sections/outputs to assemble.",
+        "items": { "type": "object" }
+      },
+      "audience": { "type": "string", "description": "Intended reader, when known." },
+      "format": { "type": "string", "description": "markdown (default) or json." }
+    },
+    "required": ["title", "sections"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string" },
+      "format": { "type": "string" },
+      "body": { "type": "string" },
+      "references": { "type": "array", "items": { "type": "object" } },
+      "assumptions": { "type": "array", "items": { "type": "string" } },
+      "missingData": { "type": "array", "items": { "type": "string" } },
+      "uncertainty": { "type": "array", "items": { "type": "string" } },
+      "reportedVsDerived": { "type": "object" }
+    },
+    "required": ["title", "body", "references", "assumptions", "missingData", "uncertainty"]
+  },
+  "requiredTools": [],
+  "requiredSkills": ["research.source-verification"],
+  "permissions": ["report.generate", "analysis.execute"],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 6, "timeoutMs": 120000, "maxToolCalls": 6 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

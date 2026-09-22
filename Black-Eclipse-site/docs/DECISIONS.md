@@ -476,6 +476,24 @@ a confidently-wrong or self-contradictory answer.
 enumerates the declared source registry so a source with no runs is `unknown`,
 not absent.
 
+## ADR-025 — Skills are versioned procedures on the existing runtime; generated skills are inert (2026)
+**Decision:** A Phase-3 skill is a versioned procedure (`skill.json` + `SKILL.md`)
+executed through the **existing** Phase-1 `execute_run` graph — no new runtime or
+tool registry. The skill registry, default-deny permissions and lifecycle live in
+Python (`python/harness/skills/`) and persist in `agent-memory.db`. Instructions
+are data, not a security boundary; permissions and the tool allowlist are
+enforced in code on the composed `AgentConfig`. The learning engine only creates
+inert candidates; promotion to an active skill is explicit, evaluated and
+operator-gated.
+**Why:** Duplicate infrastructure and autonomous self-modification are forbidden,
+and prose cannot be a security boundary.
+**Impact:** Additive Phase-3 tables in `agent-memory.db` (idempotent, no manual
+migration). Runtime skills live under `python/harness/skills/library/`, distinct
+from the coding-agent `skills/` folder. Front door adds `/api/skills/**`,
+`/api/learning/**`, `/api/skill-executions/**`, `/api/skill-drafts/**`,
+`/api/evaluations/**` and a Skills tab. pydantic reused (no Zod). See
+`docs/harness/phase-3-architecture.md`.
+
 ---
 
 ## Decisions implied by the code (not yet formal ADRs)

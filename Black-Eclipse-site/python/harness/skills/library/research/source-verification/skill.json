@@ -1,0 +1,53 @@
+{
+  "id": "research.source-verification",
+  "name": "Source Verification",
+  "version": "1.0.0",
+  "description": "Assess the quality of evidence and map claims to sources: source identity, type, timestamps, primary vs secondary classification, conflicts, missing evidence and confidence limits.",
+  "category": "research",
+  "tags": ["research", "evidence", "provenance", "verification", "citations"],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "claims": {
+        "type": "array",
+        "description": "Claims to verify, each with the source(s) that support it.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "claim": { "type": "string" },
+            "sources": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["claim"]
+        }
+      },
+      "evidence": {
+        "type": "array",
+        "description": "Source references gathered during retrieval.",
+        "items": { "type": "object" }
+      }
+    },
+    "required": ["claims"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "verified": { "type": "array", "items": { "type": "object" } },
+      "unverified": { "type": "array", "items": { "type": "object" } },
+      "conflicts": { "type": "array", "items": { "type": "object" } },
+      "missingEvidence": { "type": "array", "items": { "type": "string" } },
+      "confidenceLimitations": { "type": "array", "items": { "type": "string" } },
+      "overallConfidence": { "type": "string" }
+    },
+    "required": ["verified", "unverified", "conflicts", "missingEvidence", "confidenceLimitations"]
+  },
+  "requiredTools": ["research_search", "research_retrieve_source"],
+  "requiredSkills": [],
+  "permissions": ["data.read", "research.read"],
+  "riskLevel": "low",
+  "limits": { "maxSteps": 6, "timeoutMs": 120000, "maxToolCalls": 12 },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0"
+}

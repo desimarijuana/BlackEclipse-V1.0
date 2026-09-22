@@ -28,8 +28,20 @@ from pydantic import BaseModel
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
 from .models import list_providers
+from .persistence import now_iso
 from .schemas import RunRequest, RunResult
 from .service import AgenticService
+from .skills.draft import propose_draft
+from .skills.evaluation import evaluate_skill
+from .skills.learning import capture_from_run
+from .skills.lifecycle import (
+    approve_promotion,
+    reject_promotion,
+    request_promotion,
+    rollback,
+)
+from .skills.permissions import Actor
+from .skills.runtime import SkillExecutionRequest
 
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 
@@ -59,6 +71,11 @@ def health() -> dict[str, Any]:
         "defaultAgentId": DEFAULT_AGENT_ID,
         "providers": [p["id"] for p in list_providers()],
         "retrieval": service.retrieval_metrics(),
+        "skills": {
+            "installed": len(service.skill_registry.all_manifests()),
+            "loadErrors": service.skill_load_errors,
+            "duplicates": service.skill_registry.duplicate_ids(),
+        },
     }
 
 
@@ -183,6 +200,279 @@ def cancel_run(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Run not found")
     cancelled = service.cancel(run_id)
     return CancelResponse(success=True, runId=run_id, cancelled=cancelled).model_dump()
+
+
+# ── Skills (Phase 3) ────────────────────────────────────────────────────────
+# The front door proxies these; Python owns the registry, permissions and
+# lifecycle. Authorization is explicit: `operator=true` is only set by the front
+# door after it authenticated the runtime secret (or a direct caller presenting
+# it). The default actor is read-only and cannot create/enable/review skills.
+
+
+def _actor(operator: bool = False, actor_id: str = "local") -> Actor:
+    from .skills.permissions import OPERATOR_ACTOR
+
+    return OPERATOR_ACTOR if operator else Actor(id=actor_id)
+
+
+@app.get("/skills")
+def list_skills(status: Optional[str] = None) -> dict[str, Any]:
+    registry = service.skill_registry
+    return {
+        "success": True,
+        "skills": registry.list_summaries(),
+        "loadErrors": service.skill_load_errors,
+        "duplicates": registry.duplicate_ids(),
+    }
+
+
+@app.get("/skills/{skill_id}")
+def get_skill(skill_id: str) -> dict[str, Any]:
+    registry = service.skill_registry
+    manifest = registry.manifest(skill_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    record = registry.store.get_skill(skill_id)
+    return {
+        "success": True,
+        "skill": {
+            **manifest.model_dump(),
+            "instructions": registry.get(skill_id).load_instructions() if registry.get(skill_id) else "",
+            "storedStatus": record["status"] if record else manifest.status,
+            "latestVersion": record["latestVersion"] if record else manifest.version,
+            "validation": registry.validate(skill_id),
+            "versions": registry.version_history(skill_id),
+            "executions": registry.execution_history(skill_id, 20),
+            "evaluations": registry.evaluation_history(skill_id),
+            "reviews": registry.store.list_reviews(skill_id, 20),
+            "events": registry.store.list_events(skill_id, 50),
+        },
+    }
+
+
+@app.get("/skills/{skill_id}/versions")
+def skill_versions(skill_id: str) -> dict[str, Any]:
+    if service.skill_registry.manifest(skill_id) is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"success": True, "versions": service.skill_registry.version_history(skill_id)}
+
+
+@app.post("/skills/discover")
+def discover_skills(payload: dict[str, Any]) -> dict[str, Any]:
+    results = service.skill_registry.discover(
+        query=str(payload.get("query") or ""),
+        category=payload.get("category"),
+        tags=payload.get("tags"),
+        status=payload.get("status"),
+        risk_level=payload.get("riskLevel"),
+        include_non_executable=bool(payload.get("includeNonExecutable")),
+    )
+    return {"success": True, "results": results}
+
+
+@app.post("/skills/validate-input")
+def validate_skill_input(payload: dict[str, Any]) -> dict[str, Any]:
+    from .skills.runtime import validate_input
+
+    skill_id = str(payload.get("skillId") or "")
+    manifest = service.skill_registry.manifest(skill_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    ok, issues = validate_input(manifest.inputSchema, payload.get("input") or {}, skill_id)
+    return {"success": True, "valid": ok, "issues": issues}
+
+
+@app.post("/skills/{skill_id}/execute")
+async def execute_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> JSONResponse:
+    body = {**payload, "skillId": skill_id}
+    request = SkillExecutionRequest(**body)
+    result = await service.run_skill(request)
+    return JSONResponse({"success": True, **result.model_dump()})
+
+
+@app.get("/skill-executions")
+def list_skill_executions(skillId: Optional[str] = None, limit: int = 100) -> dict[str, Any]:
+    return {"success": True, "executions": service.skill_store.list_executions(skillId, limit)}
+
+
+@app.get("/skill-executions/{run_id}")
+def get_skill_execution(run_id: str) -> dict[str, Any]:
+    execution = service.skill_store.get_execution(run_id)
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Skill execution not found")
+    return {"success": True, "execution": execution}
+
+
+@app.post("/skill-executions/{run_id}/cancel")
+def cancel_skill_execution(run_id: str) -> dict[str, Any]:
+    cancelled = service.cancel(run_id)
+    return {"success": True, "runId": run_id, "cancelled": cancelled}
+
+
+@app.post("/skills/{skill_id}/evaluate")
+def evaluate_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = evaluate_skill(
+        skill_id, payload.get("version"), service.skill_registry,
+        run_regression=bool(payload.get("runRegression")),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.get("/skills/{skill_id}/evaluations")
+def list_skill_evaluations(skill_id: str) -> dict[str, Any]:
+    if service.skill_registry.manifest(skill_id) is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"success": True, "evaluations": service.skill_store.list_evaluations(skill_id, 50)}
+
+
+@app.get("/evaluations/{evaluation_id}")
+def get_evaluation(evaluation_id: str) -> dict[str, Any]:
+    evaluation = service.skill_store.get_evaluation(evaluation_id)
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    return {"success": True, "evaluation": evaluation}
+
+
+@app.post("/skills/{skill_id}/enable")
+def enable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = service.skill_registry.set_status(
+        skill_id, "enabled", _actor(bool(payload.get("operator"))), payload.get("version")
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/disable")
+def disable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = service.skill_registry.set_status(
+        skill_id, "disabled", _actor(bool(payload.get("operator"))), payload.get("version")
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/deprecate")
+def deprecate_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = service.skill_registry.deprecate(
+        skill_id, _actor(bool(payload.get("operator"))),
+        reason=str(payload.get("reason") or "deprecated"),
+        superseded_by=payload.get("supersededBy"),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/rollback")
+def rollback_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = rollback(
+        service.skill_registry, skill_id=skill_id,
+        to_version=str(payload.get("version") or ""),
+        actor=_actor(bool(payload.get("operator"))),
+        reason=str(payload.get("reason") or "rollback"),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.get("/learning/candidates")
+def list_candidates(status: Optional[str] = None) -> dict[str, Any]:
+    return {"success": True, "candidates": service.skill_store.list_candidates(status, 100)}
+
+
+@app.get("/learning/candidates/{candidate_id}")
+def get_candidate(candidate_id: str) -> dict[str, Any]:
+    candidate = service.skill_store.get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {"success": True, "candidate": candidate}
+
+
+@app.post("/learning/from-run/{run_id}")
+def learn_from_run(run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    result = capture_from_run(
+        run_id, service.store, service.skill_store,
+        actor_is_operator=bool(payload.get("operator")),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/learning/candidates/{candidate_id}/generate-draft")
+def generate_draft(candidate_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
+    result = propose_draft(candidate_id, service.skill_store, available_tools=service.registry.names())
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/learning/candidates/{candidate_id}/reject")
+def reject_candidate(candidate_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.review requires an authorized operator")
+    candidate = service.skill_store.get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    service.skill_store.update_candidate(candidate_id, status="rejected", reviewedAt=now_iso())
+    return {"success": True, "candidateId": candidate_id, "status": "rejected"}
+
+
+@app.post("/skill-drafts/{skill_id}/submit-review")
+def submit_draft_review(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = request_promotion(
+        service.skill_registry, skill_id=skill_id, version=payload.get("version"),
+        actor=_actor(bool(payload.get("operator"))), reason=str(payload.get("reason") or "submit for review"),
+        evaluation_id=payload.get("evaluationId"),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skill-drafts/{skill_id}/approve")
+def approve_draft(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(payload.get("requestId") or "")
+    if not request_id:
+        # Resolve the newest pending request for this skill (the UI holds only
+        # the skill id after submit-review).
+        pending = [
+            r for r in service.skill_store.list_promotion_requests(skill_id, 50)
+            if r["status"] == "pending"
+        ]
+        if not pending:
+            raise HTTPException(status_code=409, detail="no pending promotion request for this skill")
+        request_id = pending[0]["id"]
+    result = approve_promotion(
+        service.skill_registry, request_id=request_id,
+        actor=_actor(bool(payload.get("operator"))), notes=str(payload.get("notes") or ""),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skill-drafts/{skill_id}/reject")
+def reject_draft(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(payload.get("requestId") or "")
+    if not request_id:
+        pending = [
+            r for r in service.skill_store.list_promotion_requests(skill_id, 50)
+            if r["status"] == "pending"
+        ]
+        if pending:
+            request_id = pending[0]["id"]
+    if request_id:
+        result = reject_promotion(
+            service.skill_registry, request_id=request_id,
+            actor=_actor(bool(payload.get("operator"))), reason=str(payload.get("reason") or "rejected"),
+        )
+        return {"success": result.get("ok", False), **result}
+    # No promotion request yet: reject the draft outright.
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.review requires an authorized operator")
+    manifest = service.skill_registry.manifest(skill_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    target = service.skill_registry.resolve_version(skill_id) or manifest.version
+    service.skill_registry.store.set_version_status(skill_id, target, "rejected")
+    service.skill_registry.store.save_review(
+        skill_id=skill_id, version=target, actor="operator", decision="rejected",
+        notes=str(payload.get("reason") or "rejected"),
+    )
+    return {"success": True, "skillId": skill_id, "version": target, "status": "rejected"}
 
 
 def main(host: str = "127.0.0.1", port: int = 8765) -> None:

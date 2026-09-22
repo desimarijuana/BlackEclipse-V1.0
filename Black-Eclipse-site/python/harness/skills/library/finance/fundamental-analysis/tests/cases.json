@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "caseId": "accepts-symbol",
+      "name": "Accepts a ticker symbol",
+      "kind": "input_validation",
+      "input": { "symbol": "AAPL", "market": "US" },
+      "expected": { "valid": true }
+    },
+    {
+      "caseId": "rejects-missing-symbol",
+      "name": "Rejects input without a symbol",
+      "kind": "input_validation",
+      "input": {},
+      "expected": { "valid": false }
+    },
+    {
+      "caseId": "output-shape",
+      "name": "Output distinguishes reported from derived and carries evidence",
+      "kind": "output_shape",
+      "expected": {
+        "required": ["instrument", "periods", "reported", "derived", "limitations", "evidence"]
+      }
+    }
+  ]
+}

@@ -56,6 +56,10 @@ Black-Eclipse-site/
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md` |
+| Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
+| Add/edit a runtime skill | A folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (+ optional `tests/cases.json`); it is loaded at runtime boot by `skills/loader.py` |
+| Work on the Skills UI | `src/components/screens/skills/` (`skills-screen.tsx` shell + library/detail/learning/evaluation/activity/draft panels), browser client `src/lib/harness/skills-browser.ts` |
+| Work on the skill front door / API | `src/lib/harness/skills-client.ts` (server), routes `src/app/api/skills/`, `src/app/api/learning/`, `src/app/api/skill-executions/`, `src/app/api/skill-drafts/`, `src/app/api/evaluations/` |
 | Change an agent's system prompt / identity | `python/harness/prompts.py` (e.g. `ECLIPSE_AGENT_SYSTEM_PROMPT`), composed in `agents.py` — authoritative in Python |
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
 | Work on hybrid financial retrieval / source selection | `python/harness/retrieval/` (`planner.py` = source selection, `layer.py` = orchestrator, `structured.py`/`web.py` = providers, `cache.py`, `parallel.py`, `validate.py`, `conflicts.py`, `aggregate.py`); tools in `python/harness/retrieval_tools.py` |
@@ -231,6 +235,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/fundamentals/`, `src/components/screens/fundamentals/`, `src/app/api/fundamentals/`, `scripts/yfinance_fundamentals.py` | `ARCHITECTURE.md` (Fundamentals), `DATA-FLOW.md` |
 | `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `harness/phase-2-progress.md`, `DECISIONS.md`, `QUICKSTART.md` |
 | `python/harness/retrieval/`, `python/harness/retrieval_tools.py`, `src/lib/web-research.ts` | `harness/architecture.md` (retrieval layer), `harness/phase-2-progress.md`, `ARCHITECTURE.md`, `DECISIONS.md` |
+| `python/harness/skills/`, `src/lib/harness/skills-*.ts`, `src/components/screens/skills/`, `src/app/api/skills/`, `src/app/api/learning/` | `harness/phase-3-architecture.md`, `harness/phase-3-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |

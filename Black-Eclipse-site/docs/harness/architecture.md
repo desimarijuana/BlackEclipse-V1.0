@@ -55,6 +55,7 @@ Two boundaries, both deliberate:
 | `finance_tools.py` | the Phase-1 JDdS-backed tools (kept for compatibility) |
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
+| `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |
@@ -117,6 +118,40 @@ Tools: `market.get_quote`, `market.get_ohlcv`,
 `research.search`, `research.retrieve_source`, `research.search_news`,
 `macro.get_series` (registered as `*_*` names — the registry allows
 `[A-Za-z0-9_]` only).
+
+### The Skill System (Phase 3)
+
+A **skill** is a versioned, machine-readable procedure the agent executes
+through the *existing* `execute_run` graph — there is no second runtime, tool
+registry or agent loop. `python/harness/skills/` owns it:
+
+| Module | Owns |
+|---|---|
+| `manifest.py` | the pydantic skill manifest + status/risk/category/permission enums, semver |
+| `permissions.py` | the **default-deny** permission policy (enforced in code) |
+| `store.py` | skill lifecycle persistence in `agent-memory.db` (idempotent DDL) |
+| `loader.py` | loading `skill.json` + `SKILL.md` (+ optional `tests/cases.json`) |
+| `registry.py` | the single registry: discovery, validation, versions, dependencies |
+| `runtime.py` | `SkillExecutionRequest`/`Result` + execution via `execute_run` |
+| `learning.py` | run-trace analysis → inert learning candidates |
+| `draft.py` | candidate → unvalidated draft (never auto-enabled) |
+| `evaluation.py` | deterministic evaluation + promotion gates |
+| `lifecycle.py` | submit-review / approve / reject / rollback |
+| `library/` | the shipped skills (research, quality, finance, system) |
+
+Execution composes an `AgentConfig` from the skill: its `SKILL.md` becomes the
+system prompt (behind an authoritative runtime preamble), and its `requiredTools`
+become the run's tool **allowlist** — the model can never call a tool the skill
+did not declare. `SKILL.md` prose is data; the permission check, allowlist and
+dependency resolution are enforced in Python code regardless of what the prose
+says. Retrieved web/document content is untrusted and can never widen an actor's
+grants.
+
+Discovery is deterministic and metadata-only (`discover()`), so full instructions
+load **only** for a selected skill — progressive disclosure by construction.
+Skill `skill.*` events ride the same `RunEmitter`/bus/persistence as `tool.*`.
+
+Details: [`phase-3-architecture.md`](./phase-3-architecture.md).
 
 ### Web research is one shared system
 
@@ -289,4 +324,6 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 | An agent | Add a prompt to `python/harness/prompts.py` and an `AgentConfig` to `AGENT_PRESETS` in `python/harness/agents.py` (update `DEFAULT_AGENT_ID` if it should be the default). |
 | A model provider | Add a `ProviderSpec` to `PROVIDER_CATALOG`; add its package to `requirements.txt` if it needs a native integration. |
 | Durable knowledge | Use `store.remember` / `store.recall` or `store.propose_skill`. |
+| A runtime skill | Add a folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (and optional `tests/cases.json`); it loads at boot via `skills/loader.py`. |
+| A skill API surface | Add a proxy route under `src/app/api/skills/` (or `learning/`) and a typed call in `skills-client.ts` (server) / `skills-browser.ts` (UI). |
 | A conversational surface | `POST /api/harness/chat` (`chatWithAgent`); pass `history` so follow-ups keep the thread. |

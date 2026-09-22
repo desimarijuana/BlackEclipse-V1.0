@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "caseId": "accepts-title-and-sections",
+      "name": "Accepts a title and sections",
+      "kind": "input_validation",
+      "input": { "title": "ACME FY24", "sections": [{ "body": "..." }] },
+      "expected": { "valid": true }
+    },
+    {
+      "caseId": "rejects-missing-sections",
+      "name": "Rejects input without sections",
+      "kind": "input_validation",
+      "input": { "title": "ACME FY24" },
+      "expected": { "valid": false }
+    },
+    {
+      "caseId": "output-shape",
+      "name": "Output preserves references and uncertainty",
+      "kind": "output_shape",
+      "expected": {
+        "required": ["title", "body", "references", "assumptions", "missingData", "uncertainty"]
+      }
+    }
+  ]
+}

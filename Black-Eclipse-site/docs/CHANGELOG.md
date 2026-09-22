@@ -43,6 +43,21 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Skills (Phase 3)** — added the Skill System: versioned `skill.json` +
+  `SKILL.md` procedures executed through the **existing** Phase-1 `execute_run`
+  graph. Python owns the registry, default-deny permissions, dependency
+  resolution, execution, learning candidates, draft generation, deterministic
+  evaluation, promotion gates and rollback; state persists in additive
+  `agent-memory.db` tables. Added five initial skills, a Skills Control Room UI
+  (library / detail / learning queue / evaluation center / execution activity /
+  draft review), the workflow-ready `SkillExecutionRequest`/`Result` contract,
+  and `/api/skills/**` + `/api/learning/**` proxies. Generated skills are inert
+  until evaluated and explicitly promoted. No new runtime, tool registry,
+  database, or schema library (pydantic reused).
+  docs updated: `docs/harness/phase-3-architecture.md` (new),
+  `docs/harness/phase-3-progress.md` (new), `docs/harness/architecture.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md`, `skills/ARCHITECT.md`.
+
 - **Chat UI** — the transcript scroll container (`chat-history.tsx`) used
   `scrollbar-hide`, so a long thread gave no sign it could scroll. Added a
   visible, brand-coloured `.chat-transcript-scroll` scrollbar; it is hidden only

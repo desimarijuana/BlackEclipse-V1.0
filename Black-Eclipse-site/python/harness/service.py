@@ -18,6 +18,7 @@ from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
 from .retrieval_tools import register_retrieval_tools
 from .schemas import HarnessError, RunRequest, RunResult
+from .skills import SkillRegistry, SkillStore
 from .tools import DataBridge, ToolRegistry
 
 log = logging.getLogger("harness.service")
@@ -59,6 +60,13 @@ class AgenticService:
         # retrieval tools are the provider-agnostic path the agent should prefer.
         register_finance_tools(self.registry)
         register_retrieval_tools(self.registry)
+        # Phase 3: the ONE skill registry. The library is loaded at boot and the
+        # runtime tool registry is attached so required-tool checks are real.
+        # Skills execute through the SAME registry/graph as a chat turn.
+        self.skill_store = SkillStore(self.store.path)
+        self.skill_registry = SkillRegistry(self.skill_store)
+        self.skill_load_errors = self.skill_registry.load_all()
+        self.skill_registry.attach_tool_registry(self.registry)
         self.bus = EventBus()
         self._active: dict[str, asyncio.Task[Any]] = {}
         # ONE process-wide retrieval cache. It is safe to share: in-flight
@@ -73,6 +81,24 @@ class AgenticService:
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
         return await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
+
+    async def run_skill(self, request: Any) -> Any:
+        """Execute a skill through the existing runtime.
+
+        Imported lazily so `service` stays importable without the skills package
+        (and to keep the module import graph flat).
+        """
+        from .skills.runtime import execute_skill
+
+        bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        return await execute_skill(
+            request,
+            self.skill_registry,
+            self.registry,
+            bridge,
+            self.store,
+            bus=self.bus,
+        )
 
     async def run_background(self, request: RunRequest) -> None:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
@@ -127,6 +153,7 @@ class AgenticService:
 
     def close(self) -> None:
         self.store.close()
+        self.skill_store.close()
 
 
 __all__ = ["AgenticService", "HarnessError"]

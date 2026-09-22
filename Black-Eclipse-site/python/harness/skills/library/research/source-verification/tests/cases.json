@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "caseId": "accepts-claims",
+      "name": "Accepts a claim list",
+      "kind": "input_validation",
+      "input": { "claims": [{ "claim": "Revenue grew 12%" }] },
+      "expected": { "valid": true }
+    },
+    {
+      "caseId": "rejects-missing-claims",
+      "name": "Rejects input without claims",
+      "kind": "input_validation",
+      "input": {},
+      "expected": { "valid": false }
+    },
+    {
+      "caseId": "output-shape",
+      "name": "Output separates verified from unverified",
+      "kind": "output_shape",
+      "expected": {
+        "required": ["verified", "unverified", "conflicts", "missingEvidence", "confidenceLimitations"]
+      }
+    }
+  ]
+}
