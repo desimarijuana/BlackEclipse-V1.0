@@ -43,6 +43,15 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **UI / Navigation** — the sidebar now has two top-level modes, **Terminal**
+  (market tools) and **Agentic** (ChatBot, Skills, Eclipse Memory), switched by a
+  segmented control at the top of the menu and by **Alt+T / Alt+A**. The active
+  mode lives in the shared sidebar store (`mode`) so the switcher, shortcut
+  dispatch and palette/deep-link navigation stay in sync; ChatBot belongs to both
+  modes. The switcher is hidden while the sidebar is collapsed, where all items
+  stay reachable as icons. Made the Skills and Eclipse Memory screens full-width
+  (dropped `max-w-6xl`) to match the other screens.
+  docs updated: `docs/OVERVIEW.md`, `docs/ARCHITECTURE.md`.
 - **Eclipse-Memory (Phase 3-M follow-up)** — added the configurable policy layer
   (`eclipse_memory/policy.py`, `MemoryPolicy` table) with validated bounds and
   locked safety values (automatic skill promotion can never be enabled);

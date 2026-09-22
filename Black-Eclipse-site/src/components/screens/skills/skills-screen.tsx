@@ -232,7 +232,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   ], [candidates.length]);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
+    <div className="w-full px-4 py-6 md:px-8">
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-xs font-semibold shadow-lg glass-card-strong ${
           toast.tone === "ok" ? "border-emerald-400/30 text-emerald-200" : "border-rose-400/30 text-rose-200"

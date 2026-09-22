@@ -33,7 +33,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
   const [tab, setTab] = useState<Tab>("overview");
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
+    <div className="w-full px-4 py-6 md:px-8">
       <TabBar
         items={[
           { id: "overview", label: "Overview", icon: Brain },

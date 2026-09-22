@@ -42,6 +42,15 @@ introduce a second router. Untouched legacy defaults migrate to assigned keys,
 while customized assignments and disabled sections are preserved. F11 remains
 unassigned by default because browsers use it for fullscreen.
 
+The sidebar has two top-level modes — **Terminal** (market tools) and
+**Agentic** (ChatBot, Skills, Eclipse Memory) — selected by a segmented switcher
+at the top of the menu and by **Alt+T / Alt+A**. The active mode lives in the
+shared sidebar store (`mode`), so the switcher, keyboard dispatch and
+programmatic navigation all read/write one value. ChatBot belongs to both modes;
+when a terminal/agentic-only screen is opened by the palette or a deep link the
+switcher follows it. The switcher is hidden while collapsed, where every item
+remains reachable as an icon.
+
 `src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
 roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens
 must never receive actions while hidden. Focused nested scopes take precedence;

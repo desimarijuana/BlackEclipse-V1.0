@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dispatchPageShortcut, useKeyboardShortcutsStore, type PageShortcut, type ShortcutScope } from './use-page-shortcuts';
-import { handleSidebarShortcut } from './use-sidebar-keybinds';
+import { handleSidebarShortcut, handleSidebarModeShortcut } from './use-sidebar-keybinds';
 import { defaultSidebarConfig } from '@/lib/sidebar/config';
 import { useSidebarConfigStore } from '@/lib/sidebar/store';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -136,5 +136,28 @@ describe('handleSidebarShortcut', () => {
     config.sections = config.sections.map((s) => ({ ...s, shortcut: '' }));
     expect(handleSidebarShortcut(keyEvent({ key: 'F2' }), config, (tab) => navigated.push(tab))).toBe(false);
     expect(navigated).toEqual([]);
+  });
+});
+
+describe('handleSidebarModeShortcut', () => {
+  it('switches to Agentic on Alt+A and back to Terminal on Alt+T', () => {
+    useSidebarConfigStore.setState({ mode: 'terminal' });
+    expect(handleSidebarModeShortcut(keyEvent({ key: 'a', altKey: true }))).toBe(true);
+    expect(useSidebarConfigStore.getState().mode).toBe('agentic');
+    expect(handleSidebarModeShortcut(keyEvent({ key: 't', altKey: true }))).toBe(true);
+    expect(useSidebarConfigStore.getState().mode).toBe('terminal');
+  });
+
+  it('ignores the plain key without the Alt modifier', () => {
+    useSidebarConfigStore.setState({ mode: 'terminal' });
+    expect(handleSidebarModeShortcut(keyEvent({ key: 'a' }))).toBe(false);
+    expect(useSidebarConfigStore.getState().mode).toBe('terminal');
+  });
+
+  it('does nothing while the help dialog is open', () => {
+    useSidebarConfigStore.setState({ mode: 'terminal' });
+    seedStore([], { helpOpen: true });
+    expect(handleSidebarModeShortcut(keyEvent({ key: 'a', altKey: true }))).toBe(false);
+    expect(useSidebarConfigStore.getState().mode).toBe('terminal');
   });
 });

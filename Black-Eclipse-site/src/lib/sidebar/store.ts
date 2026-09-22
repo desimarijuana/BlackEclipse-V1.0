@@ -13,15 +13,20 @@ import {
   loadSidebarConfig,
   saveSidebarConfig,
   type SidebarConfig,
+  type NavGroup,
 } from './config';
 import type { AppTab } from '@/components/layout/sidebar';
 
 export interface SidebarConfigStore {
   config: SidebarConfig;
   hydrated: boolean;
+  /** Active top-level menu mode (Terminal vs Agentic). Shared so keyboard
+   *  shortcuts and programmatic navigation can switch it, not just the UI. */
+  mode: NavGroup;
   /** Merge a hydrated config from localStorage (client only, post-mount). */
   hydrate: () => void;
   setConfig: (cfg: SidebarConfig) => void;
+  setMode: (mode: NavGroup) => void;
   toggleEnabled: (id: AppTab) => void;
   setShortcut: (id: AppTab, shortcut: string) => void;
   /** Move an item from one index to another (reorder). */
@@ -29,21 +34,39 @@ export interface SidebarConfigStore {
   reset: () => void;
 }
 
+/** Persisted top-level menu mode. */
+export const SIDEBAR_MODE_KEY = 'be_sidebar_mode_v1';
+
 export const useSidebarConfigStore = create<SidebarConfigStore>((set) => ({
   // SSR-consistent default; the real config is loaded on mount (avoids
   // hydration mismatch warnings).
   config: defaultSidebarConfig(),
   hydrated: false,
+  mode: 'terminal',
 
   hydrate: () => {
     const config = loadSidebarConfig();
     saveSidebarConfig(config);
-    set({ config, hydrated: true });
+    let mode: NavGroup = 'terminal';
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(SIDEBAR_MODE_KEY);
+        if (saved === 'terminal' || saved === 'agentic') mode = saved;
+      } catch { /* private mode — keep the default */ }
+    }
+    set({ config, hydrated: true, mode });
   },
 
   setConfig: (config) => {
     saveSidebarConfig(config);
     set({ config });
+  },
+
+  setMode: (mode) => {
+    if (typeof window !== 'undefined') {
+      try { localStorage.setItem(SIDEBAR_MODE_KEY, mode); } catch { /* ignore */ }
+    }
+    set({ mode });
   },
 
   toggleEnabled: (id) =>

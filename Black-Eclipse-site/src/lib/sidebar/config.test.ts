@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultSidebarConfig, loadSidebarConfig, saveSidebarConfig, shortcutTab, DEFAULT_SIDEBAR_SECTIONS, SIDEBAR_CONFIG_KEY } from './config';
+import { defaultSidebarConfig, loadSidebarConfig, saveSidebarConfig, shortcutTab, DEFAULT_SIDEBAR_SECTIONS, SIDEBAR_CONFIG_KEY, navGroupsFor, modeForTab } from './config';
 
 const memory = new Map<string, string>();
 
@@ -150,5 +150,31 @@ describe('shortcutTab', () => {
     expect(shortcutTab(config, '')).toBeNull();
     const disabled = { ...config, sections: config.sections.map((s) => (s.id === 'chat' ? { ...s, enabled: false } : s)) };
     expect(shortcutTab(disabled, 'F1')).toBeNull();
+  });
+});
+
+describe('nav groups (Terminal / Agentic)', () => {
+  it('splits market tools into Terminal and agent tools into Agentic', () => {
+    const byId = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
+    expect(navGroupsFor(byId.get('dashboard')!)).toEqual(['terminal']);
+    expect(navGroupsFor(byId.get('skills')!)).toEqual(['agentic']);
+    expect(navGroupsFor(byId.get('memory')!)).toEqual(['agentic']);
+  });
+
+  it('lists ChatBot in both modes', () => {
+    const chat = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === 'chat')!;
+    expect(navGroupsFor(chat)).toEqual(['terminal', 'agentic']);
+  });
+
+  it('maps a tab to its mode but never forces a switch for shared ChatBot', () => {
+    expect(modeForTab('news')).toBe('terminal');
+    expect(modeForTab('skills')).toBe('agentic');
+    expect(modeForTab('chat')).toBeNull();
+  });
+
+  it('assigns every canonical section a group', () => {
+    for (const def of DEFAULT_SIDEBAR_SECTIONS) {
+      expect(navGroupsFor(def).length).toBeGreaterThan(0);
+    }
   });
 });

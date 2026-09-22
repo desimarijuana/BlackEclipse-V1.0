@@ -60,7 +60,11 @@ export const en = {
   'sidebar.noSessions': 'No active sessions',
   'sidebar.untitledSession': 'Untitled Session',
   'sidebar.terminal': 'Terminal',
+  'sidebar.agentic': 'Agentic',
+  'sidebar.modeSwitcher': 'Menu mode',
   'sidebar.openSettings': 'Open Settings',
+  'sidebar.modeTerminalShortcut': 'Switch menu to Terminal',
+  'sidebar.modeAgenticShortcut': 'Switch menu to Agentic',
 
   // Settings — General
   'settings.general.title': 'Appearance & Preferences',

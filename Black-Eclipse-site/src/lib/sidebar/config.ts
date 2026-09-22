@@ -14,30 +14,50 @@ import {
 } from 'lucide-react';
 import type { AppTab } from '@/components/layout/sidebar';
 
+/** The two top-level sidebar modes. A section belongs to one, or to both. */
+export type NavGroup = 'terminal' | 'agentic';
+
 export interface SidebarSectionDef {
   /** Matches an AppTab id. */
   id: AppTab;
   label: string;
   icon: LucideIcon;
+  /**
+   * Which mode(s) the item is listed under. `'both'` items (ChatBot) stay
+   * visible in either mode so the agent is always one click away.
+   */
+  group: NavGroup | 'both';
 }
 
 /** The primary navigation menu, in the shipped default order. ChatBot (the
  *  harness) leads by default, but the order is fully user-customizable. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
-  { id: 'chat', label: 'ChatBot', icon: Bot },
-  { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard },
-  { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye },
-  { id: 'market-workspace', label: 'Chart Workspace', icon: ChartCandlestick },
-  { id: 'discovery', label: 'Market Screener', icon: ScanSearch },
-  { id: 'portfolio', label: 'Portfolio', icon: ChartPie },
-  { id: 'journal', label: 'Journal', icon: BookOpen },
-  { id: 'news', label: 'Market News', icon: Newspaper },
-  { id: 'heatmap', label: 'Market Bubbles', icon: Orbit },
-  { id: 'economics', label: 'Economics', icon: Globe },
-  { id: 'alerts', label: 'Price Alerts', icon: Bell },
-  { id: 'skills', label: 'Skills', icon: Sparkles },
-  { id: 'memory', label: 'Eclipse Memory', icon: Brain },
+  { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
+  { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
+  { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye, group: 'terminal' },
+  { id: 'market-workspace', label: 'Chart Workspace', icon: ChartCandlestick, group: 'terminal' },
+  { id: 'discovery', label: 'Market Screener', icon: ScanSearch, group: 'terminal' },
+  { id: 'portfolio', label: 'Portfolio', icon: ChartPie, group: 'terminal' },
+  { id: 'journal', label: 'Journal', icon: BookOpen, group: 'terminal' },
+  { id: 'news', label: 'Market News', icon: Newspaper, group: 'terminal' },
+  { id: 'heatmap', label: 'Market Bubbles', icon: Orbit, group: 'terminal' },
+  { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
+  { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
+  { id: 'skills', label: 'Skills', icon: Sparkles, group: 'agentic' },
+  { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
 ];
+
+/** The modes a section is listed under. */
+export function navGroupsFor(def: SidebarSectionDef): NavGroup[] {
+  return def.group === 'both' ? ['terminal', 'agentic'] : [def.group];
+}
+
+/** The mode a tab id belongs to, for syncing the switcher to the active tab.
+ *  `'both'` tabs (ChatBot) never force a switch — the user's choice stands. */
+export function modeForTab(id: AppTab): NavGroup | null {
+  const def = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === id);
+  return def && def.group !== 'both' ? def.group : null;
+}
 
 /** Per-item user config; id is the AppTab id. */
 export interface SidebarSectionConfig {

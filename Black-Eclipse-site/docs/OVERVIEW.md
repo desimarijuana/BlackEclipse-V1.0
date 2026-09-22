@@ -69,11 +69,14 @@ library, **Shift+N** creation/new layout, **S** local search and **R** refresh
 where those actions exist. Help marks the current scopes; hidden screens and
 text entry do not receive page commands.
 
-The sidebar ships with these tabs:
+The sidebar ships with these tabs, split across two top-level modes —
+**Terminal** (market tools) and **Agentic** (the AI runtime). A segmented
+switcher at the top of the menu (Alt+T / Alt+A) flips between them; **ChatBot**
+appears in both. The switcher is hidden while the sidebar is collapsed, where
+every item stays reachable as an icon.
 
-| Tab | What it is |
+| Terminal tab | What it is |
 |---|---|
-| ChatBot | Multi-agent research chat; research-worded questions hit the real research engine |
 | Command Center | A customizable widget dashboard (see the workspace concept below) |
 | Chart Workspace | A customizable multi-panel chart/market grid (independent layout engine) |
 | Market Screener | The main stock screen across global markets |
@@ -82,7 +85,13 @@ The sidebar ships with these tabs:
 | Market News | Sentiment-tagged RSS feed, ingested into JDDS |
 | Market Bubbles | Physics-based turnover map — real JDDS instruments sized by 24h traded value, plus whole-market Volume Analytics |
 | Economics | Macro series + economic calendar |
-| Price Alerts | Condition-based alert watches with a server-side poll loop |
+| Price Alerts | Condition-based alert watches with a server-side poll loop (plus Investor Eye) |
+
+| Agentic tab | What it is |
+|---|---|
+| ChatBot | Multi-agent research chat; research-worded questions hit the real research engine. Shared with Terminal |
+| Skills | The skill control room — library, learning queue, evaluation, execution activity |
+| Eclipse Memory | Dedicated agent-memory database: memories, corrections, mistakes, policies, health |
 
 Plus an embedded **Chart** tab reached from other screens (TradingView-backed).
 

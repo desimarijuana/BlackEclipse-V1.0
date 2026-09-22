@@ -1,14 +1,20 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from 'lucide-react';
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
-import { DEFAULT_SIDEBAR_SECTIONS, configMap } from '@/lib/sidebar/config';
+import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
+
+/** The two top-level menu modes and the icon each switcher button shows. */
+const NAV_MODES: Array<{ id: NavGroup; labelKey: 'sidebar.terminal' | 'sidebar.agentic'; icon: typeof SquareTerminal }> = [
+  { id: 'terminal', labelKey: 'sidebar.terminal', icon: SquareTerminal },
+  { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
+];
 
 export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye' | 'skills' | 'memory';
 
@@ -60,16 +66,30 @@ export function Sidebar({
   // shared store (edited in Settings › Sidebar). Hydrate once on mount.
   useHydrateSidebarConfig();
   const sidebarConfig = useSidebarConfigStore((s) => s.config);
+  const navMode = useSidebarConfigStore((s) => s.mode);
+  const setNavMode = useSidebarConfigStore((s) => s.setMode);
   const cfgMap = configMap(sidebarConfig);
   const navItems = sidebarConfig.sections
     .filter((s) => cfgMap.get(s.id)?.enabled !== false)
     .map((s) => {
       const def = NAV_DEF.get(s.id);
       if (!def) return null;
+      // Only items belonging to the active mode are listed. ChatBot is `both`,
+      // so it stays in either mode. While collapsed there is no switcher, so
+      // every item stays reachable as an icon.
+      if (!isCollapsed && def.group !== 'both' && def.group !== navMode) return null;
       const key = navLabelKey(s.id);
       return { ...def, label: key ? t(key) : def.label, shortcut: s.shortcut };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  // Keep the switcher in sync with programmatic navigation: opening a Terminal
+  // screen (command palette, deep link, cross-screen CTA) shows the Terminal
+  // menu, and likewise for Agentic. ChatBot is shared and never forces a switch.
+  useEffect(() => {
+    const mode = modeForTab(activeTab);
+    if (mode && mode !== navMode) setNavMode(mode);
+  }, [activeTab, navMode, setNavMode]);
 
   const handleSelectChat = (id: string) => {
     onSelectConversation(id);
@@ -135,7 +155,49 @@ export function Sidebar({
       <div className={`flex-1 flex flex-col gap-5 py-4 overflow-y-auto scrollbar-hide w-full ${
         isCollapsed ? 'items-center' : ''
       }`}>
-        
+
+        {/* Top-level mode switcher: Terminal (market tools) vs Agentic
+            (chat, skills, memory). ChatBot appears in both. Hidden while the
+            sidebar is collapsed — there is no room for labels and the menu
+            already collapses to icons only. */}
+        {!isCollapsed && (
+          <div
+            role="tablist"
+            aria-label={t('sidebar.modeSwitcher')}
+            className="shrink-0 relative grid grid-cols-2 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
+          >
+            {/* Sliding highlight behind the active mode. */}
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute inset-y-1 w-[calc(50%-0.375rem)] rounded-xl bg-gradient-to-b from-primary/25 to-primary/10 border border-primary/25 shadow-[0_2px_10px_-2px] shadow-primary/30 transition-all duration-300 ease-out ${
+                navMode === 'agentic' ? 'left-[calc(50%+0.125rem)]' : 'left-1'
+              }`}
+            />
+            {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
+              const isActive = navMode === id;
+              const label = t(labelKey);
+              return (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={isActive}
+                  data-sound="tick"
+                  onClick={() => setNavMode(id)}
+                  title={label}
+                  className={`relative z-10 flex items-center justify-center gap-1.5 rounded-xl py-2 text-[11px] font-bold tracking-wide transition-colors duration-200 cursor-pointer ${
+                    isActive
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon size={14} className="shrink-0" />
+                  <span className="whitespace-nowrap">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Chat History Panel on Top of the menu list */}
         {activeTab === 'chat' && !isCollapsed && (
           <div className="flex flex-col gap-3 pb-4">

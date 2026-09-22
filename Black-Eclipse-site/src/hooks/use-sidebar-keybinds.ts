@@ -2,10 +2,18 @@
 
 import { useEffect, useRef } from 'react';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
-import { shortcutTab, type SidebarConfig } from '@/lib/sidebar/config';
+import { shortcutTab, type SidebarConfig, type NavGroup } from '@/lib/sidebar/config';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
 import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import type { AppTab } from '@/components/layout/sidebar';
+
+/** Keys that switch the top-level Terminal / Agentic menu. Alt-based so they
+ *  never collide with browser tab switching (Ctrl+1..9) or the Alt+1..9
+ *  sub-tab selection. */
+export const MODE_SHORTCUTS: Array<{ keys: string; mode: NavGroup }> = [
+  { keys: 'alt+t', mode: 'terminal' },
+  { keys: 'alt+a', mode: 'agentic' },
+];
 
 export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfig, onNavigate: (tab: AppTab) => void): boolean {
   if (!/^F([1-9]|1[0-2])$/.test(event.key) || !matchesShortcut(event, event.key)) return false;
@@ -19,6 +27,20 @@ export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfi
   return false;
 }
 
+/**
+ * Switch the sidebar between Terminal and Agentic. The active screen is left
+ * untouched — the menu simply re-filters; ChatBot is shared so it stays put.
+ * Returns true when the shortcut fired.
+ */
+export function handleSidebarModeShortcut(event: KeyboardEvent): boolean {
+  const hit = MODE_SHORTCUTS.find((s) => matchesShortcut(event, s.keys));
+  if (!hit) return false;
+  if (useKeyboardShortcutsStore.getState().helpOpen || !canHandleKeyboardEvent(event)) return false;
+  event.preventDefault();
+  useSidebarConfigStore.getState().setMode(hit.mode);
+  return true;
+}
+
 export function useSidebarKeybinds(onNavigate: (tab: AppTab) => void) {
   useHydrateSidebarConfig();
   const navigateRef = useRef(onNavigate);
@@ -28,6 +50,7 @@ export function useSidebarKeybinds(onNavigate: (tab: AppTab) => void) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (handleSidebarModeShortcut(event)) return;
       handleSidebarShortcut(event, useSidebarConfigStore.getState().config, navigateRef.current);
     };
     window.addEventListener('keydown', onKeyDown);
