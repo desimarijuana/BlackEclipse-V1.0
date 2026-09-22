@@ -74,7 +74,8 @@ describe('live_quote — instrument identity', () => {
   it('rejects an unknown market qualifier instead of dropping it', async () => {
     assetFindMany.mockResolvedValue(FFC_ROWS);
     const result = await fetchCapability('live_quote', { symbol: 'FFC', market: 'MARS' });
-    expect(result.status).toBe('AMBIGUOUS');
+    // An unknown venue is a COVERAGE gap (not_covered), not an ambiguity (#4).
+    expect(result.failureClass).toBe('not_covered');
     expect(fetchQuoteWithFallback).not.toHaveBeenCalled();
   });
 
@@ -113,32 +114,36 @@ describe('price_history — instrument identity', () => {
 
 describe('market_snapshot — venue alias', () => {
   it('resolves PSX to PK so a valid PK instrument is not "not in universe"', async () => {
-    assetFindFirst.mockResolvedValue({
-      symbol: 'FFC',
-      name: 'Fauji Fertilizer Co. Ltd.',
-      sector: 'Process Industries',
-      industry: 'Chemicals',
-      securityType: 'Stock',
-      assetClass: 'Equity',
-      market: { country: 'PK', exchange: 'PSX' },
-      price: { price: 538.2, changePct: -0.079, marketCap: 1, volume: 2, peRatio: 3, source: 'tradingview', updatedAt: null },
-    });
+    assetFindMany.mockResolvedValue([
+      {
+        symbol: 'FFC',
+        name: 'Fauji Fertilizer Co. Ltd.',
+        sector: 'Process Industries',
+        industry: 'Chemicals',
+        securityType: 'Stock',
+        assetClass: 'Equity',
+        market: { country: 'PK', exchange: 'PSX' },
+        price: { price: 538.2, changePct: -0.079, marketCap: 1, volume: 2, peRatio: 3, source: 'tradingview', updatedAt: null },
+      },
+    ]);
     const result = await fetchCapability('market_snapshot', { symbol: 'FFC', market: 'PSX' });
     expect(result.status).toBe('OK');
     expect(result.market ?? result.country).toBe('PK');
     expect(result.instrumentId).toBe('PK:FFC');
     expect(result.currency).toBe('PKR');
+    expect(result.mic).toBe('XPSX');
   });
 
-  it('refuses an unknown venue rather than dropping it', async () => {
+  it('refuses an unknown venue as not_covered rather than dropping it', async () => {
+    assetFindMany.mockResolvedValue([]);
     const result = await fetchCapability('market_snapshot', { symbol: 'FFC', market: 'MARS' });
     expect(result.status).toBe('UNAVAILABLE');
-    expect(assetFindFirst).not.toHaveBeenCalled();
+    expect(result.failureClass).toBe('not_covered');
   });
 });
 
 // -- C2: news must not return a false negative -------------------------------
-describe('news � no false negatives (C2)', () => {
+describe('news � no false negatives (C2)', () => {
   const webSearch = vi.fn();
   // Re-mock web-research for this file via dynamic import is awkward; instead
   // assert the shape contract the tool relies on through the mocked vault.

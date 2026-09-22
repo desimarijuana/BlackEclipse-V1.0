@@ -39,7 +39,7 @@ from .sources import SourceOutcome
 _JDDS_CAPABILITY: dict[str, str] = {
     "current_quote": "market_snapshot",
     "company_profile": "fundamentals",
-    "financial_statements": "fundamentals",
+    "financial_statements": "financial_statements",
 }
 
 # DataType → the live-provider capability on the TS bridge.

@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 const CAPABILITIES: DataCapability[] = [
   "market_snapshot",
   "fundamentals",
+  "financial_statements",
   "news",
   "source_health",
   "coverage",

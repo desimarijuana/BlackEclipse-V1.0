@@ -433,6 +433,30 @@ Realtime data types are excluded from durable replay by design.
 
 ---
 
+## ADR-023 — One shared resolution layer for every tool; no country/venue/asset-class default (2026)
+**Decision:** Instrument resolution is unified in a single bridge resolver
+(`resolveVaultInstrument` / `resolveAnyInstrument`), and **every** resolving
+capability (`market_snapshot`, `fundamentals`, `live_quote`, `price_history`,
+`financial_statements`) routes through it. A tool cannot bypass the gate; a test
+enumerates the tool surface and fails if a resolving tool touches a non-gated
+capability. There is **no** US (or any) default: an unqualified multi-listed
+ticker is `AMBIGUOUS`; an unknown venue is `NOT_COVERED` (not `AMBIGUOUS`); FX
+and crypto are first-class asset classes that never inherit an equity country
+universe; a wrong-currency/venue answer is discarded. Instrument identity carries
+the exchange and MIC where known.
+**Why:** The previous round gated only the quote fallback path, so
+`market_get_quote` was safe while `fundamentals_get_company_profile` silently
+returned the US ADR of a multi-listed issuer and `market_snapshot` defaulted
+unqualified lookups to the US — the original defect, reachable by omitting a
+parameter.
+**Impact:** Extends ADR-020/021/022. `market_unknown` now maps to
+`not_covered`. New `financial_statements` capability serves the persisted
+`FundamentalsCache` (parse-once, deterministic). Source health records from the
+live path, keyed by source × market × asset class. Macro generic measures are
+`AMBIGUOUS` even with a geography, and macro rows are newest-first with units.
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

@@ -4,12 +4,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Prisma is mocked so the test never touches the real jdds.db.
 
 const findFirst = vi.fn();
+const assetFindMany = vi.fn();
 const newsFindMany = vi.fn();
 const groupBy = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    asset: { findFirst: (...a: unknown[]) => findFirst(...a) },
+    asset: {
+      findFirst: (...a: unknown[]) => findFirst(...a),
+      findMany: (...a: unknown[]) => assetFindMany(...a),
+    },
     newsItem: { findMany: (...a: unknown[]) => newsFindMany(...a) },
     sourceHealth: { groupBy: (...a: unknown[]) => groupBy(...a) },
   },
@@ -19,29 +23,33 @@ import { fetchCapability } from "./data-bridge";
 
 beforeEach(() => {
   findFirst.mockReset();
+  assetFindMany.mockReset();
   newsFindMany.mockReset();
   groupBy.mockReset();
 });
 
 describe("fetchCapability — market_snapshot", () => {
   it("returns OK with provenance and freshness", async () => {
-    findFirst.mockResolvedValue({
-      symbol: "AAPL",
-      name: "Apple Inc.",
-      sector: "Technology",
-      industry: "Consumer Electronics",
-      securityType: "Common Stock",
-      market: { country: "US", exchange: "NASDAQ" },
-      price: {
-        price: 237.42,
-        changePct: 1.23,
-        marketCap: null,
-        volume: null,
-        peRatio: null,
-        source: "scraper",
-        updatedAt: new Date("2026-09-20T12:00:00.000Z"),
+    assetFindMany.mockResolvedValue([
+      {
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        sector: "Technology",
+        industry: "Consumer Electronics",
+        securityType: "Common Stock",
+        assetClass: "Equity",
+        market: { country: "US", exchange: "NASDAQ" },
+        price: {
+          price: 237.42,
+          changePct: 1.23,
+          marketCap: null,
+          volume: null,
+          peRatio: null,
+          source: "scraper",
+          updatedAt: new Date("2026-09-20T12:00:00.000Z"),
+        },
       },
-    });
+    ]);
     const result = await fetchCapability("market_snapshot", { symbol: "aapl" });
     expect(result.status).toBe("OK");
     expect(result.priceSource).toBe("scraper");
@@ -50,7 +58,7 @@ describe("fetchCapability — market_snapshot", () => {
   });
 
   it("returns UNAVAILABLE when the symbol is absent (never invents data)", async () => {
-    findFirst.mockResolvedValue(null);
+    assetFindMany.mockResolvedValue([]);
     const result = await fetchCapability("market_snapshot", { symbol: "ZZZZ" });
     expect(result.status).toBe("UNAVAILABLE");
     expect(result).not.toHaveProperty("price");
@@ -59,7 +67,7 @@ describe("fetchCapability — market_snapshot", () => {
   it("returns UNAVAILABLE when no symbol is supplied", async () => {
     const result = await fetchCapability("market_snapshot", {});
     expect(result.status).toBe("UNAVAILABLE");
-    expect(findFirst).not.toHaveBeenCalled();
+    expect(assetFindMany).not.toHaveBeenCalled();
   });
 });
 

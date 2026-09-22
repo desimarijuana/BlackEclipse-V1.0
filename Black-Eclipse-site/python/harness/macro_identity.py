@@ -31,15 +31,15 @@ _SERIES: list[dict[str, Any]] = [
     {"id": "WLD:WORLDBANK:GDP", "geography": "WLD", "institution": "WorldBank", "measure": "gdp_nominal", "adjustment": "nsa", "frequency": "annual", "sourceId": "worldbank", "providerSeries": "NY.GDP.MKTP.CD"},
 ]
 
-_GENERIC_MEASURES = {
-    "policy_rate": "fed_funds_target_upper",
-    "policyrate": "fed_funds_target_upper",
-    "interest_rate": "fed_funds_effective",
-    "inflation": "cpi_headline",
-    "cpi": "cpi_headline",
-    "core_inflation": "cpi_core",
-    "unemployment": "unemployment_rate",
-    "gdp": "gdp_nominal",
+_GENERIC_MEASURE_FAMILIES = {
+    "policy_rate": ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
+    "policyrate": ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
+    "interest_rate": ["fed_funds_effective", "fed_funds_target_upper"],
+    "inflation": ["cpi_headline"],
+    "cpi": ["cpi_headline"],
+    "core_inflation": ["cpi_core"],
+    "unemployment": ["unemployment_rate"],
+    "gdp": ["gdp_nominal"],
 }
 
 # Country alias → geography (accepts country names, ISO2, and venue codes).
@@ -87,8 +87,8 @@ def resolve_macro_series(series_id: str, geography: Optional[str] = None) -> dic
             "candidates": [s["id"] for s in by_provider],
         }
 
-    measure_key = _GENERIC_MEASURES.get(raw.lower().replace(" ", "_"))
-    if measure_key:
+    family = _GENERIC_MEASURE_FAMILIES.get(raw.lower().replace(" ", "_"))
+    if family:
         if not geo:
             return {
                 "ok": False,
@@ -97,16 +97,26 @@ def resolve_macro_series(series_id: str, geography: Optional[str] = None) -> dic
                     f'"{raw}" is generic and must be scoped to a geography '
                     '(e.g. "US policy rate" vs "ECB policy rate").'
                 ),
-                "candidates": [s["id"] for s in _SERIES if s["measure"] == measure_key],
+                "candidates": [s["id"] for s in _SERIES if s["measure"] in family],
             }
-        match = next((s for s in _SERIES if s["measure"] == measure_key and s["geography"] == geo), None)
-        if match:
-            return {"ok": True, "identity": match}
-        return {
-            "ok": False,
-            "reason": "not_covered",
-            "message": f'No "{raw}" series is registered for {geo}.',
-        }
+        scoped = [s for s in _SERIES if s["geography"] == geo and s["measure"] in family]
+        if not scoped:
+            return {
+                "ok": False,
+                "reason": "not_covered",
+                "message": f'No "{raw}" series is registered for {geo}.',
+            }
+        if len(scoped) > 1:
+            return {
+                "ok": False,
+                "reason": "ambiguous",
+                "message": (
+                    f'"{raw}" on {geo} could mean any of several measures '
+                    f'({", ".join(s["measure"] for s in scoped)}). Specify the measure.'
+                ),
+                "candidates": [s["id"] for s in scoped],
+            }
+        return {"ok": True, "identity": scoped[0]}
 
     # Unknown id with a known geography: pass through, never route to US by default.
     if geo:

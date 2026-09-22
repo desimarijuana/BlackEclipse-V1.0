@@ -31,9 +31,10 @@ describe('failure contract (B1/B2)', () => {
     expect(failureMessage('source_failure')).toMatch(/fail|unreachable/i);
   });
 
-  it('maps ambiguous/market_unknown to AMBIGUOUS, the rest to UNAVAILABLE', () => {
+  it('maps only ambiguous to AMBIGUOUS; unknown venue is NOT_COVERED (#4)', () => {
     expect(statusForFailure('ambiguous')).toBe('AMBIGUOUS');
-    expect(statusForFailure('market_unknown')).toBe('AMBIGUOUS');
+    // An unknown venue is a coverage gap, not an ambiguity.
+    expect(statusForFailure('market_unknown')).toBe('UNAVAILABLE');
     expect(statusForFailure('source_failure')).toBe('UNAVAILABLE');
     expect(statusForFailure('terms_missing')).toBe('UNAVAILABLE');
   });

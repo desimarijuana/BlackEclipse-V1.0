@@ -72,11 +72,12 @@ export function makeFailure(cls: FailureClass, detail?: string, candidates?: str
 
 /**
  * Map a `FailureClass` to the coarse bridge `status` the Python layer already
- * understands. `AMBIGUOUS` is first-class (the caller must disambiguate);
- * everything else is `UNAVAILABLE` with a typed class.
+ * understands. ONLY `ambiguous` is `AMBIGUOUS` (the caller must disambiguate);
+ * everything else — including an unknown venue, which is a coverage gap, not an
+ * ambiguity — is `UNAVAILABLE` with a typed class.
  */
 export function statusForFailure(cls: FailureClass): "AMBIGUOUS" | "UNAVAILABLE" {
-  return cls === "ambiguous" || cls === "market_unknown" ? "AMBIGUOUS" : "UNAVAILABLE";
+  return cls === "ambiguous" ? "AMBIGUOUS" : "UNAVAILABLE";
 }
 
 /** True when the class means "we cannot even name the instrument". */

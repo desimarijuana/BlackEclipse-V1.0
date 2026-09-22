@@ -28,10 +28,18 @@ describe('resolveMacroSeries (A8)', () => {
     expect(r.candidates?.some((c) => c.startsWith('US:'))).toBe(true);
   });
 
-  it('scopes a generic measure once a geography is given', () => {
+  it('does NOT silently narrow a generic measure even with a geography (#3)', () => {
     const us = resolveMacroSeries('POLICY_RATE', 'US');
-    expect(us.ok).toBe(true);
-    if (us.ok) expect(us.identity.geography).toBe('US');
+    expect(us.ok).toBe(false);
+    if (us.ok) return;
+    expect(us.reason).toBe('ambiguous');
+    // The candidates are the distinct policy measures (target upper/lower/
+    // effective/reverse-repo), never one silently-chosen series.
+    expect((us.candidates ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('resolves an explicit canonical series id', () => {
+    expect(resolveMacroSeries('US:FRED:DFEDTARU').ok).toBe(true);
   });
 
   it('routes a non-US series to a non-US source', () => {

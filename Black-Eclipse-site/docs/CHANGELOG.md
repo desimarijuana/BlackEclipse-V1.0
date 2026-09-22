@@ -43,6 +43,49 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat UI** — the transcript scroll container (`chat-history.tsx`) used
+  `scrollbar-hide`, so a long thread gave no sign it could scroll. Added a
+  visible, brand-coloured `.chat-transcript-scroll` scrollbar; it is hidden only
+  while the viewport is pinned to the bottom (streaming follow), and revealed
+  when the user scrolls up. Also added a floating "Latest" button that appears
+  when scrolled away from the bottom and smooth-scrolls back down, and a
+  `useLayoutEffect` that syncs the pinned/revealed state on first paint and on
+  message changes.
+  no doc change — UI affordance only; no architecture, contract, or data shape changed.
+
+- **Retrieval — unify resolution, remove every default, FX/crypto, source health,
+  statements (#1–#9)** — The identity gate previously covered only the quote
+  fallback path, so the defect survived on the common (unqualified) path and on
+  a second, ungated resolution path. Now:
+  • **One shared gate** (`resolveVaultInstrument`/`resolveAnyInstrument`):
+  `market_snapshot`, `fundamentals`, `live_quote`, `price_history`,
+  `financial_statements` all route through it; a tool-surface test fails if any
+  resolving tool bypasses it (#1/#2).
+  • **No default anywhere**: unqualified multi-listed tickers are AMBIGUOUS;
+  `fundamentals("BHP")` can no longer silently return the US ADR; no
+  `quality: valid` without identity (#1/#2).
+  • **FX/crypto are first-class** (`classifyIdentifier`): `EURUSD` → FX with
+  base/quote direction, `BTC-USD` → crypto spot; no country-universe error text
+  (#5).
+  • **Unknown venue → NOT_COVERED**, not AMBIGUOUS; identity carries exchange +
+  MIC (`XPSX`, `XLON`, …) (#4).
+  • **Macro**: generic `POLICY_RATE` is AMBIGUOUS even with a geography; rows are
+  newest-first with explicit `asOf`; unit + currency + identity attached (#3).
+  • **Freshness comparator** strict (`>`), unit-aware messages so a sub-day age
+  is never "0 days" (#6).
+  • **Source health populated** from the live path, per source × market ×
+  asset class, with derived health/success-rate/staleness (#7).
+  • **Financial statements persisted**: new `financial_statements` capability
+  serves the `FundamentalsCache` snapshot (parse-once, deterministic) (#8).
+  • **Conflict flag** exercised by a two-source fixture (#9).
+  • Fixtures regenerated from the master (4160 cross-market, 289 cross-class,
+  ADR lines, share classes, 28 exchanges).
+  Verified live: `FFC`/`BHP` unqualified → AMBIGUOUS; `FFC/PSX` → Fauji
+  Fertilizer PKR/XPSX; `EURUSD`/`BTC-USD` resolve; `macro POLICY_RATE` → AMBIGUOUS
+  with candidates; `source_health` populated; `financial_statements AAPL` serves
+  the persisted snapshot. Tests: vitest 1585, pytest 106.
+  docs updated: `docs/DECISIONS.md` (ADR-023), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Retrieval — deterministic replay, strict macro identity, top-level degradation
   (sections A4/A8, C4, D1–D3, E1)** —
   • **D1 determinism**: successful retrievals are persisted to a new

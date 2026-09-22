@@ -136,7 +136,7 @@ async def test_scenario_2_today_combines_market_and_web():
 
 @pytest.mark.asyncio
 async def test_scenario_3_fundamentals_structured():
-    bridge = ScenarioBridge({"fundamentals": fundamentals_payload()})
+    bridge = ScenarioBridge({"fundamentals": fundamentals_payload(), "financial_statements": fundamentals_payload()})
     text, data = await fundamentals_get_financials({"symbol": "AAPL"}, ctx(bridge))
     assert data["status"] == "OK"
     assert any(o["name"] == "revenue" for o in data["data"])
@@ -151,7 +151,7 @@ async def test_scenario_4_earnings_uses_web_and_structured():
         {
             "web_search": web_payload("AAPL latest earnings"),
             "web_fetch": lambda p: {"status": "OK", "url": p["url"], "title": "t", "text": "body"},
-            "fundamentals": fundamentals_payload(),
+            "fundamentals": fundamentals_payload(), "financial_statements": fundamentals_payload(),
         }
     )
     news_text, news = await research_search({"query": "what did AAPL report in latest earnings"}, ctx(bridge))
@@ -206,7 +206,7 @@ async def test_scenario_7_complete_analysis_runs_paths_in_parallel():
     bridge = ScenarioBridge(
         {
             "market_snapshot": {"status": "OK", "symbol": "TSLA", "updatedAt": "2026-09-21T14:00:00Z", "priceSource": "scraper", "price": {"price": 250.0, "changePct": 2.0}},
-            "fundamentals": fundamentals_payload(),
+            "fundamentals": fundamentals_payload(), "financial_statements": fundamentals_payload(),
             "price_history": history_payload(),
             "web_search": web_payload("Tesla analysis"),
             "web_fetch": lambda p: {"status": "OK", "url": p["url"], "title": "t", "text": "body"},

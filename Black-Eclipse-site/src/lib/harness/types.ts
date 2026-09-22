@@ -158,6 +158,7 @@ export interface HarnessEvent {
 export type DataCapability =
   | "market_snapshot"
   | "fundamentals"
+  | "financial_statements"
   | "news"
   | "source_health"
   | "coverage"

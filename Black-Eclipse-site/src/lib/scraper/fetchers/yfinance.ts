@@ -87,10 +87,18 @@ const AVAILABILITY_TTL_MS = 5 * 60 * 1000;
  * false forces the caller to fail rather than silently fetch the bare ticker
  * (which is how a US instrument's price was returned for a Pakistan ticker).
  */
-export function canResolveYahooSymbol(market: string): boolean {
+export function canResolveYahooSymbol(symbolOrMarket: string, market?: string): boolean {
+  // Back-compat single-arg call: a market name.
+  if (market === undefined) {
+    const m = symbolOrMarket.trim().toUpperCase();
+    return m === "US" || Boolean(MARKET_SUFFIX[m]);
+  }
+  // Two-arg call: (symbol, market). An already-qualified Yahoo ticker (FX `=X`,
+  // indices `^`, futures `=F`) is self-routing and needs no market suffix.
+  const sym = symbolOrMarket.trim();
+  if (sym.includes("=") || sym.includes("^")) return true;
   const m = market.trim().toUpperCase();
-  if (m === "US") return true;
-  return Boolean(MARKET_SUFFIX[m]);
+  return m === "US" || Boolean(MARKET_SUFFIX[m]);
 }
 
 async function probeYfinance(): Promise<boolean> {
@@ -176,7 +184,7 @@ export async function fetchYahooBatchQuote(
 ): Promise<FetchResult[]> {
   // An unresolvable market must FAIL, not degrade to a bare US ticker. This is
   // the load-bearing guard against returning another instrument's price.
-  if (!canResolveYahooSymbol(market)) {
+  if (!symbols.every((s) => canResolveYahooSymbol(s, market))) {
     return symbols.map(() => ({
       status: "empty" as const,
       error: `yfinance cannot resolve market "${market}" — no ticker suffix known`,

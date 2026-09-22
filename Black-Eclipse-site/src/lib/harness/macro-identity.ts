@@ -27,6 +27,8 @@ export interface MacroSeriesIdentity {
   adjustment: SeasonalAdjustment;
   frequency: Frequency;
   unit?: string;
+  /** ISO 4217 currency for a currency-denominated series (e.g. USD bn). */
+  currency?: string;
   /** The source id in `lib/economics/sources` that serves it. */
   sourceId: string;
   /** The provider series id to request. */
@@ -42,11 +44,11 @@ const SERIES: MacroSeriesIdentity[] = [
   { id: "US:FRED:FEDFUNDS", geography: "US", institution: "FRED", measure: "fed_funds_effective", adjustment: "nsa", frequency: "monthly", unit: "percent", sourceId: "fred-analytics", providerSeries: "FEDFUNDS" },
   { id: "US:FRED:DFEDTARU", geography: "US", institution: "FRED", measure: "fed_funds_target_upper", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "fred-analytics", providerSeries: "DFEDTARU" },
   { id: "US:FRED:DFEDTARL", geography: "US", institution: "FRED", measure: "fed_funds_target_lower", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "fred-analytics", providerSeries: "DFEDTARL" },
-  { id: "US:FRED:RRPONTSYD", geography: "US", institution: "FRED", measure: "reverse_repo_ceiling", adjustment: "nsa", frequency: "daily", unit: "usd_bn", sourceId: "fred-analytics", providerSeries: "RRPONTSYD" },
+  { id: "US:FRED:RRPONTSYD", geography: "US", institution: "FRED", measure: "reverse_repo_ceiling", adjustment: "nsa", frequency: "daily", unit: "usd_bn", currency: "USD", sourceId: "fred-analytics", providerSeries: "RRPONTSYD" },
   { id: "US:FRED:CPIAUCSL", geography: "US", institution: "FRED", measure: "cpi_headline", adjustment: "sa", frequency: "monthly", unit: "index", sourceId: "fred-analytics", providerSeries: "CPIAUCSL" },
   { id: "US:FRED:CPILFESL", geography: "US", institution: "FRED", measure: "cpi_core", adjustment: "sa", frequency: "monthly", unit: "index", sourceId: "fred-analytics", providerSeries: "CPILFESL" },
   { id: "US:FRED:UNRATE", geography: "US", institution: "FRED", measure: "unemployment_rate", adjustment: "sa", frequency: "monthly", unit: "percent", sourceId: "fred-analytics", providerSeries: "UNRATE" },
-  { id: "US:FRED:GDP", geography: "US", institution: "FRED", measure: "gdp_nominal", adjustment: "sa", frequency: "quarterly", unit: "usd_bn", sourceId: "fred-analytics", providerSeries: "GDP" },
+  { id: "US:FRED:GDP", geography: "US", institution: "FRED", measure: "gdp_nominal", adjustment: "sa", frequency: "quarterly", unit: "usd_bn", currency: "USD", sourceId: "fred-analytics", providerSeries: "GDP" },
   // Non-US — routed to non-US backends (C1).
   { id: "EA:ECB:DEPOSIT", geography: "EA", institution: "ECB", measure: "ecb_deposit_facility_rate", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "ecb", providerSeries: "deposit" },
   { id: "EA:ECB:MRR", geography: "EA", institution: "ECB", measure: "ecb_main_refinancing_rate", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "ecb", providerSeries: "mrr" },
@@ -55,16 +57,21 @@ const SERIES: MacroSeriesIdentity[] = [
   { id: "WLD:IMF:CPI", geography: "WLD", institution: "IMF", measure: "cpi_headline", adjustment: "nsa", frequency: "annual", unit: "index", sourceId: "imf", providerSeries: "PCPIPC_WT" },
 ];
 
-/** Aliases for generic measure names → the canonical measure key. */
-const GENERIC_MEASURES: Record<string, string> = {
-  policy_rate: "fed_funds_target_upper",
-  policyrate: "fed_funds_target_upper",
-  interest_rate: "fed_funds_effective",
-  inflation: "cpi_headline",
-  cpi: "cpi_headline",
-  core_inflation: "cpi_core",
-  unemployment: "unemployment_rate",
-  gdp: "gdp_nominal",
+/**
+ * Generic measure names that map to a FAMILY of measures (not one). A generic
+ * "policy rate" is the target upper, lower, midpoint, and effective rate — the
+ * system must not silently choose one (#3). The value is the set of measures the
+ * generic name may refer to; resolution requires an explicit measure.
+ */
+const GENERIC_MEASURE_FAMILIES: Record<string, string[]> = {
+  policy_rate: ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
+  policyrate: ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
+  interest_rate: ["fed_funds_effective", "fed_funds_target_upper"],
+  inflation: ["cpi_headline"],
+  cpi: ["cpi_headline"],
+  core_inflation: ["cpi_core"],
+  unemployment: ["unemployment_rate"],
+  gdp: ["gdp_nominal"],
 };
 
 export type MacroResolution =
@@ -97,27 +104,40 @@ export function resolveMacroSeries(seriesId: string, geography?: string | null):
     return { ok: false, reason: "ambiguous", message: `"${raw}" matches multiple series.`, candidates };
   }
 
-  // 3. Generic measure name — requires a geography and must not default to US.
-  const measureKey = GENERIC_MEASURES[raw.toLowerCase().replace(/\s+/g, "_")];
-  if (measureKey) {
+  // 3. Generic measure name — resolves only when it maps to ONE measure. A
+  //    generic "policy rate" spans several measures and MUST be AMBIGUOUS, even
+  //    with a geography (#3). It is never silently narrowed.
+  const family = GENERIC_MEASURE_FAMILIES[raw.toLowerCase().replace(/\s+/g, "_")];
+  if (family) {
+    const scoped = geo ? SERIES.filter((s) => s.geography === geo && family.includes(s.measure)) : [];
     if (!geo) {
-      const candidates = SERIES.filter((s) => s.measure === measureKey).map((s) => s.id);
       return {
         ok: false,
         reason: "ambiguous",
         message:
           `"${raw}" is generic and must be scoped to a geography ` +
           `(e.g. "US policy rate" vs "ECB policy rate").`,
-        candidates,
+        candidates: SERIES.filter((s) => family.includes(s.measure)).map((s) => s.id),
       };
     }
-    const match = SERIES.find((s) => s.measure === measureKey && s.geography === geo);
-    if (match) return { ok: true, identity: match };
-    return {
-      ok: false,
-      reason: "not_covered",
-      message: `No "${raw}" series is registered for ${geo}.`,
-    };
+    if (scoped.length === 0) {
+      return {
+        ok: false,
+        reason: "not_covered",
+        message: `No "${raw}" series is registered for ${geo}.`,
+      };
+    }
+    if (scoped.length > 1) {
+      return {
+        ok: false,
+        reason: "ambiguous",
+        message:
+          `"${raw}" on ${geo} could mean any of several measures ` +
+          `(${scoped.map((s) => s.measure).join(", ")}). Specify the measure.`,
+        candidates: scoped.map((s) => s.id),
+      };
+    }
+    return { ok: true, identity: scoped[0] };
   }
 
   // 4. Unknown id with a known geography: allow provider pass-through ONLY when a

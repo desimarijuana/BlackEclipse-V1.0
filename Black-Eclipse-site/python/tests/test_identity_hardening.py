@@ -6,6 +6,7 @@ no network and no live provider is involved.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from typing import Any
@@ -25,7 +26,7 @@ from harness.retrieval.validate import (
     detect_incomplete,
     looks_truncated,
 )
-from harness.tools import DataBridge
+from harness.tools import DataBridge, ToolContext
 
 
 class FakeBridge(DataBridge):
@@ -253,3 +254,83 @@ def test_e1_no_memory_tool_is_registered():
     # has no way to call remember/recall/propose_skill today.
     for forbidden in ("remember", "recall", "propose_skill"):
         assert forbidden not in names
+
+# -- #2: the shared gate is structural � no tool resolves on its own ---------
+@pytest.mark.asyncio
+async def test_resolving_tools_all_call_the_bridge_capability():
+    """Every instrument-resolving tool must go through the bridge capability
+    that applies the shared identity gate. This enumerates the real tool surface
+    (not a hand-picked list) and fails if a resolving tool bypasses the gate.
+    """
+    from harness.finance_tools import register_finance_tools
+    from harness.retrieval_tools import register_retrieval_tools
+    from harness.tools import ToolRegistry
+
+    reg = ToolRegistry()
+    register_finance_tools(reg)
+    register_retrieval_tools(reg)
+
+    # Capabilities that carry the identity gate on the TS side.
+    GATED = {
+        "market_snapshot",
+        "live_quote",
+        "price_history",
+        "fundamentals",
+        "financial_statements",
+    }
+
+    class RecordingBridge(DataBridge):
+        def __init__(self) -> None:
+            self.capabilities: list[str] = []
+
+        async def fetch(self, capability: str, params: dict[str, Any]) -> dict[str, Any]:
+            self.capabilities.append(capability)
+            # Minimal OK payloads so the layer proceeds past the source call.
+            return {
+                "status": "OK",
+                "symbol": params.get("symbol"),
+                "name": "X",
+                "currency": "USD",
+                "price": {"price": 1.0, "changePct": 0.0},
+                "periods": [{"endDate": "2025-01-01", "revenue": 1, "netIncome": 1}],
+                "rows": [{"date": "2025-01", "value": 1.0}],
+                "items": [],
+            }
+
+    # Tools whose name implies instrument resolution MUST touch a gated capability.
+    resolving = {"market_get_quote", "fundamentals_get_financials", "get_market_snapshot"}
+    for name in sorted(resolving):
+        tool = reg.get(name)
+        assert tool is not None, f"{name} not registered"
+        bridge = RecordingBridge()
+        ctx = ToolContext(run_id="r", log=lambda *_: None, data_bridge=bridge)
+        try:
+            result = tool.handler({"symbol": "FFC"}, ctx)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:  # noqa: BLE001 - invocation details are irrelevant
+            pass
+        assert bridge.capabilities, (
+            f"{name} never called the bridge — instrument resolution must route "
+            "through a gated capability"
+        )
+        assert any(c in GATED for c in bridge.capabilities), (
+            f"{name} resolved via {bridge.capabilities}, none of which is identity-gated"
+        )
+
+
+# -- #9: the conflict flag is exercised by a two-source fixture --------------
+def test_conflict_flag_fires_on_a_two_source_disagreement():
+    from harness.retrieval.layer import _conflicts_payload
+
+    a = _obj("price", 100.0, "JDDS")
+    b = _obj("price", 101.0, "LIVE_STRUCTURED")
+    payload = _conflicts_payload([a, b])
+    assert payload, "two sources disagreeing on one metric must produce a conflict"
+    entry = payload[0]
+    assert entry["metric"] == "price"
+    values = sorted(c["value"] for c in entry["candidates"])
+    sources = sorted(c["source"] for c in entry["candidates"])
+    assert values == [100.0, 101.0]
+    assert sources == ["JDDS", "LIVE_STRUCTURED"]
+

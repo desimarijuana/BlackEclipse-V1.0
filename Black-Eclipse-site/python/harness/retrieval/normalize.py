@@ -206,10 +206,27 @@ def normalize_fundamentals(payload: dict[str, Any], source: SourceReference) -> 
 
 
 def normalize_macro(payload: dict[str, Any], source: SourceReference) -> list[NormalizedFinancialObject]:
-    """A macro/economic series: one object per observation."""
+    """A macro/economic series: one object per observation.
+
+    Carries the series identity (as an InstrumentIdentity) plus the series' unit
+    and currency, so a rate/level is never a bare number (#3).
+    """
     rows = payload.get("rows") or payload.get("series") or payload.get("points") or []
     series_key = payload.get("seriesKey") or payload.get("series") or payload.get("indicator")
     source_name = payload.get("source") or "macro"
+    unit = payload.get("units") or payload.get("unit")
+    currency = payload.get("currency")
+    series_identity = payload.get("seriesIdentity") or {}
+    identity = None
+    if series_key:
+        identity = InstrumentIdentity(
+            market=str(series_identity.get("geography") or "GLOBAL"),
+            symbol=str(series_key),
+            currency=currency,
+            assetClass="macro",
+            securityType=str(series_identity.get("measure") or "macro_series"),
+            name=str(series_key),
+        )
     out: list[NormalizedFinancialObject] = []
     if not isinstance(rows, list):
         return out
@@ -225,9 +242,12 @@ def normalize_macro(payload: dict[str, Any], source: SourceReference) -> list[No
                 str(series_key or "value"),
                 value,
                 source,
+                unit=str(unit) if unit else None,
+                currency=currency,
                 data_timestamp=str(date) if date else None,
                 period=str(date) if date else None,
                 instrument=str(series_key) if series_key else None,
+                identity=identity,
                 transformations=[f"macro source={source_name}"],
             )
         )

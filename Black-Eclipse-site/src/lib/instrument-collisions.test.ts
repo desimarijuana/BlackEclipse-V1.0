@@ -94,3 +94,27 @@ describe('share-class / DR fixtures (A4)', () => {
     expect(distinct.size).toBe(rows.length);
   });
 });
+
+// -- #4: venue-registry audit — every master exchange must resolve -----------
+const { exchanges } = fixtures as { exchanges?: string[] };
+
+describe('venue registry covers every exchange in the master (#4)', () => {
+  it('resolves every exchange label the master records', () => {
+    const unresolved: string[] = [];
+    for (const ex of exchanges ?? []) {
+      // "Global" is the crypto pseudo-exchange, not a routable venue.
+      if (ex === 'Global') continue;
+      // Multi-venue labels are resolved per half (NSE/BSE ? IN, ADX/DFM ? AE).
+      const halves = ex.split('/');
+      const resolved = halves.map((h) => resolveMarketId(h.trim()));
+      if (resolved.every((m) => m === null)) unresolved.push(ex);
+    }
+    // CME and other genuinely unsupported venues are absent from the master and
+    // therefore NOT required here — they return not_covered, which is correct.
+    expect(unresolved).toEqual([]);
+  });
+
+  it('an unsupported venue (CME) is not silently dropped', () => {
+    expect(resolveMarketId('CME')).toBeNull();
+  });
+});

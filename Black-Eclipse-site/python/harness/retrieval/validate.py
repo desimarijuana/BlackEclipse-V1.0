@@ -173,17 +173,34 @@ def validate_objects(
 
     # Freshness is a DATASET property: is the most recent observation inside the
     # requested window? This is where "stale" belongs — once, not per row.
+    #
+    # Comparators are STRICT (`>`): data exactly at the tolerance is fresh. The
+    # message is unit-aware so a sub-day age is never rounded to "0 days" — the
+    # old whole-day formatting made a genuine 2-hour-old quote read as
+    # "0 days old (allows 0 days)", indistinguishable from an off-by-one.
     newest = _newest_timestamp(objects)
     if newest:
         age = _age_seconds(newest)
         limit = max_age_seconds(freshness)
         if age is not None and age > limit:
-            days = int(age // 86_400)
             warnings.append(
-                f"data is stale: newest observation is {days} days old "
-                f"(freshness requirement '{freshness}' allows {int(limit // 86_400)} days)"
+                f"data is stale: newest observation is {_fmt_duration(age)} old "
+                f"(freshness requirement '{freshness}' allows {_fmt_duration(limit)})"
             )
     return objects, warnings
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Human duration with enough precision that a sub-day age is never '0 days'."""
+    s = max(0, int(seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86_400:
+        return f"{s // 3600}h"
+    days = s // 86_400
+    return f"{days} day{'s' if days != 1 else ''}"
 
 
 def check_ordering(dated: list[dict[str, Any]], date_key: str = "date") -> list[str]:

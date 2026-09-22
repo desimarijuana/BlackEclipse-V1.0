@@ -118,6 +118,19 @@ export interface InstrumentIdentity {
   securityType?: string | null;
   /** Human-readable name, when known. */
   name?: string | null;
+  /**
+   * The venue/exchange the instrument trades on, when known. Distinguishes
+   * NYSE from NASDAQ within one country (#4) where a country-level match cannot.
+   */
+  exchange?: string | null;
+  /** ISO 10383 MIC where one exists (XNYS, XNAS, XPSX, XLON…). */
+  mic?: string | null;
+  /**
+   * For FX pairs: the quote direction, so EURUSD ≠ USDEUR. For crypto: spot vs
+   * a derivative contract (#5). Absent for equities.
+   */
+  quoteDirection?: { base: string; quote: string } | null;
+  contract?: "spot" | "future" | "perpetual" | null;
 }
 
 /**
@@ -293,6 +306,10 @@ export function verifyProviderIdentity(
     };
   }
   if (provider.market) {
+    // An exact match (including non-country markets like FX/CRYPTO) is verified.
+    if (provider.market.trim().toUpperCase() === identity.market.toUpperCase()) {
+      return { ok: true, identity };
+    }
     const providerMarket = resolveMarketId(provider.market);
     // A venue the provider names that we cannot map is itself a failure: we
     // cannot prove the answer belongs to the requested instrument.
@@ -322,3 +339,82 @@ export function verifyProviderIdentity(
 export function instrumentKey(identity: Pick<InstrumentIdentity, "market" | "symbol">): string {
   return `${identity.market}:${identity.symbol}`;
 }
+
+// ── Non-equity identifier classification (A5/#5) ────────────────────────────
+// FX pairs and crypto are resolvable identifiers that do NOT live in the equity
+// master. They must be recognised as their own asset class so a message never
+// references a country universe for them, and so FX quote direction
+// (base/quote) is explicit and cannot be confused (EURUSD ≠ USDEUR).
+
+export type IdentifierKind =
+  | { kind: "fx"; base: string; quote: string; canonical: string }
+  | { kind: "crypto"; base: string; quote: string; canonical: string; contract: "spot" }
+  | { kind: "equity" };
+
+const FIAT = new Set([
+  "USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD", "CNY", "INR", "PKR",
+  "TRY", "BRL", "MXN", "ZAR", "SEK", "NOK", "DKK", "SGD", "HKD", "KRW", "TWD",
+  "AED", "SAR", "RUB", "IDR", "THB", "VND", "MYR", "EGP", "NGN",
+]);
+
+const CRYPTO_BASES = new Set([
+  "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "BNB", "DOT", "AVAX", "LINK",
+  "MATIC", "LTC", "BCH", "XLM", "TRX", "ATOM", "UNI", "AAVE", "ETC", "FIL",
+]);
+
+/**
+ * Classify a free-text identifier. Returns an `fx`/`crypto` descriptor when the
+ * symbol is unambiguously a currency pair or crypto pair, else `equity`.
+ *
+ * Accepts the common forms: `EURUSD`, `EUR/USD`, `EURUSD=X`, `BTC-USD`,
+ * `BTC/USD`, `BTCUSD`. Quote direction is preserved in `base`/`quote`.
+ */
+export function classifyIdentifier(raw: string): IdentifierKind {
+  const s = raw.trim().toUpperCase().replace(/\s+/g, "");
+  if (!s) return { kind: "equity" };
+
+  // Yahoo FX form: EURUSD=X.
+  if (s.endsWith("=X")) {
+    const pair = s.slice(0, -2);
+    if (pair.length === 6 && FIAT.has(pair.slice(0, 3)) && FIAT.has(pair.slice(3))) {
+      return { kind: "fx", base: pair.slice(0, 3), quote: pair.slice(3), canonical: `${pair}=X` };
+    }
+  }
+
+  // Separator forms: EUR/USD, BTC-USD, BTC_USD.
+  const sep = s.match(/^([A-Z0-9]{2,5})[/\-_]([A-Z0-9]{2,5})$/);
+  const [b, q] = sep ? [sep[1], sep[2]] : [null, null];
+
+  // FX pair with a separator.
+  if (b && q && FIAT.has(b) && FIAT.has(q)) {
+    return { kind: "fx", base: b, quote: q, canonical: `${b}${q}=X` };
+  }
+  // Crypto pair with a separator (BTC-USD, BTC-USDT…).
+  if (b && q && CRYPTO_BASES.has(b)) {
+    return { kind: "crypto", base: b, quote: q, canonical: `${b}-${q}`, contract: "spot" };
+  }
+
+  // Concatenated 6-letter FIAT pair without a separator (EURUSD).
+  if (!sep && s.length === 6 && FIAT.has(s.slice(0, 3)) && FIAT.has(s.slice(3))) {
+    const b3 = s.slice(0, 3);
+    const q3 = s.slice(3);
+    // Disambiguate from an equity ticker of length 6: only treat as FX when
+    // BOTH halves are recognised currencies (already checked).
+    return { kind: "fx", base: b3, quote: q3, canonical: `${s}=X` };
+  }
+
+  // Concatenated crypto pair (BTCUSD).
+  if (!sep && s.length >= 5 && s.length <= 10) {
+    for (const base of CRYPTO_BASES) {
+      if (s.startsWith(base) && s.length > base.length) {
+        const quote = s.slice(base.length);
+        if (quote === "USD" || quote === "USDT" || quote === "USDC" || CRYPTO_BASES.has(quote)) {
+          return { kind: "crypto", base, quote, canonical: `${base}-${quote}`, contract: "spot" };
+        }
+      }
+    }
+  }
+
+  return { kind: "equity" };
+}
+
