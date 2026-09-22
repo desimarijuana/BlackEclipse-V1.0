@@ -71,6 +71,22 @@ async function chatOnce(messages: ChatMessage[], options?: ChatOptions): Promise
 }
 
 /**
+ * Normalize an SSE frame's payload.
+ *
+ * Runtime events are emitted as the full envelope (`{ type, data: {...} }`),
+ * while the front door's `client.*` events put their fields at the top level.
+ * Returning the inner `data` for envelopes keeps consumers reading the same
+ * shape regardless of who produced the frame.
+ */
+export function unwrapEventPayload(data: Record<string, unknown>): Record<string, unknown> {
+  const inner = data.data;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    return { ...(inner as Record<string, unknown>), eventType: data.type };
+  }
+  return data;
+}
+
+/**
  * Parse an SSE byte stream into (event, data) frames. Handles partial frames
  * split across reads and the `\r\n` line endings some proxies introduce.
  */
@@ -118,20 +134,26 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
   let streamError: string | null = null;
 
   const parse = createSseParser((event, data) => {
-    const status = statusFromEvent(event, data);
+    // Runtime events arrive wrapped in the FULL event envelope
+    // (`{ id, runId, type, seq, at, data: {...}, transient }`), whereas the
+    // front door's own `client.*` events carry their payload at the top level.
+    // Unwrap the envelope first — reading `data.text` off the envelope silently
+    // yielded "" for every token, so the answer only appeared at the end.
+    const payload = unwrapEventPayload(data);
+    const status = statusFromEvent(event, payload);
     if (status) options?.onStatus?.(status);
     if (event === 'model.delta') {
-      const text = typeof data.text === 'string' ? data.text : '';
+      const text = typeof payload.text === 'string' ? payload.text : '';
       if (text) {
         assembled += text;
         options?.onDelta?.(text);
       }
     } else if (event === 'client.final') {
-      if (typeof data.output === 'string') finalText = data.output;
-      if (typeof data.error === 'string') streamError = data.error;
+      if (typeof payload.output === 'string') finalText = payload.output;
+      if (typeof payload.error === 'string') streamError = payload.error;
       options?.onStatus?.({ phase: 'done', label: 'Done', eventType: event });
     } else if (event === 'client.error') {
-      streamError = typeof data.message === 'string' ? data.message : 'stream error';
+      streamError = typeof payload.message === 'string' ? payload.message : 'stream error';
     }
   });
 
