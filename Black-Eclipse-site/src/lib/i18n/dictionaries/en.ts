@@ -22,6 +22,7 @@ export const en = {
   'nav.economics': 'Economics',
   'nav.alerts': 'Price Alerts',
   'nav.skills': 'Skills',
+  'nav.memory': 'Eclipse Memory',
 
   // Common actions & nouns
   'common.settings': 'Settings',

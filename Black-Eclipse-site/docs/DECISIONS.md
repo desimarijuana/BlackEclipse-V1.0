@@ -494,6 +494,21 @@ from the coding-agent `skills/` folder. Front door adds `/api/skills/**`,
 `/api/evaluations/**` and a Skills tab. pydantic reused (no Zod). See
 `docs/harness/phase-3-architecture.md`.
 
+## ADR-026 — Eclipse-Memory is a separate SQLite database and service (2026)
+**Decision:** A dedicated SQLite database `eclipse-memory.db` and service
+(`python/harness/eclipse_memory/`) become the control layer for agent memory,
+user preferences, episodic/semantic/procedural memory, corrections, mistakes,
+skills, skill versions, learning candidates, evaluations and promotion history.
+Skill definitions remain reviewable files; runtime state lives in the DB
+(Option C). The Phase-3 `SkillStore` aliases `EclipseMemoryStore` (one registry);
+existing skill rows are imported once, idempotently and non-destructively.
+**Why:** Audit root cause — memory was never written and never recalled, and the
+system prompt promised tools that did not exist.
+**Impact:** New DB + `memory_tools.py` (`memory`, `skill_list`, `skill_view`),
+`/api/eclipse-memory/**`, and an Eclipse Memory tab. `execute_run` recalls scoped
+memory into every run. Prompt corrected to real capabilities. Path via
+`ECLIPSE_MEMORY_DB_PATH`. See `docs/harness/phase-3-memory-progress.md`.
+
 ---
 
 ## Decisions implied by the code (not yet formal ADRs)

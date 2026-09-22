@@ -536,3 +536,24 @@ The front door adds `/api/skills/**` + `/api/learning/**` proxies and a Skills
 tab; the browser talks only to those routes (never the Python service or Prisma
 directly). pydantic is reused for schema validation — no Zod. See
 `docs/harness/phase-3-architecture.md` and `docs/DECISIONS.md` ADR-025.
+
+### ADR-026 — Eclipse-Memory is a separate SQLite database and service (2026)
+**Decision:** Memory, skills, learning, evaluations, corrections and mistakes
+persist in a dedicated SQLite file **`eclipse-memory.db`**, owned by one service
+(`python/harness/eclipse_memory/`), separate from `jdds.db` (market data +
+Trading Journal) and `agent-memory.db` (run/event traces). Skill *definitions*
+stay as reviewable files in `skills/library/`; all runtime state lives in the
+DB (Option C hybrid). The Phase-3 `SkillStore` is now an alias for
+`EclipseMemoryStore`, so there is one skill registry; existing Phase-3 skill
+rows are imported once, idempotently and non-destructively.
+**Reason:** The audit found memory was never written or recalled, and the system
+prompt promised tools (`memory`, `skill_view`, `skill_manage`, `terminal`…) that
+did not exist. A dedicated, inspectable database with an explicit write/retrieve
+pipeline — plus real tools — fixes the behaviour; keeping authoring in files
+keeps skills reviewable.
+**Impact:** New `eclipse-memory.db`, `python/harness/eclipse_memory/`,
+`memory_tools.py`, `/api/eclipse-memory/**`, and an **Eclipse Memory** tab.
+`graph.execute_run` recalls scoped memory into each run and registers the
+memory/skill tools on the existing registry. The system prompt was corrected to
+name only real tools. Path config: `ECLIPSE_MEMORY_DB_PATH`. See
+`docs/harness/phase-3-memory-progress.md` and `docs/DECISIONS.md` ADR-026.

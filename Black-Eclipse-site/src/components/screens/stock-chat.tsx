@@ -71,6 +71,10 @@ const SkillsScreen = dynamic(
   () => import('@/components/screens/skills/skills-screen').then((m) => m.SkillsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const EclipseMemoryScreen = dynamic(
+  () => import('@/components/screens/eclipse-memory/eclipse-memory-screen').then((m) => m.EclipseMemoryScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -895,6 +899,12 @@ function StockChatContent() {
           {visited.has('skills') && (
             <div className={cn('w-full h-full', activeTab === 'skills' ? '' : 'hidden')}>
               <SkillsScreen isOperator={clientIsOperator()} />
+            </div>
+          )}
+
+          {visited.has('memory') && (
+            <div className={cn('w-full h-full', activeTab === 'memory' ? '' : 'hidden')}>
+              <EclipseMemoryScreen isOperator={clientIsOperator()} />
             </div>
           )}
 

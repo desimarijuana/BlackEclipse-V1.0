@@ -49,6 +49,16 @@ class ToolResult:
 class ToolContext:
     run_id: str
     log: Callable[[str, Optional[dict[str, Any]]], None]
+    # The invoking user, used for memory scope isolation (None = anonymous).
+    user_id: Optional[str] = None
+    # True when this turn is executing a named skill (memory saves then carry
+    # execution-lesson provenance rather than explicit-user provenance).
+    is_skill_run: bool = False
+    # Eclipse-Memory service (memory + skills). Attached per run so the memory
+    # and skill tools can reach it without a global.
+    memory_service: Any = None
+    # The skill registry, for progressive discovery (skill_list / skill_view).
+    skill_registry: Any = None
     # Accessor for JDdS-backed data; wired to the TS bridge by the service.
     data_bridge: "DataBridge | None" = None
     # Lazily-attached per-run retrieval layer (set by retrieval tools). Typed as

@@ -172,6 +172,7 @@ async def execute_skill(
     memory_store: AgentMemoryStore,
     bus: Optional[Any] = None,
     emitter: Optional[Any] = None,
+    memory_service: Optional[Any] = None,
 ) -> SkillExecutionResult:
     """Execute a skill through the existing runtime. Never raises for a
     user/validation error — every outcome is a structured result."""
@@ -343,7 +344,10 @@ async def execute_skill(
     )
 
     try:
-        result = await execute_run(run_request, tool_registry, data_bridge, memory_store, bus)
+        result = await execute_run(
+            run_request, tool_registry, data_bridge, memory_store, bus,
+            memory_service=memory_service, skill_registry=registry,
+        )
     except Exception as exc:  # noqa: BLE001 - a runtime failure is a structured result
         duration = int((time.monotonic() - started) * 1000)
         registry.store.finish_execution(

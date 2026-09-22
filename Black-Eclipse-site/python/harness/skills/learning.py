@@ -200,12 +200,30 @@ def capture_from_run(
             "id": None,
             "sourceRunId": run_id,
             "signature": signature,
-            "status": "new",
+            "status": "detected",
             "createdAt": now_iso(),
         }
         candidate_id = skill_store.save_candidate(candidate)
         skill_store.append_event("skill.learning_candidate_created", run_id=run_id,
                                  data={"candidateId": candidate_id, "candidateType": draft["candidateType"]})
+        # A failure-recovery candidate is also a captured mistake/recovery in
+        # Eclipse-Memory, so the mistake is inspectable even if no skill is made.
+        if draft["candidateType"] == "failure_recovery":
+            try:
+                skill_store.save_mistake({
+                    "category": "tool_failure",
+                    "severity": "medium",
+                    "runId": run_id,
+                    "expected": "the failing tool would succeed",
+                    "actual": draft.get("observedBehavior"),
+                    "evidence": draft.get("evidenceReferences"),
+                    "correctiveAction": draft.get("proposedLesson"),
+                    "correctionWorked": True,
+                    "reusable": True,
+                    "candidateId": candidate_id,
+                })
+            except Exception:  # noqa: BLE001 - mistake capture is best-effort
+                pass
         created.append(skill_store.get_candidate(candidate_id) or {"id": candidate_id})
     return {"ok": True, "created": created, "duplicates": duplicates}
 

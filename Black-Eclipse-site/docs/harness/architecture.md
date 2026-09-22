@@ -56,6 +56,8 @@ Two boundaries, both deliberate:
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
+| `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables |
+| `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view` tools |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |

@@ -11,14 +11,16 @@ import asyncio
 import logging
 from typing import Any, Optional
 
+from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
+from .memory_tools import register_memory_tools
 from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
 from .retrieval_tools import register_retrieval_tools
 from .schemas import HarnessError, RunRequest, RunResult
-from .skills import SkillRegistry, SkillStore
+from .skills import SkillRegistry
 from .tools import DataBridge, ToolRegistry
 
 log = logging.getLogger("harness.service")
@@ -60,10 +62,21 @@ class AgenticService:
         # retrieval tools are the provider-agnostic path the agent should prefer.
         register_finance_tools(self.registry)
         register_retrieval_tools(self.registry)
-        # Phase 3: the ONE skill registry. The library is loaded at boot and the
-        # runtime tool registry is attached so required-tool checks are real.
-        # Skills execute through the SAME registry/graph as a chat turn.
-        self.skill_store = SkillStore(self.store.path)
+        # The memory/skill tools the system prompt promises — on the SAME
+        # registry, so validation/permission/timeout machinery is shared.
+        register_memory_tools(self.registry)
+        # Eclipse-Memory is the dedicated control database for memory AND
+        # skills. One service owns it; the skill tables live here (migrated out
+        # of agent-memory.db) so there is exactly one skill registry.
+        self.memory = EclipseMemoryService()
+        self.memory_store = self.memory.store
+        self.skill_store = self.memory_store  # same object — one persistence path
+        # One-time, non-destructive import of Phase-3 skill rows that previously
+        # lived in agent-memory.db (a no-op on fresh installs / after import).
+        try:
+            self.memory.import_legacy_skills(self.store.path)
+        except Exception:  # noqa: BLE001 - migration must not block boot
+            log.warning("legacy skill import skipped", exc_info=True)
         self.skill_registry = SkillRegistry(self.skill_store)
         self.skill_load_errors = self.skill_registry.load_all()
         self.skill_registry.attach_tool_registry(self.registry)
@@ -80,7 +93,11 @@ class AgenticService:
         # The retrieval layer is built lazily by the retrieval tools from the
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
-        return await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
+        return await execute_run(
+            request, self.registry, bridge, self.store, self.bus,
+            retrieval_cache=self.retrieval_cache,
+            memory_service=self.memory, skill_registry=self.skill_registry,
+        )
 
     async def run_skill(self, request: Any) -> Any:
         """Execute a skill through the existing runtime.
@@ -98,6 +115,7 @@ class AgenticService:
             bridge,
             self.store,
             bus=self.bus,
+            memory_service=self.memory,
         )
 
     async def run_background(self, request: RunRequest) -> None:
@@ -105,7 +123,11 @@ class AgenticService:
 
         async def _task() -> None:
             try:
-                await execute_run(request, self.registry, bridge, self.store, self.bus, retrieval_cache=self.retrieval_cache)
+                await execute_run(
+                    request, self.registry, bridge, self.store, self.bus,
+                    retrieval_cache=self.retrieval_cache,
+                    memory_service=self.memory, skill_registry=self.skill_registry,
+                )
             finally:
                 # Signal live SSE consumers that the run is over, whatever the
                 # terminal status, so their streams close promptly.
@@ -145,15 +167,19 @@ class AgenticService:
     def usage_summary(self, days: int = 30) -> dict[str, Any]:
         return self.store.usage_summary(days)
 
+    # Memory now lives in Eclipse-Memory (the dedicated database), not the run
+    # store. These delegate so existing callers keep working with the richer
+    # write pipeline (type/scope/dedupe/evidence) instead of a raw insert.
     def remember(self, **kwargs: Any) -> dict[str, Any]:
-        return self.store.remember(**kwargs)
+        return self.memory.write_memory(**kwargs)
 
     def recall(self, **kwargs: Any) -> list[dict[str, Any]]:
-        return self.store.recall(**kwargs)
+        return self.memory.retrieve(**kwargs).memories
 
     def close(self) -> None:
         self.store.close()
-        self.skill_store.close()
+        # `skill_store` IS `memory_store` — one connection, closed once.
+        self.memory.close()
 
 
 __all__ = ["AgenticService", "HarnessError"]

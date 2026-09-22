@@ -56,6 +56,10 @@ jdds.db-*
 agent-memory.db
 agent-memory.db-*
 
+# Eclipse-Memory database (dedicated memory/skills/learning; runtime state)
+eclipse-memory.db
+eclipse-memory.db-*
+
 # Per-conversation session workspaces (user uploads + agent output). Runtime
 # data, never committed — same tier as agent-memory.db.
 /.black-eclipse/

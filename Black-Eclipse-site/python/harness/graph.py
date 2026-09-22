@@ -99,6 +99,8 @@ def build_graph(
     bus: Optional[EventBus] = None,
     cancel_event: Optional[asyncio.Event] = None,
     retrieval_cache: Optional[Any] = None,
+    memory_service: Optional[Any] = None,
+    skill_registry: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -113,14 +115,18 @@ def build_graph(
 
     # The retrieval layer is built lazily by the retrieval tools from `ctx`;
     # the shared process-wide cache is attached here so concurrent runs reuse
-    # each other's in-flight/cached retrievals (Milestone 2H).
+    # each other's in-flight/cached retrievals (Milestone 2H). Eclipse-Memory is
+    # attached so the memory/skill tools work during a normal run.
     ctx = ToolContext(
         run_id=request.runId,
         log=lambda m, d=None: None,
+        user_id=request.userId,
         data_bridge=data_bridge,
         retrieval_cache=retrieval_cache,
         emitter=emitter,
         memory_store=store,
+        memory_service=memory_service,
+        skill_registry=skill_registry,
     )
     registry.set_active_context(ctx)
 
@@ -396,6 +402,8 @@ async def execute_run(
     bus: Optional[EventBus] = None,
     cancel_event: Optional[asyncio.Event] = None,
     retrieval_cache: Optional[Any] = None,
+    memory_service: Optional[Any] = None,
+    skill_registry: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     agent = resolve_agent(request)
@@ -413,14 +421,24 @@ async def execute_run(
     store.update_run(request.runId, status="running", startedAt=started)
     await emitter.emit("run.started", {"maxSteps": agent.maxSteps, "provider": request.modelSettings.provider})
 
+    # Retrieve relevant memory BEFORE the model sees the turn, and inject it as
+    # clearly-labelled non-authoritative context. Memory is scoped to the user
+    # and bounded by a character budget; a retrieval failure must never block the
+    # run (it is recorded in the retrieval audit instead).
+    memory_block = await _memory_context(request, memory_service, emitter)
+
     messages: list[BaseMessage] = [
         SystemMessage(content=agent.systemPrompt),
         *_history_messages(request),
+        *([SystemMessage(content=memory_block)] if memory_block else []),
         HumanMessage(content=_user_message(request)),
     ]
 
     try:
-        app = build_graph(request, registry, data_bridge, store, emitter, bus, cancel_event, retrieval_cache)
+        app = build_graph(
+            request, registry, data_bridge, store, emitter, bus, cancel_event,
+            retrieval_cache, memory_service, skill_registry,
+        )
         final_state = await app.ainvoke(
             {
                 "messages": messages,
@@ -473,6 +491,42 @@ def _history_messages(request: RunRequest) -> list[BaseMessage]:
         HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
         for t in trimmed
     ]
+
+
+async def _memory_context(
+    request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter
+) -> str:
+    """Build the recalled-memory block for this turn (or "" when none).
+
+    Never raises: a memory failure is diagnostics, not a run failure. The
+    retrieval is scoped to the invoking user so one user's preferences can never
+    leak into another's run, and it is budgeted so it cannot flood the context.
+    """
+    if memory_service is None:
+        return ""
+    try:
+        result = memory_service.retrieve(
+            query=request.input.query,
+            subject=request.input.ticker,
+            actor_scope="user" if request.userId else None,
+            scope_id=request.userId,
+            run_id=request.runId,
+            limit=8,
+            budget_chars=4000,
+        )
+    except Exception as exc:  # noqa: BLE001 - memory must never break a run
+        await emitter.emit("memory.retrieval_failed", {"error": str(exc)})
+        return ""
+    diagnostics = result.diagnostics or {}
+    await emitter.emit(
+        "memory.retrieved",
+        {
+            "selected": diagnostics.get("selected", 0),
+            "candidates": diagnostics.get("candidates", 0),
+            "usedChars": diagnostics.get("usedChars", 0),
+        },
+    )
+    return result.context
 
 
 def _user_message(request: RunRequest) -> str:

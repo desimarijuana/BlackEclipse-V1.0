@@ -33,6 +33,11 @@ ECLIPSE_AGENT = AgentConfig(
         "get_fundamentals",
         "get_news",
         "get_source_health",
+        "get_coverage",
+        # Eclipse-Memory: persistent memory + progressive skill discovery.
+        "memory",
+        "skill_list",
+        "skill_view",
     ],
     maxSteps=8,
     toolTimeoutMs=20_000,

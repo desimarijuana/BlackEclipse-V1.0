@@ -43,6 +43,32 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Eclipse-Memory (Phase 3-M)** — built the dedicated memory subsystem. Added
+  `eclipse-memory.db` + `python/harness/eclipse_memory/` (config, migrations,
+  store, service, retrieval) as the one control layer for agent memory (typed,
+  scoped, evidence-carrying, deduped, supersession-aware), corrections, mistakes
+  and all skill/learning state. Added the `memory`, `skill_list`, `skill_view`
+  tools on the existing registry (the tools the prompt had promised but that did
+  not exist), and `graph.execute_run` now recalls scoped memory into every run.
+  Migrated the Phase-3 skill tables out of `agent-memory.db` (idempotent import;
+  `SkillStore` is now an alias for `EclipseMemoryStore` — one registry). Added
+  `/api/eclipse-memory/**` + an **Eclipse Memory** UI tab. Rewrote the system
+  prompt to name only real tools and state that skill creation/evaluation/
+  promotion is operator-gated. No new runtime, registry, or DB driver.
+  docs updated: `docs/harness/phase-3-memory-progress.md`,
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md`
+  (ADR-026), `skills/ARCHITECT.md`.
+
+- **Memory (Phase 3-M audit)** — completed Milestone 0 for the eclipse-memory
+  rebuild: diagnosed why memory/skills don't work. Root causes: the harness
+  system prompt (`python/harness/prompts.py`) describes a different product and
+  promises `memory`/`skill_view`/`skill_manage`/`terminal`/`read_file` tools that
+  are **not registered** (the registry has 13 retrieval/JDdS tools only); memory
+  has no writer and is never recalled into a run (`graph.py:416` builds messages
+  without memory); skills are not reachable from the agent runtime. No code
+  changed — audit only.
+  docs updated: `docs/harness/phase-3-memory-progress.md` (new).
+
 - **Skills (Phase 3)** — added the Skill System: versioned `skill.json` +
   `SKILL.md` procedures executed through the **existing** Phase-1 `execute_run`
   graph. Python owns the registry, default-deny permissions, dependency

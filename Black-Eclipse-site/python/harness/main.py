@@ -257,6 +257,172 @@ def skill_versions(skill_id: str) -> dict[str, Any]:
     return {"success": True, "versions": service.skill_registry.version_history(skill_id)}
 
 
+# ── Eclipse-Memory ──────────────────────────────────────────────────────────
+
+
+@app.get("/eclipse-memory/health")
+def eclipse_memory_health() -> dict[str, Any]:
+    return {"success": True, **service.memory.health()}
+
+
+@app.get("/eclipse-memory/overview")
+def eclipse_memory_overview() -> dict[str, Any]:
+    """Real counts only — never fabricated activity."""
+    store = service.memory_store
+    memories = store.list_memories(limit=500, include_inactive=True)
+    by_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    for memory in memories:
+        by_type[memory["memoryType"]] = by_type.get(memory["memoryType"], 0) + 1
+        by_status[memory["status"]] = by_status.get(memory["status"], 0) + 1
+    return {
+        "success": True,
+        "memories": {"total": len(memories), "byType": by_type, "byStatus": by_status},
+        "skills": {"installed": len(service.skill_registry.all_manifests())},
+        "candidates": len(store.list_candidates(limit=500)),
+        "corrections": len(store.list_corrections(limit=500)),
+        "mistakes": len(store.list_mistakes(limit=500)),
+        "retrievals": len(store.list_retrievals(limit=500)),
+        "health": service.memory.health(),
+    }
+
+
+@app.get("/eclipse-memory/memories")
+def list_memories(
+    memoryType: Optional[str] = None, scope: Optional[str] = None,
+    status: Optional[str] = None, subject: Optional[str] = None, limit: int = 100,
+) -> dict[str, Any]:
+    return {"success": True, "memories": service.memory_store.list_memories(
+        memory_type=memoryType, scope=scope, status=status, subject=subject,
+        limit=limit, include_inactive=True,
+    )}
+
+
+@app.get("/eclipse-memory/memories/{memory_id}")
+def get_memory(memory_id: str) -> dict[str, Any]:
+    memory = service.memory_store.get_memory(memory_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {
+        "success": True,
+        "memory": memory,
+        "evidence": service.memory_store.list_evidence(memory_id),
+        "links": service.memory_store.list_links(memory_id),
+    }
+
+
+@app.post("/eclipse-memory/memories")
+def create_memory(payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory write requires an authorized operator")
+    try:
+        memory = service.memory.write_memory(
+            memory_type=str(payload.get("memoryType") or "semantic"),
+            content=str(payload.get("content") or ""),
+            source=str(payload.get("source") or "manual"),
+            scope=str(payload.get("scope") or "general"),
+            scope_id=payload.get("scopeId"),
+            subject=payload.get("subject"),
+            confidence=float(payload.get("confidence", 0.5)),
+            importance=float(payload.get("importance", 0.5)),
+            verification=str(payload.get("verification") or "unverified"),
+        )
+    except Exception as exc:  # noqa: BLE001 - a rejected write is a 400, not a crash
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "memory": memory}
+
+
+@app.patch("/eclipse-memory/memories/{memory_id}")
+def patch_memory(memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory update requires an authorized operator")
+    updated = service.memory_store.update_memory(
+        memory_id, content=payload.get("content"), status=payload.get("status"),
+        confidence=payload.get("confidence"),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/memories/{memory_id}/archive")
+def archive_memory(memory_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory archive requires an authorized operator")
+    updated = service.memory_store.archive_memory(memory_id, payload.get("status", "archived"))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/memories/{memory_id}/review")
+def review_memory(memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory review requires an authorized operator")
+    updated = service.memory.review_memory(memory_id, approve=bool(payload.get("approve")), reviewed_by="operator")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/retrieve")
+def retrieve_memory(payload: dict[str, Any]) -> dict[str, Any]:
+    result = service.memory.retrieve(
+        query=str(payload.get("query") or ""),
+        memory_types=payload.get("types"),
+        scope=payload.get("scope"),
+        scope_id=payload.get("scopeId"),
+        subject=payload.get("subject"),
+        actor_scope=payload.get("actorScope"),
+        budget_chars=int(payload.get("budgetChars", 4000)),
+        limit=int(payload.get("limit", 8)),
+        run_id=payload.get("runId"),
+    )
+    return {"success": True, "memories": result.memories, "context": result.context,
+            "diagnostics": result.diagnostics}
+
+
+@app.get("/eclipse-memory/retrievals")
+def list_retrievals(limit: int = 50) -> dict[str, Any]:
+    return {"success": True, "retrievals": service.memory_store.list_retrievals(limit)}
+
+
+@app.get("/eclipse-memory/corrections")
+def list_corrections(limit: int = 100) -> dict[str, Any]:
+    return {"success": True, "corrections": service.memory_store.list_corrections(limit)}
+
+
+@app.get("/eclipse-memory/mistakes")
+def list_mistakes(runId: Optional[str] = None, limit: int = 100) -> dict[str, Any]:
+    return {"success": True, "mistakes": service.memory_store.list_mistakes(runId, limit)}
+
+
+@app.post("/eclipse-memory/corrections")
+def create_correction(payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="correction capture requires an authorized operator")
+    result = service.memory.record_correction(
+        wrong=str(payload.get("wrong") or ""),
+        correction=str(payload.get("correction") or ""),
+        subject=payload.get("subject"),
+        run_id=payload.get("runId"),
+        provided_by=str(payload.get("providedBy") or "user"),
+        scope=str(payload.get("scope") or "user"),
+        generalizable=bool(payload.get("generalizable")),
+    )
+    return {"success": True, **result}
+
+
+@app.get("/eclipse-memory/events")
+def list_memory_events(limit: int = 100) -> dict[str, Any]:
+    return {
+        "success": True,
+        "events": service.memory_store.list_memory_events(limit),
+        "skillEvents": service.skill_store.list_events(limit=limit),
+    }
+
+
 @app.post("/skills/discover")
 def discover_skills(payload: dict[str, Any]) -> dict[str, Any]:
     results = service.skill_registry.discover(

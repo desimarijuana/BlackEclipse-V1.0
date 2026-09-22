@@ -57,6 +57,9 @@ Black-Eclipse-site/
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md` |
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
+| Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
+| Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`), `schema.py` (append a migration tuple), `db.py` (runner) |
+| Work on the Eclipse Memory UI / API | `src/components/screens/eclipse-memory/`, `src/lib/harness/eclipse-memory-{browser,client,types}.ts`, routes `src/app/api/eclipse-memory/` |
 | Add/edit a runtime skill | A folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (+ optional `tests/cases.json`); it is loaded at runtime boot by `skills/loader.py` |
 | Work on the Skills UI | `src/components/screens/skills/` (`skills-screen.tsx` shell + library/detail/learning/evaluation/activity/draft panels), browser client `src/lib/harness/skills-browser.ts` |
 | Work on the skill front door / API | `src/lib/harness/skills-client.ts` (server), routes `src/app/api/skills/`, `src/app/api/learning/`, `src/app/api/skill-executions/`, `src/app/api/skill-drafts/`, `src/app/api/evaluations/` |
@@ -236,6 +239,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `harness/phase-2-progress.md`, `DECISIONS.md`, `QUICKSTART.md` |
 | `python/harness/retrieval/`, `python/harness/retrieval_tools.py`, `src/lib/web-research.ts` | `harness/architecture.md` (retrieval layer), `harness/phase-2-progress.md`, `ARCHITECTURE.md`, `DECISIONS.md` |
 | `python/harness/skills/`, `src/lib/harness/skills-*.ts`, `src/components/screens/skills/`, `src/app/api/skills/`, `src/app/api/learning/` | `harness/phase-3-architecture.md`, `harness/phase-3-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
+| `python/harness/eclipse_memory/`, `python/harness/memory_tools.py`, `src/lib/harness/eclipse-memory-*.ts`, `src/components/screens/eclipse-memory/`, `src/app/api/eclipse-memory/` | `harness/phase-3-memory-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |
