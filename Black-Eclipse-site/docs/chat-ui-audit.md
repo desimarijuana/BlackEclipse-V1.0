@@ -476,11 +476,57 @@ delegation card was built and none was faked. This remains backend-gated.
 
 ---
 
-## 16. Phase 4 — next
+## 16. Phase 4 — Financial-native rendering (implemented 2026-09-22)
 
-Financial-native response rendering: metric blocks, table formatting/copy
-(partly in place), and source/citation presentation — only for content that
-genuinely contains them, with explicit unavailable states for missing data.
+### Scope decision (grounded in what exists)
+
+The runtime's terminal output is **plain Markdown**; the only structured payload
+the SSE stream carries is a retrieval *object count*. Evidence/reference objects
+(`url`, `title`, `source`, timestamps) live inside tool results and are never
+emitted to the client. Therefore Phase 4 does **not** invent a structured-block
+schema or fabricate metric cards. It improves how the model's real output is
+presented, and renders an explicit unavailable state only for markers the model
+actually writes.
+
+### What changed (`lib/chat/markdown.ts` + `components/chat/markdown.tsx`)
+
+- **Numeric tables** — a column whose cells are genuinely numeric (thousands
+  separators, currency, percent, magnitude, parenthesised negatives) is
+  right-aligned with tabular figures; tickers/words are left alone. Negative
+  values render in the loss colour.
+- **Unavailable marking** — a cell or inline run that is exactly an unavailable
+  marker (`UNAVAILABLE`, `n/a`, `—`, `null`, …) renders as a muted chip, so
+  "we don't have this" never reads as a value.
+- **Sources/references** — a heading like "Sources" reads as a quiet section
+  label; a list whose items are essentially just links renders as a source list
+  showing the display host, so a bare URL never floats unlabelled.
+- **Links** — external links gain a hover affordance and a host tooltip.
+
+All helpers (`isNumericText`, `isNegativeValue`, `isUnavailableText`,
+`isSourceHeading`, `extractHost`, `collectLinks`) are pure and unit-tested.
+
+### Not built (documented gaps)
+
+- No metric cards / structured financial blocks — there is no structured data
+  contract on the wire to back them. Adding one is a backend change (emit
+  evidence/source references on the stream); see Risk R4/R7.
+- No ECharts-in-chat — no chart payload reaches the chat stream.
+
+### Verification
+
+- `npx tsc --noEmit` — pass; `npx eslint` (touched files) — clean.
+- `npx vitest run` — 1519 passed (adds 6 financial-helper tests).
+- Dev server recompiled the renderer with no UI errors. The `/api/forex` 500 in
+  the log is the pre-existing Python data-bridge JSON error, unrelated.
+
+---
+
+## 17. Phase 5 — next
+
+Polish & design system: responsive pass (wide tables, activity expansion,
+composer), purposeful motion with reduced-motion respect, and consistency with
+the frosted-glass tokens.
+
 
 
 

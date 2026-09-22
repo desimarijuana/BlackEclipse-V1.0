@@ -372,4 +372,65 @@ export function tableToTsv(header: InlineNode[][], rows: InlineNode[][][]): stri
   return [line(header), ...rows.map(line)].join('\n');
 }
 
+// ── Financial presentation helpers (pure; the view layer styles with them) ───
+// These never invent data. They only recognise what the model actually wrote:
+// numeric cells, explicit "unavailable" markers, and source/reference sections.
+
+/**
+ * A cell that reads as a number, so it can be right-aligned like a financial
+ * table. Accepts thousands separators, currency symbols, signs, percent and
+ * magnitude suffixes, and parenthesised negatives — but never a bare word (so
+ * a ticker like `AAPL` is NOT treated as numeric).
+ */
+const NUMERIC_CELL_RE = /^[($€£¥]?\s*-?\d[\d,]*(?:\.\d+)?\s*(?:%|[KMBT])?\)?$/i;
+export function isNumericText(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  return NUMERIC_CELL_RE.test(t);
+}
+
+/** A negative value: leading minus or accounting-style parentheses. */
+export function isNegativeValue(text: string): boolean {
+  const t = text.trim();
+  return /^\(.*\)$/.test(t) || /^[($€£¥]?\s*-/.test(t);
+}
+
+/**
+ * Markers the agent/backend use for data that is genuinely not available. They
+ * are rendered distinctly so "we don't have this" never looks like a value.
+ */
+const UNAVAILABLE_RE = /^(unavailable|n\/?a|not available|—|-{2,}|null|nil|unknown)$/i;
+export function isUnavailableText(text: string): boolean {
+  return UNAVAILABLE_RE.test(text.trim());
+}
+
+/** Heading text that introduces a list of sources / references / citations. */
+const SOURCE_HEADING_RE = /^(sources?|references?|citations?|further reading|see also)\b/i;
+export function isSourceHeading(text: string): boolean {
+  return SOURCE_HEADING_RE.test(text.trim());
+}
+
+/** The display host of a URL, e.g. `https://www.sec.gov/x` → `sec.gov`. */
+export function extractHost(href: string): string | null {
+  try {
+    const h = new URL(href).hostname.replace(/^www\./, '');
+    return h || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Collect every link node in an inline tree (for source-list rendering). */
+export function collectLinks(nodes: InlineNode[]): { href: string; label: string }[] {
+  const out: { href: string; label: string }[] = [];
+  const walk = (list: InlineNode[]) => {
+    for (const n of list) {
+      if (n.type === 'link') out.push({ href: n.href, label: inlineText(n.children) });
+      else if (n.type !== 'text' && n.type !== 'code') walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
 export { splitTableRow };

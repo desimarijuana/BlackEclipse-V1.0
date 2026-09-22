@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { inlineText, parseInline, parseMarkdown, tableToTsv } from './markdown';
+import {
+  collectLinks,
+  extractHost,
+  inlineText,
+  isNegativeValue,
+  isNumericText,
+  isSourceHeading,
+  isUnavailableText,
+  parseInline,
+  parseMarkdown,
+  tableToTsv,
+} from './markdown';
 
 describe('parseMarkdown block parsing', () => {
   it('turns a plain paragraph into a paragraph block', () => {
@@ -164,5 +175,50 @@ describe('copy helpers', () => {
     const [block] = parseMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |');
     if (block.type !== 'table') throw new Error('expected table');
     expect(tableToTsv(block.header, block.rows)).toBe('A\tB\n1\t2\n3\t4');
+  });
+});
+
+describe('financial presentation helpers', () => {
+  it('recognises numeric cells but not tickers or words', () => {
+    expect(isNumericText('1,234.56')).toBe(true);
+    expect(isNumericText('$1.2B')).toBe(true);
+    expect(isNumericText('-3.4%')).toBe(true);
+    expect(isNumericText('(12.5)')).toBe(true);
+    expect(isNumericText('AAPL')).toBe(false);
+    expect(isNumericText('Revenue')).toBe(false);
+    expect(isNumericText('')).toBe(false);
+  });
+
+  it('detects negative values including accounting parentheses', () => {
+    expect(isNegativeValue('-2.1')).toBe(true);
+    expect(isNegativeValue('($40.5)')).toBe(true);
+    expect(isNegativeValue('12.3')).toBe(false);
+  });
+
+  it('recognises explicit unavailable markers only', () => {
+    expect(isUnavailableText('UNAVAILABLE')).toBe(true);
+    expect(isUnavailableText('n/a')).toBe(true);
+    expect(isUnavailableText('\u2014')).toBe(true);
+    expect(isUnavailableText('12.3')).toBe(false);
+    expect(isUnavailableText('Apple')).toBe(false);
+  });
+
+  it('recognises source/reference headings', () => {
+    expect(isSourceHeading('Sources')).toBe(true);
+    expect(isSourceHeading('References')).toBe(true);
+    expect(isSourceHeading('Analysis')).toBe(false);
+  });
+
+  it('extracts a display host from a URL', () => {
+    expect(extractHost('https://www.sec.gov/Archives/x')).toBe('sec.gov');
+    expect(extractHost('not a url')).toBeNull();
+  });
+
+  it('collects links from an inline tree', () => {
+    const links = collectLinks(parseInline('see [SEC filing](https://www.sec.gov/a) and [IR](https://ir.apple.com)'));
+    expect(links).toEqual([
+      { href: 'https://www.sec.gov/a', label: 'SEC filing' },
+      { href: 'https://ir.apple.com', label: 'IR' },
+    ]);
   });
 });

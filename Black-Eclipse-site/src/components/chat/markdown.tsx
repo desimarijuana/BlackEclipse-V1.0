@@ -1,6 +1,19 @@
 import { Fragment, ReactNode } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { BlockNode, InlineNode, parseMarkdown, tableToTsv } from '@/lib/chat/markdown';
+import {
+  BlockNode,
+  InlineNode,
+  collectLinks,
+  extractHost,
+  inlineText,
+  isNegativeValue,
+  isNumericText,
+  isSourceHeading,
+  isUnavailableText,
+  parseMarkdown,
+  tableToTsv,
+} from '@/lib/chat/markdown';
 import { CopyButton } from './copy-button';
 
 interface MarkdownProps {
@@ -14,8 +27,22 @@ interface MarkdownProps {
 function renderInline(nodes: InlineNode[]): ReactNode[] {
   return nodes.map((node, i) => {
     switch (node.type) {
-      case 'text':
+      case 'text': {
+        // An explicit "unavailable" marker reads as a muted chip, never as a
+        // value — the same honesty rule as the market-data layer.
+        if (isUnavailableText(node.value)) {
+          return (
+            <span
+              key={i}
+              className="rounded border border-border/50 bg-accent/20 px-1.5 py-0.5 text-[0.8em] font-medium uppercase tracking-wide text-muted-foreground/80"
+              title="Data not available from the source"
+            >
+              {node.value.trim()}
+            </span>
+          );
+        }
         return <Fragment key={i}>{node.value}</Fragment>;
+      }
       case 'strong':
         return (
           <strong key={i} className="font-semibold text-foreground">
@@ -39,18 +66,27 @@ function renderInline(nodes: InlineNode[]): ReactNode[] {
             {node.value}
           </code>
         );
-      case 'link':
+      case 'link': {
+        const host = extractHost(node.href);
         return (
           <a
             key={i}
             href={node.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline underline-offset-2 hover:opacity-80"
+            title={host ? `${node.href}` : node.href}
+            className="group/link inline-flex items-baseline gap-0.5 text-primary underline underline-offset-2 hover:opacity-80"
           >
             {renderInline(node.children)}
+            {host && (
+              <ExternalLink
+                size="0.8em"
+                className="translate-y-px opacity-0 transition-opacity group-hover/link:opacity-70"
+              />
+            )}
           </a>
         );
+      }
     }
   });
 }
@@ -85,6 +121,9 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
 
     case 'heading': {
       const Tag = (`h${block.level}`) as 'h1';
+      // A heading that introduces sources/references reads as a quiet section
+      // label rather than another loud title competing with the prose.
+      const sourceSection = isSourceHeading(inlineText(block.children));
       const size =
         block.level === 1
           ? 'text-xl md:text-2xl font-semibold mt-1'
@@ -92,7 +131,14 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
             ? 'text-lg md:text-xl font-semibold mt-1'
             : 'text-base md:text-[17px] font-semibold';
       return (
-        <Tag className={cn('tracking-tight text-foreground', compact ? 'text-[14px]' : size)}>
+        <Tag
+          className={cn(
+            'tracking-tight text-foreground',
+            sourceSection
+              ? 'text-[0.8em] font-medium uppercase tracking-wider text-muted-foreground/70'
+              : compact ? 'text-[14px]' : size,
+          )}
+        >
           {renderInline(block.children)}
         </Tag>
       );
@@ -147,15 +193,26 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
               <tbody>
                 {block.rows.map((row, ri) => (
                   <tr key={ri} className="border-b border-white/[0.06] last:border-0">
-                    {row.map((cell, ci) => (
-                      <td
-                        key={ci}
-                        className="whitespace-nowrap px-3 py-2.5 align-top text-foreground/80"
-                        style={{ textAlign: block.align[ci] ?? undefined }}
-                      >
-                        {renderInline(cell)}
-                      </td>
-                    ))}
+                    {row.map((cell, ci) => {
+                      const text = inlineText(cell);
+                      // Right-align a column that is genuinely numeric, unless
+                      // the author set an explicit alignment.
+                      const numeric = block.align[ci] == null && isNumericText(text);
+                      const negative = numeric && isNegativeValue(text);
+                      return (
+                        <td
+                          key={ci}
+                          className={cn(
+                            'whitespace-nowrap px-3 py-2.5 align-top',
+                            negative ? 'text-rose-400/90' : 'text-foreground/80',
+                            numeric && 'tabular-nums',
+                          )}
+                          style={{ textAlign: block.align[ci] ?? (numeric ? 'right' : undefined) }}
+                        >
+                          {renderInline(cell)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -169,6 +226,43 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
 
     case 'list': {
       const List = block.ordered ? 'ol' : 'ul';
+      // A list whose items are (almost) just links is a source/reference list:
+      // render it with the host shown, so a bare URL never floats unlabelled.
+      const allLinks = block.items.map(collectLinks);
+      const isSourceList =
+        block.items.length > 0 &&
+        allLinks.every((links, i) => links.length > 0 && inlineText(block.items[i]).trim() === links.map((l) => l.label).join(''));
+      if (isSourceList) {
+        return (
+          <List className="space-y-1.5 pl-0 list-none">
+            {block.items.map((item, i) => {
+              const links = allLinks[i];
+              return (
+                <li key={i} className="flex flex-col gap-0.5 border-l-2 border-border/40 pl-3">
+                  {links.map((l, li) => {
+                    const host = extractHost(l.href);
+                    return (
+                      <a
+                        key={li}
+                        href={l.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group/src inline-flex items-baseline gap-1 text-primary underline underline-offset-2 hover:opacity-80"
+                      >
+                        <span className="truncate">{l.label || host || l.href}</span>
+                        {host && l.label && (
+                          <span className="shrink-0 text-[0.8em] text-muted-foreground/60">{host}</span>
+                        )}
+                        <ExternalLink size="0.75em" className="shrink-0 opacity-0 transition-opacity group-hover/src:opacity-70" />
+                      </a>
+                    );
+                  })}
+                </li>
+              );
+            })}
+          </List>
+        );
+      }
       return (
         <List
           className={cn(

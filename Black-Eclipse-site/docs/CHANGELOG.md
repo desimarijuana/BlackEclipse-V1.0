@@ -43,6 +43,18 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 4 financial-native rendering** — Improved how the agent's
+  real Markdown output is presented (no fabricated structured blocks): numeric
+  table columns are auto right-aligned with tabular figures and losses render in
+  the loss colour; explicit unavailable markers (`UNAVAILABLE`, `n/a`, `—`)
+  render as a muted chip rather than a value; headings like "Sources" read as
+  quiet section labels and link-only lists render as a source list with the
+  display host; external links gain a hover affordance + host tooltip. Scope
+  decision recorded: the terminal output is plain Markdown and no evidence/url
+  payload reaches the SSE stream, so metric cards/charts were not invented.
+  Helpers are pure and unit-tested. Verified: tsc, eslint, vitest 1519.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 3 agent activity & tool-execution UI** — Each assistant turn
   now shows what the agent did. A collapsible `ActivityFeed` renders every
   tool/retrieval step (human label, status, duration, result summary, failure
