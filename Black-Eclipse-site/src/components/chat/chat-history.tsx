@@ -18,9 +18,16 @@ interface ChatHistoryProps {
    * re-send) — the component only reports the new text.
    */
   onEditMessage?: (id: string, content: string) => void;
+  /**
+   * Live agent status while a run is in flight (e.g. "Thinking…",
+   * "Using market_get_quote…"). Rendered as a header on the assistant turn
+   * being written, so it reads as "the agent is working on THIS reply" rather
+   * than a detached line under the composer.
+   */
+  status?: string;
 }
 
-export function ChatHistory({ messages, compact = false, onEditMessage }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, status }: ChatHistoryProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -39,13 +46,31 @@ export function ChatHistory({ messages, compact = false, onEditMessage }: ChatHi
     setEditingId(null);
   };
 
+  // The status belongs on the assistant turn currently being written — the
+  // last message when it is an assistant turn. It shows above that turn's text
+  // (a "thinking header"), and while the answer is still empty it IS the turn.
+  const statusIndex = (() => {
+    if (!status) return -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return i;
+    }
+    return -1;
+  })();
+
+  const StatusLine = () => (
+    <span className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/80">
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+      {status}
+    </span>
+  );
+
   return (
     <div className={cn(
       'flex-1 w-full overflow-y-auto scrollbar-hide min-h-0',
       compact ? 'space-y-3 p-3' : 'px-4 md:px-6 space-y-6 pb-6',
     )}>
       <div className={compact ? 'space-y-3' : 'space-y-6'}>
-        {messages.map((msg) => (
+        {messages.map((msg, i) => (
           <div 
             key={msg.id}
             className={`animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -55,8 +80,15 @@ export function ChatHistory({ messages, compact = false, onEditMessage }: ChatHi
                 <Sparkles size={14} />
               </div>
             )}
+            {msg.role === 'assistant' && i === statusIndex && (
+              <div className={msg.content ? 'mb-2' : ''}>
+                <StatusLine />
+              </div>
+            )}
             {msg.role === 'assistant' ? (
-              <Markdown content={msg.content} compact={compact} className="w-full" />
+              msg.content ? (
+                <Markdown content={msg.content} compact={compact} className="w-full" />
+              ) : null
             ) : editingId === msg.id ? (
               <div className="w-full flex flex-col gap-2">
                 <textarea

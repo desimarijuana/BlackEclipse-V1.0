@@ -460,16 +460,17 @@ function StockChatContent() {
       .slice(0, -1)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // A visible in-flight note: harness runs can take a few seconds (tool calls).
-    // Its content is replaced by streamed deltas as soon as the answer starts.
+    // A placeholder assistant turn. Its content is filled by streamed deltas;
+    // until then the live status header (Thinking… / Using …) is what shows,
+    // so the turn reads as "the agent is working on this reply".
     const thinkingMsg: Message = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
-      content: 'Eclipse Agent is working…',
+      content: '',
     };
     appendAssistantReply(chatId, thinkingMsg);
     setAgentBusy(true);
-    setAgentStatus('Eclipse Agent is working…');
+    setAgentStatus('Thinking…');
     currentRunIdRef.current = null;
     sound.tick();
 
@@ -712,6 +713,7 @@ function StockChatContent() {
                     <ChatHistory
                       messages={messages}
                       onEditMessage={handleEditMessage}
+                      status={agentBusy ? agentStatus : ''}
                     />
                     <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
                       <ChatInput
@@ -731,12 +733,6 @@ function StockChatContent() {
                           ? sessionController.session.contextChars / sessionController.session.contextLimitChars
                           : 0}
                       />
-                      {agentBusy && agentStatus ? (
-                        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/80">
-                          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                          {agentStatus}
-                        </p>
-                      ) : null}
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <SessionBar session={sessionController} />

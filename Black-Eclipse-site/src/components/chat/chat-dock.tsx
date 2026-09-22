@@ -312,10 +312,6 @@ export function ChatDock({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
-  const pushAssistant = useCallback((content: string) => {
-    append([...messagesRef.current, { id: newId(), role: 'assistant', content }]);
-  }, [append]);
-
   const newChat = useCallback(() => {
     append([]);
     setQuery('');
@@ -487,13 +483,7 @@ export function ChatDock({
                 </p>
               </div>
             ) : (
-              <ChatHistory messages={messages} compact />
-            )}
-
-            {busy && (
-              <p className="flex shrink-0 items-center gap-1.5 border-t border-border/10 px-4 py-2 text-[10px] font-mono text-muted-foreground/80">
-                <Sparkles size={10} className="animate-pulse text-primary" /> {status || 'thinking…'}
-              </p>
+              <ChatHistory messages={messages} compact status={busy ? status : ''} />
             )}
           </div>
         )}
