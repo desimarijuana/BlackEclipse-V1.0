@@ -213,6 +213,12 @@ class FinancialRetrievalLayer:
         """Try planned sources in order; first OK result wins (then validate)."""
         attempts: list[SourceOutcome] = []
         warnings: list[str] = []
+        # Fallback misses are recorded separately and are NOT carried into a
+        # successful answer: a live source answering after a vault miss is not a
+        # degradation of the result, and warning about it makes a fresh quote
+        # look suspect (e.g. "EURUSD is not in the instrument universe" beside a
+        # valid FX quote).
+        fallback_notes: list[str] = []
         for name in plan.sources:
             source = self._sources.get(name)
             if source is None or not source.available(request):
@@ -238,10 +244,13 @@ class FinancialRetrievalLayer:
                 )
             if outcome.status == "OK" and (outcome.objects or outcome.evidence):
                 await self._emit("retrieval.source_ok", {"source": name, "objects": len(outcome.objects)})
-                return self._finalize_single(request, outcome, warnings, plan)
+                # Only the answering source's own warnings apply to the result.
+                return self._finalize_single(
+                    request, outcome, list(outcome.warnings), plan, fallback_notes
+                )
             self.metrics["failures"] += 1
             if outcome.error:
-                warnings.append(f"{name}: {outcome.error}")
+                fallback_notes.append(f"{name}: {outcome.error}")
             await self._emit("retrieval.source_unavailable", {"source": name, "error": outcome.error})
 
         # Nothing succeeded.
@@ -252,7 +261,7 @@ class FinancialRetrievalLayer:
             instrument=request.instrument,
             freshness=request.freshnessRequirement,
             quality="unknown",
-            warnings=warnings + plan.warnings,
+            warnings=fallback_notes + warnings + plan.warnings,
             strategy=plan.sources,
         )
 
@@ -332,8 +341,10 @@ class FinancialRetrievalLayer:
         outcome: SourceOutcome,
         warnings: list[str],
         plan: Any,
+        fallback_notes: Optional[list[str]] = None,
     ) -> FinancialRetrievalResult:
         objects = outcome.objects
+        _ = fallback_notes  # fallback misses are not degradations of the answer
         # Structured providers may include a duplicate value under two sources;
         # resolve conflicts across the objects of THIS outcome.
         chosen, conflict_warnings, unresolved = self._resolve(objects)
@@ -341,7 +352,16 @@ class FinancialRetrievalLayer:
         if unresolved:
             self.metrics["conflicts"] += 1
 
-        objects, quality_warnings = validate_objects(chosen, request.freshnessRequirement)
+        # A source may declare how often it publishes (`cadenceSeconds` in its
+        # raw payload); a slow-cadence source is DELAYED, not stale.
+        cadence = None
+        if isinstance(outcome.raw, dict):
+            cadence = outcome.raw.get("cadenceSeconds")
+            if not isinstance(cadence, (int, float)):
+                cadence = None
+        objects, quality_warnings = validate_objects(
+            chosen, request.freshnessRequirement, source_cadence_seconds=cadence
+        )
         warnings.extend(quality_warnings)
 
         # D2: detect truncated/partial parses. A partial numeric is never emitted
@@ -409,7 +429,7 @@ class FinancialRetrievalLayer:
             sourceReferences=refs,
             freshness=request.freshnessRequirement,
             quality=quality,
-            warnings=warnings + plan.warnings,
+            warnings=_dedupe(warnings + plan.warnings),
             strategy=plan.sources,
             degraded=degraded,
             degradation=degradation,
@@ -516,6 +536,18 @@ def _hashable(value: Any) -> Any:
         return value
     except TypeError:
         return repr(value)
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    """De-duplicate warnings while preserving order (identical text once)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for w in items:
+        key = w.strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(w)
+    return out
 
 
 def _degradation(

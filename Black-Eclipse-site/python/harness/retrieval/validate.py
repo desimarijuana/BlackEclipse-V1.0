@@ -149,7 +149,7 @@ def _newest_timestamp(objects: list[NormalizedFinancialObject]) -> Optional[str]
 
 
 def validate_objects(
-    objects: list[NormalizedFinancialObject], freshness: str = "any"
+    objects: list[NormalizedFinancialObject], freshness: str = "any", source_cadence_seconds: Optional[int] = None
 ) -> tuple[list[NormalizedFinancialObject], list[str]]:
     """Validate in place; return (objects, warnings).
 
@@ -182,11 +182,28 @@ def validate_objects(
     if newest:
         age = _age_seconds(newest)
         limit = max_age_seconds(freshness)
-        if age is not None and age > limit:
+        # A source with a KNOWN native cadence slower than the requested window
+        # is "delayed", not "stale": e.g. a source that only publishes a daily
+        # close can never satisfy a `realtime` request, and flagging every such
+        # quote `warning` destroys the signal. Only an age beyond BOTH the
+        # request window AND the source's own cadence is a staleness warning.
+        effective_limit = limit
+        if source_cadence_seconds is not None:
+            effective_limit = max(limit, source_cadence_seconds)
+        if age is not None and age > effective_limit:
             warnings.append(
                 f"data is stale: newest observation is {_fmt_duration(age)} old "
                 f"(freshness requirement '{freshness}' allows {_fmt_duration(limit)})"
             )
+        elif age is not None and limit > 0 and age > limit and source_cadence_seconds is not None:
+            # Delayed, not stale. This is an informational transformation, NOT a
+            # warning — attaching it to `warnings` would stamp the result
+            # `quality=warning` and make every delayed quote look suspect.
+            for obj in objects:
+                obj.transformations.append(
+                    f"delayed source: {_fmt_duration(age)} old on a "
+                    f"{_fmt_duration(source_cadence_seconds)} publishing cadence"
+                )
     return objects, warnings
 
 

@@ -24,9 +24,9 @@ import {
   type InstrumentIdentity,
 } from "@/lib/instrument-identity";
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
-import { coverageSummary } from "@/lib/harness/coverage";
+import { coverageSummary, isCovered, coverageFor, healthTargets } from "@/lib/harness/coverage";
 import { resolveMacroSeries } from "@/lib/harness/macro-identity";
-import { MARKET_FULL_NAME } from "@/lib/markets";
+import { MARKET_FULL_NAME, resolveMarketId } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
 export interface DataBridgeResult {
@@ -91,6 +91,23 @@ async function resolveVaultInstrument(
   const sym = symbol.trim().toUpperCase();
   const rawMarket =
     typeof rawMarketInput === "string" && rawMarketInput.trim() ? rawMarketInput.trim() : null;
+
+  // A KNOWN venue we have no source for (a recognised derivatives exchange) is
+  // NOT_COVERED — the caller named a real venue, so it is neither "unknown" nor
+  // ambiguous. Checked before the vault lookup so it never reads as not_found.
+  if (rawMarket) {
+    const known = resolveMarketId(rawMarket);
+    if (known && !isCovered(known, "equity") && coverageFor(known)?.assetClasses.length === 0) {
+      return {
+        ok: false,
+        failure: {
+          ok: false,
+          reason: "not_covered",
+          message: `No data source covers venue "${rawMarket}".`,
+        },
+      };
+    }
+  }
 
   const rows = await prisma.asset.findMany({
     where: { symbol: sym },
@@ -260,6 +277,7 @@ const IDENTITY_FAILURE_CLASS: Record<IdentityFailureReason, FailureClass> = {
   currency_mismatch: "currency_mismatch",
   venue_mismatch: "venue_mismatch",
   terms_missing: "terms_missing",
+  not_covered: "not_covered",
 };
 
 /** A user-safe result for an identity failure (never leaks internals). */
@@ -380,6 +398,8 @@ async function marketSnapshot(params: Record<string, unknown>): Promise<DataBrid
     instrumentId: `${identity.market}:${identity.symbol}`,
     priceSource: asset.price?.source ?? null,
     updatedAt: asset.price?.updatedAt?.toISOString() ?? null,
+    // The vault is refreshed on a scraper schedule, not tick-by-tick.
+    cadenceSeconds: 24 * 60 * 60,
     price: asset.price
       ? {
           price: asset.price.price,
@@ -440,8 +460,12 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
     where: { symbol_market: { symbol: identity.symbol, market: identity.market } },
   });
   if (!cached) {
+    // The instrument IS in the universe (it resolved); the vault simply has no
+    // persisted statements yet. That is covered-but-empty (`no_data`), NOT
+    // `not_found` — which would contradict the quote path that returns a price
+    // for the same instrument.
     return unavailableClass(
-      "not_found",
+      "no_data",
       `no persisted financial statements for ${identity.symbol} (${identity.market})`,
     );
   }
@@ -555,39 +579,72 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     _sum: { successCount: true, failCount: true },
     _max: { lastStatus: true, updatedAt: true },
   });
-  // Derive per-source confidence from real history rather than asserting it
-  // uniformly (C3). A source with no recorded run is `unknown`, never "healthy".
-  const shaped = rows.map((r) => {
-    const success = r._sum.successCount ?? 0;
-    const fail = r._sum.failCount ?? 0;
+
+  // Recorded runs, keyed by (market, assetClass). A provider that ran records
+  // under its own name (yfinance/tradingview); aggregate them per target.
+  const recorded = new Map<string, { success: number; fail: number; updated: string | null; providers: Set<string> }>();
+  for (const r of rows) {
+    const assetClass = r.symbol === "*" ? "*" : r.symbol;
+    const key = `${r.market}|${assetClass}`;
+    const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, providers: new Set<string>() };
+    cur.success += r._sum.successCount ?? 0;
+    cur.fail += r._sum.failCount ?? 0;
+    const updated = r._max.updatedAt ? new Date(r._max.updatedAt).toISOString() : null;
+    if (updated && (!cur.updated || updated > cur.updated)) cur.updated = updated;
+    cur.providers.add(r.source);
+    recorded.set(key, cur);
+  }
+
+  const shape = (
+    source: string,
+    market: string,
+    assetClass: string,
+    stat: { success: number; fail: number; updated: string | null; providers: Set<string> } | undefined,
+  ) => {
+    const success = stat?.success ?? 0;
+    const fail = stat?.fail ?? 0;
     const total = success + fail;
     const health =
       total === 0 ? "unknown"
         : fail === 0 ? "healthy"
         : success === 0 ? "failing"
         : "degraded";
-    const updated = r._max.updatedAt ? new Date(r._max.updatedAt).toISOString() : null;
-    const ageSeconds = updated ? (Date.now() - Date.parse(updated)) / 1000 : null;
+    const updated = stat?.updated ?? null;
     return {
-      source: r.source,
-      market: r.market,
-      // `*` is the legacy whole-market wildcard; a concrete label is the
-      // asset class the health applies to.
-      assetClass: r.symbol === "*" ? "*" : r.symbol,
+      source,
+      market,
+      assetClass,
+      providers: stat ? [...stat.providers] : [],
       success,
       fail,
       total,
-      lastStatus: r._max.lastStatus,
+      lastStatus: total === 0 ? null : (fail > 0 && success === 0 ? "fail" : "ok"),
       health,
       successRate: total === 0 ? null : Math.round((success / total) * 100) / 100,
       updatedAt: updated,
-      staleSeconds: ageSeconds,
+      staleSeconds: updated ? (Date.now() - Date.parse(updated)) / 1000 : null,
     };
-  });
-  if (shaped.length === 0) {
-    return { status: "OK", failureClass: "no_data", rows: [] };
+  };
+
+  // Every declared (source, market, assetClass) the system CAN serve, so a
+  // known source with no runs reports `unknown` (no data) rather than being
+  // absent (which would read as "no source").
+  const declared = healthTargets();
+  const out = declared.map((t) =>
+    shape(t.source, t.market, t.assetClass, recorded.get(`${t.market}|${t.assetClass}`)),
+  );
+
+  // Include any recorded combination not covered by the registry (e.g. a legacy
+  // whole-market wildcard) so real history is never hidden.
+  const declaredKeys = new Set(declared.map((t) => `${t.market}|${t.assetClass}`));
+  for (const [key, stat] of recorded) {
+    if (declaredKeys.has(key)) continue;
+    const [market, assetClass] = key.split("|");
+    out.push(shape("LIVE_STRUCTURED", market, assetClass, stat));
   }
-  return { status: "OK", rows: shaped };
+
+  if (out.length === 0) return { status: "OK", failureClass: "no_data", rows: [] };
+  return { status: "OK", rows: out };
 }
 
 /** The declared coverage registry, so the system can answer "what do we cover?". */
@@ -606,7 +663,10 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
 
   const resolved = await resolveAnyInstrument(symbol, rawMarket, termsFromParams(params));
   if (!resolved.ok) return identityFailureResult(resolved.failure);
-  const { identity } = resolved;
+  const { identity, asset } = resolved;
+  // FX/crypto have no vault row: their quote is served live. Equities/funds
+  // resolve a stored asset (the price may still be a cached scrape).
+  const fromVault = asset !== null;
 
   try {
     // FX/crypto are self-routing Yahoo tickers (`EURUSD=X`, `BTC-USD`); the
@@ -682,6 +742,19 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
       contract: identity.contract ?? null,
       instrumentId: `${identity.market}:${identity.symbol}`,
       provider: result.source ?? "scraper",
+      // Provenance clarity: the vault holds equities/funds, so an FX/crypto
+      // quote is served LIVE, not from the stored universe. Say so, and echo the
+      // caller's own symbol form (`EURUSD`) rather than the provider's
+      // (`EURUSD=X`) so the payload does not contradict the request.
+      served: fromVault ? "vault" : "live",
+      servedLive: !fromVault,
+      requestedSymbol: symbol,
+      providerSymbol: identity.symbol,
+      // The provider's native publishing cadence (seconds). A structured quote
+      // source publishes continuously; the vault may be a nightly snapshot. This
+      // lets the layer say "delayed" instead of mislabelling a fresh delayed
+      // quote as stale.
+      cadenceSeconds: fromVault ? 24 * 60 * 60 : 60,
       price: {
         price: q.price,
         changePct: q.changePct,
@@ -689,7 +762,9 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
         marketCap: q.marketCap ?? null,
         // A price is a number with a unit, not a bare number (A7).
         currency: identity.currency,
-        units: "per-share",
+        units: identity.assetClass === "fx" || identity.assetClass === "crypto"
+          ? "quote currency per base unit"
+          : "per-share",
       },
       asOf: new Date().toISOString(),
     };

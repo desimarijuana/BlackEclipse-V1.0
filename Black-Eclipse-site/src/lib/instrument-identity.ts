@@ -149,7 +149,9 @@ export type IdentityFailureReason =
   | "ambiguous"
   | "currency_mismatch"
   | "venue_mismatch"
-  | "terms_missing";
+  | "terms_missing"
+  /** A known venue we have no data source for (e.g. a derivatives exchange). */
+  | "not_covered";
 
 export interface IdentityFailure {
   ok: false;

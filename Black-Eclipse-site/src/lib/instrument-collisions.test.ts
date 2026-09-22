@@ -79,7 +79,7 @@ describe('share-class / DR fixtures (A4)', () => {
     expect(groups.length).toBeGreaterThan(0);
     for (const g of groups) {
       const symbols = g.lines.map((l) => l.symbol);
-      // The lines of one issuer are distinct tickers (ABR^D vs ABR^E vs …).
+      // The lines of one issuer are distinct tickers (ABR^D vs ABR^E vs ï¿½).
       expect(new Set(symbols).size).toBe(symbols.length);
     }
   });
@@ -95,7 +95,7 @@ describe('share-class / DR fixtures (A4)', () => {
   });
 });
 
-// -- #4: venue-registry audit — every master exchange must resolve -----------
+// -- #4: venue-registry audit ï¿½ every master exchange must resolve -----------
 const { exchanges } = fixtures as { exchanges?: string[] };
 
 describe('venue registry covers every exchange in the master (#4)', () => {
@@ -110,11 +110,28 @@ describe('venue registry covers every exchange in the master (#4)', () => {
       if (resolved.every((m) => m === null)) unresolved.push(ex);
     }
     // CME and other genuinely unsupported venues are absent from the master and
-    // therefore NOT required here — they return not_covered, which is correct.
+    // therefore NOT required here ï¿½ they return not_covered, which is correct.
     expect(unresolved).toEqual([]);
   });
 
-  it('an unsupported venue (CME) is not silently dropped', () => {
-    expect(resolveMarketId('CME')).toBeNull();
+  it('a recognised-but-uncovered venue (CME) resolves to DERIV, not silently dropped', () => {
+    // CME is real and recognised, so an ES/CME request is NOT_COVERED (the
+    // caller named a real venue) rather than "unknown venue".
+    expect(resolveMarketId('CME')).toBe('DERIV');
+  });
+});
+
+// -- TSM correction: a US-only ticker is NOT a collision ---------------------
+describe('TSM is not a collision (TSMC Taiwan line is 2330)', () => {
+  it('is absent from the generated cross-market set', () => {
+    expect(Object.keys(crossMarket)).not.toContain('TSM');
+  });
+
+  it('bare TSM resolves to the US instrument only', () => {
+    const rows: InstrumentRow[] = [{ symbol: 'TSM', market: 'US', securityType: 'Stock' }];
+    const r = resolveInstrument('TSM', {}, rows);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.identity.market).toBe('US');
   });
 });

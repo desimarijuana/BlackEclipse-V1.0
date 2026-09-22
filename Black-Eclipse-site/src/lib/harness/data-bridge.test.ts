@@ -81,13 +81,20 @@ describe("fetchCapability — other capabilities", () => {
     expect((result.items as unknown[]).length).toBe(1);
   });
 
-  it("source_health aggregates", async () => {
+  it("source_health aggregates recorded runs and declares uncovered sources", async () => {
     groupBy.mockResolvedValue([
-      { source: "http", market: "US", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok" } },
+      { source: "http", market: "US", symbol: "equity", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok", updatedAt: new Date() } },
     ]);
     const result = await fetchCapability("source_health", {});
     expect(result.status).toBe("OK");
-    expect((result.rows as Array<{ success: number }>)[0].success).toBe(3);
+    // Every declared target is present, so "no data" is distinguishable from
+    // "no source"; the US equity target carries the recorded 3 successes.
+    const rows = result.rows as Array<{ market: string; assetClass: string; success: number; health: string }>;
+    expect(rows.length).toBeGreaterThan(1);
+    const us = rows.find((r) => r.market === "US" && r.assetClass === "equity");
+    expect(us?.success).toBe(3);
+    // A declared target with no recorded runs reports `unknown`, not absent.
+    expect(rows.some((r) => r.health === "unknown")).toBe(true);
   });
 
   it("rejects an unknown capability", async () => {

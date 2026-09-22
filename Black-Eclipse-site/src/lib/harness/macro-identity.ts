@@ -27,6 +27,9 @@ export interface MacroSeriesIdentity {
   adjustment: SeasonalAdjustment;
   frequency: Frequency;
   unit?: string;
+  /** For an index series: its base (e.g. "1982-84=100"). An index without a
+   *  base is not a number. */
+  unitBase?: string;
   /** ISO 4217 currency for a currency-denominated series (e.g. USD bn). */
   currency?: string;
   /** The source id in `lib/economics/sources` that serves it. */
@@ -45,33 +48,48 @@ const SERIES: MacroSeriesIdentity[] = [
   { id: "US:FRED:DFEDTARU", geography: "US", institution: "FRED", measure: "fed_funds_target_upper", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "fred-analytics", providerSeries: "DFEDTARU" },
   { id: "US:FRED:DFEDTARL", geography: "US", institution: "FRED", measure: "fed_funds_target_lower", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "fred-analytics", providerSeries: "DFEDTARL" },
   { id: "US:FRED:RRPONTSYD", geography: "US", institution: "FRED", measure: "reverse_repo_ceiling", adjustment: "nsa", frequency: "daily", unit: "usd_bn", currency: "USD", sourceId: "fred-analytics", providerSeries: "RRPONTSYD" },
-  { id: "US:FRED:CPIAUCSL", geography: "US", institution: "FRED", measure: "cpi_headline", adjustment: "sa", frequency: "monthly", unit: "index", sourceId: "fred-analytics", providerSeries: "CPIAUCSL" },
-  { id: "US:FRED:CPILFESL", geography: "US", institution: "FRED", measure: "cpi_core", adjustment: "sa", frequency: "monthly", unit: "index", sourceId: "fred-analytics", providerSeries: "CPILFESL" },
+  // CPI: an index LEVEL is not an inflation rate. The base is part of the value.
+  { id: "US:FRED:CPIAUCSL", geography: "US", institution: "FRED", measure: "cpi_headline", adjustment: "sa", frequency: "monthly", unit: "index", unitBase: "1982-84=100", sourceId: "fred-analytics", providerSeries: "CPIAUCSL" },
+  { id: "US:FRED:CPILFESL", geography: "US", institution: "FRED", measure: "cpi_core", adjustment: "sa", frequency: "monthly", unit: "index", unitBase: "1982-84=100", sourceId: "fred-analytics", providerSeries: "CPILFESL" },
   { id: "US:FRED:UNRATE", geography: "US", institution: "FRED", measure: "unemployment_rate", adjustment: "sa", frequency: "monthly", unit: "percent", sourceId: "fred-analytics", providerSeries: "UNRATE" },
   { id: "US:FRED:GDP", geography: "US", institution: "FRED", measure: "gdp_nominal", adjustment: "sa", frequency: "quarterly", unit: "usd_bn", currency: "USD", sourceId: "fred-analytics", providerSeries: "GDP" },
+  { id: "US:FRED:M2SL", geography: "US", institution: "FRED", measure: "m2_money_stock", adjustment: "sa", frequency: "monthly", unit: "usd_bn", currency: "USD", sourceId: "fred-analytics", providerSeries: "M2SL" },
   // Non-US — routed to non-US backends (C1).
+  { id: "EA:ECB:HICP", geography: "EA", institution: "ECB", measure: "hicp_headline", adjustment: "nsa", frequency: "monthly", unit: "index", unitBase: "2015=100", sourceId: "ecb", providerSeries: "hicp" },
   { id: "EA:ECB:DEPOSIT", geography: "EA", institution: "ECB", measure: "ecb_deposit_facility_rate", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "ecb", providerSeries: "deposit" },
   { id: "EA:ECB:MRR", geography: "EA", institution: "ECB", measure: "ecb_main_refinancing_rate", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "ecb", providerSeries: "mrr" },
   { id: "GB:BOE:BANKRATE", geography: "GB", institution: "OECD", measure: "boe_bank_rate", adjustment: "nsa", frequency: "daily", unit: "percent", sourceId: "oecd", providerSeries: "IR3TIB01GBM156N" },
   { id: "WLD:WORLDBANK:GDP", geography: "WLD", institution: "WorldBank", measure: "gdp_nominal", adjustment: "nsa", frequency: "annual", unit: "usd", sourceId: "worldbank", providerSeries: "NY.GDP.MKTP.CD" },
-  { id: "WLD:IMF:CPI", geography: "WLD", institution: "IMF", measure: "cpi_headline", adjustment: "nsa", frequency: "annual", unit: "index", sourceId: "imf", providerSeries: "PCPIPC_WT" },
+  { id: "WLD:IMF:CPI", geography: "WLD", institution: "IMF", measure: "cpi_headline", adjustment: "nsa", frequency: "annual", unit: "index", unitBase: "index", sourceId: "imf", providerSeries: "PCPIPC_WT" },
 ];
 
 /**
- * Generic measure names that map to a FAMILY of measures (not one). A generic
- * "policy rate" is the target upper, lower, midpoint, and effective rate — the
- * system must not silently choose one (#3). The value is the set of measures the
- * generic name may refer to; resolution requires an explicit measure.
+ * Generic measure aliases → the set of measures they may refer to.
+ *
+ * A generic name must NEVER silently narrow to one measure. `cpi` spans the
+ * headline and core index levels — it is AMBIGUOUS unless the caller names the
+ * measure. An alias with an EMPTY set is a recognised concept with no registered
+ * series (e.g. PMI) → `not_covered`, never a silent pass-through.
  */
 const GENERIC_MEASURE_FAMILIES: Record<string, string[]> = {
   policy_rate: ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
   policyrate: ["fed_funds_target_upper", "fed_funds_target_lower", "fed_funds_effective", "reverse_repo_ceiling"],
   interest_rate: ["fed_funds_effective", "fed_funds_target_upper"],
-  inflation: ["cpi_headline"],
-  cpi: ["cpi_headline"],
+  // CPI is an INDEX, not a rate — never silently resolve to the index level.
+  cpi: ["cpi_headline", "cpi_core"],
+  inflation: ["cpi_headline", "cpi_core"],
   core_inflation: ["cpi_core"],
+  hicp: ["hicp_headline"],
   unemployment: ["unemployment_rate"],
   gdp: ["gdp_nominal"],
+  money_supply: ["m2_money_stock"],
+  m2: ["m2_money_stock"],
+  // Recognised macro concepts with no registered series yet.
+  pmi: [],
+  retail_sales: [],
+  industrial_production: [],
+  trade_balance: [],
+  government_debt: [],
 };
 
 export type MacroResolution =
@@ -109,6 +127,15 @@ export function resolveMacroSeries(seriesId: string, geography?: string | null):
   //    with a geography (#3). It is never silently narrowed.
   const family = GENERIC_MEASURE_FAMILIES[raw.toLowerCase().replace(/\s+/g, "_")];
   if (family) {
+    // A recognised concept with no registered series is NOT_COVERED, never a
+    // silent pass-through (e.g. PMI).
+    if (family.length === 0) {
+      return {
+        ok: false,
+        reason: "not_covered",
+        message: `No "${raw}" series is registered${geo ? ` for ${geo}` : ""}.`,
+      };
+    }
     const scoped = geo ? SERIES.filter((s) => s.geography === geo && family.includes(s.measure)) : [];
     if (!geo) {
       return {
@@ -140,26 +167,12 @@ export function resolveMacroSeries(seriesId: string, geography?: string | null):
     return { ok: true, identity: scoped[0] };
   }
 
-  // 4. Unknown id with a known geography: allow provider pass-through ONLY when a
-  //    source is declared; never silently route to a US backend.
-  if (geo) {
-    const identity: MacroSeriesIdentity = {
-      id: `${geo}:?:${raw.toUpperCase()}`,
-      geography: geo,
-      institution: "unknown",
-      measure: raw.toLowerCase(),
-      adjustment: "unknown",
-      frequency: "unknown",
-      sourceId: "",
-      providerSeries: raw,
-    };
-    return { ok: true, identity };
-  }
-
+  // 4. Unknown id: we cannot verify it against any registered series, so it is
+  //    NOT_COVERED rather than a silent pass-through to a guessed backend.
   return {
     ok: false,
-    reason: "ambiguous",
-    message: `"${raw}" is not a known series and no geography was supplied.`,
+    reason: "not_covered",
+    message: `"${raw}" is not a registered series.`,
   };
 }
 

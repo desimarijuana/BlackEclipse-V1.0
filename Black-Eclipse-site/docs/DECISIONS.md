@@ -457,6 +457,27 @@ live path, keyed by source × market × asset class. Macro generic measures are
 
 ---
 
+## ADR-024 — Generic macro aliases never narrow silently; recognition ≠ coverage (2026)
+**Decision:** A generic macro alias (`CPI`, `INFLATION`, `POLICY_RATE`, …) resolves
+only when it names exactly ONE measure; a multi-meaning alias is AMBIGUOUS with
+named candidates, and a recognised concept with no registered series (`PMI`) is
+NOT_COVERED. An index series carries its `unitBase` (e.g. `1982-84=100`) so the
+number is meaningful. Macro rows are newest-first with an explicit `asOf`. A
+venue the system recognises but does not cover (`CME` → `DERIV`) is NOT_COVERED,
+not "unknown venue" — recognition and coverage are distinct. FX/crypto payloads
+state `served: live` and echo the requested symbol, since the vault holds
+equities only. Warnings are de-duplicated, and a slow source cadence marks data
+"delayed" (a transformation, not a quality warning).
+**Why:** CPI silently resolved to the index level, `ES/CME` read as "unknown
+venue", and the FX payload said "not in the universe" beside a valid quote — each
+a confidently-wrong or self-contradictory answer.
+**Impact:** Extends ADR-020…023. `macro_resolve` in TS is the single alias table
+(the Python tool asks it before falling back locally). `get_source_health`
+enumerates the declared source registry so a source with no runs is `unknown`,
+not absent.
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

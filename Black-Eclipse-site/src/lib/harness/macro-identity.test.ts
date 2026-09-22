@@ -72,3 +72,56 @@ describe('resolveMacroSeries (A8)', () => {
     expect(defaultSourceForGeography('ZZ')).toBeNull();
   });
 });
+
+// -- #1: generic aliases never SILENTLY pick one of several measures ---------
+describe('generic macro aliases (#1)', () => {
+  // Aliases whose meaning spans more than one measure. These must be AMBIGUOUS.
+  const MULTI_MEANING = ['CPI', 'INFLATION', 'POLICY_RATE', 'INTEREST_RATE'];
+
+  it('a multi-meaning alias is AMBIGUOUS with named candidates (US)', () => {
+    const failures: string[] = [];
+    for (const alias of MULTI_MEANING) {
+      const r = resolveMacroSeries(alias, 'US');
+      if (r.ok) failures.push(`${alias} silently resolved to ${r.identity.id}`);
+      else if (r.reason !== 'ambiguous') failures.push(`${alias} -> ${r.reason}, not ambiguous`);
+      else if ((r.candidates ?? []).length < 2) failures.push(`${alias} gave < 2 candidates`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('CPI is AMBIGUOUS (headline index vs core index)', () => {
+    const r = resolveMacroSeries('CPI', 'US');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('ambiguous');
+    expect((r.candidates ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('a unique-meaning alias resolves to exactly one series', () => {
+    const r = resolveMacroSeries('UNEMPLOYMENT', 'US');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.identity.measure).toBe('unemployment_rate');
+  });
+
+  it('a recognised concept with no series is NOT_COVERED (PMI)', () => {
+    const r = resolveMacroSeries('PMI', 'US');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('not_covered');
+  });
+
+  it('an unregistered id is NOT_COVERED (never a silent pass-through)', () => {
+    const r = resolveMacroSeries('SOME_RANDOM_SERIES', 'US');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('not_covered');
+  });
+
+  it('an index series carries its base so the number is meaningful', () => {
+    const r = resolveMacroSeries('US:FRED:CPIAUCSL');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.identity.unit).toBe('index');
+    expect(r.identity.unitBase).toBe('1982-84=100');
+  });
+});

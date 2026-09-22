@@ -53,6 +53,33 @@ proves the documentation obligation was considered rather than skipped.
   message changes.
   no doc change — UI affordance only; no architecture, contract, or data shape changed.
 
+- **Retrieval — CPI/aliases, CME venue, FX self-consistency, statements class,
+  source-health registry (#1–#6)** —
+  • **#1 macro aliases**: `CPI`/`INFLATION` now AMBIGUOUS (headline vs core) with
+    named candidates; every generic alias is enumerated by a test that asserts it
+    resolves uniquely, is AMBIGUOUS, or is NOT_COVERED — never a silent
+    single-measure pick. `PMI` etc. → NOT_COVERED. Index series carry `unitBase`;
+    rows remain newest-first with `asOf`. The Python tool asks the TS
+    `macro_resolve` (single alias table) before any local fallback.
+  • **#2 unknown venue**: recognised-but-uncovered venues (`CME` → DERIV) return
+    NOT_COVERED, not "unknown venue"; MIC carried on identity (`FFC/PSX` → XPSX,
+    `SHEL/LSE` → XLON).
+  • **#3 FX/crypto**: payload now says `served: live` and echoes the requested
+    symbol (`EURUSD`, not `EURUSD=X`); quote direction preserved; no
+    "not in the universe" warning beside a valid quote.
+  • **#4 statements**: an instrument in the universe with no persisted statements
+    is `no_data`, not `not_found` — agreeing with the quote path.
+  • **#5 source health**: enumerates the full declared source registry
+    (source × market × asset class) so a source with no runs reports `unknown`,
+    not absent; 184 targets reported.
+  • **#6**: warnings de-duplicated; a slow source cadence marks data "delayed"
+    (a transformation, not a quality warning) so delayed ≠ stale.
+  • TSM dropped from fixtures (Taiwan line is 2330; bare TSM → US is correct).
+  Verified live: CPI→AMBIGUOUS, PMI→NOT_COVERED, ES/CME→NOT_COVERED,
+  EURUSD→OK `served:live`, FFC/PSX statements→`no_data`, TSM→US.
+  Tests: vitest 1593, pytest 170. tsc + eslint clean.
+  docs updated: `docs/DECISIONS.md` (ADR-024), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Retrieval — remove the residual US default in the agent tool path (#1/#2)** —
   The four retrieval tool handlers (`market_get_quote`, `market_get_ohlcv`,
   `fundamentals_get_company_profile`, `fundamentals_get_financials`) injected

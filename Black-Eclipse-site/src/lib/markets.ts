@@ -59,7 +59,7 @@ export function toMarketId(raw: string | null | undefined): string {
 export const MARKET_EXCHANGE_ALIASES: Record<string, string> = {
   // United States
   NYSE: "US", NASDAQ: "US", AMEX: "US", ARCA: "US", BATS: "US", NYSEARCA: "US",
-  "NYSE AMERICAN": "US", OTC: "US", OTCQB: "US", OTCQX: "US", CBOE: "US", MIAX: "US",
+  "NYSE AMERICAN": "US", OTC: "US", OTCQB: "US", OTCQX: "US", MIAX: "US",
   // Pakistan
   PSX: "PK", KSE: "PK", "PSX/KSE": "PK", LSEPK: "PK",
   // India
@@ -116,6 +116,15 @@ export const MARKET_EXCHANGE_ALIASES: Record<string, string> = {
   HOSE: "VN", HNX: "VN",
   // Crypto (venue-agnostic; the pseudo-market is its own id)
   BINANCE: "CRYPTO", COINBASE: "CRYPTO", KRAKEN: "CRYPTO", CRYPTO: "CRYPTO",
+  // ── Derivatives venues ─────────────────────────────────────────────────────
+  // Futures/options exchanges. They are recognised so an `ES`/`CME` request is
+  // NOT_COVERED (no precise price source) rather than "unknown venue" — the
+  // caller named a real venue, we just do not cover it. Maps to a DERIV pseudo-
+  // market so the coverage registry can answer honestly.
+  CME: "DERIV", CBOT: "DERIV", NYMEX: "DERIV", COMEX: "DERIV",
+  ICE: "DERIV", CBOE: "DERIV", EUREX: "DERIV", "CME GROUP": "DERIV",
+  NASDAQ_OMX: "DERIV", HKFE: "DERIV", SGX_DT: "DERIV", TSE_DERIV: "DERIV",
+  MONEP: "DERIV", LIFFE: "DERIV",
 };
 
 // Index of every known market id (the canonical vocabulary). Kept in sync with
@@ -182,6 +191,9 @@ export const MARKET_CURRENCY_ISO: Record<string, string> = {
   FR: "EUR", NL: "EUR", CA: "CAD", BR: "BRL", MX: "MXN", SA: "SAR", AE: "AED",
   ZA: "ZAR", EG: "EGP", NG: "NGN", RU: "RUB", TR: "TRY", ID: "IDR", TH: "THB",
   VN: "VND",
+  // FX quotes are denominated in their quote currency, carried on the identity;
+  // this is only the registry default. DERIV is uncovered and has no currency.
+  FX: "USD", DERIV: "N/A",
 };
 
 /** ISO 4217 currency code for a market id (defaults to USD). */

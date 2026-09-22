@@ -245,9 +245,12 @@ async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
     series = str(args.get("series", "") or "")
     geography = str(args.get("geography") or args.get("country") or "").strip() or None
 
-    # A8: resolve the series identity before touching a source. A generic measure
-    # with no geography is AMBIGUOUS and must not default to a US backend.
-    resolved = resolve_macro_series(series, geography)
+    # Resolve the series identity before touching a source. The TS registry is
+    # the single source of truth (one alias table); the local resolver is only a
+    # fallback when the bridge is unavailable, so the two cannot drift silently.
+    resolved = await _resolve_macro_via_bridge(ctx, series, geography)
+    if resolved is None:
+        resolved = resolve_macro_series(series, geography)
     if not resolved["ok"]:
         reason = resolved["reason"]
         candidates = resolved.get("candidates")
@@ -274,6 +277,34 @@ async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
     )
     result = await _layer(ctx).retrieve(request)
     return _summarize(result), result.model_dump()
+
+
+async def _resolve_macro_via_bridge(
+    ctx: ToolContext, series: str, geography: Optional[str]
+) -> Optional[dict[str, Any]]:
+    """Ask the bridge to resolve the macro identity (the TS registry is canonical).
+
+    Returns a normalised `{"ok": True/False, ...}` dict, or None when the bridge
+    cannot answer (then the caller falls back to the local resolver).
+    """
+    if ctx.data_bridge is None:
+        return None
+    try:
+        payload = await ctx.data_bridge.fetch(
+            "macro_resolve", {"series": series, "geography": geography}
+        )
+    except Exception:  # noqa: BLE001 - fall back to the local resolver
+        return None
+    if payload.get("status") == "OK" and isinstance(payload.get("identity"), dict):
+        return {"ok": True, "identity": payload["identity"]}
+    if payload.get("failureClass") in ("ambiguous", "not_covered", "not_found"):
+        return {
+            "ok": False,
+            "reason": payload["failureClass"],
+            "message": payload.get("error") or "macro series could not be resolved",
+            "candidates": payload.get("candidates"),
+        }
+    return None
 
 
 # ── Registration ────────────────────────────────────────────────────────────
