@@ -1,4 +1,7 @@
 import type { AgentProvider, AgentStatusEvent, AgentTool, ChatMessage, ChatOptions } from './types';
+import { normalizeHarnessEvent, unwrapEventPayload } from './events';
+
+export { unwrapEventPayload } from './events';
 
 /**
  * Registry of agent providers (client-safe: no server imports).
@@ -64,26 +67,11 @@ async function chatOnce(messages: ChatMessage[], options?: ChatOptions): Promise
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: options?.signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Agent run failed (${res.status})`);
   return data.content as string;
-}
-
-/**
- * Normalize an SSE frame's payload.
- *
- * Runtime events are emitted as the full envelope (`{ type, data: {...} }`),
- * while the front door's `client.*` events put their fields at the top level.
- * Returning the inner `data` for envelopes keeps consumers reading the same
- * shape regardless of who produced the frame.
- */
-export function unwrapEventPayload(data: Record<string, unknown>): Record<string, unknown> {
-  const inner = data.data;
-  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-    return { ...(inner as Record<string, unknown>), eventType: data.type };
-  }
-  return data;
 }
 
 /**
@@ -121,10 +109,13 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: options?.signal,
   });
   if (!res.ok || !res.body) {
-    // Streaming not available — fall back to the one-shot path.
-    return chatOnce(messages, { ...options, onRunId: undefined });
+    // Streaming not available — fall back to the one-shot path. Drop the abort
+    // signal so a cancellation that raced the fallback still works, and drop
+    // onRunId so the run id is regenerated for the one-shot call.
+    return chatOnce(messages, { ...options, onRunId: undefined, signal: options?.signal });
   }
 
   const reader = res.body.getReader();
@@ -134,33 +125,39 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
   let streamError: string | null = null;
 
   const parse = createSseParser((event, data) => {
-    // Runtime events arrive wrapped in the FULL event envelope
-    // (`{ id, runId, type, seq, at, data: {...}, transient }`), whereas the
-    // front door's own `client.*` events carry their payload at the top level.
-    // Unwrap the envelope first — reading `data.text` off the envelope silently
-    // yielded "" for every token, so the answer only appeared at the end.
+    // Normalize first — this is the ONE place raw frames become typed events.
+    const uiEvent = normalizeHarnessEvent(event, data);
+    if (uiEvent) options?.onEvent?.(uiEvent);
+
+    // Keep the legacy coarse callbacks working for any consumer that still uses
+    // them (onStatus/onDelta). `unwrapEventPayload` gives the same payload the
+    // old code read when calling `statusFromEvent`.
     const payload = unwrapEventPayload(data);
     const status = statusFromEvent(event, payload);
     if (status) options?.onStatus?.(status);
-    if (event === 'model.delta') {
-      const text = typeof payload.text === 'string' ? payload.text : '';
-      if (text) {
-        assembled += text;
-        options?.onDelta?.(text);
-      }
+
+    if (uiEvent?.kind === 'delta') {
+      assembled += uiEvent.text;
+      options?.onDelta?.(uiEvent.text);
     } else if (event === 'client.final') {
       if (typeof payload.output === 'string') finalText = payload.output;
       if (typeof payload.error === 'string') streamError = payload.error;
-      options?.onStatus?.({ phase: 'done', label: 'Done', eventType: event });
     } else if (event === 'client.error') {
       streamError = typeof payload.message === 'string' ? payload.message : 'stream error';
     }
   });
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parse(decoder.decode(value, { stream: true }));
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parse(decoder.decode(value, { stream: true }));
+    }
+  } catch (err) {
+    // An aborted fetch is a user cancellation, not a failure — surface it the
+    // same way so the UI can mark the turn `cancelled`.
+    if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    throw err;
   }
 
   // Prefer the authoritative final text; fall back to the assembled deltas.
@@ -178,8 +175,10 @@ const eclipseAgent: AgentProvider = {
     try {
       return await chatStreaming(messages, options);
     } catch (err) {
+      // A user cancellation is not a failure to recover from.
+      if (options?.signal?.aborted) throw err;
       // A streaming failure must not lose the run: retry once, one-shot.
-      if (options?.onDelta || options?.onStatus) {
+      if (options?.onDelta || options?.onStatus || options?.onEvent) {
         return chatOnce(messages, { ...options, onRunId: undefined });
       }
       throw err;

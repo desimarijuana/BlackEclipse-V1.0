@@ -104,6 +104,7 @@ Black-Eclipse-site/
 | Change economics/macro | `src/lib/economics/`, `src/components/screens/economics/` |
 | Change alerts | `src/lib/alerts/`, `src/app/api/alerts/`, `src/app/alerts/` |
 | Change the AI agent / research | `src/lib/agent/` (`registry.ts`, `loop.ts`, `research.ts`, `tools.ts`) |
+| Work on the chat response lifecycle / streaming UI state | `src/lib/agent/` — `response-model.ts` (typed status/activity), `events.ts` (`normalizeHarnessEvent`), `use-agent-run.ts` (shared hook); UI `src/components/chat/response-status.tsx`, `chat-history.tsx`; plan/audit `docs/chat-ui-audit.md` |
 | Change the chart | `src/lib/chart/`, `src/components/chart/`, `src/components/screens/tradingview-chart.tsx` |
 | Add/fix a chartable index | `src/lib/indices.ts` (registry + providers), `src/lib/scraper/fetchers/psx-index.ts` (non-Yahoo source); `HEATMAP_MARKETS` in `src/lib/heatmap.ts` for heatmap labels || Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
 | Change the header price ribbon | `src/components/layout/price-ribbon.tsx` (render + customization popover), `src/lib/ribbon/store.ts` (persisted symbol list, routing helpers); catalog symbols `src/lib/market-catalog.ts`; marquee styles `.price-ribbon`/`.price-ribbon-track` in `src/app/globals.css` |

@@ -43,6 +43,32 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 1 streaming foundation (typed lifecycle, activity, cancel)** —
+  Built the shared response lifecycle the audit called for. A typed client model
+  (`lib/agent/response-model.ts`) and one event normalizer (`lib/agent/events.ts`)
+  now interpret the harness stream; a shared hook (`lib/agent/use-agent-run.ts`)
+  owns status/streamed text/activities/cancel and is used by **both** chat
+  surfaces, ending the duplicated streaming code. The UI now shows distinct
+  states (planning / tool-running / streaming / completed / cancelled / error)
+  instead of one "Thinking…", surfaces tool failures, and renders a recoverable
+  error block with Retry. Text deltas are rAF-coalesced and assistant Markdown is
+  memoized; auto-scroll only follows when the user is at the bottom. `Message`
+  gained optional `status`/`activities`/`error` (legacy rows still load). No
+  backend change — the runtime already emitted these events; the client stopped
+  discarding them. Verified: tsc, eslint, vitest 1510, pytest 91.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
+- **Chat/UI — Phase 0 audit & overhaul plan (no product code yet)** — Documented
+  the current chat surfaces, the actual Python event vocabulary, the client
+  status mapping, and the concrete UI problems with root causes. Key findings:
+  only 5 of ~15 harness events reach the UI, tool failures are invisible, the
+  `Message` model is too thin to express lifecycle, streaming rewrites the whole
+  message array per token, and subagent/delegation events do not exist (Phase 3
+  delegation is blocked on a backend capability — not fabricated). Proposed a
+  typed response model + shared `use-agent-run` hook, normalizer, activity feed,
+  and message actions, phased 1–6.
+  docs updated: `docs/chat-ui-audit.md` (new), `docs/CHANGELOG.md`
+
 - **Harness — the agent now streams its answer and always reaches one** — Two
   failures made the assistant look broken. (1) A research question returned
   `MAX_STEPS_EXCEEDED` after ~140s: local models loop on tools (even

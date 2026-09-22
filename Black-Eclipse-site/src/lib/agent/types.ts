@@ -44,6 +44,14 @@ export interface ChatOptions {
   onDelta?: (text: string) => void;
   /** Called with each coarse agent step, so the UI shows it is working. */
   onStatus?: (event: AgentStatusEvent) => void;
+  /**
+   * Called with each normalized UI event (tool start/end, retrieval activity,
+   * final, error, status). Superset of `onDelta`/`onStatus` — the shared
+   * `useAgentRun` hook uses this to build the full response lifecycle.
+   */
+  onEvent?: (event: import('./events').HarnessUiEvent) => void;
+  /** Abort the underlying fetch (used by Stop generation). */
+  signal?: AbortSignal;
 }
 
 export interface AgentProvider {

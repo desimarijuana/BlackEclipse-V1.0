@@ -71,7 +71,9 @@ const InvestorEyeScreen = dynamic(
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
-import { getAgentProvider } from '@/lib/agent/registry';
+import { useAgentRun } from '@/lib/agent/use-agent-run';
+import type { AssistantTurn } from '@/lib/agent/response-model';
+import { turnText } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
@@ -115,12 +117,23 @@ function StockChatContent() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   // True while the agent is working — swaps the submit arrow for a pause button.
   const [agentBusy, setAgentBusy] = useState(false);
-  const [agentStatus, setAgentStatus] = useState('');
-  // The in-flight run id, so pause can cancel it.
-  const currentRunIdRef = useRef<string | null>(null);
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // The one place a turn's streaming lifecycle lives. The hook reports the
+  // AssistantTurn; we map it onto the message store below. `turnSinkRef` is set
+  // per-run so the callback targets the turn being written (state closures would
+  // otherwise hold pre-send values after each await).
+  const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
+  // Prevents a duplicate submit landing before React re-renders `agentBusy`.
+  const runInFlightRef = useRef(false);
+  const agentRun = useAgentRun({
+    onTurn: (turn) => turnSinkRef.current?.(turn),
+  });
+  useEffect(() => {
+    setAgentBusy(agentRun.active);
+  }, [agentRun.active]);
 
   // Refs mirror the two pieces of state an async send handler reads AFTER an
   // await. React state setters do not update the render closure, so reading
@@ -455,85 +468,90 @@ function StockChatContent() {
    * this runs after `await`.
    */
   const runAgent = async (chatId: string, userText: string, userMsg: Message) => {
+    // Guard against a duplicate submit landing before the state update.
+    if (runInFlightRef.current) return;
+    runInFlightRef.current = true;
+
     const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [userMsg];
     const history: { role: 'user' | 'assistant'; content: string }[] = existing
       .slice(0, -1)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // A placeholder assistant turn. Its content is filled by streamed deltas;
-    // until then the live status header (Thinking… / Using …) is what shows,
-    // so the turn reads as "the agent is working on this reply".
-    const thinkingMsg: Message = {
-      id: (Date.now() + 1).toString(),
+    // A placeholder assistant turn. Its fields are filled by the shared run
+    // hook (status, streamed text, activities); until the first event the turn
+    // reads as "the agent is working on this reply".
+    const placeholderId = (Date.now() + 1).toString();
+    appendAssistantReply(chatId, {
+      id: placeholderId,
       role: 'assistant',
       content: '',
+      status: 'queued',
+      activities: [],
+    });
+
+    // Route the hook's turn updates into this exact message.
+    turnSinkRef.current = (turn) => {
+      replaceAssistantReply(chatId, placeholderId, {
+        id: placeholderId,
+        role: 'assistant',
+        content: turnText(turn),
+        status: turn.status,
+        activities: turn.activities,
+        error: turn.error,
+      });
     };
-    appendAssistantReply(chatId, thinkingMsg);
+
     setAgentBusy(true);
-    setAgentStatus('Thinking…');
-    currentRunIdRef.current = null;
     sound.tick();
 
-    let streamed = '';
     try {
-      const reply = await getAgentProvider().chat(
-        [...history, { role: 'user', content: userText }],
-        undefined,
-        {
-          chatId,
-          onRunId: (runId) => { currentRunIdRef.current = runId; },
-          onStatus: (s) => { if (s.phase !== 'done') setAgentStatus(s.label); },
-          onDelta: (chunk) => {
-            streamed += chunk;
-            replaceAssistantReply(chatId, thinkingMsg.id, {
-              id: thinkingMsg.id,
-              role: 'assistant',
-              content: streamed,
-            });
-          },
-        }
-      );
-      // A cancelled run returns no reply — keep the placeholder honest rather
-      // than replacing it with an empty bubble.
-      if (!reply) {
-        replaceAssistantReply(chatId, thinkingMsg.id, {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: 'Run stopped.',
-        });
-      } else {
-        replaceAssistantReply(chatId, thinkingMsg.id, {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: reply,
-        });
-      }
+      const finalTurn = await agentRun.start({ history, userText, chatId });
       setSessionRefreshKey((k) => k + 1);
-      sound.success();
+      if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.success();
+      else sound.tick();
     } catch (err) {
-      replaceAssistantReply(chatId, thinkingMsg.id, {
-        id: (Date.now() + 2).toString(),
+      // The hook records the error on the turn; ensure the message reflects it
+      // even if the sink was cleared.
+      replaceAssistantReply(chatId, placeholderId, {
+        id: placeholderId,
         role: 'assistant',
-        content: `Chat failed: ${err instanceof Error ? err.message : String(err)}`,
+        content: '',
+        status: 'error',
+        error: { message: err instanceof Error ? err.message : String(err) },
       });
       sound.error();
     } finally {
+      turnSinkRef.current = null;
+      runInFlightRef.current = false;
       setAgentBusy(false);
-      setAgentStatus('');
-      currentRunIdRef.current = null;
     }
   };
 
   /** Stop the in-flight run (cooperative cancel in the Python runtime). */
   const handleCancel = async () => {
-    const runId = currentRunIdRef.current;
-    if (!runId) return;
-    try {
-      await fetch(`/api/harness/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
-      sound.tick();
-    } catch {
-      // The run may have finished a moment ago; nothing to do.
+    sound.tick();
+    agentRun.cancel();
+  };
+
+  /**
+   * Re-run the prompt that produced an assistant turn. Used by the message
+   * toolbar's Retry/Regenerate. It reuses the edit path: truncate at that turn's
+   * preceding user message and resend it.
+   */
+  const handleRetryMessage = (assistantId: string) => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    const chat = conversationsRef.current.find((c) => c.id === chatId);
+    if (!chat) return;
+    const idx = chat.messages.findIndex((m) => m.id === assistantId);
+    if (idx < 1) return;
+    // Find the user prompt this assistant turn answered.
+    let userId = -1;
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      if (chat.messages[i].role === 'user') { userId = i; break; }
     }
+    if (userId === -1) return;
+    handleEditMessage(chat.messages[userId].id, chat.messages[userId].content);
   };
 
   /**
@@ -713,7 +731,7 @@ function StockChatContent() {
                     <ChatHistory
                       messages={messages}
                       onEditMessage={handleEditMessage}
-                      status={agentBusy ? agentStatus : ''}
+                      onRetryMessage={handleRetryMessage}
                     />
                     <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
                       <ChatInput

@@ -30,6 +30,9 @@ import {
 import { cn } from '@/lib/utils';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { getAgentProvider } from '@/lib/agent/registry';
+import { useAgentRun } from '@/lib/agent/use-agent-run';
+import type { AssistantTurn } from '@/lib/agent/response-model';
+import { turnText } from '@/lib/agent/response-model';
 import { uploadSessionFile } from '@/lib/chat/session-client';
 import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
@@ -148,7 +151,6 @@ export function ChatDock({
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('');
   // Manual expand/collapse of the transcript (independent of focus, so the user
   // can scroll back through an answer without the panel collapsing).
   const [expanded, setExpanded] = useState(false);
@@ -160,9 +162,15 @@ export function ChatDock({
   const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>('dock-temp');
-  const runIdRef = useRef<string | null>(null);
   const attachRef = useRef<HTMLInputElement>(null);
   const providerLabel = useProviderLabel();
+
+  // One place the turn lifecycle lives (shared with the ChatBot tab). The hook
+  // reports the AssistantTurn; the sink maps it onto this dock's own message
+  // store. `turnSinkRef` is rebound per send so it targets the live turn.
+  const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
+  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
+  useEffect(() => { setBusy(agentRun.active); }, [agentRun.active]);
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
   // hidden with `display:none`. A portal to <body> is NOT hidden by an ancestor
@@ -304,13 +312,16 @@ export function ChatDock({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [showTranscript]);
 
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
   const append = useCallback((next: Message[]) => {
+    // Keep the ref in lockstep synchronously: a send/retry reads it immediately
+    // after writing, before React re-renders.
+    messagesRef.current = next;
     setMessages(next);
     saveMessages(next);
   }, []);
-
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
 
   const newChat = useCallback(() => {
     append([]);
@@ -319,67 +330,78 @@ export function ChatDock({
     textareaRef.current?.focus();
   }, [append]);
 
-  const send = async () => {
-    const text = query.trim();
-    if (!text || busy) return;
+  /**
+   * Run one turn: append the user prompt + an empty assistant turn, then let
+   * the shared run hook fill it. `history` is the transcript BEFORE the new
+   * prompt, so a retry can pass a truncated transcript explicitly.
+   */
+  const startTurn = async (
+    history: { role: 'user' | 'assistant'; content: string }[],
+    userText: string,
+  ) => {
     setQuery('');
     setExpanded(true);
 
-    const userMsg: Message = { id: newId(), role: 'user', content: text };
+    const userMsg: Message = { id: newId(), role: 'user', content: userText };
     const assistantId = newId();
-    // Seed an empty assistant message that deltas stream into, so the answer
-    // appears as it is written rather than all at once at the end.
-    append([...messagesRef.current, userMsg, { id: assistantId, role: 'assistant', content: '' }]);
+    // Seed an empty assistant turn the shared run hook fills (status, streamed
+    // text, activities) — the answer appears as it is written.
+    append([
+      ...messagesRef.current,
+      userMsg,
+      { id: assistantId, role: 'assistant', content: '', status: 'queued', activities: [] },
+    ]);
+
+    turnSinkRef.current = (turn) => {
+      const next = messagesRef.current.map(m =>
+        m.id === assistantId
+          ? { ...m, content: turnText(turn), status: turn.status, activities: turn.activities, error: turn.error }
+          : m,
+      );
+      setMessages(next);
+      saveMessages(next);
+    };
 
     setBusy(true);
-    setStatus('Thinking…');
-    runIdRef.current = null;
-    const streamedRef = { text: '' };
-    const patchAssistant = (content: string) => {
-      setMessages(prev => {
-        const next = prev.map(m => (m.id === assistantId ? { ...m, content } : m));
-        saveMessages(next);
-        return next;
-      });
-    };
     try {
-      // Everything goes through the harness so the chat IS the Eclipse Agent
-      // (system prompt + JDdS tools + persisted run). It picks its own tools,
-      // so a research-flavored ask no longer needs a separate engine.
-      const history = messagesRef.current
-        .slice(0, -1)
-        .map(m => ({ role: m.role, content: m.content }));
-      const reply = await getAgentProvider().chat(
-        [...history, { role: 'user', content: text }],
-        undefined,
-        {
-          chatId: sessionIdRef.current,
-          onRunId: (id) => { runIdRef.current = id; },
-          onStatus: (s) => { if (s.phase !== 'done') setStatus(s.label); },
-          onDelta: (chunk) => {
-            streamedRef.text += chunk;
-            patchAssistant(streamedRef.text);
-          },
-        },
-      );
-      // Final authoritative text (falls back to the assembled deltas).
-      patchAssistant(reply || streamedRef.text || 'Run stopped.');
-    } catch (err) {
-      patchAssistant(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      await agentRun.start({ history, userText, chatId: sessionIdRef.current });
+    } catch {
+      // The hook already recorded the error on the turn; the sink rendered it.
     } finally {
+      turnSinkRef.current = null;
       setBusy(false);
-      setStatus('');
     }
   };
 
-  const cancel = async () => {
-    const id = runIdRef.current;
-    if (!id) return;
-    try {
-      await fetch(`/api/harness/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
-    } catch {
-      // Run may have finished already.
+  const send = async () => {
+    const text = query.trim();
+    if (!text || busy) return;
+    const history = messagesRef.current.map(m => ({ role: m.role, content: m.content }));
+    await startTurn(history, text);
+  };
+
+  const cancel = () => {
+    agentRun.cancel();
+  };
+
+  /**
+   * Retry/regenerate an assistant turn: drop it and everything after, then
+   * re-run its preceding user prompt on the truncated transcript.
+   */
+  const retryMessage = (assistantId: string) => {
+    if (busy) return;
+    const msgs = messagesRef.current;
+    const idx = msgs.findIndex(m => m.id === assistantId);
+    if (idx < 1) return;
+    let userId = -1;
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      if (msgs[i].role === 'user') { userId = i; break; }
     }
+    if (userId === -1) return;
+    const history = msgs.slice(0, userId).map(m => ({ role: m.role, content: m.content }));
+    const text = msgs[userId].content;
+    append(msgs.slice(0, userId));
+    void startTurn(history, text);
   };
 
   // Upload attached documents into the dock's own session folder, where the
@@ -483,7 +505,18 @@ export function ChatDock({
                 </p>
               </div>
             ) : (
-              <ChatHistory messages={messages} compact status={busy ? status : ''} />
+              <ChatHistory
+                messages={messages}
+                compact
+                onEditMessage={(id, content) => {
+                  const msgs = messagesRef.current;
+                  const idx = msgs.findIndex(m => m.id === id);
+                  if (idx === -1) return;
+                  append(msgs.slice(0, idx));
+                  setQuery(content);
+                }}
+                onRetryMessage={retryMessage}
+              />
             )}
           </div>
         )}
