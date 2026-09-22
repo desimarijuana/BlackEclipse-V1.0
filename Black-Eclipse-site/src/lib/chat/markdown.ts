@@ -351,4 +351,25 @@ export function isBlockStart(line: string): boolean {
   );
 }
 
+/** Flatten inline nodes back to plain text (for copy actions). */
+export function inlineText(nodes: InlineNode[]): string {
+  return nodes
+    .map((n) => {
+      switch (n.type) {
+        case 'text':
+        case 'code':
+          return n.value;
+        default:
+          return inlineText(n.children);
+      }
+    })
+    .join('');
+}
+
+/** Serialize a parsed table to TSV so a paste into a spreadsheet stays aligned. */
+export function tableToTsv(header: InlineNode[][], rows: InlineNode[][][]): string {
+  const line = (cells: InlineNode[][]) => cells.map((c) => inlineText(c)).join('\t');
+  return [line(header), ...rows.map(line)].join('\n');
+}
+
 export { splitTableRow };

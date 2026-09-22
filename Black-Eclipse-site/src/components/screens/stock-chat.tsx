@@ -533,6 +533,24 @@ function StockChatContent() {
     agentRun.cancel();
   };
 
+  /** Record a user's rating on an assistant turn (persisted with the message). */
+  const handleFeedback = (id: string, feedback: 'up' | 'down') => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    const updated = conversationsRef.current.map((c) => {
+      if (c.id !== chatId) return c;
+      return {
+        ...c,
+        messages: c.messages.map((m) =>
+          m.id === id ? { ...m, feedback: m.feedback === feedback ? undefined : feedback } : m,
+        ),
+      };
+    });
+    saveConversations(updated);
+    const chat = updated.find((c) => c.id === chatId);
+    if (chat) setMessages(chat.messages);
+  };
+
   /**
    * Re-run the prompt that produced an assistant turn. Used by the message
    * toolbar's Retry/Regenerate. It reuses the edit path: truncate at that turn's
@@ -732,6 +750,7 @@ function StockChatContent() {
                       messages={messages}
                       onEditMessage={handleEditMessage}
                       onRetryMessage={handleRetryMessage}
+                      onFeedback={handleFeedback}
                     />
                     <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
                       <ChatInput
@@ -739,7 +758,7 @@ function StockChatContent() {
                         setQuery={setQuery}
                         onSend={handleSend}
                         placeholder="Ask a follow-up..."
-                        showModelSelect={false}
+                        showProvider={false}
                         busy={agentBusy}
                         onCancel={handleCancel}
                         onAttach={() => fileInputRef.current?.click()}

@@ -406,9 +406,45 @@ still lack a `toolCallId`, so correlation to their parent tool falls back to
 
 ---
 
-## 14. Phase 2 — next
+## 14. Phase 2 — Modern AI chat UX (implemented 2026-09-22)
 
-Message action toolbar is partially in place (copy, regenerate, retry). Phase 2
-completes it: copy-code / copy-table, thumbs feedback, composer polish, and the
-professional financial-native empty state.
+### What changed
+
+- **Code + table copy** — `src/components/chat/copy-button.tsx` (one clipboard
+  affordance, transient "Copied"). Code blocks expose a hover copy button; tables
+  expose a TSV copy so a paste into a spreadsheet stays aligned. Markdown is now
+  a client component (`markdown.tsx`) since it owns clipboard interaction.
+  Pure helpers (`inlineText`, `tableToTsv`) live in `lib/chat/markdown.ts` and
+  are unit-tested.
+- **Feedback** — `Message.feedback` (`'up' | 'down'`), rendered as a subtle
+  thumbs control that persists with the message in both surfaces and toggles off
+  on a second click.
+- **No fabricated model picker** — the composer's fake "Flash-Lite / Flash / Pro"
+  dropdown (which changed nothing) was removed and replaced with the **real**
+  configured provider label (same as the dock).
+- **Composer polish** — `aria-label`, `aria-busy`, and `showProvider` (renamed
+  from the misleading `showModelSelect`).
+- **Empty state** — financial-native starting points (analyse a stock, compare
+  fundamentals, sentiment, portfolio review) that are examples, not a fixed
+  capability list; clicking one fills the composer and focuses it. Reworded
+  headline/subhead to state the JDdS-grounded, cited-answer promise.
+
+### Verification
+
+- `npx tsc --noEmit` — pass.
+- `npx eslint` (touched files) — 0 errors/warnings.
+- `npx vitest run` — 1512 passed (adds 2 copy-helper tests).
+- Dev server (`npm run dev`) hot-recompiled the touched modules; harness runs
+  completed against ollama + the JDdS bridge with no new errors.
+- Live click-through of copy/feedback not automated; deferred to manual QA.
+
+---
+
+## 15. Phase 3 — next
+
+Agent activity & tool-execution UI: an `activity-feed` built from the typed
+activity model already produced in Phase 1 (tool start/done/failure, retrieval
+sources), with expandable details and no raw JSON. Subagent delegation stays
+blocked on a backend capability (R4).
+
 

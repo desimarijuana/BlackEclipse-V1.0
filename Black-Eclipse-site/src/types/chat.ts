@@ -18,4 +18,6 @@ export interface Message {
   activities?: ActivityItem[];
   /** A recoverable failure on this turn. */
   error?: TurnError;
+  /** User rating on an assistant turn, if given. Persisted with the message. */
+  feedback?: 'up' | 'down';
 }

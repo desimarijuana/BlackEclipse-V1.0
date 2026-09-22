@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 2 modern chat UX (copy, feedback, real provider, empty state)** —
+  Code blocks now have a hover copy button and tables copy as TSV (spreadsheet-
+  aligned). Assistant turns gained a persisted thumbs up/down. The composer's
+  fake "Flash-Lite/Flash/Pro" model dropdown (it changed nothing) was replaced
+  with the real configured provider label, and gained `aria-label`/`aria-busy`.
+  The empty state is now financial-native example prompts (analyse a stock,
+  compare fundamentals, sentiment, portfolio review) that fill the composer.
+  Pure copy helpers moved to `lib/chat/markdown.ts` and unit-tested. Verified:
+  tsc, eslint, vitest 1512, dev-server hot reload with live harness runs.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 1 streaming foundation (typed lifecycle, activity, cancel)** —
   Built the shared response lifecycle the audit called for. A typed client model
   (`lib/agent/response-model.ts`) and one event normalizer (`lib/agent/events.ts`)

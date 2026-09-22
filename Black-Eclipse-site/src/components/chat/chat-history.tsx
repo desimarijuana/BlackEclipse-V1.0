@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Sparkles, Pencil, RotateCcw, Check, X, Copy } from 'lucide-react';
+import { AlertTriangle, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
@@ -21,6 +21,8 @@ interface ChatHistoryProps {
   onEditMessage?: (id: string, content: string) => void;
   /** Retry a failed assistant turn (re-runs its preceding user prompt). */
   onRetryMessage?: (id: string) => void;
+  /** Rate an assistant turn. The caller persists the choice on the message. */
+  onFeedback?: (id: string, feedback: 'up' | 'down') => void;
 }
 
 /** How close to the bottom counts as "following the stream". */
@@ -41,7 +43,7 @@ const AssistantContent = memo(function AssistantContent({
   return <Markdown content={content} compact={compact} className="w-full" />;
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage, onFeedback }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -156,6 +158,36 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                         >
                           <RotateCcw size={11} /> Regenerate
                         </button>
+                      )}
+                      {onFeedback && (
+                        <span className="ml-0.5 flex items-center gap-0.5 border-l border-border/40 pl-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onFeedback(msg.id, 'up')}
+                            aria-pressed={msg.feedback === 'up'}
+                            className={cn(
+                              'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
+                              msg.feedback === 'up' ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                            )}
+                            title="Good response"
+                            aria-label="Good response"
+                          >
+                            <ThumbsUp size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onFeedback(msg.id, 'down')}
+                            aria-pressed={msg.feedback === 'down'}
+                            className={cn(
+                              'rounded-full p-1.5 transition-colors cursor-pointer hover:bg-accent',
+                              msg.feedback === 'down' ? 'text-rose-400' : 'text-muted-foreground hover:text-foreground',
+                            )}
+                            title="Bad response"
+                            aria-label="Bad response"
+                          >
+                            <ThumbsDown size={11} />
+                          </button>
+                        </span>
                       )}
                     </div>
                   )}

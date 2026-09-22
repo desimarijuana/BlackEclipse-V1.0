@@ -384,6 +384,14 @@ export function ChatDock({
     agentRun.cancel();
   };
 
+  /** Rate an assistant turn; toggling the same rating clears it. */
+  const feedbackMessage = (id: string, feedback: 'up' | 'down') => {
+    const next = messagesRef.current.map(m =>
+      m.id === id ? { ...m, feedback: m.feedback === feedback ? undefined : feedback } : m,
+    );
+    append(next);
+  };
+
   /**
    * Retry/regenerate an assistant turn: drop it and everything after, then
    * re-run its preceding user prompt on the truncated transcript.
@@ -516,6 +524,7 @@ export function ChatDock({
                   setQuery(content);
                 }}
                 onRetryMessage={retryMessage}
+                onFeedback={feedbackMessage}
               />
             )}
           </div>

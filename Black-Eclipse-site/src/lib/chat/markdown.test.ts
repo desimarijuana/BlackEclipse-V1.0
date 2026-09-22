@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseInline, parseMarkdown } from './markdown';
+import { inlineText, parseInline, parseMarkdown, tableToTsv } from './markdown';
 
 describe('parseMarkdown block parsing', () => {
   it('turns a plain paragraph into a paragraph block', () => {
@@ -150,5 +150,19 @@ describe('parseInline', () => {
     expect(parseInline('\\*not italic\\*')).toEqual([
       { type: 'text', value: '*not italic*' },
     ]);
+  });
+});
+
+describe('copy helpers', () => {
+  it('flattens inline markup to plain text', () => {
+    expect(inlineText(parseInline('**bold** and `code` and [link](https://x.com)'))).toBe(
+      'bold and code and link',
+    );
+  });
+
+  it('serializes a table to tab-separated rows', () => {
+    const [block] = parseMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |');
+    if (block.type !== 'table') throw new Error('expected table');
+    expect(tableToTsv(block.header, block.rows)).toBe('A\tB\n1\t2\n3\t4');
   });
 });

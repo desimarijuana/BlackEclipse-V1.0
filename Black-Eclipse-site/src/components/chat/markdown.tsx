@@ -1,6 +1,7 @@
 import { Fragment, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { BlockNode, InlineNode, parseMarkdown } from '@/lib/chat/markdown';
+import { BlockNode, InlineNode, parseMarkdown, tableToTsv } from '@/lib/chat/markdown';
+import { CopyButton } from './copy-button';
 
 interface MarkdownProps {
   content: string;
@@ -8,6 +9,7 @@ interface MarkdownProps {
   /** Tighter spacing + smaller type for the floating ChatDock. */
   compact?: boolean;
 }
+
 
 function renderInline(nodes: InlineNode[]): ReactNode[] {
   return nodes.map((node, i) => {
@@ -98,9 +100,16 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
 
     case 'code':
       return (
-        <pre className="glass-card-subtle overflow-x-auto rounded-xl border border-white/10 dark:border-white/5 p-3 text-[0.85em] scrollbar-hide">
-          <code className="font-mono">{block.value}</code>
-        </pre>
+        <div className="group/code relative">
+          <pre className="glass-card-subtle overflow-x-auto rounded-xl border border-white/10 dark:border-white/5 p-3 text-[0.85em] scrollbar-hide">
+            <code className="font-mono">{block.value}</code>
+          </pre>
+          <CopyButton
+            value={block.value}
+            label={block.language ? `${block.language} code` : 'code'}
+            className="absolute right-1.5 top-1.5 bg-background/60 opacity-0 backdrop-blur transition-opacity group-hover/code:opacity-100 focus:opacity-100"
+          />
+        </div>
       );
 
     case 'blockquote':
@@ -117,39 +126,44 @@ function Block({ block, compact }: { block: BlockNode; compact: boolean }) {
 
     case 'table':
       return (
-        <div className="my-1 w-full overflow-x-auto scrollbar-hide">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              {/* No fill, no container chrome: the table should read as part of
-                  the reply. Just a hairline under a larger, quieter header. */}
-              <tr>
-                {block.header.map((cell, ci) => (
-                  <th
-                    key={ci}
-                    className="whitespace-nowrap border-b border-white/15 px-3 pb-2 pt-3 text-[1.05em] font-medium tracking-tight text-foreground dark:border-white/15"
-                    style={{ textAlign: block.align[ci] ?? undefined }}
-                  >
-                    {renderInline(cell)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, ri) => (
-                <tr key={ri} className="border-b border-white/[0.06] last:border-0">
-                  {row.map((cell, ci) => (
-                    <td
+        <div className="group/table my-1 w-full">
+          <div className="w-full overflow-x-auto scrollbar-hide">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                {/* No fill, no container chrome: the table should read as part of
+                    the reply. Just a hairline under a larger, quieter header. */}
+                <tr>
+                  {block.header.map((cell, ci) => (
+                    <th
                       key={ci}
-                      className="whitespace-nowrap px-3 py-2.5 align-top text-foreground/80"
+                      className="whitespace-nowrap border-b border-white/15 px-3 pb-2 pt-3 text-[1.05em] font-medium tracking-tight text-foreground dark:border-white/15"
                       style={{ textAlign: block.align[ci] ?? undefined }}
                     >
                       {renderInline(cell)}
-                    </td>
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {block.rows.map((row, ri) => (
+                  <tr key={ri} className="border-b border-white/[0.06] last:border-0">
+                    {row.map((cell, ci) => (
+                      <td
+                        key={ci}
+                        className="whitespace-nowrap px-3 py-2.5 align-top text-foreground/80"
+                        style={{ textAlign: block.align[ci] ?? undefined }}
+                      >
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-1 flex justify-end opacity-0 transition-opacity group-hover/table:opacity-100 focus-within:opacity-100">
+            <CopyButton value={tableToTsv(block.header, block.rows)} label="table data" />
+          </div>
         </div>
       );
 
