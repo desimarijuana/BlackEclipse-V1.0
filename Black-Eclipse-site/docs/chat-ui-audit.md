@@ -562,11 +562,60 @@ All helpers (`isNumericText`, `isNegativeValue`, `isUnavailableText`,
 
 ---
 
-## 18. Phase 6 — next
+## 18. Phase 6 — Performance, accessibility & quality (implemented 2026-09-22)
 
-Performance, accessibility & quality: re-render profiling on long
-conversations, keyboard navigation and focus management on the activity feed and
-toolbar, and large-list checks. Then the final definition-of-done pass.
+### Performance
+
+- **The hottest write, found by inspection.** Both chat surfaces serialized the
+  **entire transcript to `localStorage` on every streamed frame** — roughly
+  60 writes/second of a growing JSON document during a long answer. Streaming
+  frames now update React state only; the transcript is persisted **once** when
+  the turn reaches a terminal state (and in the `finally`, so cancel/abort paths
+  are covered too). `ChatHistory` already memoized assistant Markdown, so the
+  remaining per-frame cost is bounded.
+
+### Accessibility
+
+- **Error turns announce.** The error block is now `role="alert"` so it is read
+  on appearance, without relying on colour alone.
+- **Status granularity is per phase, not per token.** `ResponseStatusLine`
+  keeps `role="status" aria-live="polite"` and its label changes only on a
+  lifecycle transition, so a stream does not spam a screen reader.
+- **Activity disclosure semantics.** The feed toggle already had
+  `aria-expanded`; it now also has `aria-controls` pointing at the expanded
+  region (`useId`), so the relationship is machine-readable.
+- Keyboard reachability of actions/copy/Edit was fixed in Phase 5.
+
+### Quality
+
+- **Clean production build verified.** A flaky first `next build` was traced to
+  the dev server sharing `.next` (`.next` torn down mid-build), not to code: with
+  the dev server stopped and `.next` removed, `npm run build` compiles, type-
+  checks, and generates all pages cleanly.
+
+### Verification
+
+- `npx tsc --noEmit` — pass; `npx eslint` (touched files) — clean.
+- `npx vitest run` — 1519 passed; `node scripts/test-python.js` — 91 passed.
+- `npm run build` (clean `.next`) — success.
+- Dev server restarted healthy on :3000.
+
+---
+
+## 19. Definition of done — status
+
+| Area | State |
+|---|---|
+| Streaming | Reliable deltas, correct Markdown/code/tables, distinct states, stop/cancel, error + retry |
+| Chat UX | Copy, regenerate, retry, edit/resend, feedback, professional composer, financial empty state |
+| Agent experience | Live multi-state status, tool/retrieval activity cards, expandable safe details, failures surfaced; delegation backend-gated (R4) |
+| Financial rendering | Numeric tables, unavailable chips, source lists, link affordance; structured blocks/charts backend-gated (R7) |
+| Design quality | Token/glass consistent, touch-reachable controls, restrained motion + reduced-motion, responsive |
+
+**Known gaps (documented, not faked):** subagent delegation (no runtime
+events); structured metric/chart blocks in chat (no wire contract); retrieval →
+parent-tool correlation is heuristic (R3).
+
 
 
 

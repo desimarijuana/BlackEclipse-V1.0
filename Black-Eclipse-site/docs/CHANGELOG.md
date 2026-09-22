@@ -43,6 +43,17 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Chat/UI — Phase 6 performance, a11y & quality** — Found and fixed the
+  hottest write in the chat: both surfaces serialized the whole transcript to
+  localStorage on every streamed frame (~60×/s during a long answer). Streaming
+  frames now update state only and persist once on the terminal turn (covering
+  cancel/abort). Error turns are `role="alert"`; the status line stays
+  per-phase (not per-token) so screen readers are not spammed; the activity
+  disclosure gains `aria-controls`. Clean production build verified after
+  clearing a `.next` that the running dev server had made flaky. Verified: tsc,
+  eslint, vitest 1519, pytest 91, `npm run build`.
+  docs updated: `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`
+
 - **Chat/UI — Phase 5 polish (touch-reachable controls, responsive toolbar)** —
   Audit found reduced-motion and frosted-glass already covered globally; the real
   gap was hover-only controls being unreachable on touch. Added a `.hover-reveal`

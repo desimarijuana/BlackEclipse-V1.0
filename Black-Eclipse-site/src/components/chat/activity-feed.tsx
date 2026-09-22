@@ -11,7 +11,7 @@
 //   detailed — full-page chat (roomier rows)
 // Both render the same `ActivityItemRow`; only density differs.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
@@ -39,6 +39,7 @@ function sourceCount(items: ActivityItem[]): number {
 export function ActivityFeed({ activities, status, compact = false, autoExpand = true }: ActivityFeedProps) {
   const [open, setOpen] = useState(false);
   const userToggled = useRef(false);
+  const feedId = useId();
 
   const working = status === 'queued' || status === 'planning' || status === 'tool_running' || status === 'streaming';
   const failures = useMemo(() => activities.filter((a) => a.status === 'failed').length, [activities]);
@@ -76,6 +77,7 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
         type="button"
         onClick={toggle}
         aria-expanded={open}
+        aria-controls={feedId}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/30 cursor-pointer"
       >
         <span className={cn('shrink-0', working ? 'text-primary' : failures > 0 ? 'text-amber-400' : 'text-muted-foreground/70')}>
@@ -95,6 +97,7 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
 
       {open && (
         <div
+          id={feedId}
           className={cn(
             'border-t border-border/30',
             compact ? 'space-y-0.5 p-1.5' : 'space-y-1 p-2',

@@ -397,7 +397,7 @@ function StockChatContent() {
     return currentId;
   };
 
-  const appendAssistantReply = (chatId: string, replyMsg: Message) => {
+  const appendAssistantReply = (chatId: string, replyMsg: Message, persist = true) => {
     // IMPORTANT: use the ref, not `conversations`. This runs after `await`, so
     // the closure holds pre-send state and a reply to a brand-new chat would
     // otherwise be silently discarded.
@@ -413,7 +413,7 @@ function StockChatContent() {
       };
       const next = [recovered, ...updatedConvs];
       conversationsRef.current = next;
-      saveConversations(next);
+      if (persist) saveConversations(next);
       setMessages([replyMsg]);
       return;
     }
@@ -425,25 +425,32 @@ function StockChatContent() {
       timestamp: Date.now()
     };
     conversationsRef.current = updatedConvs;
-    saveConversations(updatedConvs);
+    if (persist) saveConversations(updatedConvs);
     if (activeConversationIdRef.current === chatId) {
       setMessages(newMsgList);
     }
   };
 
-  /** Swap an in-flight placeholder for its final message (same position). */
-  const replaceAssistantReply = (chatId: string, placeholderId: string, replyMsg: Message) => {
+  /**
+   * Swap an in-flight placeholder for its final message (same position).
+   *
+   * `persist=false` updates React state only. Streaming calls this on every
+   * frame, and serializing the whole transcript to localStorage ~60×/s is the
+   * single hottest write in the chat; persistence is deferred to the terminal
+   * frame where it actually matters.
+   */
+  const replaceAssistantReply = (chatId: string, placeholderId: string, replyMsg: Message, persist = true) => {
     const updatedConvs = [...conversationsRef.current];
     const idx = updatedConvs.findIndex(c => c.id === chatId);
     if (idx === -1) {
-      appendAssistantReply(chatId, replyMsg);
+      appendAssistantReply(chatId, replyMsg, persist);
       return;
     }
     const chat = updatedConvs[idx];
     const newMsgList = chat.messages.map(m => (m.id === placeholderId ? replyMsg : m));
     updatedConvs[idx] = { ...chat, messages: newMsgList, timestamp: Date.now() };
     conversationsRef.current = updatedConvs;
-    saveConversations(updatedConvs);
+    if (persist) saveConversations(updatedConvs);
     if (activeConversationIdRef.current === chatId) {
       setMessages(newMsgList);
     }
@@ -489,7 +496,10 @@ function StockChatContent() {
       activities: [],
     });
 
-    // Route the hook's turn updates into this exact message.
+    // Route the hook's turn updates into this exact message. Streaming frames
+    // update state only; the transcript is persisted once when the run reaches
+    // a terminal state (see the finally block), so a long stream does not
+    // serialize the whole conversation to localStorage ~60×/second.
     turnSinkRef.current = (turn) => {
       replaceAssistantReply(chatId, placeholderId, {
         id: placeholderId,
@@ -498,7 +508,7 @@ function StockChatContent() {
         status: turn.status,
         activities: turn.activities,
         error: turn.error,
-      });
+      }, turn.done);
     };
 
     setAgentBusy(true);
@@ -524,6 +534,8 @@ function StockChatContent() {
       turnSinkRef.current = null;
       runInFlightRef.current = false;
       setAgentBusy(false);
+      // Persist the terminal transcript once (covers cancel/abort paths too).
+      saveConversations(conversationsRef.current);
     }
   };
 

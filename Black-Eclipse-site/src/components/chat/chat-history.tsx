@@ -122,7 +122,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
               {msg.role === 'assistant' ? (
                 <>
                   {msg.error && (
-                    <div className="w-full rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2.5 text-[13px] text-rose-200/90">
+                    <div
+                      role="alert"
+                      className="w-full rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2.5 text-[13px] text-rose-200/90"
+                    >
                       <div className="flex items-start gap-2">
                         <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-400" />
                         <div className="min-w-0 flex-1">

@@ -358,8 +358,11 @@ export function ChatDock({
           ? { ...m, content: turnText(turn), status: turn.status, activities: turn.activities, error: turn.error }
           : m,
       );
+      // Streaming frames update state only; persistence happens once the turn
+      // is done (below) so a long stream does not write localStorage ~60×/s.
+      messagesRef.current = next;
       setMessages(next);
-      saveMessages(next);
+      if (turn.done) saveMessages(next);
     };
 
     setBusy(true);
@@ -370,6 +373,8 @@ export function ChatDock({
     } finally {
       turnSinkRef.current = null;
       setBusy(false);
+      // Persist the terminal transcript once (covers cancel/abort paths too).
+      saveMessages(messagesRef.current);
     }
   };
 
