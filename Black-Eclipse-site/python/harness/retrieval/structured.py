@@ -23,6 +23,7 @@ from .contract import (
     SourceReference,
 )
 from .normalize import (
+    identity_from_payload,
     normalize_fundamentals,
     normalize_history,
     normalize_macro,
@@ -160,6 +161,16 @@ class LiveStructuredSource:
         capability = _LIVE_CAPABILITY[request.dataType]
         payload = await _fetch(self._bridge, capability, _params_for(request))
         elapsed = int((time.monotonic() - started) * 1000)
+        # An ambiguous identity is terminal: another source cannot disambiguate a
+        # ticker, so the outcome is AMBIGUOUS (never a guessed instrument).
+        if payload.get("status") == "AMBIGUOUS":
+            return SourceOutcome(
+                source=self.name,
+                status="AMBIGUOUS",
+                error=payload.get("error") or "instrument identity is ambiguous",
+                raw=payload,
+                latencyMs=elapsed,
+            )
         if payload.get("status") != "OK":
             return SourceOutcome(
                 source=self.name,

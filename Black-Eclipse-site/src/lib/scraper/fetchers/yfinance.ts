@@ -79,6 +79,20 @@ let availabilityCheckedAt = 0;
 let probeInFlight: Promise<boolean> | null = null;
 const AVAILABILITY_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * True when this fetcher can build a Yahoo ticker for the market.
+ *
+ * US is the ONLY market whose Yahoo ticker is the bare symbol. Every other
+ * market needs a suffix, so an unknown market cannot be honored — returning
+ * false forces the caller to fail rather than silently fetch the bare ticker
+ * (which is how a US instrument's price was returned for a Pakistan ticker).
+ */
+export function canResolveYahooSymbol(market: string): boolean {
+  const m = market.trim().toUpperCase();
+  if (m === "US") return true;
+  return Boolean(MARKET_SUFFIX[m]);
+}
+
 async function probeYfinance(): Promise<boolean> {
   const py = await findPython("yfinance");
   return py !== null;
@@ -160,6 +174,16 @@ export async function fetchYahooBatchQuote(
   symbols: string[],
   market: string
 ): Promise<FetchResult[]> {
+  // An unresolvable market must FAIL, not degrade to a bare US ticker. This is
+  // the load-bearing guard against returning another instrument's price.
+  if (!canResolveYahooSymbol(market)) {
+    return symbols.map(() => ({
+      status: "empty" as const,
+      error: `yfinance cannot resolve market "${market}" — no ticker suffix known`,
+      source: "yfinance",
+    }));
+  }
+
   if (!existsSync(BRIDGE_PATH)) {
     return symbols.map(() => ({
       status: "network_error" as const,
@@ -194,6 +218,8 @@ export async function fetchYahooBatchQuote(
         price: q.price,
         changePct: q.changePct ?? 0,
         volume: q.volume ?? undefined,
+        // The request's market, not the provider's — the bridge re-verifies it.
+        market: market.trim().toUpperCase(),
       };
       return { status: "ok" as const, quote, source: "yfinance" };
     });

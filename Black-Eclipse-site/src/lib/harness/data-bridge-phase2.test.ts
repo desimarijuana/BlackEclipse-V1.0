@@ -8,8 +8,19 @@ const fetchQuoteWithFallback = vi.fn();
 const fetchYahooBatchRaw = vi.fn();
 const webSearch = vi.fn();
 const fetchWebPage = vi.fn();
+// Identity resolution now reads the instrument master before any live fetch, so
+// the bridge needs the asset lookup. Tests seed one unambiguous US instrument.
+const assetFindMany = vi.fn();
+const assetFindFirst = vi.fn();
 
-vi.mock("@/lib/db", () => ({ prisma: {} }));
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    asset: {
+      findMany: (...a: unknown[]) => assetFindMany(...a),
+      findFirst: (...a: unknown[]) => assetFindFirst(...a),
+    },
+  },
+}));
 vi.mock("@/lib/scraper/fetchers", () => ({
   fetchQuoteWithFallback: (...a: unknown[]) => fetchQuoteWithFallback(...a),
 }));
@@ -46,6 +57,13 @@ beforeEach(() => {
   fetchYahooBatchRaw.mockReset();
   webSearch.mockReset();
   fetchWebPage.mockReset();
+  assetFindMany.mockReset();
+  assetFindFirst.mockReset();
+  // A single, unambiguous US instrument so identity resolution succeeds.
+  assetFindMany.mockResolvedValue([
+    { symbol: "AAPL", name: "Apple Inc.", securityType: "Stock", market: { country: "US" } },
+  ]);
+  assetFindFirst.mockResolvedValue(null);
 });
 
 describe("fetchCapability — live_quote", () => {

@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Regression for the verified defect: `market_get_quote(symbol="FFC",
+// market="PSX")` returned a US closed-end fund's price (15.54 USD) instead of
+// Fauji Fertilizer's (PKR) because the live path discarded the market qualifier
+// and fetched the bare ticker. These tests pin the identity-first behaviour.
+
+const assetFindMany = vi.fn();
+const assetFindFirst = vi.fn();
+const fetchQuoteWithFallback = vi.fn();
+const fetchYahooBatchRaw = vi.fn();
+
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    asset: {
+      findMany: (...a: unknown[]) => assetFindMany(...a),
+      findFirst: (...a: unknown[]) => assetFindFirst(...a),
+    },
+  },
+}));
+vi.mock('@/lib/scraper/fetchers', () => ({
+  fetchQuoteWithFallback: (...a: unknown[]) => fetchQuoteWithFallback(...a),
+}));
+vi.mock('@/lib/scraper/fetchers/yfinance', () => ({
+  fetchYahooBatchRaw: (...a: unknown[]) => fetchYahooBatchRaw(...a),
+}));
+
+import { fetchCapability } from './data-bridge';
+
+const FFC_ROWS = [
+  {
+    symbol: 'FFC',
+    name: 'Flaherty & Crumrine Preferred and Income Securities Fund',
+    securityType: 'Closed-end Fund',
+    market: { country: 'US' },
+  },
+  { symbol: 'FFC', name: 'Fauji Fertilizer Co. Ltd.', securityType: 'Stock', market: { country: 'PK' } },
+];
+
+beforeEach(() => {
+  assetFindMany.mockReset();
+  assetFindFirst.mockReset();
+  fetchQuoteWithFallback.mockReset();
+  fetchYahooBatchRaw.mockReset();
+});
+
+describe('live_quote — instrument identity', () => {
+  it('resolves FFC/PSX to the Pakistan instrument (not the US fund)', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    fetchQuoteWithFallback.mockResolvedValue({
+      status: 'ok',
+      source: 'tradingview',
+      quote: { symbol: 'FFC', price: 538.2, changePct: -0.079, market: 'PK' },
+    });
+
+    const result = await fetchCapability('live_quote', { symbol: 'FFC', market: 'PSX' });
+
+    expect(result.status).toBe('OK');
+    expect(result.market).toBe('PK');
+    expect(result.currency).toBe('PKR');
+    expect(result.instrumentId).toBe('PK:FFC');
+    // The fetcher was called with the RESOLVED market, never the raw "PSX".
+    expect(fetchQuoteWithFallback).toHaveBeenCalledWith('FFC', 'PK');
+  });
+
+  it('is AMBIGUOUS for a bare colliding ticker (never guesses US)', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    const result = await fetchCapability('live_quote', { symbol: 'FFC' });
+    expect(result.status).toBe('AMBIGUOUS');
+    expect(result).not.toHaveProperty('price');
+    expect(fetchQuoteWithFallback).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown market qualifier instead of dropping it', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    const result = await fetchCapability('live_quote', { symbol: 'FFC', market: 'MARS' });
+    expect(result.status).toBe('AMBIGUOUS');
+    expect(fetchQuoteWithFallback).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider answer priced in the wrong currency', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    // Provider priced it in USD for a PK instrument — the exact defect shape.
+    fetchQuoteWithFallback.mockResolvedValue({
+      status: 'ok',
+      source: 'yfinance',
+      quote: { symbol: 'FFC', price: 15.54, changePct: 0.03, market: 'US', currency: 'USD' },
+    });
+    const result = await fetchCapability('live_quote', { symbol: 'FFC', market: 'PSX' });
+    expect(result.status).toBe('UNAVAILABLE');
+    expect(result).not.toHaveProperty('price');
+  });
+});
+
+describe('price_history — instrument identity', () => {
+  it('refuses to fetch history for an ambiguous ticker', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    const result = await fetchCapability('price_history', { symbol: 'FFC' });
+    expect(result.status).toBe('AMBIGUOUS');
+    expect(fetchYahooBatchRaw).not.toHaveBeenCalled();
+  });
+
+  it('fetches with the resolved market', async () => {
+    assetFindMany.mockResolvedValue(FFC_ROWS);
+    fetchYahooBatchRaw.mockResolvedValue({
+      history: { FFC: [{ date: '2026-09-18', close: 1 }, { date: '2026-09-19', close: 2 }] },
+    });
+    const result = await fetchCapability('price_history', { symbol: 'FFC', market: 'PSX' });
+    expect(result.status).toBe('OK');
+    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(['FFC'], 'PK', expect.any(String), expect.any(String));
+  });
+});
+
+describe('market_snapshot — venue alias', () => {
+  it('resolves PSX to PK so a valid PK instrument is not "not in universe"', async () => {
+    assetFindFirst.mockResolvedValue({
+      symbol: 'FFC',
+      name: 'Fauji Fertilizer Co. Ltd.',
+      sector: 'Process Industries',
+      industry: 'Chemicals',
+      securityType: 'Stock',
+      assetClass: 'Equity',
+      market: { country: 'PK', exchange: 'PSX' },
+      price: { price: 538.2, changePct: -0.079, marketCap: 1, volume: 2, peRatio: 3, source: 'tradingview', updatedAt: null },
+    });
+    const result = await fetchCapability('market_snapshot', { symbol: 'FFC', market: 'PSX' });
+    expect(result.status).toBe('OK');
+    expect(result.market ?? result.country).toBe('PK');
+    expect(result.instrumentId).toBe('PK:FFC');
+    expect(result.currency).toBe('PKR');
+  });
+
+  it('refuses an unknown venue rather than dropping it', async () => {
+    const result = await fetchCapability('market_snapshot', { symbol: 'FFC', market: 'MARS' });
+    expect(result.status).toBe('UNAVAILABLE');
+    expect(assetFindFirst).not.toHaveBeenCalled();
+  });
+});

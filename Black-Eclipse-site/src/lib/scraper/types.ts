@@ -7,6 +7,14 @@ export interface Quote {
   changePct: number;
   marketCap?: number;
   volume?: number;
+  /**
+   * The market the quote was priced in. Set by the fetcher from the request so
+   * a downstream identity check can detect a provider answering for a different
+   * instrument. Optional for legacy callers; the bridge always sets it.
+   */
+  market?: string;
+  /** ISO 4217 currency, when the provider reports one. Never guessed. */
+  currency?: string;
 }
 
 /**

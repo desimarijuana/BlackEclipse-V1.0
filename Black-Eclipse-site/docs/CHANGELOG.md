@@ -43,6 +43,37 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Retrieval — canonical instrument identity + failure contract (fixes FFC/PSX
+  returning a US fund's price)** — A ticker string was treated as an instrument
+  identity. `market_get_quote("FFC", market="PSX")` returned a US closed-end
+  fund's price stamped `realtime` because the live path discarded the market
+  qualifier and fetched the bare ticker. The class is fixed, not the example:
+  • **Identity layer** (`src/lib/instrument-identity.ts`): `resolveInstrument`
+  resolves a ticker + qualifier against the master and returns a typed
+  `{ market, symbol, currency (ISO 4217), assetClass }` — or a typed failure
+  (`ambiguous` / `market_unknown` / `not_found` / `currency_mismatch`). It never
+  guesses. • **Venue aliases** (`src/lib/markets.ts` `resolveMarketId`): `PSX`→PK,
+  `LSE`→UK, `NASDAQ`→US, … so a venue qualifier is honored, and an unknown one
+  fails loudly. • **No bare-ticker fallback**: `canResolveYahooSymbol` makes an
+  unresolvable market fail instead of fetching a bare US ticker.
+  • **Bridge** (`data-bridge.ts`) resolves identity first and returns
+  `AMBIGUOUS` (with candidates) / `UNAVAILABLE`; it re-verifies the provider's
+  currency/market and discards a mismatch. • **Python contract**: `AMBIGUOUS`
+  status + `InstrumentIdentity` on objects/results; the layer treats it as
+  terminal and the tool tells the agent to disambiguate, not guess.
+  • **Permanent fixtures**: `instrument-collisions.json` generated from the real
+  master (4160 cross-market tickers, 289 cross-class, multi-venue, share-class
+  lines) with tests asserting the rule generalizes across countries/asset
+  classes. Verified live: `FFC/PSX` → PKR/PK/`PK:FFC`; bare `FFC` → AMBIGUOUS;
+  agent answers 540.51 PKR (was 15.54 USD).
+  docs updated: `docs/DECISIONS.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Docs — add interactive architecture diagram for the agentic harness** — A
+  self-contained, clickable HTML visualization of the front-door/runtime split,
+  the LangGraph execution loop, and the retrieval pipeline, mirroring the
+  frosted-glass UI recipe. Companion to `docs/harness/architecture.md`.
+  docs updated: `docs/harness/architecture-diagram.html`, `docs/CHANGELOG.md`
+
 - **Chat/UI — fix: duplicate React keys in the activity feed** — Console error
   `Encountered two children with the same key, retrieval:LIVE_STRUCTURED:macro_series`.
   The normalizer emits deterministic ids, so a run consulting the same source or

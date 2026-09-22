@@ -12,7 +12,29 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .contract import NormalizedFinancialObject, SourceReference
+from .contract import InstrumentIdentity, NormalizedFinancialObject, SourceReference
+
+
+def identity_from_payload(payload: dict[str, Any]) -> Optional[InstrumentIdentity]:
+    """Extract the canonical instrument identity the bridge attaches.
+
+    The read-only bridge resolves the ticker against the instrument master and
+    returns `market`/`currency`/`instrumentId`. When present this identity rides
+    on every object so a consumer can prove the payload belongs to the requested
+    instrument. Absent metadata yields None — never a fabricated identity.
+    """
+    symbol = payload.get("symbol")
+    market = payload.get("market") or payload.get("country")
+    if not symbol or not market:
+        return None
+    return InstrumentIdentity(
+        market=str(market).upper(),
+        symbol=str(symbol).upper(),
+        currency=payload.get("currency"),
+        assetClass=payload.get("assetClass"),
+        securityType=payload.get("securityType"),
+        name=payload.get("name"),
+    )
 
 
 def _obj(
@@ -25,6 +47,7 @@ def _obj(
     data_timestamp: Optional[str] = None,
     period: Optional[str] = None,
     instrument: Optional[str] = None,
+    identity: Optional[InstrumentIdentity] = None,
     transformations: Optional[list[str]] = None,
     warnings: Optional[list[str]] = None,
 ) -> NormalizedFinancialObject:
@@ -36,6 +59,7 @@ def _obj(
         dataTimestamp=data_timestamp,
         period=period,
         instrument=instrument,
+        identity=identity,
         source=source,
         transformations=transformations or [],
         warnings=warnings or [],
@@ -54,6 +78,7 @@ def normalize_quote(payload: dict[str, Any], source: SourceReference) -> list[No
     price_block = payload.get("price") if isinstance(payload.get("price"), dict) else payload
     data_ts = payload.get("updatedAt") or payload.get("asOf")
     currency = payload.get("currency")
+    identity = identity_from_payload(payload)
     out: list[NormalizedFinancialObject] = []
 
     def add(name: str, value: Any, unit: Optional[str] = None) -> None:
@@ -68,6 +93,7 @@ def normalize_quote(payload: dict[str, Any], source: SourceReference) -> list[No
                 currency=currency if name in ("price", "marketCap", "previousClose") else None,
                 data_timestamp=data_ts,
                 instrument=symbol,
+                identity=identity,
             )
         )
 
@@ -88,6 +114,7 @@ def normalize_snapshot(payload: dict[str, Any], source: SourceReference) -> list
     """Company profile / universe metadata."""
     symbol = payload.get("symbol")
     updated = payload.get("updatedAt")
+    identity = identity_from_payload(payload)
     fields = {
         "name": payload.get("name"),
         "sector": payload.get("sector"),
@@ -96,12 +123,13 @@ def normalize_snapshot(payload: dict[str, Any], source: SourceReference) -> list
         "assetClass": payload.get("assetClass"),
         "exchange": payload.get("exchange"),
         "country": payload.get("country"),
+        "currency": payload.get("currency"),
         "description": payload.get("description"),
         "employees": payload.get("employees"),
         "website": payload.get("website"),
     }
     return [
-        _obj(key, value, source, data_timestamp=updated, instrument=symbol)
+        _obj(key, value, source, data_timestamp=updated, instrument=symbol, identity=identity)
         for key, value in fields.items()
         if value is not None
     ]

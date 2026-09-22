@@ -13,15 +13,82 @@ import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
 import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
 import { webSearch, fetchWebPage } from "@/lib/web-research";
+import {
+  resolveInstrument,
+  verifyProviderIdentity,
+  type IdentityFailure,
+  type InstrumentIdentity,
+} from "@/lib/instrument-identity";
+import { resolveMarketId, MARKET_FULL_NAME, currencyIsoFor } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
 export interface DataBridgeResult {
-  status: "OK" | "UNAVAILABLE";
+  /**
+   * `AMBIGUOUS` is a first-class outcome: the instrument identity could not be
+   * pinned to a single instrument (unknown venue, ticker shared across markets,
+   * or a provider answer for a different currency). It is NOT a failure to be
+   * smoothed over — the caller must ask the user to disambiguate, never receive
+   * a guessed instrument.
+   */
+  status: "OK" | "UNAVAILABLE" | "AMBIGUOUS";
   [key: string]: unknown;
 }
 
 function unavailable(reason?: string): DataBridgeResult {
   return { status: "UNAVAILABLE", ...(reason ? { error: reason } : {}) };
+}
+
+function ambiguous(reason: string, candidates?: string[]): DataBridgeResult {
+  return {
+    status: "AMBIGUOUS",
+    error: reason,
+    ...(candidates && candidates.length ? { candidates } : {}),
+  };
+}
+
+/**
+ * Resolve a symbol + raw market qualifier to a canonical instrument using the
+ * JDdS master. This is the ONE place identity is decided for live capabilities.
+ *
+ * Returns a discriminated result so callers cannot accidentally proceed with a
+ * bare ticker when resolution failed.
+ */
+async function resolveBridgeInstrument(
+  symbol: string,
+  rawMarketInput: unknown,
+): Promise<
+  | { ok: true; identity: InstrumentIdentity }
+  | { ok: false; failure: IdentityFailure }
+> {
+  const sym = symbol.trim().toUpperCase();
+  const rawMarket =
+    typeof rawMarketInput === "string" && rawMarketInput.trim() ? rawMarketInput.trim() : null;
+
+  const rows = await prisma.asset.findMany({
+    where: { symbol: sym },
+    select: { symbol: true, name: true, securityType: true, market: { select: { country: true } } },
+  });
+  const candidates = rows.map((r) => ({
+    symbol: r.symbol,
+    name: r.name,
+    securityType: r.securityType,
+    market: r.market.country,
+  }));
+
+  const result = resolveInstrument(sym, { raw: rawMarket }, candidates);
+  if (!result.ok) return { ok: false, failure: result };
+  return { ok: true, identity: result.identity };
+}
+
+/** A user-safe message for an identity failure (never leaks internals). */
+function identityFailureResult(failure: IdentityFailure): DataBridgeResult {
+  // `ambiguous`/`market_unknown` mean the *request* cannot be pinned to one
+  // instrument, so the caller must disambiguate. `not_found`/`currency_mismatch`
+  // mean a specific instrument could not be sourced — plain unavailability.
+  if (failure.reason === "ambiguous" || failure.reason === "market_unknown") {
+    return ambiguous(failure.message, failure.candidates);
+  }
+  return unavailable(failure.message);
 }
 
 export async function fetchCapability(
@@ -54,14 +121,29 @@ export async function fetchCapability(
 
 async function marketSnapshot(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
-  const market = String(params.market ?? "US").trim().toUpperCase();
   if (!symbol) return unavailable("symbol is required");
+  const rawMarket = params.market;
+
+  // Resolve the qualifier (accepts "PK", "PSX", "Pakistan", …). An unknown
+  // qualifier is a hard failure — never silently ignored.
+  const market = resolveMarketId(typeof rawMarket === "string" ? rawMarket : null);
+  if (rawMarket && !market) {
+    return unavailable(
+      `Unknown market/venue "${String(rawMarket)}" — refusing to look up the bare ticker.`,
+    );
+  }
 
   const asset = await prisma.asset.findFirst({
-    where: { symbol, market: { country: market } },
+    where: { symbol, ...(market ? { market: { country: market } } : {}) },
     include: { price: true, market: true },
   });
-  if (!asset) return unavailable("symbol not in the JDdS universe");
+  if (!asset) {
+    return unavailable(
+      market
+        ? `${symbol} is not in the ${MARKET_FULL_NAME[market] ?? market} universe.`
+        : "symbol not in the JDdS universe",
+    );
+  }
 
   return {
     status: "OK",
@@ -70,8 +152,11 @@ async function marketSnapshot(params: Record<string, unknown>): Promise<DataBrid
     sector: asset.sector,
     industry: asset.industry,
     securityType: asset.securityType,
+    assetClass: asset.assetClass,
     country: asset.market.country,
     exchange: asset.market.exchange,
+    currency: currencyIsoFor(asset.market.country),
+    instrumentId: `${asset.market.country}:${asset.symbol}`,
     priceSource: asset.price?.source ?? null,
     updatedAt: asset.price?.updatedAt?.toISOString() ?? null,
     price: asset.price
@@ -104,6 +189,8 @@ async function fundamentals(params: Record<string, unknown>): Promise<DataBridge
     assetClass: asset.assetClass,
     market: asset.market.exchange,
     country: asset.market.country,
+    currency: currencyIsoFor(asset.market.country),
+    instrumentId: `${asset.market.country}:${asset.symbol}`,
     price: asset.price?.price ?? null,
   };
 }
@@ -156,19 +243,38 @@ async function sourceHealth(): Promise<DataBridgeResult> {
 async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailable("symbol is required");
-  const market = String(params.market ?? "US").trim().toUpperCase();
+  const rawMarket = params.market;
+
+  const resolved = await resolveBridgeInstrument(symbol, rawMarket);
+  if (!resolved.ok) return identityFailureResult(resolved.failure);
+  const { identity } = resolved;
+
   try {
-    const result = await fetchQuoteWithFallback(symbol, market);
+    const result = await fetchQuoteWithFallback(identity.symbol, identity.market);
     if (result.status !== "ok" || !result.quote) {
-      return unavailable(result.error || `no live quote for ${symbol} (${result.status})`);
+      return unavailable(result.error || `no live quote for ${identity.symbol} (${result.status})`);
     }
+
+    // The provider must have answered for the SAME instrument. A currency (or
+    // explicit market) disagreement means it priced something else — discard it
+    // rather than return a confidently wrong number.
+    const verified = verifyProviderIdentity(identity, {
+      market: result.quote.market ?? identity.market,
+      currency: result.quote.currency,
+    });
+    if (!verified.ok) return identityFailureResult(verified);
+
     const q = result.quote;
     return {
       status: "OK",
-      symbol,
-      market,
+      symbol: identity.symbol,
+      market: identity.market,
+      marketName: MARKET_FULL_NAME[identity.market] ?? identity.market,
+      currency: identity.currency,
+      assetClass: identity.assetClass,
+      securityType: identity.securityType ?? null,
+      instrumentId: `${identity.market}:${identity.symbol}`,
       provider: result.source ?? "scraper",
-      currency: undefined,
       price: {
         price: q.price,
         changePct: q.changePct,
@@ -185,22 +291,39 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
 async function priceHistory(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailable("symbol is required");
-  const market = String(params.market ?? "US").trim().toUpperCase();
+  const rawMarket = params.market;
   const range = String(params.range ?? "1y").trim().toLowerCase();
   const interval = String(params.period ?? params.interval ?? "1d").trim().toLowerCase();
+
+  // Identity first: history for an unresolvable market must not silently fetch a
+  // bare ticker either.
+  const resolved = await resolveBridgeInstrument(symbol, rawMarket);
+  if (!resolved.ok) return identityFailureResult(resolved.failure);
+  const { identity } = resolved;
+
   // Prefer the batched Yahoo bridge (one python process), which returns a full
   // OHLCV series; fall back to the existing chart helper when the bridge is off.
   try {
-    const data = await fetchYahooBatchRaw([symbol], market, interval, range);
+    const data = await fetchYahooBatchRaw([identity.symbol], identity.market, interval, range);
     const key = Object.keys(data.history ?? {})[0];
     const rows = key ? data.history?.[key] : undefined;
     if (Array.isArray(rows) && rows.length >= 2) {
-      return { status: "OK", symbol, market, interval, provider: "yfinance", series: rows, asOf: rows[rows.length - 1]?.date ?? null };
+      return {
+        status: "OK",
+        symbol: identity.symbol,
+        market: identity.market,
+        currency: identity.currency,
+        instrumentId: `${identity.market}:${identity.symbol}`,
+        interval,
+        provider: "yfinance",
+        series: rows,
+        asOf: rows[rows.length - 1]?.date ?? null,
+      };
     }
   } catch {
     /* fall through */
   }
-  return unavailable(`no historical series for ${symbol} (${market})`);
+  return unavailable(`no historical series for ${identity.symbol} (${identity.market})`);
 }
 
 async function macroSeries(params: Record<string, unknown>): Promise<DataBridgeResult> {

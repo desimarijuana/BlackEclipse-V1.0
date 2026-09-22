@@ -86,6 +86,11 @@ def _summarize(result: Any) -> str:
         f"Strategy: {', '.join(result.strategy) or 'none'}",
         f"Freshness: {result.freshness} | Quality: {result.quality}",
     ]
+    if result.identity is not None:
+        lines.append(
+            f"Instrument: {result.identity.symbol} on {result.identity.market}"
+            + (f" ({result.identity.currency})" if result.identity.currency else "")
+        )
     if result.cached:
         lines.append("Served from cache.")
     if result.data is not None:
@@ -102,6 +107,12 @@ def _summarize(result: Any) -> str:
         lines.append("")
         lines.append("Warnings:")
         lines.extend(f"  - {w}" for w in result.warnings[:8])
+    if result.status == "AMBIGUOUS":
+        lines.append("")
+        lines.append(
+            "AMBIGUOUS — the ticker does not identify a single instrument. Ask the "
+            "user which market/venue (and share class) they mean; do NOT guess."
+        )
     if result.status == "UNAVAILABLE":
         lines.append("")
         lines.append(

@@ -49,6 +49,7 @@ SourceTier = Literal[
 RetrievalStatus = Literal[
     "OK",
     "PARTIAL",       # some evidence retrieved, some failed
+    "AMBIGUOUS",     # the instrument identity could not be pinned to one thing
     "UNAVAILABLE",   # no evidence could be retrieved
     "CONFLICTING",   # sources disagree and it could not be resolved
     "INVALID",       # data was retrieved but failed validation
@@ -84,6 +85,28 @@ class SourceReference(BaseModel):
     validationStatus: Literal["valid", "warning", "invalid", "unknown", "unverified"] = "unknown"
 
 
+class InstrumentIdentity(BaseModel):
+    """Canonical identity of the instrument a payload is *about*.
+
+    A ticker alone is not an identity: it is ambiguous across venues, asset
+    classes and issuers, and carries no currency. Every instrument payload must
+    carry this so a consumer can detect a provider answering for a different
+    instrument. `market` + `symbol` are the required pair; the rest is filled
+    when the source knows it.
+    """
+
+    market: str                      # canonical market id (e.g. "PK", "US")
+    symbol: str                      # venue-local ticker
+    currency: Optional[str] = None   # ISO 4217, when known
+    assetClass: Optional[str] = None
+    securityType: Optional[str] = None
+    name: Optional[str] = None
+
+    @property
+    def key(self) -> str:
+        return f"{self.market}:{self.symbol}"
+
+
 class NormalizedFinancialObject(BaseModel):
     """One provider observation, normalized (Milestone 2F).
 
@@ -99,6 +122,7 @@ class NormalizedFinancialObject(BaseModel):
     dataTimestamp: Optional[str] = None  # when the value is *about*
     period: Optional[str] = None     # fiscal period / interval (e.g. "2024-Q1")
     instrument: Optional[str] = None  # symbol / ticker / series id
+    identity: Optional[InstrumentIdentity] = None  # canonical instrument identity
     source: SourceReference
     freshness: FreshnessRequirement = "any"
     quality: QualityStatus = "unknown"
@@ -145,6 +169,7 @@ class FinancialRetrievalResult(BaseModel):
     objective: str
     dataType: DataType
     instrument: Optional[str] = None
+    identity: Optional[InstrumentIdentity] = None  # canonical instrument identity
     data: Optional[Any] = None
     evidence: list[EvidenceItem] = Field(default_factory=list)
     sourceReferences: list[SourceReference] = Field(default_factory=list)
@@ -191,6 +216,7 @@ __all__ = [
     "FreshnessRequirement",
     "FinancialRetrievalRequest",
     "FinancialRetrievalResult",
+    "InstrumentIdentity",
     "NormalizedFinancialObject",
     "QualityStatus",
     "RetrievalStatus",

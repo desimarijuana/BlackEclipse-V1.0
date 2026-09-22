@@ -360,6 +360,30 @@ deduplication (no new database). See
 
 ---
 
+## ADR-020 — A ticker is not an instrument identity; unhonoured qualifiers fail loudly (2026)
+**Decision:** Instrument resolution requires a **canonical identity** —
+`{ market, symbol, currency (ISO 4217), assetClass }` — not a bare ticker. Every
+instrument resolution and payload carries it. A market qualifier (venue, country,
+market id) is resolved through a single alias table (`resolveMarketId`); if it
+cannot be honored the request **fails** (`market_unknown`). A bare ticker that
+maps to more than one instrument is **`AMBIGUOUS`**, never a "best match". A
+provider answer whose currency/market disagrees with the resolved identity is
+**discarded**. `AMBIGUOUS` and `UNAVAILABLE` are correct, first-class outcomes.
+**Why:** A live analysis of `FFC` (Fauji Fertilizer, PSX) returned a US
+closed-end fund's price, stamped `realtime`, because the live path dropped the
+`market` qualifier and fetched the bare ticker. Tickers are reused across venues,
+asset classes and issuers (4160 colliding tickers in the committed master alone)
+and carry no currency — a confidently wrong number is worse than no number.
+**Impact:** `src/lib/instrument-identity.ts` owns resolution and returns a typed
+failure union; the read-only bridge returns `AMBIGUOUS`/`UNAVAILABLE`; the Python
+retrieval contract gains `AMBIGUOUS` + `InstrumentIdentity`; the fetchers refuse
+an unresolvable market rather than emitting a bare US ticker. Every real
+collision is a permanent regression fixture
+(`src/lib/instrument-collisions.json`, generated from the master). Supersedes any
+implicit "symbol is enough" assumption in the retrieval layer (ADR-019).
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

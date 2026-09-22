@@ -47,6 +47,115 @@ export function toMarketId(raw: string | null | undefined): string {
   return MARKET_ID_MAP[key] || key;
 }
 
+// Exchange / venue / regulator codes → canonical JDDS market id. A caller
+// frequently qualifies an instrument by its VENUE ("PSX", "LSE", "NYSE") rather
+// than by JDDS's country-based market id ("PK", "UK", "US"). Without this map
+// such a qualifier was silently discarded and a bare ticker fetched — which is
+// how a US fund's price came back under a Pakistan ticker.
+//
+// Multi-venue markets list every venue they host. This is deliberately broad:
+// resolving a venue the system does not recognise must FAIL LOUDLY, never fall
+// back to a bare US ticker.
+export const MARKET_EXCHANGE_ALIASES: Record<string, string> = {
+  // United States
+  NYSE: "US", NASDAQ: "US", AMEX: "US", ARCA: "US", BATS: "US", NYSEARCA: "US",
+  "NYSE AMERICAN": "US", OTC: "US", OTCQB: "US", OTCQX: "US", CBOE: "US", MIAX: "US",
+  // Pakistan
+  PSX: "PK", KSE: "PK", "PSX/KSE": "PK", LSEPK: "PK",
+  // India
+  NSE: "IN", BSE: "IN", "NSE/BSE": "IN", NSEI: "IN", BSESN: "IN",
+  // China
+  SSE: "CN", SZSE: "CN", "SSE/SZSE": "CN", SHSE: "CN", SHSZ: "CN",
+  // Hong Kong
+  HKEX: "HK", SEHK: "HK", HKSE: "HK",
+  // Japan
+  TSE: "JP", TYO: "JP", JPX: "JP", OSE: "JP", "TOKYO STOCK EXCHANGE": "JP",
+  // Taiwan
+  TWSE: "TW", TPEX: "TW", OTC_TW: "TW",
+  // Korea
+  KRX: "KR", KSEKR: "KR", KOSPI: "KR", KOSDAQ: "KR",
+  // Singapore
+  SGX: "SG",
+  // Malaysia
+  KLSE: "MY", BURSA: "MY", "BURSA MALAYSIA": "MY",
+  // Australia
+  ASX: "AU", AX: "AU",
+  // United Kingdom
+  LSE: "UK", LON: "UK", LSEG: "UK", AIM: "UK",
+  // Germany
+  XETRA: "DE", FRA: "DE", FWB: "DE", ETR: "DE", XETR: "DE", "FRANKFURT": "DE",
+  // France
+  EPA: "FR", ENXTPA: "FR", "EURONEXT PARIS": "FR", PAR: "FR",
+  // Netherlands
+  AMS: "NL", "EURONEXT AMSTERDAM": "NL",
+  // Canada
+  TSX: "CA", TSXV: "CA", CVE: "CA", NEO: "CA", TSE_CA: "CA",
+  // Brazil
+  B3: "BR", BVMF: "BR",
+  // Mexico
+  BMV: "MX",
+  // Saudi Arabia
+  TADAWUL: "SA", SAU: "SA",
+  // UAE
+  ADX: "AE", DFM: "AE", "ADX/DFM": "AE",
+  // South Africa
+  JSE: "ZA",
+  // Egypt
+  EGX: "EG",
+  // Nigeria
+  NGX: "NG", NSE_NG: "NG",
+  // Russia
+  MOEX: "RU", MCX: "RU",
+  // Turkey
+  BIST: "TR", ISE: "TR",
+  // Indonesia
+  IDX: "ID", JKSE: "ID",
+  // Thailand
+  SET: "TH", BKK: "TH",
+  // Vietnam
+  HOSE: "VN", HNX: "VN",
+  // Crypto (venue-agnostic; the pseudo-market is its own id)
+  BINANCE: "CRYPTO", COINBASE: "CRYPTO", KRAKEN: "CRYPTO", CRYPTO: "CRYPTO",
+};
+
+// Index of every known market id (the canonical vocabulary). Kept in sync with
+// MARKET_CURRENCY — a market is "known" iff it has a currency. Built lazily so
+// declaration order in this module is not significant.
+let _marketAliasIndex: Record<string, string> | null = null;
+
+function marketAliasIndex(): Record<string, string> {
+  if (_marketAliasIndex) return _marketAliasIndex;
+  const map: Record<string, string> = {};
+  for (const [id, name] of Object.entries(MARKET_FULL_NAME)) map[name.toLowerCase()] = id;
+  for (const [key, id] of Object.entries(MARKET_ID_MAP)) map[key.toLowerCase()] = id;
+  for (const [key, id] of Object.entries(MARKET_EXCHANGE_ALIASES)) map[key.toLowerCase()] = id;
+  // A market id always resolves to itself, lower-cased key.
+  for (const id of Object.keys(MARKET_CURRENCY)) map[id.toLowerCase()] = id;
+  _marketAliasIndex = map;
+  return map;
+}
+
+/**
+ * Resolve a market qualifier — market id ("PK"), country/display name
+ * ("Pakistan"), or exchange/venue code ("PSX") — to a canonical JDDS market id.
+ *
+ * Returns `null` when the qualifier is unrecognised. Callers MUST treat `null`
+ * as a hard failure: an unhonoured market qualifier is never dropped in favour
+ * of a bare-ticker lookup. (Contrast `toMarketId`, which preserves legacy
+ * behaviour and passes unknown values through — do not use it for identity.)
+ */
+export function resolveMarketId(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const key = raw.trim().toLowerCase();
+  if (!key) return null;
+  return marketAliasIndex()[key] ?? null;
+}
+
+/** True when `raw` names a market this system can honor. */
+export function isKnownMarket(raw: string | null | undefined): boolean {
+  return resolveMarketId(raw) !== null;
+}
+
 // Currency that belongs to each market's instruments. US + crypto are
 // dollar-denominated; every other market quotes in its native currency.
 // Shared by /api/indices, /api/quote, and client-side display helpers.
@@ -61,6 +170,23 @@ export const MARKET_CURRENCY: Record<string, string> = {
 /** Display currency symbol for a market id (defaults to USD "$"). */
 export function currencyFor(marketId: string): string {
   return MARKET_CURRENCY[marketId] || "$";
+}
+
+// Canonical ISO 4217 currency code per market. `MARKET_CURRENCY` holds DISPLAY
+// symbols ("$"), which are not an identity — instrument identity requires the
+// ISO code so a US $ and a CAD $ can never be confused. Kept in sync with
+// MARKET_CURRENCY (same key set).
+export const MARKET_CURRENCY_ISO: Record<string, string> = {
+  US: "USD", CRYPTO: "USD", PK: "PKR", IN: "INR", CN: "CNY", TW: "TWD", HK: "HKD",
+  JP: "JPY", KR: "KRW", SG: "SGD", MY: "MYR", AU: "AUD", UK: "GBP", DE: "EUR",
+  FR: "EUR", NL: "EUR", CA: "CAD", BR: "BRL", MX: "MXN", SA: "SAR", AE: "AED",
+  ZA: "ZAR", EG: "EGP", NG: "NGN", RU: "RUB", TR: "TRY", ID: "IDR", TH: "THB",
+  VN: "VND",
+};
+
+/** ISO 4217 currency code for a market id (defaults to USD). */
+export function currencyIsoFor(marketId: string): string {
+  return MARKET_CURRENCY_ISO[marketId] || "USD";
 }
 
 // Full, human-readable country/market names keyed by market id. Used across the

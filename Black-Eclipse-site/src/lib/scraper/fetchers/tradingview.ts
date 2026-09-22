@@ -308,6 +308,9 @@ export async function fetchTradingViewQuote(
       changePct: found.changePct,
       marketCap: found.marketCap,
       volume: found.volume,
+      // TV scans one market, so the row IS from this market — record it so the
+      // bridge's identity check can confirm the venue.
+      market: market.trim().toUpperCase(),
     };
     return { status: "ok", quote, source: "tradingview" };
   } catch (err) {

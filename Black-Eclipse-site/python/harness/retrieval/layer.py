@@ -150,6 +150,21 @@ class FinancialRetrievalLayer:
             await self._emit("retrieval.source_start", {"source": name, "dataType": request.dataType})
             outcome = await self._retrieve_one(source, request)
             attempts.append(outcome)
+            # AMBIGUOUS is terminal: the ticker does not name one instrument, and
+            # no other source can change that. Return it rather than trying a
+            # different provider that might guess.
+            if outcome.status == "AMBIGUOUS":
+                await self._emit("retrieval.source_unavailable", {"source": name, "error": outcome.error})
+                return FinancialRetrievalResult(
+                    status="AMBIGUOUS",
+                    objective=request.objective,
+                    dataType=request.dataType,
+                    instrument=request.instrument,
+                    freshness=request.freshnessRequirement,
+                    quality="unknown",
+                    warnings=warnings + [outcome.error or "instrument identity is ambiguous"],
+                    strategy=plan.sources,
+                )
             if outcome.status == "OK" and (outcome.objects or outcome.evidence):
                 await self._emit("retrieval.source_ok", {"source": name, "objects": len(outcome.objects)})
                 return self._finalize_single(request, outcome, warnings, plan)
@@ -281,11 +296,15 @@ class FinancialRetrievalLayer:
             status = "UNAVAILABLE"
 
         data = _data_payload(request, objects)
+        # The canonical identity, when the source supplied one, rides on the
+        # result so every consumer can verify which instrument the answer is for.
+        identity = next((o.identity for o in objects if o.identity is not None), None)
         result = FinancialRetrievalResult(
             status=status,
             objective=request.objective,
             dataType=request.dataType,
             instrument=request.instrument,
+            identity=identity,
             data=data,
             evidence=evidence,
             sourceReferences=refs,
