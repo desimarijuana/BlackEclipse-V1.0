@@ -37,6 +37,58 @@ export type AssetClass =
   | "derivative"
   | "other";
 
+/**
+ * Asset classes whose VALUE IS UNDEFINED without contract terms (A5/A6).
+ * A derivative price without expiry/strike/right is meaningless; a bond yield
+ * without maturity/coupon/seniority is meaningless. These must never be
+ * returned as a bare number.
+ */
+export const TERMS_REQUIRED_CLASSES: ReadonlySet<AssetClass> = new Set<AssetClass>([
+  "derivative",
+  "debt",
+]);
+
+/**
+ * Contract terms that identify a specific derivative / fixed-income instrument.
+ * Each is optional in the type but required per asset class at resolution time.
+ */
+export interface ContractTerms {
+  /** Derivatives: ISO date the contract expires. */
+  expiry?: string;
+  /** Futures: contract month (e.g. "2026-12"). */
+  contractMonth?: string;
+  /** Options: strike price. */
+  strike?: number;
+  /** Options: call or put. */
+  right?: "call" | "put";
+  /** Fixed income: ISO maturity date. */
+  maturity?: string;
+  /** Fixed income: coupon rate (percent). */
+  coupon?: number;
+  /** Fixed income: seniority (senior/subordinated/…). */
+  seniority?: string;
+}
+
+/**
+ * The terms that MUST be present for each terms-required asset class. Data, not
+ * branching — a new derivative type adds a row here.
+ */
+const REQUIRED_TERMS: Partial<Record<AssetClass, (keyof ContractTerms)[]>> = {
+  derivative: ["expiry"],
+  debt: ["maturity"],
+};
+
+/**
+ * Validate that a terms-required instrument carries enough to be priced.
+ * Returns the missing term names (empty when satisfied or not required).
+ */
+export function missingContractTerms(assetClass: AssetClass, terms?: ContractTerms): (keyof ContractTerms)[] {
+  const required = REQUIRED_TERMS[assetClass];
+  if (!required) return [];
+  const t = terms ?? {};
+  return required.filter((k) => t[k] === undefined || t[k] === null || t[k] === "");
+}
+
 /** Maps a JDDS `securityType` / `assetClass` string to a coarse asset class. */
 export function toAssetClass(securityType?: string | null, assetClass?: string | null): AssetClass {
   const t = `${securityType ?? ""} ${assetClass ?? ""}`.toLowerCase();
@@ -75,12 +127,16 @@ export interface InstrumentIdentity {
  * - `not_found`        — the ticker is not in that market's universe.
  * - `ambiguous`        — no qualifier given and the ticker names >1 instrument.
  * - `currency_mismatch`— the provider answered for a different currency.
+ * - `venue_mismatch`   — the provider answered for a different venue.
+ * - `terms_missing`    — a derivative/fixed-income identity lacks contract terms.
  */
 export type IdentityFailureReason =
   | "market_unknown"
   | "not_found"
   | "ambiguous"
-  | "currency_mismatch";
+  | "currency_mismatch"
+  | "venue_mismatch"
+  | "terms_missing";
 
 export interface IdentityFailure {
   ok: false;
@@ -121,6 +177,7 @@ export function resolveInstrument(
   ticker: string,
   qualifier: MarketQualifier,
   rows: InstrumentRow[],
+  terms?: ContractTerms,
 ): IdentityResult {
   const symbol = ticker.trim().toUpperCase();
   if (!symbol) {
@@ -152,7 +209,7 @@ export function resolveInstrument(
         message: `${symbol} is not in the ${MARKET_FULL_NAME[market] ?? market} universe.`,
       };
     }
-    return { ok: true, identity: toIdentity(match) };
+    return finishIdentity(match, terms);
   }
 
   // 2. No qualifier: the bare ticker is only an identity when it is unique
@@ -181,7 +238,23 @@ export function resolveInstrument(
       candidates: distinctMarkets,
     };
   }
-  return { ok: true, identity: toIdentity(rows[0]) };
+  return finishIdentity(rows[0], terms);
+}
+
+/** Attach the identity, enforcing contract terms for terms-required classes. */
+function finishIdentity(row: InstrumentRow, terms?: ContractTerms): IdentityResult {
+  const identity = toIdentity(row);
+  const missing = missingContractTerms(identity.assetClass, terms);
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      reason: "terms_missing",
+      message:
+        `${identity.symbol} is a ${identity.assetClass} instrument; its value is ` +
+        `undefined without ${missing.join(", ")}. Provide the contract terms.`,
+    };
+  }
+  return { ok: true, identity };
 }
 
 function toIdentity(row: InstrumentRow): InstrumentIdentity {
@@ -208,6 +281,7 @@ export function verifyProviderIdentity(
   identity: InstrumentIdentity,
   provider: { market?: string | null; currency?: string | null },
 ): IdentityResult {
+  // Currency is part of the value (A7): a mismatch is a failure, not formatting.
   if (provider.currency && identity.currency && provider.currency !== identity.currency) {
     return {
       ok: false,
@@ -220,10 +294,21 @@ export function verifyProviderIdentity(
   }
   if (provider.market) {
     const providerMarket = resolveMarketId(provider.market);
-    if (providerMarket && providerMarket !== identity.market) {
+    // A venue the provider names that we cannot map is itself a failure: we
+    // cannot prove the answer belongs to the requested instrument.
+    if (!providerMarket) {
       return {
         ok: false,
-        reason: "currency_mismatch",
+        reason: "venue_mismatch",
+        message:
+          `Provider answered for venue "${provider.market}", which could not be ` +
+          `verified against ${identity.market}. Discarding the unverifiable quote.`,
+      };
+    }
+    if (providerMarket !== identity.market) {
+      return {
+        ok: false,
+        reason: "venue_mismatch",
         message:
           `Provider answered for market ${providerMarket}, but ${identity.symbol} ` +
           `was requested on ${identity.market}. Discarding the mismatched quote.`,

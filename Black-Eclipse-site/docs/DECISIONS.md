@@ -384,6 +384,31 @@ implicit "symbol is enough" assumption in the retrieval layer (ADR-019).
 
 ---
 
+## ADR-021 — One failure contract, declared coverage, and terms-aware identity (2026)
+**Decision:** Every tool and source reports failure through one taxonomy
+(`src/lib/harness/failure.ts`): `ambiguous`, `market_unknown`, `not_found`,
+`currency_mismatch`, `venue_mismatch`, `terms_missing`, `not_covered`,
+`no_data`, `source_failure`, `incomplete`, `conflict`, `invalid_request`.
+Message text is derived from the class, never hand-written per tool. Coverage is
+**declared data** (`src/lib/harness/coverage.ts`), queryable via a `coverage`
+capability — an unregistered market/asset class returns `not_covered` instead of
+routing to a guessed backend. Derivatives and fixed income require contract
+terms (`expiry`/`strike`/`right`, `maturity`/`coupon`/`seniority`) before a
+value may be returned. Every numeric payload carries `currency` and `units`.
+`get_news` falls through from the vault to the shared web transport and never
+phrases a source failure as "no news". Source health is derived from recorded
+runs (`healthy`/`degraded`/`failing`/`unknown`), so confidence is earned.
+**Why:** The same underlying miss behaved differently across tools
+(`get_market_snapshot` refused; `market_get_quote` returned a US fund;
+`get_news` reported "no news" on an infrastructure miss). A false "no news" in a
+financial tool reads as "nothing happened" — materially misleading. Uniformity
+is the only way one tool's safety guarantee holds for all of them.
+**Impact:** Extends ADR-020 (identity). Tools route through the shared classes;
+a new asset class/venue is a data change in `coverage.ts`. `isCovered()` gates a
+request before any source is attempted.
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

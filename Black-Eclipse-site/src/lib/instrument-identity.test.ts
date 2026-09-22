@@ -4,6 +4,7 @@ import {
   verifyProviderIdentity,
   toAssetClass,
   instrumentKey,
+  missingContractTerms,
   type InstrumentRow,
 } from './instrument-identity';
 import { resolveMarketId, isKnownMarket, currencyIsoFor } from './markets';
@@ -122,7 +123,14 @@ describe('verifyProviderIdentity', () => {
     const r = verifyProviderIdentity(pkIdentity, { market: 'US' });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.reason).toBe('currency_mismatch');
+    expect(r.reason).toBe('venue_mismatch');
+  });
+
+  it('rejects an answer from a venue we cannot map', () => {
+    const r = verifyProviderIdentity(pkIdentity, { market: 'MARS' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('venue_mismatch');
   });
 
   it('accepts absent provider metadata as unverified, not wrong', () => {
@@ -139,5 +147,41 @@ describe('toAssetClass', () => {
     expect(toAssetClass('Listed Debt', 'Listed Debt')).toBe('debt');
     expect(toAssetClass('token', 'Crypto')).toBe('crypto');
     expect(toAssetClass('Modaraba', 'Modaraba')).toBe('fund');
+  });
+});
+
+// -- A5/A6: contract terms are part of derivative / fixed-income identity ----
+describe('contract terms identity (A5/A6)', () => {
+  const futureRows: InstrumentRow[] = [{ symbol: 'ES', market: 'US', securityType: 'Future' }];
+  const bondRows: InstrumentRow[] = [{ symbol: 'TFC6', market: 'PK', securityType: 'Listed Debt' }];
+
+  it('classifies futures and debt', () => {
+    expect(toAssetClass('Future', null)).toBe('derivative');
+    expect(toAssetClass('Listed Debt', 'Listed Debt')).toBe('debt');
+  });
+
+  it('refuses a derivative without expiry', () => {
+    const r = resolveInstrument('ES', { raw: 'US' }, futureRows);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('terms_missing');
+  });
+
+  it('resolves a derivative once expiry is supplied', () => {
+    const r = resolveInstrument('ES', { raw: 'US' }, futureRows, { expiry: '2026-12-18', contractMonth: '2026-12' });
+    expect(r.ok).toBe(true);
+  });
+
+  it('refuses fixed income without maturity', () => {
+    const r = resolveInstrument('TFC6', { raw: 'PK' }, bondRows);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe('terms_missing');
+  });
+
+  it('reports which terms are missing', () => {
+    expect(missingContractTerms('derivative', {})).toEqual(['expiry']);
+    expect(missingContractTerms('debt', { maturity: '2030-01-01' })).toEqual([]);
+    expect(missingContractTerms('equity', {})).toEqual([]);
   });
 });

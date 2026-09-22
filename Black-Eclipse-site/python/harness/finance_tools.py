@@ -24,27 +24,41 @@ async def _fetch(ctx: ToolContext, capability: str, params: dict[str, Any]) -> d
 
 async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     symbol = str(args.get("symbol", "")).strip().upper()
-    market = str(args.get("market", "US") or "US").strip().upper()
+    market = str(args.get("market", "") or "").strip().upper() or None
     ctx.log("jddS snapshot lookup", {"symbol": symbol, "market": market})
 
     payload = await _fetch(ctx, "market_snapshot", {"symbol": symbol, "market": market})
     status = payload.get("status", "UNAVAILABLE")
+    failure_class = payload.get("failureClass")
 
     if status != "OK":
-        return (
-            "\n".join(
-                [
-                    f"UNAVAILABLE — no stored snapshot for {symbol} in market {market}.",
-                    "Data source: JDdS (market data vault). The symbol may not be in the",
-                    "universe yet, or the market code is wrong. No price has been invented.",
-                ]
-            ),
-            {"status": "UNAVAILABLE", "symbol": symbol, "market": market, "source": "JDDS"},
-        )
+        # Derive wording from the failure class (B2), never a single generic line.
+        detail = payload.get("error", "")
+        if failure_class == "market_unknown" or status == "AMBIGUOUS":
+            msg = (
+                f"AMBIGUOUS — {detail}\n"
+                "Ask the user to specify the market/venue (and share class); do NOT guess."
+            )
+        elif failure_class == "not_found":
+            msg = f"UNAVAILABLE — {detail}"
+        else:
+            msg = (
+                f"UNAVAILABLE — no stored snapshot for {symbol}"
+                + (f" in market {market}" if market else "")
+                + f".\n{detail}"
+            )
+        return msg, {
+            "status": "UNAVAILABLE" if status != "AMBIGUOUS" else "AMBIGUOUS",
+            "failureClass": failure_class,
+            "symbol": symbol,
+            "market": market,
+            "source": "JDDS",
+        }
 
     lines = [
         f"Snapshot for {payload.get('symbol', symbol)} — {payload.get('name', '')}",
         f"  Market: {payload.get('exchange', '')} ({payload.get('country', market)})",
+        f"  Currency: {payload.get('currency', 'unknown')}",
         f"  Sector: {payload.get('sector') or 'N/A'}",
         f"  Industry: {payload.get('industry') or 'N/A'}",
         f"  Security type: {payload.get('securityType') or 'N/A'}",
@@ -52,7 +66,7 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
     price = payload.get("price")
     if price:
         lines += [
-            f"  Price: {price.get('price')}",
+            f"  Price: {price.get('price')} {payload.get('currency', '')} (per-share)",
             f"  Change: {price.get('changePct')}%",
             f"  Market cap: {price.get('marketCap') if price.get('marketCap') is not None else 'N/A'}",
             f"  Volume: {price.get('volume') if price.get('volume') is not None else 'N/A'}",
@@ -62,7 +76,14 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
         lines.append("  Price: UNAVAILABLE — the asset exists but has no stored price yet.")
     lines.append(f"Data source: JDDS ({payload.get('priceSource', 'n/a')})")
     lines.append(f"Last updated: {payload.get('updatedAt') or 'unknown'}")
-    return "\n".join(lines), {"status": "OK", "symbol": symbol, "market": market, "source": "JDDS"}
+    return "\n".join(lines), {
+        "status": "OK",
+        "symbol": payload.get("symbol", symbol),
+        "market": payload.get("country", market),
+        "currency": payload.get("currency"),
+        "instrumentId": payload.get("instrumentId"),
+        "source": "JDDS",
+    }
 
 
 async def get_fundamentals(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -76,23 +97,83 @@ async def get_fundamentals(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
 async def get_news(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     query = str(args.get("query", "") or "")
     payload = await _fetch(ctx, "news", {"query": query})
+    failure_class = payload.get("failureClass")
     items = payload.get("items") or []
+    source_kind = payload.get("sourceKind", "vault")
+
+    # A source failure must NEVER be phrased as absence of news (B2/C2). An
+    # empty result is "no matching data", not "nothing happened".
+    if failure_class == "source_failure":
+        return (
+            "\n".join(
+                [
+                    "SOURCE FAILURE — the news sources could not be reached.",
+                    f"Query: {query!r}",
+                    "This is an infrastructure failure, NOT evidence that no news exists. "
+                    "Do not report it as 'no news'.",
+                    f"Detail: {payload.get('error', '')}",
+                ]
+            ),
+            {"status": "UNAVAILABLE", "failureClass": "source_failure", "count": 0, "source": "JDDS"},
+        )
     if not items:
-        return f"No news found matching {query!r} in JDdS.", {"count": 0, "source": "JDDS"}
-    lines = [f"[{i.get('source')}] ({i.get('sentiment')}) {i.get('headline')}\n  {i.get('url', '')}" for i in items]
-    return "\n\n".join(lines), {"count": len(items), "source": "JDDS"}
+        return (
+            f"No matching news stored for {query!r} (sources reachable, no match).",
+            {"status": "OK", "failureClass": "no_data", "count": 0, "source": "JDDS"},
+        )
+
+    header = (
+        f"{len(items)} news item(s) matching {query!r} (source: {source_kind}):"
+    )
+    lines = [header]
+    for i in items:
+        lines.append(
+            f"[{i.get('source')}] ({i.get('sentiment')}) {i.get('headline')}\n  {i.get('url', '')}"
+        )
+    return "\n\n".join(lines), {
+        "status": "OK",
+        "count": len(items),
+        "source": source_kind,
+        "sourceKind": source_kind,
+    }
 
 
 async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     payload = await _fetch(ctx, "source_health", {})
     rows = payload.get("rows") or []
     if not rows:
-        return "No source health data recorded yet.", {"count": 0}
-    lines = [
-        f"  {r.get('source')} ({r.get('market')}): {r.get('success')} ok / {r.get('fail')} fail"
-        for r in rows
-    ]
-    return "\n".join(lines), {"count": len(rows)}
+        # An empty health table is NO DATA, not "everything is fine". Say so.
+        return (
+            "No source health recorded yet (no_data). Confidence cannot be derived "
+            "from history; treat any answer as unverified.",
+            {"status": "OK", "failureClass": "no_data", "count": 0},
+        )
+    lines = ["Source health (derived from recorded runs):"]
+    for r in rows:
+        rate = r.get("successRate")
+        rate_txt = f"{int(rate * 100)}%" if isinstance(rate, (int, float)) else "n/a"
+        lines.append(
+            f"  {r.get('source')} ({r.get('market')}): {r.get('health', 'unknown')} — "
+            f"{r.get('success', 0)} ok / {r.get('fail', 0)} fail (success {rate_txt})"
+        )
+    return "\n".join(lines), {"status": "OK", "count": len(rows)}
+
+
+async def get_coverage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Declared coverage: which markets/currencies/asset classes are supported."""
+    payload = await _fetch(ctx, "coverage", {})
+    rows = payload.get("rows") or []
+    if not rows:
+        return "Coverage registry is empty.", {"status": "OK", "count": 0}
+    lines = ["Declared coverage (market — currency — asset classes):"]
+    for r in rows:
+        classes = ", ".join(r.get("assetClasses", []))
+        lines.append(f"  {r.get('market')} — {r.get('currency')} — {classes}")
+    lines.append(
+        "\nIf a request targets a market/asset class not listed here, it is NOT "
+        "COVERED — return UNAVAILABLE rather than trying another source."
+    )
+    return "\n".join(lines), {"status": "OK", "count": len(rows)}
 
 
 def register_finance_tools(registry: ToolRegistry) -> None:
@@ -148,9 +229,22 @@ def register_finance_tools(registry: ToolRegistry) -> None:
     registry.register(
         ToolDefinition(
             name="get_source_health",
-            description="Read the reliability/health of each JDdS data source per market.",
+            description="Read the reliability/health of each JDdS data source per market, derived from recorded runs.",
             input_schema={"type": "object", "properties": {}},
             handler=get_source_health,
+            permission="read",
+            risk="low",
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_coverage",
+            description=(
+                "Declare which markets, currencies and asset classes this system has a "
+                "data source for. Use before assuming a market is supported."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            handler=get_coverage,
             permission="read",
             risk="low",
         )

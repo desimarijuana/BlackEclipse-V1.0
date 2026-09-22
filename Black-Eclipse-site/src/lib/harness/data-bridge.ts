@@ -16,9 +16,13 @@ import { webSearch, fetchWebPage } from "@/lib/web-research";
 import {
   resolveInstrument,
   verifyProviderIdentity,
+  type ContractTerms,
   type IdentityFailure,
+  type IdentityFailureReason,
   type InstrumentIdentity,
 } from "@/lib/instrument-identity";
+import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
+import { coverageSummary } from "@/lib/harness/coverage";
 import { resolveMarketId, MARKET_FULL_NAME, currencyIsoFor } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
@@ -38,14 +42,6 @@ function unavailable(reason?: string): DataBridgeResult {
   return { status: "UNAVAILABLE", ...(reason ? { error: reason } : {}) };
 }
 
-function ambiguous(reason: string, candidates?: string[]): DataBridgeResult {
-  return {
-    status: "AMBIGUOUS",
-    error: reason,
-    ...(candidates && candidates.length ? { candidates } : {}),
-  };
-}
-
 /**
  * Resolve a symbol + raw market qualifier to a canonical instrument using the
  * JDdS master. This is the ONE place identity is decided for live capabilities.
@@ -56,6 +52,7 @@ function ambiguous(reason: string, candidates?: string[]): DataBridgeResult {
 async function resolveBridgeInstrument(
   symbol: string,
   rawMarketInput: unknown,
+  terms?: ContractTerms,
 ): Promise<
   | { ok: true; identity: InstrumentIdentity }
   | { ok: false; failure: IdentityFailure }
@@ -66,29 +63,71 @@ async function resolveBridgeInstrument(
 
   const rows = await prisma.asset.findMany({
     where: { symbol: sym },
-    select: { symbol: true, name: true, securityType: true, market: { select: { country: true } } },
+    select: {
+      symbol: true,
+      name: true,
+      securityType: true,
+      assetClass: true,
+      market: { select: { country: true } },
+    },
   });
   const candidates = rows.map((r) => ({
     symbol: r.symbol,
     name: r.name,
     securityType: r.securityType,
+    assetClass: r.assetClass,
     market: r.market.country,
   }));
 
-  const result = resolveInstrument(sym, { raw: rawMarket }, candidates);
+  const result = resolveInstrument(sym, { raw: rawMarket }, candidates, terms);
   if (!result.ok) return { ok: false, failure: result };
   return { ok: true, identity: result.identity };
 }
 
-/** A user-safe message for an identity failure (never leaks internals). */
+/** Read contract terms from raw params (A5/A6). Absent values stay undefined. */
+function termsFromParams(params: Record<string, unknown>): ContractTerms {
+  const s = (k: string) => (typeof params[k] === "string" ? (params[k] as string) : undefined);
+  const n = (k: string) => (typeof params[k] === "number" ? (params[k] as number) : undefined);
+  return {
+    expiry: s("expiry"),
+    contractMonth: s("contractMonth") ?? s("contract_month"),
+    strike: n("strike"),
+    right: s("right") === "call" || s("right") === "put" ? (s("right") as "call" | "put") : undefined,
+    maturity: s("maturity"),
+    coupon: n("coupon"),
+    seniority: s("seniority"),
+  };
+}
+
+/**
+ * Map a resolver failure reason to the shared failure taxonomy. This is the
+ * single place the identity vocabulary meets the tool-facing contract.
+ */
+const IDENTITY_FAILURE_CLASS: Record<IdentityFailureReason, FailureClass> = {
+  ambiguous: "ambiguous",
+  market_unknown: "market_unknown",
+  not_found: "not_found",
+  currency_mismatch: "currency_mismatch",
+  venue_mismatch: "venue_mismatch",
+  terms_missing: "terms_missing",
+};
+
+/** A user-safe result for an identity failure (never leaks internals). */
 function identityFailureResult(failure: IdentityFailure): DataBridgeResult {
-  // `ambiguous`/`market_unknown` mean the *request* cannot be pinned to one
-  // instrument, so the caller must disambiguate. `not_found`/`currency_mismatch`
-  // mean a specific instrument could not be sourced — plain unavailability.
-  if (failure.reason === "ambiguous" || failure.reason === "market_unknown") {
-    return ambiguous(failure.message, failure.candidates);
-  }
-  return unavailable(failure.message);
+  const cls = IDENTITY_FAILURE_CLASS[failure.reason];
+  const f = makeFailure(cls, undefined, failure.candidates);
+  return {
+    status: statusForFailure(cls),
+    failureClass: cls,
+    error: failure.message || f.message,
+    ...(failure.candidates?.length ? { candidates: failure.candidates } : {}),
+  };
+}
+
+/** A typed unavailable result. */
+function unavailableClass(cls: FailureClass, detail?: string): DataBridgeResult {
+  const f = makeFailure(cls, detail);
+  return { status: statusForFailure(cls), failureClass: cls, error: f.message };
 }
 
 export async function fetchCapability(
@@ -104,6 +143,8 @@ export async function fetchCapability(
       return news(params);
     case "source_health":
       return sourceHealth();
+    case "coverage":
+      return Promise.resolve(coverageCapability());
     case "live_quote":
       return liveQuote(params);
     case "price_history":
@@ -196,26 +237,83 @@ async function fundamentals(params: Record<string, unknown>): Promise<DataBridge
 }
 
 async function news(params: Record<string, unknown>): Promise<DataBridgeResult> {
-  const query = String(params.query ?? "").toLowerCase().trim();
-  const where = query
-    ? { OR: [{ headline: { contains: query } }, { summary: { contains: query } }] }
-    : {};
-  const items = await prisma.newsItem.findMany({
-    where,
-    orderBy: { timestamp: "desc" },
-    take: 10,
-  });
+  const query = String(params.query ?? "").trim();
+  const q = query.toLowerCase();
+
+  // 1. The vault (stored headlines). A hit here is the fast path.
+  try {
+    const where = q
+      ? { OR: [{ headline: { contains: q } }, { summary: { contains: q } }] }
+      : {};
+    const items = await prisma.newsItem.findMany({
+      where,
+      orderBy: { timestamp: "desc" },
+      take: 10,
+    });
+    if (items.length > 0) {
+      return {
+        status: "OK",
+        sourceKind: "vault",
+        items: items.map((i) => ({
+          source: i.source,
+          headline: i.headline,
+          summary: i.summary,
+          sentiment: i.sentiment,
+          url: i.url,
+          timestamp: i.timestamp.toISOString(),
+        })),
+      };
+    }
+  } catch (err) {
+    // A vault read failure is a SOURCE FAILURE, not "no news" (C2/B2). Try the
+    // web path, but if that also fails the class must say failure.
+    console.error("[data-bridge] news vault read failed:", err);
+  }
+
+  // 2. Fall through to the shared web-research transport. An empty vault is NOT
+  // "nothing happened" — the agent must see real retrieval results or an
+  // explicit failure, never a false negative (C2).
+  if (q) {
+    try {
+      const results = await webSearch(`${query} news`);
+      if (results.length > 0) {
+        return {
+          status: "OK",
+          sourceKind: "web",
+          items: results.slice(0, 10).map((r) => ({
+            source: extractHostname(r.url),
+            headline: r.title,
+            summary: r.snippet,
+            sentiment: null,
+            url: r.url,
+            timestamp: r.publishedAt ?? null,
+          })),
+        };
+      }
+    } catch (err) {
+      return unavailableClass(
+        "source_failure",
+        `news vault empty and web retrieval failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Vault reachable, web reachable, genuinely nothing matched → covered-but-empty.
   return {
     status: "OK",
-    items: items.map((i) => ({
-      source: i.source,
-      headline: i.headline,
-      summary: i.summary,
-      sentiment: i.sentiment,
-      url: i.url,
-      timestamp: i.timestamp.toISOString(),
-    })),
+    failureClass: "no_data",
+    sourceKind: q ? "web+vault" : "vault",
+    items: [],
   };
+}
+
+/** Display hostname for a URL, best-effort. */
+function extractHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "web";
+  }
 }
 
 async function sourceHealth(): Promise<DataBridgeResult> {
@@ -224,16 +322,37 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     _sum: { successCount: true, failCount: true },
     _max: { lastStatus: true },
   });
-  return {
-    status: "OK",
-    rows: rows.map((r) => ({
+  // Derive per-source confidence from real history rather than asserting it
+  // uniformly (C3). A source with no recorded run is `unknown`, never "healthy".
+  const shaped = rows.map((r) => {
+    const success = r._sum.successCount ?? 0;
+    const fail = r._sum.failCount ?? 0;
+    const total = success + fail;
+    const health =
+      total === 0 ? "unknown"
+        : fail === 0 ? "healthy"
+        : success === 0 ? "failing"
+        : "degraded";
+    return {
       source: r.source,
       market: r.market,
-      success: r._sum.successCount ?? 0,
-      fail: r._sum.failCount ?? 0,
+      success,
+      fail,
+      total,
       lastStatus: r._max.lastStatus,
-    })),
-  };
+      health,
+      successRate: total === 0 ? null : Math.round((success / total) * 100) / 100,
+    };
+  });
+  if (shaped.length === 0) {
+    return { status: "OK", failureClass: "no_data", rows: [] };
+  }
+  return { status: "OK", rows: shaped };
+}
+
+/** The declared coverage registry, so the system can answer "what do we cover?". */
+function coverageCapability(): DataBridgeResult {
+  return { status: "OK", rows: coverageSummary() };
 }
 
 // ── Live structured providers (Phase 2) ─────────────────────────────────────
@@ -242,22 +361,28 @@ async function sourceHealth(): Promise<DataBridgeResult> {
 
 async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
-  if (!symbol) return unavailable("symbol is required");
+  if (!symbol) return unavailableClass("invalid_request", "symbol is required");
   const rawMarket = params.market;
 
-  const resolved = await resolveBridgeInstrument(symbol, rawMarket);
+  const resolved = await resolveBridgeInstrument(symbol, rawMarket, termsFromParams(params));
   if (!resolved.ok) return identityFailureResult(resolved.failure);
   const { identity } = resolved;
 
   try {
     const result = await fetchQuoteWithFallback(identity.symbol, identity.market);
     if (result.status !== "ok" || !result.quote) {
-      return unavailable(result.error || `no live quote for ${identity.symbol} (${result.status})`);
+      // A provider that ran but returned nothing is `no_data`; a transport
+      // failure is `source_failure`. Never conflate the two (B2).
+      const cls: FailureClass =
+        result.status === "network_error" || result.status === "timeout"
+          ? "source_failure"
+          : "no_data";
+      return unavailableClass(cls, result.error);
     }
 
-    // The provider must have answered for the SAME instrument. A currency (or
-    // explicit market) disagreement means it priced something else — discard it
-    // rather than return a confidently wrong number.
+    // The provider must have answered for the SAME instrument. A currency or
+    // venue disagreement means it priced something else — discard it rather
+    // than return a confidently wrong number (A1/A2/A7).
     const verified = verifyProviderIdentity(identity, {
       market: result.quote.market ?? identity.market,
       currency: result.quote.currency,
@@ -280,11 +405,14 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
         changePct: q.changePct,
         volume: q.volume ?? null,
         marketCap: q.marketCap ?? null,
+        // A price is a number with a unit, not a bare number (A7).
+        currency: identity.currency,
+        units: "per-share",
       },
       asOf: new Date().toISOString(),
     };
   } catch (err) {
-    return unavailable(err instanceof Error ? err.message : "live quote failed");
+    return unavailableClass("source_failure", err instanceof Error ? err.message : "live quote failed");
   }
 }
 

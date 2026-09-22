@@ -12,12 +12,16 @@ const fetchWebPage = vi.fn();
 // the bridge needs the asset lookup. Tests seed one unambiguous US instrument.
 const assetFindMany = vi.fn();
 const assetFindFirst = vi.fn();
+const newsFindMany = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     asset: {
       findMany: (...a: unknown[]) => assetFindMany(...a),
       findFirst: (...a: unknown[]) => assetFindFirst(...a),
+    },
+    newsItem: {
+      findMany: (...a: unknown[]) => newsFindMany(...a),
     },
   },
 }));
@@ -59,6 +63,8 @@ beforeEach(() => {
   fetchWebPage.mockReset();
   assetFindMany.mockReset();
   assetFindFirst.mockReset();
+  newsFindMany.mockReset();
+  newsFindMany.mockResolvedValue([]);
   // A single, unambiguous US instrument so identity resolution succeeds.
   assetFindMany.mockResolvedValue([
     { symbol: "AAPL", name: "Apple Inc.", securityType: "Stock", market: { country: "US" } },
@@ -158,5 +164,41 @@ describe("fetchCapability â€” web research (shared transport)", () => {
     fetchWebPage.mockResolvedValue(null);
     const result = await fetchCapability("web_fetch", { url: "https://x" });
     expect(result.status).toBe("UNAVAILABLE");
+  });
+});
+
+describe("fetchCapability — news (C2: no false negatives)", () => {
+  it("falls through to web when the vault is empty and returns real items", async () => {
+    newsFindMany.mockResolvedValue([]);
+    webSearch.mockResolvedValue([{ title: "FFC news", url: "https://x.com/a", snippet: "s", publishedAt: null }]);
+    const result = await fetchCapability("news", { query: "Pakistan fertilizer" });
+    expect(result.status).toBe("OK");
+    expect(result.sourceKind).toBe("web");
+    expect((result.items as unknown[]).length).toBe(1);
+  });
+
+  it("reports a source failure, never an empty result, when retrieval errors", async () => {
+    newsFindMany.mockResolvedValue([]);
+    webSearch.mockRejectedValue(new Error("network down"));
+    const result = await fetchCapability("news", { query: "anything" });
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.failureClass).toBe("source_failure");
+  });
+
+  it("returns no_data (not a failure) when sources are reachable but empty", async () => {
+    newsFindMany.mockResolvedValue([]);
+    webSearch.mockResolvedValue([]);
+    const result = await fetchCapability("news", { query: "zzz" });
+    expect(result.status).toBe("OK");
+    expect(result.failureClass).toBe("no_data");
+    expect((result.items as unknown[]).length).toBe(0);
+  });
+});
+
+describe("fetchCapability — coverage (C1)", () => {
+  it("returns the declared coverage registry", async () => {
+    const result = await fetchCapability("coverage", {});
+    expect(result.status).toBe("OK");
+    expect((result.rows as unknown[]).length).toBeGreaterThan(20);
   });
 });

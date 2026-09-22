@@ -43,6 +43,30 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **Retrieval — uniform failure contract, declared coverage, terms-aware identity
+  (sections A2–A8, B, C)** — The same underlying miss behaved differently across
+  tools; a false "no news" shipped where the truth was an infrastructure miss.
+  • **Failure taxonomy** (`lib/harness/failure.ts`): one vocabulary — ambiguous /
+  market_unknown / not_found / currency_mismatch / venue_mismatch / terms_missing
+  / not_covered / no_data / source_failure / incomplete / conflict /
+  invalid_request — with message text *derived* from the class (B1/B2). `no_data`
+  (covered-but-empty) is distinct from `source_failure` and `not_covered`.
+  • **Venue is authoritative** (A2): `verifyProviderIdentity` rejects a currency
+  OR venue mismatch; an unmappable provider venue is itself a failure. Fallback
+  never crosses an identity boundary. • **Terms-aware identity** (A5/A6):
+  derivatives need expiry/strike/right and fixed income needs maturity/coupon/
+  seniority — otherwise `terms_missing` (UNAVAILABLE). • **Currency+units on every
+  numeric payload** (A7). • **Declared coverage registry** (`lib/harness/
+  coverage.ts`): queryable via a new `coverage` capability/tool; unregistered
+  market/asset class → `not_covered` (C1). • **get_news fall-through** (C2): vault
+  → shared web transport; source failure is never phrased as "no news".
+  • **Source health derived** (C3): healthy/degraded/failing/unknown + success
+  rate, so confidence is earned, not asserted. Verified live: `get_news("Pakistan
+  fertilizer FFC")` now returns real web items (was "No news found"); agent flags
+  a stale-vs-primary quote contradiction instead of picking one.
+  Tests: vitest 1572, pytest 91; tsc clean.
+  docs updated: `docs/DECISIONS.md` (ADR-021), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
 - **Retrieval — canonical instrument identity + failure contract (fixes FFC/PSX
   returning a US fund's price)** — A ticker string was treated as an instrument
   identity. `market_get_quote("FFC", market="PSX")` returned a US closed-end

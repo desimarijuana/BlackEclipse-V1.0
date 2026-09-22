@@ -1,0 +1,106 @@
+// ─── Declared coverage registry (C1) ────────────────────────────────────────
+// Coverage is DATA, not implicit code paths. Before this, a non-US macro series
+// was routed to a US-only backend and the routing was hidden in control flow.
+// Now the system can answer "which venues / currencies / asset classes do we
+// cover, and by what source?" — and an unregistered request returns
+// `not_covered` instead of guessing a source.
+//
+// This registry is the single place coverage is declared. Adding a source or a
+// market is a data change here, mirrored by the actual provider capabilities.
+
+import { MARKET_CURRENCY_ISO } from "../markets";
+import type { AssetClass } from "../instrument-identity";
+
+export interface CoverageEntry {
+  /** Canonical market id. */
+  market: string;
+  /** ISO 4217 currency of instruments in this market. */
+  currency: string;
+  /** Asset classes this system has a data path for in this market. */
+  assetClasses: AssetClass[];
+  /** The source ids that can serve structured data here. */
+  sources: string[];
+  /**
+   * Data types the structured path can serve. Web/news research is separate and
+   * applies wherever a web path exists (it does not make a market "covered" for
+   * precise quantitative data — see the retrieval layer's WEB exclusion rules).
+   */
+  dataTypes: string[];
+}
+
+/** Asset classes every covered equity market supports by default. */
+const EQUITY_CLASSES: AssetClass[] = ["equity", "etf", "fund"];
+/** Crypto markets support crypto + derivatives on crypto. */
+const CRYPTO_CLASSES: AssetClass[] = ["crypto"];
+
+/**
+ * The declared registry. `sources` names the retrieval-layer source ids
+ * (`JDDS`, `LIVE_STRUCTURED`) — never a provider (yfinance/TradingView), which
+ * are implementation details behind `LIVE_STRUCTURED`.
+ */
+const STRUCTURED_DEFAULT = ["JDDS", "LIVE_STRUCTURED"];
+const STRUCTURED_TYPES = ["current_quote", "historical_prices", "company_profile", "financial_statements"];
+const MACRO_TYPES = ["macro_series"];
+
+function entry(market: string, assetClasses: AssetClass[], dataTypes: string[]): CoverageEntry {
+  return {
+    market,
+    currency: MARKET_CURRENCY_ISO[market] ?? "USD",
+    assetClasses,
+    sources: STRUCTURED_DEFAULT,
+    dataTypes,
+  };
+}
+
+export const COVERAGE: Record<string, CoverageEntry> = {
+  US: entry("US", [...EQUITY_CLASSES, "debt", "index", "derivative"], [...STRUCTURED_TYPES, ...MACRO_TYPES]),
+  PK: entry("PK", [...EQUITY_CLASSES, "debt"], STRUCTURED_TYPES),
+  IN: entry("IN", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  CN: entry("CN", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  TW: entry("TW", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  HK: entry("HK", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  JP: entry("JP", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  KR: entry("KR", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  SG: entry("SG", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  MY: entry("MY", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  AU: entry("AU", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  UK: entry("UK", [...EQUITY_CLASSES, "index"], STRUCTURED_TYPES),
+  DE: entry("DE", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  FR: entry("FR", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  NL: entry("NL", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  CA: entry("CA", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  BR: entry("BR", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  MX: entry("MX", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  SA: entry("SA", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  AE: entry("AE", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  ZA: entry("ZA", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  EG: entry("EG", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  NG: entry("NG", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  RU: entry("RU", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  TR: entry("TR", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  ID: entry("ID", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  TH: entry("TH", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  VN: entry("VN", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  CRYPTO: entry("CRYPTO", CRYPTO_CLASSES, ["current_quote", "historical_prices"]),
+};
+
+/** Is there declared coverage for this market + asset class? */
+export function isCovered(market: string, assetClass: AssetClass): boolean {
+  const c = COVERAGE[market];
+  return Boolean(c && c.assetClasses.includes(assetClass));
+}
+
+/** The declared coverage entry for a market, or null when none. */
+export function coverageFor(market: string): CoverageEntry | null {
+  return COVERAGE[market] ?? null;
+}
+
+/** A queryable summary of what the system covers (for a coverage tool/surface). */
+export function coverageSummary(): { market: string; currency: string; assetClasses: AssetClass[]; sources: string[] }[] {
+  return Object.values(COVERAGE).map((c) => ({
+    market: c.market,
+    currency: c.currency,
+    assetClasses: c.assetClasses,
+    sources: c.sources,
+  }));
+}

@@ -15,6 +15,7 @@ const CAPABILITIES: DataCapability[] = [
   "fundamentals",
   "news",
   "source_health",
+  "coverage",
   "live_quote",
   "price_history",
   "macro_series",
