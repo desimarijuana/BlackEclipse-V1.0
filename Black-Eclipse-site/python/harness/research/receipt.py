@@ -43,6 +43,10 @@ class EvidenceRef(BaseModel):
     unit: Optional[str] = None
     validationStatus: Optional[str] = None
     sourceSpan: Optional[str] = None
+    # Phase 6 (additive): the filing/document identity when the source supplied
+    # one (e.g. "10-K|2026-02-25|2025-01-26"), so a reported fact traces to a
+    # specific document. Composed only from source-provided fields.
+    documentId: Optional[str] = None
 
 
 class ResearchReceipt(BaseModel):
@@ -63,6 +67,11 @@ class ResearchReceipt(BaseModel):
     # explains which source paths were attempted and whether the budget ran out.
     escalation: Optional[dict[str, Any]] = None
     budget: Optional[dict[str, Any]] = None
+    # Phase 6 (additive): per-leg retrieval status + structured diagnostics, and
+    # why the loop stopped (resolved / budget / provider routes unavailable /
+    # unresolved facts remain). Both optional so older receipts stay valid.
+    legStatus: list[dict[str, Any]] = Field(default_factory=list)
+    stopReason: Optional[str] = None
     finalStatus: str = "rejected"
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -84,6 +93,8 @@ def build_receipt(
     as_of: Optional[str] = None,
     budget: Optional[dict[str, Any]] = None,
     escalation: Optional[dict[str, Any]] = None,
+    leg_status: Optional[list[dict[str, Any]]] = None,
+    stop_reason: Optional[str] = None,
 ) -> ResearchReceipt:
     """Assemble a receipt from the run's decision objects.
 
@@ -158,6 +169,8 @@ def build_receipt(
         repair=repair,
         escalation=escalation,
         budget=budget,
+        legStatus=leg_status or [],
+        stopReason=stop_reason,
         finalStatus=status,
         provider=provider,
         model=model,
@@ -197,6 +210,7 @@ def _evidence_ref(item: Any) -> EvidenceRef:
         unit=getattr(obj, "unit", None) if obj else None,
         validationStatus=getattr(source, "validationStatus", None) if source else None,
         sourceSpan=(extraction.get("sourceSpan") or None) if extraction else None,
+        documentId=getattr(obj, "documentId", None) if obj else None,
         # A stable, content+provenance-sensitive digest (not the salted built-in
         # hash, and not merely the id) so the same fact is reproducible across
         # processes and different facts differ.

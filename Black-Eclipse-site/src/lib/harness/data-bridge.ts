@@ -12,7 +12,16 @@ import { fetchQuoteWithFallback } from "@/lib/scraper/fetchers";
 import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
 import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
-import { webSearch, fetchWebPage } from "@/lib/web-research";
+import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
+import {
+  CustomJsonSearchProvider,
+  resolveSearchProviders,
+  type CustomSearchConfig,
+  type SearchProvider,
+} from "@/lib/web-search";
+import type { RetrievalDiagnostic } from "@/lib/retrieval-diagnostics";
+import { resolveProviderKey } from "@/lib/provider-keys";
+import { fetchSecCompanyFacts } from "@/lib/fundamentals/providers/sec-edgar";
 import {
   resolveInstrument,
   verifyProviderIdentity,
@@ -349,10 +358,14 @@ export async function fetchCapability(
       return fundamentals(params);
     case "financial_statements":
       return financialStatements(params);
+    case "sec_filings":
+      return secFilings(params);
     case "news":
       return news(params);
     case "source_health":
       return sourceHealth();
+    case "research_health":
+      return researchHealth();
     case "coverage":
       return Promise.resolve(coverageCapability());
     case "live_quote":
@@ -532,12 +545,14 @@ async function news(params: Record<string, unknown>): Promise<DataBridgeResult> 
   // explicit failure, never a false negative (C2).
   if (q) {
     try {
-      const results = await webSearch(`${query} news`);
-      if (results.length > 0) {
+      const outcome = await searchWeb(`${query} news`);
+      if (outcome.results.length > 0) {
         return {
           status: "OK",
           sourceKind: "web",
-          items: results.slice(0, 10).map((r) => ({
+          searchProvider: outcome.provider,
+          diagnostics: outcome.diagnostics,
+          items: outcome.results.slice(0, 10).map((r) => ({
             source: extractHostname(r.url),
             headline: r.title,
             summary: r.snippet,
@@ -546,6 +561,14 @@ async function news(params: Record<string, unknown>): Promise<DataBridgeResult> 
             timestamp: r.publishedAt ?? null,
           })),
         };
+      }
+      // The search transport FAILED (not merely empty): that is a source failure,
+      // never a false "no news".
+      if (outcome.diagnostics.some((d) => d.normalizedStatus === "failed")) {
+        return unavailableClass(
+          "source_failure",
+          `news vault empty and web search failed: ${describeDiagnostics(outcome.diagnostics)}`,
+        );
       }
     } catch (err) {
       return unavailableClass(
@@ -901,19 +924,199 @@ function macroResolve(params: Record<string, unknown>): DataBridgeResult {
 
 // ── Web research (shared transport; no second search system) ────────────────
 
+/** Resolve the operator-configured search provider from the settings vault. */
+async function resolveCustomSearchProvider(): Promise<SearchProvider | null> {
+  let raw: string | null = null;
+  try {
+    raw = await resolveProviderKey("SEARCH_API_CONFIG");
+  } catch {
+    return null;
+  }
+  if (!raw || !raw.trim()) return null;
+  let parsed: Partial<CustomSearchConfig>;
+  try {
+    parsed = JSON.parse(raw) as Partial<CustomSearchConfig>;
+  } catch {
+    return null;
+  }
+  if (!parsed.url) return null;
+  let apiKey: string | null = null;
+  try {
+    apiKey = await resolveProviderKey("SEARCH_API_KEY");
+  } catch {
+    apiKey = null;
+  }
+  return new CustomJsonSearchProvider({
+    url: parsed.url,
+    apiKey,
+    authKind: parsed.authKind ?? "query",
+    authParam: parsed.authParam ?? "key",
+    resultsPath: parsed.resultsPath ?? "results",
+    titlePath: parsed.titlePath ?? "title",
+    urlPath: parsed.urlPath ?? "url",
+    snippetPath: parsed.snippetPath ?? "snippet",
+  });
+}
+
+/** A concise, user-safe summary of a set of diagnostics. */
+function describeDiagnostics(diagnostics: RetrievalDiagnostic[]): string {
+  return diagnostics
+    .map((d) => `${d.provider}: ${d.category}${d.detail ? ` (${d.detail})` : ""}`)
+    .join("; ");
+}
+
 async function webSearchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const query = String(params.query ?? "").trim();
-  if (!query) return unavailable("query is required");
+  if (!query) return unavailableClass("invalid_request", "query is required");
   const limit = Number(params.limit ?? 8);
-  const results = await webSearch(query, Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 15) : 8);
-  if (results.length === 0) return unavailable("no results");
-  return { status: "OK", query, results };
+  const bounded = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 15) : 8;
+  const custom = await resolveCustomSearchProvider();
+  const providers = await resolveSearchProviders(custom);
+  const outcome = await searchWeb(query, bounded, providers);
+  if (outcome.results.length === 0) {
+    // Zero results is NOT the same as a transport failure: report the class and
+    // the per-provider diagnostics so the caller can tell them apart.
+    const allFailed = outcome.diagnostics.every((d) => d.normalizedStatus === "failed");
+    return {
+      status: "UNAVAILABLE",
+      failureClass: allFailed ? "source_failure" : "no_data",
+      error: allFailed
+        ? `web search failed: ${describeDiagnostics(outcome.diagnostics)}`
+        : "the search provider returned no results",
+      diagnostics: outcome.diagnostics,
+    };
+  }
+  return {
+    status: "OK",
+    query,
+    provider: outcome.provider,
+    diagnostics: outcome.diagnostics,
+    results: outcome.results,
+  };
 }
 
 async function webFetchCapability(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const url = String(params.url ?? "").trim();
-  if (!url) return unavailable("url is required");
-  const page = await fetchWebPage(url);
-  if (!page) return unavailable("page could not be retrieved or was not usable HTML");
-  return { status: "OK", url: page.url, title: page.title, text: page.text, bytes: page.bytes };
+  if (!url) return unavailableClass("invalid_request", "url is required");
+  const outcome = await fetchWebPageDetailed(url);
+  if (!outcome.page) {
+    const d = outcome.diagnostic;
+    const cls =
+      d.category === "timeout" || d.category === "transport_error" || d.category === "http_error"
+        ? "source_failure"
+        : d.category === "invalid_request"
+          ? "invalid_request"
+          : "no_data";
+    return {
+      status: "UNAVAILABLE",
+      failureClass: cls,
+      error: d.detail || "page could not be retrieved",
+      diagnostics: [d],
+    };
+  }
+  return {
+    status: "OK",
+    url: outcome.page.url,
+    title: outcome.page.title,
+    text: outcome.page.text,
+    bytes: outcome.page.bytes,
+    diagnostics: [outcome.diagnostic],
+  };
+}
+
+// ── SEC filings (independent primary-source route for US issuers) ────────────
+
+/**
+ * Direct SEC company-facts retrieval for a US issuer. This is an INDEPENDENT
+ * route from the JDdS vault: it reaches `data.sec.gov` through the existing SEC
+ * adapter (no second SEC implementation) and returns normalized statement periods
+ * with filing provenance. The Python research layer normalizes this into
+ * `financial_statements` objects; the JDdS vault remains a separate source.
+ */
+async function secFilings(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const symbol = String(params.symbol ?? "").trim().toUpperCase();
+  if (!symbol) return unavailableClass("invalid_request", "symbol is required");
+  const market = String(params.market ?? "US").trim().toUpperCase();
+  if (market !== "US") {
+    return unavailableClass(
+      "not_covered",
+      `SEC EDGAR covers US issuers only; "${market}" is not supported by this route`,
+    );
+  }
+  // Shared identity gate — the SAME one financial_statements/live_quote use, so
+  // a bare/two-listed ticker cannot be silently answered for the wrong issuer.
+  const resolved = await resolveVaultInstrument(symbol, params.market, false);
+  if (!resolved.ok) return identityFailureResult(resolved.failure);
+  const { identity } = resolved;
+  try {
+    const facts = await fetchSecCompanyFacts(identity.symbol, identity.market);
+    if (!facts || facts.periods.length === 0) {
+      return unavailableClass("no_data", `SEC EDGAR returned no statement periods for ${identity.symbol}`);
+    }
+    return {
+      status: "OK",
+      symbol: identity.symbol,
+      market: identity.market,
+      currency: facts.currency ?? identity.currency ?? "USD",
+      instrumentId: `${identity.market}:${identity.symbol}`,
+      provider: facts.provider,
+      retrievedAt: facts.retrievedAt,
+      company: facts.company,
+      periods: facts.periods,
+      cik: null,
+    };
+  } catch (err) {
+    return unavailableClass(
+      "source_failure",
+      `SEC EDGAR retrieval failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+// ── Research source health (which capability is failing) ─────────────────────
+
+/**
+ * A bounded health probe for every research retrieval capability, so an operator
+ * can see which route is broken WITHOUT running a research task. Each probe is
+ * cheap, SSRF-safe, and reports a structured diagnostic. Never returns a value.
+ */
+async function researchHealth(): Promise<DataBridgeResult> {
+  const checks: RetrievalDiagnostic[] = [];
+
+  // 1. Web search — one query against the configured provider set.
+  const custom = await resolveCustomSearchProvider();
+  const providers = await resolveSearchProviders(custom);
+  const search = await searchWeb("BlackEclipse research health probe", 3, providers);
+  checks.push(...search.diagnostics);
+
+  // 2. Web fetch — a stable, permitted JSON document (the SEC ticker map host).
+  const fetchProbe = await fetchWebPageDetailed("https://www.sec.gov/files/company_tickers.json");
+  checks.push(fetchProbe.diagnostic);
+
+  // 3. SEC direct — a cheap CIK-map reachability check via the adapter's host.
+  const secProbe = await fetchWebPageDetailed(
+    "https://data.sec.gov/api/xbrl/companyconcept/CIK0000320193/us-gaap/Revenues.json"
+  );
+  checks.push({ ...secProbe.diagnostic, provider: "sec-xbrl", tier: "primary" as const });
+
+  const capability = (d: RetrievalDiagnostic) => ({
+    capability: d.capability,
+    provider: d.provider,
+    tier: d.tier,
+    ok: d.normalizedStatus === "ok",
+    category: d.category,
+    httpStatus: d.httpStatus,
+    latencyMs: d.latencyMs,
+    detail: d.detail,
+  });
+
+  const rows = checks.map(capability);
+  const healthy = rows.length > 0 && rows.every((r) => r.ok);
+  return {
+    status: "OK",
+    healthy,
+    checkedAt: new Date().toISOString(),
+    // Per-capability rows so a caller can name WHICH capability failed.
+    rows,
+  };
 }

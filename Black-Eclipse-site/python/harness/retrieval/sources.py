@@ -35,6 +35,30 @@ class SourceOutcome:
     cached: bool = False
     error: Optional[str] = None
     latencyMs: int = 0
+    # Phase 6 (additive): structured diagnostics from the transport/provider. A
+    # failed attempt carries WHY it failed (category, http status, timeout,
+    # retryability) so the research loop can retry transient errors, switch to an
+    # independent provider, and explain the gap without guessing.
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    # Phase 6: how many times this source was retried within the run (bounded).
+    retries: int = 0
+
+
+def outcome_diagnostics(outcome: SourceOutcome) -> list[dict[str, Any]]:
+    """The diagnostics a source recorded, or a synthesised one from its error."""
+    if outcome.diagnostics:
+        return list(outcome.diagnostics)
+    if outcome.error:
+        return [
+            {
+                "provider": outcome.source,
+                "category": "provider_failure",
+                "normalizedStatus": "failed",
+                "retryable": False,
+                "detail": str(outcome.error),
+            }
+        ]
+    return []
 
 
 @runtime_checkable

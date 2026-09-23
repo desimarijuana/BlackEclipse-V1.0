@@ -164,20 +164,35 @@ async def maybe_run_research(
         "validation": outcome.validation.model_dump() if outcome.validation else None,
         "escalation": outcome.escalation,
         "budget": outcome.budget,
+        "legStatus": outcome.legStatus,
+        "stopReason": outcome.stopReason,
     }
 
 
+# Human-readable label per stop reason, so the answer explains why it ended.
+_STOP_REASON_TEXT = {
+    "all_required_legs_resolved": "every required fact was resolved from verified evidence",
+    "budget_exhausted": "the research budget was exhausted before every fact was resolved",
+    "provider_routes_unavailable": "every available source route failed or was unavailable",
+    "unresolved_facts_remain": "some required facts remain unresolved",
+}
+
+
 def _render_answer(outcome: Any) -> str:
-    """Render the validated answer with a compact evidence/limitation footer."""
+    """Render the validated answer with a compact evidence/limitation footer.
+
+    The response always reports every independently verified fact it has, names
+    the source routes tried and why they failed, and states exactly what remains
+    unresolved — it never collapses to a bare "I can't find it" when some facts
+    were established.
+    """
     lines: list[str] = []
     if outcome.prose:
         lines.append(outcome.prose)
     elif outcome.coverage.status == "rejected":
         lines.append("No usable evidence was retrieved, so no factual answer can be established.")
 
-    limitations = []
-    if outcome.metadata is not None:
-        limitations = outcome.metadata.limitations
+    limitations = outcome.metadata.limitations if outcome.metadata is not None else []
     if limitations:
         lines.append("")
         lines.append("Limitations:")
@@ -193,7 +208,40 @@ def _render_answer(outcome: Any) -> str:
                 lines.append(f"- [{citation.evidenceId}] {label} — {citation.url}")
             else:
                 lines.append(f"- [{citation.evidenceId}] {label}")
+
+    # Source routes tried and why they failed, in concise user-facing language.
+    failed = _failed_routes(outcome)
+    if failed:
+        lines.append("")
+        lines.append("Sources tried (failed):")
+        lines.extend(f"- {row}" for row in failed[:8])
+
+    if outcome.stopReason:
+        text = _STOP_REASON_TEXT.get(outcome.stopReason, outcome.stopReason)
+        lines.append("")
+        lines.append(f"Stopped because: {text}.")
     return "\n".join(lines).strip()
+
+
+def _failed_routes(outcome: Any) -> list[str]:
+    """Concise 'route — reason' lines for every provider attempt that failed."""
+    rows: list[str] = []
+    for leg in getattr(outcome, "legStatus", []) or []:
+        for diagnostic in leg.get("diagnostics") or []:
+            if diagnostic.get("normalizedStatus") != "failed":
+                continue
+            provider = diagnostic.get("provider") or "source"
+            category = diagnostic.get("category") or "failure"
+            detail = diagnostic.get("detail") or ""
+            rows.append(f"{provider} — {category}{f': {detail}' if detail else ''}")
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for row in rows:
+        if row not in seen:
+            seen.add(row)
+            out.append(row)
+    return out
 
 
 __all__ = ["maybe_run_research"]

@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-21
+last-verified: 2026-09-23
 ---
 
 # Harness Architecture
@@ -68,9 +68,12 @@ Two boundaries, both deliberate:
 ### Agents and prompts are Python-authoritative
 
 The default agent is **Eclipse Agent** (`id: eclipse-agent`), the platform's
-general-purpose financial intelligence / orchestration identity. Its system
-prompt lives in `python/harness/prompts.py` as `ECLIPSE_AGENT_SYSTEM_PROMPT` and
-is composed into an `AgentConfig` in `agents.py`.
+general-purpose financial intelligence identity. Its system prompt lives in
+`python/harness/prompts.py` as `ECLIPSE_AGENT_SYSTEM_PROMPT` and is composed
+into an `AgentConfig` in `agents.py`. The prompt sets finance-specific standards
+for source quality, point-in-time evidence, quantitative comparability, risk,
+and capability honesty; the registered tool allowlist remains the actual
+execution boundary.
 
 The front door does **not** carry a prompt copy. It sends only `agentId`, and
 `resolve_agent()` in `graph.py` resolves the full `AgentConfig` (prompt + tool
@@ -95,9 +98,10 @@ tool → Financial Retrieval Layer → planner (task-aware source selection)
 | `contract.py` | the provider-agnostic request/result/evidence models |
 | `policies.py` | per-data-type freshness + cache TTL + tier trust ranks |
 | `sources.py` | the `RetrievalSource` contract every provider implements |
-| `structured.py` | JDdS (vault) + live structured providers (yfinance etc.) |
+| `structured.py` | JDdS (vault) + live structured providers (yfinance etc.) + the direct SEC filings source |
 | `web.py` | first-class web research (search → rank → retrieve → evidence) |
-| `normalize.py` | provider payloads → one `NormalizedFinancialObject` |
+| `normalize.py` | provider payloads → one `NormalizedFinancialObject` (preserves filing identity) |
+| `retry.py` | bounded retry with backoff for transient — never permanent — source failures |
 | `cache.py` | TTL cache + in-flight deduplication |
 | `parallel.py` | concurrency, per-task timeout, error isolation, cancellation |
 | `validate.py` | valid / warning / invalid / unknown (negative earnings stay valid) |
@@ -147,36 +151,68 @@ objective → mandate → per-leg retrieval → coverage → structured claims
 | `ids.py` | stable SHA-256 content digests for evidence/calculation identifiers |
 | `synthesis.py` | the bounded, tool-less `ModelSynthesizer` (mandate + evidence packet + coverage only) |
 | `supersession.py` | source-grounded, cycle-checked restatement chains |
-| `eval/` | the versioned, human-labeled semantic-support + escalation sets + runners |
+| `eval/` | the versioned, human-labeled semantic-support + escalation sets + runners, and the NVDA labeled regression (`nvda.py`, `dataset_nvda_v1.json`) |
 | `budget.py` | the bounded search/fetch/page/time/token budget + exhaustion record |
 | `web_facts.py` | span-anchored deterministic extraction/validation of web facts |
 | `escalation.py` | bounded structured → primary-web → secondary-web escalation |
-| `run.py` | live-chat integration: routes a supported comparison into the gate before the agent graph |
-| `receipt.py` | the bounded `ResearchReceipt` |
+| `run.py` | live-chat integration: routes a supported comparison into the gate before the agent graph; renders the keep-going answer |
+| `receipt.py` | the bounded `ResearchReceipt` (carries per-leg diagnostics + stop reason + filing identity) |
 | `engine.py` | the orchestration over an injected `retrieve` callable |
+| `smoke.py` | operator-triggered live network smoke checks (never in the default suite) |
 
-### Retrieval escalation (Phase 5)
+### Retrieval escalation (Phase 5) and resilient multi-source research (Phase 6)
 
-Structured sources stay the preferred path. When structured retrieval is empty,
-stale, missing a requested period, or lacks required metadata, `engine.py`
-escalates each still-unsatisfied leg through a fixed source hierarchy:
+Structured sources stay the preferred path, but they are no longer the only one.
+`retrieval/planner.py` is the explicit, testable source policy; for
+`financial_statements` it is:
 
 ```
-structured (JDdS vault / live provider)
-  → primary-source web  (SEC, company IR, regulators)
+SEC EDGAR (direct filing/XBRL, tier primary, US issuers)
+  → JDDS (the structured vault)
+  → primary-source web  (SEC/company IR/regulators)
   → reputable secondary web (bounded)
 ```
 
-Escalation is targeted (only the unsatisfied legs), bounded by one `ResearchBudget`,
-and every numeric fact must pass `web_facts.validate_fact`: its page must have
-been fetched in this run, the cited `sourceSpan` must be a verbatim quote from
-that page, the value must appear in the span, the span must not state a different
-fiscal period, and metric/period/currency/basis must match the mandate leg.
-Page text is untrusted — an instruction in a page is never a fact. Structured
-legs escalate only when they are `unavailable` / `no_matching_period` / `stale` /
-`unknown` / `qualified`. A missing consolidation basis yields a `qualified` leg
-(the value is present, the basis is disclosed as unconfirmed), never a hard
-failure or a silent inference.
+The SEC route (`SecFilingsSource` → the `sec_filings` bridge capability → the
+existing `sec-edgar` adapter) is independent of the vault and of the search
+transport, and routes through the **shared identity gate** so a bare ticker
+cannot answer for the wrong issuer. A second web-search provider is
+operator-configurable through the settings vault (`SEARCH_API_CONFIG` +
+`SEARCH_API_KEY`); the keyless DuckDuckGo HTML provider is always present, and
+each provider is a small isolated adapter (`src/lib/web-search.ts`) that can be
+disabled or replaced independently. There is still exactly one page-fetch
+transport and one market-data bridge.
+
+When structured retrieval is empty, stale, missing a requested period, or lacks
+required metadata, `engine.py` escalates each still-unsatisfied leg through the
+hierarchy. Escalation is targeted (only the unsatisfied legs), bounded by one
+`ResearchBudget`, and every numeric fact must pass `web_facts.validate_fact`: its
+page must have been fetched in this run, the cited `sourceSpan` must be a verbatim
+quote from that page, the value must appear in the span, the span must not state a
+different fiscal period, and metric/period/currency/basis must match the mandate
+leg. Page text is untrusted — an instruction in a page is never a fact. A missing
+consolidation basis yields a `qualified` leg (the value is present, the basis is
+disclosed as unconfirmed), never a hard failure or a silent inference.
+
+**Failure diagnostics.** Every search/fetch attempt records a
+`RetrievalDiagnostic` (`src/lib/retrieval-diagnostics.ts`): provider/transport,
+normalized status, category (`zero_results` vs `transport_error` / `timeout` /
+`blocked` / `http_error` / `content_type_rejected` / `parse_failure` /
+`not_configured` / `invalid_request`), HTTP status, latency, timeout state, result
+count, bytes, parse outcome and retryability. A JSON source document is accepted
+rather than rejected as "not HTML". `retrieval/retry.py` retries only *transient*
+outcomes with bounded deterministic backoff; a permanent failure (blocked,
+unsupported content type) is never retried. The engine preserves per-leg
+retrieval + coverage status + diagnostics and a `stopReason`
+(`all_required_legs_resolved` / `budget_exhausted` / `provider_routes_unavailable`
+/ `unresolved_facts_remain`) on the receipt. A `research_health` capability
+(`get_research_health` tool) probes each route without a research run.
+
+**Keep-going answer.** `run.py` renders every validated fact it has, the source
+routes that failed and why, and the exact unresolved facts — a partial run never
+collapses to a bare "I can't find it" when other legs were verified. Verified
+filing facts carry their document identity (form + filed date + period end) into
+the receipt.
 
 **Live chat.** `execute_run` classifies the objective before building the agent
 graph. An unambiguous single-entity, two-period comparison is routed into the
@@ -232,10 +268,13 @@ Details: [`phase-3-architecture.md`](./phase-3-architecture.md).
 
 ### Web research is one shared system
 
-`src/lib/web-research.ts` is the single search + page-retrieval implementation.
-It backs the `web_search`/`web_fetch` bridge capabilities the retrieval layer
-calls, and the legacy `search_web` agent tool now delegates to it. There is no
-second search system.
+`src/lib/web-research.ts` is the single **page-fetch** implementation and the
+diagnostic facade; `src/lib/web-search.ts` holds the ordered, independent
+**search providers** (keyless DuckDuckGo HTML plus an operator-configured JSON
+API). They back the `web_search`/`web_fetch` bridge capabilities the retrieval
+layer calls, and the legacy `search_web` agent tool delegates to them. There is
+no second page-fetch system and no second data plane; each search provider is a
+small isolated adapter that can be disabled independently.
 
 ### Universal model coverage
 
@@ -320,7 +359,7 @@ market data.
 | `run-service.ts` | resolve agent + vault credentials → call the runtime |
 | `python-runtime.ts` | lazily spawn + health-check the Python service |
 | `python-client.ts` | typed HTTP client for the runtime |
-| `data-bridge.ts` | the read-only JDdS capability accessor |
+| `data-bridge.ts` | the read-only capability accessor (incl. `sec_filings`, `research_health`, diagnostic-carrying `web_search`/`web_fetch`) |
 | `agent-presets.ts` | fetches + caches agent presets from the runtime (no local copy) |
 | `runtime-config.ts`, `runtime-auth.ts` | package probe list, callback secret/base URL |
 | `errors.ts`, `ids.ts` | structured errors, run id |

@@ -102,6 +102,15 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     test: { url: 'https://api.marketstack.com/v1/tickers', auth: { kind: 'query', name: 'access_key' } } },
   { envVar: 'FINANCIALMODELINGPREP_API_KEY', label: 'Financial Modeling Prep', provider: 'Financial Modeling Prep', category: 'market', description: 'Normalized fundamentals, ratios and analyst estimates for the Fundamentals page.', docsUrl: 'https://site.financialmodelingprep.com/developer/docs',
     test: { url: 'https://financialmodelingprep.com/api/v3/quote/AAPL', auth: { kind: 'query', name: 'apikey' } } },
+  // ── Research web search (operator-configurable second provider) ────────────
+  // The keyless DuckDuckGo HTML provider is always present; these two entries let
+  // an operator add ANY JSON search API as an independent second route without a
+  // code change. The config is public (a URL + field mapping); the key is secret.
+  { envVar: 'SEARCH_API_CONFIG', label: 'Custom search API config', provider: 'Web Search', category: 'market', publicValue: true,
+    description:
+      'JSON config for an additional web-search provider used by research. Shape: {"url":"https://api.example.com/search?q={query}&count={limit}","authKind":"query|bearer|header","authParam":"key","resultsPath":"results","titlePath":"title","urlPath":"link","snippetPath":"snippet"}. Absent → only the keyless default search is used.' },
+  { envVar: 'SEARCH_API_KEY', label: 'Custom search API key', provider: 'Web Search', category: 'market', docsUrl: 'https://duckduckgo.com/',
+    description: 'Secret for the custom search API above. Sent per its authKind (query/bearer/header). Not needed for keyless endpoints.' },
 
   // ── Crypto ────────────────────────────────────────────────────────────────
   { envVar: 'COINGECKO_API_KEY', label: 'CoinGecko', provider: 'CoinGecko', category: 'crypto', description: 'Higher rate limits for crypto market data.', docsUrl: 'https://www.coingecko.com/en/developers/dashboard',

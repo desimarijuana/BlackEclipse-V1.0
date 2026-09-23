@@ -38,13 +38,15 @@ from .contract import (
 )
 from .parallel import run_parallel
 from .planner import (
+    SEC_FILINGS,
     STRUCTURED_LIVE,
     STRUCTURED_VAULT,
     WEB,
     plan_retrieval,
 )
-from .sources import RetrievalSource, SourceOutcome
-from .structured import JddsSource, LiveStructuredSource
+from .retry import retrieve_with_retry, DEFAULT_MAX_RETRIES
+from .sources import RetrievalSource, SourceOutcome, outcome_diagnostics
+from .structured import JddsSource, LiveStructuredSource, SecFilingsSource
 from .validate import detect_incomplete, validate_objects
 from .web import WebResearchSource
 
@@ -67,14 +69,17 @@ class FinancialRetrievalLayer:
         cache: Optional[RetrievalCache] = None,
         on_event: Optional[Any] = None,
         store: Optional[Any] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         self._sources: dict[str, RetrievalSource] = {
             STRUCTURED_VAULT: JddsSource(bridge),
             STRUCTURED_LIVE: LiveStructuredSource(bridge),
+            SEC_FILINGS: SecFilingsSource(bridge),
             WEB: WebResearchSource(bridge),
         }
         self.cache = cache or RetrievalCache()
         self._on_event = on_event
+        self._max_retries = max(0, int(max_retries))
         # D1: a durable retrieval store (agent-memory.db). A parsed result is
         # persisted and replayed for an identical request, so the same query
         # yields the same figures and citations instead of re-scraping.
@@ -213,6 +218,7 @@ class FinancialRetrievalLayer:
         """Try planned sources in order; first OK result wins (then validate)."""
         attempts: list[SourceOutcome] = []
         warnings: list[str] = []
+        diagnostics: list[dict[str, Any]] = []
         # Fallback misses are recorded separately and are NOT carried into a
         # successful answer: a live source answering after a vault miss is not a
         # degradation of the result, and warning about it makes a fresh quote
@@ -227,6 +233,7 @@ class FinancialRetrievalLayer:
             await self._emit("retrieval.source_start", {"source": name, "dataType": request.dataType})
             outcome = await self._retrieve_one(source, request)
             attempts.append(outcome)
+            diagnostics.extend(outcome_diagnostics(outcome))
             # AMBIGUOUS is terminal: the ticker does not name one instrument, and
             # no other source can change that. Return it rather than trying a
             # different provider that might guess.
@@ -241,12 +248,14 @@ class FinancialRetrievalLayer:
                     quality="unknown",
                     warnings=warnings + [outcome.error or "instrument identity is ambiguous"],
                     strategy=plan.sources,
+                    diagnostics=diagnostics,
                 )
             if outcome.status == "OK" and (outcome.objects or outcome.evidence):
                 await self._emit("retrieval.source_ok", {"source": name, "objects": len(outcome.objects)})
                 # Only the answering source's own warnings apply to the result.
                 return self._finalize_single(
-                    request, outcome, list(outcome.warnings), plan, fallback_notes
+                    request, outcome, list(outcome.warnings), plan, fallback_notes,
+                    diagnostics=diagnostics,
                 )
             self.metrics["failures"] += 1
             if outcome.error:
@@ -263,6 +272,9 @@ class FinancialRetrievalLayer:
             quality="unknown",
             warnings=fallback_notes + warnings + plan.warnings,
             strategy=plan.sources,
+            # Every attempt is auditable: "the web had nothing" vs "the route is
+            # broken / timed out / was blocked" is now distinguishable.
+            diagnostics=diagnostics,
         )
 
     async def _execute_multi(self, request: FinancialRetrievalRequest, plan: Any) -> FinancialRetrievalResult:
@@ -342,6 +354,7 @@ class FinancialRetrievalLayer:
         warnings: list[str],
         plan: Any,
         fallback_notes: Optional[list[str]] = None,
+        diagnostics: Optional[list[dict[str, Any]]] = None,
     ) -> FinancialRetrievalResult:
         objects = outcome.objects
         _ = fallback_notes  # fallback misses are not degradations of the answer
@@ -436,6 +449,7 @@ class FinancialRetrievalLayer:
             incomplete=incomplete,
             conflicts=conflicts,
             provenanceVerified=provenance_verified,
+            diagnostics=diagnostics or [],
         )
         # Cache only successful/partial results.
         if status in ("OK", "PARTIAL"):
@@ -480,10 +494,16 @@ class FinancialRetrievalLayer:
         return _call
 
     async def _retrieve_one(self, source: RetrievalSource, request: FinancialRetrievalRequest) -> SourceOutcome:
-        try:
-            return await source.retrieve(request)
-        except Exception as exc:  # noqa: BLE001 - isolate source failures
-            return SourceOutcome(source=source.name, status="ERROR", error=str(exc))
+        async def _attempt() -> SourceOutcome:
+            try:
+                return await source.retrieve(request)
+            except Exception as exc:  # noqa: BLE001 - isolate source failures
+                return SourceOutcome(source=source.name, status="ERROR", error=str(exc))
+
+        # A transient failure (timeout / 5xx / socket) gets a bounded retry with
+        # backoff before the layer moves on to the next independent provider. A
+        # permanent failure (blocked, unsupported content type) is never retried.
+        return await retrieve_with_retry(_attempt, max_retries=self._max_retries)
 
     async def _emit(self, event_type: str, data: dict[str, Any]) -> None:
         if self._on_event is None:

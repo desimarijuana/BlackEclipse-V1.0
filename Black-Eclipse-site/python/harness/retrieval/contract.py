@@ -212,6 +212,12 @@ class FinancialRetrievalResult(BaseModel):
     # D3: provenance is REQUIRED for an OK result with a value. This flag is set
     # by the finalizer when the provenance chain is complete.
     provenanceVerified: bool = False
+    # Phase 6 (additive): per-source attempt diagnostics recorded during this
+    # retrieval. Each entry names the provider, its normalized status/category,
+    # http status, latency, timeout state, result count, parse outcome and
+    # retryability — so "search returned nothing" is distinguishable from
+    # "the request failed/timed out/was blocked". Empty for older callers.
+    diagnostics: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvidenceSet(BaseModel):

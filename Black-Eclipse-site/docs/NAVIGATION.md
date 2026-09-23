@@ -79,7 +79,12 @@ Black-Eclipse-site/
 | Add/edit a research mandate fact leg or task type | `python/harness/research/mandate.py` (`KNOWN_METRICS`, `parse_mandate`, `TaskType`) |
 | Change the research answer validator or coverage rules | `python/harness/research/{coverage,claims}.py` |
 | Work on the research receipt / API | `python/harness/research/receipt.py`, `python/harness/persistence.py` (`ResearchReceipt`, `save_receipt`/`get_receipt`), endpoints in `python/harness/main.py` (`/research/*`) |
-| Change web search / page retrieval | `src/lib/web-research.ts` (the one shared implementation) + the `web_search`/`web_fetch` capabilities in `src/lib/harness/data-bridge.ts` |
+| Change web search / page retrieval | `src/lib/web-research.ts` (page fetch + a diagnostic facade) + `src/lib/web-search.ts` (ordered, independent search providers incl. the operator-configurable JSON API) + `src/lib/retrieval-diagnostics.ts` (the diagnostic contract) |
+| Configure an extra web-search provider | Settings vault keys `SEARCH_API_CONFIG` (public JSON: url/authKind/authParam/field paths) + `SEARCH_API_KEY` (secret); resolved in `data-bridge.ts` (`resolveCustomSearchProvider`) |
+| Work on retrieval failure diagnostics / health | `src/lib/retrieval-diagnostics.ts`; `research_health` capability in `data-bridge.ts`; probe tool `get_research_health` in `python/harness/finance_tools.py` |
+| Work on the direct SEC filings route | `src/lib/harness/data-bridge.ts` (`secFilings`, identity-gated), `src/lib/fundamentals/providers/sec-edgar.ts` (`fetchSecCompanyFacts`), `python/harness/retrieval/structured.py` (`SecFilingsSource`) |
+| Work on the resilient research loop / retry / stop reason | `python/harness/retrieval/retry.py`, `python/harness/research/engine.py` (`legStatus`, `stopReason`), `research/run.py` (final-answer builder) |
+| Run the Phase 6 NVDA labeled regression / live smoke | `python/harness/research/eval/nvda.py` + `dataset_nvda_v1.json`; smoke `python/harness/research/smoke.py` (`npm run test:smoke`) |
 | Give the retrieval layer a new data source | `src/lib/harness/data-bridge.ts` capability + `DataCapability` in `src/lib/harness/types.ts` + the route whitelist |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
 | Work on live streaming (SSE) | `python/harness/{events,graph,main}.py` (`model.delta` + `/runs/{id}/stream`), `src/app/api/harness/runs/[id]/stream/route.ts`, `src/app/api/harness/chat/stream/route.ts`, `src/lib/agent/registry.ts` |
@@ -234,6 +239,10 @@ health).
 | Web-escalation contract | `python/harness/research/escalation.py` (`escalate_web`, `EscalationResult`) |
 | Web-fact validation contract | `python/harness/research/web_facts.py` (`validate_fact`, `WebFactExtractor`, `ExtractedFact`) |
 | Research budget contract | `python/harness/research/budget.py` (`ResearchBudget`) |
+| Retrieval diagnostic contract | `src/lib/retrieval-diagnostics.ts` (`RetrievalDiagnostic`, `RetrievalFailureCategory`) |
+| Search provider contract | `src/lib/web-search.ts` (`SearchProvider`, `SearchAttempt`) |
+| SEC filings source contract | `python/harness/retrieval/structured.py` (`SecFilingsSource`) |
+| Retrieval retry policy | `python/harness/retrieval/retry.py` (`retrieve_with_retry`, `is_retryable`) |
 | Source-selection policy | `python/harness/retrieval/planner.py` (`_PLAN`) |
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |

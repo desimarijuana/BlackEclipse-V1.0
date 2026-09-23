@@ -87,6 +87,8 @@ const ENTRIES: Record<string, ProviderDirectoryEntry> = {
   TWELVE_DATA_API_KEY: { purpose: "Global equities, FX & crypto", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
   MARKETSTACK_API_KEY: { purpose: "End-of-day & intraday prices", usedBy: ["Market Screener", "Charts"], tier: "free-tier", home: "market" },
   FINANCIALMODELINGPREP_API_KEY: { purpose: "Fundamentals, ratios & estimates", usedBy: ["Market Screener", "Fundamentals"], tier: "free-tier", home: "market" },
+  SEARCH_API_CONFIG: { purpose: "Independent web-search provider for research", usedBy: ["Research", "Agent chat"], tier: "free", home: "market" },
+  SEARCH_API_KEY: { purpose: "Credential for the custom web-search provider", usedBy: ["Research", "Agent chat"], tier: "free", home: "market" },
   COINGECKO_API_KEY: { purpose: "Crypto market data", usedBy: ["Market Screener", "Investor Eye"], tier: "free-tier", home: "market" },
   COINMARKETCAP_API_KEY: { purpose: "Crypto rankings & quotes", usedBy: ["Market Screener"], tier: "free-tier", home: "market" },
   "builtin:crypto": { purpose: "Crypto prices & tickers", usedBy: ["Market Screener", "Investor Eye"], tier: "builtin", home: "market" },

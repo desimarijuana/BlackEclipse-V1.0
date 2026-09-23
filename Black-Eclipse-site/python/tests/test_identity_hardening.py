@@ -277,6 +277,7 @@ async def test_resolving_tools_all_call_the_bridge_capability():
         "price_history",
         "fundamentals",
         "financial_statements",
+        "sec_filings",
     }
 
     class RecordingBridge(DataBridge):

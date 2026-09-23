@@ -269,6 +269,10 @@ export function parseSecCompanyFacts(facts: CompanyFacts, symbol: string): Provi
 
     periods.push({
       endDate: end,
+      // The issuer's fiscal-year LABEL is not assumed: SEC XBRL `fy` is the
+      // filing context (it ran an off-by-one in fixtures), and a fiscal year does
+      // not always equal the calendar year. `endDate` is preserved exactly; the
+      // research layer matches an annual leg against the period end it falls in.
       fiscalYear: null,
       form: filedFact?.form,
       filed: filedFact?.filed,
@@ -342,6 +346,20 @@ export function parseSecCompanyFacts(facts: CompanyFacts, symbol: string): Provi
     timeline,
     retrievedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Directly fetch and parse SEC company-facts for one US issuer, exposed for the
+ * research bridge. Returns the same `ProviderFundamentals` the fundamentals page
+ * uses, or null when the issuer is unsupported/unknown/unreachable. No second
+ * SEC implementation: this is the one adapter, reused.
+ */
+export async function fetchSecCompanyFacts(
+  symbol: string,
+  market: string
+): Promise<ProviderFundamentals | null> {
+  if (!secFundamentalsProvider.supports(symbol, market)) return null;
+  return secFundamentalsProvider.fetch(symbol, market);
 }
 
 let availability: { value: boolean; at: number } | null = null;

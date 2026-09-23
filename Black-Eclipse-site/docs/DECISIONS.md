@@ -589,3 +589,10 @@ to an ADR if it gets challenged.
 - **Separate market-workspace engine.** The Chart Workspace tab (tab id
   `market-workspace`) has its own panel engine rather than reusing the widget
   workspace.
+
+---
+
+## ADR-030 — Resilient multi-source research: structured failure diagnostics, independent routes, bounded retry (2026)
+**Decision:** Web search/page fetch return a structured RetrievalDiagnostic (provider, category, HTTP status, latency, timeout, result count, bytes, parse outcome, retryability) rather than an opaque UNAVAILABLE; a JSON source document is accepted instead of rejected as 'not HTML'. Structured retrieval is one route among several: a direct SEC EDGAR source (tier primary, US issuers, identity-gated) and an operator-configurable second search provider (vault keys SEARCH_API_CONFIG/SEARCH_API_KEY) join the keyless DuckDuckGo default, with the source policy as data in etrieval/planner.py (inancial_statements → [SEC, JDDS, WEB]). The loop retries only transient failures with bounded backoff, switches to the next independent provider, targets unresolved legs, and records a stopReason. Skill learning stays operator-gated and automatic promotion remains blocked.
+**Why:** The NVDA run could not tell 'the web had nothing' from 'every route is broken'. Verified causes: DuckDuckGo's HTTP 202 anti-bot page parsed to zero results and returned []; a valid pplication/json SEC XBRL response was rejected by a content-type gate; escalation discarded the failure reason; and all web routes shared one transport.
+**Impact:** src/lib/{retrieval-diagnostics,web-search,web-research}.ts, data-bridge.ts, python/harness/retrieval/*, python/harness/research/*, the NVDA labeled eval, and an operator smoke test. Full decisions: ADR-H25–H28 in docs/harness/decisions.md.

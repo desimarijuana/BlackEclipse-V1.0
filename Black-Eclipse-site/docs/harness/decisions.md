@@ -400,6 +400,90 @@ still fails; a missing *qualifying* field (basis, unit) is disclosed.
 naming exactly what is unconfirmed, and a conflict or missing period never
 prevents other verified facts from being returned.
 
+## ADR-H25 — Web retrieval failures are structured diagnostics, not opaque UNAVAILABLE
+
+**Decision.** Every web search and page fetch returns a `RetrievalDiagnostic`
+(`src/lib/retrieval-diagnostics.ts`): provider/transport, normalized status,
+failure category (`zero_results`, `transport_error`, `timeout`, `blocked`,
+`http_error`, `content_type_rejected`, `parse_failure`, `not_configured`,
+`invalid_request`), HTTP status, latency, timeout state, result count, bytes,
+parse outcome, and retryability. A JSON source document (e.g. a SEC XBRL
+endpoint) is accepted and returned as raw text rather than rejected as
+"not HTML". Diagnostics flow through `SourceOutcome` → `FinancialRetrievalResult`
+→ the engine/receipt. A bounded `research_health` capability probes each route.
+
+**Why.** The Phase-5 NVDA run could not tell "the web had nothing" from "every
+transport is broken". The root cause was three opaque collapses: DuckDuckGo's
+HTTP 202 anti-bot page parsed to zero results and returned `[]`; a valid
+`application/json` SEC response was rejected by a content-type gate; and
+`escalation.py` inspected only `status == "OK"` and discarded the reason.
+
+**Consequences.** "search returned zero results" is now distinct from "request
+failed / timed out / was blocked / page fetch failed / HTML could not be parsed",
+and the receipt says which. No secrets or full response bodies are recorded.
+
+## ADR-H26 — Independent source routes with a deterministic, testable policy
+
+**Decision.** Structured retrieval is one source among several, not the only
+path. A direct **SEC EDGAR** source (`SecFilingsSource`, tier `primary`, US
+issuers) and a **second, operator-configurable web-search provider**
+(`CustomJsonSearchProvider`, credentials from the settings vault via
+`SEARCH_API_CONFIG`/`SEARCH_API_KEY`) join the keyless DuckDuckGo default. Source
+selection is explicit data in `retrieval/planner.py`:
+`financial_statements → [SEC, JDDS, WEB]`. Every provider implements the existing
+`RetrievalSource` contract and can be disabled/replaced independently.
+
+**Why.** All four web routes in the failed run shared one transport; a second
+route that depends on the same search call is not independent. The operator
+asked to be able to add any search API, so the provider is a generic
+configurable JSON adapter, not a hard-coded vendor. SEC is a direct filing
+route, not a web search, so a numeric fact never originates from a snippet.
+
+**Consequences.** `sec_filings` routes through the shared identity gate (a bare
+ticker cannot answer for the wrong issuer). `not_covered` is returned for non-US
+issuers. A missing credential reports the capability as unconfigured and the run
+continues with the remaining providers. No second data plane and no second
+search system.
+
+## ADR-H27 — The research loop retries transiently, switches providers, and keeps going
+
+**Decision.** The retrieval layer retries only *transient* outcomes (timeout,
+transport, 5xx, 429) with bounded deterministic backoff (`retrieval/retry.py`)
+and never retries a permanent one (blocked, unsupported content type). The engine
+records per-leg retrieval status + coverage status + diagnostics, switches to the
+next independent provider on failure, targets only unresolved legs in escalation,
+preserves every already-verified leg, and stops only when coverage is complete,
+the budget is exhausted, or every route failed — recording the `stopReason`
+(`all_required_legs_resolved` / `budget_exhausted` / `provider_routes_unavailable`
+/ `unresolved_facts_remain`).
+
+**Why.** "Keep trying independent methods and return every verifiable part"
+requires the loop to distinguish a transient blip from a missing fact, and to be
+explicit about why it stopped. A stale snapshot must never satisfy a fresh-data
+requirement, and an unrelated period must not be relabelled as a gap in the
+requested period.
+
+**Consequences.** A partial run returns its verified facts plus the failed routes
+and the exact unresolved facts. `legStatus` and `stopReason` ride the receipt and
+the `client.final` answer. No unbounded looping: retries and escalation are
+bounded by `ResearchBudget`.
+
+## ADR-H28 — Skill learning stays operator-gated; Phase-6 candidates deferred
+
+**Decision.** Phase 6 does not change the skill lifecycle. Automatic promotion
+remains blocked; candidates remain inert, reviewable records. Capturing richer
+failure/source-selection diagnostics that could seed a linked skill candidate is
+deferred to a follow-up; the diagnostics this phase produces are the evidence
+such a candidate would cite.
+
+**Why.** The brief requires the control be preserved (never let the agent
+silently edit/enable/promote its own skills). Adding candidate generation without
+the review/promotion test suite would risk weakening that guarantee.
+
+**Consequences.** No live behavior depends on candidate generation; the existing
+`python/tests/test_skills_*` suite continues to prove unreviewed candidates
+cannot affect a run.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

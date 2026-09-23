@@ -8,6 +8,15 @@ last-verified: 2026-09-15
 
 ## 2026-09-23
 
+- **Harness Phase 6 — resilient, multi-source research** — Structured failure diagnostics (`RetrievalDiagnostic`: provider/category/httpStatus/latency/timeout/resultCount/bytes/parse/retryable) replace opaque `UNAVAILABLE`; DuckDuckGo's HTTP 202 anti-bot page is now distinguished from a genuine zero-result search, and a valid `application/json` SEC response is accepted instead of rejected as "not HTML". Added independent routes behind the existing bridge: a direct, identity-gated SEC EDGAR statements source (`SecFilingsSource` → `sec_filings`) and an operator-configurable second search provider (vault keys `SEARCH_API_CONFIG`/`SEARCH_API_KEY`) beside the keyless DuckDuckGo default; `financial_statements` policy is `[SEC, JDDS, WEB]`. The research loop retries only transient failures with bounded backoff, switches providers, targets unresolved legs, preserves verified facts, and records a per-leg status + `stopReason`. Verified filing facts carry document identity into the receipt. Verified root cause of the NVDA web failures in the phase tracker. New: `src/lib/{retrieval-diagnostics,web-search}.ts`; `python/harness/retrieval/retry.py`; NVDA labeled eval (`research/eval/nvda.py` + `dataset_nvda_v1.json`); operator smoke (`research/smoke.py`, `npm run test:smoke`). 423 Python tests, 1617 Vitest, `tsc` clean; NVDA eval 5/5, 0 false accepts.
+  docs updated: `docs/harness/phase-4-progress.md`, `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`, `skills/ARCHITECT.md`
+
+- **Command palette: stop surfacing registry actions in typed search** — The resolver no longer pushes registry actions (`Open Portfolio`, `Start new chat`, `Open Settings`, …) into ordinary results as `kind: 'action'`, which rendered a duplicate "Commands" group while typing. The top match is still exposed as `primaryAction` (Enter runs it) and action rows render only under the explicit `>` command scope. Follow-up to the earlier Commands-group removal.
+  docs updated: `docs/ARCHITECTURE.md`
+
+## 2026-09-23
+
+
 - **Agent** — Expanded the implementation plan with the implemented evidence-grounded research flow and bounded web escalation, including validation, receipts, evaluation, and current limitations.
   docs updated: `agentic-plan-implementaion.md`
 
@@ -2798,3 +2807,5 @@ proves the documentation obligation was considered rather than skipped.
   are `UNAVAILABLE` stubs in `src/lib/dashboard/registry.tsx`.
   docs updated: `docs/ARCHITECTURE.md`, `docs/OVERVIEW.md`, `docs/GLOSSARY.md`,
   `.opencode/skills/black-eclipse-workspace/SKILL.md`
+- **Agent prompt — finance-first, runtime-accurate guidance** — Tightened the Eclipse Agent prompt around dated/provenanced evidence, comparable financial metrics, risk and counter-theses, quantitative auditability, untrusted retrieved content, and honest tool boundaries; removed generic orchestration claims the registered agent cannot guarantee.
+  docs updated: `docs/harness/architecture.md`

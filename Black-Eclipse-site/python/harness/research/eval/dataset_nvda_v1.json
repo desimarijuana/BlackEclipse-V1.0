@@ -1,0 +1,54 @@
+{
+  "datasetVersion": "1.0.0",
+  "datasetName": "phase6-nvda-regression",
+  "reviewed": true,
+  "reviewer": "human:phase6-implementation",
+  "reviewedAt": "2026-09-23",
+  "sourceNote": "Values transcribed from NVIDIA's SEC XBRL company facts (CIK 0001045810), tag Revenues / NetIncomeLoss, form 10-K filed 2026-02-25, fetched 2026-09-23 via data.sec.gov. NVDA's fiscal year ends in late January: FY2024 ended 2024-01-28; FY2025 ended 2025-01-26. Issuer-reported, never memory-derived.",
+  "issuer": "NVIDIA Corporation",
+  "ticker": "NVDA",
+  "cik": "0001045810",
+  "currency": "USD",
+  "filing": { "form": "10-K", "filed": "2026-02-25", "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K&dateb=&owner=include&count=10" },
+  "periods": [
+    { "label": "FY2024", "periodEnd": "2024-01-28", "revenue": 60922000000, "netIncome": 29760000000 },
+    { "label": "FY2025", "periodEnd": "2025-01-26", "revenue": 130497000000, "netIncome": 72880000000 }
+  ],
+  "cases": [
+    {
+      "caseId": "sec-covers-fy2024-revenue",
+      "leg": { "metric": "revenue", "period": "FY2024" },
+      "candidate": { "metric": "revenue", "value": 60922000000, "period": null, "periodEnd": "2024-01-28", "currency": "USD", "tier": "primary" },
+      "expectCovered": true,
+      "rationale": "An SEC-filed FY2024 revenue row (period end 2024-01-28) covers the FY2024 leg via its period-end date."
+    },
+    {
+      "caseId": "sec-covers-fy2025-netincome",
+      "leg": { "metric": "netIncome", "period": "FY2025" },
+      "candidate": { "metric": "netIncome", "value": 72880000000, "period": null, "periodEnd": "2025-01-26", "currency": "USD", "tier": "primary" },
+      "expectCovered": true,
+      "rationale": "An SEC-filed FY2025 net income row covers the FY2025 leg."
+    },
+    {
+      "caseId": "stale-fy2019-does-not-cover-fy2024",
+      "leg": { "metric": "revenue", "period": "FY2024" },
+      "candidate": { "metric": "revenue", "value": 11716000000, "period": null, "periodEnd": "2019-01-27", "currency": "USD", "tier": "structured" },
+      "expectCovered": false,
+      "rationale": "The vault's FY2019 row (period end 2019-01-27) must NOT satisfy a FY2024 leg — the exact stale-snapshot failure this phase fixes."
+    },
+    {
+      "caseId": "wrong-calendar-year-does-not-cover",
+      "leg": { "metric": "revenue", "period": "FY2024" },
+      "candidate": { "metric": "revenue", "value": 26974000000, "period": null, "periodEnd": "2023-01-29", "currency": "USD", "tier": "structured" },
+      "expectCovered": false,
+      "rationale": "A FY2023 row (period end 2023-01-29) must not cover FY2024."
+    },
+    {
+      "caseId": "currency-mismatch-does-not-cover",
+      "leg": { "metric": "revenue", "period": "FY2025", "currency": "USD" },
+      "candidate": { "metric": "revenue", "value": 130497000000, "period": null, "periodEnd": "2025-01-26", "currency": "EUR", "tier": "primary" },
+      "expectCovered": false,
+      "rationale": "A value in the wrong currency must not cover a USD leg; no cited conversion exists."
+    }
+  ]
+}

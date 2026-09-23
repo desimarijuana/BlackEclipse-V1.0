@@ -32,6 +32,7 @@ from .contract import DataType, FinancialRetrievalRequest
 # Provider names are opaque ids here; the layer maps them to source instances.
 STRUCTURED_VAULT = "JDDS"
 STRUCTURED_LIVE = "LIVE_STRUCTURED"
+SEC_FILINGS = "SEC"
 WEB = "WEB"
 
 
@@ -46,11 +47,20 @@ class RetrievalPlan:
 
 # Per-data-type source ordering. The FIRST available wins for a single-best
 # retrieval; the layer may run the whole list for multi-source objectives.
+#
+# Source policy (deterministic, testable): official filing/company sources are
+# preferred for reported financials, then the structured vault, then a reputable
+# secondary. For `financial_statements` the order is:
+#   1. SEC — issuer-filed XBRL (primary, US issuers)
+#   2. JDDS — the structured vault (cached statements)
+#   3. WEB — bounded primary-source web (last resort; facts must be span-verified)
+# No data type makes every provider depend on one search call; SEC is a direct
+# filing route, not a web search.
 _PLAN: dict[str, list[str]] = {
     "current_quote": [STRUCTURED_VAULT, STRUCTURED_LIVE, WEB],
     "historical_prices": [STRUCTURED_VAULT, STRUCTURED_LIVE],
     "company_profile": [STRUCTURED_VAULT, STRUCTURED_LIVE, WEB],
-    "financial_statements": [STRUCTURED_VAULT, WEB],
+    "financial_statements": [SEC_FILINGS, STRUCTURED_VAULT, WEB],
     "earnings": [WEB, STRUCTURED_VAULT],
     "macro_series": [STRUCTURED_VAULT, STRUCTURED_LIVE],
     "news": [WEB],
@@ -67,7 +77,7 @@ _RATIONALE: dict[str, str] = {
     "current_quote": "a precise latest price → structured provider; web is a last-resort fallback",
     "historical_prices": "a precise series is required → structured providers only",
     "company_profile": "profile metadata is structured; web supplies qualitative context",
-    "financial_statements": "statements are structured; primary-source web adds narrative",
+    "financial_statements": "statements are reported facts → issuer filing (SEC) first, then the vault; primary-source web only as a last resort",
     "earnings": "earnings are recent and qualitative → web/primary first, statements support",
     "macro_series": "a precise historical series is required → structured only",
     "news": "current qualitative information → web research",
@@ -133,5 +143,6 @@ __all__ = [
     "plan_retrieval",
     "STRUCTURED_VAULT",
     "STRUCTURED_LIVE",
+    "SEC_FILINGS",
     "WEB",
 ]

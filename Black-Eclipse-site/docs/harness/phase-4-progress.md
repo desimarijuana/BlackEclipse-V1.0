@@ -8,7 +8,80 @@ last-verified: 2026-09-23
 
 **Phase:** 4 — Research mandates, answer validation, point-in-time evidence,
 deterministic calculations, and evaluation
-**Status:** In progress — Phase 5 web escalation added
+**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added
+
+## Phase 6 — Resilient, multi-source research (2026-09-23)
+
+**Brief.** The NVDA test (`run_74f251a6-…`, plus `run_c2ce2c1f-…`) returned only
+FY2019 from JDdS; every official web source, SEC endpoint and NVIDIA IR page
+returned `UNAVAILABLE`; the run stopped with no verified answer. The goal is not
+just more JDdS coverage: every web fallback route shares one transport whose
+failures are opaque.
+
+**Verified root cause (evidence, not assumption).** Three independent defects,
+all reproduced directly against the live endpoints:
+
+1. **Search failure was indistinguishable from zero results.**
+   `webSearch()` (`src/lib/web-research.ts:40`) does `if (!res.ok) return []` and
+   `catch { return [] }`. DuckDuckGo's HTML endpoint now answers with **HTTP 202
+   and a ~14 KB anti-bot page** (`result__a` count = 0). 202 passes `res.ok`, so
+   cheerio parses a page with no result anchors and the caller receives `[]` — the
+   same value as a genuine empty search. Evidence: every `research_search` in the
+   failed run returned in 485–1515 ms with no error; a direct fetch of
+   `https://html.duckduckgo.com/html/?q=…` returns status 202, 14 KB, 0 result
+   anchors.
+2. **A valid SEC JSON response was rejected as "not usable HTML".**
+   `fetchWebPage()` (`web-research.ts:100`) requires `contentType` to contain
+   `html`/`xml`/`text`. `https://data.sec.gov/api/xbrl/companyconcept/…json`
+   returns **HTTP 200 `application/json`** (verified), so the JSON facts the agent
+   needed were fetched successfully and then thrown away. The SEC browse-edgar
+   and filing `.htm` URLs return `200 text/html`; NVIDIA IR
+   (`investor.nvidia.com/…/annual-reports`) returns **403** for non-browser
+   clients (verified).
+3. **There was no independent route and no diagnostic trail.** All four attempted
+   web sources (DDG search, SEC XBRL JSON, SEC browse-edgar, NVIDIA IR) share the
+   one `web-research.ts` transport; `escalation.py` inspects only
+   `status == "OK"` and discards the reason, so receipts read "no pages
+   retrieved" with no cause and the run cannot explain which capability failed.
+
+**Architectural outcomes.** Structured failure diagnostics on the shared
+transport (provider/tier/httpStatus/latency/timeout/resultCount/bytes/parse/
+category/retryable) and a bounded health probe; SEC XBRL as an independent
+`financial_statements` source with a planner-visible tier; a second,
+operator-configurable search provider behind the existing settings vault; a
+deterministic provider-selection policy; a resilient per-leg loop (bounded
+retries, provider switching, unresolved-leg targeting, budget stop-reason); and
+a keep-going final response that reports every verified fact plus what routes
+failed and why.
+
+**Known limits to carry.** The JDdS statement snapshot still has no per-period
+consolidation basis for all issuers and a multi-year coverage gap; the SEC route
+covers US issuers only. Skill-candidate review/promotion (brief Outcome 6) is
+deferred to a follow-up and remains operator-gated.
+
+**Implementation (files).** TS: `src/lib/retrieval-diagnostics.ts` (diagnostic
+contract), `src/lib/web-search.ts` (independent search providers incl. the
+operator-configurable JSON API), `src/lib/web-research.ts` (diagnosed fetch +
+facade), `data-bridge.ts` (`sec_filings`, `research_health`, diagnostics on
+`web_search`/`web_fetch`), `provider-keys.ts`/`providers/directory.ts`
+(`SEARCH_API_CONFIG`/`SEARCH_API_KEY`), `fundamentals/providers/sec-edgar.ts`
+(`fetchSecCompanyFacts`). Python: `retrieval/retry.py`, `retrieval/structured.py`
+(`SecFilingsSource`), `retrieval/{planner,web,layer,normalize,sources,contract}.py`,
+`research/{engine,run,receipt,escalation}.py`, `finance_tools.py`
+(`get_research_health`), `research/eval/nvda.py` + `dataset_nvda_v1.json`,
+`research/smoke.py`.
+
+**Verification.** Python **423 passed** (was 404). New tests:
+`test_phase6_resilience.py` (16), `test_phase6_nvda_eval.py` (3). Vitest **1619
+passed** (126 files) including `retrieval-diagnostics.test.ts` and
+`data-bridge-phase6.test.ts`. `npx tsc --noEmit` clean; eslint clean on the new
+modules. Evaluations (`python -m harness.research.eval`): semantic-support 8/8
+(`669e70f0…`), escalation 8/8 (`c28e7de5…`), **NVDA labeled regression 5/5,
+coverage accuracy 1.0, precision 1.0, 0 false accepts (`fd3c7efa…`)**. Live smoke
+checks are operator-triggered and separate from the default suite
+(`npm run test:smoke`, contacts DuckDuckGo/SEC only).
+
+## Phase 5 — Bounded web escalation (2026-09-23)
 
 ## Phase 5 — Bounded web escalation (2026-09-23)
 

@@ -161,6 +161,32 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
     return "\n".join(lines), {"status": "OK", "count": len(rows)}
 
 
+async def get_research_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Health of every research retrieval route, WITHOUT running a research task."""
+    payload = await _fetch(ctx, "research_health", {})
+    rows = payload.get("rows") or []
+    if not rows:
+        return (
+            "No research health could be probed (no_data).",
+            {"status": "UNAVAILABLE", "failureClass": "no_data"},
+        )
+    lines = ["Research retrieval health (per capability):"]
+    for r in rows:
+        state = "ok" if r.get("ok") else "FAILED"
+        detail = f" — {r.get('detail')}" if r.get("detail") else ""
+        http = f", HTTP {r.get('httpStatus')}" if r.get("httpStatus") else ""
+        lines.append(
+            f"  {r.get('provider')} [{r.get('capability')}]: {state} "
+            f"({r.get('category')}{http}, {r.get('latencyMs', 0)}ms){detail}"
+        )
+    lines.append("")
+    lines.append(
+        "This identifies WHICH capability is failing without a research run. A "
+        "failed route is an infrastructure state, not evidence that data is absent."
+    )
+    return "\n".join(lines), {"status": "OK", "healthy": payload.get("healthy"), "count": len(rows)}
+
+
 async def get_coverage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     """Declared coverage: which markets/currencies/asset classes are supported."""
     payload = await _fetch(ctx, "coverage", {})
@@ -236,6 +262,22 @@ def register_finance_tools(registry: ToolRegistry) -> None:
             handler=get_source_health,
             permission="read",
             risk="low",
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_research_health",
+            description=(
+                "Probe the health of every research retrieval route (web search, page fetch, "
+                "SEC direct) and report which capability is failing, with the structured reason "
+                "(timeout/block/http/parse). Use this to diagnose a missing source without "
+                "running a full research task. A failed route is not evidence that data is absent."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            handler=get_research_health,
+            permission="read",
+            risk="low",
+            timeout_ms=30_000,
         )
     )
     registry.register(

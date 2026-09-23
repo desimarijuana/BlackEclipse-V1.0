@@ -57,6 +57,9 @@ class ResearchOutcome:
     repairRounds: int = 0
     budget: Optional[dict[str, Any]] = None
     escalation: Optional[dict[str, Any]] = None
+    # Phase 6: per-leg retrieval status + diagnostics, and WHY the loop stopped.
+    legStatus: list[dict[str, Any]] = field(default_factory=list)
+    stopReason: Optional[str] = None
 
     @property
     def status(self) -> str:
@@ -118,6 +121,7 @@ async def run_research(
     evidence: list[Any] = []
     conflicts: list[dict[str, Any]] = []
     retrieval_requests: list[dict[str, Any]] = []
+    leg_status: list[dict[str, Any]] = []
 
     for leg in mandate.factLegs:
         request = _retrieval_request_for(leg, mandate)
@@ -143,6 +147,19 @@ async def run_research(
                 "status": result.status,
                 "strategy": result.strategy,
                 "evidenceCount": len(result.evidence),
+                # Every attempt is preserved in the audit trail, including why a
+                # route failed (timeout/block/http/parse), not just that it did.
+                "diagnostics": result.diagnostics,
+            }
+        )
+        leg_status.append(
+            {
+                "legId": leg.id,
+                "metric": leg.metric,
+                "period": leg.period,
+                "retrievalStatus": result.status,
+                "strategy": result.strategy,
+                "diagnostics": result.diagnostics,
             }
         )
 
@@ -181,6 +198,7 @@ async def run_research(
             "notes": escalation.notes,
             "budget": escalation.budget,
             "acceptedEvidence": len(escalation.evidence),
+            "diagnostics": escalation.diagnostics,
         }
         if escalation.evidence:
             outcome.evidence = _dedupe_evidence([*outcome.evidence, *escalation.evidence])
@@ -197,6 +215,11 @@ async def run_research(
 
     outcome.budget = budget.snapshot()
     outcome.escalation = escalation_audit
+    outcome.legStatus = _merge_leg_status(
+        leg_status, outcome.coverage,
+        escalation_diagnostics=(escalation_audit or {}).get("diagnostics") or [],
+    )
+    outcome.stopReason = _stop_reason(outcome.coverage, budget, outcome.legStatus)
 
     # No synthesizer (or a general mandate) → coverage is the whole verdict.
     if synthesize is None:
@@ -208,6 +231,7 @@ async def run_research(
             run_id, mandate, coverage=outcome.coverage, evidence=unique_evidence,
             retrieval_requests=retrieval_requests, provider=provider, model=model,
             budget=outcome.budget, escalation=escalation_audit,
+            leg_status=outcome.legStatus, stop_reason=outcome.stopReason,
         )
         return outcome
 
@@ -247,8 +271,73 @@ async def run_research(
         repair={"rounds": outcome.repairRounds} if outcome.repairRounds else None,
         provider=provider, model=model,
         budget=outcome.budget, escalation=escalation_audit,
+        leg_status=outcome.legStatus, stop_reason=outcome.stopReason,
     )
     return outcome
+
+
+def _merge_leg_status(
+    leg_status: list[dict[str, Any]],
+    coverage: CoverageReport,
+    *,
+    escalation_diagnostics: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """Attach the final deterministic coverage status to each leg's attempt row.
+
+    The retrieval status ("did a provider answer") and the coverage status
+    ("does the evidence satisfy the leg") are distinct and both are preserved.
+    Escalation diagnostics are merged into the leg they were attempted for so the
+    final answer can name every route that was tried.
+    """
+    by_id = {row["legId"]: row for row in leg_status}
+    esc_by_leg: dict[str, list[dict[str, Any]]] = {}
+    for diagnostic in escalation_diagnostics or []:
+        leg_id = diagnostic.get("legId")
+        if leg_id:
+            esc_by_leg.setdefault(leg_id, []).append(diagnostic)
+    merged: list[dict[str, Any]] = []
+    for leg in coverage.legs:
+        row = dict(by_id.get(leg.legId, {"legId": leg.legId}))
+        row["coverageStatus"] = leg.status
+        row["coverageReason"] = leg.reason
+        row["diagnostics"] = [*(row.get("diagnostics") or []), *esc_by_leg.get(leg.legId, [])]
+        merged.append(row)
+    return merged
+
+
+# Human-readable stop reasons for the run, so the answer can say WHY it ended.
+_STOP_BUDGET = "budget_exhausted"
+_STOP_RESOLVED = "all_required_legs_resolved"
+_STOP_PROVIDER = "provider_routes_unavailable"
+_STOP_PARTIAL = "unresolved_facts_remain"
+
+
+def _stop_reason(
+    coverage: CoverageReport,
+    budget: ResearchBudget,
+    leg_status: list[dict[str, Any]],
+) -> str:
+    """Why the research loop stopped. Never claims success it did not reach."""
+    if coverage.complete:
+        return _STOP_RESOLVED
+    if budget.exhausted or budget.timed_out:
+        return _STOP_BUDGET
+    # If every unresolved leg's only attempts show transport/provider failures
+    # (no provider ever answered), the routes were unavailable — that is distinct
+    # from "an answer came back but did not cover the leg".
+    unresolved = [
+        row for row in leg_status
+        if row.get("coverageStatus")
+        in ("unavailable", "unknown", "stale", "no_matching_period", "qualified", "conflicting")
+    ]
+    if unresolved and all(_only_transport_failures(row.get("diagnostics") or []) for row in unresolved):
+        return _STOP_PROVIDER
+    return _STOP_PARTIAL
+
+
+def _only_transport_failures(diagnostics: list[dict[str, Any]]) -> bool:
+    """True when diagnostics exist and every one is a hard transport/provider failure."""
+    return bool(diagnostics) and all(d.get("normalizedStatus") == "failed" for d in diagnostics)
 
 
 def _dedupe_evidence(items: list[Any]) -> list[Any]:

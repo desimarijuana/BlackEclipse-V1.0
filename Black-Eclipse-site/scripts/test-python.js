@@ -35,5 +35,17 @@ if (!py) {
   process.exit(0);
 }
 
+// `node scripts/test-python.js smoke` runs the OPERATOR-TRIGGERED live smoke
+// checks, which contact real external providers. They are deliberately separate
+// from the default offline suite: never part of `npm test`.
+if (process.argv.includes("smoke")) {
+  console.log("[test] Running live network smoke checks (contacts real providers)…");
+  const smoke = spawnSync(py, ["-m", "harness.research.smoke"], {
+    stdio: "inherit",
+    cwd: pythonDir,
+  });
+  process.exit(smoke.status ?? 1);
+}
+
 const result = spawnSync(py, ["-m", "pytest", pythonDir], { stdio: "inherit", cwd: root });
 process.exit(result.status ?? 1);

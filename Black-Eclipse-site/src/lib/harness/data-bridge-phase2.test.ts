@@ -8,6 +8,9 @@ const fetchQuoteWithFallback = vi.fn();
 const fetchYahooBatchRaw = vi.fn();
 const webSearch = vi.fn();
 const fetchWebPage = vi.fn();
+const searchWeb = vi.fn();
+const fetchWebPageDetailed = vi.fn();
+const resolveProviderKey = vi.fn();
 // Identity resolution now reads the instrument master before any live fetch, so
 // the bridge needs the asset lookup. Tests seed one unambiguous US instrument.
 const assetFindMany = vi.fn();
@@ -52,6 +55,11 @@ vi.mock("@/lib/economics/sources", () => ({
 vi.mock("@/lib/web-research", () => ({
   webSearch: (...a: unknown[]) => webSearch(...a),
   fetchWebPage: (...a: unknown[]) => fetchWebPage(...a),
+  searchWeb: (...a: unknown[]) => searchWeb(...a),
+  fetchWebPageDetailed: (...a: unknown[]) => fetchWebPageDetailed(...a),
+}));
+vi.mock("@/lib/provider-keys", () => ({
+  resolveProviderKey: (...a: unknown[]) => resolveProviderKey(...a),
 }));
 
 import { fetchCapability } from "./data-bridge";
@@ -61,6 +69,10 @@ beforeEach(() => {
   fetchYahooBatchRaw.mockReset();
   webSearch.mockReset();
   fetchWebPage.mockReset();
+  searchWeb.mockReset();
+  fetchWebPageDetailed.mockReset();
+  resolveProviderKey.mockReset();
+  resolveProviderKey.mockResolvedValue(null);
   assetFindMany.mockReset();
   assetFindFirst.mockReset();
   newsFindMany.mockReset();
@@ -141,36 +153,70 @@ describe("macro source â†” normalizer contract", () => {
 
 describe("fetchCapability â€” web research (shared transport)", () => {
   it("web_search returns results", async () => {
-    webSearch.mockResolvedValue([{ title: "t", url: "https://x", snippet: "s", publishedAt: null }]);
+    searchWeb.mockResolvedValue({
+      results: [{ title: "t", url: "https://x", snippet: "s", publishedAt: null }],
+      diagnostics: [{ capability: "web_search", provider: "duckduckgo-html", category: "ok", normalizedStatus: "ok" }],
+      provider: "duckduckgo-html",
+    });
     const result = await fetchCapability("web_search", { query: "q" });
     expect(result.status).toBe("OK");
     expect((result.results as unknown[]).length).toBe(1);
+    expect(result.provider).toBe("duckduckgo-html");
   });
 
-  it("web_search UNAVAILABLE when nothing is found", async () => {
-    webSearch.mockResolvedValue([]);
+  it("web_search reports zero_results as no_data, never a failure", async () => {
+    searchWeb.mockResolvedValue({
+      results: [],
+      diagnostics: [{ capability: "web_search", provider: "duckduckgo-html", category: "zero_results", normalizedStatus: "ok" }],
+      provider: "duckduckgo-html",
+    });
     const result = await fetchCapability("web_search", { query: "q" });
     expect(result.status).toBe("UNAVAILABLE");
+    expect(result.failureClass).toBe("no_data");
+  });
+
+  it("web_search reports a transport failure as source_failure with diagnostics", async () => {
+    searchWeb.mockResolvedValue({
+      results: [],
+      diagnostics: [{ capability: "web_search", provider: "duckduckgo-html", category: "blocked", normalizedStatus: "failed", detail: "HTTP 202" }],
+      provider: null,
+    });
+    const result = await fetchCapability("web_search", { query: "q" });
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.failureClass).toBe("source_failure");
+    expect((result.diagnostics as unknown[]).length).toBe(1);
   });
 
   it("web_fetch returns page text", async () => {
-    fetchWebPage.mockResolvedValue({ url: "https://x", title: "t", text: "body", bytes: 4 });
+    fetchWebPageDetailed.mockResolvedValue({
+      page: { url: "https://x", title: "t", text: "body", bytes: 4 },
+      diagnostic: { capability: "web_fetch", provider: "safe-get", category: "ok", normalizedStatus: "ok" },
+    });
     const result = await fetchCapability("web_fetch", { url: "https://x" });
     expect(result.status).toBe("OK");
     expect(result.text).toBe("body");
   });
 
-  it("web_fetch UNAVAILABLE when the page cannot be retrieved", async () => {
-    fetchWebPage.mockResolvedValue(null);
+  it("web_fetch reports the failure category when the page cannot be retrieved", async () => {
+    fetchWebPageDetailed.mockResolvedValue({
+      page: null,
+      diagnostic: { capability: "web_fetch", provider: "safe-get", category: "content_type_rejected", normalizedStatus: "failed", detail: "unsupported content type" },
+    });
     const result = await fetchCapability("web_fetch", { url: "https://x" });
     expect(result.status).toBe("UNAVAILABLE");
+    expect(result.failureClass).toBe("no_data");
+    expect((result.diagnostics as unknown[]).length).toBe(1);
   });
 });
 
-describe("fetchCapability — news (C2: no false negatives)", () => {
+describe("fetchCapability â€” news (C2: no false negatives)", () => {
   it("falls through to web when the vault is empty and returns real items", async () => {
     newsFindMany.mockResolvedValue([]);
-    webSearch.mockResolvedValue([{ title: "FFC news", url: "https://x.com/a", snippet: "s", publishedAt: null }]);
+    searchWeb.mockResolvedValue({
+      results: [{ title: "FFC news", url: "https://x.com/a", snippet: "s", publishedAt: null }],
+      diagnostics: [{ capability: "web_search", provider: "duckduckgo-html", category: "ok", normalizedStatus: "ok" }],
+      provider: "duckduckgo-html",
+    });
     const result = await fetchCapability("news", { query: "Pakistan fertilizer" });
     expect(result.status).toBe("OK");
     expect(result.sourceKind).toBe("web");
@@ -179,7 +225,7 @@ describe("fetchCapability — news (C2: no false negatives)", () => {
 
   it("reports a source failure, never an empty result, when retrieval errors", async () => {
     newsFindMany.mockResolvedValue([]);
-    webSearch.mockRejectedValue(new Error("network down"));
+    searchWeb.mockRejectedValue(new Error("network down"));
     const result = await fetchCapability("news", { query: "anything" });
     expect(result.status).toBe("UNAVAILABLE");
     expect(result.failureClass).toBe("source_failure");
@@ -187,7 +233,11 @@ describe("fetchCapability — news (C2: no false negatives)", () => {
 
   it("returns no_data (not a failure) when sources are reachable but empty", async () => {
     newsFindMany.mockResolvedValue([]);
-    webSearch.mockResolvedValue([]);
+    searchWeb.mockResolvedValue({
+      results: [],
+      diagnostics: [{ capability: "web_search", provider: "duckduckgo-html", category: "zero_results", normalizedStatus: "ok" }],
+      provider: "duckduckgo-html",
+    });
     const result = await fetchCapability("news", { query: "zzz" });
     expect(result.status).toBe("OK");
     expect(result.failureClass).toBe("no_data");
@@ -195,7 +245,7 @@ describe("fetchCapability — news (C2: no false negatives)", () => {
   });
 });
 
-describe("fetchCapability — coverage (C1)", () => {
+describe("fetchCapability ï¿½ coverage (C1)", () => {
   it("returns the declared coverage registry", async () => {
     const result = await fetchCapability("coverage", {});
     expect(result.status).toBe("OK");

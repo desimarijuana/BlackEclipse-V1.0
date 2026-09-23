@@ -16,7 +16,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run && node scripts/test-python.js",
-    "test:py": "node scripts/test-python.js"
+    "test:py": "node scripts/test-python.js",
+    "test:smoke": "node scripts/test-python.js smoke"
   },
   "engines": {
     "node": ">=20"

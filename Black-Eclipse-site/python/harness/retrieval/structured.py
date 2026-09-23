@@ -49,6 +49,13 @@ _LIVE_CAPABILITY: dict[str, str] = {
     "macro_series": "macro_series",
 }
 
+# DataType → the SEC direct-filings capability. This is an INDEPENDENT primary
+# source for US issuers' statements — separate from the JDdS vault — reached
+# through the existing SEC adapter on the TS bridge.
+_SEC_CAPABILITY: dict[str, str] = {
+    "financial_statements": "sec_filings",
+}
+
 
 async def _fetch(bridge: Optional[DataBridge], capability: str, params: dict[str, Any]) -> dict[str, Any]:
     if bridge is None:
@@ -201,6 +208,74 @@ class LiveStructuredSource:
         )
 
 
+class SecFilingsSource:
+    """Direct SEC EDGAR filings/XBRL for US issuers (Phase 6).
+
+    An INDEPENDENT primary-source route for `financial_statements`: it reaches
+    `data.sec.gov` through the existing SEC adapter on the read-only bridge and
+    returns issuer-reported annual periods with filing provenance (form + filed
+    date). It is deliberately separate from the JDdS vault so a stale or
+    incomplete vault does not leave the leg unanswerable, and separate from WEB so
+    a numeric fact is never sourced from a search snippet.
+
+    Tier `primary`: an SEC filing is authoritative. Non-US issuers are
+    `not_covered` — the adapter rejects them rather than guessing.
+    """
+
+    name = "SEC"
+    tier = "primary"
+    dataTypes: tuple[DataType, ...] = ("financial_statements",)
+
+    def __init__(self, bridge: Optional[DataBridge]) -> None:
+        self._bridge = bridge
+
+    def available(self, request: FinancialRetrievalRequest) -> bool:
+        # US-only and statement-only, but availability is decided by the bridge
+        # (which returns not_covered for a non-US market). We claim availability
+        # whenever a bridge exists so the planner can still try and record why.
+        return self._bridge is not None and request.dataType in _SEC_CAPABILITY
+
+    async def retrieve(self, request: FinancialRetrievalRequest) -> SourceOutcome:
+        started = time.monotonic()
+        capability = _SEC_CAPABILITY[request.dataType]
+        payload = await _fetch(self._bridge, capability, _params_for(request))
+        elapsed = int((time.monotonic() - started) * 1000)
+        diagnostics = payload.get("diagnostics")
+        if payload.get("status") != "OK":
+            return SourceOutcome(
+                source=self.name,
+                status="UNAVAILABLE",
+                error=payload.get("error") or "SEC EDGAR returned no statements",
+                raw=payload,
+                latencyMs=elapsed,
+                diagnostics=diagnostics if isinstance(diagnostics, list) else [],
+            )
+        ref = SourceReference(
+            source="SEC EDGAR",
+            sourceType="primary",
+            publishedAt=payload.get("retrievedAt"),
+            query=request.objective,
+            validationStatus="valid",
+        )
+        objects = normalize_fundamentals(payload, ref)
+        if not objects:
+            return SourceOutcome(
+                source=self.name,
+                status="UNAVAILABLE",
+                error=f"SEC EDGAR had no statement periods for {request.instrument}",
+                raw=payload,
+                latencyMs=elapsed,
+            )
+        return SourceOutcome(
+            source=self.name,
+            status="OK",
+            objects=objects,
+            references=[ref],
+            raw=payload,
+            latencyMs=elapsed,
+        )
+
+
 # Interval/range vocabularies the bridge understands (mirrors the yfinance
 # bridge's VALID_INTERVALS / VALID_PERIODS). A `quantity` is classified against
 # these so the layer never confuses an interval ("1d") with a range ("6mo") —
@@ -240,4 +315,4 @@ def _params_for(request: FinancialRetrievalRequest) -> dict[str, Any]:
     return params
 
 
-__all__ = ["JddsSource", "LiveStructuredSource"]
+__all__ = ["JddsSource", "LiveStructuredSource", "SecFilingsSource"]

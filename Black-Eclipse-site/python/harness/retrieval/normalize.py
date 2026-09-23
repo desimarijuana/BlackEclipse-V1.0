@@ -48,6 +48,7 @@ def _obj(
     period: Optional[str] = None,
     basis: Optional[str] = None,
     published_at: Optional[str] = None,
+    document_id: Optional[str] = None,
     instrument: Optional[str] = None,
     identity: Optional[InstrumentIdentity] = None,
     transformations: Optional[list[str]] = None,
@@ -62,6 +63,7 @@ def _obj(
         period=period,
         basis=basis,
         publishedAt=published_at,
+        documentId=document_id,
         instrument=instrument,
         identity=identity,
         source=source,
@@ -187,12 +189,27 @@ def normalize_fundamentals(payload: dict[str, Any], source: SourceReference) -> 
         if not isinstance(period, dict):
             continue
         end = period.get("endDate") or period.get("date")
-        label = period.get("fiscalYear") or period.get("period") or end
+        # A source may supply an explicit fiscal label (`fiscalYear`/`period`) or
+        # only a period-end date. We must NOT promote the end date into an explicit
+        # fiscal label: the issuer's fiscal year is not assumed to equal the
+        # calendar year. When no label exists, `period` stays None and the
+        # period-end `dataTimestamp` satisfies the annual/quarter leg it falls
+        # inside (see `research/coverage.py::_object_matches`).
+        label = period.get("fiscalYear") or period.get("period")
         # Phase 4: a statement row may carry its consolidation basis and the
         # date it became public (`filed`/`publishedAt`). Both stay None when the
         # source is silent — never inferred from the fiscal period.
         basis = period.get("basis") or period.get("consolidation")
         published = period.get("filed") or period.get("publishedAt")
+        # Phase 6: preserve the filing identity (form + filed date) as a document
+        # id, so a reported fact can be traced to a specific filing. Composed only
+        # from fields the source actually supplied — never fabricated.
+        form = period.get("form")
+        doc_id = None
+        if form or published:
+            doc_id = "|".join(
+                str(part) for part in (form, published, end) if part
+            ) or None
         for key, value in period.items():
             if key in ("endDate", "date", "fiscalYear", "period", "form", "filed",
                        "publishedAt", "basis", "consolidation"):
@@ -211,6 +228,7 @@ def normalize_fundamentals(payload: dict[str, Any], source: SourceReference) -> 
                     period=str(label) if label else None,
                     basis=str(basis) if basis else None,
                     published_at=str(published) if published else None,
+                    document_id=doc_id,
                     instrument=symbol,
                 )
             )

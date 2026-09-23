@@ -140,11 +140,13 @@ class WebResearchSource:
         query = request.query or self._default_query(request)
         search = await self._call("web_search", {"query": query, "limit": 8})
         elapsed = int((time.monotonic() - started) * 1000)
+        diagnostics = search.get("diagnostics") if isinstance(search.get("diagnostics"), list) else []
         if search.get("status") != "OK":
             return SourceOutcome(
                 source=self.name, status="UNAVAILABLE",
                 error=search.get("error") or "web search returned no results",
                 latencyMs=elapsed,
+                diagnostics=diagnostics,
             )
         results = search.get("results") or []
         ranked = self._rank(results)
@@ -154,6 +156,8 @@ class WebResearchSource:
         # never treated as final evidence when the page itself is reachable.
         for item in ranked[:3]:
             page = await self._call("web_fetch", {"url": item.get("url")})
+            if page.get("diagnostics"):
+                diagnostics = [*diagnostics, *page["diagnostics"]]
             if page.get("status") == "OK":
                 merged = {**item, "text": page.get("text") or item.get("snippet"), "publishedAt": item.get("publishedAt")}
                 evidence.append(_as_evidence(merged, query, retrieved=True, validation="valid"))
@@ -173,6 +177,7 @@ class WebResearchSource:
             warnings=[] if evidence else ["no web evidence parsed"],
             raw=search,
             latencyMs=int((time.monotonic() - started) * 1000),
+            diagnostics=diagnostics,
         )
 
     async def _call(self, capability: str, params: dict[str, Any]) -> dict[str, Any]:

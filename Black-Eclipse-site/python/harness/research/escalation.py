@@ -43,6 +43,9 @@ class EscalationResult:
     attempts: list[dict[str, Any]] = field(default_factory=list)
     budget: Optional[dict[str, Any]] = None
     stagesRun: list[str] = field(default_factory=list)
+    # Phase 6: structured diagnostics for every search/fetch attempt, so a
+    # receipt can say WHY an escalation route failed (timeout/block/http/parse).
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _host(url: str) -> str:
@@ -112,7 +115,8 @@ async def escalate_web(
         await _emit("research.escalation_stage", {"stage": stage_name, "legs": [l.id for l in remaining]})
 
         pages = await _gather_pages(
-            mandate, remaining, tiers, bridge, budget, _emit, stage_max=max_secondary_attempts
+            mandate, remaining, tiers, bridge, budget, _emit,
+            stage_max=max_secondary_attempts, diagnostics=result.diagnostics,
         )
         if not pages:
             await _emit("research.escalation_stage_skipped", {"stage": stage_name, "reason": "no pages retrieved"})
@@ -158,6 +162,7 @@ async def _gather_pages(
     emit: Any,
     *,
     stage_max: int,
+    diagnostics: list[dict[str, Any]],
 ) -> list[WebPageContent]:
     """Search + fetch pages for `legs`, keeping only pages in `tiers`."""
     pages: list[WebPageContent] = []
@@ -170,6 +175,7 @@ async def _gather_pages(
             break
         await emit("research.web_search", {"query": query, "tier": _tier_name(tiers), "legId": leg.id})
         search = await _bridge_call(bridge, "web_search", {"query": query, "limit": 8})
+        _record_diagnostics(diagnostics, search, stage=_tier_name(tiers), legId=leg.id)
         if search.get("status") != "OK":
             await emit("research.web_search_failed", {"query": query, "error": search.get("error")})
             continue
@@ -189,6 +195,7 @@ async def _gather_pages(
                 break
             await emit("research.page_fetch", {"url": url, "tier": tier, "legId": leg.id})
             page = await _bridge_call(bridge, "web_fetch", {"url": url})
+            _record_diagnostics(diagnostics, page, stage=_tier_name(tiers), legId=leg.id)
             if page.get("status") != "OK" or not page.get("text"):
                 await emit("research.page_fetch_failed", {"url": url, "error": page.get("error")})
                 continue
@@ -238,6 +245,22 @@ async def _bridge_call(bridge: DataBridge, capability: str, params: dict[str, An
         return await bridge.fetch(capability, params)
     except Exception as exc:  # noqa: BLE001
         return {"status": "UNAVAILABLE", "error": str(exc)}
+
+
+def _record_diagnostics(
+    sink: list[dict[str, Any]],
+    payload: dict[str, Any],
+    *,
+    stage: str,
+    legId: str,
+) -> None:
+    """Append any structured diagnostics a bridge call returned to the audit sink."""
+    rows = payload.get("diagnostics")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if isinstance(row, dict):
+            sink.append({**row, "stage": stage, "legId": legId})
 
 
 __all__ = ["EscalationResult", "escalate_web", "PRIMARY_TIERS", "SECONDARY_TIERS"]
