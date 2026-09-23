@@ -696,6 +696,13 @@ editing `grammar.ts` and its tests together.
   from ordinary action matching and can never render as a bare command that
   navigates without acting.
 
+**Registry actions are not result rows.** The resolver does *not* push registry
+actions (`Open Portfolio`, `Start new chat`, `Open Settings`, …) into ordinary
+results — their destinations duplicate Page entities (already shown under
+Navigation) and rendering them produced a redundant "Commands" group while
+typing. The top action match is still returned as `primaryAction` so Enter runs
+it; action rows appear only under the explicit `>` command scope.
+
 **Cross-tab pivots.** `resolveQuery` returns `related` rows for a resolved
 instrument. These are honest about what each destination can do: the news pivot
 passes `params.symbol`, which `MarketNews` consumes via its `symbol` prop (it

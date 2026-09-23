@@ -234,35 +234,42 @@ export function resolveQuery(query: string, opts: ResolveOptions = {}): Resolved
       })
     : [];
 
+  // Registry actions are NOT surfaced as ordinary result rows — their
+  // destinations duplicate the Page entities (already shown under Navigation),
+  // and rendering them produced a redundant "Commands" group while typing.
+  // The top match is still exposed as `primaryAction` so pressing Enter runs
+  // it, and action rows appear only under the explicit `>` command scope.
   let primaryAction: SearchAction | undefined;
   if ((intent.intent === 'action' || scope === 'action') && actions.length > 0) {
     primaryAction = actions[0];
-    const actionCtx = { query: text, normalized, symbol: extractSymbol(text) };
-    const actionItems: SearchItem[] = actions.map((a, i) => {
-      // Execute the action's own `run()` so selecting a command navigates to
-      // its real destination (e.g. "Open Portfolio" → portfolio tab) instead
-      // of always falling through to the chat tab.
-      let destination: SearchEntity['destination'] = { tab: 'chat' };
-      try {
-        const d = a.run(actionCtx);
-        if (d) destination = d;
-      } catch {
-        /* keep the chat fallback if a run handler throws */
-      }
-      return {
-        entity: {
-          id: a.id,
-          kind: 'action',
-          title: a.title,
-          keywords: a.keywords,
-          icon: a.icon,
-          destination,
-        },
-        score: 2000 - i,
-        match: 'keyword',
-      };
-    });
-    items.push(...actionItems);
+    if (scope === 'action') {
+      const actionCtx = { query: text, normalized, symbol: extractSymbol(text) };
+      const actionItems: SearchItem[] = actions.map((a, i) => {
+        // Execute the action's own `run()` so selecting a command navigates to
+        // its real destination (e.g. "Open Portfolio" → portfolio tab) instead
+        // of always falling through to the chat tab.
+        let destination: SearchEntity['destination'] = { tab: 'chat' };
+        try {
+          const d = a.run(actionCtx);
+          if (d) destination = d;
+        } catch {
+          /* keep the chat fallback if a run handler throws */
+        }
+        return {
+          entity: {
+            id: a.id,
+            kind: 'action',
+            title: a.title,
+            keywords: a.keywords,
+            icon: a.icon,
+            destination,
+          },
+          score: 2000 - i,
+          match: 'keyword',
+        };
+      });
+      items.push(...actionItems);
+    }
   }
 
   // Sort: score desc, then title asc for stability.
