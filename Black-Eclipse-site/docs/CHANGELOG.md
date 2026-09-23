@@ -8,6 +8,9 @@ last-verified: 2026-09-15
 
 ## 2026-09-23
 
+- **Agent** — Expanded the implementation plan with the implemented evidence-grounded research flow and bounded web escalation, including validation, receipts, evaluation, and current limitations.
+  docs updated: `agentic-plan-implementaion.md`
+
 - **Agent** — Added the original financial harness implementation plan as a repository-root Markdown reference and linked it from navigation; retained the source plan as a vision document alongside the current harness docs.
   docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
 

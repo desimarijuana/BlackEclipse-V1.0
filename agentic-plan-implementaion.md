@@ -1603,6 +1603,56 @@ Build:
 - Source-linked reports.
 - Research update workflow.
 - Research evaluation cases.
+
+#### Implemented evidence-grounded research phase
+
+BlackEclipse has since implemented an evidence-grounded answering phase in
+`Black-Eclipse-site/python/harness/research/`. This is the current concrete
+research vertical slice and extends the Phase 3 research-engine direction above.
+The project tracks it as Harness Phase 4, with bounded web escalation tracked as
+Phase 5; those implementation phase numbers are separate from this plan's
+roadmap numbering.
+
+The live supported flow is a narrow, unambiguous, single-company, two-period
+financial comparison:
+
+1. Parse the request into a typed research mandate with explicit metric and
+   period requirements.
+2. Retrieve evidence through the existing financial retrieval layer and JDdS
+   bridge. Apply point-in-time cutoffs and retain source, identity, unit,
+   currency, period, and availability metadata.
+3. Classify each requested fact as covered, qualified, unavailable, stale,
+   conflicting, or otherwise unresolved. Missing required metadata stays
+   visible; it is never inferred as verified.
+4. Build structured claims from the evidence and validate claim references,
+   fields, periods, coverage, and conflicts deterministically. Financial
+   calculations use deterministic calculation functions with recorded inputs
+   and assumptions.
+5. Synthesize through a bounded, tool-less model step that sees only the
+   mandate, evidence packet, and coverage report. Unsupported claims are
+   rejected or returned as an honest partial answer.
+6. Persist a research receipt with the mandate, evidence, coverage, claims,
+   citations, gaps, and run metadata. The chat UI exposes evidence and can load
+   the durable receipt.
+
+When structured data is empty, stale, missing a requested period, or lacks
+required metadata, Phase 5 escalates only the unsatisfied facts through a bounded
+source hierarchy: structured data → primary-source web → reputable secondary
+web. One research budget caps search, fetch, page, time, and token use. Web text
+is untrusted, and numeric facts must be anchored to a verbatim span from a page
+fetched during the run and pass deterministic checks for value, metric, period,
+currency, and basis. If evidence remains insufficient, the answer reports the
+gap and attempted sources.
+
+The implementation also includes stable content-derived evidence and
+calculation identifiers, a versioned semantic-support evaluation set, and
+source-grounded restatement-chain handling. Restatement coverage remains
+unavailable until providers supply reliable revision metadata; missing
+consolidation basis can yield a qualified result. Current implementation details,
+evaluation results, and known limits are maintained in
+`Black-Eclipse-site/docs/harness/phase-4-progress.md` and
+`Black-Eclipse-site/docs/harness/architecture.md`.
+
 Phase 4 — Memory
 Persistence
 Build:
