@@ -511,6 +511,29 @@ memory into every run. Prompt corrected to real capabilities. Path via
 
 ---
 
+## ADR-027 — Evidence-grounded answering: a deterministic research flow over the existing retrieval layer (2026)
+**Decision:** Add one shared Python package `python/harness/research/` that turns
+an objective into a typed research mandate, retrieves each fact leg through the
+*existing* Financial Retrieval Layer, produces deterministic per-leg coverage,
+validates structured claims against actual evidence, computes named metrics in
+pure Python, and persists a bounded research receipt. It adds no agent loop, no
+model adapter, no second retrieval system and no second database. The model
+interprets and explains; the harness owns coverage, calculation truth, structural
+validation and the accept/partial/reject decision. Point-in-time `asOf` is
+explicit and enters cache identity; `NormalizedFinancialObject` gains additive
+`basis`/`publishedAt`. Receipts live in `agent-memory.db` (idempotent DDL), never
+in `eclipse-memory.db` or JDdS.
+**Why:** Phase 2 retrieval produced provenance and conflicts but nothing turned
+an objective into required facts or gated the model's citations against evidence.
+A shared flow is reusable by every financial agent (and future workflow nodes)
+rather than each rebuilding citation logic.
+**Impact:** New `/research/*` runtime endpoints and `ResearchReceipt` table; 61
+new tests; general/unsupported chat is unchanged (`supported=false`). Full
+decision set: ADR-H15…H19 in `docs/harness/decisions.md`; progress in
+`docs/harness/phase-4-progress.md`.
+
+---
+
 ## Decisions implied by the code (not yet formal ADRs)
 
 These are real, load-bearing, and currently only documented in prose. Promote one

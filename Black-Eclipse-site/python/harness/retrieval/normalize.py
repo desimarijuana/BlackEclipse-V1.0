@@ -46,6 +46,8 @@ def _obj(
     currency: Optional[str] = None,
     data_timestamp: Optional[str] = None,
     period: Optional[str] = None,
+    basis: Optional[str] = None,
+    published_at: Optional[str] = None,
     instrument: Optional[str] = None,
     identity: Optional[InstrumentIdentity] = None,
     transformations: Optional[list[str]] = None,
@@ -58,6 +60,8 @@ def _obj(
         currency=currency,
         dataTimestamp=data_timestamp,
         period=period,
+        basis=basis,
+        publishedAt=published_at,
         instrument=instrument,
         identity=identity,
         source=source,
@@ -184,8 +188,14 @@ def normalize_fundamentals(payload: dict[str, Any], source: SourceReference) -> 
             continue
         end = period.get("endDate") or period.get("date")
         label = period.get("fiscalYear") or period.get("period") or end
+        # Phase 4: a statement row may carry its consolidation basis and the
+        # date it became public (`filed`/`publishedAt`). Both stay None when the
+        # source is silent — never inferred from the fiscal period.
+        basis = period.get("basis") or period.get("consolidation")
+        published = period.get("filed") or period.get("publishedAt")
         for key, value in period.items():
-            if key in ("endDate", "date", "fiscalYear", "period", "form", "filed"):
+            if key in ("endDate", "date", "fiscalYear", "period", "form", "filed",
+                       "publishedAt", "basis", "consolidation"):
                 continue
             if value is None or isinstance(value, (dict, list)):
                 continue
@@ -199,6 +209,8 @@ def normalize_fundamentals(payload: dict[str, Any], source: SourceReference) -> 
                     currency=currency if unit is None else None,
                     data_timestamp=str(end) if end else None,
                     period=str(label) if label else None,
+                    basis=str(basis) if basis else None,
+                    published_at=str(published) if published else None,
                     instrument=symbol,
                 )
             )

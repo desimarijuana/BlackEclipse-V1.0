@@ -88,6 +88,23 @@ class AgenticService:
         # and a fresh cached result is reused across runs.
         self.retrieval_cache = RetrievalCache()
 
+    def build_bridge(self, base_url: str, token: Optional[str]) -> DataBridge:
+        """Build the read-only JDdS bridge for a research request."""
+        return _HttpDataBridge(base_url, token)
+
+    async def retrieve_for_research(self, bridge: DataBridge, request: Any) -> Any:
+        """Run ONE retrieval for the research flow through the shared layer/cache.
+
+        Reuses the process-wide retrieval cache and the durable store, exactly
+        like the agent tools do — research is not a parallel retrieval system.
+        """
+        from .retrieval import FinancialRetrievalLayer
+
+        layer = FinancialRetrievalLayer(
+            bridge, cache=self.retrieval_cache, store=self.store
+        )
+        return await layer.retrieve(request)
+
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
         # The retrieval layer is built lazily by the retrieval tools from the

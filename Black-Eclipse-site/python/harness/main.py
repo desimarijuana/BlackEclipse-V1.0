@@ -29,6 +29,8 @@ from pydantic import BaseModel
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
 from .models import list_providers
 from .persistence import now_iso
+from .research.engine import run_research
+from .research.mandate import parse_mandate
 from .schemas import RunRequest, RunResult
 from .service import AgenticService
 from .skills.draft import propose_draft
@@ -83,6 +85,97 @@ def health() -> dict[str, Any]:
 def retrieval_metrics() -> dict[str, Any]:
     """Retrieval-layer performance counters (cache hits/misses, in-flight)."""
     return {"success": True, **service.retrieval_metrics()}
+
+
+class ResearchRunRequest(BaseModel):
+    """A research-mandate request (Phase 4). The front door proxies this; the
+    runtime owns the mandate → coverage flow. `query` is the objective."""
+
+    query: str
+    ticker: Optional[str] = None
+    market: Optional[str] = None
+    asOf: Optional[str] = None
+    callbackBaseUrl: str
+    callbackToken: Optional[str] = None
+    runId: Optional[str] = None
+
+
+@app.post("/research/mandate")
+def research_mandate(payload: dict[str, Any]) -> dict[str, Any]:
+    """Classify an objective into a typed research mandate (no retrieval)."""
+    mandate = parse_mandate(
+        str(payload.get("query") or ""),
+        ticker=payload.get("ticker"),
+        market=payload.get("market"),
+        as_of=payload.get("asOf"),
+    )
+    return {"success": True, "mandate": mandate.model_dump()}
+
+
+@app.post("/research/run")
+async def research_run(request: ResearchRunRequest) -> JSONResponse:
+    """Execute the evidence-grounded research flow for one objective.
+
+    Returns the mandate, per-leg coverage, validated claims and the durable
+    receipt. A general (unsupported) objective returns `supported=False` so the
+    caller continues on the existing chat path.
+    """
+    mandate = parse_mandate(
+        request.query, ticker=request.ticker, market=request.market, as_of=request.asOf
+    )
+    if not mandate.supported:
+        return JSONResponse(
+            {
+                "success": True,
+                "supported": False,
+                "mandate": mandate.model_dump(),
+                "reason": "objective is not a supported financial comparison",
+            }
+        )
+
+    bridge = service.build_bridge(request.callbackBaseUrl, request.callbackToken)
+    run_id = request.runId or f"research_{now_iso()}"
+
+    async def _retrieve(req):  # noqa: ANN001 - shaped like the layer
+        return await service.retrieve_for_research(bridge, req)
+
+    outcome = await run_research(
+        mandate, _retrieve, run_id=run_id,
+        provider=None, model=None,
+    )
+    persistence_error: Optional[str] = None
+    try:
+        if outcome.receipt is not None:
+            service.store.save_receipt(outcome.receipt.model_dump())
+    except Exception as exc:  # noqa: BLE001 - persistence failure is observable, never hidden
+        logging.exception("research receipt persistence failed")
+        persistence_error = str(exc)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "supported": True,
+            "status": outcome.status,
+            "mandate": outcome.mandate.model_dump(),
+            "coverage": outcome.coverage.model_dump(),
+            "metadata": outcome.metadata.model_dump() if outcome.metadata else None,
+            "receipt": outcome.receipt.model_dump() if outcome.receipt else None,
+            "persistenceError": persistence_error,
+        }
+    )
+
+
+@app.get("/research/receipts")
+def list_receipts(limit: int = 50) -> dict[str, Any]:
+    return {"success": True, "receipts": service.store.list_receipts(limit)}
+
+
+@app.get("/research/receipts/{run_id}")
+def get_receipt(run_id: str) -> dict[str, Any]:
+    receipt = service.store.get_receipt(run_id)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    return {"success": True, "receipt": receipt}
 
 
 @app.get("/models")

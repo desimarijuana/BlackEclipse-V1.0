@@ -6,6 +6,13 @@ last-verified: 2026-09-15
 
 # Change Log
 
+## 2026-09-23
+
+- **Harness Phase 4 — evidence-grounded answering** — Added `python/harness/research/` (typed mandate + narrow classifier, per-leg coverage gate, structured claims + deterministic validator, pure-Python derived metrics, citations/response metadata, failure classes, durable receipt, orchestration engine) reusing the existing retrieval layer; additive `basis`/`publishedAt` and `asOf` on the retrieval contracts/cache; idempotent `ResearchReceipt` table in `agent-memory.db`; `/research/*` endpoints. 61 new tests; full suite 327 passed, tsc clean, Vitest 1613 passed.
+  docs updated: `docs/harness/phase-4-progress.md`, `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/NAVIGATION.md`
+- **Harness Phase 4 plan** — Added the OpenCode implementation prompt and progress tracker for evidence-grounded research, coverage/citation gates, point-in-time evidence, deterministic metrics, and evaluation; mapped the phase in navigation.
+  docs updated: `docs/harness/phase-4-opencode-prompt.md`, `docs/harness/phase-4-progress.md`, `docs/NAVIGATION.md`
+
 **Who this is for:** anyone who wants to know *what changed, when, and whether
 the docs were updated* — without reading git history.
 
@@ -43,6 +50,19 @@ proves the documentation obligation was considered rather than skipped.
 
 ## 2026-09-22
 
+- **UI / Navigation** — fixed a bug where switching menu modes would snap back
+  immediately: the tab→mode sync effect now fires only when the active tab
+  changes (tracked via a ref), so a manual Terminal/Agentic choice is respected.
+  Swapped the Skills nav icon from `Sparkles` to `Blocks`.
+  no doc change — bug fix + icon swap; the mode contract is unchanged.
+- **UI / Navigation** — the collapsed sidebar now respects the selected
+  Terminal/Agentic mode (previously it listed both modes' items); switch modes
+  while collapsed with Alt+T / Alt+A.
+  docs updated: `docs/OVERVIEW.md`, `docs/ARCHITECTURE.md`.
+- **UI / Navigation** — reverted the Terminal/Agentic switcher to the original
+  pill style (active `bg-primary/15 text-primary`, inactive muted with hover),
+  removing the sliding gradient highlight.
+  no doc change — presentation-only revert; the mode contract is unchanged.
 - **Skills — user-authored skills** — users can now write their own skills from
   the Skills Library ("Add skill") and the agent can use them. A user skill is
   validated by the same pydantic manifest, may declare only the safe read-only

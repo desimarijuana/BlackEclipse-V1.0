@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS RetrievalRecord (
   dataTimestamp TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_retrieval_type ON RetrievalRecord(dataType);
+
+-- Phase 4: durable research receipts. One bounded, queryable record per research
+-- run explaining request → coverage → claims → validation → final status.
+-- Lives in agent-memory.db (the harness store); never in eclipse-memory.db or
+-- JDdS. Bounded: evidence references carry hashes/summaries, not full documents.
+CREATE TABLE IF NOT EXISTS ResearchReceipt (
+  runId        TEXT PRIMARY KEY,
+  schemaVersion TEXT NOT NULL,
+  taskType     TEXT NOT NULL,
+  objective    TEXT NOT NULL,
+  finalStatus  TEXT NOT NULL,
+  receipt      TEXT NOT NULL,   -- the full ResearchReceipt JSON
+  createdAt    TEXT NOT NULL,
+  FOREIGN KEY (runId) REFERENCES HarnessRun(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_research_receipt_status ON ResearchReceipt(finalStatus);
+CREATE INDEX IF NOT EXISTS idx_research_receipt_created ON ResearchReceipt(createdAt);
 """
 
 DB_FILENAME = "agent-memory.db"
@@ -448,6 +465,64 @@ class AgentMemoryStore:
             "retrievedAt": r["retrievedAt"],
             "dataTimestamp": r["dataTimestamp"],
         }
+
+    # ── Research receipts (Phase 4) ─────────────────────────────────────────
+    def save_receipt(self, receipt: dict[str, Any]) -> None:
+        """Persist a bounded research receipt (idempotent per run).
+
+        `receipt` is a `ResearchReceipt.model_dump()`. Persistence failures are
+        raised to the caller so a save is never falsely claimed successful.
+        """
+        run_id = str(receipt.get("runId") or "")
+        if not run_id:
+            raise ValueError("receipt is missing a runId")
+        self._db.execute(
+            """INSERT INTO ResearchReceipt
+               (runId, schemaVersion, taskType, objective, finalStatus, receipt, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(runId) DO UPDATE SET
+                 schemaVersion = excluded.schemaVersion,
+                 taskType = excluded.taskType,
+                 objective = excluded.objective,
+                 finalStatus = excluded.finalStatus,
+                 receipt = excluded.receipt,
+                 createdAt = excluded.createdAt""",
+            (
+                run_id,
+                str(receipt.get("schemaVersion") or "1.0.0"),
+                str(receipt.get("taskType") or "general"),
+                str(receipt.get("objective") or ""),
+                str(receipt.get("finalStatus") or "rejected"),
+                json.dumps(receipt),
+                now_iso(),
+            ),
+        )
+        self._db.commit()
+
+    def get_receipt(self, run_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM ResearchReceipt WHERE runId = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["receipt"]) if row["receipt"] else None
+
+    def list_receipts(self, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        rows = self._db.execute(
+            "SELECT * FROM ResearchReceipt ORDER BY createdAt DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [
+            {
+                "runId": r["runId"],
+                "schemaVersion": r["schemaVersion"],
+                "taskType": r["taskType"],
+                "objective": r["objective"],
+                "finalStatus": r["finalStatus"],
+                "createdAt": r["createdAt"],
+            }
+            for r in rows
+        ]
 
     # ── Agent memory ────────────────────────────────────────────────────────
     def remember(

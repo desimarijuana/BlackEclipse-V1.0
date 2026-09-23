@@ -121,6 +121,12 @@ class NormalizedFinancialObject(BaseModel):
     currency: Optional[str] = None
     dataTimestamp: Optional[str] = None  # when the value is *about*
     period: Optional[str] = None     # fiscal period / interval (e.g. "2024-Q1")
+    # Phase 4 (additive): consolidation basis ("consolidated" | "standalone")
+    # and the point-in-time publication/availability timestamp. Both are None
+    # when the source does not know — never guessed. `publishedAt` is distinct
+    # from `dataTimestamp` (when the observation applies) and `retrievedAt`.
+    basis: Optional[str] = None
+    publishedAt: Optional[str] = None
     instrument: Optional[str] = None  # symbol / ticker / series id
     identity: Optional[InstrumentIdentity] = None  # canonical instrument identity
     source: SourceReference
@@ -157,6 +163,10 @@ class FinancialRetrievalRequest(BaseModel):
     requiredEvidence: Optional[list[EvidenceKind]] = None
     quantity: Optional[str] = None  # interval/period, or a derived metric name
     query: Optional[str] = None      # free-text for web/news research
+    # Phase 4: point-in-time cutoff (ISO date/timestamp). When set, only evidence
+    # available at or before this instant is admissible, and it participates in
+    # cache/durable identity so two cutoffs never share a cached result.
+    asOf: Optional[str] = None
     allowWeb: bool = True            # caller may forbid web research
     allowStale: bool = False         # caller may accept explicitly-stale cache
     metadata: Optional[dict[str, Any]] = None

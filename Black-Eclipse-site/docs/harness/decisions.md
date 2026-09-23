@@ -223,6 +223,94 @@ once rather than assuming the app's cwd.
 client-driven (the server only stores snapshots). `push` is always a separate,
 explicit action from `commit`; there is no auto-commit or auto-push.
 
+## ADR-H15 — Evidence-grounded answering is one shared, deterministic research flow
+
+**Decision.** Phase 4 adds a single shared package `python/harness/research/`
+that turns an objective into a typed **research mandate**, retrieves each fact
+leg through the *existing* Financial Retrieval Layer, produces deterministic
+per-leg **coverage**, validates structured **claims** against actual evidence,
+computes named metrics in **pure Python**, and persists a bounded **research
+receipt**. It adds no agent loop, no model adapter, no second retrieval system
+and no second database.
+
+**Why.** Retrieval/provenance (Phase 2) were stronger than final-answer
+enforcement: nothing turned a user objective into required facts, checked each
+was covered by admissible evidence, or gated the model's citations. A shared
+flow is reusable by every current and future financial agent (and, later, by
+visual-workflow nodes) instead of each agent rebuilding its own citation logic.
+
+**Consequences.** The model interprets and explains; the harness owns retrieval
+policy, evidence identity, coverage status, calculation truth, structural
+validation and the accept/partial/reject decision. Unsupported/general chat is
+unchanged — it classifies as `general` and continues on the existing path.
+
+## ADR-H16 — Coverage is per fact leg; successful retrieval is not coverage
+
+**Decision.** Coverage is computed per mandate leg as `covered`, `conflicting`,
+`unavailable`, `unknown` or `not_applicable`. A leg is `covered` only when
+evidence matches identity, metric, period, consolidation basis and unit/currency.
+HTTP/tool success, search snippets, planning responses, stale cache and ambiguous
+identity never satisfy a numeric leg.
+
+**Why.** A single global "did it work" boolean (or trusting a 200 response)
+lets a wrong-period or wrong-entity row masquerade as an answer. Claim-aware
+coverage lets a valid revenue comparison coexist with an explicitly unsupported
+causal explanation.
+
+**Consequences.** Partial answers are first-class: material gaps survive to the
+answer and receipt rather than being silently dropped.
+
+## ADR-H17 — The answer gate is deterministic; semantic support is reported, not asserted
+
+**Decision.** The validator deterministically checks evidence-ID existence,
+entity/metric/period/basis/unit/currency compatibility, derived-claim
+calculation registration, conflict visibility, point-in-time admissibility and
+citation-URL provenance. It never claims to prove semantic entailment: where
+meaning cannot be checked deterministically a claim is `needs_review` and
+presented as unverified. The model may not be the sole gate.
+
+**Why.** ID validation is checkable; "does the evidence *mean* the claim" is
+not, reliably, without a labeled evaluation set. Claiming perfect verification
+would itself be a fabricated confidence signal — the same dishonesty rule that
+governs market data.
+
+**Consequences.** One bounded repair round may be attempted with the exact
+invalid claims; if still invalid the claims are stripped/qualified and a useful
+partial result is returned.
+
+## ADR-H18 — Point-in-time cutoffs are explicit and enter cache identity
+
+**Decision.** An optional `asOf` on the mandate/request excludes evidence with
+`publishedAt > asOf` and participates in the retrieval cache/durable key. The
+five temporal concepts are kept distinct: `period`, `dataTimestamp`,
+`publishedAt`, `retrievedAt`, `asOf`. An unknown publication time stays unknown
+and is never inferred from the fiscal period, retrieval time or a current page.
+
+**Why.** Point-in-time analysis is only honest if availability is known;
+inferring it silently (or reusing an uncutoff cached result) would corrupt both
+the answer and the audit trail.
+
+**Consequences.** `NormalizedFinancialObject` gains additive optional `basis`
+and `publishedAt` fields; existing providers leave them `None` rather than
+guessing. Schema changes are additive/idempotent.
+
+## ADR-H19 — Calculations are pure functions with auditable inputs
+
+**Decision.** `research/calculations.py` implements period change, CAGR,
+annualized volatility, maximum drawdown and Sharpe as pure functions that record
+calculation id/version/formula, input evidence ids + identity, date window,
+observation count, frequency, missing-data policy, units/currency, annualization,
+risk-free source and assumptions. They reject mixed identities, undocumented
+duplicate dates, insufficient observations, non-finite values and missing
+assumptions; they never interpolate or backfill. Sharpe requires an explicit
+risk-free rate.
+
+**Why.** A number the model reasons out in prose is unauditable. A deterministic
+module makes the result reproducible and its limitations explicit.
+
+**Consequences.** Results are returned as `derived` evidence, never reported
+facts, and carry input references for the receipt and citation metadata.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

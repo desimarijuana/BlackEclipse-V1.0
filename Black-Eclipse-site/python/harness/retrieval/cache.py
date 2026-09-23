@@ -60,6 +60,9 @@ class RetrievalCache:
                 (request.market or "").upper(),
                 request.quantity or "",
                 (request.query or request.objective or "").strip().lower()[:120],
+                # Phase 4: a point-in-time cutoff is part of identity — two
+                # cutoffs must never collide on one cached/durable result.
+                request.asOf or "",
             ]
         )
 

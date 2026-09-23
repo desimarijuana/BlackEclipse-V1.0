@@ -55,6 +55,7 @@ Two boundaries, both deliberate:
 | `finance_tools.py` | the Phase-1 JDdS-backed tools (kept for compatibility) |
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
+| `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
 | `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables |
 | `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view` tools |
@@ -120,6 +121,39 @@ Tools: `market.get_quote`, `market.get_ohlcv`,
 `research.search`, `research.retrieve_source`, `research.search_news`,
 `macro.get_series` (registered as `*_*` names — the registry allows
 `[A-Za-z0-9_]` only).
+
+### Evidence-grounded answering (Phase 4)
+
+Phase 2 retrieval produces provenance, identity, freshness and conflicts. Phase 4
+turns a user objective into an explicit set of facts an answer must establish and
+gates the final answer against actual evidence. It is a **new package**
+`python/harness/research/`, not a second retrieval system: every fact leg is
+fetched through the *existing* `FinancialRetrievalLayer`.
+
+```
+objective → mandate → per-leg retrieval → coverage → structured claims
+          → deterministic validation → research receipt
+```
+
+| Module | Owns |
+|---|---|
+| `mandate.py` | `ResearchMandate` + `FactLeg`; a narrow deterministic classifier (initially `financial_comparison`); optional model-assisted extraction validated against the schema (the model may propose, never author canonical identity) |
+| `coverage.py` | per-leg `covered` / `conflicting` / `unavailable` / `unknown` / `not_applicable`; successful retrieval is *not* coverage |
+| `claims.py` | `Claim`/`Synthesis`/`ValidationOutcome` + the deterministic validator and prose rendering |
+| `calculations.py` | pure-Python period change, CAGR, annualized volatility, max drawdown, Sharpe — with formula/version/input provenance and hard input guards |
+| `citations.py` | `Citation`/`ResponseMetadata` assembled only from retrieved evidence (stable interfaces for future workflow nodes) |
+| `failures.py` | failure classification (timeout / provider / no-coverage / incomplete / stale / ambiguous / invalid / conflict) |
+| `receipt.py` | the bounded `ResearchReceipt` |
+| `engine.py` | the orchestration over an injected `retrieve` callable |
+
+Persistence is additive: `persistence.py` gains an idempotent `ResearchReceipt`
+table in `agent-memory.db` (never `eclipse-memory.db`, never JDdS). Endpoints
+`POST /research/mandate`, `POST /research/run`, `GET /research/receipts[/{id}]`
+live in `main.py`; the TS front door proxies them, as with every other runtime
+route. General/unsupported objectives return `supported=false` and continue on
+the existing chat path. Decisions: ADR-H15 … ADR-H19 in
+[`decisions.md`](./decisions.md); progress in
+[`phase-4-progress.md`](./phase-4-progress.md).
 
 ### The Skill System (Phase 3)
 

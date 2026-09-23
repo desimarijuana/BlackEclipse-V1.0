@@ -55,7 +55,7 @@ Black-Eclipse-site/
 | Work on Live Intelligence (live news streams) | `src/lib/dashboard/live-intelligence-widget.tsx` (player + states + channel manager), `live-channels.ts` (channel registry + embed/safety helpers), `live-intelligence-store.ts` (persisted selection), `live-resolver.ts` + `src/app/api/live-streams/route.ts` (server-side cached current-live-id resolver) |
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
-| Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md` |
+| Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md`; evidence-grounded answering: `docs/harness/phase-4-progress.md` and `phase-4-opencode-prompt.md` |
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`), `schema.py` (append a migration tuple), `db.py` (runner) |
@@ -70,6 +70,11 @@ Black-Eclipse-site/
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
 | Work on hybrid financial retrieval / source selection | `python/harness/retrieval/` (`planner.py` = source selection, `layer.py` = orchestrator, `structured.py`/`web.py` = providers, `cache.py`, `parallel.py`, `validate.py`, `conflicts.py`, `aggregate.py`); tools in `python/harness/retrieval_tools.py` |
 | Add/edit a retrieval data type or provider | `retrieval/contract.py` (`DataType`), `retrieval/planner.py` (`_PLAN`), `retrieval/policies.py` (freshness + TTL) — new provider implements `retrieval/sources.py` `RetrievalSource` |
+| Work on evidence-grounded answering (Phase 4) | `python/harness/research/` (`mandate.py` = typed mandate + narrow classifier, `coverage.py` = per-leg evidence gate, `claims.py` = structured claims + deterministic validator, `calculations.py` = derived metrics, `citations.py` = citations + response metadata, `failures.py` = failure classes, `receipt.py` = durable receipt, `engine.py` = orchestration); progress `docs/harness/phase-4-progress.md` |
+| Add a deterministic derived metric | `python/harness/research/calculations.py` (one function + a `MIN_OBSERVATIONS`/`CALCULATORS` entry), tests `python/tests/test_research_calculations.py` |
+| Add/edit a research mandate fact leg or task type | `python/harness/research/mandate.py` (`KNOWN_METRICS`, `parse_mandate`, `TaskType`) |
+| Change the research answer validator or coverage rules | `python/harness/research/{coverage,claims}.py` |
+| Work on the research receipt / API | `python/harness/research/receipt.py`, `python/harness/persistence.py` (`ResearchReceipt`, `save_receipt`/`get_receipt`), endpoints in `python/harness/main.py` (`/research/*`) |
 | Change web search / page retrieval | `src/lib/web-research.ts` (the one shared implementation) + the `web_search`/`web_fetch` capabilities in `src/lib/harness/data-bridge.ts` |
 | Give the retrieval layer a new data source | `src/lib/harness/data-bridge.ts` capability + `DataCapability` in `src/lib/harness/types.ts` + the route whitelist |
 | Change the harness front door / API proxy | `src/lib/harness/` (`run-service.ts`, `python-client.ts`, `python-runtime.ts`), routes `src/app/api/harness/` |
@@ -213,6 +218,12 @@ health).
 | Harness front-door contracts | `src/lib/harness/types.ts` (proxy shapes + `DataCapability`) |
 | Financial retrieval contract | `python/harness/retrieval/contract.py` (`FinancialRetrievalRequest`/`Result`, `NormalizedFinancialObject`, `EvidenceSet`) |
 | Retrieval provider contract | `python/harness/retrieval/sources.py` (`RetrievalSource`, `SourceOutcome`) |
+| Research mandate contract | `python/harness/research/mandate.py` (`ResearchMandate`, `FactLeg`, `parse_mandate`) |
+| Evidence coverage contract | `python/harness/research/coverage.py` (`CoverageReport`, `LegCoverage`, `build_coverage`) |
+| Claim + validation contract | `python/harness/research/claims.py` (`Claim`, `Synthesis`, `ValidationOutcome`, `validate_claims`) |
+| Derived-calculation contract | `python/harness/research/calculations.py` (`CalculationResult`, `CALCULATORS`) |
+| Research receipt contract | `python/harness/research/receipt.py` (`ResearchReceipt`) |
+| Research response metadata / citations | `python/harness/research/citations.py` (`ResponseMetadata`, `Citation`, `build_response_metadata`) |
 | Source-selection policy | `python/harness/retrieval/planner.py` (`_PLAN`) |
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |
@@ -241,6 +252,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `src/lib/fundamentals/`, `src/components/screens/fundamentals/`, `src/app/api/fundamentals/`, `scripts/yfinance_fundamentals.py` | `ARCHITECTURE.md` (Fundamentals), `DATA-FLOW.md` |
 | `src/lib/harness/`, `src/app/api/harness/`, `python/`, `scripts/setup-python.js`, `scripts/test-python.js` | `harness/architecture.md`, `harness/decisions.md`, `harness/phase-2-progress.md`, `DECISIONS.md`, `QUICKSTART.md` |
 | `python/harness/retrieval/`, `python/harness/retrieval_tools.py`, `src/lib/web-research.ts` | `harness/architecture.md` (retrieval layer), `harness/phase-2-progress.md`, `ARCHITECTURE.md`, `DECISIONS.md` |
+| `python/harness/research/`, `/research/*` endpoints in `python/harness/main.py` | `harness/phase-4-progress.md`, `harness/architecture.md`, `harness/decisions.md`, `DECISIONS.md` |
 | `python/harness/skills/`, `src/lib/harness/skills-*.ts`, `src/components/screens/skills/`, `src/app/api/skills/`, `src/app/api/learning/` | `harness/phase-3-architecture.md`, `harness/phase-3-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `python/harness/eclipse_memory/`, `python/harness/memory_tools.py`, `src/lib/harness/eclipse-memory-*.ts`, `src/components/screens/eclipse-memory/`, `src/app/api/eclipse-memory/` | `harness/phase-3-memory-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
