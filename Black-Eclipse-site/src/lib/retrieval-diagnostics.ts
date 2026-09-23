@@ -15,6 +15,8 @@ export type RetrievalFailureCategory =
   | "blocked"               // SSRF/robots/anti-bot/host refusal — not retryable
   | "http_error"            // a non-2xx status from the remote
   | "content_type_rejected" // fetched, but the body type is not usable
+  | "unsupported_document"  // e.g. a scanned/image PDF with no text layer (no OCR)
+  | "javascript_only"       // a JS-rendered shell with no server-rendered text
   | "parse_failure"         // fetched, but nothing parseable was extracted
   | "not_configured"        // the provider has no credentials/base URL
   | "invalid_request";      // bad input (empty query, bad URL)

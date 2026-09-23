@@ -126,6 +126,18 @@ export function LearningQueue({
                 <Field label="Observed behaviour" value={candidate.observedBehavior} />
                 <Field label="Known limitations" value={candidate.knownLimitations} />
                 <Field label="Generalization" value={candidate.generalizationNotes} />
+                {candidate.scope?.markets?.length ? (
+                  <Field label="Regional scope" value={candidate.scope.markets.join(", ")} />
+                ) : null}
+                {candidate.diagnostics?.length ? (
+                  <Field
+                    label="Failure diagnostics"
+                    value={candidate.diagnostics
+                      .map((d) => [d.provider, d.category].filter(Boolean).join(": "))
+                      .slice(0, 4)
+                      .join(" · ")}
+                  />
+                ) : null}
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">

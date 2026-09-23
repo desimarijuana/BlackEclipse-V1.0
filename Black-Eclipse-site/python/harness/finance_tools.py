@@ -150,14 +150,22 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
             "from history; treat any answer as unverified.",
             {"status": "OK", "failureClass": "no_data", "count": 0},
         )
-    lines = ["Source health (derived from recorded runs):"]
+    lines = ["Source health (per route = provider × market × asset class):"]
     for r in rows:
         rate = r.get("successRate")
         rate_txt = f"{int(rate * 100)}%" if isinstance(rate, (int, float)) else "n/a"
+        last = r.get("updatedAt") or "never"
+        err = f" lastError={r.get('lastError')}" if r.get("lastError") else ""
         lines.append(
-            f"  {r.get('source')} ({r.get('market')}): {r.get('health', 'unknown')} — "
-            f"{r.get('success', 0)} ok / {r.get('fail', 0)} fail (success {rate_txt})"
+            f"  {r.get('source')} · {r.get('market')} · {r.get('assetClass')}: "
+            f"{r.get('health', 'unknown')} — {r.get('success', 0)} ok / {r.get('fail', 0)} fail "
+            f"(success {rate_txt}, last {last}){err}"
         )
+    lines.append("")
+    lines.append(
+        "'unknown' means NO ATTEMPTS RECORDED yet — it is neither healthy nor "
+        "failing. Only a route with recorded runs can be working or failing."
+    )
     return "\n".join(lines), {"status": "OK", "count": len(rows)}
 
 
@@ -187,19 +195,82 @@ async def get_research_health(args: dict[str, Any], ctx: ToolContext) -> tuple[s
     return "\n".join(lines), {"status": "OK", "healthy": payload.get("healthy"), "count": len(rows)}
 
 
-async def get_coverage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    """Declared coverage: which markets/currencies/asset classes are supported."""
-    payload = await _fetch(ctx, "coverage", {})
+def _fmt_axis(axis: dict[str, Any]) -> str:
+    level = str(axis.get("level") or "unknown").replace("_", " ")
+    observed = axis.get("observed") or "unknown"
+    via = f" via {axis['via']}" if axis.get("via") else ""
+    return f"{level}{via} (observed: {observed})"
+
+
+async def get_capability_matrix(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Truthful per-market capability: what is implemented, configured and observed."""
+    payload = await _fetch(ctx, "capability_matrix", {})
     rows = payload.get("rows") or []
     if not rows:
-        return "Coverage registry is empty.", {"status": "OK", "count": 0}
-    lines = ["Declared coverage (market — currency — asset classes):"]
+        return (
+            "Capability matrix unavailable (no_data).",
+            {"status": "UNAVAILABLE", "failureClass": "no_data"},
+        )
+    lines = ["Capability by market (quote ≠ statements; a listed country is not a promise):"]
     for r in rows:
-        classes = ", ".join(r.get("assetClasses", []))
-        lines.append(f"  {r.get('market')} — {r.get('currency')} — {classes}")
+        universe = r.get("universe")
+        universe_txt = "unknown" if universe is None else str(universe)
+        lines.append(
+            f"  {r.get('market')} ({r.get('currency')}) — instruments in universe: {universe_txt}\n"
+            f"      quote: {_fmt_axis(r.get('quote') or {})}\n"
+            f"      history: {_fmt_axis(r.get('history') or {})}\n"
+            f"      fundamentals: {_fmt_axis(r.get('fundamentals') or {})}\n"
+            f"      filings: {_fmt_axis(r.get('filings') or {})}\n"
+            f"      web/documents: {_fmt_axis(r.get('web') or {})}"
+            + ("  [live-checked]" if r.get("liveChecked") else "")
+        )
+    lines.append("")
     lines.append(
-        "\nIf a request targets a market/asset class not listed here, it is NOT "
-        "COVERED — return UNAVAILABLE rather than trying another source."
+        "IMPORTANT: a market being listed means it is RECOGNISED, not that every "
+        "capability works there. 'fundamentals: not implemented/unconfigured' means "
+        "no statement route is available for that market — do NOT infer statements "
+        "from a working quote. If a capability is unconfigured, the fix is an "
+        "operator-supplied credential, not a different ticker. When a capability is "
+        "missing, still try the OTHER eligible routes (web/filing research) before "
+        "concluding that evidence is unavailable — unless the USER explicitly "
+        "restricted which sources may be used."
+    )
+    return "\n".join(lines), {"status": "OK", "count": len(rows)}
+
+
+async def get_coverage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Declared market recognition + a compact per-market capability verdict.
+
+    This reports what the app RECOGNISES (a market id/currency/exchange is known)
+    separately from what each capability can actually DO there. It deliberately
+    does NOT tell the agent to stop when a market or instrument is missing — a
+    missing universe row is a reason to try the other eligible routes.
+    """
+    payload = await _fetch(ctx, "capability_matrix", {})
+    rows = payload.get("rows") or []
+    if not rows:
+        return "Capability matrix is empty.", {"status": "OK", "count": 0}
+    lines = ["Recognised markets (market — currency — instruments in universe — key capabilities):"]
+    for r in rows:
+        universe = r.get("universe")
+        universe_txt = "unknown" if universe is None else str(universe)
+        quote = str((r.get("quote") or {}).get("level") or "unknown").replace("_", " ")
+        fund = str((r.get("fundamentals") or {}).get("level") or "unknown").replace("_", " ")
+        filings = str((r.get("filings") or {}).get("level") or "unknown").replace("_", " ")
+        lines.append(
+            f"  {r.get('market')} — {r.get('currency')} — {universe_txt} — "
+            f"quote:{quote}, fundamentals:{fund}, filings:{filings}"
+        )
+    lines.append("")
+    lines.append(
+        "A listed market is RECOGNISED; it is NOT a promise that every capability "
+        "works there. When a ticker or market is missing from the stored universe, "
+        "or a capability is unconfigured, that is NOT a reason to stop: try the other "
+        "eligible routes (live quote/history providers, official filings, then "
+        "bounded web research) and report what those routes returned before "
+        "concluding that evidence is unavailable. Return UNAVAILABLE only when every "
+        "eligible route has been tried and none produced the fact. For the full "
+        "per-capability detail, use get_capability_matrix."
     )
     return "\n".join(lines), {"status": "OK", "count": len(rows)}
 
@@ -282,10 +353,32 @@ def register_finance_tools(registry: ToolRegistry) -> None:
     )
     registry.register(
         ToolDefinition(
+            name="get_capability_matrix",
+            description=(
+                "Truthful per-market capability: for each recognised market, what is "
+                "implemented, configured and observed for quote, history, fundamentals, "
+                "official filings and web/document retrieval, plus the instrument-universe "
+                "size. Use this to learn whether a market can actually serve a data type — a "
+                "listed country is NOT a promise. 'not implemented/unconfigured' means no "
+                "route exists for that market yet; try other eligible routes rather than "
+                "concluding the data is absent."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            handler=get_capability_matrix,
+            permission="read",
+            risk="low",
+            timeout_ms=30_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
             name="get_coverage",
             description=(
-                "Declare which markets, currencies and asset classes this system has a "
-                "data source for. Use before assuming a market is supported."
+                "List the markets this system RECOGNISES and a compact capability verdict "
+                "(quote/fundamentals/filings) for each. Recognition is not a capability "
+                "promise. A ticker or market missing from the stored universe is NOT a reason "
+                "to stop: try the other eligible routes before concluding evidence is "
+                "unavailable. For full per-capability detail use get_capability_matrix."
             ),
             input_schema={"type": "object", "properties": {}},
             handler=get_coverage,

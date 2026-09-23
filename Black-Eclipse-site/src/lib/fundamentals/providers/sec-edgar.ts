@@ -21,7 +21,9 @@ import type {
   TimelineEntry,
 } from '../types';
 
-const USER_AGENT = 'BlackEclipse/1.0 (open-source research terminal; contact@blackeclipse.local)';
+// SEC's fair-access policy requires a declared User-Agent with a contact email.
+// Verified: an email-shaped contact gets 200 where a URL-only UA gets 403.
+const USER_AGENT = 'BlackEclipse/1.0 (open-source financial research; contact@blackeclipse.local)';
 const TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json';
 const FACTS_URL = (cik: number) =>
   `https://data.sec.gov/api/xbrl/companyfacts/CIK${String(cik).padStart(10, '0')}.json`;
@@ -365,7 +367,10 @@ export async function fetchSecCompanyFacts(
 let availability: { value: boolean; at: number } | null = null;
 const AVAILABILITY_TTL_MS = 30 * 60 * 1000;
 
-async function secAvailable(): Promise<boolean> {
+/** Whether SEC EDGAR is reachable right now (cached briefly). Exported for the
+ * capability matrix so it reports SEC availability truthfully rather than
+ * assuming it. */
+export async function secAvailable(): Promise<boolean> {
   if (availability && Date.now() - availability.at < AVAILABILITY_TTL_MS) return availability.value;
   try {
     await loadCikMap();

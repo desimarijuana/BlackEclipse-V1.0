@@ -79,7 +79,13 @@ Black-Eclipse-site/
 | Add/edit a research mandate fact leg or task type | `python/harness/research/mandate.py` (`KNOWN_METRICS`, `parse_mandate`, `TaskType`) |
 | Change the research answer validator or coverage rules | `python/harness/research/{coverage,claims}.py` |
 | Work on the research receipt / API | `python/harness/research/receipt.py`, `python/harness/persistence.py` (`ResearchReceipt`, `save_receipt`/`get_receipt`), endpoints in `python/harness/main.py` (`/research/*`) |
-| Change web search / page retrieval | `src/lib/web-research.ts` (page fetch + a diagnostic facade) + `src/lib/web-search.ts` (ordered, independent search providers incl. the operator-configurable JSON API) + `src/lib/retrieval-diagnostics.ts` (the diagnostic contract) |
+| Work on truthful global coverage / capability | `src/lib/harness/capability.ts` (`buildCapabilityMatrix`), `get_coverage`/`get_capability_matrix` in `python/harness/finance_tools.py` |
+| Change web search / page retrieval | `src/lib/web-research.ts` (page fetch + diagnostic facade + PDF/JSON/XML extraction) + `src/lib/web-search.ts` (ordered, independent search providers) + `src/lib/retrieval-diagnostics.ts` |
+| Resolve a global ticker (Yahoo suffix, local code) | `src/lib/markets.ts` (`EXCHANGE_SUFFIX_ALIASES`, `splitExchangeSuffix`), `resolveVaultInstrument` in `data-bridge.ts`; mirrored `infer_market_from_symbol` in `python/harness/retrieval/structured.py` |
+| Gate a provider by market eligibility (e.g. SEC non-US) | `python/harness/retrieval/structured.py` (`SecFilingsSource.eligible`), `secFilings` in `data-bridge.ts` |
+| Work on source-health keying/aggregation | `sourceHealth` in `src/lib/harness/data-bridge.ts` (keyed `source × market × assetClass`) |
+| Link learning candidates to run diagnostics/scope | `python/harness/skills/learning.py` (`_diagnostic_summary`, `_infer_scope`), `eclipse_memory/{schema,store}.py` (migration 4), UI `src/components/screens/skills/learning-queue.tsx` |
+| Update a provider-eligibility rule from a run | `python/harness/skills/learning.py` (`provider_eligibility_improvement` candidate; operator-gated) |
 | Configure an extra web-search provider | Settings vault keys `SEARCH_API_CONFIG` (public JSON: url/authKind/authParam/field paths) + `SEARCH_API_KEY` (secret); resolved in `data-bridge.ts` (`resolveCustomSearchProvider`) |
 | Work on retrieval failure diagnostics / health | `src/lib/retrieval-diagnostics.ts`; `research_health` capability in `data-bridge.ts`; probe tool `get_research_health` in `python/harness/finance_tools.py` |
 | Work on the direct SEC filings route | `src/lib/harness/data-bridge.ts` (`secFilings`, identity-gated), `src/lib/fundamentals/providers/sec-edgar.ts` (`fetchSecCompanyFacts`), `python/harness/retrieval/structured.py` (`SecFilingsSource`) |

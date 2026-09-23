@@ -42,8 +42,10 @@ export interface SearchProvider {
   search(query: string, limit: number): Promise<SearchAttempt>;
 }
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+// The declared bot identity (matches `OUTBOUND_USER_AGENT` in web-research.ts).
+// Verified to work for DuckDuckGo HTML and — unlike a spoofed browser UA — for
+// SEC / regulator / company-IR hosts (which require an email-shaped contact).
+const UA = "BlackEclipse/1.0 (open-source financial research; contact@blackeclipse.local)";
 
 // ── DuckDuckGo HTML (keyless default) ───────────────────────────────────────
 

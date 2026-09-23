@@ -127,6 +127,57 @@ export const MARKET_EXCHANGE_ALIASES: Record<string, string> = {
   MONEP: "DERIV", LIFFE: "DERIV",
 };
 
+// Exchange SUFFIX → canonical market id. This is the global convention used by
+// Yahoo/most aggregators (`.TW` = Taiwan, `.L` = London, `.KS` = Korea KOSPI…).
+// It exists because the JDdS instrument master stores instruments under their
+// BARE local code (`2330`, `005930`, `PETR4`) while a user very often types the
+// suffixed form (`2330.TW`, `005930.KS`, `PETR4.SA`). Before this, the suffixed
+// string was looked up verbatim, never matched, and returned `not_found` — so a
+// Taiwan/Korea/Brazil instrument was "not in the universe" even though it was.
+//
+// Only explicit, well-known suffixes are mapped. A suffix we do not recognise is
+// NOT guessed: the bare ticker then goes through normal resolution (which fails
+// loudly on ambiguity). Keys are lower-case to match the alias index.
+export const EXCHANGE_SUFFIX_ALIASES: Record<string, string> = {
+  // Americas
+  ".us": "US",
+  ".to": "CA", ".v": "CA", ".cn": "CA", ".ne": "CA",
+  ".sa": "BR", ".mx": "MX",
+  // Asia-Pacific
+  ".tw": "TW", ".two": "TW",
+  ".ks": "KR", ".kq": "KR",
+  ".t": "JP", ".jp": "JP",
+  ".hk": "HK",
+  ".ss": "CN", ".sz": "CN",
+  ".in": "IN", ".ns": "IN", ".bo": "IN",
+  ".si": "SG", ".kl": "MY",
+  ".ax": "AU", ".nz": "AU",
+  ".bk": "TH", ".jk": "ID", ".vn": "VN",
+  // EMEA
+  ".l": "UK", ".lse": "UK",
+  ".de": "DE", ".f": "DE", ".etr": "DE",
+  ".pa": "FR", ".as": "NL",
+  ".sa_ae": "AE", ".sr": "SA", ".jo": "ZA",
+  ".is": "TR",
+  ".eg": "EG", ".ng": "NG", ".me": "RU",
+};
+
+/**
+ * Split a well-known exchange suffix off a ticker. Returns the bare symbol and
+ * the canonical market implied by the suffix, or `{ symbol: raw }` unchanged when
+ * there is no recognised suffix. Never guesses: an unknown suffix is left intact.
+ */
+export function splitExchangeSuffix(raw: string): { symbol: string; market: string | null } {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return { symbol: trimmed, market: null };
+  const dot = trimmed.lastIndexOf(".");
+  if (dot <= 0 || dot === trimmed.length - 1) return { symbol: trimmed, market: null };
+  const suffix = trimmed.slice(dot).toLowerCase();
+  const market = EXCHANGE_SUFFIX_ALIASES[suffix];
+  if (!market) return { symbol: trimmed, market: null };
+  return { symbol: trimmed.slice(0, dot), market };
+}
+
 // Index of every known market id (the canonical vocabulary). Kept in sync with
 // MARKET_CURRENCY — a market is "known" iff it has a currency. Built lazily so
 // declaration order in this module is not significant.
@@ -138,6 +189,9 @@ function marketAliasIndex(): Record<string, string> {
   for (const [id, name] of Object.entries(MARKET_FULL_NAME)) map[name.toLowerCase()] = id;
   for (const [key, id] of Object.entries(MARKET_ID_MAP)) map[key.toLowerCase()] = id;
   for (const [key, id] of Object.entries(MARKET_EXCHANGE_ALIASES)) map[key.toLowerCase()] = id;
+  // Explicit global exchange suffixes (`.tw` → TW). Kept distinct from the bare
+  // venue aliases so `L` is not London while `.L` unambiguously is.
+  for (const [key, id] of Object.entries(EXCHANGE_SUFFIX_ALIASES)) map[key.toLowerCase()] = id;
   // A market id always resolves to itself, lower-cased key.
   for (const id of Object.keys(MARKET_CURRENCY)) map[id.toLowerCase()] = id;
   _marketAliasIndex = map;

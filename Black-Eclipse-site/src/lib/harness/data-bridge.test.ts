@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findFirst = vi.fn();
 const assetFindMany = vi.fn();
+const assetGroupBy = vi.fn();
+const marketFindMany = vi.fn();
 const newsFindMany = vi.fn();
 const groupBy = vi.fn();
 
@@ -13,10 +15,20 @@ vi.mock("@/lib/db", () => ({
     asset: {
       findFirst: (...a: unknown[]) => findFirst(...a),
       findMany: (...a: unknown[]) => assetFindMany(...a),
+      groupBy: (...a: unknown[]) => assetGroupBy(...a),
     },
+    market: { findMany: (...a: unknown[]) => marketFindMany(...a) },
     newsItem: { findMany: (...a: unknown[]) => newsFindMany(...a) },
     sourceHealth: { groupBy: (...a: unknown[]) => groupBy(...a) },
   },
+}));
+vi.mock("@/lib/fundamentals/providers/sec-edgar", () => ({
+  // No network in the default suite; the matrix treats SEC as unavailable here.
+  secAvailable: () => Promise.resolve(false),
+  fetchSecCompanyFacts: () => Promise.resolve(null),
+}));
+vi.mock("@/lib/provider-keys", () => ({
+  resolveProviderKey: () => Promise.resolve(null),
 }));
 
 import { fetchCapability } from "./data-bridge";
@@ -24,6 +36,10 @@ import { fetchCapability } from "./data-bridge";
 beforeEach(() => {
   findFirst.mockReset();
   assetFindMany.mockReset();
+  assetGroupBy.mockReset();
+  assetGroupBy.mockResolvedValue([]);
+  marketFindMany.mockReset();
+  marketFindMany.mockResolvedValue([]);
   newsFindMany.mockReset();
   groupBy.mockReset();
 });
@@ -81,20 +97,40 @@ describe("fetchCapability — other capabilities", () => {
     expect((result.items as unknown[]).length).toBe(1);
   });
 
-  it("source_health aggregates recorded runs and declares uncovered sources", async () => {
+  it("source_health keys each route by provider × market × asset class", async () => {
     groupBy.mockResolvedValue([
-      { source: "http", market: "US", symbol: "equity", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok", updatedAt: new Date() } },
+      { source: "yfinance", market: "US", symbol: "equity", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok", updatedAt: new Date() } },
     ]);
     const result = await fetchCapability("source_health", {});
     expect(result.status).toBe("OK");
-    // Every declared target is present, so "no data" is distinguishable from
-    // "no source"; the US equity target carries the recorded 3 successes.
-    const rows = result.rows as Array<{ market: string; assetClass: string; success: number; health: string }>;
+    const rows = result.rows as Array<{ source: string; market: string; assetClass: string; success: number; health: string; providers?: unknown }>;
     expect(rows.length).toBeGreaterThan(1);
-    const us = rows.find((r) => r.market === "US" && r.assetClass === "equity");
-    expect(us?.success).toBe(3);
+    // The recorded route is keyed by ITS provider, not merged onto every source.
+    const recorded = rows.find((r) => r.source === "yfinance" && r.market === "US" && r.assetClass === "equity");
+    expect(recorded?.success).toBe(3);
+    expect(recorded?.health).toBe("degraded");
+    // A different provider's US-equity route must NOT inherit those counts.
+    const jdds = rows.find((r) => r.source === "JDDS" && r.market === "US" && r.assetClass === "equity");
+    expect(jdds?.success).toBe(0);
+    expect(jdds?.health).toBe("unknown");
     // A declared target with no recorded runs reports `unknown`, not absent.
     expect(rows.some((r) => r.health === "unknown")).toBe(true);
+    // Rows are unique per (source, market, assetClass) — no duplicate keys.
+    const keys = rows.map((r) => `${r.source}|${r.market}|${r.assetClass}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("capability_matrix reports capability separately from market recognition", async () => {
+    groupBy.mockResolvedValue([]);
+    const result = await fetchCapability("capability_matrix", {});
+    expect(result.status).toBe("OK");
+    const rows = result.rows as Array<{ market: string; quote: { level: string }; fundamentals: { level: string } }>;
+    const tw = rows.find((r) => r.market === "TW");
+    expect(tw).toBeTruthy();
+    // TW is recognised and quote-covered, but statements are NOT advertised as
+    // working merely because quotes work.
+    expect(["recognized_only", "not_implemented", "unconfigured"]).toContain(tw!.fundamentals.level);
+    expect(tw!.fundamentals.level).not.toBe("configured");
   });
 
   it("rejects an unknown capability", async () => {

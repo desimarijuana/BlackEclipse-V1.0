@@ -64,15 +64,20 @@ def _classify(url: str) -> str:
 
 
 def _build_query(leg: FactLeg, mandate: ResearchMandate) -> str:
-    """A targeted filing query for one unsatisfied leg."""
+    """A targeted filing query for one unsatisfied leg.
+
+    Market-aware: the US filing type is not assumed globally. A US issuer gets a
+    10-K/20-F hint; every other market asks for the issuer's own annual report /
+    regulatory filing, which is what a search engine can actually surface for a
+    non-US issuer. Never fabricates a document name the issuer does not file.
+    """
     entity = leg.entitySymbol or leg.entityRaw or ""
     metric = leg.metric
     period = leg.period or ""
-    return (
-        f"{entity} {metric} {period} annual report 10-K filing"
-        if period
-        else f"{entity} {metric} annual report 10-K filing"
-    ).strip()
+    market = (leg.market or (mandate.entities[0].market if mandate.entities else None) or "").upper()
+    filing_hint = "10-K filing" if market == "US" else "annual report regulatory filing"
+    base = f"{entity} {metric} {period} {filing_hint}" if period else f"{entity} {metric} {filing_hint}"
+    return base.strip()
 
 
 async def escalate_web(

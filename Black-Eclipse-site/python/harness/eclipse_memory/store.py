@@ -599,8 +599,8 @@ class EclipseMemoryStore:
                (id, sourceRunId, candidateType, title, problem, observedBehavior, proposedLesson,
                 proposedProcedure, evidenceReferences, confidence, generalizationNotes, knownLimitations,
                 signature, duplicateGroup, status, createdAt, reviewedAt, resultingSkillId,
-                resultingSkillVersion, draftManifest)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                resultingSkillVersion, draftManifest, diagnostics, scope)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (candidate_id, candidate.get("sourceRunId"), candidate["candidateType"], candidate["title"],
              candidate.get("problem"), candidate.get("observedBehavior"), candidate.get("proposedLesson"),
              json.dumps(candidate.get("proposedProcedure")) if candidate.get("proposedProcedure") is not None else None,
@@ -611,7 +611,9 @@ class EclipseMemoryStore:
              candidate.get("status", "detected"), candidate.get("createdAt") or now_iso(),
              candidate.get("reviewedAt"), candidate.get("resultingSkillId"),
              candidate.get("resultingSkillVersion"),
-             json.dumps(candidate.get("draftManifest")) if candidate.get("draftManifest") is not None else None),
+             json.dumps(candidate.get("draftManifest")) if candidate.get("draftManifest") is not None else None,
+             json.dumps(candidate.get("diagnostics")) if candidate.get("diagnostics") is not None else None,
+             json.dumps(candidate.get("scope")) if candidate.get("scope") is not None else None),
         )
         self._db.commit()
         return candidate_id
@@ -764,7 +766,7 @@ class EclipseMemoryStore:
     @staticmethod
     def _candidate_row(row: sqlite3.Row) -> dict[str, Any]:
         record = dict(row)
-        for key in ("proposedProcedure", "evidenceReferences", "draftManifest"):
+        for key in ("proposedProcedure", "evidenceReferences", "draftManifest", "diagnostics", "scope"):
             if record.get(key):
                 try:
                     record[key] = json.loads(record[key])

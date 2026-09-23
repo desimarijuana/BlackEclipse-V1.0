@@ -208,6 +208,39 @@ class LiveStructuredSource:
         )
 
 
+# Global exchange-suffix → canonical market id. Mirrors the TS table in
+# `src/lib/markets.ts` (`EXCHANGE_SUFFIX_ALIASES`). Used only for ROUTING
+# eligibility (should we send this request to a US-only provider?); canonical
+# identity is still decided by the bridge's instrument master.
+_SUFFIX_TO_MARKET: dict[str, str] = {
+    ".us": "US", ".to": "CA", ".v": "CA", ".cn": "CA", ".ne": "CA",
+    ".sa": "BR", ".mx": "MX",
+    ".tw": "TW", ".two": "TW", ".ks": "KR", ".kq": "KR",
+    ".t": "JP", ".jp": "JP", ".hk": "HK",
+    ".ss": "CN", ".sz": "CN", ".in": "IN", ".ns": "IN", ".bo": "IN",
+    ".si": "SG", ".kl": "MY", ".ax": "AU", ".nz": "AU",
+    ".bk": "TH", ".jk": "ID", ".vn": "VN",
+    ".l": "UK", ".lse": "UK", ".de": "DE", ".f": "DE", ".etr": "DE",
+    ".pa": "FR", ".as": "NL", ".sr": "SA", ".jo": "ZA", ".is": "TR",
+    ".eg": "EG", ".ng": "NG", ".me": "RU",
+}
+
+
+def infer_market_from_symbol(symbol: Optional[str]) -> Optional[str]:
+    """The market implied by a recognised exchange suffix, else None.
+
+    `2330.TW` → "TW". A symbol with no recognised suffix → None (the caller's
+    explicit market, if any, still applies). Never guesses.
+    """
+    if not symbol:
+        return None
+    text = str(symbol).strip()
+    dot = text.rfind(".")
+    if dot <= 0 or dot == len(text) - 1:
+        return None
+    return _SUFFIX_TO_MARKET.get(text[dot:].lower())
+
+
 class SecFilingsSource:
     """Direct SEC EDGAR filings/XBRL for US issuers (Phase 6).
 
@@ -218,8 +251,11 @@ class SecFilingsSource:
     incomplete vault does not leave the leg unanswerable, and separate from WEB so
     a numeric fact is never sourced from a search snippet.
 
-    Tier `primary`: an SEC filing is authoritative. Non-US issuers are
-    `not_covered` — the adapter rejects them rather than guessing.
+    Tier `primary`: an SEC filing is authoritative. ELIGIBILITY: SEC covers US
+    issuers; a request whose market (explicit or suffix-implied) is a recognised
+    non-US market is NOT eligible here. That is a routing decision, not an outage
+    — the provider is skipped so the next eligible route runs, and the skip is
+    recorded.
     """
 
     name = "SEC"
@@ -229,11 +265,22 @@ class SecFilingsSource:
     def __init__(self, bridge: Optional[DataBridge]) -> None:
         self._bridge = bridge
 
+    def eligible(self, request: FinancialRetrievalRequest) -> bool:
+        """True when this US-only route may be attempted for the request."""
+        implied = (request.market or "").strip().upper() or infer_market_from_symbol(request.instrument)
+        # No market info at all → the bridge decides (it defaults a bare US
+        # ticker to US and returns not_covered otherwise). An explicit non-US
+        # market, or a non-US suffix, makes this route ineligible up front.
+        if implied and implied != "US":
+            return False
+        return True
+
     def available(self, request: FinancialRetrievalRequest) -> bool:
-        # US-only and statement-only, but availability is decided by the bridge
-        # (which returns not_covered for a non-US market). We claim availability
-        # whenever a bridge exists so the planner can still try and record why.
-        return self._bridge is not None and request.dataType in _SEC_CAPABILITY
+        return (
+            self._bridge is not None
+            and request.dataType in _SEC_CAPABILITY
+            and self.eligible(request)
+        )
 
     async def retrieve(self, request: FinancialRetrievalRequest) -> SourceOutcome:
         started = time.monotonic()

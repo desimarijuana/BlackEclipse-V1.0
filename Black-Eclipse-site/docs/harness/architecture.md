@@ -160,6 +160,40 @@ objective → mandate → per-leg retrieval → coverage → structured claims
 | `engine.py` | the orchestration over an injected `retrieve` callable |
 | `smoke.py` | operator-triggered live network smoke checks (never in the default suite) |
 
+### Global market research (Phase 7)
+
+Eclipse is not US-centric. The market-data path is provider-neutral: a request is
+routed by the instrument's verified market/exchange/currency/asset class and data
+type, not by a US default.
+
+- **Truthful capability matrix.** `src/lib/harness/capability.ts` composes the
+  declared registry with observed universe sizes and recorded health into a
+  per-market matrix (recognition / universe / quote / history / fundamentals /
+  official filings / web+documents / observed health / live-checked). The
+  `get_coverage` and `get_capability_matrix` tools report it, and their text
+  explicitly instructs the agent to try other eligible routes rather than stop
+  when a market or ticker is missing. Statements are never implied by quotes.
+- **Global identity.** The JDdS master stores bare local codes (`2330`, `005930`);
+  users type Yahoo-style suffixes (`2330.TW`, `005930.KS`). `splitExchangeSuffix`
+  in `markets.ts` maps a curated suffix table to an implied market, and
+  `resolveVaultInstrument` queries both forms. An unknown suffix is never guessed.
+- **Provider eligibility.** A provider declares eligibility and is SKIPPED when
+  ineligible — `SecFilingsSource.eligible` skips SEC for non-US issuers instead
+  of attempting it and reporting an outage. The escalation query is market-aware
+  (no global "10-K"). A missing credential disables only its route.
+- **Documents and language.** The shared fetch transport sends a declared
+  email-contact `User-Agent` (SEC fair-access requires it; verified), returns
+  JSON/XML/XBRL/plain text as raw text, extracts text-layer PDFs, and reports a
+  scanned/image PDF as `unsupported_document` and a JavaScript-only shell as
+  `javascript_only` — distinct categories the caller can escalate on. Original
+  language is preserved (`WebPage.language`); no silent translation.
+- **Health keying.** `sourceHealth` keys each route by `(source, market,
+  assetClass)`; a declared target with zero attempts is `unknown`.
+
+The Python research loop, receipt, and per-leg statuses are unchanged; this
+phase changes WHICH routes are selected and how their outcomes are reported, not
+the evidence contracts.
+
 ### Retrieval escalation (Phase 5) and resilient multi-source research (Phase 6)
 
 Structured sources stay the preferred path, but they are no longer the only one.
@@ -359,7 +393,8 @@ market data.
 | `run-service.ts` | resolve agent + vault credentials → call the runtime |
 | `python-runtime.ts` | lazily spawn + health-check the Python service |
 | `python-client.ts` | typed HTTP client for the runtime |
-| `data-bridge.ts` | the read-only capability accessor (incl. `sec_filings`, `research_health`, diagnostic-carrying `web_search`/`web_fetch`) |
+| `data-bridge.ts` | the read-only capability accessor (incl. `sec_filings`, `research_health`, `capability_matrix`, diagnostic-carrying `web_search`/`web_fetch`) |
+| `capability.ts` | the truthful per-market capability matrix (recognition vs actual route capability) |
 | `agent-presets.ts` | fetches + caches agent presets from the runtime (no local copy) |
 | `runtime-config.ts`, `runtime-auth.ts` | package probe list, callback secret/base URL |
 | `errors.ts`, `ids.ts` | structured errors, run id |

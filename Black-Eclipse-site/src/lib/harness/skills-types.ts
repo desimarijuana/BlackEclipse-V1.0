@@ -139,6 +139,10 @@ export interface LearningCandidate {
   confidence: number;
   generalizationNotes: string | null;
   knownLimitations: string | null;
+  /** Phase 7: structured failure diagnostics the run recorded (provider/category). */
+  diagnostics?: Array<Record<string, unknown>> | null;
+  /** Phase 7: the regional/provider scope the lesson is supported by. */
+  scope?: { markets?: string[]; scopeClaim?: string } | null;
   status: string;
   createdAt: string;
   reviewedAt: string | null;

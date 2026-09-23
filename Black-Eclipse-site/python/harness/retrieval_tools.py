@@ -230,15 +230,29 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
         return "UNAVAILABLE — data bridge not configured.", {"status": "UNAVAILABLE"}
     payload = await ctx.data_bridge.fetch("web_fetch", {"url": url})
     if payload.get("status") != "OK":
+        # Surface WHY it failed (category), so the agent can escalate to another
+        # route rather than reading every miss as "the document does not exist".
+        diagnostics = payload.get("diagnostics") or []
+        category = diagnostics[0].get("category") if diagnostics else None
+        hint = ""
+        if category == "unsupported_document":
+            hint = " The document has no extractable text (likely a scanned/image PDF); OCR is unavailable — try another source."
+        elif category == "javascript_only":
+            hint = " The page is a JavaScript-only shell with no server-rendered text — try an alternate official source."
+        elif category in ("timeout", "transport_error", "http_error"):
+            hint = " This is a retrieval/transport failure, not evidence that the document does not exist."
         return (
             f"UNAVAILABLE — the source at {url} could not be retrieved "
-            f"({payload.get('error', 'unknown reason')}). It is not treated as verified.",
-            {"status": "UNAVAILABLE", "url": url},
+            f"({payload.get('error', 'unknown reason')}; category={category}). It is not treated as verified.{hint}",
+            {"status": "UNAVAILABLE", "url": url, "category": category},
         )
     text = str(payload.get("text") or "")[:6000]
     title = payload.get("title") or url
-    body = f"Retrieved source: {title}\nURL: {url}\n\n{text}"
-    return body, {"status": "OK", "url": url, "title": title, "text": text}
+    extraction = payload.get("extraction")
+    language = payload.get("language")
+    meta = f" (extracted via {extraction}" + (f", language={language}" if language else "") + ")" if extraction else ""
+    body = f"Retrieved source: {title}\nURL: {url}{meta}\n\n{text}"
+    return body, {"status": "OK", "url": url, "title": title, "text": text, "extraction": extraction, "language": language}
 
 
 async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:

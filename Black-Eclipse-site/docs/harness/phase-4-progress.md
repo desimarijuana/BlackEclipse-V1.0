@@ -8,7 +8,103 @@ last-verified: 2026-09-23
 
 **Phase:** 4 — Research mandates, answer validation, point-in-time evidence,
 deterministic calculations, and evaluation
-**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added
+**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added + Phase 7 global market research
+
+## Phase 7 — Global market research (2026-09-23)
+
+**Brief.** Make Eclipse useful to people in any country, not US-centric. Observed
+failures: market coverage lists countries but statements/instruments are not
+retrievable; many international stocks unavailable; SEC attempted for non-US
+listings (HTTP 400); web search/fetch UNAVAILABLE; JavaScript-only filings and
+PDF reports; duplicate/ambiguous source-health rows; `get_coverage` telling the
+agent to stop when JDdS lacks a ticker.
+
+**Verified causes (reproduced against the live endpoints and the failing runs).**
+
+Real international runs exist in `agent-memory.db` (TSMC `run_9810a931…`,
+Samsung `run_ed480294…`, Petrobras `run_c5845c5f…`). Findings:
+
+1. **The browser User-Agent is the 403 cause, not the hosts.**
+   `web-research.ts` sends a Chrome UA. Through the real `safeGet` transport,
+   SEC, TSMC IR (`investor.cld.tsmc.com`), `pr.tsmc.com` and
+   `www.sec.gov/files/company_tickers.json` all return **403 with the browser UA**
+   and **200 with a declared bot UA that includes a contact** (verified both
+   ways). The SEC-filings `.htm` the agent needed returns 200 `text/html` with
+   the declared UA. So "all web fetch UNAVAILABLE" was a self-inflicted 403.
+2. **International tickers are stored WITHOUT the Yahoo suffix the user types.**
+   The vault holds `2330` (TW), `005930` (KR), `PETR4` (BR); users ask for
+   `2330.TW`, `005930.KS`, `PETR4.SA`. `resolveInstrument` receives the suffixed
+   string, finds no exact row, and returns `not_found`: the failing TSMC run
+   recorded "JDDS: 2330.TW is not in the Taiwan universe". Verified: bare `2330`
+   with `market=TW` resolves; `2330.TW` yields `not_found`.
+3. **SEC is attempted for a non-US issuer and returns HTTP 400.**
+   `fundamentals_get_financials("2330.TW","TW")` ran strategy `SEC, JDDS`; the
+   SEC bridge returned HTTP 400. The SEC adapter's `supports()` gate is
+   `market === 'US'`, but the *retrieval planner* still lists `SEC` first for
+   `financial_statements` regardless of market, and the bridge `secFilings` route
+   passes the bare suffixed symbol to it.
+4. **PDF and JSON/XML documents are dropped by the fetch layer.**
+   `fetchWebPage` rejects any content-type without html/xml/text; TSMC's annual
+   report PDFs and the SEC `.htm` files were all reported "not usable HTML". A
+   PDF-only annual report is currently unreadable even when reachable.
+5. **Source-health rows are duplicated and mis-keyed.** `sourceHealth()` emits a
+   row per `(declared source × market × assetClass)` from `healthTargets()`
+   (31 markets × 3 asset classes × 2 sources) but attaches a single market-level
+   aggregate to each of those rows, so `JDDS (US, equity)` and `JDDS (US, etf)`
+   share one counter and read as separate identical results; FX/CRYPTO are also
+   pushed twice. Verified against the live aggregation logic.
+6. **`get_coverage` instructs the agent to stop.** `finance_tools.py:200` tells
+   the model "If a request targets a market/asset class not listed here, it is NOT
+   COVERED — return UNAVAILABLE rather than trying another source"; it also
+   advertises `financial_statements` for every listed market because only
+   `current_quote` actually works there.
+
+**Architectural outcomes (implemented).** A capability matrix that separates
+market recognition / searchable universe / quote+history / fundamentals / official
+filing routes / web+document routes / live health / period coverage / fixture-vs-
+live-smoke, returned by `get_coverage` and phrased so the agent continues through
+eligible routes. Health re-keyed by `(source, market, assetClass, dataType)` with
+distinct counts/last-success/last-error and zero-attempts=`unknown`. Global
+instrument identity that strips/normalizes Yahoo-style suffixes and honours an
+explicit market. Provider eligibility routing (SEC skipped for non-US). Document
+support for JSON/XML/XBRL and bounded text-PDF extraction, with scanned-PDF
+reported as unsupported rather than fetched as noise. Per-leg statuses and the
+persistent bounded research loop from Phase 6 reused unchanged.
+
+**Known limits to carry.** OCR is unavailable (scanned PDFs are reported, not
+read); fundamentals coverage remains sparse outside the US because the vault's
+`FundamentalsCache` has almost no non-US rows — the honest capability report says
+so rather than advertising statement coverage where only quotes work. Live smoke
+coverage is opt-in and per-route.
+
+**Implementation (files).** TS: `src/lib/harness/capability.ts` (capability
+matrix), `markets.ts` (`EXCHANGE_SUFFIX_ALIASES`, `splitExchangeSuffix`),
+`data-bridge.ts` (suffix-aware `resolveVaultInstrument`, re-keyed `sourceHealth`,
+`capability_matrix` capability, extraction/language on `web_fetch`),
+`web-research.ts` (declared email UA, PDF text extraction, JSON/XML/text
+passthrough, `javascript_only`), `retrieval-diagnostics.ts`
+(`unsupported_document`/`javascript_only`), `web-search.ts` (declared UA),
+`fundamentals/providers/sec-edgar.ts` (exported `secAvailable`, email UA),
+`app/api/harness/data/route.ts` (whitelist). Python: `retrieval/structured.py`
+(`SecFilingsSource.eligible`, `infer_market_from_symbol`),
+`research/escalation.py` (market-aware filing query), `finance_tools.py`
+(`get_coverage` rewritten, `get_capability_matrix`, `get_source_health`),
+`retrieval_tools.py` (`research_retrieve_source` surfaces category/extraction),
+`prompts.py` (global routing + continue-through-eligible-routes),
+`skills/learning.py` (`provider_eligibility_improvement`, diagnostics + scope),
+`eclipse_memory/{schema,store}.py` (migration 4, diagnostics/scope columns),
+`research/smoke.py` (non-US IR + PDF probes).
+
+**Verification.** Python **460 passed** (was 423). New: `test_phase7_global.py`
+(31), `test_phase7_skill_feedback.py` (6). Vitest **1630 passed** (127 files);
+new `global-research.test.ts` (10) plus updated `data-bridge.test.ts`. `tsc`
+clean. Live route verification (direct, not mocked): with the declared
+email-contact UA, `www.sec.gov` filings HTML, the ticker map, `data.sec.gov`
+XBRL JSON, and `investor.cld.tsmc.com` (TSMC IR) all return 200; the same
+endpoints returned **403 with the previous browser UA** — the verified cause of
+"all web fetch UNAVAILABLE". A scanned/image PDF correctly reports
+`unsupported_document`. Live smoke is operator-triggered and separate
+(`npm run test:smoke`).
 
 ## Phase 6 — Resilient, multi-source research (2026-09-23)
 

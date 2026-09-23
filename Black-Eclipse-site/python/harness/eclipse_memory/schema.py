@@ -422,6 +422,20 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 4 — link learning candidates to run diagnostics + regional scope.
+# Additive columns only (no backfill): older rows have NULL, which reads as
+# "no diagnostics / scope unspecified". Phase 7 uses these so a reviewed
+# procedure never generalizes one country/provider to all countries.
+MIGRATIONS.append(
+    (
+        4,
+        [
+            "ALTER TABLE LearningCandidate ADD COLUMN diagnostics TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN scope TEXT;",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

@@ -1,4 +1,4 @@
-"""Operator-triggered live smoke checks (Phase 6) — NOT part of the default suite.
+"""Operator-triggered live smoke checks (Phase 6/7) — NOT part of the default suite.
 
 These contact REAL external providers, so they are excluded from `npm run test`
 (`pytest.ini` runs only `tests`, and this file lives here, not under `tests/`).
@@ -13,8 +13,13 @@ check that should be reachable is not, so an operator sees a real state.
 
 What it contacts (all keyless, public, read-only):
   * DuckDuckGo HTML search endpoint            — web search route
-  * https://www.sec.gov/files/company_tickers.json — web fetch route
+  * https://www.sec.gov/files/company_tickers.json — web fetch route (declared UA)
   * https://data.sec.gov XBRL companyconcept   — SEC direct route
+  * https://investor.cld.tsmc.com              — non-US company-IR fetch route
+  * https://www.w3.org/…/dummy.pdf             — document (PDF) handling
+
+It reports which routes are reachable; it does NOT claim a capability works
+globally — only the specific endpoints contacted.
 """
 
 from __future__ import annotations
@@ -33,9 +38,21 @@ async def _sec_nvda(bridge: Any) -> dict[str, Any]:
     return await bridge.fetch("sec_filings", {"symbol": "NVDA", "market": "US"})
 
 
+async def _fetch(bridge: Any, url: str) -> dict[str, Any]:
+    return await bridge.fetch("web_fetch", {"url": url})
+
+
 def _print(title: str, payload: dict[str, Any]) -> None:
     print(f"\n=== {title} ===")
     print(json.dumps(payload, indent=2, default=str)[:4000])
+
+
+# (label, url, expect_ok) — a non-US IR host and a PDF exercise Phase 7 routes.
+_LIVE_FETCHES: list[tuple[str, str, bool]] = [
+    ("web_fetch SEC tickers (declared UA)", "https://www.sec.gov/files/company_tickers.json", True),
+    ("web_fetch TSMC IR (non-US issuer)", "https://investor.cld.tsmc.com/english/financial-reports", True),
+    ("web_fetch PDF (document handling)", "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", False),
+]
 
 
 async def main_async() -> int:
@@ -64,12 +81,21 @@ async def main_async() -> int:
     if sec.get("status") != "OK" or not periods:
         failures.append("SEC direct route returned no NVDA periods")
 
+    for label, url, expect_ok in _LIVE_FETCHES:
+        payload = await _fetch(bridge, url)
+        status = payload.get("status")
+        category = (payload.get("diagnostics") or [{}])[0].get("category")
+        via = payload.get("extraction")
+        print(f"  {label}: status={status} category={category} extraction={via}")
+        if expect_ok and status != "OK":
+            failures.append(f"{label} unexpectedly failed ({category})")
+
     if failures:
         print("\nSMOKE FAILURES:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("\nAll smoke checks reachable.")
+    print("\nAll smoke checks reachable (only the endpoints above were contacted).")
     return 0
 
 

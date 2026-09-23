@@ -484,6 +484,81 @@ the review/promotion test suite would risk weakening that guarantee.
 `python/tests/test_skills_*` suite continues to prove unreviewed candidates
 cannot affect a run.
 
+## ADR-H29 — Coverage is a capability matrix, not a country list
+
+**Decision.** `get_coverage`/`get_capability_matrix` report, per market, separate
+axes: recognition, searchable universe size, quote, history, fundamentals,
+official filings, web/documents, observed health, and whether a live smoke check
+has run. Each axis distinguishes implemented+configured / implemented but
+unconfigured / not implemented / recognized-only. Statements are never implied by
+working quotes.
+
+**Why.** The old flat list gave 31 countries the same asset classes and the same
+four data types, so a Taiwan request looked as statement-capable as a US one —
+which was false. It also told the agent to STOP when a market was absent from the
+list (or when JDdS lacked a ticker), even though another provider or source might
+answer.
+
+**Consequences.** The tool text now instructs the agent to exhaust eligible
+routes (live providers → official filings → bounded web) before concluding
+evidence is unavailable, and to treat a missing universe row / unconfigured
+capability as a routing fact, not a stop signal.
+
+## ADR-H30 — Instrument identity is global and suffix-aware; an unknown suffix is never guessed
+
+**Decision.** A recognised exchange suffix (`.TW`, `.KS`, `.SA`, `.L`, `.T`, `.NS`,
+…) is split into an implied market, and the vault is queried for BOTH the bare
+local code and the suffixed form. Only an explicit, curated suffix table is
+recognised; an unrecognised suffix is left intact (no guess), and a genuinely
+ambiguous bare ticker still asks for the market.
+
+**Why.** The JDdS master stores instruments under bare local codes (`2330`,
+`005930`, `PETR4`) while users overwhelmingly type the Yahoo-style suffixed form;
+the suffixed string never matched and returned `not_found`, so a Taiwan/Korea/
+Brazil instrument was reported "not in the universe" though it existed.
+
+**Consequences.** `resolveVaultInstrument` is the single place this happens, so
+every resolving capability benefits. `splitExchangeSuffix` is mirrored in Python
+(`infer_market_from_symbol`) for routing eligibility only; canonical identity
+remains the TS instrument master.
+
+## ADR-H31 — Providers are gated by eligibility, and the fetch transport uses a declared UA
+
+**Decision.** A provider declares eligibility for a request's market/issuer type
+and is SKIPPED when ineligible (`SecFilingsSource.eligible` — SEC for non-US
+issuers), rather than attempted and reported as an outage. The shared fetch
+transport sends a declared, email-contact `User-Agent`; SEC's fair-access policy
+requires an email-shaped contact (verified: a URL-only UA is rejected 403).
+
+**Why.** The TSMC run attempted SEC for a Taiwanese issuer and recorded "SEC
+bridge HTTP 400" — a predictable ineligibility misread. And every non-US fetch
+returned UNAVAILABLE because the transport spoofed a browser UA, which SEC,
+`www.sec.gov`, TSMC IR and `pr.tsmc.com` all reject with 403; a declared
+email-contact UA receives 200 from all of them (verified both ways).
+
+**Consequences.** A missing credential disables only its route; routing continues.
+Documents are content-negotiated: JSON/XML/XBRL/text pass through as raw text and
+text-PDFs are extracted, while a scanned/image PDF or a JavaScript-only shell is
+reported with a distinct category (`unsupported_document` / `javascript_only`),
+never returned as garbage.
+
+## ADR-H32 — Health is keyed by route; learning candidates carry diagnostics and scope
+
+**Decision.** Source health is keyed by `(source, market, assetClass)` — the
+dimensions that identify a route — and a declared target with zero attempts is
+`unknown`, never healthy or failing. Learning candidates created from a run carry
+that run's structured failure diagnostics and the observed regional/provider
+scope; candidates remain inert and promotion stays operator-gated.
+
+**Why.** The old aggregation collapsed recorded runs to `(market, assetClass)`
+and copied the single aggregate onto every declared provider row, so
+`JDDS (US, equity)` and `JDDS (US, etf)` reported the same counter and two
+providers reported each other's numbers. And a lesson drawn from one country's
+failure must not be generalized to "all countries".
+
+**Consequences.** The Skills UI shows the affected scope and linked diagnostics;
+an unreviewed candidate cannot influence live behavior (regression-tested).
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

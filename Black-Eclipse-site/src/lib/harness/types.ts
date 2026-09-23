@@ -280,6 +280,7 @@ export type DataCapability =
   | "source_health"
   | "research_health"
   | "coverage"
+  | "capability_matrix"
   | "live_quote"
   | "price_history"
   | "macro_series"

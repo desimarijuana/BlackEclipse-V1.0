@@ -36,6 +36,7 @@ from ..persistence import now_iso
 
 CandidateType = str  # failure_recovery | user_correction | successful_procedure |
 #                       validation_improvement | source_selection_improvement |
+#                       provider_eligibility_improvement |
 #                       workflow_pattern | terminology_or_preference
 
 _REUSABLE_MIN_STEPS = 2
@@ -59,6 +60,41 @@ def _run_tools(store: Any, run_id: str) -> list[dict[str, Any]]:
         return store.list_tool_executions(run_id)
     except Exception:  # noqa: BLE001
         return []
+
+
+# Markets the run touched, so a lesson NEVER generalizes one country/provider to
+# all countries. Extracted from retrieval/tool text; bounded and de-duplicated.
+_MARKET_TOKENS = (
+    "US", "TW", "KR", "BR", "JP", "UK", "DE", "FR", "NL", "CA", "IN", "CN",
+    "HK", "SG", "MY", "AU", "PK", "SA", "AE", "ZA", "MX", "TR", "ID", "TH", "VN",
+)
+
+
+def _infer_scope(tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """The regional/provider scope a lesson is supported by (never 'all countries')."""
+    text = " ".join(str(t.get("text") or "") for t in tools).upper()
+    markets = sorted({m for m in _MARKET_TOKENS if re.search(rf"\b{m}\b", text)})
+    return {
+        "markets": markets,
+        "scopeClaim": "observed markets only" if markets else "unspecified",
+    }
+
+
+def _diagnostic_summary(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Structured failure diagnostics a run recorded (category + provider)."""
+    out: list[dict[str, Any]] = []
+    for e in events:
+        if e["type"] not in ("retrieval.source_unavailable", "retrieval.source_failed", "research.page_fetch_failed", "research.web_search_failed"):
+            continue
+        data = e.get("data") or {}
+        out.append({
+            "event": e["type"],
+            "provider": data.get("source") or data.get("provider"),
+            "category": data.get("error") or data.get("category") or data.get("reason"),
+        })
+        if len(out) >= 8:
+            break
+    return out
 
 
 def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
@@ -152,6 +188,7 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
     retrieval_events = [e for e in events if e["type"].startswith("retrieval.")]
     source_failures = [e for e in retrieval_events if e["type"] in ("retrieval.source_unavailable", "retrieval.source_failed")]
     if source_failures and tool_successes:
+        scope = _infer_scope(tools)
         draft = {
             "candidateType": "source_selection_improvement",
             "title": "Prefer a working source for this data type",
@@ -159,9 +196,47 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
             "observedBehavior": "Another source satisfied the request.",
             "proposedLesson": "Record the working source preference for this data type/coverage.",
             "evidenceReferences": [{"kind": "event", "id": e["id"], "type": e["type"]} for e in source_failures[:5]],
+            "diagnostics": _diagnostic_summary(events),
+            "scope": scope,
             "confidence": 0.4,
-            "generalizationNotes": "A source outage is often transient; only generalize if it recurs.",
+            "generalizationNotes": (
+                "A source outage is often transient; only generalize if it recurs. "
+                f"Scope is limited to {scope.get('scopeClaim')}: do NOT generalize one "
+                "country/provider to all countries."
+            ),
             "knownLimitations": "Do not turn a temporary outage into a permanent source rule.",
+        }
+        drafts.append(draft)
+
+    # ── 5. Provider-eligibility improvement: a provider was attempted for a
+    #         request it is not eligible for (e.g. SEC for a non-US issuer) and
+    #         the run still answered through another route. The lesson is a
+    #         routing rule for ONE provider/market, never a global rule.
+    ineligible = [
+        e for e in retrieval_events
+        if e["type"] == "retrieval.source_unavailable"
+        and "not_covered" in str(e.get("data") or "").lower()
+    ]
+    if ineligible and tool_successes and source_failures:
+        scope = _infer_scope(tools)
+        draft = {
+            "candidateType": "provider_eligibility_improvement",
+            "title": "Skip a provider that is not eligible for the issuer's market",
+            "problem": "A provider was attempted for a request it does not cover.",
+            "observedBehavior": "Another eligible route answered the request.",
+            "proposedLesson": (
+                "Record a provider-eligibility rule (provider × market/issuer type) so an "
+                "ineligible provider is skipped rather than attempted and reported as an outage."
+            ),
+            "evidenceReferences": [{"kind": "event", "id": e["id"], "type": e["type"]} for e in ineligible[:5]],
+            "diagnostics": _diagnostic_summary(events),
+            "scope": scope,
+            "confidence": 0.5,
+            "generalizationNotes": (
+                "A provider's eligibility is issuer/market-specific; apply it only to the "
+                f"observed scope ({scope.get('scopeClaim')}) and never to all markets."
+            ),
+            "knownLimitations": "Do not infer eligibility from a single failure; confirm the provider's stated coverage.",
         }
         drafts.append(draft)
 

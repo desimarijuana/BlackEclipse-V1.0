@@ -194,3 +194,22 @@ PRAGMAs and takes rolling backups.
 
 **Seed snapshot** — the committed `jdds.db` that ships real data to fresh clones.
 Deliberately updated rarely; never re-committed casually.
+
+**Capability matrix** — the truthful, per-market breakdown of what the system can
+actually do (`src/lib/harness/capability.ts`): recognition, searchable universe,
+quote, history, fundamentals, official filings, web/documents, and observed
+health. Separate from *coverage* (recognition): a market can be recognized while a
+capability is unimplemented or unconfigured there.
+
+**Provider eligibility** — whether a provider may be attempted for a given
+request (by market/issuer type/data type). An ineligible provider is SKIPPED, not
+attempted-and-failed; e.g. SEC is ineligible for a non-US issuer. Missing
+credentials disable only that route.
+
+**Exchange suffix** — the Yahoo-style suffix on a global ticker (`.TW`, `.KS`,
+`.L`, `.T`, `.NS`). Mapped by `EXCHANGE_SUFFIX_ALIASES` to an implied market; an
+unknown suffix is never guessed.
+
+**Unsupported document** — a fetched document with no usable text (a scanned or
+image-only PDF, or a JavaScript-only shell). Reported as its own diagnostic
+category; OCR is not available, so it is never passed through as garbage.

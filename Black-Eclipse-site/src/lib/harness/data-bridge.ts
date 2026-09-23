@@ -21,7 +21,8 @@ import {
 } from "@/lib/web-search";
 import type { RetrievalDiagnostic } from "@/lib/retrieval-diagnostics";
 import { resolveProviderKey } from "@/lib/provider-keys";
-import { fetchSecCompanyFacts } from "@/lib/fundamentals/providers/sec-edgar";
+import { fetchSecCompanyFacts, secAvailable } from "@/lib/fundamentals/providers/sec-edgar";
+import { buildCapabilityMatrix } from "@/lib/harness/capability";
 import {
   resolveInstrument,
   verifyProviderIdentity,
@@ -35,7 +36,7 @@ import {
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
 import { coverageSummary, isCovered, coverageFor, healthTargets } from "@/lib/harness/coverage";
 import { resolveMacroSeries } from "@/lib/harness/macro-identity";
-import { MARKET_FULL_NAME, resolveMarketId } from "@/lib/markets";
+import { MARKET_FULL_NAME, resolveMarketId, splitExchangeSuffix } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
 export interface DataBridgeResult {
@@ -97,9 +98,15 @@ async function resolveVaultInstrument(
   rawMarketInput: unknown,
   requireRow = true,
 ): Promise<VaultResolution> {
-  const sym = symbol.trim().toUpperCase();
+  const rawSymbol = symbol.trim().toUpperCase();
+  // A user very often types the global exchange suffix (`2330.TW`, `005930.KS`)
+  // while the vault stores the BARE local code (`2330`). Split a recognised
+  // suffix into an implied market, and query the vault for BOTH forms so an
+  // instrument stored either way resolves. An unknown suffix is left intact.
+  const split = splitExchangeSuffix(rawSymbol);
   const rawMarket =
-    typeof rawMarketInput === "string" && rawMarketInput.trim() ? rawMarketInput.trim() : null;
+    typeof rawMarketInput === "string" && rawMarketInput.trim() ? rawMarketInput.trim() : split.market;
+  const sym = split.symbol.trim().toUpperCase();
 
   // A KNOWN venue we have no source for (a recognised derivatives exchange) is
   // NOT_COVERED — the caller named a real venue, so it is neither "unknown" nor
@@ -118,8 +125,9 @@ async function resolveVaultInstrument(
     }
   }
 
+  const symbolsToTry = sym === rawSymbol ? [sym] : [sym, rawSymbol];
   const rows = await prisma.asset.findMany({
-    where: { symbol: sym },
+    where: { symbol: { in: symbolsToTry } },
     include: { price: true, market: true },
   });
 
@@ -368,6 +376,8 @@ export async function fetchCapability(
       return researchHealth();
     case "coverage":
       return Promise.resolve(coverageCapability());
+    case "capability_matrix":
+      return capabilityMatrix();
     case "live_quote":
       return liveQuote(params);
     case "price_history":
@@ -603,30 +613,42 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     _max: { lastStatus: true, updatedAt: true },
   });
 
-  // Recorded runs, keyed by (market, assetClass). A provider that ran records
-  // under its own name (yfinance/tradingview); aggregate them per target.
-  const recorded = new Map<string, { success: number; fail: number; updated: string | null; providers: Set<string> }>();
+  // ── Key health by the dimensions that actually identify a route ────────────
+  // A route is (source, market, assetClass). The old code collapsed recorded
+  // runs to (market, assetClass) and then copied that ONE aggregate onto every
+  // declared (source × assetClass) row — so `JDDS (US, equity)` and
+  // `JDDS (US, etf)` reported the same counter, and two different providers
+  // reported each other's numbers. Here each recorded (source, market, class)
+  // is kept distinct, and a declared-but-unrun target is `unknown`.
+  interface Stat {
+    success: number;
+    fail: number;
+    updated: string | null;
+    lastStatus: string | null;
+    lastError: string | null;
+  }
+  const recorded = new Map<string, Stat>();
+  const recordedProviders = new Map<string, Set<string>>();
   for (const r of rows) {
     const assetClass = r.symbol === "*" ? "*" : r.symbol;
-    const key = `${r.market}|${assetClass}`;
-    const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, providers: new Set<string>() };
+    const key = `${r.source}|${r.market}|${assetClass}`;
+    const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, lastStatus: null, lastError: null };
     cur.success += r._sum.successCount ?? 0;
     cur.fail += r._sum.failCount ?? 0;
     const updated = r._max.updatedAt ? new Date(r._max.updatedAt).toISOString() : null;
     if (updated && (!cur.updated || updated > cur.updated)) cur.updated = updated;
-    cur.providers.add(r.source);
+    // lastStatus from the group aggregate is not per-row; classify from counts.
     recorded.set(key, cur);
   }
 
-  const shape = (
-    source: string,
-    market: string,
-    assetClass: string,
-    stat: { success: number; fail: number; updated: string | null; providers: Set<string> } | undefined,
-  ) => {
+  const shape = (source: string, market: string, assetClass: string) => {
+    const key = `${source}|${market}|${assetClass}`;
+    const stat = recorded.get(key);
     const success = stat?.success ?? 0;
     const fail = stat?.fail ?? 0;
     const total = success + fail;
+    // A declared target with ZERO attempts is `unknown` — NOT healthy, NOT
+    // failing. Only recorded runs may claim working/failing.
     const health =
       total === 0 ? "unknown"
         : fail === 0 ? "healthy"
@@ -637,7 +659,6 @@ async function sourceHealth(): Promise<DataBridgeResult> {
       source,
       market,
       assetClass,
-      providers: stat ? [...stat.providers] : [],
       success,
       fail,
       total,
@@ -649,21 +670,27 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     };
   };
 
-  // Every declared (source, market, assetClass) the system CAN serve, so a
-  // known source with no runs reports `unknown` (no data) rather than being
-  // absent (which would read as "no source").
+  // Every declared (source, market, assetClass) the system CAN serve, so a known
+  // source with no runs reports `unknown` rather than being absent. Each target
+  // is emitted once (deduplicated), and a route with its OWN record is distinct
+  // from another route under the same market.
   const declared = healthTargets();
-  const out = declared.map((t) =>
-    shape(t.source, t.market, t.assetClass, recorded.get(`${t.market}|${t.assetClass}`)),
-  );
+  const seen = new Set<string>();
+  const out: ReturnType<typeof shape>[] = [];
+  for (const t of declared) {
+    const key = `${t.source}|${t.market}|${t.assetClass}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(shape(t.source, t.market, t.assetClass));
+  }
 
-  // Include any recorded combination not covered by the registry (e.g. a legacy
-  // whole-market wildcard) so real history is never hidden.
-  const declaredKeys = new Set(declared.map((t) => `${t.market}|${t.assetClass}`));
-  for (const [key, stat] of recorded) {
-    if (declaredKeys.has(key)) continue;
-    const [market, assetClass] = key.split("|");
-    out.push(shape("LIVE_STRUCTURED", market, assetClass, stat));
+  // Recorded combinations not in the registry (e.g. a provider that ran for a
+  // market the registry does not declare) are included under their own source.
+  for (const key of recorded.keys()) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [source, market, assetClass] = key.split("|");
+    out.push(shape(source, market, assetClass));
   }
 
   if (out.length === 0) return { status: "OK", failureClass: "no_data", rows: [] };
@@ -673,6 +700,85 @@ async function sourceHealth(): Promise<DataBridgeResult> {
 /** The declared coverage registry, so the system can answer "what do we cover?". */
 function coverageCapability(): DataBridgeResult {
   return { status: "OK", rows: coverageSummary() };
+}
+
+/**
+ * The truthful capability matrix. Composes the declared registry with the
+ * OBSERVED vault universe sizes and recorded health, and with what each
+ * fundamentals/web route needs to be configured. Never advertises a capability
+ * from an unrelated one (statements are not implied by quotes).
+ */
+async function capabilityMatrix(): Promise<DataBridgeResult> {
+  try {
+    // Observed universe sizes per market (an empty vault market reports 0, which
+    // is honest; an unreadable DB reports null, which stays "unknown").
+    const universeCounts: Record<string, number> = {};
+    try {
+      const grouped = await prisma.asset.groupBy({ by: ["marketId"], _count: { _all: true } });
+      const markets = await prisma.market.findMany({ select: { id: true, country: true } });
+      const idToCountry = new Map(markets.map((m) => [m.id, m.country]));
+      for (const g of grouped) {
+        const country = idToCountry.get(g.marketId);
+        if (country) universeCounts[country] = (universeCounts[country] ?? 0) + g._count._all;
+      }
+    } catch {
+      /* leave counts empty — matrix reports null */
+    }
+
+    // Observed health per market from recorded runs: any success ⇒ working,
+    // only failures ⇒ failing, mixed ⇒ degraded.
+    const observedByMarket: Record<string, "working" | "degraded" | "failing"> = {};
+    const liveCheckedMarkets: string[] = [];
+    try {
+      const rows = await prisma.sourceHealth.groupBy({
+        by: ["market"],
+        _sum: { successCount: true, failCount: true },
+      });
+      for (const r of rows) {
+        const s = r._sum.successCount ?? 0;
+        const f = r._sum.failCount ?? 0;
+        if (s > 0 && f === 0) observedByMarket[r.market] = "working";
+        else if (s > 0) observedByMarket[r.market] = "degraded";
+        else if (f > 0) observedByMarket[r.market] = "failing";
+      }
+    } catch {
+      /* leave observed empty (unknown) */
+    }
+
+    // Fundamentals availability: SEC is keyless (US only); a keyed multi-market
+    // vendor widens coverage only when its credential is actually configured.
+    let usFilings = false;
+    try {
+      usFilings = await secAvailable();
+    } catch {
+      usFilings = false;
+    }
+    let multiMarketVendor = false;
+    try {
+      const fmp = await resolveProviderKey("FINANCIALMODELINGPREP_API_KEY");
+      multiMarketVendor = Boolean(fmp && fmp.trim());
+    } catch {
+      multiMarketVendor = false;
+    }
+
+    // Web routes are available when the keyless fetch transport is usable (it
+    // always is — it is built in); a keyed search provider is an addition.
+    const webAvailable = true;
+
+    const matrix = buildCapabilityMatrix({
+      universeCounts,
+      observedByMarket,
+      liveCheckedMarkets,
+      fundamentalsAvailability: { usFilings, multiMarketVendor },
+      webAvailable,
+    });
+    return { status: "OK", rows: matrix };
+  } catch (err) {
+    return unavailableClass(
+      "source_failure",
+      `capability matrix failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ── Live structured providers (Phase 2) ─────────────────────────────────────
@@ -1010,6 +1116,9 @@ async function webFetchCapability(params: Record<string, unknown>): Promise<Data
     return {
       status: "UNAVAILABLE",
       failureClass: cls,
+      // The category (unsupported_document / javascript_only / parse_failure …)
+      // is surfaced so the caller can escalate to a different route rather than
+      // treating every miss the same.
       error: d.detail || "page could not be retrieved",
       diagnostics: [d],
     };
@@ -1020,6 +1129,8 @@ async function webFetchCapability(params: Record<string, unknown>): Promise<Data
     title: outcome.page.title,
     text: outcome.page.text,
     bytes: outcome.page.bytes,
+    extraction: outcome.page.extraction ?? null,
+    language: outcome.page.language ?? null,
     diagnostics: [outcome.diagnostic],
   };
 }
