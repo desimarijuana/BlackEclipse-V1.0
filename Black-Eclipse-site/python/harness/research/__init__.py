@@ -35,12 +35,23 @@ from .claims import (
     render_prose,
     validate_claims,
 )
+from .budget import ResearchBudget
 from .citations import (
     Citation,
     ResponseMetadata,
     build_citations,
     build_response_metadata,
     summarize_limitations,
+)
+from .escalation import EscalationResult, escalate_web
+from .web_facts import (
+    ExtractedFact,
+    ValidationResult,
+    WebFactExtractor,
+    WebPageContent,
+    fact_to_evidence,
+    parse_facts,
+    validate_fact,
 )
 from .coverage import (
     CoverageReport,
@@ -49,6 +60,8 @@ from .coverage import (
     build_coverage,
 )
 from .failures import FailureClass, classify_failure
+from .ids import calculation_digest, evidence_digest, stable_digest
+from .periods import Period, parse_period, periods_match
 from .engine import ResearchOutcome, run_research
 from .mandate import (
     FactLeg,
@@ -58,6 +71,8 @@ from .mandate import (
     parse_mandate,
 )
 from .receipt import EvidenceRef, ResearchReceipt, build_receipt
+from .supersession import SupersessionChain, SupersessionLink, build_chain
+from .synthesis import ModelSynthesizer, build_evidence_packet, parse_synthesis
 
 __all__ = [
     "CALCULATORS",
@@ -84,6 +99,12 @@ __all__ = [
     "summarize_limitations",
     "FailureClass",
     "classify_failure",
+    "Period",
+    "parse_period",
+    "periods_match",
+    "stable_digest",
+    "evidence_digest",
+    "calculation_digest",
     "CoverageReport",
     "CoverageStatus",
     "LegCoverage",
@@ -98,4 +119,20 @@ __all__ = [
     "ResearchReceipt",
     "EvidenceRef",
     "build_receipt",
+    "ModelSynthesizer",
+    "build_evidence_packet",
+    "parse_synthesis",
+    "SupersessionChain",
+    "SupersessionLink",
+    "build_chain",
+    "ResearchBudget",
+    "EscalationResult",
+    "escalate_web",
+    "WebPageContent",
+    "ExtractedFact",
+    "ValidationResult",
+    "WebFactExtractor",
+    "validate_fact",
+    "fact_to_evidence",
+    "parse_facts",
 ]

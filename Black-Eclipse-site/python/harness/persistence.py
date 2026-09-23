@@ -173,6 +173,10 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("promptTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("completionTokens", "INTEGER NOT NULL DEFAULT 0"),
         ("totalTokens", "INTEGER NOT NULL DEFAULT 0"),
+        # Phase 4: a bounded JSON blob of the run's research metadata (status,
+        # citations, coverage, gaps, receipt availability). NULL for ordinary
+        # chat and for older rows, so existing clients stay compatible.
+        ("research", "TEXT"),
     ],
 }
 
@@ -221,14 +225,17 @@ class AgentMemoryStore:
         allowed = {
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
-            "provider", "model", "startedAt", "finishedAt",
+            "provider", "model", "startedAt", "finishedAt", "research",
         }
         sets, params = [], []
         for key, value in patch.items():
             if key not in allowed:
                 continue
             sets.append(f"{key} = ?")
-            params.append(json.dumps(value) if key == "error" and value is not None else value)
+            if key in ("error", "research") and value is not None:
+                params.append(json.dumps(value))
+            else:
+                params.append(value)
         if not sets:
             return
         sets.append("updatedAt = ?")
@@ -653,11 +660,19 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "totalTokens": row["totalTokens"],
         "provider": row["provider"],
         "model": row["model"],
+        "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
         "createdAt": row["createdAt"],
         "updatedAt": row["updatedAt"],
         "startedAt": row["startedAt"],
         "finishedAt": row["finishedAt"],
     }
+
+
+def _has_column(row: sqlite3.Row, name: str) -> bool:
+    try:
+        return name in row.keys()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 __all__ = ["AgentMemoryStore", "SCHEMA", "DB_FILENAME", "default_db_path", "now_iso", "new_id"]

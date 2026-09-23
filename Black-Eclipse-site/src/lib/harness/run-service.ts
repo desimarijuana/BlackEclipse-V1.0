@@ -31,7 +31,13 @@ export async function chatWithAgent(
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
   documents: Array<{ name: string; text: string }> = [],
   runId?: string
-): Promise<{ output: string; runId: string; status: "completed" | "failed"; error?: string }> {
+): Promise<{
+  output: string;
+  runId: string;
+  status: "completed" | "failed";
+  error?: string;
+  research?: import("./types").ResearchRunInfo;
+}> {
   const result = await startRun({
     input: { query, history, documents: documents.length ? documents : undefined },
     agentId: "eclipse-agent",
@@ -43,13 +49,19 @@ export async function chatWithAgent(
   }
   const runResult = result as RunResult;
   if (runResult.status === "completed" && runResult.output) {
-    return { output: runResult.output, runId: runResult.runId, status: "completed" };
+    return {
+      output: runResult.output,
+      runId: runResult.runId,
+      status: "completed",
+      research: runResult.research,
+    };
   }
   return {
     output: runResult.output ?? "",
     runId: runResult.runId,
     status: "failed",
     error: runResult.error?.message ?? "The agent run did not complete",
+    research: runResult.research,
   };
 }
 

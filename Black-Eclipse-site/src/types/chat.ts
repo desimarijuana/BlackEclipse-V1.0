@@ -16,6 +16,12 @@ export interface Message {
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */
   activities?: ActivityItem[];
+  /**
+   * Phase 4 evidence-grounded research metadata for a gated run (coverage,
+   * citations, claims, gaps). Absent on user turns, ordinary chat, and legacy
+   * rows. Narrowed by the chat surface via `ResearchRunInfo`.
+   */
+  research?: unknown;
   /** A recoverable failure on this turn. */
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */

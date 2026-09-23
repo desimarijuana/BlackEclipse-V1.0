@@ -19,11 +19,24 @@ from ..retrieval.contract import (
     FinancialRetrievalRequest,
     FinancialRetrievalResult,
 )
+from .budget import ResearchBudget
 from .citations import ResponseMetadata, build_response_metadata
 from .claims import Synthesis, ValidationOutcome, render_prose, validate_claims
 from .coverage import CoverageReport, build_coverage
+from .escalation import escalate_web
 from .mandate import FactLeg, ResearchMandate
 from .receipt import ResearchReceipt, build_receipt
+
+# Coverage statuses that mean "structured did not fully answer this leg" and
+# therefore justify a bounded web escalation:
+#   unavailable        — nothing retrieved
+#   no_matching_period — evidence exists but not for the requested fiscal period
+#   stale              — only a stale observation exists
+#   unknown            — a required blocking field is unconfirmed
+#   qualified          — the value is present but required metadata (e.g. basis)
+#                        is unconfirmed; escalation may confirm it from a primary
+#                        source, and leaves the leg qualified if it cannot
+_ESCALATABLE = {"unavailable", "no_matching_period", "stale", "unknown", "qualified"}
 
 RetrieveFn = Callable[[FinancialRetrievalRequest], Awaitable[FinancialRetrievalResult]]
 SynthesizeFn = Callable[..., Awaitable[Synthesis]]
@@ -42,6 +55,8 @@ class ResearchOutcome:
     metadata: Optional[ResponseMetadata] = None
     prose: Optional[str] = None
     repairRounds: int = 0
+    budget: Optional[dict[str, Any]] = None
+    escalation: Optional[dict[str, Any]] = None
 
     @property
     def status(self) -> str:
@@ -83,6 +98,10 @@ async def run_research(
     provider: Optional[str] = None,
     model: Optional[str] = None,
     max_repair_rounds: int = 1,
+    bridge: Any = None,
+    extractor: Any = None,
+    budget: Optional[ResearchBudget] = None,
+    on_event: Any = None,
 ) -> ResearchOutcome:
     """Execute the full research flow for a mandate.
 
@@ -128,20 +147,56 @@ async def run_research(
         )
 
     # Deduplicate evidence by id (the same item may serve several legs).
-    seen: set[str] = set()
-    unique_evidence: list[Any] = []
-    for item in outcome.evidence:
-        item_id = getattr(item, "id", None)
-        if item_id and item_id in seen:
-            continue
-        if item_id:
-            seen.add(item_id)
-        unique_evidence.append(item)
+    unique_evidence: list[Any] = _dedupe_evidence(outcome.evidence)
     outcome.evidence = unique_evidence
     outcome.conflicts = conflicts
     outcome.calculations = calculations or []
 
     outcome.coverage = build_coverage(mandate, unique_evidence, conflicts=conflicts)
+
+    # ── Bounded web escalation ───────────────────────────────────────────────
+    # When structured sources left required legs unsatisfied (empty, wrong
+    # period, stale, or metadata-incomplete), escalate to trusted web sources
+    # before synthesis. Primary sources first, then bounded secondary. Only legs
+    # that actually need it are targeted.
+    budget = budget or ResearchBudget()
+    escalation_audit: Optional[dict[str, Any]] = None
+    unsatisfied = [
+        leg for leg, cov in zip(mandate.factLegs, outcome.coverage.legs)
+        if cov.status in _ESCALATABLE and leg.required
+    ]
+    if unsatisfied and bridge is not None and extractor is not None:
+        budget.note("escalation:triggered")
+        escalation = await escalate_web(
+            mandate,
+            unsatisfied,
+            bridge=bridge,
+            extractor=extractor,
+            budget=budget,
+            on_event=on_event,
+        )
+        escalation_audit = {
+            "stages": escalation.stagesRun,
+            "attempts": escalation.attempts,
+            "notes": escalation.notes,
+            "budget": escalation.budget,
+            "acceptedEvidence": len(escalation.evidence),
+        }
+        if escalation.evidence:
+            outcome.evidence = _dedupe_evidence([*outcome.evidence, *escalation.evidence])
+            unique_evidence = outcome.evidence
+            outcome.coverage = build_coverage(mandate, unique_evidence, conflicts=conflicts)
+    elif unsatisfied:
+        escalation_audit = {
+            "stages": [],
+            "attempts": [*budget.attempted, "escalation:unavailable(no bridge/extractor)"],
+            "notes": [],
+            "budget": budget.snapshot(),
+            "acceptedEvidence": 0,
+        }
+
+    outcome.budget = budget.snapshot()
+    outcome.escalation = escalation_audit
 
     # No synthesizer (or a general mandate) → coverage is the whole verdict.
     if synthesize is None:
@@ -152,6 +207,7 @@ async def run_research(
         outcome.receipt = build_receipt(
             run_id, mandate, coverage=outcome.coverage, evidence=unique_evidence,
             retrieval_requests=retrieval_requests, provider=provider, model=model,
+            budget=outcome.budget, escalation=escalation_audit,
         )
         return outcome
 
@@ -190,8 +246,23 @@ async def run_research(
         evidence=unique_evidence, retrieval_requests=retrieval_requests,
         repair={"rounds": outcome.repairRounds} if outcome.repairRounds else None,
         provider=provider, model=model,
+        budget=outcome.budget, escalation=escalation_audit,
     )
     return outcome
+
+
+def _dedupe_evidence(items: list[Any]) -> list[Any]:
+    """De-duplicate evidence by id, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[Any] = []
+    for item in items:
+        item_id = getattr(item, "id", None)
+        if item_id and item_id in seen:
+            continue
+        if item_id:
+            seen.add(item_id)
+        out.append(item)
+    return out
 
 
 def _collect_issues(validation: ValidationOutcome) -> list[str]:

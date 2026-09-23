@@ -115,11 +115,19 @@ def _as_evidence(item: dict[str, Any], query: str, *, retrieved: bool, validatio
 
 
 class WebResearchSource:
-    """Search + retrieve, with primary-source preference."""
+    """Search + retrieve, with primary-source preference.
+
+    Also serves `financial_statements` as a *qualitative/primary-source* path:
+    when the structured vault is empty/stale/missing a requested period, the
+    planner may select this source to search filings/IR pages. It returns
+    provenance-carrying pages, not fabricated numbers — the research escalation
+    layer extracts and deterministically validates any numeric fact from the
+    fetched text.
+    """
 
     name = "WEB"
     tier = "secondary"
-    dataTypes: tuple[DataType, ...] = ("news", "web_research", "earnings")
+    dataTypes: tuple[DataType, ...] = ("news", "web_research", "earnings", "financial_statements")
 
     def __init__(self, bridge: Optional[DataBridge]) -> None:
         self._bridge = bridge
@@ -204,4 +212,9 @@ class WebResearchSource:
         return " ".join(p for p in parts if p)
 
 
-__all__ = ["WebResearchSource"]
+__all__ = ["WebResearchSource", "classify_source_tier", "PRIMARY_TIER", "SECONDARY_TIER"]
+
+# Public aliases for the research escalation layer (one classifier, no fork).
+classify_source_tier = _classify_source
+PRIMARY_TIER: SourceTier = "primary"
+SECONDARY_TIER: SourceTier = "secondary"

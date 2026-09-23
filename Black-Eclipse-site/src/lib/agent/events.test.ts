@@ -118,7 +118,18 @@ describe('normalizeHarnessEvent', () => {
 
   it('maps client.final to the authoritative output', () => {
     const e = normalizeHarnessEvent('client.final', { runId: 'r', status: 'completed', output: 'Answer' });
-    expect(e).toEqual({ kind: 'final', output: 'Answer', error: undefined, status: 'completed' });
+    expect(e).toEqual({ kind: 'final', output: 'Answer', error: undefined, status: 'completed', research: undefined });
+  });
+
+  it('carries Phase 4 research metadata on client.final', () => {
+    const research = { status: 'partial', metadata: { limitations: ['x'] } };
+    const e = normalizeHarnessEvent('client.final', {
+      runId: 'r',
+      status: 'completed',
+      output: 'Answer',
+      research,
+    });
+    expect(e).toMatchObject({ kind: 'final', research });
   });
 
   it('maps run.failed to an error with code', () => {

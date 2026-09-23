@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional, Sequence
 
+from .ids import calculation_digest
+
 # Bump when a formula or its conventions change so stored receipts stay
 # interpretable.
 CALCULATION_VERSION = "1.0.0"
@@ -209,7 +211,8 @@ def _base_record(
     observations: Sequence[dict[str, Any]],
 ) -> CalculationResult:
     return CalculationResult(
-        calculationId=f"calc_{metric}_{abs(hash(tuple(series.dates))) % 10**10}",
+        # Placeholder until `_finalize` computes a stable content-sensitive id.
+        calculationId="",
         version=CALCULATION_VERSION,
         formula=formula,
         metric=metric,
@@ -223,6 +226,16 @@ def _base_record(
         frequency=series.frequency,
         missingDataPolicy="omit_missing_no_interpolation",
     )
+
+
+def _finalize(result: CalculationResult) -> CalculationResult:
+    """Assign a stable, content-sensitive calculation id.
+
+    Computed AFTER value/assumptions/etc are set so the digest covers them:
+    distinct values for the same dates, or different assumptions, never collide.
+    """
+    result.calculationId = calculation_digest(result)
+    return result
 
 
 # ── Metrics ─────────────────────────────────────────────────────────────────
@@ -255,7 +268,7 @@ def period_change(
     change = (series.values[-1] - series.values[0]) / abs(series.values[0])
     result.value = change * 100.0
     result.assumptions.append("percentage change relative to the first observation")
-    return result
+    return _finalize(result)
 
 
 def cagr(
@@ -287,7 +300,7 @@ def cagr(
     result.value = ((series.values[-1] / series.values[0]) ** (1.0 / years) - 1.0) * 100.0
     result.assumptions.append(f"time span = {years:.6g} years")
     result.assumptions.append("growth is compounded annually (geometric mean)")
-    return result
+    return _finalize(result)
 
 
 def _returns(values: list[float]) -> list[float]:
@@ -335,7 +348,7 @@ def annualized_volatility(
     if risk_free_rate is not None:
         result.riskFreeRate = float(risk_free_rate)
         result.assumptions.append("risk-free rate supplied but not used for volatility")
-    return result
+    return _finalize(result)
 
 
 def max_drawdown(
@@ -375,7 +388,7 @@ def max_drawdown(
     result.warnings.append("max drawdown is path-dependent on the observation frequency")
     if worst < 0:
         result.assumptions.append(f"peak {peak_date} → trough {trough_date}")
-    return result
+    return _finalize(result)
 
 
 def sharpe(
@@ -426,7 +439,7 @@ def sharpe(
     if stdev == 0:
         raise CalculationError("sharpe is undefined when excess-return volatility is 0")
     result.value = (mean / stdev) * math.sqrt(periods)
-    return result
+    return _finalize(result)
 
 
 CALCULATORS = {

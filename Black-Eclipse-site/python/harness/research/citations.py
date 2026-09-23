@@ -91,8 +91,12 @@ def summarize_limitations(
             limitations.append(f"sources disagree on {leg.metric} {leg.period or ''}")
     if validation is not None:
         for claim in validation.claims:
+            # Never echo an unsupported claim's text — it may embed a fabricated
+            # figure. A `needs_review` claim is shown but explicitly unverified.
             if claim.supportStatus == "unsupported":
-                limitations.append(f"claim not established: {claim.text[:120]}")
+                label = claim.kind + (f" for {claim.legId}" if claim.legId else "")
+                reason = "; ".join(claim.issues[:2]) if claim.issues else "unsupported"
+                limitations.append(f"{label} was not established: {reason}")
             elif claim.supportStatus == "needs_review":
                 limitations.append(f"claim needs review (unverified): {claim.text[:120]}")
     seen: set[str] = set()

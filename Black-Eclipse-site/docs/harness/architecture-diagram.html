@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BlackEclipse — Agent Architecture</title>
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --glass: rgba(18, 18, 20, 0.55);
+    --glass-strong: rgba(16, 16, 18, 0.85);
+    --glass-subtle: rgba(18, 18, 20, 0.40);
+    --stroke: rgba(255, 255, 255, 0.10);
+    --stroke-2: rgba(255, 255, 255, 0.06);
+    --text: #e8e8ea;
+    --muted: #9a9aa2;
+    --dim: #6a6a72;
+    --accent: #8b7cff;
+    --accent-2: #4ecdc4;
+    --warn: #ffb84d;
+    --py: #ffd43b;
+    --ts: #4ecdc4;
+    --green: #5bd67a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(139, 124, 255, 0.10), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(78, 205, 196, 0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 32px 28px 80px;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+  .sub code { color: var(--accent-2); }
+
+  /* frosted-glass recipe (mirrors src/app/globals.css) */
+  .glass-card {
+    background: var(--glass);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.06), inset -1px 0 0 rgba(255,255,255,0.06);
+    border: 1px solid var(--stroke);
+    border-radius: 18px;
+  }
+  .glass-card-subtle {
+    background: var(--glass-subtle);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.05);
+    border: 1px solid var(--stroke-2);
+    border-radius: 14px;
+  }
+
+  .flow { max-width: 1120px; margin: 0 auto; }
+  .layer {
+    padding: 18px 20px 20px;
+    transition: box-shadow .25s, border-color .25s;
+  }
+  .layer:hover { border-color: rgba(255,255,255,0.18); }
+  .layer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .layer-title { font-size: 15px; font-weight: 600; }
+  .layer-tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--stroke); color: var(--muted);
+  }
+  .tag-ts { color: var(--ts); border-color: rgba(78,205,196,.35); }
+  .tag-py { color: var(--py); border-color: rgba(255,212,59,.35); }
+  .layer-path { color: var(--dim); font-size: 12px; margin-left: auto; font-family: ui-monospace, monospace; }
+
+  .nodes { display: flex; flex-wrap: wrap; gap: 10px; }
+  .node {
+    position: relative;
+    padding: 10px 12px; min-width: 128px; flex: 1 1 128px;
+    cursor: pointer; text-align: left;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--stroke-2);
+    border-radius: 12px; color: var(--text);
+    font: inherit; transition: transform .15s, border-color .2s, background .2s;
+  }
+  .node:hover { transform: translateY(-2px); border-color: rgba(139,124,255,.5); background: rgba(139,124,255,.07); }
+  .node.active { border-color: var(--accent); background: rgba(139,124,255,.13); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .node .name { font-size: 12.5px; font-weight: 600; }
+  .node .role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .arrow {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--dim); font-size: 11px; padding: 8px 0; font-family: ui-monospace, monospace;
+  }
+  .arrow .line { width: 2px; height: 16px; background: linear-gradient(var(--stroke), var(--accent)); border-radius: 2px; }
+  .arrow .tri { color: var(--accent); font-size: 12px; line-height: 1; }
+  .arrow .label { padding: 2px 9px; border-radius: 999px; background: var(--glass-subtle); border: 1px solid var(--stroke-2); }
+  .arrow.bidi .line { background: linear-gradient(var(--accent), var(--accent-2)); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 1120px; margin: 26px auto 0; }
+  @media (max-width: 860px){ .grid2 { grid-template-columns: 1fr; } }
+  .panel { padding: 18px 20px 20px; }
+  .panel h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  .panel .cap { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+
+  /* execution loop */
+  .loop { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+  .loop .blk {
+    padding: 12px 16px; border-radius: 12px; text-align: center; font-size: 12.5px; font-weight: 600;
+    border: 1px solid var(--stroke); background: var(--glass-subtle); cursor: pointer;
+  }
+  .loop .blk.agent { border-color: rgba(78,205,196,.4); }
+  .loop .blk.tools { border-color: rgba(255,184,77,.4); }
+  .loop .blk.end { border-color: rgba(91,214,122,.4); }
+  .loop .blk.active { box-shadow: 0 0 0 1px var(--accent) inset; border-color: var(--accent); }
+  .loop .lnk { color: var(--dim); font-family: ui-monospace, monospace; font-size: 12px; }
+  .loop .return { display: flex; align-items: center; gap: 6px; margin-top: 12px; justify-content: center; color: var(--dim); font-size: 11px; font-family: ui-monospace, monospace; }
+
+  /* pipeline */
+  .pipe { display: flex; flex-direction: column; gap: 8px; }
+  .step {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    border-radius: 10px; border: 1px solid var(--stroke-2); background: rgba(255,255,255,0.02);
+    font-size: 12px; cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  .step:hover { border-color: rgba(139,124,255,.45); }
+  .step.active { border-color: var(--accent); background: rgba(139,124,255,.10); }
+  .step .idx { font-family: ui-monospace, monospace; color: var(--dim); font-size: 11px; width: 16px; }
+  .step .t { font-weight: 600; }
+  .step .d { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+
+  .rules { max-width: 1120px; margin: 26px auto 0; padding: 18px 20px; }
+  .rules h2 { font-size: 14px; margin: 0 0 12px; }
+  .rules ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+  .rules li { margin-bottom: 6px; }
+  .rules b { color: var(--text); font-weight: 600; }
+
+  /* detail drawer */
+  .drawer {
+    position: fixed; right: 0; top: 0; height: 100vh; width: 360px; max-width: 90vw;
+    background: var(--glass-strong); backdrop-filter: blur(22px) saturate(1.4);
+    -webkit-backdrop-filter: blur(22px) saturate(1.4);
+    border-left: 1px solid var(--stroke); box-shadow: -12px 0 40px rgba(0,0,0,0.45);
+    transform: translateX(100%); transition: transform .28s cubic-bezier(.22,.61,.36,1);
+    padding: 24px 22px; overflow-y: auto; z-index: 20;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer .dr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .drawer .dr-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .drawer h3 { font-size: 17px; margin: 2px 0 2px; }
+  .drawer .dr-path { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--accent-2); margin-bottom: 16px; word-break: break-all; }
+  .drawer p { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .drawer .close {
+    background: transparent; border: 1px solid var(--stroke); color: var(--muted);
+    border-radius: 8px; width: 28px; height: 28px; cursor: pointer; font-size: 15px; line-height: 1;
+  }
+  .drawer .close:hover { color: var(--text); border-color: rgba(255,255,255,.25); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--stroke); color: var(--muted); }
+  .drawer .note { border-left: 2px solid var(--accent); padding-left: 10px; color: var(--dim); font-size: 12px; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; max-width: 1120px; margin: 14px auto 0; color: var(--dim); font-size: 11.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none;
+    transition: opacity .28s; z-index: 10;
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  .hint { text-align: center; color: var(--dim); font-size: 11.5px; margin: 18px 0 0; }
+</style>
+</head>
+<body>
+  <div class="flow">
+    <h1>BlackEclipse — Agent Architecture</h1>
+    <p class="sub">Click any node for detail. Source of truth: <code>docs/harness/architecture.md</code></p>
+
+    <!-- 1. CLIENT -->
+    <div class="glass-card layer">
+      <div class="layer-head">
+        <span class="layer-title">Client</span>
+        <span class="layer-tag">browser / API</span>
+      </div>
+      <div class="nodes">
+        <button class="node" data-id="chat-ui"><div class="name">Chat UI</div><div class="role">streams + status</div></button>
+        <button class="node" data-id="stream-routes"><div class="name">SSE stream</div><div class="role">live tokens</div></button>
+      </div>
+    </div>
+
+    <div class="arrow">
+      <div class="line"></div>
+      <div class="label">POST /api/harness/chat/stream</div>
+      <div class="tri">▼</div>
+    </div>
+
+    <!-- 2. NEXT.JS FRONT DOOR -->
+    <div class="glass-card layer">
+      <div class="layer-head">
+        <span class="layer-title">Next.js Front Door</span>
+        <span class="layer-tag tag-ts">TypeScript</span>
+        <span class="layer-path">src/lib/harness/ · src/app/api/harness/</span>
+      </div>
+      <div class="nodes">
+        <button class="node" data-id="validation"><div class="name">validation</div><div class="role">untrusted input</div></button>
+        <button class="node" data-id="run-service"><div class="name">run-service</div><div class="role">resolve agent + vault</div></button>
+        <button class="node" data-id="python-runtime"><div class="name">python-runtime</div><div class="role">spawn + health</div></button>
+        <button class="node" data-id="python-client"><div class="name">python-client</div><div class="role">typed HTTP</div></button>
+        <button class="node" data-id="data-bridge"><div class="name">data-bridge</div><div class="role">read-only JDdS</div></button>
+      </div>
+    </div>
+
+    <div class="arrow bidi">
+      <div class="tri">▼</div>
+      <div class="label">HTTP → 127.0.0.1:8765/runs</div>
+      <div class="tri">▲</div>
+    </div>
+
+    <!-- 3. PYTHON RUNTIME -->
+    <div class="glass-card layer">
+      <div class="layer-head">
+        <span class="layer-title">Python Agent Runtime</span>
+        <span class="layer-tag tag-py">FastAPI · LangChain · LangGraph</span>
+        <span class="layer-path">python/harness/</span>
+      </div>
+      <div class="nodes">
+        <button class="node" data-id="agents"><div class="name">agents.py</div><div class="role">presets + prompts</div></button>
+        <button class="node" data-id="models"><div class="name">models.py</div><div class="role">provider catalog</div></button>
+        <button class="node" data-id="tools"><div class="name">tools.py</div><div class="role">registry + policy</div></button>
+        <button class="node" data-id="graph"><div class="name">graph.py</div><div class="role">LangGraph loop</div></button>
+        <button class="node" data-id="events"><div class="name">events.py</div><div class="role">run event bus</div></button>
+        <button class="node" data-id="persistence"><div class="name">persistence.py</div><div class="role">agent-memory.db</div></button>
+        <button class="node" data-id="retrieval"><div class="name">retrieval/</div><div class="role">financial retrieval</div></button>
+        <button class="node" data-id="main"><div class="name">main.py</div><div class="role">FastAPI app</div></button>
+      </div>
+    </div>
+
+    <div class="arrow bidi">
+      <div class="tri">▼</div>
+      <div class="label">POST /api/harness/data (read-only)</div>
+      <div class="tri">▲</div>
+    </div>
+
+    <!-- 4. JDDS -->
+    <div class="glass-card layer">
+      <div class="layer-head">
+        <span class="layer-title">JDdS Data Bridge</span>
+        <span class="layer-tag tag-ts">Prisma</span>
+        <span class="layer-path">jdds.db</span>
+      </div>
+      <div class="nodes">
+        <button class="node" data-id="jdds"><div class="name">jdds.db</div><div class="role">the ONE market-data layer</div></button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot" style="background:var(--ts)"></span> TypeScript (front door)</span>
+      <span><span class="dot" style="background:var(--py)"></span> Python (agentic runtime)</span>
+      <span><span class="dot" style="background:var(--accent)"></span> selected node</span>
+    </div>
+
+    <p class="hint">Two deliberate boundaries: front door forwards (owns nothing agentic) · bridge only reads JDdS (one financial data path). If Python can't start → 503 "runtime unavailable", never a fake agent.</p>
+  </div>
+
+  <!-- EXECUTION LOOP + RETRIEVAL PIPELINE -->
+  <div class="grid2">
+    <div class="glass-card panel">
+      <h2>Execution Graph</h2>
+      <p class="cap">LangGraph StateGraph — <code>graph.py</code> · click a block</p>
+      <div class="loop">
+        <div class="blk agent" data-id="graph-agent">agent</div>
+        <span class="lnk">──tool calls──▶</span>
+        <div class="blk tools" data-id="graph-tools">tools</div>
+        <span class="lnk">──▶</span>
+        <div class="blk" data-id="graph-end">END</div>
+      </div>
+      <div class="return">tools ──result──▶ agent  · repeat until maxSteps → MAX_STEPS_EXCEEDED</div>
+      <p class="cap" style="margin-top:16px; margin-bottom:0;">
+        Agent invokes the model with tools bound. No tool calls → final answer.
+        On the last step the agent <b>unbinds tools and forces a final answer</b>,
+        so tool-looping/local models answer from gathered evidence instead of failing blank.
+      </p>
+    </div>
+
+    <div class="glass-card panel">
+      <h2>Financial Retrieval Layer</h2>
+      <p class="cap">agent asks for objective + data type, never a provider</p>
+      <div class="pipe">
+        <div class="step" data-id="ret-tool"><span class="idx">01</span><span class="t">tool</span><span class="d">retrieval_tools.py</span></div>
+        <div class="step" data-id="ret-layer"><span class="idx">02</span><span class="t">layer</span><span class="d">orchestrator</span></div>
+        <div class="step" data-id="ret-planner"><span class="idx">03</span><span class="t">planner</span><span class="d">task-aware source selection</span></div>
+        <div class="step" data-id="ret-cache"><span class="idx">04</span><span class="t">cache</span><span class="d">freshness + in-flight dedup</span></div>
+        <div class="step" data-id="ret-sources"><span class="idx">05</span><span class="t">sources</span><span class="d">parallel / sequential</span></div>
+        <div class="step" data-id="ret-normalize"><span class="idx">06</span><span class="t">normalize + validate</span><span class="d">one object / verdict</span></div>
+        <div class="step" data-id="ret-conflicts"><span class="idx">07</span><span class="t">conflicts + aggregate</span><span class="d">preserve discrepancies</span></div>
+        <div class="step" data-id="ret-result"><span class="idx">08</span><span class="t">evidence → result</span><span class="d">back to tool</span></div>
+      </div>
+      <p class="cap" style="margin-top:14px; margin-bottom:0;">
+        <b>Precise data is never web-sourced.</b> Historical prices, macro series and
+        derived metrics drop WEB from the plan; with no structured source the layer
+        returns <b>UNAVAILABLE</b> rather than a web guess.
+      </p>
+    </div>
+  </div>
+
+  <div class="glass-card rules">
+    <h2>Invariants</h2>
+    <ul>
+      <li><b>One data source</b> — all market data through JDdS; the agentic layer never queries a second source.</li>
+      <li><b>Python-authoritative agents</b> — prompts live in <code>prompts.py</code>; the front door sends only <code>agentId</code>.</li>
+      <li><b>Honest failures</b> — missing data → <code>UNAVAILABLE</code>; missing token usage records 0, never an estimate.</li>
+      <li><b>Read-only tools</b> — max steps, per-tool + run timeouts, duplicate suppression, one terminal status.</li>
+      <li><b>Separate persistence</b> — <code>agent-memory.db</code> (runs/events/memory), distinct from <code>jdds.db</code>.</li>
+    </ul>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="dr-head">
+      <span class="dr-kind" id="drKind">node</span>
+      <button class="close" id="drClose" aria-label="Close">×</button>
+    </div>
+    <h3 id="drTitle">—</h3>
+    <div class="dr-path" id="drPath"></div>
+    <p id="drBody"></p>
+    <div class="chips" id="drChips"></div>
+    <div class="note" id="drNote"></div>
+  </aside>
+
+<script>
+  const INFO = {
+    "chat-ui": { kind:"client", title:"Chat UI", path:"src/components/chat/", body:"Streams the answer live, shows coarse status ('Thinking…', 'Using market_get_quote…', 'Writing…') and accumulates model.delta into the answer bubble. Prefers the authoritative client.final text.", chips:["status","partial answer","client.final"], note:"Uses src/lib/agent/use-agent-run.ts + registry.ts." },
+    "stream-routes": { kind:"client", title:"SSE stream", path:"/api/harness/runs/[id]/stream", body:"Relay proxy that forwards the runtime's SSE frames to the browser, plus POST /api/harness/chat/stream which starts a background run and relays it.", chips:["SSE","relay","background run"], note:"Falls back to one-shot /api/harness/chat if SSE is unavailable." },
+    "validation": { kind:"front door", title:"validation.ts", path:"src/lib/harness/validation.ts", body:"Validates untrusted RunInput. Deliberately carries NO agent config — that lives in Python.", chips:["input","no agent config"], note:"" },
+    "run-service": { kind:"front door", title:"run-service.ts", path:"src/lib/harness/run-service.ts", body:"Resolves the agent preset and LLM credentials from the settings vault, assigns the run id, then calls the Python runtime.", chips:["vault","agent preset","run id"], note:"Next.js owns nothing agentic — it only resolves what Python cannot." },
+    "python-runtime": { kind:"front door", title:"python-runtime.ts", path:"src/lib/harness/python-runtime.ts", body:"Lazily spawns and health-checks the Python service. Detects a stale orphan child (its /health startedAtMs predates the newest python/harness/*.py mtime) and respawns it.", chips:["spawn","health","stale detection"], note:"If it cannot start, runs return 503 — never a fake agent." },
+    "python-client": { kind:"front door", title:"python-client.ts", path:"src/lib/harness/python-client.ts", body:"Typed HTTP client for 127.0.0.1:8765 — /runs, /models, /agents, /usage.", chips:["typed HTTP","127.0.0.1:8765"], note:"" },
+    "data-bridge": { kind:"front door", title:"data-bridge.ts", path:"src/lib/harness/data-bridge.ts", body:"The read-only JDdS capability accessor. Python tools call ctx.data_bridge.fetch(...). Capabilities are a closed union (DataCapability in types.ts) + a route whitelist.", chips:["read-only","capability","Prisma → jdds.db"], note:"This is the ONE financial data path; a second is forbidden." },
+    "agents": { kind:"python", title:"agents.py", path:"python/harness/agents.py", body:"Agent definitions + presets, authored in Python. Composes the Eclipse Agent system prompt into an AgentConfig (prompt + tool allowlist + limits). resolve_agent() loads the full config from here.", chips:["presets","AgentConfig","Eclipse Agent"], note:"prompts.py is authoritative for identity; the TS side sends only agentId." },
+    "models": { kind:"python", title:"models.py", path:"python/harness/models.py", body:"Universal provider catalog + LangChain chat-model factory. Native integrations for Anthropic/Gemini/Mistral/Groq; the OpenAI-compatible protocol for everything else (OpenAI, Ollama, LM Studio, OpenRouter, DeepSeek, xAI…).", chips:["PROVIDER_CATALOG","credentials per run"], note:"Adding a provider is one catalog entry. Credentials are never persisted by the runtime." },
+    "tools": { kind:"python", title:"tools.py", path:"python/harness/tools.py", body:"Tool registry: validation, permission, risk, timeout, execute. Names allow [A-Za-z0-9_] only. All tools are read-only.", chips:["ToolDefinition","permission","timeout"], note:"" },
+    "graph": { kind:"python", title:"graph.py", path:"python/harness/graph.py", body:"The LangGraph StateGraph execution loop: agent ⇄ tools until a final answer or maxSteps. Also captures token usage and injects chat-session context.", chips:["StateGraph","maxSteps","forced final answer"], note:"Exactly one terminal status per run." },
+    "events": { kind:"python", title:"events.py", path:"python/harness/events.py", body:"Per-run event emitter + live bus (run.*, model.*, tool.*). model.delta frames are transient — they ride the bus to live subscribers but are never persisted.", chips:["run.*","model.*","tool.*","transient deltas"], note:"model.completed persists the assembled message." },
+    "persistence": { kind:"python", title:"persistence.py", path:"python/harness/persistence.py", body:"agent-memory.db (SQLite via stdlib): HarnessRun, HarnessEvent, HarnessToolExecution, AgentMemory, AgentSkill. Idempotent DDL + _migrate() adds post-release columns on open.", chips:["agent-memory.db","token aggregates","usage_summary()"], note:"Separate from jdds.db — the market-data vault." },
+    "retrieval": { kind:"python", title:"retrieval/", path:"python/harness/retrieval/", body:"The Financial Retrieval Layer: planner (source selection), layer (orchestrator), structured + web providers, cache, parallel, validate, conflicts, aggregate. The only place that knows a provider exists.", chips:["provider-agnostic","hybrid","evidence"], note:"Source selection is task-aware, recorded as strategy on every result." },
+    "main": { kind:"python", title:"main.py", path:"python/harness/main.py", body:"FastAPI app: /health, /models, /agents, /runs, /runs/{id}/stream, /usage.", chips:["FastAPI","endpoints"], note:"" },
+    "jdds": { kind:"data", title:"jdds.db", path:"prisma/schema.prisma", body:"The SQLite data vault reached only through Prisma by the Next.js data bridge. Committed as a seed snapshot; updated deliberately and rarely.", chips:["the ONE market-data layer","seed snapshot"], note:"The Python runtime never talks to it directly." },
+
+    "graph-agent": { kind:"execution", title:"agent node", path:"graph.py", body:"Invokes the model with tools bound. No tool calls → END (final answer). Tool calls → tools node. On the final allowed step it unbinds tools, appends an in-band 'answer now' instruction, and strips residual tool calls.", chips:["model.invoke","tool bindings","forced answer"], note:"Reads token usage here (_extract_usage)." },
+    "graph-tools": { kind:"execution", title:"tools node", path:"graph.py", body:"Each tool call is validated, permission-checked, timed out, then executed. Duplicate-call suppression and read-only enforcement apply.", chips:["validate","permission","timeout","read-only"], note:"Results flow back to the agent node." },
+    "graph-end": { kind:"execution", title:"END", path:"graph.py", body:"Reached on the first model turn with no tool calls, or via the forced final answer. A blank forced turn fails honestly rather than reporting an empty 'completed'.", chips:["final answer","terminal status"], note:"" },
+
+    "ret-tool": { kind:"retrieval", title:"tool", path:"python/harness/retrieval_tools.py", body:"Phase-2 tools (market.get_quote, fundamentals.get_financials, research.search_news, macro.get_series…). They call the retrieval layer, never a provider.", chips:["objective + data type"], note:"" },
+    "ret-layer": { kind:"retrieval", title:"layer", path:"retrieval/layer.py", body:"The orchestrator the tools call. Wires planner → cache → sources → normalize → validate → conflicts → aggregate.", chips:["orchestrator"], note:"" },
+    "ret-planner": { kind:"retrieval", title:"planner", path:"retrieval/planner.py", body:"Deterministic, explainable, task-aware source selection (_PLAN). A current quote prefers structured; 'why did NVDA move' combines market + web; precise types remove WEB entirely.", chips:["task-aware","strategy recorded"], note:"The chosen strategy rides on every result + is emitted as an event." },
+    "ret-cache": { kind:"retrieval", title:"cache", path:"retrieval/cache.py", body:"TTL cache with in-flight deduplication, governed by per-data-type freshness policy (policies.py).", chips:["TTL","dedup"], note:"" },
+    "ret-sources": { kind:"retrieval", title:"sources", path:"retrieval/structured.py · web.py", body:"Providers implementing the RetrievalSource contract. structured.py = JDdS vault + live structured providers; web.py = first-class web research (search → rank → retrieve).", chips:["parallel.py","per-task timeout","error isolation"], note:"" },
+    "ret-normalize": { kind:"retrieval", title:"normalize + validate", path:"retrieval/normalize.py · validate.py", body:"Provider payloads → one NormalizedFinancialObject; verdicts are valid / warning / invalid / unknown. Negative earnings stay valid.", chips:["one shape","verdict"], note:"" },
+    "ret-conflicts": { kind:"retrieval", title:"conflicts + aggregate", path:"retrieval/conflicts.py · aggregate.py", body:"Preserve discrepancies; resolve only with a stated reason. aggregate.py assembles an EvidenceSet keeping evidence kinds distinct.", chips:["preserve discrepancy","EvidenceSet"], note:"" },
+    "ret-result": { kind:"retrieval", title:"evidence → result", path:"retrieval/contract.py", body:"The FinancialRetrievalResult returns to the tool, which returns it to the agent node as a tool result.", chips:["FinancialRetrievalResult"], note:"" },
+  };
+
+  const drawer = document.getElementById("drawer");
+  const overlay = document.getElementById("overlay");
+  const drKind = document.getElementById("drKind");
+  const drTitle = document.getElementById("drTitle");
+  const drPath = document.getElementById("drPath");
+  const drBody = document.getElementById("drBody");
+  const drChips = document.getElementById("drChips");
+  const drNote = document.getElementById("drNote");
+
+  function open(id) {
+    const d = INFO[id]; if (!d) return;
+    document.querySelectorAll(".node.active, .blk.active, .step.active").forEach(el => el.classList.remove("active"));
+    document.querySelectorAll(`[data-id="${id}"]`).forEach(el => el.classList.add("active"));
+    drKind.textContent = d.kind;
+    drTitle.textContent = d.title;
+    drPath.textContent = d.path || "";
+    drBody.textContent = d.body || "";
+    drChips.innerHTML = (d.chips || []).map(c => `<span class="chip">${c}</span>`).join("");
+    drNote.textContent = d.note || "";
+    drNote.style.display = d.note ? "block" : "none";
+    drawer.classList.add("open"); overlay.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+  function close() {
+    drawer.classList.remove("open"); overlay.classList.remove("open");
+    drawer.setAttribute("aria-hidden", "true");
+    document.querySelectorAll(".node.active, .blk.active, .step.active").forEach(el => el.classList.remove("active"));
+  }
+
+  document.querySelectorAll("[data-id]").forEach(el => el.addEventListener("click", () => open(el.dataset.id)));
+  document.getElementById("drClose").addEventListener("click", close);
+  overlay.addEventListener("click", close);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+</script>
+</body>
+</html>

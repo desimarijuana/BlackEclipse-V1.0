@@ -1,0 +1,82 @@
+{
+  "datasetVersion": "1.0.0",
+  "datasetName": "phase4-semantic-support",
+  "reviewed": true,
+  "reviewer": "human:phase4-implementation",
+  "reviewedAt": "2026-09-23",
+  "notes": "Synthetic, clearly-labelled fixtures. Never production/JDdS data. Each case pairs a claim with the evidence a run would retrieve and a HUMAN label for whether the evidence semantically supports the claim. Labels are one of supported | unsupported | conflicting | indeterminate.",
+  "cases": [
+    {
+      "caseId": "supported-exact-metric",
+      "claimText": "FY2024 revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "supported",
+      "rationale": "The cited structured object is revenue for FY2024 with currency USD and value 1000.",
+      "evidenceSpan": "obj:name=revenue,period=FY2024,currency=USD,value=1000"
+    },
+    {
+      "caseId": "unsupported-wrong-period",
+      "claimText": "FY2024 revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "unsupported",
+      "rationale": "The cited object is FY2023 revenue, so it does not establish FY2024.",
+      "evidenceSpan": "obj:name=revenue,period=FY2023,currency=USD,value=1000"
+    },
+    {
+      "caseId": "unsupported-wrong-entity",
+      "claimText": "TEST revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "unsupported",
+      "rationale": "The cited object belongs to a different instrument.",
+      "evidenceSpan": "obj:instrument=OTHER,period=FY2024,value=1000"
+    },
+    {
+      "caseId": "unsupported-wrong-currency",
+      "claimText": "FY2024 revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "unsupported",
+      "rationale": "The cited object is in EUR, not USD.",
+      "evidenceSpan": "obj:name=revenue,period=FY2024,currency=EUR,value=1000"
+    },
+    {
+      "caseId": "indeterminate-causal",
+      "claimText": "Revenue rose because of new product launches.",
+      "claimKind": "interpretation",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "indeterminate",
+      "rationale": "A causal explanation is not entailed by a revenue figure; it is an interpretation.",
+      "evidenceSpan": "obj:name=revenue,period=FY2024,value=1000"
+    },
+    {
+      "caseId": "conflicting-two-sources",
+      "claimText": "FY2024 revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "conflicting",
+      "rationale": "Two eligible sources report 1000 and 1200 for the same metric/period.",
+      "evidenceSpan": "obj:name=revenue,period=FY2024,value=1000 ; obj:name=revenue,period=FY2024,value=1200"
+    },
+    {
+      "caseId": "supported-qualitative",
+      "claimText": "The company flagged supply-chain risk in its filing.",
+      "claimKind": "qualitative_fact",
+      "mandateLegId": "leg_risk_FY2024",
+      "label": "supported",
+      "rationale": "A retrieved filing snippet states the risk; the qualitative claim is grounded in it.",
+      "evidenceSpan": "web:filing-snippet-supply-chain-risk"
+    },
+    {
+      "caseId": "unsupported-no-evidence",
+      "claimText": "FY2024 revenue was 1000 USD.",
+      "claimKind": "reported_fact",
+      "mandateLegId": "leg_revenue_FY2024",
+      "label": "unsupported",
+      "rationale": "No evidence is cited at all.",
+      "evidenceSpan": "(none)"
+    }
+  ]
+}

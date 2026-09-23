@@ -421,6 +421,19 @@ async def execute_run(
     store.update_run(request.runId, status="running", startedAt=started)
     await emitter.emit("run.started", {"maxSteps": agent.maxSteps, "provider": request.modelSettings.provider})
 
+    # Phase 4: an unambiguous supported financial comparison is routed through the
+    # deterministic evidence gate BEFORE the ordinary agent graph, so it does not
+    # also run a financial tool loop (no duplicate retrieval, no contradictory
+    # answer). Anything unsupported/uncertain returns None and falls through.
+    try:
+        research = await _maybe_research(request, data_bridge, store, emitter, retrieval_cache, cancel_event)
+    except asyncio.CancelledError:
+        store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
+        await emitter.emit("run.cancelled", {"reason": "cancelled"})
+        return _result(request.runId, "cancelled", store, None)
+    if research is not None:
+        return await _finish_research(request, store, emitter, research)
+
     # Retrieve relevant memory BEFORE the model sees the turn, and inject it as
     # clearly-labelled non-authoritative context. Memory is scoped to the user
     # and bounded by a character budget; a retrieval failure must never block the
@@ -471,6 +484,115 @@ async def execute_run(
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     await _post_run_analysis(request.runId, store, memory_service, skill_registry)
     return _result(request.runId, "completed", store, None, output)
+
+
+async def _maybe_research(
+    request: RunRequest,
+    data_bridge: DataBridge,
+    store: AgentMemoryStore,
+    emitter: RunEmitter,
+    retrieval_cache: Optional[Any],
+    cancel_event: Optional[asyncio.Event],
+) -> Optional[dict[str, Any]]:
+    """Attempt the gated research flow; None when the request is not supported.
+
+    Builds the same model the run uses (no separate adapter) and reuses the
+    shared retrieval layer/cache. Cancellation is honored by the caller.
+    """
+    from .research.mandate import parse_mandate
+    from .research.run import maybe_run_research
+    from .retrieval import FinancialRetrievalLayer
+
+    # Classify BEFORE building anything heavy: an unsupported/uncertain request
+    # must fall through untouched and must not pay a model-construction cost
+    # (which can raise for an unconfigured provider — that must not break chat).
+    if not parse_mandate(
+        request.input.query, ticker=request.input.ticker, market=request.input.market
+    ).supported:
+        return None
+
+    layer = FinancialRetrievalLayer(data_bridge, cache=retrieval_cache, store=store)
+
+    async def _retrieve(req: Any) -> Any:
+        return await layer.retrieve(req)
+
+    try:
+        model = build_chat_model(request.modelSettings)
+    except Exception as exc:  # noqa: BLE001 - a supported request must not fall through ungated
+        await emitter.emit("research.failed", {"error": str(exc)})
+        return {
+            "output": (
+                "This is an evidence-grounded research request, but the configured model "
+                f"could not be initialised, so no answer was produced. ({exc})"
+            ),
+            "status": "rejected",
+            "metadata": None,
+            "receipt": None,
+            "persistenceError": None,
+            "usage": {"promptTokens": 0, "completionTokens": 0},
+            "coverage": None,
+            "validation": None,
+        }
+
+    return await maybe_run_research(
+        run_id=request.runId,
+        query=request.input.query,
+        ticker=request.input.ticker,
+        market=request.input.market,
+        model=model,
+        retrieve=_retrieve,
+        store=store,
+        emitter=emitter,
+        model_settings=request.modelSettings,
+        provider=request.modelSettings.provider,
+        bridge=data_bridge,
+    )
+
+
+async def _finish_research(
+    request: RunRequest,
+    store: AgentMemoryStore,
+    emitter: RunEmitter,
+    research: dict[str, Any],
+) -> RunResult:
+    """Persist and return a gated research run's terminal result exactly once.
+
+    The run status is `completed` when the gate produced an answer (even a
+    partial one — partial is honest, not a failure); `failed` only when the flow
+    itself could not run. Token usage reported by the synthesizer is added to the
+    run (never estimated).
+    """
+    output = str(research.get("output") or "")
+    usage = research.get("usage") or {}
+    prompt_tokens = int(usage.get("promptTokens") or 0)
+    completion_tokens = int(usage.get("completionTokens") or 0)
+    research_blob = {
+        "status": research.get("status"),
+        "metadata": research.get("metadata"),
+        "receiptAvailable": research.get("receipt") is not None,
+        "persistenceError": research.get("persistenceError"),
+        "coverage": research.get("coverage"),
+        "validation": research.get("validation"),
+        "escalation": research.get("escalation"),
+        "budget": research.get("budget"),
+    }
+    store.update_run(
+        request.runId,
+        status="completed",
+        output=output,
+        promptTokens=prompt_tokens,
+        completionTokens=completion_tokens,
+        totalTokens=prompt_tokens + completion_tokens,
+        research=research_blob,
+        finishedAt=now_iso(),
+    )
+    await emitter.emit("run.completed", {"steps": 0, "research": True, "status": research.get("status")})
+
+    result = _result(request.runId, "completed", store, None, output)
+    # Expose the full receipt on the run result (not persisted inline — the
+    # durable copy lives in ResearchReceipt and is read via the receipt route).
+    result.research = {**research_blob, "receipt": research.get("receipt")}
+    return result
 
 
 async def _post_run_analysis(

@@ -55,7 +55,7 @@ Two boundaries, both deliberate:
 | `finance_tools.py` | the Phase-1 JDdS-backed tools (kept for compatibility) |
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
-| `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt |
+| `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt, plus the bounded web escalation (Phase 5) |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
 | `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables |
 | `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view` tools |
@@ -143,8 +143,49 @@ objective → mandate → per-leg retrieval → coverage → structured claims
 | `calculations.py` | pure-Python period change, CAGR, annualized volatility, max drawdown, Sharpe — with formula/version/input provenance and hard input guards |
 | `citations.py` | `Citation`/`ResponseMetadata` assembled only from retrieved evidence (stable interfaces for future workflow nodes) |
 | `failures.py` | failure classification (timeout / provider / no-coverage / incomplete / stale / ambiguous / invalid / conflict) |
+| `periods.py` | canonical annual/quarter/date/range parsing + matching (no substring-of-digits) |
+| `ids.py` | stable SHA-256 content digests for evidence/calculation identifiers |
+| `synthesis.py` | the bounded, tool-less `ModelSynthesizer` (mandate + evidence packet + coverage only) |
+| `supersession.py` | source-grounded, cycle-checked restatement chains |
+| `eval/` | the versioned, human-labeled semantic-support + escalation sets + runners |
+| `budget.py` | the bounded search/fetch/page/time/token budget + exhaustion record |
+| `web_facts.py` | span-anchored deterministic extraction/validation of web facts |
+| `escalation.py` | bounded structured → primary-web → secondary-web escalation |
+| `run.py` | live-chat integration: routes a supported comparison into the gate before the agent graph |
 | `receipt.py` | the bounded `ResearchReceipt` |
 | `engine.py` | the orchestration over an injected `retrieve` callable |
+
+### Retrieval escalation (Phase 5)
+
+Structured sources stay the preferred path. When structured retrieval is empty,
+stale, missing a requested period, or lacks required metadata, `engine.py`
+escalates each still-unsatisfied leg through a fixed source hierarchy:
+
+```
+structured (JDdS vault / live provider)
+  → primary-source web  (SEC, company IR, regulators)
+  → reputable secondary web (bounded)
+```
+
+Escalation is targeted (only the unsatisfied legs), bounded by one `ResearchBudget`,
+and every numeric fact must pass `web_facts.validate_fact`: its page must have
+been fetched in this run, the cited `sourceSpan` must be a verbatim quote from
+that page, the value must appear in the span, the span must not state a different
+fiscal period, and metric/period/currency/basis must match the mandate leg.
+Page text is untrusted — an instruction in a page is never a fact. Structured
+legs escalate only when they are `unavailable` / `no_matching_period` / `stale` /
+`unknown` / `qualified`. A missing consolidation basis yields a `qualified` leg
+(the value is present, the basis is disclosed as unconfirmed), never a hard
+failure or a silent inference.
+
+**Live chat.** `execute_run` classifies the objective before building the agent
+graph. An unambiguous single-entity, two-period comparison is routed into the
+gated flow using the run's own `ModelSettings` (no second adapter); everything
+else falls through to the Phase 1–3 path unchanged. A gated run persists its
+research metadata additively on the run and answers with validated/qualified
+claims plus explicit gaps — it is never silently downgraded to an ungated answer.
+The chat surface renders citations/coverage via `ResearchEvidencePanel` and can
+read the durable receipt at `GET /api/harness/runs/[id]/receipt`.
 
 Persistence is additive: `persistence.py` gains an idempotent `ResearchReceipt`
 table in `agent-memory.db` (never `eclipse-memory.db`, never JDdS). Endpoints

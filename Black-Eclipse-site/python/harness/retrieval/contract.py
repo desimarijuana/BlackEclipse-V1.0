@@ -127,6 +127,14 @@ class NormalizedFinancialObject(BaseModel):
     # from `dataTimestamp` (when the observation applies) and `retrievedAt`.
     basis: Optional[str] = None
     publishedAt: Optional[str] = None
+    # Phase 4 (additive): provider-neutral supersession/restatement provenance.
+    # ALL are None unless the source exposes a reliable revision contract; a
+    # link is never inferred from a differing value. `relationshipKind` is one
+    # of amends | restates | corrects | withdraws.
+    documentId: Optional[str] = None
+    versionId: Optional[str] = None
+    supersedesEvidenceId: Optional[str] = None
+    relationshipKind: Optional[str] = None
     instrument: Optional[str] = None  # symbol / ticker / series id
     identity: Optional[InstrumentIdentity] = None  # canonical instrument identity
     source: SourceReference

@@ -114,12 +114,17 @@ def _validate_reported_fact(
         if getattr(item, "kind", None) == "unverified":
             issues.append(f"citation {evidence_id!r} is unverified and cannot support a reported fact")
     if coverage is not None:
-        if coverage.status == "unknown":
-            issues.append(f"leg {leg.id if leg else '?'} metadata is unknown — cannot assert as fact")
+        if coverage.status in ("unknown", "stale"):
+            issues.append(f"leg {leg.id if leg else '?'} metadata is unknown/stale — cannot assert as fact")
         elif coverage.status == "unavailable":
             issues.append(f"leg {leg.id if leg else '?'} is unavailable — cannot assert as fact")
+        elif coverage.status == "no_matching_period":
+            issues.append(f"leg {leg.id if leg else '?'} has no observation for the requested period")
         elif coverage.status == "conflicting":
             issues.append(f"leg {leg.id if leg else '?'} is conflicting — a resolution must be shown")
+        # `qualified`: the value is present but a required field is unconfirmed.
+        # The claim may be asserted WITH the qualification, which the renderer
+        # appends from the coverage reason — it is not an assertion failure.
 
 
 def _validate_derived_fact(
@@ -171,10 +176,10 @@ def validate_claims(
         try:
             claim = Claim(**raw) if not isinstance(raw, Claim) else raw
         except Exception:  # noqa: BLE001 - a malformed claim is unsupported, not trusted
-            bad = Claim(text=str(raw)[:200], kind="reported_fact", supportStatus="unsupported",
-                        issues=["claim payload was malformed"])
+            bad = Claim(text="[malformed claim]", kind="reported_fact",
+                        supportStatus="unsupported", issues=["claim payload was malformed"])
             validated.append(bad)
-            unresolved.append(bad.text)
+            unresolved.append("a malformed claim was not established")
             continue
 
         issues: list[str] = []
@@ -206,7 +211,12 @@ def validate_claims(
         if issues:
             claim.supportStatus = "unsupported"
             claim.issues = issues
-            unresolved.append(claim.text[:200])
+            # Never echo an unsupported claim's text into the answer/gaps: it may
+            # embed a fabricated figure. Report the failure, not the claim.
+            label = f"{claim.kind} claim"
+            if claim.legId:
+                label += f" for {claim.legId}"
+            unresolved.append(f"{label} was not established: {'; '.join(issues[:3])}")
         elif claim.kind in ("interpretation",):
             # Interpretation is inherently non-deterministic: never claimed verified.
             claim.supportStatus = "needs_review"
@@ -216,18 +226,24 @@ def validate_claims(
             claim.supportStatus = "supported"
         validated.append(claim)
 
-    # A required leg that is not covered must surface as a gap.
+    # A required leg that is not fully covered must surface as a gap. `qualified`
+    # is included because an unconfirmed required field must be disclosed even
+    # when the value itself is present.
     gaps = list(synthesis.gaps)
+    _gap_statuses = {"unavailable", "unknown", "stale", "no_matching_period", "conflicting", "qualified"}
     for leg_cov in coverage.legs:
-        if leg_cov.status in ("unavailable", "unknown", "conflicting"):
+        if leg_cov.status in _gap_statuses:
             message = f"unmet requirement: {leg_cov.metric} {leg_cov.period or ''} ({leg_cov.status})"
             if message not in gaps:
                 gaps.append(message)
 
-    if any(c.supportStatus == "unsupported" for c in validated) and not any(
+    if coverage.status == "rejected":
+        # No usable evidence at all → nothing can be established honestly.
+        status: Literal["accepted", "partial", "rejected"] = "rejected"
+    elif any(c.supportStatus == "unsupported" for c in validated) and not any(
         c.supportStatus == "supported" for c in validated
     ):
-        status: Literal["accepted", "partial", "rejected"] = "rejected"
+        status = "rejected"
     elif unresolved or gaps or coverage.status != "accepted":
         status = "partial"
     else:
@@ -273,11 +289,14 @@ def render_prose(outcome: ValidationOutcome) -> str:
     for claim in review:
         lines.append(f"- {claim.text} (unverified — needs review)")
     if unsupported:
+        # Never echo an unsupported claim's text — it may embed a fabricated
+        # figure. Report the failure reason and the leg/kind instead.
         lines.append("")
-        lines.append("Not established (stripped as unsupported):")
+        lines.append("Not established (unsupported claims were removed):")
         for claim in unsupported:
             reason = "; ".join(claim.issues) if claim.issues else "unsupported"
-            lines.append(f"- ~~{claim.text}~~ — {reason}")
+            label = f"{claim.kind}" + (f" for {claim.legId}" if claim.legId else "")
+            lines.append(f"- {label} — {reason}")
     if outcome.unresolved:
         lines.append("")
         lines.append("Gaps: " + "; ".join(outcome.unresolved[:6]))

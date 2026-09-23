@@ -82,12 +82,47 @@ export const COVERAGE: Record<string, CoverageEntry> = {
   TH: entry("TH", [...EQUITY_CLASSES], STRUCTURED_TYPES),
   VN: entry("VN", [...EQUITY_CLASSES], STRUCTURED_TYPES),
   CRYPTO: entry("CRYPTO", CRYPTO_CLASSES, ["current_quote", "historical_prices"]),
+  // FX is a global OTC market; base/quote direction is the identity.
+  FX: entry("FX", ["fx"], ["current_quote", "historical_prices"]),
+  // Derivative venues are RECOGNISED but NOT COVERED — no precise price source.
+  // Listing them lets an `ES`/`CME` request be NOT_COVERED (the caller named a
+  // real venue) rather than "unknown venue".
+  DERIV: entry("DERIV", [], []),
 };
 
 /** Is there declared coverage for this market + asset class? */
 export function isCovered(market: string, assetClass: AssetClass): boolean {
   const c = COVERAGE[market];
   return Boolean(c && c.assetClasses.includes(assetClass));
+}
+
+/**
+ * The full set of (source, market, assetClass) combinations the system *can*
+ * serve — whether or not any has recorded a run. `get_source_health` merges this
+ * with recorded runs so "no data" (a known source with no runs yet) is
+ * distinguishable from "no source" (a combination we do not support).
+ */
+export interface HealthTarget {
+  source: string;
+  market: string;
+  assetClass: AssetClass;
+}
+
+/** The declared source registry per market × asset class. */
+export function healthTargets(): HealthTarget[] {
+  const out: HealthTarget[] = [];
+  for (const entry of Object.values(COVERAGE)) {
+    for (const assetClass of entry.assetClasses) {
+      for (const source of entry.sources) {
+        out.push({ source, market: entry.market, assetClass });
+      }
+    }
+  }
+  // FX and crypto live on the live structured path.
+  for (const [market, assetClass] of [["FX", "fx"], ["CRYPTO", "crypto"]] as const) {
+    out.push({ source: "LIVE_STRUCTURED", market, assetClass });
+  }
+  return out;
 }
 
 /** The declared coverage entry for a market, or null when none. */

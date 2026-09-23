@@ -364,6 +364,28 @@ html:not(.dark) .ws-glass {
   display: none !important;
 }
 
+/* Chat transcript: previously scrollbar-hide, which gave no affordance that the
+   thread scrolls. Visible, brand-coloured bar so the history reads as scrollable. */
+.chat-transcript-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--brand-rgb) / 0.35) transparent;
+}
+.chat-transcript-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-transcript-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-transcript-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--brand-rgb) / 0.35);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-transcript-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--brand-rgb) / 0.7);
+}
+
 /* Global premium scrollbar consistent with branding (Vibrant Green) */
 ::-webkit-scrollbar {
   width: 6px;

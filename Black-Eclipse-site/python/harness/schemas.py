@@ -129,6 +129,10 @@ class RunResult(BaseModel):
     promptTokens: int = 0  # noqa: N815
     completionTokens: int = 0  # noqa: N815
     totalTokens: int = 0  # noqa: N815
+    # Phase 4 (additive, optional): evidence-grounded research metadata for a
+    # gated run. Absent/None for ordinary chat and for older persisted rows, so
+    # existing clients remain compatible.
+    research: Optional[dict[str, Any]] = None  # noqa: N815
 
 
 EventLiteral = Literal[

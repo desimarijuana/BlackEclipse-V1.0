@@ -56,6 +56,7 @@ Black-Eclipse-site/
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md`; evidence-grounded answering: `docs/harness/phase-4-progress.md` and `phase-4-opencode-prompt.md` |
+| Review the original agentic harness implementation vision | Repository root `agentic-plan-implementaion.md` (planning reference; current architecture is in `docs/harness/`) |
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`), `schema.py` (append a migration tuple), `db.py` (runner) |
@@ -70,7 +71,10 @@ Black-Eclipse-site/
 | Add a harness tool / agent / model provider | `python/harness/finance_tools.py` (or a new `register_*`), `python/harness/agents.py`, `python/harness/models.py` (`PROVIDER_CATALOG`) — see `docs/harness/architecture.md` → Extension points |
 | Work on hybrid financial retrieval / source selection | `python/harness/retrieval/` (`planner.py` = source selection, `layer.py` = orchestrator, `structured.py`/`web.py` = providers, `cache.py`, `parallel.py`, `validate.py`, `conflicts.py`, `aggregate.py`); tools in `python/harness/retrieval_tools.py` |
 | Add/edit a retrieval data type or provider | `retrieval/contract.py` (`DataType`), `retrieval/planner.py` (`_PLAN`), `retrieval/policies.py` (freshness + TTL) — new provider implements `retrieval/sources.py` `RetrievalSource` |
-| Work on evidence-grounded answering (Phase 4) | `python/harness/research/` (`mandate.py` = typed mandate + narrow classifier, `coverage.py` = per-leg evidence gate, `claims.py` = structured claims + deterministic validator, `calculations.py` = derived metrics, `citations.py` = citations + response metadata, `failures.py` = failure classes, `receipt.py` = durable receipt, `engine.py` = orchestration); progress `docs/harness/phase-4-progress.md` |
+| Work on evidence-grounded answering (Phase 4) | `python/harness/research/` (`mandate.py` = typed mandate + narrow classifier, `coverage.py` = per-leg evidence gate, `claims.py` = structured claims + deterministic validator, `calculations.py` = derived metrics, `citations.py` = citations + response metadata, `failures.py` = failure classes, `periods.py` = canonical period parsing, `ids.py` = stable content digests, `synthesis.py` = bounded model synthesizer, `supersession.py` = restatement chains, `run.py` = live-chat integration, `receipt.py` = durable receipt, `engine.py` = orchestration); progress `docs/harness/phase-4-progress.md` |
+| Work on web escalation when structured data is empty/stale/missing a period (Phase 5) | `python/harness/research/escalation.py` (bounded primary→secondary source hierarchy), `web_facts.py` (span-anchored deterministic fact extraction/validation), `budget.py` (search/fetch/page/time/token caps); `retrieval/web.py` (`WebResearchSource` now serves `financial_statements`) |
+| Run/read the semantic-support evaluation | `python/harness/research/eval/` (`dataset_v1.json` = human-labeled set, `dataset_escalation_v1.json` = source-hierarchy set, `escalation.py` = runner, `__init__.py` = runner, `__main__.py` = CLI); `PYTHONPATH=python python -m harness.research.eval` |
+| Work on the chat evidence/receipt surface | `src/components/chat/research-evidence-panel.tsx`, `src/app/api/harness/runs/[id]/receipt/route.ts`, `getRunReceiptFromRuntime` in `src/lib/harness/python-client.ts`, `ResearchRunInfo` in `src/lib/harness/types.ts` |
 | Add a deterministic derived metric | `python/harness/research/calculations.py` (one function + a `MIN_OBSERVATIONS`/`CALCULATORS` entry), tests `python/tests/test_research_calculations.py` |
 | Add/edit a research mandate fact leg or task type | `python/harness/research/mandate.py` (`KNOWN_METRICS`, `parse_mandate`, `TaskType`) |
 | Change the research answer validator or coverage rules | `python/harness/research/{coverage,claims}.py` |
@@ -224,6 +228,12 @@ health).
 | Derived-calculation contract | `python/harness/research/calculations.py` (`CalculationResult`, `CALCULATORS`) |
 | Research receipt contract | `python/harness/research/receipt.py` (`ResearchReceipt`) |
 | Research response metadata / citations | `python/harness/research/citations.py` (`ResponseMetadata`, `Citation`, `build_response_metadata`) |
+| Research synthesis contract | `python/harness/research/synthesis.py` (`ModelSynthesizer`, `parse_synthesis`) |
+| Supersession chain contract | `python/harness/research/supersession.py` (`SupersessionChain`, `build_chain`) |
+| Stable-identifier contract | `python/harness/research/ids.py` (`stable_digest`, `evidence_digest`, `calculation_digest`) |
+| Web-escalation contract | `python/harness/research/escalation.py` (`escalate_web`, `EscalationResult`) |
+| Web-fact validation contract | `python/harness/research/web_facts.py` (`validate_fact`, `WebFactExtractor`, `ExtractedFact`) |
+| Research budget contract | `python/harness/research/budget.py` (`ResearchBudget`) |
 | Source-selection policy | `python/harness/retrieval/planner.py` (`_PLAN`) |
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |

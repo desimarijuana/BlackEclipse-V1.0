@@ -10,7 +10,7 @@
 
 import {
   LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
-  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Sparkles, Brain, type LucideIcon,
+  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, type LucideIcon,
 } from 'lucide-react';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -43,7 +43,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'heatmap', label: 'Market Bubbles', icon: Orbit, group: 'terminal' },
   { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
-  { id: 'skills', label: 'Skills', icon: Sparkles, group: 'agentic' },
+  { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
 ];
 

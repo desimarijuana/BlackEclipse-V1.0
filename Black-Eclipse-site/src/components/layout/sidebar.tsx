@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTerminal, BrainCircuit } from 'lucide-react';
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
@@ -75,9 +75,9 @@ export function Sidebar({
       const def = NAV_DEF.get(s.id);
       if (!def) return null;
       // Only items belonging to the active mode are listed. ChatBot is `both`,
-      // so it stays in either mode. While collapsed there is no switcher, so
-      // every item stays reachable as an icon.
-      if (!isCollapsed && def.group !== 'both' && def.group !== navMode) return null;
+      // so it stays in either mode. This still applies while collapsed — switch
+      // modes with Alt+T / Alt+A (the switcher itself is hidden when collapsed).
+      if (def.group !== 'both' && def.group !== navMode) return null;
       const key = navLabelKey(s.id);
       return { ...def, label: key ? t(key) : def.label, shortcut: s.shortcut };
     })
@@ -86,10 +86,18 @@ export function Sidebar({
   // Keep the switcher in sync with programmatic navigation: opening a Terminal
   // screen (command palette, deep link, cross-screen CTA) shows the Terminal
   // menu, and likewise for Agentic. ChatBot is shared and never forces a switch.
+  //
+  // This must fire ONLY when the active tab changes — not when the mode changes.
+  // Otherwise a manual switch would be immediately reverted by this effect while
+  // sitting on a screen belonging to the other mode. The last-synced tab is kept
+  // in a ref so choosing the other mode for the same screen is respected.
+  const lastSyncedTabRef = useRef(activeTab);
   useEffect(() => {
+    if (lastSyncedTabRef.current === activeTab) return;
+    lastSyncedTabRef.current = activeTab;
     const mode = modeForTab(activeTab);
-    if (mode && mode !== navMode) setNavMode(mode);
-  }, [activeTab, navMode, setNavMode]);
+    if (mode) setNavMode(mode);
+  }, [activeTab, setNavMode]);
 
   const handleSelectChat = (id: string) => {
     onSelectConversation(id);
@@ -164,15 +172,8 @@ export function Sidebar({
           <div
             role="tablist"
             aria-label={t('sidebar.modeSwitcher')}
-            className="shrink-0 relative grid grid-cols-2 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
+            className="shrink-0 grid grid-cols-2 gap-1 rounded-2xl glass-card-subtle p-1 w-full"
           >
-            {/* Sliding highlight behind the active mode. */}
-            <span
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-1 w-[calc(50%-0.375rem)] rounded-xl bg-gradient-to-b from-primary/25 to-primary/10 border border-primary/25 shadow-[0_2px_10px_-2px] shadow-primary/30 transition-all duration-300 ease-out ${
-                navMode === 'agentic' ? 'left-[calc(50%+0.125rem)]' : 'left-1'
-              }`}
-            />
             {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
               const isActive = navMode === id;
               const label = t(labelKey);
@@ -184,13 +185,13 @@ export function Sidebar({
                   data-sound="tick"
                   onClick={() => setNavMode(id)}
                   title={label}
-                  className={`relative z-10 flex items-center justify-center gap-1.5 rounded-xl py-2 text-[11px] font-bold tracking-wide transition-colors duration-200 cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-bold transition-all cursor-pointer ${
                     isActive
-                      ? 'text-primary'
-                      : 'text-muted-foreground hover:text-foreground'
+                      ? 'bg-primary/15 text-primary shadow-sm shadow-primary/5'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
                   }`}
                 >
-                  <Icon size={14} className="shrink-0" />
+                  <Icon size={13} className="shrink-0" />
                   <span className="whitespace-nowrap">{label}</span>
                 </button>
               );

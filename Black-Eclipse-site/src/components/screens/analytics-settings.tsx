@@ -181,13 +181,19 @@ export function AnalyticsSettingsPanel() {
               <p className="px-5 py-6 text-[11px] text-muted-foreground text-center">No daily data in this window.</p>
             ) : (
               <div className="px-5 py-5">
-                <div className="flex items-end gap-1 h-32">
+                {/* The column must be full-height (items-stretch + h-32) so the
+                    bar's percentage height has a definite parent to resolve
+                    against; with items-end the parent is content-sized and every
+                    bar collapses to 0. Bars can also legitimately be 0 tokens. */}
+                <div className="flex items-stretch gap-1 h-32">
                   {data!.byDay.map((d) => (
-                    <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group min-w-0">
+                    <div key={d.date} className="flex-1 flex flex-col justify-end group min-w-0" title={`${d.date}: ${d.totalTokens.toLocaleString()} tokens · ${d.runs} run(s)`}>
                       <div
-                        className="w-full rounded-t-md bg-primary/40 group-hover:bg-primary/70 transition-colors"
-                        style={{ height: `${Math.max(2, (d.totalTokens / peakDay) * 100)}%` }}
-                        title={`${d.date}: ${d.totalTokens.toLocaleString()} tokens · ${d.runs} run(s)`}
+                        className={cn(
+                          "w-full rounded-t-md transition-colors",
+                          d.totalTokens > 0 ? "bg-primary/40 group-hover:bg-primary/70" : "bg-muted/20"
+                        )}
+                        style={{ height: `${(d.totalTokens / peakDay) * 100}%`, minHeight: d.totalTokens > 0 ? 3 : undefined }}
                       />
                     </div>
                   ))}

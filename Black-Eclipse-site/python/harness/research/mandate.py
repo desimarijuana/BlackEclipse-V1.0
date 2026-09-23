@@ -87,6 +87,7 @@ class FactLeg(BaseModel):
     metric: str
     entityRaw: str
     entitySymbol: Optional[str] = None
+    market: Optional[str] = None
     period: Optional[str] = None
     basis: Optional[str] = None  # consolidated | standalone
     unit: Optional[str] = None
@@ -114,8 +115,17 @@ class ResearchMandate(BaseModel):
 
     @property
     def supported(self) -> bool:
-        """True when the harness has a first-class flow for this task."""
-        return self.taskType == "financial_comparison" and bool(self.factLegs)
+        """True ONLY when the request is an unambiguous period-over-period
+        comparison. Anything uncertain (missing entity, missing two periods,
+        multiple entities, an unsupported concept) is not routed into the
+        evidence gate — it continues on the existing chat path instead.
+        """
+        return (
+            self.taskType == "financial_comparison"
+            and bool(self.factLegs)
+            and self.ambiguity == "none"
+            and len(self.entities) == 1
+        )
 
 
 def _detect_metrics(text: str) -> list[str]:
@@ -246,6 +256,14 @@ def parse_mandate(
             "comparison requested but fewer than two periods were stated"
         )
 
+    # Two distinct entities is a company-vs-company comparison, not a
+    # period-over-period one — this flow does not support it, so fall back.
+    if len(mandate.entities) > 1:
+        mandate.ambiguity = "entity" if mandate.ambiguity == "none" else mandate.ambiguity
+        mandate.parseWarnings.append(
+            "two or more entities were named; company-vs-company comparison is not supported"
+        )
+
     unit, currency = _detect_unit(text)
     basis = _detect_basis(text)
 
@@ -258,6 +276,7 @@ def parse_mandate(
                     metric=metric,
                     entityRaw=entity_raw,
                     entitySymbol=mandate.entities[0].symbol if mandate.entities else None,
+                    market=mandate.entities[0].market if mandate.entities else None,
                     period=period,
                     basis=basis,
                     unit=unit,

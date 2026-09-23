@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { AlertTriangle, ArrowDown, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
+import { ResearchEvidencePanel } from './research-evidence-panel';
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -50,13 +51,25 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
   const [draft, setDraft] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Auto-scroll only while the user is already near the bottom. Scrolling up to
-  // read while a reply streams must not yank the viewport back down every token.
+  // Track whether the viewport is pinned to the bottom. When it is, we follow the
+  // stream and hide the scrollbar; when the user scrolls up we reveal the
+  // scrollbar and a "jump to latest" button so the thread still reads scrollable.
+  const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    const next = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    atBottomRef.current = next;
+    setAtBottom(next);
+  }, []);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    atBottomRef.current = true;
+    setAtBottom(true);
   }, []);
 
   useEffect(() => {
@@ -65,6 +78,12 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Show the scrollbar from the very first paint if the thread already overflows,
+  // instead of waiting for a scroll event that may never fire.
+  useLayoutEffect(() => {
+    onScroll();
+  }, [onScroll, messages]);
 
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
@@ -87,14 +106,16 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
   };
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className={cn(
-        'flex-1 w-full overflow-y-auto scrollbar-hide min-h-0',
-        compact ? 'space-y-3 p-3' : 'px-4 md:px-6 space-y-6 pb-6',
-      )}
-    >
+    <div className="relative flex-1 min-h-0 w-full">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className={cn(
+          'h-full w-full overflow-y-auto min-h-0 chat-transcript-scroll',
+          atBottom && 'scrollbar-hide',
+          compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-3 md:pr-5 space-y-6 pb-6',
+        )}
+      >
       <div className={compact ? 'space-y-3' : 'space-y-6'}>
         {messages.map((msg) => {
           const working = msg.role === 'assistant' && msg.status != null && msg.status !== 'completed';
@@ -144,6 +165,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                     </div>
                   )}
                   {msg.content && <AssistantContent content={msg.content} compact={compact} />}
+                  {msg.research ? (
+                    <ResearchEvidencePanel research={msg.research} compact={compact} />
+                  ) : null}
                   {!working && msg.content && (
                     <div className="hover-reveal mt-1 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <button
@@ -260,6 +284,22 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
           );
         })}
       </div>
+      </div>
+
+      {!atBottom && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom(true)}
+          className={cn(
+            'absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-primary/25 glass-card-strong px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg shadow-black/30 transition-colors hover:text-primary cursor-pointer animate-fade-in',
+            compact ? 'bottom-2' : 'bottom-4',
+          )}
+          title="Scroll to latest"
+          aria-label="Scroll to latest"
+        >
+          <ArrowDown size={13} /> Latest
+        </button>
+      )}
     </div>
   );
 }

@@ -8,6 +8,24 @@ last-verified: 2026-09-15
 
 ## 2026-09-23
 
+- **Agent** — Added the original financial harness implementation plan as a repository-root Markdown reference and linked it from navigation; retained the source plan as a vision document alongside the current harness docs.
+  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`
+
+- **Command palette: removed the executable Commands group; added agentic pages** — The ⌘K palette no longer renders static/fund/Settings "Commands" rows (`buildPaletteCommands`, `rankCommands`, `settingsCommands`, `fundOpenCommands`, `fundExportCommands`, `exportAllFundsCommand` removed; the `ExecutableCommand.run` side-effect path now covers only parameterized verbs like `alert AAPL`). Registered the agentic-mode pages `page-skills` and `page-memory` (with matching open actions, icons, and `skills`/`memory` AppTab) and included them in the palette's Pages launcher.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
+
+## 2026-09-23
+
+
+- **Harness Phase 4 follow-up prompt** — Added a scoped OpenCode prompt for live-chat integration, coverage/hash hardening, receipt presentation, semantic evaluation, and source-backed restatement handling.
+  docs updated: `docs/harness/phase-4-follow-up-opencode-prompt.md`
+
+## 2026-09-23
+
+- **Harness Phase 5 — bounded web escalation** — When structured sources are empty/stale/missing a requested fiscal period or lack required metadata, the research flow now escalates unsatisfied legs through a fixed hierarchy (structured → primary web → bounded secondary) via the existing `web_search`/`web_fetch` bridge, drawing from one `ResearchBudget`. Every numeric web fact must pass deterministic span-anchored validation; page text is untrusted. Fixed the NVDA failure root cause (evidence-packet truncation to the oldest fiscal year, missing-basis hard-fail, and WEB being unable to serve statements) generically for all entities. Coverage gained `qualified`/`no_matching_period`/`stale`; receipts carry escalation + budget; the evidence panel shows source tier/dates/period/span. Python 403 passed; escalation eval 8/8, precision 1.0, 0 false accepts; tsc clean.
+  docs updated: `docs/harness/phase-4-progress.md`, `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`
+- **Harness Phase 4 follow-up — wire and harden in live chat** — Canonical period parsing (`research/periods.py`) replaces substring-of-digits matching; required unit/currency/basis/instrument metadata must be present to cover a leg; evidence/calculation ids are SHA-256 content digests (`research/ids.py`), reproducible across processes. A supported `financial_comparison` is routed into the evidence gate before the agent graph via a bounded, tool-less `ModelSynthesizer` (`research/{synthesis,run}.py`) and is never silently downgraded. Research metadata is additive on `HarnessRun`/`RunResult`, carried on `client.final`, rendered by `ResearchEvidencePanel`, and readable via `/api/harness/runs/[id]/receipt`. Versioned human-labeled semantic evaluation (`research/eval/`, accuracy 1.0, 0 false accepts) and source-grounded supersession chains (`research/supersession.py`, coverage `unavailable` until a provider supplies revision metadata). 371 Python tests, 1614 Vitest, tsc clean.
+  docs updated: `docs/harness/phase-4-progress.md`, `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`
 - **Harness Phase 4 — evidence-grounded answering** — Added `python/harness/research/` (typed mandate + narrow classifier, per-leg coverage gate, structured claims + deterministic validator, pure-Python derived metrics, citations/response metadata, failure classes, durable receipt, orchestration engine) reusing the existing retrieval layer; additive `basis`/`publishedAt` and `asOf` on the retrieval contracts/cache; idempotent `ResearchReceipt` table in `agent-memory.db`; `/research/*` endpoints. 61 new tests; full suite 327 passed, tsc clean, Vitest 1613 passed.
   docs updated: `docs/harness/phase-4-progress.md`, `docs/harness/architecture.md`, `docs/harness/decisions.md`, `docs/NAVIGATION.md`
 - **Harness Phase 4 plan** — Added the OpenCode implementation prompt and progress tracker for evidence-grounded research, coverage/citation gates, point-in-time evidence, deterministic metrics, and evaluation; mapped the phase in navigation.

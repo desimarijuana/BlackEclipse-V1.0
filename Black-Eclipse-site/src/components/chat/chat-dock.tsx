@@ -355,7 +355,14 @@ export function ChatDock({
     turnSinkRef.current = (turn) => {
       const next = messagesRef.current.map(m =>
         m.id === assistantId
-          ? { ...m, content: turnText(turn), status: turn.status, activities: turn.activities, error: turn.error }
+          ? {
+              ...m,
+              content: turnText(turn),
+              status: turn.status,
+              activities: turn.activities,
+              error: turn.error,
+              research: turn.research,
+            }
           : m,
       );
       // Streaming frames update state only; persistence happens once the turn

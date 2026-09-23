@@ -39,6 +39,118 @@ export interface HarnessErrorJson {
   detail?: string;
 }
 
+// ── Phase 4 research metadata (additive, optional) ──────────────────────────
+// Present only when a run was routed through the evidence-grounded research
+// gate. Absent/undefined for ordinary chat and for older persisted rows, so
+// existing clients remain compatible.
+
+export interface ResearchCitation {
+  evidenceId: string;
+  kind: string;
+  source?: string | null;
+  sourceType?: string | null;
+  url?: string | null;
+  title?: string | null;
+  publishedAt?: string | null;
+  retrievedAt?: string | null;
+  validationStatus?: string | null;
+  /** Phase 5: issuer-reported fiscal period label, when known. */
+  fiscalPeriod?: string | null;
+  /** Phase 5: consolidation basis, when explicitly stated. */
+  basis?: string | null;
+  currency?: string | null;
+  unit?: string | null;
+  /** Phase 5: the verbatim extraction span, when the fact came from a page. */
+  sourceSpan?: string | null;
+}
+
+/** A bounded web-escalation audit for a research run. */
+export interface ResearchEscalation {
+  stages?: string[];
+  attempts?: string[];
+  notes?: Array<Record<string, unknown>>;
+  acceptedEvidence?: number;
+  budget?: ResearchBudgetSnapshot | null;
+}
+
+export interface ResearchBudgetSnapshot {
+  limits: {
+    maxSearches: number;
+    maxFetches: number;
+    maxPages: number;
+    maxSeconds: number;
+    maxModelTokens: number;
+  };
+  used: {
+    searches: number;
+    fetches: number;
+    pages: number;
+    modelTokens: number;
+    elapsedSeconds: number;
+  };
+  exhausted: string | null;
+  attempted: string[];
+}
+
+export interface ResearchLimitations {
+  limitations: string[];
+  missingEvidence: string[];
+}
+
+export interface ResearchCoverageLeg {
+  legId: string;
+  metric: string;
+  period?: string | null;
+  basis?: string | null;
+  status:
+    | "covered"
+    | "qualified"
+    | "conflicting"
+    | "unavailable"
+    | "unknown"
+    | "not_applicable"
+    | "no_matching_period"
+    | "stale";
+  evidenceIds: string[];
+  reason?: string | null;
+}
+
+export interface ResearchClaim {
+  text: string;
+  kind: string;
+  supportStatus: "supported" | "needs_review" | "unsupported" | "stripped" | "unverified";
+  evidenceIds: string[];
+  calculationId?: string | null;
+  issues: string[];
+}
+
+export interface ResearchMetadata {
+  taskType: string;
+  status: "accepted" | "partial" | "rejected" | string;
+  asOf?: string | null;
+  citations: ResearchCitation[];
+  assumptions: string[];
+  estimates: string[];
+  interpretations: string[];
+  limitations: string[];
+  missingEvidence: string[];
+  conflicts: Array<Record<string, unknown>>;
+  calculations: Array<Record<string, unknown>>;
+}
+
+export interface ResearchRunInfo {
+  status: "accepted" | "partial" | "rejected" | string;
+  metadata?: ResearchMetadata | null;
+  receiptAvailable?: boolean;
+  persistenceError?: string | null;
+  coverage?: { status: string; legs: ResearchCoverageLeg[] } | null;
+  validation?: { status: string; claims: ResearchClaim[]; unresolved: string[] } | null;
+  receipt?: Record<string, unknown> | null;
+  /** Phase 5: what web escalation paths were attempted, and the budget audit. */
+  escalation?: ResearchEscalation | null;
+  budget?: ResearchBudgetSnapshot | null;
+}
+
 export interface RunResult {
   runId: string;
   status: RunStatus;
@@ -51,6 +163,8 @@ export interface RunResult {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Phase 4 evidence-grounded research metadata, when the run was gated. */
+  research?: ResearchRunInfo;
 }
 
 export interface RunRecord {
@@ -69,6 +183,8 @@ export interface RunRecord {
   totalTokens: number;
   provider: string | null;
   model: string | null;
+  /** Phase 4 research metadata (null for ordinary chat / older rows). */
+  research?: ResearchRunInfo | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

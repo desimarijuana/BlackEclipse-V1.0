@@ -119,6 +119,7 @@ export async function POST(request: Request) {
             status: run.status,
             output: run.output,
             error: run.error,
+            research: run.research ?? null,
           });
           if (chatId && run.output && run.status === "completed") {
             const stamp = new Date().toISOString().replace(/[:.]/g, "-");

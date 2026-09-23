@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from .ids import evidence_digest
 from .mandate import ResearchMandate
 
 RECEIPT_SCHEMA_VERSION = "1.0.0"
@@ -31,6 +32,17 @@ class EvidenceRef(BaseModel):
     url: Optional[str] = None
     hash: Optional[str] = None
     summary: Optional[str] = None
+    # Phase 5 (additive): finer provenance for the receipt/UI. All optional, so
+    # older receipts and consumers remain valid.
+    title: Optional[str] = None
+    publishedAt: Optional[str] = None
+    retrievedAt: Optional[str] = None
+    fiscalPeriod: Optional[str] = None
+    basis: Optional[str] = None
+    currency: Optional[str] = None
+    unit: Optional[str] = None
+    validationStatus: Optional[str] = None
+    sourceSpan: Optional[str] = None
 
 
 class ResearchReceipt(BaseModel):
@@ -47,6 +59,10 @@ class ResearchReceipt(BaseModel):
     claims: list[dict[str, Any]] = Field(default_factory=list)
     validationIssues: list[str] = Field(default_factory=list)
     repair: Optional[dict[str, Any]] = None
+    # Phase 5 (additive): the bounded web escalation + budget audit, so a receipt
+    # explains which source paths were attempted and whether the budget ran out.
+    escalation: Optional[dict[str, Any]] = None
+    budget: Optional[dict[str, Any]] = None
     finalStatus: str = "rejected"
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -66,6 +82,8 @@ def build_receipt(
     provider: Optional[str] = None,
     model: Optional[str] = None,
     as_of: Optional[str] = None,
+    budget: Optional[dict[str, Any]] = None,
+    escalation: Optional[dict[str, Any]] = None,
 ) -> ResearchReceipt:
     """Assemble a receipt from the run's decision objects.
 
@@ -74,18 +92,7 @@ def build_receipt(
     """
     evidence = evidence or []
 
-    refs = [
-        EvidenceRef(
-            id=getattr(item, "id", ""),
-            kind=getattr(item, "kind", "unknown"),
-            source=getattr(getattr(item, "source", None), "source", None),
-            sourceType=getattr(getattr(item, "source", None), "sourceType", None),
-            url=getattr(getattr(item, "source", None), "url", None),
-            hash=str(abs(hash(str(getattr(item, "id", ""))))) ,
-            summary=(getattr(item, "summary", "") or "")[:240],
-        )
-        for item in evidence
-    ]
+    refs = [_evidence_ref(item) for item in evidence]
 
     claims: list[dict[str, Any]] = []
     validation_issues: list[str] = []
@@ -149,9 +156,52 @@ def build_receipt(
         claims=claims,
         validationIssues=sorted(set(validation_issues))[:50],
         repair=repair,
+        escalation=escalation,
+        budget=budget,
         finalStatus=status,
         provider=provider,
         model=model,
+    )
+
+
+def _first_object(item: Any) -> Any:
+    objects = getattr(item, "objects", None) or []
+    return objects[0] if objects else None
+
+
+def _extraction(item: Any) -> dict[str, Any]:
+    data = getattr(item, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("extraction"), dict):
+        return data["extraction"]
+    return {}
+
+
+def _evidence_ref(item: Any) -> EvidenceRef:
+    """Build one bounded receipt reference, preserving Phase-5 provenance."""
+    source = getattr(item, "source", None)
+    obj = _first_object(item)
+    extraction = _extraction(item)
+    return EvidenceRef(
+        id=getattr(item, "id", ""),
+        kind=getattr(item, "kind", "unknown"),
+        source=getattr(source, "source", None) if source else None,
+        sourceType=getattr(source, "sourceType", None) if source else None,
+        url=getattr(source, "url", None) if source else None,
+        title=getattr(source, "title", None) if source else None,
+        publishedAt=getattr(source, "publishedAt", None) if source else None,
+        retrievedAt=getattr(source, "retrievedAt", None) if source else None,
+        fiscalPeriod=(getattr(obj, "period", None) if obj else None)
+        or (getattr(obj, "dataTimestamp", None) if obj else None),
+        basis=getattr(obj, "basis", None) if obj else None,
+        currency=getattr(obj, "currency", None) if obj else None,
+        unit=getattr(obj, "unit", None) if obj else None,
+        validationStatus=getattr(source, "validationStatus", None) if source else None,
+        sourceSpan=(extraction.get("sourceSpan") or None) if extraction else None,
+        # A stable, content+provenance-sensitive digest (not the salted built-in
+        # hash, and not merely the id) so the same fact is reproducible across
+        # processes and different facts differ.
+        hash=evidence_digest(item),
+        summary=(getattr(item, "summary", "") or "")[:240],
     )
 
 

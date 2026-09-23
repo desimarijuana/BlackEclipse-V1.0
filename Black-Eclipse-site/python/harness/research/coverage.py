@@ -23,10 +23,15 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from .mandate import FactLeg, ResearchMandate
+from .periods import periods_match
 
 CoverageStatus = Literal[
-    "covered", "conflicting", "unavailable", "unknown", "not_applicable"
+    "covered", "qualified", "conflicting", "unavailable", "unknown", "not_applicable",
+    "no_matching_period", "stale",
 ]
+
+# A status whose value may be presented (with disclosure for `qualified`).
+_PRESENTABLE = {"covered", "qualified", "not_applicable"}
 
 # Evidence kinds that can satisfy a precise numeric leg. Web snippets and cached
 # copies are deliberately excluded — a search result is never a number.
@@ -48,63 +53,131 @@ class LegCoverage(BaseModel):
 
     @property
     def satisfied(self) -> bool:
-        return self.status in ("covered", "not_applicable")
+        """True when the leg's value may be presented (fully or qualified)."""
+        return self.status in _PRESENTABLE
 
 
 class CoverageReport(BaseModel):
     status: str  # accepted | partial | rejected
     legs: list[LegCoverage] = Field(default_factory=list)
     coveredCount: int = 0
+    qualifiedCount: int = 0
     missingCount: int = 0
     conflictingCount: int = 0
     unknownCount: int = 0
+    periodMissCount: int = 0
     warnings: list[str] = Field(default_factory=list)
 
     @property
     def complete(self) -> bool:
-        return self.missingCount == 0 and self.conflictingCount == 0
+        return (
+            self.missingCount == 0
+            and self.conflictingCount == 0
+            and self.unknownCount == 0
+            and self.qualifiedCount == 0
+        )
 
 
 def _norm(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
-def _period_matches(required: Optional[str], candidate: Optional[str]) -> bool:
+def _period_matches(required: Optional[str], candidate: Optional[str], *, from_timestamp: bool = False) -> bool:
+    """Canonical period match. See `periods.periods_match`."""
+    return periods_match(required, candidate, candidate_is_timestamp=from_timestamp)
+
+
+def _basis_matches(required: Optional[str], candidate: Optional[str]) -> tuple[bool, Optional[str]]:
+    """A required basis must be present and match.
+
+    A *missing* basis is a QUALIFYING gap, not a hard mismatch: the issuer-
+    reported number is still valid, but the basis cannot be confirmed. A basis
+    that is present but different is a hard mismatch. The caller maps the
+    missing case to `qualified`, never to `covered`.
+    """
     if not required:
-        return True  # no period requirement → any period is admissible
+        return True, None
     if not candidate:
-        return False  # a period was required but the evidence is undated
-    req, cand = _norm(required), _norm(candidate)
-    if req == cand:
-        return True
-    # FY2024 should match a "2024" or "2024-Q4"/"FY2024" label and vice versa.
-    req_digits = "".join(ch for ch in req if ch.isdigit())
-    cand_digits = "".join(ch for ch in cand if ch.isdigit())
-    return bool(req_digits and cand_digits and req_digits in cand_digits)
+        return False, "required consolidation basis is missing from the evidence"
+    if _norm(required) != _norm(candidate):
+        return False, "consolidation basis differs"
+    return True, None
 
 
-def _basis_matches(required: Optional[str], candidate: Optional[str]) -> bool:
-    if not required:
-        return True
-    return _norm(required) == _norm(candidate)
+def _currency_matches(leg: FactLeg, obj: Any) -> tuple[bool, Optional[str]]:
+    """A required currency must be present AND match. Missing → unknown."""
+    if not leg.currency:
+        return True, None
+    currency = getattr(obj, "currency", None)
+    if not currency:
+        return False, "required currency is missing from the evidence"
+    if _norm(currency) != _norm(leg.currency):
+        return False, "currency differs"
+    return True, None
 
 
-def _unit_matches(leg: FactLeg, obj: Any) -> bool:
-    """Unit/currency compatibility. A required unit/currency must be present and
-    match; when none is required, the value is still accepted."""
-    if leg.currency:
-        if not getattr(obj, "currency", None):
-            return False
-        if _norm(obj.currency) != _norm(leg.currency):
-            return False
-    if leg.unit:
-        unit = getattr(obj, "unit", None)
-        if unit and _norm(unit) != _norm(leg.unit):
-            return False
-    return True
+def _unit_matches(leg: FactLeg, obj: Any) -> tuple[bool, Optional[str]]:
+    """A required unit must be present AND match. Missing → unknown.
+
+    The previous behaviour let an absent unit pass; per the hardening brief a
+    required unit that the evidence omits is `unknown`, never covered.
+    """
+    if not leg.unit:
+        return True, None
+    unit = getattr(obj, "unit", None)
+    if not unit:
+        return False, "required unit is missing from the evidence"
+    if _norm(unit) != _norm(leg.unit):
+        return False, "unit differs"
+    return True, None
 
 
-def _admissible_by_asof(leg: FactLeg, obj: Any, asof: Optional[str]) -> tuple[bool, Optional[str]]:
+def _identity_matches(leg: FactLeg, obj: Any) -> tuple[bool, Optional[str]]:
+    """A required instrument must be present and match on the strongest fields.
+
+    Compares canonical identity (market+symbol), then market, then symbol using
+    whichever fields the observation actually supplies. A leg requiring an
+    instrument is NOT covered by an observation with no instrument at all —
+    missing identity is `unknown`, never a wildcard.
+    """
+    if not leg.entitySymbol:
+        return True, None
+
+    obj_identity = getattr(obj, "identity", None)
+    obj_market = _norm(getattr(obj_identity, "market", None)) if obj_identity else ""
+    obj_canon_symbol = _norm(getattr(obj_identity, "symbol", None)) if obj_identity else ""
+    obj_instrument = _norm(getattr(obj, "instrument", None))
+    req_symbol = _norm(leg.entitySymbol)
+    req_market = _norm(leg.market)
+
+    # Canonical identity (market + symbol) is the strongest signal when present.
+    if obj_canon_symbol:
+        if obj_canon_symbol != req_symbol:
+            return False, "canonical symbol differs"
+        if req_market and obj_market and obj_market != req_market:
+            return False, "canonical market differs"
+        return True, None
+
+    if not obj_instrument:
+        return False, "required instrument identity is missing from the evidence"
+    if obj_instrument != req_symbol:
+        return False, "instrument differs"
+    if req_market and obj_market and obj_market != req_market:
+        return False, "instrument market differs"
+    return True, None
+
+
+def _published_at(obj: Any, item: Any) -> Optional[str]:
+    """Publication time for an observation: object-level, else source-level."""
+    published = getattr(obj, "publishedAt", None)
+    if published:
+        return str(published)
+    source = getattr(item, "source", None)
+    source_published = getattr(source, "publishedAt", None) if source else None
+    return str(source_published) if source_published else None
+
+
+def _admissible_by_asof(obj: Any, item: Any, asof: Optional[str]) -> tuple[bool, Optional[str]]:
     """Point-in-time admissibility (Milestone 5).
 
     When an `asOf` cutoff applies, an observation with a `publishedAt` after the
@@ -114,7 +187,7 @@ def _admissible_by_asof(leg: FactLeg, obj: Any, asof: Optional[str]) -> tuple[bo
     """
     if not asof:
         return True, None
-    published = getattr(obj, "publishedAt", None)
+    published = _published_at(obj, item)
     if not published:
         return False, "publication time is unknown; cannot be established before as-of cutoff"
     if str(published) > str(asof):
@@ -122,21 +195,66 @@ def _admissible_by_asof(leg: FactLeg, obj: Any, asof: Optional[str]) -> tuple[bo
     return True, None
 
 
-def _object_matches(leg: FactLeg, obj: Any, asof: Optional[str]) -> tuple[bool, Optional[str]]:
-    """Does one normalized object satisfy the leg's identity/metric/period/basis/
-    unit requirements?"""
+class MatchOutcome:
+    """Result of matching one object to a leg."""
+
+    MATCH = "match"           # fully satisfies the leg
+    QUALIFIED = "qualified"   # value valid; a non-blocking required field is missing
+    PERIOD = "no_matching_period"
+    OTHER = "miss"
+
+
+def _object_matches(leg: FactLeg, obj: Any, item: Any, asof: Optional[str]) -> tuple[str, Optional[str]]:
+    """Classify one normalized object against the leg.
+
+    Returns `(outcome, reason)` where outcome is one of MatchOutcome. A
+    `QUALIFIED` outcome means the reported value itself is valid (metric, period,
+    identity and currency line up) but a required non-blocking field — the
+    consolidation basis, or a required unit — is absent, so the value may be
+    presented with an explicit qualification. A present-but-different value is a
+    hard `miss`, never qualified.
+    """
     if _norm(getattr(obj, "name", None)) != _norm(leg.metric):
-        return False, "metric differs"
-    if not _period_matches(leg.period, getattr(obj, "period", None) or getattr(obj, "dataTimestamp", None)):
-        return False, "period differs"
-    if not _basis_matches(leg.basis, getattr(obj, "basis", None)):
-        return False, "consolidation basis differs"
-    if not _unit_matches(leg, obj):
-        return False, "unit/currency differs"
-    if leg.entitySymbol and getattr(obj, "instrument", None):
-        if _norm(obj.instrument) != _norm(leg.entitySymbol):
-            return False, "instrument differs"
-    return _admissible_by_asof(leg, obj, asof)
+        return MatchOutcome.OTHER, "metric differs"
+
+    explicit_period = getattr(obj, "period", None)
+    if explicit_period:
+        period_ok = _period_matches(leg.period, explicit_period)
+    else:
+        # No explicit fiscal label: a data timestamp may satisfy an annual/quarter
+        # leg only when it falls inside that period (never a cross-match).
+        period_ok = _period_matches(
+            leg.period, getattr(obj, "dataTimestamp", None), from_timestamp=True
+        )
+    if not period_ok:
+        return MatchOutcome.PERIOD, "no observation matches the requested fiscal period"
+
+    # Identity and currency are blocking: an unconfirmed entity or currency
+    # cannot be presented as a measured fact.
+    identity_ok, identity_why = _identity_matches(leg, obj)
+    if not identity_ok:
+        return MatchOutcome.OTHER, identity_why
+    currency_ok, currency_why = _currency_matches(leg, obj)
+    if not currency_ok:
+        return MatchOutcome.OTHER, currency_why
+
+    # Basis and unit are qualifying: a missing value is disclosed, not fatal.
+    basis_ok, basis_why = _basis_matches(leg.basis, getattr(obj, "basis", None))
+    if not basis_ok and "differs" in (basis_why or ""):
+        return MatchOutcome.OTHER, basis_why
+    unit_ok, unit_why = _unit_matches(leg, obj)
+    if not unit_ok and "differs" in (unit_why or ""):
+        return MatchOutcome.OTHER, unit_why
+
+    admitted, asof_why = _admissible_by_asof(obj, item, asof)
+    if not admitted:
+        return MatchOutcome.OTHER, asof_why
+
+    if not basis_ok or not unit_ok:
+        detail = basis_why or unit_why
+        return MatchOutcome.QUALIFIED, detail
+
+    return MatchOutcome.MATCH, None
 
 
 def evaluate_leg(
@@ -148,19 +266,22 @@ def evaluate_leg(
 ) -> LegCoverage:
     """Classify one leg against the run's evidence items.
 
-    `evidence` is a list of `EvidenceItem`. Each item's objects are checked
-    individually; identity, metric, period, basis, unit/currency and as-of must
-    all line up for a `covered` verdict.
+    Distinct statuses are preserved so the user explanation is precise:
+    `covered`, `qualified` (value valid, a required field is unconfirmed),
+    `conflicting`, `no_matching_period`, `stale`, `unavailable`, `unknown`.
     """
     conflicts = conflicts or []
     qualitative = leg.metric in ("sentiment", "commentary", "outlook", "narrative")
     admissible_kinds = _QUALITATIVE_KINDS if qualitative else _NUMERIC_KINDS
 
     matched_ids: list[str] = []
+    qualified_ids: list[str] = []
     matched_tiers: list[str] = []
+    qualified_reasons: list[str] = []
     reasons: list[str] = []
     saw_evidence_for_metric = False
-    saw_unknown_metadata = False
+    saw_period_mismatch = False
+    saw_stale = False
 
     for item in evidence:
         kind = getattr(item, "kind", None)
@@ -173,21 +294,26 @@ def evaluate_leg(
         for obj in getattr(item, "objects", []) or []:
             if _norm(getattr(obj, "name", None)) == _norm(leg.metric):
                 saw_evidence_for_metric = True
-            ok, why = _object_matches(leg, obj, asof)
-            if ok:
+            outcome, why = _object_matches(leg, obj, item, asof)
+            tier = getattr(getattr(item, "source", None), "sourceType", "unknown")
+            if outcome == MatchOutcome.MATCH:
                 matched_ids.append(getattr(item, "id", ""))
-                matched_tiers.append(getattr(getattr(item, "source", None), "sourceType", "unknown"))
+                matched_tiers.append(tier)
+            elif outcome == MatchOutcome.QUALIFIED:
+                qualified_ids.append(getattr(item, "id", ""))
+                matched_tiers.append(tier)
+                if why:
+                    qualified_reasons.append(why)
             else:
-                if why and "publication time is unknown" in why or (
-                    why and "basis" in (why or "")
-                ):
-                    saw_unknown_metadata = True
+                if outcome == MatchOutcome.PERIOD:
+                    saw_period_mismatch = True
+                if why and "stale" in why.lower():
+                    saw_stale = True
                 if why:
                     reasons.append(why)
 
-    if matched_ids:
-        # A conflict touching this metric/period makes the leg conflicting rather
-        # than cleanly covered, even though evidence exists.
+    present_ids = sorted(set(matched_ids + qualified_ids))
+    if matched_ids or qualified_ids:
         relevant = [
             c for c in conflicts
             if _norm(c.get("metric")) == _norm(leg.metric)
@@ -196,26 +322,42 @@ def evaluate_leg(
         if relevant:
             return LegCoverage(
                 legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
-                status="conflicting", evidenceIds=sorted(set(matched_ids)),
+                status="conflicting", evidenceIds=present_ids,
                 sourceTiers=sorted(set(matched_tiers)), conflicts=relevant,
                 reason="eligible sources disagree without a supported resolution",
             )
+        if matched_ids:
+            return LegCoverage(
+                legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
+                status="covered", evidenceIds=sorted(set(matched_ids)),
+                sourceTiers=sorted(set(matched_tiers)),
+            )
+        # Only qualified matches: the value is present but a required field is
+        # unconfirmed. Present it with a precise qualification.
+        detail = "; ".join(sorted(set(r for r in qualified_reasons if r))[:2])
         return LegCoverage(
             legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
-            status="covered", evidenceIds=sorted(set(matched_ids)),
+            status="qualified", evidenceIds=present_ids,
             sourceTiers=sorted(set(matched_tiers)),
+            reason=f"value present but a required field is unconfirmed: {detail}",
         )
 
-    if saw_unknown_metadata:
+    if saw_period_mismatch:
         return LegCoverage(
             legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
-            status="unknown", reason="evidence exists but a required metadata field is unknown",
+            status="no_matching_period",
+            reason=f"evidence exists for {leg.metric} but no observation matches {leg.period or 'the requested period'}",
+        )
+    if saw_stale:
+        return LegCoverage(
+            legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
+            status="stale", reason="the only matching observation is stale",
         )
     if saw_evidence_for_metric:
         return LegCoverage(
             legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
             status="unknown",
-            reason="evidence for the metric exists but does not match the required period/basis/identity",
+            reason="evidence for the metric exists but does not match the required identity/period/currency",
         )
     return LegCoverage(
         legId=leg.id, metric=leg.metric, period=leg.period, basis=leg.basis,
@@ -250,19 +392,25 @@ def build_coverage(
         leg_coverage = evaluate_leg(leg, evidence, asof=mandate.asOf, conflicts=conflicts)
         report.legs.append(leg_coverage)
 
-    report.coveredCount = sum(1 for l in report.legs if l.status in ("covered", "not_applicable"))
+    report.coveredCount = sum(1 for l in report.legs if l.status == "covered")
+    report.qualifiedCount = sum(1 for l in report.legs if l.status == "qualified")
     report.missingCount = sum(1 for l in report.legs if l.status == "unavailable")
     report.conflictingCount = sum(1 for l in report.legs if l.status == "conflicting")
-    report.unknownCount = sum(1 for l in report.legs if l.status == "unknown")
+    report.unknownCount = sum(1 for l in report.legs if l.status in ("unknown", "stale"))
+    report.periodMissCount = sum(1 for l in report.legs if l.status == "no_matching_period")
 
-    if report.missingCount or report.conflictingCount or report.unknownCount:
+    unmet = (
+        report.missingCount + report.conflictingCount + report.unknownCount
+        + report.periodMissCount + report.qualifiedCount
+    )
+    if unmet:
         required_legs = [l for l in report.legs if l.status != "not_applicable"]
         if not evidence and required_legs:
             report.status = "rejected"
         else:
             report.status = "partial"
         for leg in report.legs:
-            if leg.status in ("unavailable", "conflicting", "unknown"):
+            if leg.status in ("unavailable", "conflicting", "unknown", "stale", "no_matching_period", "qualified"):
                 report.warnings.append(f"{leg.metric} {leg.period or ''}: {leg.status} — {leg.reason}")
     return report
 

@@ -311,6 +311,95 @@ module makes the result reproducible and its limitations explicit.
 **Consequences.** Results are returned as `derived` evidence, never reported
 facts, and carry input references for the receipt and citation metadata.
 
+## ADR-H20 — Identifiers are content-sensitive cryptographic digests, never `hash()`
+
+**Decision.** Evidence receipt hashes and calculation ids are derived from a
+canonical JSON serialization via SHA-256 (`research/ids.py`), not Python's
+salted built-in `hash()`. An evidence digest includes the item's content and
+provenance; a calculation digest includes version, formula, inputs, window,
+assumptions and value.
+
+**Why.** `hash()` is salted per process, so a stored receipt's hash was neither
+reproducible across restarts nor content-verifiable, and two different facts
+could share an id. Determinism is the point of an audit artifact.
+
+**Consequences.** Identifiers are stable across processes (tested by spawning a
+fresh interpreter) and distinct values for the same dates never collide.
+
+## ADR-H21 — A supported request is gated before the agent graph and never downgraded
+
+**Decision.** `execute_run` classifies the objective first. An unambiguous
+single-entity, two-period `financial_comparison` is routed into the research flow
+*before* the ordinary agent graph, so no duplicate retrieval or contradictory
+answer occurs. A model or synthesis failure yields an honest partial/rejected
+result rather than falling through to an ungated model answer.
+
+**Why.** Running both paths would double retrieval and risk two conflicting
+answers; silently falling back would defeat the entire evidence gate on exactly
+the requests it exists for.
+
+**Consequences.** The classifier is deliberately strict — `supported` requires
+one entity, two periods and no ambiguity; company-vs-company or vague "growth"
+asks continue on the existing path. Synthesis receives only the mandate, a
+bounded evidence packet and coverage (no tools, no memory).
+
+## ADR-H22 — Semantic support is evaluated, not asserted; production stays `needs_review`
+
+**Decision.** A versioned, human-labeled evaluation set
+(`research/eval/dataset_v1.json`) measures citation correctness and semantic
+support separately. The judge never sees the gold label. Production claim status
+remains `needs_review` unless the deterministic checks pass and the support
+policy permits otherwise. If a model critic is added it is advisory only, and its
+precision/false-accept rate is reported against human labels.
+
+**Why.** Citation existence does not prove entailment. Reporting an evaluation
+number honestly — including false accepts — is the only way to avoid claiming a
+truth guarantee the system cannot provide.
+
+**Consequences.** The evaluation runner (`python -m harness.research.eval`)
+reports counts, confusion matrix, false accepts/rejects and per-slice results,
+and can never set a claim to verified on its own.
+
+## ADR-H23 — Bounded web escalation when structured evidence cannot answer
+
+**Decision.** The research flow escalates a still-unsatisfied statement leg from
+structured sources to trusted web sources through a fixed hierarchy — primary
+(SEC/company IR/regulators), then bounded reputable secondary — via the existing
+`web_search`/`web_fetch` bridge. Escalation is targeted (only unsatisfied legs),
+bounded by one `ResearchBudget` (searches/fetches/pages/time/tokens), and every
+numeric web fact must pass a DETERMINISTIC validator (`web_facts.validate_fact`)
+before it becomes evidence.
+
+**Why.** Structured providers legitimately do not cover everything (e.g. the
+JDdS statement snapshot may lack a requested year), and stopping there produced
+unhelpful "not established" answers. But "answer anyhow" must never become
+"invent": a search snippet is not a number, a page instruction is not a fact, and
+the model cannot be the authority on whether a source supports a value.
+
+**Consequences.** A fact is accepted only when its page was fetched this run, its
+`sourceSpan` is a verbatim quote from that page, the value appears in the span,
+the span does not state a conflicting fiscal period, and metric/period/currency/
+basis match the mandate leg. Secondary sources are labelled and shown as lower
+confidence. Budget exhaustion is recorded in the receipt with the attempted
+paths. This added no second search system and no second data plane.
+
+## ADR-H24 — Distinct coverage statuses, and missing basis qualifies rather than fails
+
+**Decision.** Coverage reports distinct statuses — `covered`, `qualified`,
+`conflicting`, `no_matching_period`, `stale`, `unavailable`, `unknown` — instead
+of collapsing them into a generic `unknown`. A required consolidation basis that
+the source does not state makes a leg `qualified` (the issuer-reported value is
+present and presentable with disclosure), not `unknown`/`unavailable`.
+
+**Why.** The earlier gate mislabeled "there is a revenue row but for FY2019" and
+"the basis is unconfirmed" identically, which produced misleading diagnostics and
+blocked otherwise-valid facts. A missing *blocking* field (identity, currency)
+still fails; a missing *qualifying* field (basis, unit) is disclosed.
+
+**Consequences.** The answer can present independently validated figures while
+naming exactly what is unconfirmed, and a conflict or missing period never
+prevents other verified facts from being returned.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

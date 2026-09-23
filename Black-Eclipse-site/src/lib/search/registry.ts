@@ -176,6 +176,8 @@ registerPage({ id: 'page-news', kind: 'page', title: 'Market News', aliases: ['n
 registerPage({ id: 'page-heatmap', kind: 'page', title: 'Market Bubbles', aliases: ['heatmap', 'bubbles', 'market map', 'treemap'], keywords: ['heatmap', 'bubbles', 'treemap'], icon: 'orbit', tab: 'heatmap' });
 registerPage({ id: 'page-economics', kind: 'page', title: 'Economics', aliases: ['economics', 'economic calendar', 'macro', 'calendar', 'events'], keywords: ['economics', 'macro', 'calendar', 'indicators'], icon: 'globe', tab: 'economics' });
 registerPage({ id: 'page-alerts', kind: 'page', title: 'Price Alerts', aliases: ['alerts', 'price alerts', 'notifications'], keywords: ['alerts', 'price', 'notifications'], icon: 'bell', tab: 'alerts' });
+registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skills', 'agent skills', 'skill library', 'capabilities'], keywords: ['skills', 'agent', 'library', 'capabilities', 'tools'], icon: 'skills', tab: 'skills', rankBoost: 1.1 });
+registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
 // ── Sub-pages ────────────────────────────────────────────────────────────────
@@ -391,6 +393,22 @@ registerAction({
   keywords: ['open investor eye', 'investor eye', 'gods eye', 'world map', 'geopolitical map', 'global events'],
   icon: 'eye',
   run: () => ({ tab: 'investor-eye' }),
+});
+registerAction({
+  id: 'act-open-skills',
+  verb: 'open',
+  title: 'Open Skills',
+  keywords: ['open skills', 'agent skills', 'skill library', 'capabilities'],
+  icon: 'skills',
+  run: () => ({ tab: 'skills' }),
+});
+registerAction({
+  id: 'act-open-memory',
+  verb: 'open',
+  title: 'Open Eclipse Memory',
+  keywords: ['open memory', 'eclipse memory', 'agent memory', 'memory control room'],
+  icon: 'memory',
+  run: () => ({ tab: 'memory' }),
 });
 
 // ── Parameterized commands ───────────────────────────────────────────────────

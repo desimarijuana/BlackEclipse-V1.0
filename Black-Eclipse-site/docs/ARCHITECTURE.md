@@ -48,8 +48,8 @@ at the top of the menu and by **Alt+T / Alt+A**. The active mode lives in the
 shared sidebar store (`mode`), so the switcher, keyboard dispatch and
 programmatic navigation all read/write one value. ChatBot belongs to both modes;
 when a terminal/agentic-only screen is opened by the palette or a deep link the
-switcher follows it. The switcher is hidden while collapsed, where every item
-remains reachable as an icon.
+switcher follows it. The switcher is hidden while collapsed, but the selected
+mode still filters the icons — switch with Alt+T / Alt+A.
 
 `src/hooks/use-page-shortcuts.ts` registers page actions against visible DOM
 roots, with matching and guards in `src/lib/keyboard.ts`. Keep-alive screens
@@ -70,11 +70,12 @@ Three other keyboard affordances build on the same dispatcher rather than adding
 listeners:
 
 - **Executable palette commands** (`src/lib/search/commands.ts`, rendered by
-  `global-search.tsx`). `Ctrl+K` runs real actions — quick alert, watchlist add,
-  chart, fund open/export, Journal, Settings sections — reusing existing helpers
-  such as `createQuickAlert`. Side effects live on an `ExecutableCommand.run`
-  field, never on registry actions, because the resolver calls `action.run()` on
-  every keystroke.
+  `global-search.tsx`). `Ctrl+K` runs real parameterized actions — quick alert,
+  watchlist add, chart — reusing existing helpers such as `createQuickAlert`.
+  The static/fund/Settings "Commands" group was removed from the palette; the
+  only executable rows now are the parameterized verbs (`alert`/`watch`/`chart`
+  + symbol). Side effects live on an `ExecutableCommand.run` field, never on
+  registry actions, because the resolver calls `action.run()` on every keystroke.
 - **List navigation** (`src/hooks/use-list-navigation.ts`). Roving selection for
   news, screener tables, alerts, journal trades and the Investor Eye feed. It
   tracks selection by stable id, not index, so sorting or a refresh cannot move
@@ -684,7 +685,9 @@ editing `grammar.ts` and its tests together.
   (`recencyScore` opt; the palette feeds it `visitRecencyScore` from the store).
 - `calc.ts` powers an inline offline calculator + indicative currency conversion;
   `commands.ts` detects parameterized verbs (`alert`, `watch`, `chart`) and
-  offers argument autocomplete. Both are pure and unit-tested.
+  offers argument autocomplete. Both are pure and unit-tested. The palette's
+  static command launcher was removed — only these parameterized verbs render as
+  executable rows.
 - Parameterized commands **run real side effects**: `alert SYMBOL` creates a
   ±3% `CHANGE_PCT` watch via `lib/alerts/quick-alert.ts` (`POST /api/alerts`)
   and opens the Alerts tab; `watch SYMBOL` calls `addToWatchlist`

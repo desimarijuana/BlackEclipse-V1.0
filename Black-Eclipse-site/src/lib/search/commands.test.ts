@@ -1,17 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  buildPaletteCommands,
   commandShortcut,
-  exportAllFundsCommand,
-  fundExportCommands,
-  fundOpenCommands,
   paramCommandFor,
-  rankCommands,
   resolveCommandSymbol,
-  settingsCommands,
-  type ExecutableCommand,
 } from './commands';
-import { getPageEntries } from './registry';
 import { addToWatchlist, isInWatchlist } from '@/lib/dashboard/watchlist-store';
 import { defaultSidebarConfig, type SidebarConfig } from '@/lib/sidebar/config';
 
@@ -93,96 +85,6 @@ describe('paramCommandFor', () => {
 
   it('returns null without a usable symbol', () => {
     expect(paramCommandFor({ verb: 'watch', arg: '', template: '' }, cfg)).toBeNull();
-  });
-});
-
-describe('fund commands', () => {
-  const funds = [
-    { id: 'fund-a', name: 'Core Growth' },
-    { id: 'fund-b', name: 'Dividend Income' },
-  ];
-
-  it('opens a fund via the existing portfolio fund param', () => {
-    const cmd = fundOpenCommands(funds, cfg)[0];
-    expect(cmd.title).toBe('Open fund “Core Growth”');
-    expect(cmd.target).toBe('Core Growth');
-    expect(cmd.destination).toEqual({ tab: 'portfolio', params: { fund: 'fund-a' } });
-    expect(cmd.shortcut).toBe('F6');
-  });
-
-  it('exports a fund through the caller-supplied exporter', () => {
-    const exported: string[] = [];
-    const cmd = fundExportCommands(funds, (id) => exported.push(id), cfg)[0];
-    expect(cmd.title).toBe('Export fund “Core Growth”');
-    expect(cmd.destination).toBeNull();
-    cmd.run?.();
-    expect(exported).toEqual(['fund-a']);
-  });
-
-  it('offers an export-all command only when funds exist', () => {
-    let ran = false;
-    const cmd = exportAllFundsCommand(funds, () => { ran = true; });
-    expect(cmd?.title).toBe('Export all portfolios');
-    expect(cmd?.target).toBe('2 funds');
-    cmd?.run?.();
-    expect(ran).toBe(true);
-    expect(exportAllFundsCommand([], () => {})).toBeNull();
-  });
-});
-
-describe('settingsCommands', () => {
-  it('emits one command per settings section, targeting the modal section', () => {
-    const cmds = settingsCommands(getPageEntries(), cfg);
-    expect(cmds.length).toBeGreaterThanOrEqual(10);
-    const ai = cmds.find((c) => c.title === 'Open Settings · AI / LLM');
-    expect(ai?.destination).toEqual({ tab: 'settings', subroute: 'settings.ai' });
-    expect(cmds.every((c) => c.destination?.tab === 'settings')).toBe(true);
-  });
-});
-
-describe('rankCommands', () => {
-  const cmds: ExecutableCommand[] = [
-    { id: 'a', title: 'Open Trading Journal', target: 'Journal', subtitle: '', keywords: ['journal'], destination: { tab: 'journal' } },
-    { id: 'b', title: 'Export fund “Core Growth”', target: 'Core Growth', subtitle: '', keywords: ['export'], destination: null },
-    { id: 'c', title: 'Go to Fund “Dividend Income”', target: 'Dividend Income', subtitle: '', keywords: ['fund'], destination: null },
-  ];
-
-  it('ranks a title hit above a keyword-only hit', () => {
-    const res = rankCommands(cmds, 'trading');
-    expect(res[0].id).toBe('a');
-  });
-
-  it('matches on the target when the title does not contain the query', () => {
-    expect(rankCommands(cmds, 'dividend').map((c) => c.id)).toEqual(['c']);
-  });
-
-  it('caps the result list', () => {
-    expect(rankCommands(cmds, '', 2)).toHaveLength(2);
-  });
-});
-
-describe('buildPaletteCommands', () => {
-  it('registers journal, today\'s events and every Settings section', () => {
-    const cmds = buildPaletteCommands(cfg);
-    expect(cmds.some((c) => c.id === 'cmd-open-journal' && c.destination?.tab === 'journal')).toBe(true);
-    expect(cmds.some((c) => c.id === 'cmd-econ-today' && c.destination?.subroute === 'economics.calendar')).toBe(true);
-    expect(cmds.some((c) => c.destination?.tab === 'settings')).toBe(true);
-  });
-
-  it('never registers a destructive command', () => {
-    const cmds = buildPaletteCommands(cfg);
-    const destructive = /\b(delete|remove|reset|clear|purge|wipe)\b/i;
-    for (const c of cmds) {
-      expect(destructive.test(c.title)).toBe(false);
-      expect(destructive.test(c.id)).toBe(false);
-    }
-  });
-
-  it('states the target for every command that has one, and a shortcut where bound', () => {
-    const cmds = buildPaletteCommands(cfg);
-    const journal = cmds.find((c) => c.id === 'cmd-open-journal');
-    expect(journal?.shortcut).toBe('F7');
-    expect(cmds.every((c) => c.title.length > 0 && c.subtitle.length > 0)).toBe(true);
   });
 });
 

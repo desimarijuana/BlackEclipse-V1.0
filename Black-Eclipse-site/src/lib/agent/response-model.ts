@@ -55,6 +55,13 @@ export interface AssistantTurn {
   finalText?: string;
   activities: ActivityItem[];
   error?: TurnError;
+  /**
+   * Phase 4 evidence-grounded research metadata carried on `client.final` for a
+   * gated run. `undefined` for ordinary chat. Typed loosely here to keep the
+   * client model free of a harness-runtime dependency; the chat surface narrows
+   * it via `ResearchRunInfo`.
+   */
+  research?: unknown;
   /** True once a terminal state has been reached. */
   done: boolean;
 }

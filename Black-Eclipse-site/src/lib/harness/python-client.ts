@@ -125,6 +125,27 @@ export async function getEventsFromRuntime(
   return { events: body.events ?? [], toolExecutions: body.toolExecutions ?? [] };
 }
 
+/**
+ * Fetch the durable research receipt for a run (Phase 4).
+ *
+ * Read-only. Returns null when no receipt exists (ordinary chat or an older
+ * run), so callers can render an honest "unavailable" state.
+ */
+export async function getRunReceiptFromRuntime(
+  runId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await request<{ receipt: Record<string, unknown> }>(
+      `/research/receipts/${encodeURIComponent(runId)}`,
+      { method: "GET" }
+    );
+    return body.receipt ?? null;
+  } catch (err) {
+    if (err instanceof Error && /404/.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function cancelRunInRuntime(runId: string): Promise<boolean> {
   const body = await request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",

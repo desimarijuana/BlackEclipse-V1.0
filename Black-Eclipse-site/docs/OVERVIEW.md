@@ -72,8 +72,8 @@ text entry do not receive page commands.
 The sidebar ships with these tabs, split across two top-level modes —
 **Terminal** (market tools) and **Agentic** (the AI runtime). A segmented
 switcher at the top of the menu (Alt+T / Alt+A) flips between them; **ChatBot**
-appears in both. The switcher is hidden while the sidebar is collapsed, where
-every item stays reachable as an icon.
+appears in both. The switcher is hidden while the sidebar is collapsed, but the
+selected mode still applies — use Alt+T / Alt+A to switch.
 
 | Terminal tab | What it is |
 |---|---|

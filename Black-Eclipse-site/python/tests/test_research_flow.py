@@ -156,11 +156,13 @@ def test_coverage_unavailable_when_no_evidence():
     assert report.missingCount >= 1
 
 
-def test_coverage_wrong_period_is_unknown_not_covered():
+def test_coverage_wrong_period_is_no_matching_period_not_covered():
     mandate = comparison_mandate()
     items = [evidence("ev", [obj(value=800.0, period="FY2019")])]
     report = build_coverage(mandate, items)
-    assert all(leg.status in ("unknown", "unavailable") for leg in report.legs)
+    # The metric exists but no observation matches the requested fiscal period —
+    # a distinct, precise status (not a generic "unknown").
+    assert all(leg.status == "no_matching_period" for leg in report.legs)
     assert report.status == "partial"
 
 
@@ -350,6 +352,7 @@ def test_validator_surfaces_unmet_requirement_as_gap():
     coverage = build_coverage(mandate, items)
     outcome = validate_claims(mandate, Synthesis(), items, coverage)
     assert outcome.status == "partial"
+    # The unmet FY2023 leg surfaces as an explicit gap the answer must disclose.
     assert any("unmet requirement" in g for g in outcome.unresolved)
 
 

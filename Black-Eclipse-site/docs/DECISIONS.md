@@ -99,7 +99,8 @@ deterministic (no LLM on the query path — only an explicit "Ask AI" row).
 **Impact:** Extending scopes/operators means editing `grammar.ts` and its tests
 together. Ranking stays pure; personalization (visit history), pins, and collapse
 state live in the Zustand command store. `calc.ts`/`commands.ts` add an offline
-calculator and parameterized-command autocomplete. See
+calculator and parameterized-command autocomplete (`alert`/`watch`/`chart` +
+symbol); the palette renders no static command launcher. See
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) → "The command center".
 
 ## ADR-010 — Universal Data Connector Layer (2026)
@@ -531,6 +532,44 @@ rather than each rebuilding citation logic.
 new tests; general/unsupported chat is unchanged (`supported=false`). Full
 decision set: ADR-H15…H19 in `docs/harness/decisions.md`; progress in
 `docs/harness/phase-4-progress.md`.
+
+---
+
+## ADR-028 — Phase 4 hardening: deterministic identifiers, gated live chat, honest semantic evaluation (2026)
+**Decision:** Evidence/calculation identifiers use SHA-256 content digests (not
+the salted built-in `hash()`); a supported `financial_comparison` is routed into
+the evidence gate before the agent graph and never silently downgraded; period
+matching is canonical (no substring-of-digits); a versioned human-labeled
+semantic-support evaluation reports false accepts/rejects per slice, and
+production claim status stays `needs_review` where support is unproven.
+Supersession links come only from explicit source revision metadata.
+**Why:** The first Phase 4 cut had non-reproducible receipt hashes, a coverage
+gate that let missing required metadata pass, no live wiring, and no way to
+measure semantic support without over-claiming.
+**Impact:** `python/harness/research/{periods,ids,synthesis,supersession,run}.py`
++ `eval/`; additive `research` on `HarnessRun`/`RunResult`; TS `ResearchRunInfo`
+contracts + `/api/harness/runs/[id]/receipt` + `ResearchEvidencePanel`. Full
+decisions: ADR-H20…H22 in `docs/harness/decisions.md`.
+
+---
+
+## ADR-029 — Bounded web escalation keeps answers evidence-grounded when structured data cannot (2026)
+**Decision:** When structured retrieval is empty, stale, missing a requested
+fiscal period, or lacks required metadata, the research flow escalates a leg
+through a fixed hierarchy — structured → primary-source web (SEC/IR/regulators)
+→ bounded reputable secondary web — using the existing web bridge and a single
+`ResearchBudget`. Every numeric web fact must pass a deterministic validator
+(fetched-page id, verbatim `sourceSpan`, value-in-span, no contradicting period,
+metric/period/currency/basis match) before becoming evidence. Coverage gains
+distinct statuses (`no_matching_period`, `stale`, `qualified`), and a missing
+consolidation basis qualifies the value with disclosure rather than failing it.
+**Why:** Stopping at an unrelated structured row produced unhelpful answers; but
+"answer anyhow" must never mean invent. A snippet is not a number, a page
+instruction is not a fact, and the model cannot decide a source is trustworthy.
+**Impact:** `python/harness/research/{budget,web_facts,escalation}.py`;
+`retrieval/web.py` serves `financial_statements`; receipt carries escalation +
+budget; evidence panel shows tier/dates/period/span. Full decisions: ADR-H23/H24
+in `docs/harness/decisions.md`.
 
 ---
 

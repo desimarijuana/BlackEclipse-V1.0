@@ -519,6 +519,7 @@ function StockChatContent() {
         content: turnText(turn),
         status: turn.status,
         activities: turn.activities,
+        research: turn.research,
         error: turn.error,
       }, turn.done);
     };

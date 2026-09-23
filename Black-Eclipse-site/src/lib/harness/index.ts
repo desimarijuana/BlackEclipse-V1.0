@@ -14,6 +14,11 @@ export type {
   UsageDay,
   UsageModel,
   UsageRecentRun,
+  ResearchMetadata,
+  ResearchRunInfo,
+  ResearchCitation,
+  ResearchClaim,
+  ResearchCoverageLeg,
 } from "./types";
 export { HarnessError, toHarnessErrorJson, redactSecrets } from "./errors";
 export type { HarnessErrorCode } from "./errors";
@@ -34,6 +39,7 @@ export {
   listRunsFromRuntime,
   getUsageSummaryFromRuntime,
   getEventsFromRuntime,
+  getRunReceiptFromRuntime,
   cancelRunInRuntime,
   HarnessRuntimeUnavailable,
 } from "./python-client";
