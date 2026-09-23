@@ -8,6 +8,11 @@ last-verified: 2026-09-15
 
 ## 2026-09-23
 
+- **Deep links: open pages in a new tab** — Added `src/lib/search/deep-link.ts` (every `Destination` ⇄ `?tab=…&sub=…&<params>` URL, with `/?symbol=AAPL` back-compat). The shell now boots from and keeps the URL in sync with the active tab and re-applies on back/forward. Sidebar nav items and command-palette rows are real anchors, so Ctrl/Cmd-click, middle-click and "open in new tab" work; the screener's new-tab pivot now uses the canonical chart link.
+  docs updated: `docs/ARCHITECTURE.md`
+
+## 2026-09-23
+
 - **Harness Phase 7 follow-up — non-US financial statements are reachable** — `financial_statements` previously read only the committed `FundamentalsCache`, so a market without a snapshot returned `no_data` even though the keyless yfinance bridge serves it (verified: Samsung `005930.KS` returns full KRW statements). Added a live provider fallback that reuses the existing `getFundamentals` service (SEC → FMP → yfinance) and persists its result — no second pipeline. Corrected the capability matrix to report non-US fundamentals as `configured` when the keyless vendor is usable (it had understated real coverage), and made the JDDS source label the real provider instead of always "JDDS". Live-verified: `getFundamentals("005930","KR")` → yahoo/KRW 4 periods; `getFundamentals("2330","TW")` → yahoo/TWD 5 periods. 1633 Vitest + 460 pytest passed, tsc clean.
   docs updated: `docs/harness/phase-4-progress.md`
 

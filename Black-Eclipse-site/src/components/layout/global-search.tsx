@@ -46,6 +46,7 @@ import {
 import { loadSidebarConfig } from '@/lib/sidebar/config';
 import { universeCount } from '@/lib/search/universe';
 import { getPage } from '@/lib/search/registry';
+import { destinationToHref } from '@/lib/search/deep-link';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import { useCommandCenterKeybind } from '@/hooks/use-command-center-keybind';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
@@ -169,13 +170,15 @@ interface QuickAction {
   label: string;
   icon: LucideIcon;
   run: () => void;
+  /** Real href so Ctrl/Cmd-click opens the page in a new tab. */
+  href?: string;
 }
 
 type Row =
   | { type: 'recent'; id: string; text: string; onSelect: () => void; onDelete: () => void }
-  | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean }
-  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void }
-  | { type: 'command'; id: string; title: string; subtitle: string; icon: LucideIcon; shortcut?: string; onSelect: () => void };
+  | { type: 'result'; id: string; title: string; subtitle: string; kind: EntityKind; entity: SearchEntity; onSelect: () => void; pinned?: boolean; href?: string }
+  | { type: 'action'; id: string; label: string; icon: LucideIcon; onSelect: () => void; href?: string }
+  | { type: 'command'; id: string; title: string; subtitle: string; icon: LucideIcon; shortcut?: string; onSelect: () => void; href?: string };
 
 interface Section {
   key: string;
@@ -282,6 +285,7 @@ export function GlobalSearch() {
           id: `nav-${p.id}`,
           label: p.title,
           icon: nameIcon(p.icon),
+          href: destinationToHref(p.destination),
           run: () => {
             store.dispatch(p.destination);
             useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
@@ -358,6 +362,7 @@ export function GlobalSearch() {
             kind: p.kind as EntityKind,
             entity,
             pinned: true,
+            href: destinationToHref(entity.destination),
             onSelect: () => {
               store.recordVisit(p.id);
               store.dispatch(entity.destination);
@@ -397,6 +402,7 @@ export function GlobalSearch() {
             kind,
             entity: it.entity,
             pinned: store.pins.some((p) => p.id === it.entity.id),
+            href: destinationToHref(dest),
             onSelect: () => {
               if (dest) {
                 store.recordVisit(it.entity.id);
@@ -428,6 +434,7 @@ export function GlobalSearch() {
           subtitle: e.subtitle || 'Related',
           kind: e.kind,
           entity: e,
+          href: destinationToHref(e.destination),
           onSelect: () => {
             store.dispatch(e.destination);
             useCommandStore.setState({ open: false, query: '', resolved: null, selectedIndex: 0 });
@@ -469,7 +476,7 @@ export function GlobalSearch() {
     // Pages group is collapsed.
     if (!showHelp && !navCollapsed) {
       for (const qa of quickActions) {
-        flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run });
+        flat.push({ type: 'action', id: qa.id, label: qa.label, icon: qa.icon, href: qa.href, onSelect: qa.run });
       }
     }
 
@@ -696,7 +703,7 @@ export function GlobalSearch() {
                   ? null
                   : navPages.map((qa) => {
                       const flatIndex = flatRows.findIndex((r) => r.type === 'action' && r.id === qa.id);
-                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, onSelect: qa.run };
+                      const row: Row = { type: 'action', id: qa.id, label: qa.label, icon: qa.icon, href: qa.href, onSelect: qa.run };
                       return <RowButton key={qa.id} row={row} flatIndex={flatIndex} selected={flatIndex === store.selectedIndex} query={store.query} onTogglePin={store.togglePin} />;
                     })}
               </div>
@@ -830,6 +837,10 @@ const RowButton = memo(function RowButton({
   const subtitle = row.type === 'result' || row.type === 'command' ? row.subtitle : null;
   const shortcut = row.type === 'command' ? row.shortcut : undefined;
   const onSelect = row.onSelect;
+  // Rows with a real destination render as anchors so Ctrl/Cmd/middle-click
+  // opens them in a new browser tab. Plain clicks stay in-page (and close the
+  // palette); modified clicks fall through to the browser's link handling.
+  const href = 'href' in row ? row.href : undefined;
 
   const copySymbol = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -855,20 +866,20 @@ const RowButton = memo(function RowButton({
     });
   };
 
-  return (
-    <div
-      id={`command-opt-${flatIndex}`}
-      role="option"
-      aria-selected={selected}
-      tabIndex={-1}
-      onClick={onSelect}
-      onMouseEnter={() => useCommandStore.getState().setSelectedIndex(flatIndex)}
-      data-selected={selected || undefined}
-      className={cn(
-        'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer',
-        selected ? 'bg-accent text-foreground' : 'hover:bg-accent/30'
-      )}
-    >
+  const handleClick = (e: React.MouseEvent) => {
+    // Modified / middle clicks open the link in a new tab via the href.
+    if (href && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)) return;
+    e.preventDefault();
+    onSelect();
+  };
+
+  const rowClassName = cn(
+    'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer no-underline text-inherit',
+    selected ? 'bg-accent text-foreground' : 'hover:bg-accent/30'
+  );
+
+  const inner = (
+    <>
       <span
         className={cn(
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors',
@@ -930,6 +941,41 @@ const RowButton = memo(function RowButton({
         </kbd>
       )}
       {selected && row.type !== 'recent' && <CornerDownLeft size={13} className="shrink-0 text-muted-foreground/50" />}
+    </>
+  );
+
+  // Anchors when a destination exists (enables open-in-new-tab); otherwise a
+  // plain row (recents and pure side-effect commands).
+  if (href) {
+    return (
+      <a
+        id={`command-opt-${flatIndex}`}
+        href={href}
+        role="option"
+        aria-selected={selected}
+        tabIndex={-1}
+        onClick={handleClick}
+        onMouseEnter={() => useCommandStore.getState().setSelectedIndex(flatIndex)}
+        data-selected={selected || undefined}
+        className={rowClassName}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <div
+      id={`command-opt-${flatIndex}`}
+      role="option"
+      aria-selected={selected}
+      tabIndex={-1}
+      onClick={handleClick}
+      onMouseEnter={() => useCommandStore.getState().setSelectedIndex(flatIndex)}
+      data-selected={selected || undefined}
+      className={rowClassName}
+    >
+      {inner}
     </div>
   );
 });

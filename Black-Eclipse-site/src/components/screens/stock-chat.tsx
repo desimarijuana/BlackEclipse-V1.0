@@ -90,6 +90,7 @@ import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
+import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
@@ -155,6 +156,9 @@ function StockChatContent() {
   activeConversationIdRef.current = activeConversationId;
   
   const [mounted, setMounted] = useState(false);
+  // True once the boot deep link has been applied, so the URL-sync effect never
+  // overwrites it before the tab/symbol state settles.
+  const bootDoneRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [navHistory, setNavHistory] = useState<AppTab[]>(['chat']);
@@ -185,22 +189,11 @@ function StockChatContent() {
     setNavHistory((prev) => recordVisit(prev, activeTab));
   }, [activeTab]);
 
-  // Deep-link boot: /?symbol=AAPL opens that symbol's chart tab directly.
-  // Powers ctrl+click "open in new tab" from the screener tables.
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const sym = params.get('symbol');
-      if (sym) {
-        setSelectedChartSymbol(sym.toUpperCase());
-        setActiveTab('chart');
-        // Clean the URL so refresh keeps the chart (history replace).
-        window.history.replaceState(null, '', '/');
-      }
-    } catch { /* ignore malformed URLs */ }
-  }, [mounted]);
-
+  // Deep-link boot + history: /?tab=portfolio or /?tab=chart&symbol=AAPL opens
+  // that page directly. Powers Ctrl/Cmd-click, middle-click and "open in new
+  // tab" from the sidebar, command palette and screener. Also re-applies on
+  // browser back/forward so the URL stays the source of truth.
+  //
   // Global command center → tab navigation. Consumes destinations dispatched
   // by the ⌘K search bar and applies them to the SPA's activeTab state machine.
   useEffect(() => {
@@ -263,12 +256,60 @@ function StockChatContent() {
       if (dest) apply(dest);
     };
 
+    // Boot from the URL (deep link / refresh / new tab).
+    try {
+      const boot = parseDeepLink(window.location.search);
+      if (boot) apply(boot);
+    } catch { /* ignore malformed URLs */ }
+    bootDoneRef.current = true;
+
+    // Browser back/forward re-applies the URL's destination.
+    const onPopState = () => {
+      try {
+        const dest = parseDeepLink(window.location.search);
+        if (dest) apply(dest);
+      } catch { /* ignore malformed URLs */ }
+    };
+    window.addEventListener('popstate', onPopState);
+
     check();
     const unsub = useCommandStore.subscribe((state, prev) => {
       if (state.pendingDestination !== prev.pendingDestination && state.pendingDestination) check();
     });
-    return unsub;
+    return () => {
+      unsub();
+      window.removeEventListener('popstate', onPopState);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
+
+  // Keep the URL in sync with the active tab so a refresh/share opens the same
+  // page and Ctrl/Cmd-click has a real href to target. `replaceState` avoids
+  // polluting history on every in-app switch. When the current URL already
+  // points at the same tab, its subroute/params are preserved (e.g. a settings
+  // section or the chart's symbol) so the deep link survives the sync.
+  useEffect(() => {
+    if (!mounted || !bootDoneRef.current) return;
+    try {
+      const current = parseDeepLink(window.location.search);
+      let next: Destination;
+      if (current && current.tab === activeTab) {
+        next = current;
+        if (activeTab === 'chart' && selectedChartSymbol) {
+          next = { tab: 'chart', params: { ...current.params, symbol: selectedChartSymbol } };
+        }
+      } else if (activeTab === 'chart') {
+        next = { tab: 'chart', params: { symbol: selectedChartSymbol } };
+      } else {
+        next = { tab: activeTab };
+      }
+      const query = destinationToQuery(next);
+      if (window.location.search.slice(1) !== query) {
+        window.history.replaceState(null, '', `${window.location.pathname}?${query}`);
+      }
+    } catch { /* ignore malformed URLs */ }
+  }, [mounted, activeTab, selectedChartSymbol]);
+
 
   // Workspace panels dispatch `be:navigate` to switch the SPA tab (e.g. the
   // Screener panel links out to the full screener tab).

@@ -84,6 +84,17 @@ listeners:
   Economics). Because there is no router, `src/lib/navigation-history.ts`
   keeps a capped in-memory stack of visited tabs that `Alt+←` walks back through.
 
+**Deep links (open in a new tab).** The SPA has no router, so `src/lib/search/deep-link.ts`
+maps every `Destination` to a real URL — `?tab=<tab>&sub=<subroute>&<params>` —
+and back (`parseDeepLink`). The shell boots from the URL on load, re-applies it
+on browser back/forward, and keeps it in sync (via `replaceState`) as the active
+tab changes; a bare `?symbol=AAPL` still boots the chart tab for back-compat.
+Sidebar nav items and command-palette rows are rendered as real `<a>` anchors
+whose `href` is `destinationToHref(destination)`, so **Ctrl/Cmd-click,
+middle-click and "open in new tab"** work everywhere a page or instrument is
+listed; plain left-clicks stay in-page. The screener's symbol pivot builds its
+new-tab URL through the same helper (`/?tab=chart&symbol=…`).
+
 ## Layer 1 — Screens & components
 
 ```

@@ -14,6 +14,7 @@ import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
 import { useCommandStore } from '@/lib/search/store';
+import { destinationToHref } from '@/lib/search/deep-link';
 import { useSubroute } from '@/hooks/use-subroute';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
@@ -52,13 +53,12 @@ interface MarketOverviewScreenProps {
 export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, embedded = false, onMarketStatusChange, market, initialSymbol }: MarketOverviewScreenProps) {
 
   // Ctrl/Cmd+click on any symbol row opens that symbol in a NEW browser tab
-  // (deep link: /?symbol=XYZ boots the app straight into its chart), instead
+  // (deep link: /?tab=chart&symbol=XYZ boots straight into its chart), instead
   // of the in-page overlay. Shift+click keeps the normal in-page behavior.
   const openInNewTab = (symbol: string, e: { ctrlKey?: boolean; metaKey?: boolean }) => {
     if (!(e.ctrlKey || e.metaKey)) return false;
     try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('symbol', symbol.toUpperCase());
+      const url = new URL(window.location.origin + destinationToHref({ tab: 'chart', params: { symbol: symbol.toUpperCase() } }));
       window.open(url.toString(), '_blank', 'noopener');
     } catch { /* ignore malformed URLs */ }
     return true;

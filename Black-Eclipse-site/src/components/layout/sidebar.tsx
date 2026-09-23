@@ -5,6 +5,7 @@ import { Plus, Trash2, X, ChevronLeft, ChevronRight, Menu, Settings, SquareTermi
 import { Message } from '@/types/chat';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
+import { destinationToHref } from '@/lib/search/deep-link';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 
@@ -259,12 +260,19 @@ export function Sidebar({
             const Icon = tab.icon;
 
             return (
-              <button
+              <a
                 key={tab.id}
+                href={destinationToHref({ tab: tab.id })}
                 data-sound="tick"
-                onClick={() => handleTabClick(tab.id)}
+                onClick={(e) => {
+                  // Let Ctrl/Cmd/Shift/middle-click open in a new tab (or window)
+                  // via the href; only a plain left-click is handled in-page.
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  handleTabClick(tab.id);
+                }}
                 title={isCollapsed ? (tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label) : undefined}
-                className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden ${
+                className={`h-10 flex items-center px-3.5 py-2.5 text-xs font-semibold transition-all duration-300 cursor-pointer border overflow-hidden no-underline ${
                   isSelected
                     ? 'rounded-xl bg-primary/15 text-foreground shadow-sm shadow-primary/5 border-primary/20'
                     : 'rounded-none bg-transparent text-muted-foreground hover:rounded-xl hover:bg-accent/40 hover:text-foreground border-transparent'
@@ -279,7 +287,7 @@ export function Sidebar({
                     isSelected ? 'border-primary/30 text-primary' : 'border-border/40 text-muted-foreground'
                   }`}>{tab.shortcut}</span>
                 )}
-              </button>
+              </a>
             );
           })}
         </nav>

@@ -146,6 +146,7 @@ Black-Eclipse-site/
 | Add/fix a chartable index | `src/lib/indices.ts` (registry + providers), `src/lib/scraper/fetchers/psx-index.ts` (non-Yahoo source); `HEATMAP_MARKETS` in `src/lib/heatmap.ts` for heatmap labels || Change global search (⌘K) | `src/lib/search/` (query grammar: `grammar.ts`; commands: `commands.ts`; calculator: `calc.ts`), `src/components/layout/global-search.tsx` |
 | Change the header price ribbon | `src/components/layout/price-ribbon.tsx` (render + customization popover), `src/lib/ribbon/store.ts` (persisted symbol list, routing helpers); catalog symbols `src/lib/market-catalog.ts`; marquee styles `.price-ribbon`/`.price-ribbon-track` in `src/app/globals.css` |
 | Add a palette sub-page / make a view reachable | `registerPage` in `src/lib/search/registry.ts` (`subroute`, `group`, `child`) + `useSubroute(<tab>, …)` in the screen; hook: `src/hooks/use-subroute.ts` |
+| Change deep links / "open in new tab" | `src/lib/search/deep-link.ts` (`destinationToHref`/`parseDeepLink`), URL boot + sync in `src/components/screens/stock-chat.tsx`; anchors in `sidebar.tsx` + `global-search.tsx` |
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
