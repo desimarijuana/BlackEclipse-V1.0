@@ -370,6 +370,12 @@ export interface SafeGetOptions {
   maxBytes?: number;
   /** Preserve exact bytes (for binary payloads). `text` is then empty. */
   binary?: boolean;
+  /**
+   * Follow up to N redirects, re-validating EVERY hop through this same gate.
+   * Default 0 (a 3xx is returned/rejected as-is). Only ever follows an https
+   * `Location`; a redirect to a non-https scheme or a blocked address is refused.
+   */
+  maxRedirects?: number;
 }
 
 export interface SafeGetResult {
@@ -379,7 +385,10 @@ export interface SafeGetResult {
   /** Exact bytes, when the request set `binary: true`. */
   buffer?: Buffer;
   bytes: number;
-  /** Final URL (redirects are never followed, so this equals the request URL). */
+  /**
+   * Final URL. For `safeGet` this equals the request URL (redirects are never
+   * followed); `safeGetFollowing` sets it to the last hop actually fetched.
+   */
   url: string;
 }
 
@@ -398,7 +407,11 @@ export interface SafeGetDeps {
  * - strict timeout
  * - streamed response-size cap
  */
-export async function safeGet(options: SafeGetOptions, deps: SafeGetDeps = {}): Promise<SafeGetResult> {
+export async function safeGet(
+  options: SafeGetOptions,
+  deps: SafeGetDeps = {},
+  _depth = 0
+): Promise<SafeGetResult> {
   const check = validateOutboundUrl(options.url);
   if (!check.safe || !check.hostname) {
     throw new OutboundError(check.code ?? "invalid_url", check.reason ?? "Blocked URL");
@@ -416,6 +429,7 @@ export async function safeGet(options: SafeGetOptions, deps: SafeGetDeps = {}): 
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const request = deps.request ?? https.request;
   const parsed = new URL(options.url);
+  const maxRedirects = Math.max(0, options.maxRedirects ?? 0);
 
   return new Promise<SafeGetResult>((resolve, reject) => {
     const reqOptions = {
@@ -430,6 +444,25 @@ export async function safeGet(options: SafeGetOptions, deps: SafeGetDeps = {}): 
       const contentType = (res.headers["content-type"] as string | undefined) ?? null;
       if (status >= 300 && status < 400) {
         res.destroy();
+        const location = (res.headers["location"] as string | undefined) ?? "";
+        if (maxRedirects > 0 && _depth < maxRedirects && location) {
+          // Resolve the redirect target and REQUIRE https before recursing — the
+          // recursive call re-runs validateOutboundUrl + the DNS-pinned lookup, so
+          // a redirect to a private address / non-https scheme is rejected there.
+          let next: string;
+          try {
+            next = new URL(location, options.url).toString();
+          } catch {
+            reject(new OutboundError("redirect", `Invalid redirect Location: ${location.slice(0, 80)}`));
+            return;
+          }
+          if (!next.startsWith("https://")) {
+            reject(new OutboundError("redirect", `Refusing redirect to non-https target`));
+            return;
+          }
+          safeGet({ ...options, url: next }, deps, _depth + 1).then(resolve, reject);
+          return;
+        }
         reject(new OutboundError("redirect", `Redirect not followed (HTTP ${status})`));
         return;
       }
@@ -449,3 +482,5 @@ export async function safeGet(options: SafeGetOptions, deps: SafeGetDeps = {}): 
     req.end();
   });
 }
+
+export const MAX_REDIRECTS = 5;

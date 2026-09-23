@@ -7,10 +7,12 @@ import {
   redactUrl,
   readCappedBody,
   createPinnedLookup,
+  safeGet,
   OutboundError,
   DEFAULT_MAX_BYTES,
   type LookupAllFn,
 } from "./security";
+import { EventEmitter } from "node:events";
 
 describe("validateOutboundUrl", () => {
   it("accepts public https URLs", () => {
@@ -158,6 +160,89 @@ describe("createPinnedLookup", () => {
       ])
     );
     lookup("mixed.example.com", {}, (err) => expect(err?.code).toBe("EBLOCKEDHOST"));
+  });
+});
+
+// ── Bounded redirect following (Phase 7) ────────────────────────────────────
+// Official regulator/exchange hosts commonly 301/302. Following is bounded and
+// re-validates every hop; a non-https or blocked target is refused.
+
+function fakeResponse(status: number, headers: Record<string, string>, body: string) {
+  const res = new EventEmitter() as unknown as {
+    statusCode: number;
+    headers: Record<string, string>;
+    destroy: () => void;
+    [Symbol.asyncIterator]: () => AsyncIterableIterator<Uint8Array>;
+  };
+  (res as { statusCode: number }).statusCode = status;
+  (res as { headers: Record<string, string> }).headers = headers;
+  (res as { destroy: () => void }).destroy = () => undefined;
+  (res as unknown as { [Symbol.asyncIterator]: () => AsyncIterableIterator<Uint8Array> })[
+    Symbol.asyncIterator
+  ] = async function* () {
+    yield Buffer.from(body);
+  };
+  return res;
+}
+
+describe("safeGet redirect handling", () => {
+  const lookupAll: LookupAllFn = (_h, _o, cb) => cb(null, [{ address: "93.184.216.34", family: 4 }]);
+
+  it("does not follow a redirect by default", async () => {
+    const request = ((_u: unknown, _o: unknown, cb: (r: unknown) => void) => {
+      const req = new EventEmitter() as unknown as { end: () => void };
+      req.end = () => cb(fakeResponse(302, { location: "https://example.com/next" }, ""));
+      return req;
+    }) as never;
+    await expect(
+      safeGet({ url: "https://example.com/a" }, { lookupAll, request })
+    ).rejects.toMatchObject({ code: "redirect" });
+  });
+
+  it("follows a bounded https redirect when maxRedirects is set", async () => {
+    let call = 0;
+    const request = ((_u: unknown, _o: unknown, cb: (r: unknown) => void) => {
+      const req = new EventEmitter() as unknown as { end: () => void };
+      req.end = () => {
+        call += 1;
+        cb(
+          call === 1
+            ? fakeResponse(301, { location: "https://example.com/final" }, "")
+            : fakeResponse(200, { "content-type": "text/html" }, "done")
+        );
+      };
+      return req;
+    }) as never;
+    const result = await safeGet(
+      { url: "https://example.com/a", maxRedirects: 3 },
+      { lookupAll, request }
+    );
+    expect(result.status).toBe(200);
+    expect(result.text).toBe("done");
+    expect(call).toBe(2);
+  });
+
+  it("refuses a redirect to a non-https target", async () => {
+    const request = ((_u: unknown, _o: unknown, cb: (r: unknown) => void) => {
+      const req = new EventEmitter() as unknown as { end: () => void };
+      // A real bot-wall (perfdrive) redirects to http://; refuse it.
+      req.end = () => cb(fakeResponse(302, { location: "http://validate.perfdrive.com/x" }, ""));
+      return req;
+    }) as never;
+    await expect(
+      safeGet({ url: "https://www.sedarplus.ca/", maxRedirects: 3 }, { lookupAll, request })
+    ).rejects.toMatchObject({ code: "redirect" });
+  });
+
+  it("re-validates each hop (a redirect to a private address is blocked)", async () => {
+    const request = ((_u: unknown, _o: unknown, cb: (r: unknown) => void) => {
+      const req = new EventEmitter() as unknown as { end: () => void };
+      req.end = () => cb(fakeResponse(302, { location: "https://127.0.0.1/secret" }, ""));
+      return req;
+    }) as never;
+    await expect(
+      safeGet({ url: "https://example.com/a", maxRedirects: 3 }, { lookupAll, request })
+    ).rejects.toBeInstanceOf(OutboundError);
   });
 });
 

@@ -8,6 +8,11 @@ last-verified: 2026-09-15
 
 ## 2026-09-23
 
+- **Harness Phase 7 follow-up 2 — local official filing routes + bounded redirects** — Added a per-market `LOCAL_FILING_HINTS` registry (Taiwan MOPS, Korea DART, Japan TDnet, HKEXnews, India BSE/NSE, UK Companies House, Brazil CVM, Canada SEDAR, ASX, SGX, Bursa, SET, IDX, PSX, Tadawul …) used by the market-aware escalation query, and labelled those regulator/exchange hosts `primary`. Verified live: Korea DART fetches with `lang=ko` preserved. Fixed a transport gap where `safeGet` refused all redirects (official hosts commonly 301/302): added bounded, https-only redirect following that re-validates every hop through the same SSRF gate. Canada SEDAR is behind a ShieldSquare bot wall redirecting to an `http://` challenge, which the guard correctly refuses (documented limitation, not bypassed). 1648 Vitest + 464 pytest passed, tsc clean.
+  docs updated: `docs/harness/phase-4-progress.md`
+
+## 2026-09-23
+
 - **Deep links: open pages in a new tab** — Added `src/lib/search/deep-link.ts` (every `Destination` ⇄ `?tab=…&sub=…&<params>` URL, with `/?symbol=AAPL` back-compat). The shell now boots from and keeps the URL in sync with the active tab and re-applies on back/forward. Sidebar nav items and command-palette rows are real anchors, so Ctrl/Cmd-click, middle-click and "open in new tab" work; the screener's new-tab pivot now uses the canonical chart link.
   docs updated: `docs/ARCHITECTURE.md`
 

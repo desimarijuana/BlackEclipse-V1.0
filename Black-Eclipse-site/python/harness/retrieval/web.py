@@ -50,9 +50,83 @@ _PRIMARY_HOST_HINTS = (
     "worldbank.org",
     "oecd.org",
     "stats.",
+    # Local regulators / exchanges / filing systems (global-by-design). Labelling
+    # only — a match never fabricates provenance; it records the real host.
+    "mops.twse.com.tw",       # Taiwan MOPS (公開資訊觀測站)
+    "twse.com.tw",            # Taiwan Stock Exchange
+    "dart.fss.or.kr",         # Korea DART
+    "kind.krx.co.kr",         # Korea KIND
+    "krx.co.kr",
+    "tdnet.info",             # Japan TDnet
+    "jpx.co.jp",              # Japan Exchange Group
+    "release.tdnet.info",
+    "hkexnews.hk",            # Hong Kong Exchange news
+    "hkex.com.hk",
+    "sse.com.cn",             # Shanghai
+    "szse.cn",                # Shenzhen
+    "bseindia.com",           # India BSE
+    "nseindia.com",           # India NSE
+    "companieshouse.gov.uk",  # UK Companies House
+    "londonstockexchange.com",
+    "cvm.gov.br",             # Brazil CVM
+    "b3.com.br",              # Brazil B3
+    "sedar.com",              # Canada SEDAR
+    "sedarplus.ca",
+    "tsx.com",
+    "asx.com.au",             # Australia ASX
+    "sgx.com",                # Singapore
+    "bursamalaysia.com",
+    "set.or.kr",
+    "set.or.th",              # Thailand
+    "idx.co.id",              # Indonesia
+    "moex.com",               # Russia
+    "borsaistanbul.com",      # Turkey
+    "jse.co.za",              # South Africa
+    "psx.com.pk",             # Pakistan
+    "tadawul.com.sa",         # Saudi Arabia
+    "adx.ae",
+    "dfm.ae",
+    "egx.com.eg",
 )
 
 _SECONDARY_HOST_HINTS = ("reuters.com", "bloomberg.com", "wsj.com", "ft.com", "cnbc.com", "apnews.com")
+
+# Market → a locally authoritative source hint used to build a market-aware
+# filing query. Keyed by canonical market id; a market absent here gets the
+# generic "annual report regulatory filing" hint. Hosts name the real local
+# regulator/exchange filing system, never a fabricated document.
+LOCAL_FILING_HINTS: dict[str, str] = {
+    "US": "10-K filing SEC EDGAR",
+    "TW": "年報 公開資訊觀測站 MOPS filing",
+    "KR": "사업보고서 DART filing",
+    "JP": "有価証券報告書 TDnet filing",
+    "HK": "annual report HKEXnews filing",
+    "CN": "annual report SSE/SZSE filing",
+    "IN": "annual report BSE/NSE filing",
+    "UK": "annual report Companies House filing",
+    "DE": "Geschäftsbericht Bundesanzeiger filing",
+    "FR": "rapport annuel AMF filing",
+    "NL": "jaarverslag AFM filing",
+    "CA": "annual report SEDAR filing",
+    "BR": "demonstrações financeiras CVM filing",
+    "AU": "annual report ASX filing",
+    "SG": "annual report SGX filing",
+    "MY": "annual report Bursa Malaysia filing",
+    "TH": "annual report SET filing",
+    "ID": "annual report IDX filing",
+    "TR": "annual report Borsa Istanbul filing",
+    "ZA": "annual report JSE filing",
+    "PK": "annual report PSX filing",
+    "SA": "annual report Tadawul filing",
+    "AE": "annual report ADX/DFM filing",
+    "MX": "reporte anual BMV filing",
+}
+
+
+def local_filing_hint(market: Optional[str]) -> str:
+    """A market-aware filing query hint (never a fabricated document name)."""
+    key = (market or "").strip().upper()
+    return LOCAL_FILING_HINTS.get(key, "annual report regulatory filing")
 
 
 def _classify_source(host: str, url: str) -> SourceTier:
@@ -217,7 +291,7 @@ class WebResearchSource:
         return " ".join(p for p in parts if p)
 
 
-__all__ = ["WebResearchSource", "classify_source_tier", "PRIMARY_TIER", "SECONDARY_TIER"]
+__all__ = ["WebResearchSource", "classify_source_tier", "PRIMARY_TIER", "SECONDARY_TIER", "local_filing_hint", "LOCAL_FILING_HINTS"]
 
 # Public aliases for the research escalation layer (one classifier, no fork).
 classify_source_tier = _classify_source

@@ -80,6 +80,8 @@ Black-Eclipse-site/
 | Change the research answer validator or coverage rules | `python/harness/research/{coverage,claims}.py` |
 | Work on the research receipt / API | `python/harness/research/receipt.py`, `python/harness/persistence.py` (`ResearchReceipt`, `save_receipt`/`get_receipt`), endpoints in `python/harness/main.py` (`/research/*`) |
 | Work on truthful global coverage / capability | `src/lib/harness/capability.ts` (`buildCapabilityMatrix`), `get_coverage`/`get_capability_matrix` in `python/harness/finance_tools.py` |
+| Add/adjust a local regulator/exchange filing route | `LOCAL_FILING_HINTS` + `local_filing_hint` in `python/harness/retrieval/web.py` (used by `research/escalation.py` `_build_query`); primary-host labels in the same file |
+| Change redirect handling for official hosts | `safeGet` `maxRedirects` in `src/lib/connectors/security.ts` (bounded, https-only, re-validates every hop); enabled in `web-research.ts` `fetchWebPageDetailed` |
 | Change web search / page retrieval | `src/lib/web-research.ts` (page fetch + diagnostic facade + PDF/JSON/XML extraction) + `src/lib/web-search.ts` (ordered, independent search providers) + `src/lib/retrieval-diagnostics.ts` |
 | Resolve a global ticker (Yahoo suffix, local code) | `src/lib/markets.ts` (`EXCHANGE_SUFFIX_ALIASES`, `splitExchangeSuffix`), `resolveVaultInstrument` in `data-bridge.ts`; mirrored `infer_market_from_symbol` in `python/harness/retrieval/structured.py` |
 | Gate a provider by market eligibility (e.g. SEC non-US) | `python/harness/retrieval/structured.py` (`SecFilingsSource.eligible`), `secFilings` in `data-bridge.ts` |

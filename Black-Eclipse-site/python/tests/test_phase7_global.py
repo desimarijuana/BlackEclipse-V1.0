@@ -144,14 +144,45 @@ def test_escalation_query_uses_10k_only_for_us():
     assert "10-K" in _build_query(leg, mandate)
 
 
-@pytest.mark.parametrize("market", ["TW", "KR", "BR", "JP", "UK"])
-def test_escalation_query_does_not_assume_us_filing_for_other_markets(market):
+@pytest.mark.parametrize(
+    "market,hint_marker",
+    [
+        ("TW", "MOPS"),
+        ("KR", "DART"),
+        ("JP", "TDnet"),
+        ("UK", "Companies House"),
+        ("BR", "CVM"),
+        ("CA", "SEDAR"),
+        ("AU", "ASX"),
+    ],
+)
+def test_escalation_query_uses_local_filing_hint(market, hint_marker):
+    """Each market asks for its OWN locally authoritative filing system."""
     mandate = _mandate("AAA")
     mandate.entities[0].market = market
     leg = mandate.factLegs[0]
     query = _build_query(leg, mandate)
     assert "10-K" not in query
-    assert "annual report" in query
+    assert hint_marker in query
+
+
+def test_escalation_query_generic_fallback_for_market_without_hint():
+    mandate = _mandate("AAA")
+    mandate.entities[0].market = "ZZ"
+    leg = mandate.factLegs[0]
+    query = _build_query(leg, mandate)
+    assert "10-K" not in query
+    assert "annual report regulatory filing" in query
+
+
+def test_classifier_labels_local_filing_hosts_as_primary():
+    from harness.retrieval.web import classify_source_tier
+
+    assert classify_source_tier("mops.twse.com.tw", "https://mops.twse.com.tw/x") == "primary"
+    assert classify_source_tier("dart.fss.or.kr", "https://dart.fss.or.kr/x") == "primary"
+    assert classify_source_tier("www.sedar.com", "https://www.sedar.com/x") == "primary"
+    # A random blog is never promoted to primary.
+    assert classify_source_tier("randomblog.example", "https://randomblog.example/x") == "secondary"
 
 
 # ── Cross-region coverage classification (label vs calendar; currency) ───────

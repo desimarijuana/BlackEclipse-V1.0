@@ -141,6 +141,10 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
       url,
       timeoutMs: FETCH_TIMEOUT_MS,
       maxBytes: MAX_PDF_BYTES,
+      // Official regulator/exchange hosts commonly 301/302 (Taiwan MOPS, Canada
+      // SEDAR, company IR sites). Follow a bounded number, each hop re-validated
+      // by the same SSRF gate (https-only, DNS-pinned).
+      maxRedirects: 4,
       headers: {
         "user-agent": UA,
         accept: "text/html,application/xhtml+xml,application/json,application/xml,application/pdf,text/plain;q=0.9,*/*;q=0.5",

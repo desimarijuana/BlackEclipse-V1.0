@@ -72,10 +72,12 @@ reported as unsupported rather than fetched as noise. Per-leg statuses and the
 persistent bounded research loop from Phase 6 reused unchanged.
 
 **Known limits to carry.** OCR is unavailable (scanned PDFs are reported, not
-read); fundamentals coverage remains sparse outside the US because the vault's
-`FundamentalsCache` has almost no non-US rows — the honest capability report says
-so rather than advertising statement coverage where only quotes work. Live smoke
-coverage is opt-in and per-route.
+read); some official hosts sit behind bot walls that redirect to a non-https
+challenge (Canada SEDAR/ShieldSquare) and are therefore unreadable through the
+https-only transport — reported, not bypassed. Live smoke coverage is opt-in and
+per-route. Non-US statements are served live via the keyless yfinance bridge
+(verified TSMC/Samsung); a market whose issuer yfinance does not cover still
+reports a precise gap (see Follow-up 1/2 below).
 
 **Implementation (files).** TS: `src/lib/harness/capability.ts` (capability
 matrix), `markets.ts` (`EXCHANGE_SUFFIX_ALIASES`, `splitExchangeSuffix`),
@@ -122,6 +124,29 @@ claimed `unconfigured`, which understated real coverage), and the JDDS source no
 labels the REAL provider (`provider`/`statementSource`) instead of always saying
 "JDDS" — a provenance lie would be worse than a missing value. Python 460 passed;
 Vitest **1633 passed**; `tsc` clean.
+
+**Follow-up 2 — local official filing routes + bounded redirects (2026-09-23).**
+Workstream D: each market now has a locally authoritative filing hint
+(`LOCAL_FILING_HINTS` in `retrieval/web.py`) used by the escalation query —
+Taiwan MOPS, Korea DART, Japan TDnet, HKEXnews, India BSE/NSE, UK Companies
+House, Brazil CVM, Canada SEDAR, ASX, SGX, Bursa, SET, IDX, PSX, Tadawul, etc. —
+and the classifier labels those regulator/exchange hosts as `primary`. A generic
+fallback covers markets with no hint. Verified live: Korea DART fetches 200 with
+`lang=ko` (original language preserved); the classifier returns `primary` for
+MOPS/DART/SEDAR hosts.
+
+Discovered and fixed a real transport gap: `safeGet` refused ALL redirects, but
+official regulator hosts commonly 301/302 (Taiwan MOPS, Canada SEDAR). Added
+**bounded redirect following that re-validates every hop** through the same
+`validateOutboundUrl` + DNS-pinned gate, https-only, default 0. Verified live:
+MOPS now follows to its (JavaScript-only) shell and is categorised
+`javascript_only`; SEC/TSMC unaffected. **Limitation (honest):** Canada SEDAR is
+behind a ShieldSquare bot wall that redirects to an `http://perfdrive.com`
+challenge, which the https-only guard correctly REFUSES — SEDAR is therefore not
+readable from this transport, and that is reported, not bypassed.
+
+Vitest **1648 passed** (128 files; new redirect-guard tests in `security.test.ts`);
+Python **464 passed**; `tsc` clean.
 
 ## Phase 6 — Resilient, multi-source research (2026-09-23)
 
