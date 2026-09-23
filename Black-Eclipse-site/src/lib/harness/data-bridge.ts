@@ -466,10 +466,16 @@ async function fundamentals(params: Record<string, unknown>): Promise<DataBridge
 }
 
 /**
- * Financial statements (#8). Served from the PERSISTED FundamentalsCache
- * snapshot — parsed once, keyed by (symbol, market), with its source +
- * retrieval timestamp. No read-time scrape, so repeat queries are
- * deterministic. When the vault has no persisted statements, UNAVAILABLE.
+ * Financial statements. Served from the PERSISTED FundamentalsCache snapshot —
+ * parsed once, keyed by (symbol, market), with its source + retrieval timestamp —
+ * and, when the vault has none for a market, from the EXISTING fundamentals
+ * provider pipeline (SEC → FMP → yfinance), which fetches and caches live. This
+ * is the same service the Fundamentals page uses; there is no second statement
+ * pipeline, and no non-US statement route is silently absent just because the
+ * committed snapshot lacks that market.
+ *
+ * `refresh: true` forces a provider refresh; normal reads still try the vault
+ * first so repeated queries stay deterministic.
  */
 async function financialStatements(params: Record<string, unknown>): Promise<DataBridgeResult> {
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
@@ -482,38 +488,63 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
   const cached = await prisma.fundamentalsCache.findUnique({
     where: { symbol_market: { symbol: identity.symbol, market: identity.market } },
   });
-  if (!cached) {
-    // The instrument IS in the universe (it resolved); the vault simply has no
-    // persisted statements yet. That is covered-but-empty (`no_data`), NOT
-    // `not_found` — which would contradict the quote path that returns a price
-    // for the same instrument.
+  if (cached) {
+    let snapshot: Record<string, unknown>;
+    try {
+      snapshot = JSON.parse(cached.payload) as Record<string, unknown>;
+    } catch {
+      return unavailableClass("incomplete", "persisted statements could not be parsed");
+    }
+    const periods = Array.isArray(snapshot.periods) ? snapshot.periods : [];
+    if (periods.length > 0) {
+      return {
+        status: "OK",
+        symbol: identity.symbol,
+        market: identity.market,
+        currency: identity.currency,
+        instrumentId: `${identity.market}:${identity.symbol}`,
+        provider: cached.primarySource,
+        retrievedAt: cached.fetchedAt.toISOString(),
+        statementSource: snapshot.primarySource ?? cached.primarySource,
+        provenance: "CACHED",
+        periods,
+      };
+    }
+    // An empty shell is a cache miss, not a value — fall through to a live fetch.
+  }
+
+  // Live provider fallback: the existing fundamentals service (SEC/FMP/yfinance),
+  // which persists its result to FundamentalsCache for subsequent reads.
+  try {
+    const { getFundamentals } = await import("@/lib/fundamentals");
+    const snapshot = await getFundamentals(identity.symbol, identity.market, {
+      force: params.refresh === true,
+    });
+    if (!snapshot || snapshot.periods.length === 0) {
+      return unavailableClass(
+        "no_data",
+        `no financial statements available for ${identity.symbol} (${identity.market}) ` +
+          "from the vault or a configured provider (SEC/FMP/yfinance)",
+      );
+    }
+    return {
+      status: "OK",
+      symbol: identity.symbol,
+      market: identity.market,
+      currency: snapshot.currency ?? identity.currency,
+      instrumentId: `${identity.market}:${identity.symbol}`,
+      provider: snapshot.primarySource,
+      retrievedAt: snapshot.retrievedAt,
+      statementSource: snapshot.primarySource,
+      provenance: snapshot.provenance,
+      periods: snapshot.periods,
+    };
+  } catch (err) {
     return unavailableClass(
-      "no_data",
-      `no persisted financial statements for ${identity.symbol} (${identity.market})`,
+      "source_failure",
+      `live statement fetch failed for ${identity.symbol}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  let snapshot: Record<string, unknown>;
-  try {
-    snapshot = JSON.parse(cached.payload) as Record<string, unknown>;
-  } catch {
-    return unavailableClass("incomplete", "persisted statements could not be parsed");
-  }
-  const periods = Array.isArray(snapshot.periods) ? snapshot.periods : [];
-  if (periods.length === 0) {
-    // An empty shell is typed "absent", not returned as a value-shaped object.
-    return unavailableClass("no_data", `persisted statements for ${identity.symbol} are empty`);
-  }
-  return {
-    status: "OK",
-    symbol: identity.symbol,
-    market: identity.market,
-    currency: identity.currency,
-    instrumentId: `${identity.market}:${identity.symbol}`,
-    provider: cached.primarySource,
-    retrievedAt: cached.fetchedAt.toISOString(),
-    statementSource: snapshot.primarySource ?? cached.primarySource,
-    periods,
-  };
 }
 
 async function news(params: Record<string, unknown>): Promise<DataBridgeResult> {
@@ -745,13 +776,21 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
       /* leave observed empty (unknown) */
     }
 
-    // Fundamentals availability: SEC is keyless (US only); a keyed multi-market
-    // vendor widens coverage only when its credential is actually configured.
+    // Fundamentals availability: SEC is keyless (US filings); the yfinance bridge
+    // is keyless and multi-market; FMP is a keyed multi-market vendor. Coverage
+    // is only claimed for a route that is ACTUALLY usable right now.
     let usFilings = false;
     try {
       usFilings = await secAvailable();
     } catch {
       usFilings = false;
+    }
+    let keylessVendor = false;
+    try {
+      const { yahooFundamentalsProvider } = await import("@/lib/fundamentals/providers/yahoo");
+      keylessVendor = await Promise.resolve(yahooFundamentalsProvider.isConfigured()).catch(() => false);
+    } catch {
+      keylessVendor = false;
     }
     let multiMarketVendor = false;
     try {
@@ -769,7 +808,7 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
       universeCounts,
       observedByMarket,
       liveCheckedMarkets,
-      fundamentalsAvailability: { usFilings, multiMarketVendor },
+      fundamentalsAvailability: { usFilings, keylessVendor, multiMarketVendor },
       webAvailable,
     });
     return { status: "OK", rows: matrix };

@@ -124,10 +124,16 @@ class JddsSource:
     ) -> tuple[list[NormalizedFinancialObject], list[SourceReference]]:
         symbol = payload.get("symbol") or request.instrument
         updated = payload.get("updatedAt")
+        # The vault capability may have served the result from a LIVE provider
+        # (the persisted snapshot was empty for this market, so the bridge fetched
+        # and cached it). Label the REAL provider rather than always saying
+        # "JDDS" — a provenance lie would be worse than a missing value.
+        provider = payload.get("provider") or payload.get("statementSource")
+        source_name = self.name if not provider else f"{provider}"
         source_ref = SourceReference(
-            source=self.name,
+            source=source_name,
             sourceType="structured",
-            publishedAt=updated,
+            publishedAt=updated or payload.get("retrievedAt"),
             query=request.objective,
             validationStatus="valid",
         )

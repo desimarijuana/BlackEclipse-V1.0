@@ -92,11 +92,13 @@ export interface CapabilityInputs {
   observedByMarket?: Record<string, ObservedHealth>;
   /** Markets with a recorded live smoke check. */
   liveCheckedMarkets?: string[];
-  /** Fundamentals providers usable right now, keyed by whether they need a key. */
+  /** Fundamentals providers usable right now. */
   fundamentalsAvailability?: {
     /** US-filings route (SEC) usable. */
     usFilings: boolean;
-    /** A keyed multi-market vendor (FMP/Yahoo) is configured. */
+    /** A keyless multi-market vendor (yfinance bridge) is usable. */
+    keylessVendor: boolean;
+    /** A keyed multi-market vendor (FMP) is configured. */
     multiMarketVendor: boolean;
   };
   /** Whether the web search/fetch/document routes are usable. */
@@ -111,7 +113,7 @@ export function buildCapabilityMatrix(inputs: CapabilityInputs = {}): MarketCapa
   const counts = inputs.universeCounts ?? {};
   const observed = inputs.observedByMarket ?? {};
   const liveChecked = new Set(inputs.liveCheckedMarkets ?? []);
-  const fa = inputs.fundamentalsAvailability ?? { usFilings: false, multiMarketVendor: false };
+  const fa = inputs.fundamentalsAvailability ?? { usFilings: false, keylessVendor: false, multiMarketVendor: false };
   const web = inputs.webAvailable ?? true;
 
   const webAxis: CapabilityAxis = {
@@ -138,14 +140,17 @@ export function buildCapabilityMatrix(inputs: CapabilityInputs = {}): MarketCapa
     const quoteVia = market === "US" ? "yfinance bridge" : market === "CRYPTO" ? "public crypto endpoint" : market === "FX" ? "FX provider" : TRADINGVIEW_QUOTE_MARKETS.has(market) ? "TradingView market scan" : undefined;
     const historyLevel: CapabilityLevel = isLiveQuote ? "configured" : "not_implemented";
 
-    // Fundamentals: SEC is US-only; a keyed multi-market vendor widens it, but
-    // only if actually configured. Never implied by quote coverage.
+    // Fundamentals: SEC is US-only; a keyless multi-market vendor (yfinance) or a
+    // configured keyed vendor widens coverage. Never implied by quote coverage.
     let fundLevel: CapabilityLevel = "not_implemented";
     let fundVia: string | undefined;
     if (market === "US" && fa.usFilings) {
       fundLevel = "configured";
       fundVia = "SEC EDGAR filings/XBRL";
-    } else if (fa.multiMarketVendor && isStatementMarket) {
+    } else if (isStatementMarket && fa.keylessVendor) {
+      fundLevel = "configured";
+      fundVia = "yfinance bridge (keyless, multi-market)";
+    } else if (isStatementMarket && fa.multiMarketVendor) {
       fundLevel = "configured";
       fundVia = "configured fundamentals vendor";
     } else if (isStatementMarket) {

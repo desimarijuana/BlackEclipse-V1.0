@@ -9,6 +9,9 @@ const assetGroupBy = vi.fn();
 const marketFindMany = vi.fn();
 const newsFindMany = vi.fn();
 const groupBy = vi.fn();
+const fundamentalsCacheFindUnique = vi.fn();
+const fundamentalsGet = vi.fn();
+const yahooIsConfigured = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -20,12 +23,20 @@ vi.mock("@/lib/db", () => ({
     market: { findMany: (...a: unknown[]) => marketFindMany(...a) },
     newsItem: { findMany: (...a: unknown[]) => newsFindMany(...a) },
     sourceHealth: { groupBy: (...a: unknown[]) => groupBy(...a) },
+    fundamentalsCache: { findUnique: (...a: unknown[]) => fundamentalsCacheFindUnique(...a) },
   },
 }));
 vi.mock("@/lib/fundamentals/providers/sec-edgar", () => ({
   // No network in the default suite; the matrix treats SEC as unavailable here.
   secAvailable: () => Promise.resolve(false),
   fetchSecCompanyFacts: () => Promise.resolve(null),
+}));
+vi.mock("@/lib/fundamentals/providers/yahoo", () => ({
+  yahooFundamentalsProvider: { isConfigured: (...a: unknown[]) => yahooIsConfigured(...a), supports: () => true },
+}));
+vi.mock("@/lib/fundamentals", () => ({
+  // The live statement fallback routes through the existing service.
+  getFundamentals: (...a: unknown[]) => fundamentalsGet(...a),
 }));
 vi.mock("@/lib/provider-keys", () => ({
   resolveProviderKey: () => Promise.resolve(null),
@@ -42,6 +53,14 @@ beforeEach(() => {
   marketFindMany.mockResolvedValue([]);
   newsFindMany.mockReset();
   groupBy.mockReset();
+  fundamentalsCacheFindUnique.mockReset();
+  fundamentalsCacheFindUnique.mockResolvedValue(null);
+  fundamentalsGet.mockReset();
+  fundamentalsGet.mockResolvedValue(null);
+  yahooIsConfigured.mockReset();
+  // Default the keyless multi-market vendor to UNAVAILABLE so capability tests
+  // can assert the unconfigured state; the statements test sets its own mocks.
+  yahooIsConfigured.mockResolvedValue(false);
 });
 
 describe("fetchCapability — market_snapshot", () => {
@@ -122,15 +141,50 @@ describe("fetchCapability — other capabilities", () => {
 
   it("capability_matrix reports capability separately from market recognition", async () => {
     groupBy.mockResolvedValue([]);
+    yahooIsConfigured.mockResolvedValue(false);
     const result = await fetchCapability("capability_matrix", {});
     expect(result.status).toBe("OK");
     const rows = result.rows as Array<{ market: string; quote: { level: string }; fundamentals: { level: string } }>;
     const tw = rows.find((r) => r.market === "TW");
     expect(tw).toBeTruthy();
-    // TW is recognised and quote-covered, but statements are NOT advertised as
-    // working merely because quotes work.
-    expect(["recognized_only", "not_implemented", "unconfigured"]).toContain(tw!.fundamentals.level);
-    expect(tw!.fundamentals.level).not.toBe("configured");
+    // With no statement provider usable, TW statements are unconfigured — NOT
+    // advertised as working merely because quotes work.
+    expect(tw!.fundamentals.level).toBe("unconfigured");
+  });
+
+  it("capability_matrix marks non-US statements configured when the keyless vendor is usable", async () => {
+    groupBy.mockResolvedValue([]);
+    yahooIsConfigured.mockResolvedValue(true);
+    const result = await fetchCapability("capability_matrix", {});
+    const rows = result.rows as Array<{ market: string; fundamentals: { level: string; via?: string } }>;
+    const kr = rows.find((r) => r.market === "KR");
+    expect(kr!.fundamentals.level).toBe("configured");
+    expect(kr!.fundamentals.via).toMatch(/yfinance/i);
+  });
+
+  it("financial_statements falls back to the live provider when the vault is empty", async () => {
+    assetFindMany.mockResolvedValue([
+      { symbol: "005930", name: "Samsung Electronics", securityType: "Stock", assetClass: "Equity", market: { country: "KR", exchange: "KRX" } },
+    ]);
+    findFirst.mockResolvedValue(null);
+    // No persisted statements for this market.
+    fundamentalsCacheFindUnique.mockResolvedValue(null);
+    fundamentalsGet.mockResolvedValue({
+      symbol: "005930",
+      market: "KR",
+      currency: "KRW",
+      primarySource: "yahoo",
+      provenance: "LIVE",
+      retrievedAt: "2026-09-23T00:00:00.000Z",
+      periods: [{ endDate: "2024-12-31", revenue: 300870903000000, netIncome: 33621363000000 }],
+    });
+    const result = await fetchCapability("financial_statements", { symbol: "005930.KS", market: "KR" });
+    expect(result.status).toBe("OK");
+    expect(result.provider).toBe("yahoo");
+    expect(result.currency).toBe("KRW");
+    expect((result.periods as unknown[]).length).toBe(1);
+    // The live service was consulted exactly because the vault had no rows.
+    expect(fundamentalsGet).toHaveBeenCalledWith("005930", "KR", expect.anything());
   });
 
   it("rejects an unknown capability", async () => {

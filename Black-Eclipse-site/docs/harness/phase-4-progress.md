@@ -96,7 +96,7 @@ passthrough, `javascript_only`), `retrieval-diagnostics.ts`
 `research/smoke.py` (non-US IR + PDF probes).
 
 **Verification.** Python **460 passed** (was 423). New: `test_phase7_global.py`
-(31), `test_phase7_skill_feedback.py` (6). Vitest **1630 passed** (127 files);
+(31), `test_phase7_skill_feedback.py` (6). Vitest **1633 passed** (127 files);
 new `global-research.test.ts` (10) plus updated `data-bridge.test.ts`. `tsc`
 clean. Live route verification (direct, not mocked): with the declared
 email-contact UA, `www.sec.gov` filings HTML, the ticker map, `data.sec.gov`
@@ -105,6 +105,23 @@ endpoints returned **403 with the previous browser UA** — the verified cause o
 "all web fetch UNAVAILABLE". A scanned/image PDF correctly reports
 `unsupported_document`. Live smoke is operator-triggered and separate
 (`npm run test:smoke`).
+
+**Follow-up — non-US statements are now reachable (2026-09-23).** The first cut
+still left non-US statements unreachable: `financialStatements` read ONLY the
+`FundamentalsCache` table, so a market with no committed snapshot returned
+`no_data` even though the keyless yfinance bridge serves it (verified:
+`yfinance_fundamentals.py 005930.KS` returns full KRW statements; the provider
+`isConfigured`/`supports` are keyless and `market`-agnostic). Fixed by adding a
+**live provider fallback** to `financialStatements` that reuses the EXISTING
+`getFundamentals` service (SEC → FMP → yfinance) and persists its result — no
+second pipeline. Live-verified end-to-end: `getFundamentals("005930","KR")` →
+yahoo/KRW 4 periods (latest FY2025 revenue 333.6T KRW); `getFundamentals("2330","TW")`
+→ yahoo/TWD 5 periods. The capability matrix was corrected to report non-US
+fundamentals as `configured` when the keyless vendor is usable (it previously
+claimed `unconfigured`, which understated real coverage), and the JDDS source now
+labels the REAL provider (`provider`/`statementSource`) instead of always saying
+"JDDS" — a provenance lie would be worse than a missing value. Python 460 passed;
+Vitest **1633 passed**; `tsc` clean.
 
 ## Phase 6 — Resilient, multi-source research (2026-09-23)
 

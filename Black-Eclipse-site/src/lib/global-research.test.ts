@@ -38,40 +38,50 @@ describe("global capability matrix", () => {
     const matrix = buildCapabilityMatrix({
       universeCounts: { TW: 2350, US: 11288 },
       observedByMarket: { TW: "working" },
-      fundamentalsAvailability: { usFilings: true, multiMarketVendor: false },
+      // No fundamentals route is usable here at all.
+      fundamentalsAvailability: { usFilings: false, keylessVendor: false, multiMarketVendor: false },
       webAvailable: true,
     });
     const tw = matrix.find((m) => m.market === "TW")!;
-    const us = matrix.find((m) => m.market === "US")!;
-    // TW: quotes work, but no statement route exists → NOT configured.
+    // TW: quotes work, but with NO provider available statements are NOT configured.
     expect(tw.quote.level).toBe("configured");
     expect(tw.fundamentals.level).not.toBe("configured");
+    expect(tw.fundamentals.level).toBe("unconfigured");
     expect(tw.universe).toBe(2350);
-    // US: SEC is configured → statements configured.
-    expect(us.fundamentals.level).toBe("configured");
-    expect(us.filings.level).toBe("configured");
+  });
+
+  it("marks non-US fundamentals configured when the keyless vendor is usable", () => {
+    const matrix = buildCapabilityMatrix({
+      fundamentalsAvailability: { usFilings: true, keylessVendor: true, multiMarketVendor: false },
+    });
+    const kr = matrix.find((m) => m.market === "KR")!;
+    // yfinance (keyless, multi-market) genuinely covers Korean issuers.
+    expect(kr.fundamentals.level).toBe("configured");
+    // But a market with no statement data type at all stays unimplemented.
+    const fx = matrix.find((m) => m.market === "FX")!;
+    expect(fx.fundamentals.level).toBe("not_implemented");
   });
 
   it("reports zero-attempt health as unknown, never healthy/failing", () => {
     const matrix = buildCapabilityMatrix({
       universeCounts: { JP: 3897 },
       observedByMarket: {},
-      fundamentalsAvailability: { usFilings: true, multiMarketVendor: false },
+      fundamentalsAvailability: { usFilings: true, keylessVendor: false, multiMarketVendor: false },
     });
     const jp = matrix.find((m) => m.market === "JP")!;
     expect(jp.quote.observed).toBe("unknown");
   });
 
-  it("marks a keyed-vendor market as configured only when the vendor is present", () => {
+  it("marks a keyed-vendor market as configured only when a vendor is present", () => {
     const withoutVendor = buildCapabilityMatrix({
-      fundamentalsAvailability: { usFilings: true, multiMarketVendor: false },
+      fundamentalsAvailability: { usFilings: true, keylessVendor: false, multiMarketVendor: false },
     }).find((m) => m.market === "KR")!;
     expect(withoutVendor.fundamentals.level).toBe("unconfigured");
 
-    const withVendor = buildCapabilityMatrix({
-      fundamentalsAvailability: { usFilings: true, multiMarketVendor: true },
+    const withKeyed = buildCapabilityMatrix({
+      fundamentalsAvailability: { usFilings: true, keylessVendor: false, multiMarketVendor: true },
     }).find((m) => m.market === "KR")!;
-    expect(withVendor.fundamentals.level).toBe("configured");
+    expect(withKeyed.fundamentals.level).toBe("configured");
   });
 
   it("keeps recognised-but-uncovered markets visible", () => {
