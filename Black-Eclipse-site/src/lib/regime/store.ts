@@ -27,13 +27,18 @@ function loadScope(): RegimeScope {
 export interface RegimeScopeStore {
   scope: RegimeScope;
   hydrated: boolean;
+  /** Whether the Market Regime panel is open. Shared so the global search / any
+   *  launcher can open it without coupling to the top-bar control's state. */
+  panelOpen: boolean;
   hydrate: () => void;
   setScope: (scope: RegimeScope) => void;
+  setPanelOpen: (open: boolean) => void;
 }
 
 export const useRegimeScopeStore = create<RegimeScopeStore>((set) => ({
   scope: 'selected',
   hydrated: false,
+  panelOpen: false,
   hydrate: () => set({ scope: loadScope(), hydrated: true }),
   setScope: (scope) => {
     if (typeof window !== 'undefined') {
@@ -45,6 +50,7 @@ export const useRegimeScopeStore = create<RegimeScopeStore>((set) => ({
     }
     set({ scope });
   },
+  setPanelOpen: (open) => set({ panelOpen: open }),
 }));
 
 /** Hydrate the regime scope from localStorage once, on the client. */

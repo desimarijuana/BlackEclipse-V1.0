@@ -13,6 +13,7 @@ import {
   Briefcase,
   Brain,
   Blocks,
+  Activity,
   ChartCandlestick,
   ChartPie,
   ScanSearch,
@@ -74,6 +75,7 @@ const NAME_ICON: Record<string, LucideIcon> = {
   settings: Settings,
   skills: Blocks,
   memory: Brain,
+  activity: Activity,
 };
 
 function nameIcon(name?: string): LucideIcon {

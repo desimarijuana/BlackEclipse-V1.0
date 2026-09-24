@@ -180,6 +180,11 @@ registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skil
 registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
+// Market Regime — not a tab. Selecting it opens the top-bar Market Regime panel
+// (the shell handles the `action: 'open-regime'` param and returns before any tab
+// switch). Discoverable by searching "market regime", "risk on", "sentiment", etc.
+registerPage({ id: 'page-market-regime', kind: 'page', title: 'Market Regime', aliases: ['market regime', 'regime', 'risk on', 'risk off', 'risk-on', 'risk-off', 'market sentiment', 'market breadth', 'volatility regime', 'aurora'], keywords: ['market regime', 'regime', 'sentiment', 'risk on', 'risk off', 'breadth', 'volatility', 'vix', 'aurora', 'macro'], icon: 'activity', tab: 'dashboard', params: { action: 'open-regime' }, rankBoost: 1.2 });
+
 // Skills sub-pages — so the Learning Queue and draft review are reachable from
 // an originating chat run ("Learn from this run" → Learning Queue), not only by
 // opening the Skills tab and hunting for the right sub-tab.

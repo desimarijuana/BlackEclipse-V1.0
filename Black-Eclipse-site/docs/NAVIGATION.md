@@ -56,6 +56,7 @@ Black-Eclipse-site/
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md`; evidence-grounded answering: `docs/harness/phase-4-progress.md` and `phase-4-opencode-prompt.md` |
+| Review the agentic-coding roadmap | Repository root `agentic-plan-implementaion.md` §15 (capability contract + Phase 7 delivery gates); current runtime boundaries: `docs/harness/architecture.md` |
 | Review the original agentic harness implementation vision | Repository root `agentic-plan-implementaion.md` (planning reference; current architecture is in `docs/harness/`) |
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
@@ -163,7 +164,7 @@ Black-Eclipse-site/
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
-| Change the Market Regime model / components / taxonomy | `src/lib/regime/` (`types.ts` contract, `scoring.ts` scoring+confidence+classifier, `client.ts` DataHub hook, `store.ts` scope, `visuals.ts` shader mapping), route `src/app/api/regime/route.ts`, UI `src/components/layout/market-regime-control.tsx` (mounted in `top-bar.tsx`) |
+| Change the Market Regime model / components / taxonomy | `src/lib/regime/` (`types.ts` contract, `scoring.ts` scoring+confidence+classifier, `client.ts` DataHub hook, `store.ts` scope + panel-open, `visuals.ts` shader mapping), route `src/app/api/regime/route.ts`, UI `src/components/layout/market-regime-control.tsx` (headless panel, mounted in `stock-chat.tsx`; opened from global search) |
 | Change app theming / branding / design tokens | `src/lib/theme/` (`tokens.ts` model + presets + `themeFromBrandColor` + `deriveThemeColors`, `store.ts` persisted overrides + user presets, `bridge.ts` chart sync/preview) → tabbed panel `src/components/screens/customization-settings.tsx` (embeds `aurora-settings.tsx` + `chart-settings.tsx`); chart palette store/preview `src/lib/chart-palette-store.ts`; token defaults in `src/app/globals.css` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |

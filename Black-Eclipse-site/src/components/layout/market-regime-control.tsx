@@ -13,8 +13,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowRight, Bell, ChevronDown, HelpCircle,
-  Minus, Newspaper, RefreshCw, TrendingDown, TrendingUp,
+  AlertTriangle, ArrowRight, Bell, HelpCircle,
+  Minus, Newspaper, RefreshCw, TrendingDown, TrendingUp, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -117,11 +117,12 @@ function diffText(prev: LastReading | null, result: RegimeResult): string {
 }
 
 export function MarketRegimeControl() {
-  const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   useHydrateRegimeScope();
   const scope = useRegimeScopeStore((s) => s.scope);
   const setScope = useRegimeScopeStore((s) => s.setScope);
+  const open = useRegimeScopeStore((s) => s.panelOpen);
+  const setOpen = useRegimeScopeStore((s) => s.setPanelOpen);
   const { result, topicId, entry } = useRegime();
 
   // Track "what changed since last update" per topic.
@@ -183,22 +184,6 @@ export function MarketRegimeControl() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={`Market Regime: ${label}. Open details.`}
-        className="glass-card-subtle group flex shrink-0 items-center gap-2 rounded-xl px-2.5 py-2 transition-colors cursor-pointer hover:bg-accent/40"
-      >
-        <Activity className={cn('w-4 h-4 shrink-0', tone)} aria-hidden />
-        <span className="hidden sm:flex flex-col items-start leading-none">
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60">Regime</span>
-          <span className={cn('text-[11px] font-medium', tone)}>{label}</span>
-        </span>
-        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/60" aria-hidden />
-      </button>
-
       <DialogContent
         className="glass-card-strong sm:max-w-lg max-h-[85dvh] overflow-y-auto rounded-2xl text-foreground"
         showCloseButton={false}
@@ -211,13 +196,22 @@ export function MarketRegimeControl() {
               {result ? REGIME_BLURBS[result.regime] : loading ? 'Loading…' : 'No trustworthy reading.'}
             </p>
           </div>
-          <button
-            onClick={refresh}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 cursor-pointer"
-            aria-label="Refresh regime reading"
-          >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={refresh}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 cursor-pointer"
+              aria-label="Refresh regime reading"
+            >
+              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/40 cursor-pointer"
+              aria-label="Close market regime"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Scope selector */}

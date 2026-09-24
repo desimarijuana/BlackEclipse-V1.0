@@ -8,6 +8,47 @@ last-verified: 2026-09-15
 
 ## 2026-09-24
 
+- **Agentic coding roadmap** — Expanded the root implementation plan's Phase 7
+  into a bounded coding-agent contract and staged acceptance gates for repository
+  inspection, isolated edits, sandboxed checks, diff review, product controls,
+  and evaluation; added a navigation pointer.
+  docs updated: `docs/NAVIGATION.md` (root roadmap remains the detailed plan).
+
+## 2026-09-24
+
+- **Eclipse capability check** — Reviewed the registered agent/tool boundary and
+  app/runtime availability to answer whether Eclipse can perform coding and
+  filesystem work; no live model run was possible because the app timed out and
+  the Python runtime was stopped.
+  no doc change — read-only capability assessment; architecture unchanged.
+
+## 2026-09-24
+
+- **Market Regime — palette-only, no header control** — Removed the Market
+  Regime button from the top bar entirely. The panel is now headless
+  (`MarketRegimeControl` renders only the dialog, no trigger) and is mounted once
+  by the shell (`stock-chat.tsx`); it opens solely from the global search entry
+  (`page-market-regime` → `action: 'open-regime'`, handled in the shell) and has
+  an explicit close (X) button. Open state remains shared via
+  `useRegimeScopeStore.panelOpen`.
+  docs updated: `docs/CHANGELOG.md` only — navigation entry unchanged, no
+  architecture/data-contract change.
+
+## 2026-09-24
+
+- **Market Regime — discoverability + close** — The Market Regime panel is now
+  reachable from the global command palette: a `page-market-regime` entry
+  (`market regime`, `risk on/off`, `sentiment`, `breadth`, `volatility`,
+  `aurora`) whose destination carries `action: 'open-regime'`; the shell opens
+  the panel and returns before any tab switch (`stock-chat.tsx`). Panel open
+  state moved into the shared `useRegimeScopeStore` (`panelOpen`/`setPanelOpen`)
+  so the palette and top-bar control agree, and the panel header gained an
+  explicit close (X) button plus a refresh button.
+  docs updated: `docs/NAVIGATION.md` (regime row already covers the model), no
+  architecture/data-contract change — palette entry + UI affordance only.
+
+## 2026-09-24
+
 - **Aurora → Market Regime** — Replaced Aurora's decorative 60/40 market+news
   blend with an explainable, interactive Market Regime model. New
   `src/lib/regime/` (`types.ts` contract, `scoring.ts` pure scoring/confidence/

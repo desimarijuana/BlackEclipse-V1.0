@@ -79,12 +79,14 @@ const EclipseMemoryScreen = dynamic(
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
+import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
 import { clientIsOperator } from '@/lib/harness/skills-browser';
 import type { AssistantTurn } from '@/lib/agent/response-model';
 import { turnText } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
+import { useRegimeScopeStore } from '@/lib/regime/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
@@ -200,6 +202,12 @@ function StockChatContent() {
     const apply = (dest: Destination) => {
       if (dest.params?.action === 'new-chat') {
         handleNewChat();
+      }
+      // Market Regime is a top-bar panel, not a tab — open it and stop, so a
+      // "market regime" search never switches the tab away.
+      if (dest.params?.action === 'open-regime') {
+        useRegimeScopeStore.getState().setPanelOpen(true);
+        return;
       }
       if (dest.params?.symbol) {
         setSelectedChartSymbol(dest.params.symbol.toUpperCase());
@@ -767,6 +775,9 @@ function StockChatContent() {
       </a>
       {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
       <AuroraGlow />
+      {/* Market Regime panel — headless; opened from the global search / shell.
+          Not a header control. */}
+      <MarketRegimeControl />
 
       <Sidebar 
         activeTab={activeTab} 
