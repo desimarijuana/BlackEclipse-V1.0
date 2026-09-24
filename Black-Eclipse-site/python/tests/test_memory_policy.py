@@ -33,12 +33,16 @@ def env():
 
 def test_policy_defaults(env):
     settings = env["memory"].policy.get_all()
-    # Automatic candidate detection and explicit-intent capture are ON by default
-    # (safe: candidates are inert, capture is explicit-intent only). Automatic
-    # promotion remains structurally impossible.
-    assert settings["auto_candidate_detection"] is True
-    assert settings["auto_capture_enabled"] is True
+    # Routine automatic capture, automatic candidate detection and automatic
+    # suggestions are OFF by default: completing a run is not proof of a
+    # reusable lesson, and incidental preferences are not silently saved.
+    # Explicit "remember/forget/correct" commands still work (separate path).
+    assert settings["auto_candidate_detection"] is False
+    assert settings["auto_capture_enabled"] is False
+    assert settings["auto_suggest_enabled"] is False
     assert settings["context_budget_chars"] == 4000
+    assert settings["max_memories"] == 0
+    # Automatic promotion remains structurally impossible.
     assert settings["auto_promote_low_risk"] is False
 
 
@@ -74,6 +78,62 @@ def test_policy_reset(env):
     env["memory"].policy.set("retrieval_limit", 20)
     env["memory"].policy.reset("retrieval_limit")
     assert env["memory"].policy.get("retrieval_limit") == 8
+
+
+def test_stored_true_override_is_migrated_to_safe_default(tmp_path):
+    # A persisted `true` override from the old (over-saving) default must not
+    # continue the unwanted behaviour: migration 5 deletes it so the new safe
+    # default applies. Other overrides are preserved.
+    import sqlite3
+
+    from harness.eclipse_memory.db import now_iso
+
+    path = os.path.join(str(tmp_path), "eclipse-memory.db")
+    # Build a schema-v4 database with an unsafe stored override.
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE SchemaMigration (version INTEGER PRIMARY KEY, appliedAt TEXT NOT NULL)")
+    for version, statements in __import__("harness.eclipse_memory.schema", fromlist=["MIGRATIONS"]).MIGRATIONS:
+        if version > 4:
+            continue
+        for statement in statements:
+            conn.executescript(statement)
+        conn.execute("INSERT OR REPLACE INTO SchemaMigration VALUES (?, ?)", (version, now_iso()))
+    conn.execute(
+        "INSERT INTO MemoryPolicy (key, value, updatedAt) VALUES (?, ?, ?)",
+        ("auto_capture_enabled", "true", now_iso()),
+    )
+    conn.execute(
+        "INSERT INTO MemoryPolicy (key, value, updatedAt) VALUES (?, ?, ?)",
+        ("auto_candidate_detection", "true", now_iso()),
+    )
+    conn.execute(
+        "INSERT INTO MemoryPolicy (key, value, updatedAt) VALUES (?, ?, ?)",
+        ("retrieval_limit", "20", now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+    service = EclipseMemoryService(EclipseMemoryStore(path))
+    try:
+        assert service.migration_status()["upToDate"] is True
+        settings = service.policy.get_all()
+        assert settings["auto_capture_enabled"] is False
+        assert settings["auto_candidate_detection"] is False
+        # An unrelated operator override is preserved.
+        assert settings["retrieval_limit"] == 20
+        # The reset is observable.
+        rows = service.store._db.execute(
+            "SELECT key, previousValue FROM MemoryPolicyMigration"
+        ).fetchall()
+        keys = {r["key"] for r in rows}
+        assert {"auto_capture_enabled", "auto_candidate_detection"} <= keys
+        # A stored MemoryPolicy row for the unsafe key is gone.
+        remaining = {
+            r["key"] for r in service.store._db.execute("SELECT key FROM MemoryPolicy").fetchall()
+        }
+        assert "auto_capture_enabled" not in remaining
+    finally:
+        service.close()
 
 
 def test_retrieval_uses_policy_budget(env):
@@ -187,12 +247,25 @@ def test_auto_detection_can_be_disabled_by_policy(env):
     assert result["candidatesCreated"] == 0
 
 
-def test_auto_detection_on_by_default_creates_inert_candidates(env):
+def test_auto_detection_off_by_default_creates_no_candidates(env):
     env["run_store"].create_run("run_8b", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_8b", _tool("get_fundamentals", False, "TOOL_ERROR"))
     env["run_store"].record_tool_execution("run_8b", _tool("research_search", True))
     env["run_store"].update_run("run_8b", status="completed", output="Recovered.", modelSteps=3)
     result = env["memory"].analyze_run("run_8b", env["run_store"])
+    # A single tool-using run is NOT automatically a learning candidate.
+    assert result["candidateDetection"] == "disabled by policy"
+    assert result["candidatesCreated"] == 0
+    assert env["memory"].store.list_candidates() == []
+
+
+def test_auto_detection_opt_in_creates_only_inert_candidates(env):
+    env["memory"].policy.set("auto_candidate_detection", True)
+    env["run_store"].create_run("run_8c", "eclipse-agent", {"query": "x"})
+    env["run_store"].record_tool_execution("run_8c", _tool("get_fundamentals", False, "TOOL_ERROR"))
+    env["run_store"].record_tool_execution("run_8c", _tool("research_search", True))
+    env["run_store"].update_run("run_8c", status="completed", output="Recovered.", modelSteps=3)
+    result = env["memory"].analyze_run("run_8c", env["run_store"])
     assert result["candidatesCreated"] >= 1
     for candidate in env["memory"].store.list_candidates():
         assert candidate["resultingSkillId"] is None  # inert

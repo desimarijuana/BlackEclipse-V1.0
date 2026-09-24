@@ -35,6 +35,11 @@ from typing import Any, Optional
 
 # ── Intent vocabulary ───────────────────────────────────────────────────────
 
+# Explicit commands only. A mere declaration of preference ("I prefer X", "my
+# preference is X") that the user mentions in passing is NOT an explicit save
+# request; it may at most become a suggestion (see `decision.py`). Requiring a
+# directive verb is what distinguishes "remember that I prefer X" from a casual
+# "I prefer X" said during a one-off discussion.
 SAVE_PHRASES = (
     r"\bremember (this|that|my|the following|to)\b",
     r"\bsave (this|that|my|this preference)\b",
@@ -44,8 +49,6 @@ SAVE_PHRASES = (
     r"\balways (do|use|prefer|answer|respond|call)\b",
     r"\bdon'?t ever\b",
     r"\bfor future (reference|runs|sessions)\b",
-    r"\bmy preference is\b",
-    r"\bi prefer\b",
 )
 FORGET_PHRASES = (
     r"\bforget (this|that|my|about)\b",

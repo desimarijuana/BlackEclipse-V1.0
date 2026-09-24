@@ -19,13 +19,14 @@ import {
   memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
   archiveMemory, reviewMemory, listCorrections, listMistakes, retrieveMemories,
   getPolicies, updatePolicies, clientIsOperator,
+  listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
 } from "@/lib/harness/eclipse-memory-browser";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDetail, MemoryOverview,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "activity" | "policies" | "health";
+type Tab = "overview" | "memories" | "suggestions" | "activity" | "policies" | "health";
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -39,6 +40,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
     const map: Record<string, Tab> = {
       explorer: "memories", activity: "activity", health: "health",
       memories: "memories", overview: "overview", policies: "policies",
+      suggestions: "suggestions",
     };
     if (slug && map[slug]) setTab(map[slug]);
   });
@@ -49,6 +51,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
         items={[
           { id: "overview", label: "Overview", icon: Brain },
           { id: "memories", label: "Memories", icon: Database },
+          { id: "suggestions", label: "Suggestions", icon: Plus },
           { id: "activity", label: "Activity", icon: Activity },
           { id: "policies", label: "Policies", icon: Settings2 },
           { id: "health", label: "Health", icon: ShieldCheck },
@@ -59,6 +62,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       />
       {tab === "overview" && <Overview />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
+      {tab === "suggestions" && <Suggestions isOperator={isOperator} />}
       {tab === "activity" && <ActivityView />}
       {tab === "policies" && <Policies isOperator={isOperator} />}
       {tab === "health" && <Health />}
@@ -343,6 +347,69 @@ function Memories({ isOperator }: { isOperator: boolean }) {
   );
 }
 
+// ── Suggestions (inert Save/Dismiss proposals) ──────────────────────────────
+
+function Suggestions({ isOperator }: { isOperator: boolean }) {
+  const [suggestions, setSuggestions] = useState<MemorySuggestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setSuggestions(await listSuggestions("pending")); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true);
+    try { await fn(); setToast(message); await load(); }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header
+        title="Memory Suggestions"
+        hint="A suggestion is NOT memory: nothing is stored or recalled until you Save it. Dismissed suggestions are remembered so the same item is not offered again."
+      />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : suggestions.length === 0 ? (
+        <EmptyBox title="No pending suggestions" hint="Suggestions appear only when automatic suggestions are enabled and a casually-stated durable preference is detected." />
+      ) : (
+        <div className="space-y-2">
+          {suggestions.map((s) => (
+            <div key={s.id} className="rounded-2xl border border-white/10 glass-card p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <TypeBadge type={s.memoryType} />
+                    <span className="text-[9px] text-muted-foreground">{s.scope}{s.scopeId ? `:${s.scopeId}` : ""}</span>
+                    <span className="text-[9px] text-muted-foreground">{s.createdAt.slice(0, 10)}</span>
+                  </div>
+                  <p className="mt-1 text-[12px] text-foreground/90">{s.content}</p>
+                  {s.reason && <p className="mt-0.5 text-[10px] text-muted-foreground/80">{s.reason}</p>}
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                    onClick={() => act(() => acceptSuggestion(s.id), "Saved to memory")}>Save</Button>
+                  <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                    onClick={() => act(() => dismissSuggestion(s.id), "Suggestion dismissed")}>Dismiss</Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — saving or dismissing requires operator authorization.</p>}
+    </div>
+  );
+}
+
 // ── Activity (retrieval / corrections / mistakes) ───────────────────────────
 
 function ActivityView() {
@@ -420,9 +487,11 @@ function ActivityView() {
 const POLICY_LABELS: Record<string, string> = {
   auto_capture_enabled: "Automatic memory capture",
   auto_candidate_detection: "Automatic learning-candidate detection",
+  auto_suggest_enabled: "Automatic memory suggestions",
   candidate_confidence_threshold: "Candidate confidence threshold",
   context_budget_chars: "Retrieval context budget (chars)",
   retrieval_limit: "Max memories per retrieval",
+  max_memories: "Max active memories (0 = unlimited)",
   retention_days: "Retention review window (days, 0 = never)",
   include_proposed_in_retrieval: "Inject proposed memory without review",
   audit_retention_rows: "Audit rows kept (0 = unlimited)",
@@ -475,6 +544,13 @@ function Policies({ isOperator }: { isOperator: boolean }) {
   return (
     <div className="animate-fade-in-up">
       <Header title="Memory Policies" hint="Configurable behaviour with hard safety floors. Automatic skill promotion is locked off regardless of setting; values are bounded and validated server-side." />
+      {data.budget && !data.budget.unlimited && (
+        <p className={cn("mb-3 text-[11px]", data.budget.full ? "text-amber-400" : "text-muted-foreground")}>
+          {data.budget.full
+            ? `Memory is full — ${data.budget.active}/${data.budget.limit} active. Archive or review memories to free space; existing memory is never deleted automatically.`
+            : `Storage: ${data.budget.active}/${data.budget.limit} active memories (${data.budget.remaining} remaining).`}
+        </p>
+      )}
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
 
       <div className="space-y-2">

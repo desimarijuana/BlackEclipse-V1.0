@@ -547,11 +547,45 @@ the workspace owns the height and scrolls.
 Because the overlay sits ABOVE the app shell, the shell's Aurora (`z-0`) is
 covered — so fullscreen mounts its own **`<AuroraGlow>`**
 (`src/components/layout/aurora-glow.tsx`). `AuroraGlow` is the single reusable
-glow: it owns the market+news sentiment subscription (`market:indices:US` +
-`aurora:news-score` topics) and the user palette, and renders the masked top
+glow: it owns the Market Regime subscription (`regime:<scope>:<market>` topics
+via `src/lib/regime/client.ts`) and the user palette, and renders the masked top
 band. The shell and fullscreen both use it, so the sentiment model stays in one
-place (`src/lib/aurora-sentiment.ts`). Any future full-viewport overlay must do
-the same — the shell's glow does not reach above it.
+place (`src/lib/regime/`). Any future full-viewport overlay must do the same —
+the shell's glow does not reach above it.
+
+### Market Regime (the Aurora sentiment model)
+
+Aurora's color/motion is driven by an explainable **Market Regime** reading, not
+a raw blend. The model lives in `src/lib/regime/`:
+
+- `types.ts` — the serializable contract (`RegimeResult`, `RegimeComponent`,
+  `RegimeScope`, `RegimeId`).
+- `scoring.ts` — pure, dependency-free scoring: per-component scores,
+  weight renormalization, coverage/freshness/confidence, and the regime
+  classifier. Unit-tested in `scoring.test.ts`.
+- `client.ts` — a DataHub hook (`useRegime`) over `GET /api/regime`.
+- `store.ts` — persisted scope (`selected` | `us` | `global`).
+- `visuals.ts` — regime → Aurora `{ score, dim }` mapping.
+
+`GET /api/regime?scope=&market=` assembles five components from **JDDS only**
+(never a second data source): `price_breadth` (IndexQuote + Asset sectors),
+`volatility` (IndexQuote ^VIX, MacroSeries VIXCLS fallback), `macro_risk`
+(economics calendar surprises), `news_narrative` (NewsItem, tier-weighted,
+recency-decayed, deduplicated, market-relevant), and `positioning` (honestly
+UNAVAILABLE until a survey such as AAII is ingested). Each component exposes its
+score, the weight **actually used**, availability, timestamp, source and
+confidence. Missing inputs lower confidence; a stale input is excluded; a
+missing core `price_breadth` input makes the whole reading `unavailable` — never
+a false neutral. The taxonomy is transparent: Risk-on broadening / Fragile rally
+/ Mixed / Risk-off / Narrative shock / Unavailable.
+
+The background glow stays decorative (`pointer-events-none`, `aria-hidden`).
+The interactive, accessible surface is the top-bar **Market Regime** control
+(`src/components/layout/market-regime-control.tsx`, mounted in `top-bar.tsx`):
+a frosted-glass panel showing regime/score/confidence/freshness, the
+contribution breakdown, "what changed since last update", drivers, and actions
+(open Market Overview, filter news, ask Eclipse, create a regime-change alert).
+
 
 ### Chat session workspaces (context documents + agent output)
 

@@ -20,26 +20,33 @@ from .db import now_iso
 # ── Defaults ────────────────────────────────────────────────────────────────
 
 DEFAULTS: dict[str, Any] = {
-    # Automatic capture of a run's EXPLICIT user memory intent ("remember this",
-    # "save this preference", "forget this", "correct this"). Safe default True:
-    # only clear, non-refused, explicitly-user-authored content is ever written
-    # through the service pipeline (secrets/sensitive IDs/raw dumps/overrides are
-    # refused regardless). This is NOT a capture-every-turn switch — non-explicit
-    # conversation is never auto-stored.
-    "auto_capture_enabled": True,
-    # Automatic learning-candidate detection after a completed run. Safe default
-    # True: analysis is deterministic and creates ONLY inert candidates (never
-    # enables/promotes a skill, never changes policy). Duplicate suppression by
-    # signature bounds the queue, so this does not grow without limit. The
-    # explicit "Learn from this run" action remains for cases auto-detection does
-    # not cover.
-    "auto_candidate_detection": True,
+    # Automatic capture of a run's explicit user memory INTENT ("remember this",
+    # "save this preference", "forget this", "correct this"). Off by default:
+    # routine chat turns are never auto-stored. The deterministic explicit-intent
+    # path still runs (clear, safe, user-authored save/forget/correct commands
+    # are always honoured) — this flag only gates the *automatic* incidental
+    # path. A non-explicit "I prefer X" mention never saves; it may at most
+    # become a suggestion when `auto_suggest_enabled` is on.
+    "auto_capture_enabled": False,
+    # Automatic learning-candidate detection after a completed run. Off by
+    # default: completing a run, using multiple tools, or taking multiple model
+    # steps is NOT proof a procedure generalizes. Operators may opt in; even then
+    # detection creates ONLY inert candidates (never enables/promotes a skill).
+    "auto_candidate_detection": False,
+    # Automatic *suggestion* of incidental durable information ("I prefer …").
+    # Off by default. Suggestions are inert (no DB record until the user accepts);
+    # they never write anything on their own.
+    "auto_suggest_enabled": False,
     # Minimum confidence a detected candidate must have to be recorded.
     "candidate_confidence_threshold": 0.4,
     # Retrieval context budget (characters).
     "context_budget_chars": 4000,
     # Max memories injected per retrieval.
     "retrieval_limit": 8,
+    # Hard storage budget: max ACTIVE memories retained (0 = unlimited). When the
+    # budget is reached a new save fails truthfully ("memory is full") rather
+    # than silently evicting user memory; the user reviews/archives to free space.
+    "max_memories": 0,
     # Days a non-expiring memory is retained before it is eligible for expiry
     # review (0 = never auto-expire). This is a review threshold, not deletion.
     "retention_days": 0,
@@ -57,6 +64,7 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "candidate_confidence_threshold": (0.0, 1.0),
     "context_budget_chars": (200, 20_000),
     "retrieval_limit": (1, 50),
+    "max_memories": (0, 100_000),
     "retention_days": (0, 3650),
     "audit_retention_rows": (0, 100_000),
 }

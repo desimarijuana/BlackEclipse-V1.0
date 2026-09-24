@@ -153,6 +153,11 @@ def retrieve_memories(
             if memory.get("expiresAt") and memory["expiresAt"] < _now():
                 diagnostics.excluded.append({"id": memory["id"], "reason": "expired"})
                 continue
+            # A low-confidence, never-verified memory is not worth injecting; it
+            # stays stored and reviewable but does not clutter recall.
+            if float(memory.get("confidence") or 0) < 0.3 and memory.get("verification") != "verified":
+                diagnostics.excluded.append({"id": memory["id"], "reason": "low confidence, unverified"})
+                continue
             eligible.append(memory)
 
         # ── Rank ────────────────────────────────────────────────────────────
@@ -206,9 +211,20 @@ def retrieve_memories(
 
 
 def _render(memory: dict[str, Any]) -> str:
+    """One labelled line per memory: type, scope, provenance, confidence/
+    verification and time where available. Recalled context must be auditable."""
     label = memory.get("subject") or memory["memoryType"]
     trust = memory.get("verification", "unverified")
-    return f"- [{memory['memoryType']}/{trust}] {label}: {memory['content']}"
+    scope = memory.get("scope") or "general"
+    scope_id = memory.get("scopeId")
+    confidence = float(memory.get("confidence") or 0)
+    source = memory.get("source") or "unknown"
+    when = (memory.get("updatedAt") or memory.get("createdAt") or "")[:10]
+    meta = f"{memory['memoryType']}/{scope}{':' + str(scope_id) if scope_id else ''}"
+    meta += f" · source={source} · conf={confidence:.2f} · {trust}"
+    if when:
+        meta += f" · {when}"
+    return f"- [{meta}] {label}: {memory['content']}"
 
 
 def _build_context(memories: list[dict[str, Any]]) -> str:

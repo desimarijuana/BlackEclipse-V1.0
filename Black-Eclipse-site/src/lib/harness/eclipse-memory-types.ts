@@ -77,6 +77,7 @@ export interface MemoryOverview {
   corrections: number;
   mistakes: number;
   retrievals: number;
+  suggestions: number;
   health: EclipseMemoryHealth;
 }
 
@@ -89,6 +90,7 @@ export interface EclipseMemoryHealth {
   schemaVersion?: number;
   appliedVersions?: number[];
   upToDate?: boolean;
+  memoryBudget?: { limit: number; active: number; unlimited: boolean; full: boolean; remaining: number | null };
   error?: string;
 }
 

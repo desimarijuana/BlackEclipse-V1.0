@@ -95,6 +95,7 @@ class EclipseMemoryStore:
         scope_id: Optional[str] = None,
         status: Optional[str] = None,
         subject: Optional[str] = None,
+        source: Optional[str] = None,
         limit: int = 100,
         include_inactive: bool = True,
     ) -> list[dict[str, Any]]:
@@ -108,6 +109,8 @@ class EclipseMemoryStore:
             where.append("scopeId = ?"); params.append(scope_id)
         if subject:
             where.append("subject = ?"); params.append(subject)
+        if source:
+            where.append("source = ?"); params.append(source)
         if status:
             where.append("status = ?"); params.append(status)
         elif not include_inactive:
@@ -163,6 +166,66 @@ class EclipseMemoryStore:
                 (now, memory_id),
             )
         self._db.commit()
+
+    # ── Memory suggestions (inert, non-recalled proposals) ──────────────────
+
+    def save_suggestion(self, suggestion: dict[str, Any]) -> str:
+        suggestion_id = suggestion.get("id") or new_id("sugg")
+        self._db.execute(
+            """INSERT INTO MemorySuggestion
+               (id, runId, scope, scopeId, subject, memoryType, content, reason, provenance,
+                confidence, signature, status, candidateId, createdAt, decidedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                suggestion_id, suggestion.get("runId"), suggestion.get("scope", "user"),
+                suggestion.get("scopeId"), suggestion.get("subject"),
+                suggestion.get("memoryType", "semantic"), suggestion["content"],
+                suggestion.get("reason"), suggestion.get("provenance"),
+                float(suggestion.get("confidence", 0.5)), suggestion["signature"],
+                suggestion.get("status", "pending"), suggestion.get("candidateId"),
+                suggestion.get("createdAt") or now_iso(), suggestion.get("decidedAt"),
+            ),
+        )
+        self._db.commit()
+        return suggestion_id
+
+    def get_suggestion(self, suggestion_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM MemorySuggestion WHERE id=?", (suggestion_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_suggestions(
+        self, status: Optional[str] = None, *, scope_id: Optional[str] = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if status:
+            where.append("status = ?"); params.append(status)
+        if scope_id:
+            where.append("scopeId = ?"); params.append(scope_id)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        limit = max(1, min(int(limit), 500))
+        rows = self._db.execute(
+            f"SELECT * FROM MemorySuggestion {clause} ORDER BY createdAt DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def find_suggestion_by_signature(self, signature: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM MemorySuggestion WHERE signature=? ORDER BY createdAt DESC LIMIT 1",
+            (signature,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_suggestion_status(self, suggestion_id: str, status: str) -> Optional[dict[str, Any]]:
+        self._db.execute(
+            "UPDATE MemorySuggestion SET status=?, decidedAt=? WHERE id=?",
+            (status, now_iso(), suggestion_id),
+        )
+        self._db.commit()
+        return self.get_suggestion(suggestion_id)
 
     # ── Evidence ────────────────────────────────────────────────────────────
 

@@ -285,8 +285,8 @@ def test_eligibility_accepts_multistep_run(env):
 
 
 def test_graph_run_reports_automatic_learning(env):
-    # End to end: a completed graph run auto-produces a candidate and the run's
-    # memory blob reports it as autoCaptured (no manual action needed).
+    # Automatic learning is OFF by default: a single successful tool-using run
+    # must not create a candidate. Eligibility metadata is still reported.
     from harness.schemas import ModelSettings, RunInput, RunRequest
     from harness import graph as graph_module
 
@@ -321,8 +321,9 @@ def test_graph_run_reports_automatic_learning(env):
 
     assert result.status == "completed"
     blob = env["run_store"].get_run(run_id)["memory"]
-    assert blob["learningAnalysis"]["candidatesCreated"] >= 1
-    assert blob["learningEligibility"]["autoCaptured"] is True
+    assert blob["learningAnalysis"]["candidatesCreated"] == 0
+    assert env["memory"].store.list_candidates() == []
+    assert blob["learningAnalysis"]["candidateDetection"] == "disabled by policy"
 
 
 def test_explicit_skill_candidate_marks_no_evidence(env):
@@ -332,10 +333,9 @@ def test_explicit_skill_candidate_marks_no_evidence(env):
     assert "human must author" in (draft["knownLimitations"] or "").lower()
 
 
-def test_auto_capture_policy_disables_deterministic_path(env):
-    # The policy gate can turn explicit-intent capture off entirely.
-    assert env["memory"].policy.get("auto_capture_enabled") is True
-    env["memory"].policy.set("auto_capture_enabled", False)
+def test_incidental_capture_off_by_default(env):
+    # A casually-stated preference is NOT saved by default — it is not an
+    # explicit "remember this" request.
     import asyncio
 
     from harness.schemas import ModelSettings, RunInput, RunRequest
@@ -354,7 +354,7 @@ def test_auto_capture_policy_disables_deterministic_path(env):
     orig = graph_module.build_chat_model
     graph_module.build_chat_model = lambda settings: M()  # type: ignore
     req = RunRequest(
-        runId="run_gate", input=RunInput(query="Remember that I prefer terse answers"),
+        runId="run_gate", input=RunInput(query="I prefer terse answers"),
         agentId="eclipse-agent", userId="u1",
         modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
         callbackBaseUrl="http://localhost:3000",
@@ -367,6 +367,46 @@ def test_auto_capture_policy_disables_deterministic_path(env):
         graph_module.build_chat_model = orig  # type: ignore
     assert result.status == "completed"
     assert env["memory"].store.list_memories() == []
+    assert env["memory"].store.list_suggestions(status="pending") == []
+
+
+def test_explicit_remember_still_saves_when_auto_capture_off(env):
+    # Explicit "remember this" is a separate, always-on path: turning automatic
+    # capture off must not break it.
+    import asyncio
+
+    from harness.schemas import ModelSettings, RunInput, RunRequest
+    from harness import graph as graph_module
+
+    assert env["memory"].policy.get("auto_capture_enabled") is False
+
+    class M:
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            return AIMessage(content="ok")
+
+        async def astream(self, messages):
+            yield await self.ainvoke(messages)
+
+    orig = graph_module.build_chat_model
+    graph_module.build_chat_model = lambda settings: M()  # type: ignore
+    req = RunRequest(
+        runId="run_gate2", input=RunInput(query="Remember that I prefer terse answers"),
+        agentId="eclipse-agent", userId="u1",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    try:
+        asyncio.run(graph_module.execute_run(
+            req, env["registry"], FakeBridge(), env["run_store"], memory_service=env["memory"]
+        ))
+    finally:
+        graph_module.build_chat_model = orig  # type: ignore
+    saved = env["memory"].store.list_memories()
+    assert len(saved) == 1
+    assert saved[0]["scope"] == "user"
 
 
 def test_capture_from_run_honours_explicit_intent(env):

@@ -5,6 +5,7 @@ import { Menu, Search, Command } from 'lucide-react';
 import { useCommandStore } from '@/lib/search/store';
 import { universeCount } from '@/lib/search/universe';
 import { PriceRibbon } from '@/components/layout/price-ribbon';
+import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useT } from '@/lib/i18n';
 import { useThemeStore, BRAND_MARK_SRC } from '@/lib/theme';
 
@@ -74,6 +75,7 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
        {/* Live price ribbon (flexible, fills the middle) + frosted search bar */}
        <div className="flex-1 flex items-center justify-end gap-2 md:gap-3 min-w-0 px-2">
           <PriceRibbon className="flex-1" />
+          <MarketRegimeControl />
           <button
             onClick={() => useCommandStore.getState().setOpen(true)}
             className="command-glass-bar group flex w-[38%] min-w-0 max-w-md shrink items-center gap-2.5 rounded-xl px-4 py-2.5 transition-all cursor-pointer text-left"

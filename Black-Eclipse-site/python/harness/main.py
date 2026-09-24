@@ -386,6 +386,7 @@ def eclipse_memory_overview() -> dict[str, Any]:
         "corrections": len(store.list_corrections(limit=500)),
         "mistakes": len(store.list_mistakes(limit=500)),
         "retrievals": len(store.list_retrievals(limit=500)),
+        "suggestions": len(store.list_suggestions(status="pending", limit=500)),
         "health": service.memory.health(),
     }
 
@@ -393,11 +394,12 @@ def eclipse_memory_overview() -> dict[str, Any]:
 @app.get("/eclipse-memory/memories")
 def list_memories(
     memoryType: Optional[str] = None, scope: Optional[str] = None,
-    status: Optional[str] = None, subject: Optional[str] = None, limit: int = 100,
+    status: Optional[str] = None, subject: Optional[str] = None,
+    source: Optional[str] = None, limit: int = 100,
 ) -> dict[str, Any]:
     return {"success": True, "memories": service.memory_store.list_memories(
         memory_type=memoryType, scope=scope, status=status, subject=subject,
-        limit=limit, include_inactive=True,
+        source=source, limit=limit, include_inactive=True,
     )}
 
 
@@ -418,18 +420,29 @@ def get_memory(memory_id: str) -> dict[str, Any]:
 def create_memory(payload: dict[str, Any]) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory write requires an authorized operator")
+    # A UI save is a direct human action, but it still passes the ONE shared
+    # decision gate (provenance=ui_save) so privacy/content rules cannot be
+    # bypassed and the write always goes through the service pipeline.
+    from .eclipse_memory.decision import authorize_proposal
+
     try:
-        memory = service.memory.write_memory(
-            memory_type=str(payload.get("memoryType") or "semantic"),
+        decision = authorize_proposal(
             content=str(payload.get("content") or ""),
-            source=str(payload.get("source") or "manual"),
+            provenance="ui_save",
+            user_id=payload.get("scopeId"),
+            memory_type=str(payload.get("memoryType") or "semantic"),
             scope=str(payload.get("scope") or "general"),
             scope_id=payload.get("scopeId"),
             subject=payload.get("subject"),
-            confidence=float(payload.get("confidence", 0.5)),
-            importance=float(payload.get("importance", 0.5)),
-            verification=str(payload.get("verification") or "unverified"),
+            confidence=float(payload.get("confidence", 0.7)),
+            settings=service.memory.policy.get_all(),
         )
+        outcome = service.memory.commit_decision(decision, user_id=payload.get("scopeId"))
+        if not outcome.get("ok"):
+            raise ValueError(decision.reason or outcome.get("reason") or "write rejected")
+        memory = outcome["memory"]
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001 - a rejected write is a 400, not a crash
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "memory": memory}
@@ -505,9 +518,26 @@ def list_mistakes(runId: Optional[str] = None, limit: int = 100) -> dict[str, An
 def create_correction(payload: dict[str, Any]) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="correction capture requires an authorized operator")
+    # A correction is an explicit human action, but it still passes the shared
+    # gate so a correction cannot smuggle a secret/override/financial fact into
+    # durable memory.
+    from .eclipse_memory.decision import authorize_proposal
+
+    correction_text = str(payload.get("correction") or "")
+    decision = authorize_proposal(
+        content=correction_text, provenance="correction",
+        user_id=payload.get("scopeId"),
+        memory_type="correction",
+        scope=str(payload.get("scope") or "user"),
+        subject=payload.get("subject"),
+        confidence=0.9,
+        settings=service.memory.policy.get_all(),
+    )
+    if decision.outcome != "save":
+        raise HTTPException(status_code=400, detail=decision.reason or "correction rejected")
     result = service.memory.record_correction(
         wrong=str(payload.get("wrong") or ""),
-        correction=str(payload.get("correction") or ""),
+        correction=correction_text,
         subject=payload.get("subject"),
         run_id=payload.get("runId"),
         provided_by=str(payload.get("providedBy") or "user"),
@@ -527,6 +557,7 @@ def get_policies() -> dict[str, Any]:
         "defaults": DEFAULTS,
         "bounds": {k: list(v) for k, v in BOUNDS.items()},
         "locked": LOCKED_VALUES,
+        "budget": service.memory.memory_budget(),
     }
 
 
@@ -565,6 +596,42 @@ def list_memory_events(limit: int = 100) -> dict[str, Any]:
         "events": service.memory_store.list_memory_events(limit),
         "skillEvents": service.skill_store.list_events(limit=limit),
     }
+
+
+# ── Memory suggestions (inert, non-recalled Save/Dismiss proposals) ──────────
+# A suggestion is NOT a memory: it is never injected into a run. Accepting it
+# writes exactly one scoped memory through the shared gate; dismissing it keeps
+# a record so the same suggestion is not re-offered.
+
+
+@app.get("/eclipse-memory/suggestions")
+def list_suggestions(status: Optional[str] = "pending", limit: int = 100) -> dict[str, Any]:
+    return {
+        "success": True,
+        "suggestions": service.memory_store.list_suggestions(status=status, limit=limit),
+    }
+
+
+@app.post("/eclipse-memory/suggestions/{suggestion_id}/accept")
+def accept_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="accepting a suggestion requires an authorized operator")
+    result = service.memory.accept_suggestion(suggestion_id, user_id=payload.get("userId"))
+    if result.get("action") == "not_found":
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return {"success": bool(result.get("ok")), **result}
+
+
+@app.post("/eclipse-memory/suggestions/{suggestion_id}/dismiss")
+def dismiss_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="dismissing a suggestion requires an authorized operator")
+    result = service.memory.dismiss_suggestion(suggestion_id)
+    if result.get("action") == "not_found":
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return {"success": bool(result.get("ok")), **result}
 
 
 @app.get("/skills/authoring/tools")

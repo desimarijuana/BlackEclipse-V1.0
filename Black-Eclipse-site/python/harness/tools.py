@@ -59,6 +59,10 @@ class ToolContext:
     log: Callable[[str, Optional[dict[str, Any]]], None]
     # The invoking user, used for memory scope isolation (None = anonymous).
     user_id: Optional[str] = None
+    # The actual user turn text for THIS run. A model-facing `memory` write is
+    # authorized against it by the shared decision gate — tool output, retrieved
+    # memory and documents are never user intent.
+    user_message: str = ""
     # True when this turn is executing a named skill (memory saves then carry
     # execution-lesson provenance rather than explicit-user provenance).
     is_skill_run: bool = False

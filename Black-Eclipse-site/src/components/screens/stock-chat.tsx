@@ -712,6 +712,23 @@ function StockChatContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // The Market Regime panel dispatches `be:ask-eclipse` with a grounded prompt
+  // (built from the live regime read). Route it through the same agent path so
+  // the explanation is tool-backed, never a canned reply.
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (!prompt) return;
+      setActiveTab('chat');
+      const userMsg: Message = { id: Date.now().toString(), role: 'user', content: prompt };
+      const chatId = addMessageToActiveChat(userMsg);
+      void runAgentPrompt(chatId, prompt);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('be:ask-eclipse', onAsk);
+    return () => window.removeEventListener('be:ask-eclipse', onAsk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
   const handleBack = () => {

@@ -21,6 +21,9 @@ const ACTION_META: Record<string, { icon: typeof Check; tone: string; label: str
   corrected: { icon: Check, tone: 'text-sky-400', label: 'Corrected' },
   refused: { icon: ShieldAlert, tone: 'text-amber-500', label: 'Not saved' },
   needs_confirmation: { icon: Info, tone: 'text-amber-500', label: 'Confirmation needed' },
+  needs_clarification: { icon: Info, tone: 'text-amber-500', label: 'Which memory?' },
+  memory_full: { icon: ShieldAlert, tone: 'text-amber-500', label: 'Memory is full' },
+  suggested: { icon: Info, tone: 'text-sky-400', label: 'Not saved — suggestion' },
   skill_requested: { icon: ListChecks, tone: 'text-primary', label: 'Ready to learn' },
 };
 
@@ -108,6 +111,16 @@ export function MemoryActionPanel({
                 rel="noreferrer"
               >
                 Undo
+              </a>
+            )}
+            {action.kind === 'suggested' && (
+              <a
+                href={action.suggestionPath ?? '/api/eclipse-memory/suggestions'}
+                className="text-primary underline-offset-2 hover:underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Review suggestion
               </a>
             )}
           </div>

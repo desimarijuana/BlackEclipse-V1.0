@@ -436,6 +436,78 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 5 — reset unsafe stored policy overrides to the new safe defaults.
+# `auto_capture_enabled` and `auto_candidate_detection` previously defaulted to
+# True, so a persisted `true` override (or a store written under the old default)
+# would keep automatic capture/detection on despite the code default changing to
+# False. Deleting the `true` override restores the safe default while preserving
+# every other setting; the reset is recorded so it is observable in health/policy
+# UI. Idempotent: re-running finds nothing left to delete.
+MIGRATIONS.append(
+    (
+        5,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemoryPolicyMigration (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              key           TEXT NOT NULL,
+              previousValue TEXT NOT NULL,
+              reason        TEXT NOT NULL,
+              resetAt       TEXT NOT NULL
+            );
+            """,
+            """
+            INSERT INTO MemoryPolicyMigration (key, previousValue, reason, resetAt)
+              SELECT key, value,
+                     'unsafe true override reset to safe default',
+                     strftime('%Y-%m-%dT%H:%M:%SZ','now')
+              FROM MemoryPolicy
+              WHERE key IN ('auto_capture_enabled', 'auto_candidate_detection')
+                AND value IN ('true', '1');
+            """,
+            """
+            DELETE FROM MemoryPolicy
+              WHERE key IN ('auto_capture_enabled', 'auto_candidate_detection')
+                AND value IN ('true', '1');
+            """,
+        ],
+    )
+)
+
+# Migration 6 — memory suggestions. A suggestion is an INERT, non-recalled
+# proposal to remember something (usually a casually-stated preference). It
+# exists only so the user can Save or Dismiss it; it is never injected into a run
+# and never counts as memory until accepted. Dismissals are retained so the same
+# suggestion is not re-offered repeatedly.
+MIGRATIONS.append(
+    (
+        6,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemorySuggestion (
+              id           TEXT PRIMARY KEY,
+              runId        TEXT,
+              scope        TEXT NOT NULL,
+              scopeId      TEXT,
+              subject      TEXT,
+              memoryType   TEXT NOT NULL,
+              content      TEXT NOT NULL,
+              reason       TEXT,
+              provenance   TEXT,
+              confidence   REAL NOT NULL DEFAULT 0.5,
+              signature    TEXT NOT NULL,
+              status       TEXT NOT NULL DEFAULT 'pending',
+              candidateId  TEXT,
+              createdAt    TEXT NOT NULL,
+              decidedAt    TEXT
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_suggestion_status ON MemorySuggestion(status);",
+            "CREATE INDEX IF NOT EXISTS idx_suggestion_sig    ON MemorySuggestion(signature);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

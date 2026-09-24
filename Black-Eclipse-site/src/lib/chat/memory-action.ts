@@ -12,6 +12,9 @@ export type MemoryActionKind =
   | 'corrected'
   | 'refused'
   | 'needs_confirmation'
+  | 'needs_clarification'
+  | 'memory_full'
+  | 'suggested'
   | 'skill_requested';
 
 export interface MemoryActionView {
@@ -28,6 +31,9 @@ export interface MemoryActionView {
   /** Link/action to undo (archive) the affected memory. */
   undoPath?: string;
   reason?: string;
+  /** For a `suggested` outcome: the inert suggestion awaiting Save/Dismiss. */
+  suggestionId?: string;
+  suggestionPath?: string;
 }
 
 export interface LearningEligibilityView {
@@ -66,6 +72,8 @@ function actionView(blob: Record<string, unknown>): MemoryActionView | null {
   const subject = str(blob.subject);
   const inspectPath = str(blob.inspectPath);
   const undoPath = str(blob.undoPath);
+  const suggestionId = str(blob.suggestionId);
+  const suggestionPath = str(blob.suggestionPath);
   switch (action) {
     case 'saved':
       return { kind: 'saved', headline: 'Remembered', preview, memoryType, scope, subject, inspectPath, undoPath };
@@ -77,6 +85,22 @@ function actionView(blob: Record<string, unknown>): MemoryActionView | null {
       return { kind: 'refused', headline: 'Not saved', preview, reason };
     case 'needs_confirmation':
       return { kind: 'needs_confirmation', headline: 'Confirmation needed', preview, reason };
+    case 'needs_clarification':
+      return { kind: 'needs_clarification', headline: 'Which memory?', preview, reason };
+    case 'memory_full':
+      return { kind: 'memory_full', headline: 'Memory is full — not saved', preview, reason };
+    case 'suggested':
+      // NOT saved: a quiet suggestion offered for the user to Save/Dismiss.
+      return {
+        kind: 'suggested',
+        headline: 'Not saved — suggestion',
+        preview: str(blob.suggestionContent) ?? preview,
+        memoryType: str(blob.suggestionType) ?? memoryType,
+        scope: str(blob.suggestionScope) ?? scope,
+        reason,
+        suggestionId,
+        suggestionPath,
+      };
     case 'skill_requested':
       return { kind: 'skill_requested', headline: 'Ready to learn from this run', reason };
     default:

@@ -130,6 +130,15 @@ export interface MemoryPolicies {
   defaults: Record<string, unknown>;
   bounds: Record<string, [number, number]>;
   locked: Record<string, unknown>;
+  budget?: MemoryBudget;
+}
+
+export interface MemoryBudget {
+  limit: number;
+  active: number;
+  unlimited: boolean;
+  full: boolean;
+  remaining: number | null;
 }
 
 export async function getPolicies(): Promise<MemoryPolicies> {
@@ -147,5 +156,42 @@ export async function analyzeRun(runId: string) {
   return api<Record<string, unknown>>(`/api/eclipse-memory/analyze/${encodeURIComponent(runId)}`, {
     method: "POST",
     body: JSON.stringify({}),
+  });
+}
+
+export interface MemorySuggestion {
+  id: string;
+  runId: string | null;
+  scope: string;
+  scopeId: string | null;
+  subject: string | null;
+  memoryType: string;
+  content: string;
+  reason: string | null;
+  provenance: string | null;
+  confidence: number;
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export async function listSuggestions(status = "pending"): Promise<MemorySuggestion[]> {
+  const body = await api<{ suggestions: MemorySuggestion[] }>(
+    `/api/eclipse-memory/suggestions?status=${encodeURIComponent(status)}`
+  );
+  return body.suggestions ?? [];
+}
+
+export async function acceptSuggestion(id: string, userId?: string) {
+  return api<{ success: boolean; action: string }>("/api/eclipse-memory/suggestions", {
+    method: "POST",
+    body: JSON.stringify({ id, action: "accept", userId }),
+  });
+}
+
+export async function dismissSuggestion(id: string) {
+  return api<{ success: boolean; action: string }>("/api/eclipse-memory/suggestions", {
+    method: "POST",
+    body: JSON.stringify({ id, action: "dismiss" }),
   });
 }

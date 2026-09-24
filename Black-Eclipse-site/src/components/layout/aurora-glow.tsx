@@ -1,57 +1,47 @@
 'use client';
 
-// ── AuroraGlow — the app-wide sentiment glow ─────────────────────────────────
-// The single reusable mount for the Aurora WebGL backdrop. It owns the sentiment
-// subscription (market indices + news score via DataHub) and the user palette,
-// then renders the masked top glow. Used by BOTH the app shell and the Command
-// Center's fullscreen overlay — fullscreen portals to <body>, so it needs its
-// own Aurora rather than relying on the (covered) shell instance.
+// ── AuroraGlow — the app-wide Market Regime glow ────────────────────────────
+// The single reusable mount for the Aurora WebGL backdrop. It subscribes to the
+// explainable Market Regime reading (not a raw 60/40 blend) and the user
+// palette, then renders the masked top glow. Used by BOTH the app shell and the
+// Command Center's fullscreen overlay — fullscreen portals to <body>, so it
+// needs its own Aurora rather than relying on the (covered) shell instance.
 //
-// This keeps ONE source of truth for the sentiment model: the math lives in
-// src/lib/aurora-sentiment.ts, the palette in src/lib/aurora/store.ts, and both
-// mounts just consume them.
+// This layer stays DECORATIVE: pointer-events are disabled and the container is
+// aria-hidden. The interactive, accessible surface is the top-bar Market Regime
+// control (`market-regime-control.tsx`), which reads the same model.
+//
+// One source of truth for the model: `src/lib/regime/scoring.ts` (the math),
+// `src/lib/regime/client.ts` (the subscription), and this file just consumes it.
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { cn } from '@/lib/utils';
 import Aurora from '@/components/ui/Aurora';
 import { useTopic, registerTopic, jsonTopic } from '@/lib/workspace/data-hub';
-import { auroraSentiment, marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 import { useHydrateAuroraPalette, useAuroraPaletteStore } from '@/lib/aurora/store';
+import { useRegime } from '@/lib/regime/client';
+import { regimeToAurora } from '@/lib/regime/visuals';
 
 // The market topic the shell already relies on. Registering it here makes the
 // glow resolve even on a cold boot straight into a tab that never mounts the
 // dashboard chunk.
 registerTopic(jsonTopic('market:indices:US', '/api/indices?market=US', { ttl: 120_000, interval: 60_000 }));
-// News sentiment (tier-weighted 24h score) — a tiny dedicated topic so the glow
-// does not depend on the news screen or the dashboard registry being mounted.
-registerTopic(jsonTopic('aurora:news-score', '/api/news?limit=1', { ttl: 120_000, interval: 120_000 }));
 
-interface IndexTopic {
-  indices?: Array<{ symbol: string; price: number; changePercent: number }>;
-  sectors?: Array<{ name: string; change: number }>;
-}
-
-/** Combined market+news sentiment in [-1, +1] from the shared topics. */
-export function useAuroraSentiment(): number {
-  const indices = useTopic<IndexTopic>('market:indices:US');
-  const news = useTopic<{ newsScore?: number }>('aurora:news-score');
-  const marketScore = useMemo(
-    () => marketSentimentFromIndices(indices.data?.indices, indices.data?.sectors),
-    [indices.data],
-  );
-  const newsScore = typeof news.data?.newsScore === 'number' ? news.data.newsScore : null;
-  return useMemo(() => auroraSentiment(marketScore, newsScore).score, [marketScore, newsScore]);
+/** Combined regime score + dim factor in the shape the Aurora shader wants. */
+export function useAuroraSentiment(): { score: number; dim: number } {
+  const { result } = useRegime();
+  return React.useMemo(() => regimeToAurora(result), [result]);
 }
 
 /**
  * The masked full-viewport top glow. `className` lets the host position it
  * (the shell and the fullscreen overlay place it the same way but at different
- * stacking contexts).
+ * stacking contexts). Always decorative — never a pointer target.
  */
 export function AuroraGlow({ className }: { className?: string }) {
   useHydrateAuroraPalette();
   const palette = useAuroraPaletteStore((s) => s.palette);
-  const score = useAuroraSentiment();
+  const { score, dim } = useAuroraSentiment();
   return (
     <div
       data-aurora-glow
@@ -62,7 +52,7 @@ export function AuroraGlow({ className }: { className?: string }) {
       }}
       aria-hidden
     >
-      <Aurora sentiment={score} palette={palette} />
+      <Aurora sentiment={score} dim={dim} palette={palette} />
     </div>
   );
 }

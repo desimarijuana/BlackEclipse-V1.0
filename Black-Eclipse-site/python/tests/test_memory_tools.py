@@ -65,10 +65,11 @@ def env(monkeypatch):
     memory.close()
 
 
-def _ctx(env, user_id="u1", is_skill=False):
+def _ctx(env, user_id="u1", is_skill=False, user_message=""):
     return ToolContext(
         run_id="run_t", log=lambda *_: None, user_id=user_id,
         is_skill_run=is_skill, memory_service=env["memory"], skill_registry=env["skill_registry"],
+        user_message=user_message,
     )
 
 
@@ -84,7 +85,9 @@ def test_promised_tools_are_registered(env):
 
 
 async def test_memory_tool_save_and_search(env):
-    ctx = _ctx(env)
+    # A model save is authorized only when the user turn carried explicit save
+    # intent — the shared decision gate re-checks it.
+    ctx = _ctx(env, user_message="Remember that I prefer terse answers")
     text, data = await env["registry"].get("memory").handler(
         {"action": "save", "content": "User prefers terse answers", "type": "preference", "scope": "user"},
         ctx,
@@ -96,6 +99,18 @@ async def test_memory_tool_save_and_search(env):
         {"action": "search", "query": "terse answers"}, ctx,
     )
     assert data2["count"] >= 1
+
+
+async def test_memory_tool_write_without_user_intent_is_not_saved(env):
+    # The model cannot authorize its own write; without an explicit user request
+    # the proposal is downgraded and nothing is stored.
+    ctx = _ctx(env, user_message="What is the price of AAPL?")
+    _, data = await env["registry"].get("memory").handler(
+        {"action": "save", "content": "User prefers terse answers", "type": "preference", "scope": "user"},
+        ctx,
+    )
+    assert data["saved"] is False
+    assert env["memory"].store.list_memories() == []
 
 
 async def test_memory_tool_rejects_bad_write(env):

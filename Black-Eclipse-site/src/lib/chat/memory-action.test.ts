@@ -38,6 +38,35 @@ describe('buildMemoryRunView', () => {
     expect(view?.action?.kind).toBe('needs_confirmation');
   });
 
+  it('maps a suggested outcome as NOT saved, with the suggestion path', () => {
+    const view = buildMemoryRunView({
+      action: 'suggested',
+      suggestionId: 'sugg_1',
+      suggestionContent: 'I prefer concise answers',
+      suggestionType: 'preference',
+      suggestionScope: 'user',
+      suggestionPath: '/api/eclipse-memory/suggestions',
+      reason: 'possible durable preference',
+    });
+    expect(view?.action?.kind).toBe('suggested');
+    expect(view?.action?.headline).toContain('Not saved');
+    expect(view?.action?.suggestionId).toBe('sugg_1');
+    expect(view?.action?.suggestionPath).toBe('/api/eclipse-memory/suggestions');
+    expect(view?.action?.inspectPath).toBeUndefined();
+  });
+
+  it('maps a full-storage outcome truthfully (not saved)', () => {
+    const view = buildMemoryRunView({ action: 'memory_full', reason: 'memory is full (50/50 active)' });
+    expect(view?.action?.kind).toBe('memory_full');
+    expect(view?.action?.headline).toContain('full');
+    expect(view?.action?.inspectPath).toBeUndefined();
+  });
+
+  it('maps an ambiguous forget/correct as needing clarification', () => {
+    const view = buildMemoryRunView({ action: 'needs_clarification', reason: 'more than one memory matches' });
+    expect(view?.action?.kind).toBe('needs_clarification');
+  });
+
   it('surfaces learning eligibility and always provides the queue path', () => {
     const view = buildMemoryRunView({
       learningEligibility: { eligible: false, reason: 'no tool use', learnQueuePath: '/api/learning/candidates' },

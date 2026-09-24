@@ -42,21 +42,54 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         memory_type = str(args.get("type") or "semantic")
         scope = str(args.get("scope") or "general")
         scope_id = args.get("scope_id") or ctx.user_id
+
+        # The model may PROPOSE a memory, but it cannot authorize its own write.
+        # The shared decision gate re-checks the proposal against the actual user
+        # turn, identity, scope, provenance, category, evidence, privacy rules and
+        # policy. A proposal not backed by explicit user intent is downgraded
+        # (suggest / run_only / ignore) rather than persisted.
+        from .eclipse_memory.decision import authorize_proposal  # noqa: PLC0415
+
         try:
-            memory = svc.write_memory(
-                memory_type=memory_type,
-                content=content,
-                source="explicit_user" if not ctx.is_skill_run else "execution_lesson",
-                scope=scope,
-                scope_id=str(scope_id) if scope_id else None,
-                subject=args.get("subject"),
-                source_run_id=ctx.run_id,
-                confidence=float(args.get("confidence", 0.8)),
-                verification="verified" if args.get("verified") else "unverified",
-                created_by=ctx.user_id or "agent",
+            settings = svc.policy.get_all()
+        except Exception:  # noqa: BLE001 - a policy read failure must fail closed, not open
+            settings = {}
+        decision = authorize_proposal(
+            content=content,
+            provenance="skill_lesson" if ctx.is_skill_run else "memory_tool",
+            user_message=getattr(ctx, "user_message", "") or "",
+            user_id=ctx.user_id,
+            memory_type=memory_type,
+            scope=scope,
+            scope_id=str(scope_id) if scope_id else None,
+            subject=args.get("subject"),
+            confidence=float(args.get("confidence", 0.8)),
+            settings=settings,
+            verified=bool(args.get("verified")),
+        )
+        outcome = svc.commit_decision(decision, run_id=ctx.run_id, user_id=ctx.user_id)
+        if not outcome.get("ok"):
+            if outcome.get("action") == "suggested":
+                return (
+                    "MEMORY NOT SAVED — this looks like durable information, but the user did not "
+                    "explicitly ask to remember it. A suggestion was recorded for the user to "
+                    "Save or Dismiss. Do not claim it was remembered.",
+                    {"saved": False, "outcome": "suggest", "reason": decision.reason},
+                )
+            if outcome.get("action") == "memory_full":
+                return (
+                    f"MEMORY NOT SAVED — {outcome.get('reason')}",
+                    {
+                        "saved": False, "outcome": "memory_full",
+                        "limit": outcome.get("limit"), "active": outcome.get("active"),
+                        "reason": outcome.get("reason"),
+                    },
+                )
+            return (
+                f"MEMORY NOT SAVED — {decision.reason or outcome.get('reason')}",
+                {"saved": False, "outcome": decision.outcome, "reason": decision.reason or outcome.get("reason")},
             )
-        except Exception as exc:  # noqa: BLE001 - a rejected write is honest output
-            return f"MEMORY NOT SAVED — {exc}", {"saved": False, "error": str(exc)}
+        memory = outcome["memory"]
         return (
             f"Memory saved ({memory['memoryType']}/{memory['scope']}) id={memory['id']}.",
             {"saved": True, "id": memory["id"], "memoryType": memory["memoryType"], "scope": memory["scope"]},

@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-18
+last-verified: 2026-09-24
 ---
 
 # Navigation — Where Things Live
@@ -61,6 +61,8 @@ Black-Eclipse-site/
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`, `repo_root`, `db_identity`, `legacy_candidate_paths`), `schema.py` (append a migration tuple), `db.py` (runner + `reconcile_legacy`) |
 | Change explicit memory-intent detection | `python/harness/eclipse_memory/intent.py` (`detect_memory_intent`) wired in `python/harness/graph.py` (`_apply_memory_intent`, `_learning_eligibility`); service apply in `eclipse_memory/service.py` (`apply_explicit_intent`) |
+| Change memory decision/authorization rules (save/suggest/run_only/ignore) | `python/harness/eclipse_memory/decision.py` (`decide_turn`, `authorize_proposal`); every write path routes through `EclipseMemoryService.decide_turn`/`commit_decision` |
+| Work with memory suggestions (Save/Dismiss, inert proposals) | `python/harness/eclipse_memory/{schema,store,service}.py` (`MemorySuggestion`, `create_suggestion`/`accept_suggestion`/`dismiss_suggestion`), routes `src/app/api/eclipse-memory/suggestions/`, UI `src/components/screens/eclipse-memory/eclipse-memory-screen.tsx` (Suggestions tab) |
 | Work on ordinary-chat learning / "Learn from this run" | `python/harness/graph.py` (`learning_eligibility_for_run`, `memory` blob), `python/harness/skills/learning.py` (`explicit_skill_candidate`), route `/learning/eligibility/{runId}`, UI `src/components/chat/memory-action-panel.tsx` + `src/lib/chat/memory-action.ts` |
 | Invoke an enabled skill from chat | `python/harness/memory_tools.py` (`skill_invoke`), `python/harness/skills/runtime.py` (`invoke_skill_from_run`, `list_invocable_skills`); prompt in `python/harness/prompts.py` |
 | Change memory policy / defaults / bounds | `python/harness/eclipse_memory/policy.py` (`DEFAULTS`, `BOUNDS`, `LOCKED_VALUES`); UI `eclipse-memory-screen.tsx` Policies tab |
@@ -161,6 +163,7 @@ Black-Eclipse-site/
 | Add a symbol to the watchlist outside React | `addToWatchlist` in `src/lib/dashboard/watchlist-store.ts` |
 | Create a price alert programmatically | `src/lib/alerts/quick-alert.ts` → `POST /api/alerts` |
 | Change the Aurora glow | `src/components/ui/Aurora.tsx`, `src/lib/aurora-sentiment.ts`, `src/lib/aurora/` |
+| Change the Market Regime model / components / taxonomy | `src/lib/regime/` (`types.ts` contract, `scoring.ts` scoring+confidence+classifier, `client.ts` DataHub hook, `store.ts` scope, `visuals.ts` shader mapping), route `src/app/api/regime/route.ts`, UI `src/components/layout/market-regime-control.tsx` (mounted in `top-bar.tsx`) |
 | Change app theming / branding / design tokens | `src/lib/theme/` (`tokens.ts` model + presets + `themeFromBrandColor` + `deriveThemeColors`, `store.ts` persisted overrides + user presets, `bridge.ts` chart sync/preview) → tabbed panel `src/components/screens/customization-settings.tsx` (embeds `aurora-settings.tsx` + `chart-settings.tsx`); chart palette store/preview `src/lib/chart-palette-store.ts`; token defaults in `src/app/globals.css` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
@@ -211,7 +214,7 @@ Black-Eclipse-site/
 ## By API route group
 
 `stocks` · `quote` · `price-history` · `asset-details` · `symbols` ·
-`markets`(+`global`) · `indices` · `forex` · `commodities` · `heatmap` ·
+`markets`(+`global`) · `indices` · `regime` · `forex` · `commodities` · `heatmap` ·
 `earnings` (embedded calendar, no tab) · `news`(+`status`,`alert`) ·
 `economics`(+`snapshot`,`calendar`) ·
 `search`(+`global`,`index`) · `agent`(+`chat`,`research`,`activity`,`test`) ·
@@ -293,6 +296,7 @@ When a change touches one of these, update the listed doc in the same change:
 | `python/harness/skills/`, `src/lib/harness/skills-*.ts`, `src/components/screens/skills/`, `src/app/api/skills/`, `src/app/api/learning/` | `harness/phase-3-architecture.md`, `harness/phase-3-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `python/harness/eclipse_memory/`, `python/harness/memory_tools.py`, `src/lib/harness/eclipse-memory-*.ts`, `src/components/screens/eclipse-memory/`, `src/app/api/eclipse-memory/` | `harness/phase-3-memory-progress.md`, `harness/architecture.md`, `DECISIONS.md` |
 | `src/components/screens/stock-chat.tsx`, `src/lib/sidebar/config.ts` | `OVERVIEW.md`, `ARCHITECTURE.md` |
+| `src/lib/regime/`, `src/app/api/regime/` | `ARCHITECTURE.md` (Market Regime), `DATA-FLOW.md`, `OVERVIEW.md` |
 | Setup/scripts/`package.json` scripts | `QUICKSTART.md` |
 | A new top-level folder or major module | this file |
 | A new architectural decision | `DECISIONS.md` |

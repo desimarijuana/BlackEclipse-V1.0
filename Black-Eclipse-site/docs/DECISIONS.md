@@ -638,3 +638,31 @@ EPS after a subdivision) that only the model understood.
 `src/lib/harness/{capability,coverage,data-bridge,types}.ts`,
 `src/lib/{web-research,retrieval-diagnostics}.ts`, `scripts/test-python.js`.
 Progress: `docs/harness/phase-4-progress.md` (Phase 8).
+
+---
+
+## ADR-033 — Aurora sentiment becomes an explainable Market Regime (2026)
+**Decision:** The Aurora glow is driven by a transparent **Market Regime** model
+(`src/lib/regime/`) rather than the opaquefixed 60% price / 40% coarse RSS blend.
+A reading is a set of named components (price & breadth, volatility/options,
+macro/risk, news/narrative, positioning), each exposing its score, the weight
+actually used, availability, timestamp, source and confidence. Weights are
+renormalized over the available set; missing inputs lower confidence instead of
+defaulting to neutral, stale inputs are excluded, and a missing core
+price/breadth input makes the whole reading UNAVAILABLE. The taxonomy is
+Risk-on broadening / Fragile rally / Mixed / Risk-off / Narrative shock /
+Unavailable. Scope is explicit (active selected market | US | global), and all
+inputs come from JDDS only via one new contract `GET /api/regime`. The glow
+stays decorative (`pointer-events-none`); a new accessible top-bar control opens
+the interactive frosted-glass breakdown.
+**Why:** The old model was hardwired to US indices, exposed no confidence / data
+age / provenance, mixed fixed weights, and could be influenced by cached or
+fallback data — attractive but not trustworthy. The new model must never present
+simulated/fallback/stale data as live sentiment.
+**Impact:** `src/lib/regime/*`, `src/app/api/regime/route.ts`,
+`src/components/layout/aurora-glow.tsx`,
+`src/components/layout/market-regime-control.tsx`,
+`src/components/layout/top-bar.tsx`, `src/components/ui/Aurora.tsx` (added `dim`),
+`src/components/screens/stock-chat.tsx` (`be:ask-eclipse`). `aurora-sentiment.ts`
+retains its palette/visual helpers. See `docs/ARCHITECTURE.md` › Market Regime.
+

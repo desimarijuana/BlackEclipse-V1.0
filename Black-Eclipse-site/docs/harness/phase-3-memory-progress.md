@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3-M — Eclipse-Memory
 status: Complete
-last-verified: 2026-09-22
+last-verified: 2026-09-24
 ---
 
 # Phase 3-M — Eclipse-Memory: Dedicated Memory, Skills & Controlled Self-Improvement
@@ -300,3 +300,96 @@ and eligibility. `src/lib/chat/memory-action.test.ts` (8).
 All milestones complete. No feature is scaffolded-only: each is exercised by a
 test or a real endpoint. Nothing claims to have learned unless a record was
 persisted.
+
+## Memory selectivity — stop over-saving (2026-09-24)
+
+**Brief.** Eclipse retained too much: incidental preferences, one-off
+instructions and even financial figures became durable memory. Make memory
+retain only information likely to improve future sessions.
+
+**Reproduced cause (temp-DB fixture, never the user's runtime DB).** Feeding nine
+ordinary turns through the deterministic path saved five durable records:
+"I prefer concise answers" → `save`; "Always use X for this task" → `save`;
+"Current price of AAPL is 190, save this" → `save` (a financial fact). Defaults
+`auto_capture_enabled` and `auto_candidate_detection` were `True`, and the model
+`memory` tool called `service.write_memory` directly with no check against the
+actual user message — a model sentence could become memory on its own.
+
+**The shared gate.** `eclipse_memory/decision.py` is now the ONE authorization
+seam, with exactly four outcomes — `save`, `suggest`, `run_only`, `ignore`:
+
+- `decide_turn` handles one user turn (used pre-model by `graph.execute_run` via
+  `EclipseMemoryService.decide_turn` → `commit_decision`). Explicit
+  save/forget/correct commands are always honoured when safe and clear; a
+  one-off ("for this task") is `run_only`; a casual durable mention is at most a
+  suggestion; financial facts are `ignore`.
+- `authorize_proposal` handles proposed writes (the model `memory` tool, UI save,
+  corrections, run analysis). A model proposal is re-checked against the actual
+  user turn: it can `save` only when the turn carried explicit save intent;
+  otherwise it is downgraded to `suggest`/`ignore`. Tool output, retrieved
+  memory, documents and web content are never user intent.
+- Privacy rules (secrets/credentials, sensitive IDs, raw dumps, policy-override
+  attempts) are enforced in the gate for every path, and the refused content is
+  never written to events/diagnostics.
+
+**Explicit controls preserved.** "Remember/save this" still works through the
+separate explicit-intent path even while automatic capture is off. "Forget this"
+archives the target; "correct this" supersedes + links it — history is never
+hard-deleted.
+
+**Policy + migration.** `auto_capture_enabled`, `auto_candidate_detection` and
+the new `auto_suggest_enabled` default **off**. Migration 5 deletes a persisted
+unsafe `true` override for the two pre-existing keys (recording the reset in
+`MemoryPolicyMigration`, surfaced by health/policy UI); every other override and
+all existing records are preserved. A code-default change alone would have left a
+stored `true` in force.
+
+**Suggestions.** A `MemorySuggestion` (migration 6) is an inert, never-recalled
+proposal with a quiet Save/Dismiss control. Accepting writes exactly one scoped
+memory through the gate; dismissing is retained so the same item is not
+re-offered. APIs: `GET /eclipse-memory/suggestions`, `POST
+/eclipse-memory/suggestions/{id}/accept|dismiss` (+ TS proxies + a Suggestions
+tab in the Memory Control Room). The chat `memory` blob gains a `suggested`
+outcome that renders as "Not saved — suggestion".
+
+**Lifecycle / recall.** Recall now renders type, scope, provenance, confidence,
+verification and time where available, excludes low-confidence unverified rows,
+and keeps user/project/market scopes isolated. `list_memories` accepts a
+`source` filter so records produced by the old over-broad defaults can be found
+by provenance and reviewed/archived (never auto-deleted).
+
+**Storage budget (truthful "memory is full").** `max_memories` policy
+(default `0` = unlimited) caps ACTIVE memories. When full, a *new* unique save
+raises `MemoryFullError` / returns a `memory_full` outcome — the system never
+auto-deletes user memory to make room. Inert history (archived/superseded/
+proposed) does not consume the budget; a duplicate re-save and an explicit
+correction (which supersedes in place) are exempt. The state is exposed via
+`memory_budget()` on `GET /eclipse-memory/health` and the `/policies` response
+(`budget`), shown in the Memory Control Room Policies tab, and rendered as a
+"Memory is full — not saved" chat action.
+
+**Tests.** `python/tests/test_memory_selectivity.py` (34) exercises the actual
+write paths: explicit save saves exactly one scoped record; casual preference
+does not save (suggestion only when enabled, never recalled); one-off instruction
+does not save; greetings/Q&A/multi-step tool runs create nothing; financial facts
+via chat and via the model tool are rejected; the model tool cannot self-
+authorize; forget/correct target with supersession and ask when ambiguous;
+duplicates do not accumulate; secrets/injection rejected without storing content;
+a gate failure does not fail chat; explicit "turn into a skill" creates an inert
+candidate only; scope isolation + recall survive a reopen; the storage budget
+fails truthfully without deleting; and decision-quality fixtures report
+false-save and missed-explicit-save rates separately (both zero). Updated
+`test_memory_policy.py` (defaults + migration-5 test), `test_memory_tools.py`,
+`test_phase3m_reliability.py`.
+
+**Checks.** Python **572 passed**; Vitest **1716+ passed**; `npx tsc
+--noEmit` reports 0 errors in the changed files (two pre-existing errors remain in
+the concurrent `src/lib/regime/` work, unrelated to this change).
+
+**Files:** new `python/harness/eclipse_memory/decision.py`,
+`python/tests/test_memory_selectivity.py`,
+`src/app/api/eclipse-memory/suggestions/route.ts`; modified
+`eclipse_memory/{intent,policy,schema,store,service,retrieval}.py`,
+`harness/{graph,main,memory_tools,tools}.py`, `src/lib/harness/eclipse-memory-*`,
+`src/components/screens/eclipse-memory/eclipse-memory-screen.tsx`,
+`src/lib/chat/memory-action.ts` + panel.

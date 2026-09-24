@@ -121,6 +121,7 @@ def build_graph(
         run_id=request.runId,
         log=lambda m, d=None: None,
         user_id=request.userId,
+        user_message=request.input.query,
         # A skill run is composed with an agent id of the form `skill:<id>`; its
         # memory saves carry execution-lesson provenance, not explicit-user.
         is_skill_run=agent.id.startswith("skill:"),
@@ -719,63 +720,23 @@ async def _apply_memory_intent(
     memory_service: Optional[Any],
     emitter: RunEmitter,
 ) -> Optional[dict[str, Any]]:
-    """Detect and apply an explicit memory intent for this turn.
+    """Run the shared memory decision gate for this turn and act on it.
 
+    Every turn goes through `EclipseMemoryService.decide_turn` (the ONE write
+    gate). An explicit "remember/forget/correct" command is always honoured when
+    safe and clear; a casual durable mention may at most create an inert
+    suggestion; anything else is `run_only`/`ignore` and writes nothing.
     Deterministic; never raises. Returns a bounded outcome dict for the run
-    blob, or None when no explicit intent is present.
+    blob, or None when there is nothing user-visible.
     """
     if memory_service is None:
         return None
-    # Policy gate: explicit-intent capture can be turned off entirely. This is a
-    # narrow, high-confidence path (never capture-every-turn); disabling it means
-    # the model's own `memory` tool remains the only route.
     try:
-        if not memory_service.policy.get("auto_capture_enabled"):
-            return None
-    except Exception:  # noqa: BLE001 - a policy read failure must not break a run
-        return None
-    try:
-        from .eclipse_memory.intent import detect_memory_intent
-
-        prior = bool(
-            getattr(memory_service.store, "list_memories", None)
-            and memory_service.store.list_memories(scope_id=request.userId, limit=1, include_inactive=False)
-        )
-        intent = detect_memory_intent(
+        decision = memory_service.decide_turn(
             request.input.query,
             user_id=request.userId,
-            assistant_text=None,
-            has_prior_memory=prior,
+            is_skill_run=False,
         )
-        if not intent.detected:
-            return None
-        if intent.action == "skill":
-            # A "turn this into a skill" request is a learning action, not a
-            # memory write. The run remains the source; the chat surface offers
-            # the explicit "Learn from this run" action.
-            await emitter.emit("memory.skill_requested", {"runId": request.runId})
-            return {
-                "action": "skill_requested", "ok": False,
-                "reason": "explicit turn-into-skill request",
-                "requiresConfirmation": False, "refused": False,
-            }
-        outcome = memory_service.apply_explicit_intent(
-            intent, run_id=request.runId, user_id=request.userId
-        )
-        event_type = {
-            "saved": "memory.explicit_saved",
-            "forgotten": "memory.explicit_forgotten",
-            "corrected": "memory.explicit_corrected",
-            "refused": "memory.intent_refused",
-            "needs_confirmation": "memory.intent_needs_confirmation",
-        }.get(outcome.get("action"))
-        if event_type:
-            await emitter.emit(event_type, {
-                "runId": request.runId,
-                "action": outcome.get("action"),
-                "refused": bool(outcome.get("action") == "refused"),
-            })
-        return _outcome_blob(outcome, intent)
     except Exception as exc:  # noqa: BLE001 - memory must never break a run
         try:
             await emitter.emit("memory.intent_failed", {"error": str(exc)})
@@ -783,16 +744,58 @@ async def _apply_memory_intent(
             pass
         return None
 
+    if decision.outcome in ("ignore", "run_only") and not decision.refused:
+        # Nothing durable: leave the turn uncluttered. A skill request is
+        # surfaced so the chat can offer "Learn from this run".
+        if decision.action == "skill":
+            await emitter.emit("memory.skill_requested", {"runId": request.runId})
+            return {
+                "outcome": "run_only", "action": "skill_requested", "ok": False,
+                "reason": decision.reason, "requiresConfirmation": False, "refused": False,
+            }
+        return None
 
-def _outcome_blob(outcome: dict[str, Any], intent: Any) -> dict[str, Any]:
+    try:
+        outcome = memory_service.commit_decision(
+            decision, run_id=request.runId, user_id=request.userId
+        )
+    except Exception as exc:  # noqa: BLE001 - memory must never break a run
+        try:
+            await emitter.emit("memory.intent_failed", {"error": str(exc)})
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    event_type = {
+        "saved": "memory.explicit_saved",
+        "forgotten": "memory.explicit_forgotten",
+        "corrected": "memory.explicit_corrected",
+        "suggested": "memory.suggested",
+        "needs_clarification": "memory.intent_needs_clarification",
+        "refused": "memory.intent_refused",
+        "ignored": "memory.intent_ignored",
+        "run_only": "memory.intent_run_only",
+    }.get(outcome.get("action"))
+    if event_type:
+        await emitter.emit(event_type, {
+            "runId": request.runId,
+            "action": outcome.get("action"),
+            "outcome": outcome.get("outcome"),
+            "refused": bool(outcome.get("action") == "refused"),
+        })
+    return _outcome_blob(outcome, decision)
+
+
+def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:
     memory = outcome.get("memory") or {}
     blob: dict[str, Any] = {
+        "outcome": outcome.get("outcome"),
         "action": outcome.get("action"),
         "ok": bool(outcome.get("ok")),
         "refused": bool(outcome.get("action") == "refused"),
         "requiresConfirmation": bool(outcome.get("action") == "needs_confirmation"),
-        "reason": outcome.get("reason") or intent.reason,
-        "matchedPhrase": getattr(intent, "matched_phrase", ""),
+        "reason": outcome.get("reason") or getattr(decision, "reason", ""),
+        "matchedPhrase": getattr(decision, "matched_phrase", ""),
     }
     if memory.get("id"):
         blob["memoryId"] = memory["id"]
@@ -802,10 +805,19 @@ def _outcome_blob(outcome: dict[str, Any], intent: Any) -> dict[str, Any]:
         blob["contentPreview"] = (memory.get("content") or "")[:400]
         blob["inspectPath"] = f"/api/eclipse-memory/memories/{memory['id']}"
         blob["undoPath"] = f"/api/eclipse-memory/memories/{memory['id']}/archive"
+    suggestion = outcome.get("suggestion") or {}
+    if suggestion.get("id"):
+        blob["suggestionId"] = suggestion["id"]
+        blob["suggestionContent"] = suggestion.get("content")
+        blob["suggestionType"] = suggestion.get("memoryType")
+        blob["suggestionScope"] = suggestion.get("scope")
+        blob["suggestionPath"] = "/api/eclipse-memory/suggestions"
     if outcome.get("superseded"):
         blob["supersededMemoryId"] = outcome["superseded"]
     if outcome.get("archived"):
         blob["archivedMemoryIds"] = outcome["archived"]
+    if outcome.get("candidates"):
+        blob["ambiguousMemoryIds"] = outcome["candidates"]
     return blob
 
 

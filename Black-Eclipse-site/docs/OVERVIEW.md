@@ -124,9 +124,11 @@ These are product promises, not style preferences:
   visible `DEMO` banner.
 - **Zero-config must keep working.** Any change that makes `npm run dev` require
   setup breaks the core promise.
-- **The Aurora glow is the market-state indicator.** It reflects blended market
-  (60%) + news (40%) sentiment, green-on-black. It is a visual USP — see
-  `src/lib/aurora-sentiment.ts`.
+- **The Aurora glow is the market-state indicator.** It reflects an explainable
+  **Market Regime** reading (risk-on broadening … risk-off, plus an honest
+  UNAVAILABLE state), green-on-black. The glow is decorative; the top-bar
+  **Market Regime** control opens the interactive breakdown. See
+  `src/lib/regime/`.
 
 ## Where to go next
 

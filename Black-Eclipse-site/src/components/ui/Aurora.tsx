@@ -131,6 +131,12 @@ export interface AuroraProps {
    * to the shipped default. Only applied when `sentiment` is set.
    */
   palette?: AuroraPalette | null;
+  /**
+   * Signal scale in [0, 1] — a calm/dim factor for low-confidence readings
+   * (e.g. an UNAVAILABLE regime). 1 = full glow, lower values reduce amplitude.
+   * Only applied when `sentiment` is set.
+   */
+  dim?: number;
 }
 
 export default function Aurora(props: AuroraProps) {
@@ -220,7 +226,10 @@ export default function Aurora(props: AuroraProps) {
       // Resolve the effective palette + motion. Sentiment drives continuous
       // interpolation; without it the legacy static props are used verbatim.
       const vis = useSentiment ? resolveAuroraVisuals(sentimentRef.current, current.palette) : null;
-      const effectiveAmplitude = vis ? vis.amplitude : (current.amplitude ?? amplitude);
+      const dim = vis && typeof current.dim === 'number' && Number.isFinite(current.dim)
+        ? Math.max(0, Math.min(1, current.dim))
+        : 1;
+      const effectiveAmplitude = vis ? vis.amplitude * dim : (current.amplitude ?? amplitude);
       const effectiveSpeed = vis ? vis.speed : (current.speed ?? 1.0);
       const effectiveBlend = vis ? vis.blend : (current.blend ?? blend);
       const stops = vis ? vis.colorStops : (current.colorStops ?? colorStops);

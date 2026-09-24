@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-09-21
+last-verified: 2026-09-24
 ---
 
 # Harness Decisions
@@ -643,8 +643,51 @@ way to actually run one; pretending discovery equals use was misleading.
 this path; only enabled skills are invocable; the child's `skill.*` events ride
 the parent's SSE stream.
 
-## ADR-H7 — Zero-config is preserved via automatic provisioning
+## ADR-H37 — One shared memory decision gate; durable memory is opt-in and selective
 
+**Decision.** Every path that can create or alter a durable memory, a
+suggestion, a correction/forget action, or a learning candidate passes through a
+single server-side decision gate (`python/harness/eclipse_memory/decision.py`)
+that returns exactly one of four outcomes:
+
+- `save` — high-value, durable, clearly-intended, safe; persist now;
+- `suggest` — possibly durable, but intent/scope unclear; do NOT persist, show a
+  quiet Save/Dismiss control (an inert `MemorySuggestion` row);
+- `run_only` — relevant to this task/conversation only;
+- `ignore` — low-value, redundant, temporary, unsafe, unsupported or irrelevant.
+
+The gate validates a proposal against the actual user message, identity, scope,
+provenance, category, evidence, duplication, sensitivity, policy and privacy
+rules. The deterministic explicit-command path (clear "remember/forget/correct")
+is always honoured when safe and clear; a casual durable mention is at most a
+suggestion. The model-facing `memory` tool may *propose* but cannot authorize its
+own write — the gate re-checks it against the user turn, and tool output,
+retrieved memory, attached documents and web content are never user intent.
+Financial facts (prices, valuations, earnings, predictions, unverified claims)
+are never durable memory. Automatic memory capture, automatic candidate
+detection and automatic suggestions all default **off**; turning them on is an
+explicit operator choice that still only produces inert records.
+
+**Why.** The Phase 3-M reliability pass made capture deterministic but too eager:
+`auto_capture_enabled`/`auto_candidate_detection` defaulted on, an incidental "I
+prefer …" or "Always use X" classified as an explicit save, and the `memory` tool
+wrote straight to the service pipeline with no check against the user's actual
+words. The result was a database that filled with incidental, task-specific and
+occasionally financial text — exactly what a durable memory must not contain.
+
+**Consequences.** One code path authorizes every write, so a new surface cannot
+quietly bypass the rules. Explicit controls stay dependable; everything else is
+selective and usually `run_only`/`ignore`. A persisted unsafe `true` policy
+override is migrated to the safe default (migration 5, recorded in
+`MemoryPolicyMigration`) rather than silently continuing the old behaviour. The
+storage budget (`max_memories`, default unlimited) fails a new unique save
+truthfully as `memory_full` rather than auto-deleting user memory; inert history
+does not consume it. The learning path is distinct: a skill candidate is an
+on-demand procedure created only through an explicit "turn this into a skill"
+request or the operator's "Learn from this run" action (automatic detection
+opt-in), never a second memory note.
+
+## ADR-H7 — Zero-config is preserved via automatic provisioning
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely
 unavailable, runs fail with a clear 503.

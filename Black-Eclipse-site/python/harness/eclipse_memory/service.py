@@ -32,9 +32,21 @@ from .policy import PolicyStore
 from .retrieval import RetrievalResult, retrieve_memories
 from .store import MEMORY_TYPES, EclipseMemoryStore
 
-
 class MemoryWriteError(ValueError):
     """A memory write was rejected by the pipeline (never silently dropped)."""
+
+
+class MemoryFullError(MemoryWriteError):
+    """The active-memory storage budget is reached.
+
+    A distinct, truthful failure: user memory is never auto-evicted to make
+    room. The caller surfaces "memory is full" and the user reviews/archives.
+    """
+
+    def __init__(self, message: str, *, limit: int, active: int) -> None:
+        super().__init__(message)
+        self.limit = limit
+        self.active = active
 
 
 # Sources that justify persisting a memory. Anything else is refused, so the
@@ -108,6 +120,15 @@ class EclipseMemoryService:
                 )
                 return existing
 
+        # 5b. Storage budget. A duplicate return above does not consume budget;
+        # a genuinely new record must fit. The budget is never enforced by
+        # auto-deleting user memory — the write fails truthfully instead. A
+        # correction is exempt: it supersedes an existing record right after, so
+        # it does not grow the retained set, and blocking an explicit correction
+        # would be worse than a temporarily over-full count.
+        if source != "user_correction":
+            self._check_budget()
+
         memory = self.store.save_memory(
             memory_type=memory_type, scope=scope, content=text_value,
             scope_id=scope_id, subject=subject, structured_data=structured_data,
@@ -170,6 +191,54 @@ class EclipseMemoryService:
             ) == signature:
                 return memory
         return None
+
+    def _active_memory_count(self) -> int:
+        try:
+            row = self.store._db.execute(
+                "SELECT COUNT(*) FROM MemoryRecord WHERE status='active'"
+            ).fetchone()
+            return int(row[0]) if row else 0
+        except Exception:  # noqa: BLE001 - a count failure must not block a write
+            return 0
+
+    def _check_budget(self) -> None:
+        """Fail a genuinely new write truthfully when the storage budget is full.
+
+        The budget counts ACTIVE memories; inert history (archived/superseded/
+        proposed) does not consume it. User memory is never auto-deleted to make
+        room — the caller must surface the honest full state.
+        """
+        try:
+            limit = int(self.policy.get("max_memories") or 0)
+        except Exception:  # noqa: BLE001
+            limit = 0
+        if limit <= 0:
+            return
+        active = self._active_memory_count()
+        if active >= limit:
+            self.store.append_memory_event(
+                "memory.budget_full", data={"limit": limit, "active": active}
+            )
+            raise MemoryFullError(
+                f"memory is full ({active}/{limit} active). Archive or review memories "
+                "to free space — existing memory is never deleted automatically.",
+                limit=limit, active=active,
+            )
+
+    def memory_budget(self) -> dict[str, Any]:
+        """The current storage-budget state, for health/policy UI."""
+        try:
+            limit = int(self.policy.get("max_memories") or 0)
+        except Exception:  # noqa: BLE001
+            limit = 0
+        active = self._active_memory_count()
+        return {
+            "limit": limit,
+            "active": active,
+            "unlimited": limit <= 0,
+            "full": bool(limit > 0 and active >= limit),
+            "remaining": None if limit <= 0 else max(0, limit - active),
+        }
 
     # ── Retrieval pipeline ──────────────────────────────────────────────────
 
@@ -245,6 +314,123 @@ class EclipseMemoryService:
 
     # ── Explicit user intent (deterministic post-run path) ──────────────────
 
+    def decide_turn(
+        self,
+        user_text: str,
+        *,
+        user_id: Optional[str] = None,
+        is_skill_run: bool = False,
+    ) -> Any:
+        """Run the shared decision gate for one user turn.
+
+        Reads policy + recent-dismissal state; never writes. Returns a
+        `MemoryDecision`. Every write path must consult this gate.
+        """
+        from .decision import content_signature, decide_turn as _decide  # noqa: PLC0415
+
+        settings = self.policy.get_all()
+        recently_dismissed = False
+        try:
+            sig = content_signature(user_text)
+            existing = self.store.find_suggestion_by_signature(sig)
+            recently_dismissed = bool(existing and existing.get("status") == "dismissed")
+        except Exception:  # noqa: BLE001 - dismissal lookup must never block a run
+            recently_dismissed = False
+        prior = False
+        try:
+            prior = bool(self.store.list_memories(scope_id=user_id, limit=1, include_inactive=False))
+        except Exception:  # noqa: BLE001
+            prior = False
+        return _decide(
+            user_text, user_id=user_id, settings=settings,
+            has_prior_memory=prior, recently_dismissed=recently_dismissed,
+            is_skill_run=is_skill_run,
+        )
+
+    def create_suggestion(
+        self,
+        decision: Any,
+        *,
+        run_id: Optional[str] = None,
+        scope_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Persist an INERT suggestion (never recalled, never a memory record).
+
+        Deduplicated by signature; a previously dismissed suggestion is not
+        re-created.
+        """
+        from .decision import content_signature  # noqa: PLC0415
+
+        signature = content_signature(decision.content)
+        existing = self.store.find_suggestion_by_signature(signature)
+        if existing:
+            status = existing.get("status")
+            if status == "pending":
+                return existing
+            # A dismissed/decided suggestion is not silently re-offered.
+            return {**existing, "alreadyDecided": True}
+        suggestion_id = self.store.save_suggestion({
+            "runId": run_id,
+            "scope": decision.scope,
+            "scopeId": decision.scope_id or scope_id,
+            "subject": decision.subject,
+            "memoryType": decision.memory_type,
+            "content": decision.content,
+            "reason": decision.reason,
+            "provenance": decision.provenance,
+            "confidence": decision.confidence,
+            "signature": signature,
+            "status": "pending",
+        })
+        self.store.append_memory_event(
+            "memory.suggested", run_id=run_id,
+            data={"suggestionId": suggestion_id, "reason": decision.reason},
+        )
+        return self.store.get_suggestion(suggestion_id) or {"id": suggestion_id}
+
+    def accept_suggestion(self, suggestion_id: str, *, user_id: Optional[str] = None) -> dict[str, Any]:
+        """Accept a suggestion → write one scoped memory, mark it accepted."""
+        from .decision import authorize_proposal  # noqa: PLC0415
+
+        suggestion = self.store.get_suggestion(suggestion_id)
+        if suggestion is None:
+            return {"ok": False, "action": "not_found", "reason": "suggestion not found"}
+        if suggestion["status"] != "pending":
+            return {"ok": False, "action": suggestion["status"], "reason": "suggestion already decided"}
+        scope_id = suggestion.get("scopeId") or user_id
+        decision = authorize_proposal(
+            content=suggestion["content"], provenance="ui_save",
+            user_id=user_id, memory_type=suggestion["memoryType"],
+            scope=suggestion["scope"], scope_id=scope_id, subject=suggestion.get("subject"),
+            confidence=suggestion.get("confidence") or 0.5,
+            settings=self.policy.get_all(),
+        )
+        if decision.outcome != "save":
+            self.store.set_suggestion_status(suggestion_id, "dismissed")
+            return {"ok": False, "action": "refused", "reason": decision.reason}
+        memory = self.write_memory(
+            memory_type=decision.memory_type, content=decision.content,
+            source="explicit_user", scope=decision.scope, scope_id=scope_id,
+            subject=decision.subject, confidence=decision.confidence,
+            importance=decision.importance, verification="unverified",
+            created_by=user_id or "user",
+        )
+        self.store.set_suggestion_status(suggestion_id, "accepted")
+        self.store.append_memory_event(
+            "memory.suggestion_accepted", memory_id=memory["id"],
+            data={"suggestionId": suggestion_id},
+        )
+        return {"ok": True, "action": "saved", "memory": memory}
+
+    def dismiss_suggestion(self, suggestion_id: str) -> dict[str, Any]:
+        suggestion = self.store.set_suggestion_status(suggestion_id, "dismissed")
+        if suggestion is None:
+            return {"ok": False, "action": "not_found"}
+        self.store.append_memory_event(
+            "memory.suggestion_dismissed", data={"suggestionId": suggestion_id}
+        )
+        return {"ok": True, "action": "dismissed", "suggestion": suggestion}
+
     def apply_explicit_intent(
         self,
         intent: Any,
@@ -319,7 +505,13 @@ class EclipseMemoryService:
             return {"ok": True, "action": "saved", "memory": memory}
 
         if intent.action == "correct":
-            target = self._find_target_memory(intent, scope_id)
+            target, ambiguous = self._resolve_target(intent, scope_id)
+            if ambiguous:
+                return {
+                    "ok": False, "action": "needs_clarification",
+                    "reason": "more than one stored memory matches; specify which one to correct",
+                    "candidates": [m["id"] for m in ambiguous],
+                }
             result = self.record_correction(
                 wrong=(intent.metadata.get("priorAssistantText") or "").strip()
                 or (target["content"] if target else ""),
@@ -335,40 +527,111 @@ class EclipseMemoryService:
                     "superseded": target["id"] if target else None}
 
         if intent.action == "forget":
-            archived = self._forget_matching(intent, scope_id, run_id=run_id)
-            return {"ok": True, "action": "forgotten", "archived": archived}
+            outcome = self._forget_matching(intent, scope_id, run_id=run_id)
+            return outcome
 
         return {"ok": False, "action": "unsupported", "reason": f"unknown action {intent.action!r}"}
 
-    def _find_target_memory(self, intent: Any, scope_id: Optional[str]) -> Optional[dict[str, Any]]:
+    def commit_decision(
+        self,
+        decision: Any,
+        *,
+        run_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """The ONE write entry point for a `MemoryDecision`.
+
+        Only a ``save`` decision with a memory action persists. A ``suggest``
+        decision creates an inert suggestion (no durable memory). ``run_only``
+        and ``ignore`` write nothing and return an honest outcome. Corrections
+        and forgets preserve history (supersede/archive), never hard-delete.
+        """
+        if decision.outcome == "ignore":
+            if decision.refused:
+                self.store.append_memory_event(
+                    "memory.intent_refused", run_id=run_id,
+                    data={"action": decision.action, "reason": decision.reason},
+                )
+            return {
+                "ok": False, "action": "refused" if decision.refused else "ignored",
+                "outcome": "ignore", "reason": decision.reason,
+                "financial": decision.financial,
+            }
+        if decision.outcome == "run_only":
+            return {"ok": False, "action": "run_only", "outcome": "run_only", "reason": decision.reason}
+        if decision.outcome == "suggest":
+            suggestion = self.create_suggestion(decision, run_id=run_id, scope_id=user_id)
+            return {
+                "ok": False, "action": "suggested", "outcome": "suggest",
+                "reason": decision.reason, "suggestion": suggestion,
+            }
+
+        # outcome == "save"
+        intent = _decision_to_intent(decision)
+        try:
+            return self.apply_explicit_intent(intent, run_id=run_id, user_id=user_id)
+        except MemoryFullError as exc:
+            self.store.append_memory_event(
+                "memory.budget_full", run_id=run_id,
+                data={"limit": exc.limit, "active": exc.active},
+            )
+            return {
+                "ok": False, "action": "memory_full", "outcome": "save",
+                "reason": str(exc), "limit": exc.limit, "active": exc.active,
+            }
+
+    def _resolve_target(
+        self, intent: Any, scope_id: Optional[str]
+    ) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
+        """Resolve the single memory a correct/forget request targets.
+
+        Returns `(target, ambiguous)`. When more than one eligible memory
+        matches, `target` is None and `ambiguous` holds the candidates so the
+        caller can ask rather than changing several records.
+        """
         result = self.retrieve(
             query=intent.content, subject=intent.subject,
             scope_id=scope_id, actor_scope="user" if scope_id else None,
-            limit=1, run_id=None,
+            limit=5, run_id=None,
         )
-        return result.memories[0] if result.memories else None
+        if not result.memories:
+            return None, []
+        if len(result.memories) > 1:
+            # An exact subject match narrows an otherwise-ambiguous set.
+            if intent.subject:
+                exact = [m for m in result.memories if (m.get("subject") or "").lower() == int(intent.subject)]
+                if len(exact) == 1:
+                    return exact[0], []
+            return None, result.memories
+        return result.memories[0], []
 
     def _forget_matching(
         self, intent: Any, scope_id: Optional[str], *, run_id: Optional[str]
-    ) -> list[str]:
-        """Archive the memories a forget request targets (never hard-delete)."""
+    ) -> dict[str, Any]:
+        """Archive the single memory a forget request targets (never hard-delete).
+
+        An ambiguous request (more than one eligible match) asks for
+        clarification instead of archiving several records.
+        """
         query = (intent.metadata.get("target") or intent.content or "").strip()
         if not query:
-            return []
-        result = self.retrieve(
-            query=query, subject=intent.subject,
-            scope_id=scope_id, actor_scope="user" if scope_id else None,
-            limit=5, run_id=run_id,
+            return {"ok": False, "action": "needs_clarification",
+                    "reason": "no memory target was specified"}
+        target, ambiguous = self._resolve_target(intent, scope_id)
+        if ambiguous:
+            return {
+                "ok": False, "action": "needs_clarification",
+                "reason": "more than one stored memory matches; specify which one to forget",
+                "candidates": [m["id"] for m in ambiguous],
+            }
+        if target is None:
+            return {"ok": True, "action": "forgotten", "archived": []}
+        self.store.archive_memory(target["id"], status="archived")
+        self.store.append_memory_event(
+            "memory.explicit_forgotten", memory_id=target["id"], run_id=run_id,
+            data={"query": query[:200]},
         )
-        archived: list[str] = []
-        for memory in result.memories:
-            self.store.archive_memory(memory["id"], status="archived")
-            self.store.append_memory_event(
-                "memory.explicit_forgotten", memory_id=memory["id"], run_id=run_id,
-                data={"query": query[:200]},
-            )
-            archived.append(memory["id"])
-        return archived
+        return {"ok": True, "action": "forgotten", "archived": [target["id"]]}
 
     # ── Post-run analysis (policy-gated, deterministic, never auto-enables) ──
 
@@ -527,13 +790,36 @@ class EclipseMemoryService:
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def health(self) -> dict[str, Any]:
-        return self.store.health()
+        return {**self.store.health(), "memoryBudget": self.memory_budget()}
 
     def migration_status(self) -> dict[str, Any]:
         return self.store.migration_status()
 
     def close(self) -> None:
         self.store.close()
+
+
+def _decision_to_intent(decision: Any) -> Any:
+    """Adapt an authorized `MemoryDecision` to the `MemoryIntent` shape that
+    `apply_explicit_intent` consumes. The decision has already passed the gate,
+    so this is a lossless structural mapping — never a second authorization."""
+    from .intent import MemoryIntent
+
+    return MemoryIntent(
+        action=decision.action or "save",
+        content=decision.content,
+        memory_type=decision.memory_type,
+        scope=decision.scope,
+        scope_id=decision.scope_id,
+        subject=decision.subject,
+        confidence=decision.confidence,
+        requires_confirmation=False,
+        refused=False,
+        reason=decision.reason,
+        matched_phrase=decision.matched_phrase,
+        generalizable=False,
+        metadata=dict(decision.metadata),
+    )
 
 
 def _content_signature(
@@ -552,4 +838,4 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".000Z"
 
 
-__all__ = ["EclipseMemoryService", "MemoryWriteError", "VALID_SOURCES"]
+__all__ = ["EclipseMemoryService", "MemoryFullError", "MemoryWriteError", "VALID_SOURCES"]

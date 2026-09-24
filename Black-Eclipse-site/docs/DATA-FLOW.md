@@ -222,7 +222,9 @@ If you add a bulk job, follow those same rules or you will freeze the site.
    timer.
 
 `market:indices:US` is registered in `stock-chat.tsx` directly so the Aurora glow
-has sentiment data on every tab, even cold-booting into chat.
+has sentiment data on every tab, even cold-booting into chat. The Market Regime
+glow/panel subscribes to `regime:<scope>:<market>` topics (`/api/regime`), which
+read JDDS server-side and are keyed per scope/market.
 
 ### Path B: Direct fetch (full-page screens)
 
