@@ -165,12 +165,22 @@ def classify_effect(
     """Decide a tool's effect class and how it was decided.
 
     Precedence:
-      1. an operator-declared effect in the server config (`declared`);
-      2. MCP `annotations.read_only_hint` / `destructive_hint` (`annotation`);
+      1. an operator-declared effect in the server config (`declared`) — the ONLY
+         trusted source;
+      2. MCP annotations, which are server-provided and UNTRUSTED;
       3. otherwise `unknown` (`assumed`).
 
-    Only `read` is activatable in this slice. A tool the server does not mark
-    read-only is NOT assumed safe.
+    Annotations only ever DEGRADE trust or inform the operator's review:
+      * `destructive_hint=True`  → `external_action` (never activatable here);
+      * `read_only_hint=False`   → `write` (never activatable here);
+      * `read_only_hint=True`    → `read` **pending explicit confirmation
+        (see `manager`)** — the hint alone must NOT activate a tool, because a
+        server can lie. Activation additionally requires the operator to declare
+        the effect or confirm the catalog digest;
+      * any other combination     → `unknown`.
+
+    The returned `effect_source` is `"declared"` | `"annotation"` | `"assumed"`
+    so the manager/UI can require confirmation for annotation-sourced effects.
     """
     if declared in ("read", "write", "external_action", "unknown"):
         return declared, EFFECT_SOURCE_DECLARED  # type: ignore[return-value]
@@ -179,11 +189,10 @@ def classify_effect(
     destructive = getattr(annotations, "destructive_hint", None)
     if destructive is True:
         return "external_action", EFFECT_SOURCE_ANNOTATION
-    if read_only is True:
-        return "read", EFFECT_SOURCE_ANNOTATION
-    # An explicit `read_only_hint=False` is a positive signal of a non-read tool.
     if read_only is False:
         return "write", EFFECT_SOURCE_ANNOTATION
+    if read_only is True:
+        return "read", EFFECT_SOURCE_ANNOTATION
     return "unknown", EFFECT_SOURCE_ASSUMED
 
 

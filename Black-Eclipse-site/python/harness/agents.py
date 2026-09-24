@@ -60,6 +60,13 @@ ECLIPSE_AGENT = AgentConfig(
     # timing out, while still bounding any runaway call.
     toolTimeoutMs=30_000,
     runTimeoutMs=120_000,
+    # MCP is a user-directed extension surface: the default agent may call the
+    # MCP tools the operator has enabled and selected. This opt-in expands ONLY
+    # to tools currently registered under the `mcp_` namespace (enabled server +
+    # explicitly selected + read-only effect); it does not grant a tool that is
+    # merely discovered. Custom agents and skills do NOT set this and keep their
+    # exact allowlists.
+    allowMcpTools=True,
 )
 
 AGENT_PRESETS: dict[str, AgentConfig] = {

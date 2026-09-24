@@ -508,6 +508,34 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 7 — one coherent learning lifecycle. Automatic memory capture and
+# automatic skill learning are now each controlled by a single *mode* key
+# (`memory_mode`, `skill_learning_mode`: automatic_selective | ask_before_saving
+# | off) rather than three independent booleans that could drift out of sync.
+# The legacy boolean rows are removed so the mode defaults govern; a previously
+# stored `true` (already reset by migration 5) is preserved as the matching
+# automatic_selective intent. The removal is recorded so it is observable in the
+# policy/migration UI. Idempotent: re-running finds nothing left to delete.
+MIGRATIONS.append(
+    (
+        7,
+        [
+            """
+            INSERT INTO MemoryPolicyMigration (key, previousValue, reason, resetAt)
+              SELECT key, value,
+                     'legacy automatic-learning boolean replaced by learning mode',
+                     strftime('%Y-%m-%dT%H:%M:%SZ','now')
+              FROM MemoryPolicy
+              WHERE key IN ('auto_capture_enabled', 'auto_suggest_enabled', 'auto_candidate_detection');
+            """,
+            """
+            DELETE FROM MemoryPolicy
+              WHERE key IN ('auto_capture_enabled', 'auto_suggest_enabled', 'auto_candidate_detection');
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

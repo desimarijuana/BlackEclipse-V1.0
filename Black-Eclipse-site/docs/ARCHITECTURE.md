@@ -317,6 +317,26 @@ Pakistan benchmarks are `provider: 'psx'` and served by
 (`dps.psx.com.pk/historical` for daily OHLC, `/timeseries/eod/<sym>` for the
 latest quote).
 
+### Live prices are read-through, not scrape-cadence-bound
+
+`Price` is written by the background cycle on a ~15-minute interval
+(`DEFAULT_INTERVAL_MIN`), but the chart panels, header ribbon and portfolio poll
+`/api/quote` every 30 seconds. Serving the stored row alone therefore made "live"
+prices up to 15 minutes stale while appearing to poll. `src/lib/scraper/live-quote.ts`
+closes that gap with a **bounded read-through**: for any non-index asset whose
+stored row is older than `STORED_QUOTE_FRESH_MS` (60s), `/api/quote` fetches the
+live price from Yahoo's chart `meta.regularMarketPrice` (one browser-UA HTTP
+request via `scraper/yahoo-chart.ts` — deliberately **not** the Python bridge,
+which is too slow per-call for a 30s poll). A 15-second shared in-memory cache
+plus in-flight dedup means many clients share one upstream call per TTL window,
+so frequent polling never fans out into a request storm. Indices still resolve
+from `IndexQuote`; PSX benchmarks still use their exchange endpoint.
+
+The read-through never fabricates: a failed fetch returns nothing and the stored
+row is served under its real `Price.source` / `updatedAt`, so the UI can show it
+as stale rather than pretending it is live. This mirrors (and is consistent with)
+the timeframe-aware cache on the candle path — see `chart/price-history-ttl.ts`.
+
 ### `Price.volume` is not one unit — turnover is the comparable metric
 
 `Price.volume` means different things depending on how the market was ingested:

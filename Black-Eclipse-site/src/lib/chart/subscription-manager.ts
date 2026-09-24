@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 import type { ChartData, PriceBar, Timeframe } from '@/lib/chart/types';
 import { timeframeToYahoo } from '@/lib/chart/types';
-
+import { ttlForInterval } from '@/lib/chart/price-history-ttl';
 export type DataSource = 'LIVE' | 'DELAYED' | 'DEMO' | 'CLOSED' | 'UNAVAILABLE';
 
 export interface BarsEntry {
@@ -35,8 +35,37 @@ export interface QuoteEntry {
   at: number | null;
 }
 
-const BARS_TTL = 10 * 60 * 1000;
 const QUOTE_POLL_MS = 30_000;
+
+/**
+ * Bars cache lifetime for a timeframe. Intraday candles go stale within
+ * seconds, so a flat 10-minute TTL made the candle chart visibly lag the live
+ * price. The interval mapping is shared with the server cache
+ * (`price-history-ttl.ts`) so both sides agree. Daily/weekly/monthly keep the
+ * long TTL (a day bar does not change intraday).
+ */
+export function barsTtl(timeframe: Timeframe): number {
+  return ttlForInterval(timeframeToYahoo(timeframe).interval);
+}
+
+/**
+ * Silent auto-refresh cadence for intraday timeframes (0 = none). Bounded below
+ * by the bar size so we never poll faster than the series can change; daily and
+ * above need no timer (the market-open refresh below covers them).
+ */
+export function barsRefreshMs(timeframe: Timeframe): number {
+  switch (timeframe) {
+    case '1m':
+    case '3m': return 60_000;
+    case '5m': return 2 * 60_000;
+    case '15m':
+    case '30m': return 5 * 60_000;
+    case '1H':
+    case '2H':
+    case '4H': return 10 * 60_000;
+    default: return 0;
+  }
+}
 
 interface PriceHistoryResponse {
   symbol: string;
@@ -80,6 +109,9 @@ interface BarsState {
   lastFetch: number;
   inFlight: Promise<void> | null;
   nonce: number;
+  /** Intraday auto-refresh timer (0/none for daily+). */
+  timer: ReturnType<typeof setInterval> | null;
+  timeframe: Timeframe;
 }
 
 interface QuoteState {
@@ -108,13 +140,26 @@ export class DataSubscriptionManager {
         lastFetch: 0,
         inFlight: null,
         nonce: 0,
+        timer: null,
+        timeframe,
       };
       this.bars.set(key, state);
     }
     state.listeners.add(listener);
     if (state.entry.data) listener(state.entry);
     // Fetch when empty or stale; dedup via the inFlight promise.
-    if (!state.entry.data || Date.now() - state.lastFetch > BARS_TTL) this.fetchBars(key, symbol, market, timeframe);
+    if (!state.entry.data || Date.now() - state.lastFetch > barsTtl(timeframe)) {
+      this.fetchBars(key, symbol, market, timeframe);
+    }
+    // Intraday candles must keep updating even while the panel sits open —
+    // previously the candle series was only re-fetched on a 10-minute TTL, so
+    // it silently drifted behind the live quote.
+    if (!state.timer) {
+      const refreshMs = barsRefreshMs(timeframe);
+      if (refreshMs > 0) {
+        state.timer = setInterval(() => this.fetchBars(key, symbol, market, timeframe), refreshMs);
+      }
+    }
     return () => this.unsubscribeBars(key, listener);
   }
 
@@ -122,6 +167,11 @@ export class DataSubscriptionManager {
     const state = this.bars.get(key);
     if (!state) return;
     state.listeners.delete(listener);
+    // Stop the intraday timer when the last listener leaves (no background burn).
+    if (state.listeners.size === 0 && state.timer) {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
     // Keep the entry after the last listener leaves so a remount reuses the
     // cache AND so an in-flight fetch can still land in a live state object.
     // Only prune a never-fetched, already-settled, empty entry.
@@ -141,8 +191,13 @@ export class DataSubscriptionManager {
     if (!state || state.inFlight) return;
     const { interval, range } = timeframeToYahoo(timeframe);
     const params = new URLSearchParams({ symbol, market, range, interval });
-    state.entry = { ...state.entry, loading: true, error: null };
-    this.emitBars(key);
+    // Only surface a loading state when there is nothing to show yet. A silent
+    // background refresh keeps the current candles on screen instead of
+    // flashing the chart back to a loader every poll.
+    if (!state.entry.data) {
+      state.entry = { ...state.entry, loading: true, error: null };
+      this.emitBars(key);
+    }
 
     const run = (async () => {
       try {

@@ -26,7 +26,7 @@ from pydantic import BaseModel, ValidationError, create_model
 
 from .schemas import HarnessError
 
-ToolPermission = str  # "read" | "write" | "execute"
+ToolPermission = str  # "read" | "write" | "external_action"
 ToolRisk = str  # "none" | "low" | "medium" | "high"
 
 TIMEOUT_FLOOR_MS = 100
@@ -94,6 +94,12 @@ class ToolContext:
     # The active ToolRegistry, so a controlled skill child-run can execute through
     # the SAME registry (no second registry).
     tool_registry: Any = None
+    # An optional async effect authorizer for NON-read tools. The registry is
+    # authoritative and calls this with (tool, clean_args) whenever a tool's
+    # permission is not `read`; it must return True only for an explicit, valid
+    # approval bound to this exact server/tool/arguments (MCP Phase 5G). No
+    # authorizer ⇒ every non-read tool is refused, exactly as before.
+    authorize_effect: Any = None
 
 
 class DataBridge:
@@ -121,6 +127,12 @@ class ToolDefinition:
     risk: ToolRisk = "low"
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     output_schema: Optional[dict[str, Any]] = None
+    # When set, this tool's real-world effect class (e.g. "write",
+    # "external_action") and its source identity. A non-read `permission` is only
+    # executable when the run's `ToolContext.authorize_effect` approves THIS exact
+    # call. MCP effectful tools set this; native tools leave it unset.
+    effect: Optional[str] = None
+    effect_metadata: Optional[dict[str, Any]] = None
 
 
 def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
@@ -237,10 +249,6 @@ class ToolRegistry:
             return self._failure(call_id, name, "TOOL_NOT_FOUND", f"Unknown tool {name!r}", started)
         if allowed is not None and name not in allowed:
             return self._failure(call_id, name, "TOOL_FORBIDDEN", f"Tool {name!r} is not allowed for this run", started)
-        if tool.permission != "read":
-            return self._failure(
-                call_id, name, "TOOL_FORBIDDEN", f"Tool {name!r} is not read-only and cannot run in this phase", started
-            )
 
         args_model = _args_model(name, tool.input_schema)
         try:
@@ -248,6 +256,23 @@ class ToolRegistry:
         except ValidationError as exc:
             return self._failure(call_id, name, "TOOL_VALIDATION_FAILED", str(exc), started)
         clean = {k: v for k, v in validated.model_dump().items() if k != "_unused"}
+
+        if tool.permission != "read":
+            # A non-read tool is refused unless the run explicitly authorizes THIS
+            # call (bound to the server/tool/arguments). No authorizer ⇒ refused.
+            authorizer = getattr(ctx, "authorize_effect", None)
+            approved = False
+            if authorizer is not None:
+                try:
+                    approved = bool(await authorizer(tool, clean))
+                except Exception:  # noqa: BLE001 - a failing authorizer must not authorize
+                    approved = False
+            if not approved:
+                return self._failure(
+                    call_id, name, "TOOL_FORBIDDEN",
+                    f"Tool {name!r} has effect {tool.effect or tool.permission!r} and is not approved for this call",
+                    started,
+                )
 
         effective_timeout = effective_timeout_ms(tool.timeout_ms, timeout_ms)
         try:

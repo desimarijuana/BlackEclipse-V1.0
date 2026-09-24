@@ -4,10 +4,19 @@
 // other mutation uses. There is exactly one MCP manager, in Python.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
+import { runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
 import { redactSecrets } from "./errors";
 import { checkMutationAllowed } from "@/lib/api-guard";
-import type { MCPListResponse, MCPServerInput, MCPTestResult } from "./mcp-types";
+import type {
+  MCPListResponse,
+  MCPServerInput,
+  MCPTestResult,
+  MCPApprovalView,
+  MCPIntegrationView,
+  MCPWorkflowView,
+  MCPDiagnosticsResponse,
+} from "./mcp-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const healthy = await ensurePythonRuntime();
@@ -17,9 +26,16 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
     );
   }
   const { timeoutMs = 60_000, ...rest } = init;
+  // The runtime authorizes MCP mutations by transport (loopback) or by this
+  // secret — never by a body boolean. The value is never logged here.
+  const operatorToken = runtimeCallbackToken();
   const res = await fetch(`${HARNESS_PY_URL}${path}`, {
     ...rest,
-    headers: { "Content-Type": "application/json", ...(rest.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(operatorToken ? { "X-Harness-Operator": operatorToken } : {}),
+      ...(rest.headers ?? {}),
+    },
     signal: AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
@@ -31,13 +47,10 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
 }
 
 /**
- * Whether this request is an authorized operator.
- *
- * Operator actions (add/test/enable/disable/remove) are gated exactly like every
- * other mutation in this repo: `checkMutationAllowed` — a same-origin browser
- * request OR a caller presenting the runtime secret OR a request to a loopback
- * host. The Python runtime re-enforces the same check, so this is defense in
- * depth. The proxy sets `operator` server-side; a client cannot claim it.
+ * Whether this request is an authorized operator, decided at the Next.js front
+ * door: a same-origin browser request, a caller presenting the runtime secret,
+ * or a loopback request. The Python runtime independently re-checks transport
+ * and token, so a client cannot authorize itself with a body field.
  */
 export function isOperatorRequest(request?: Request): boolean {
   if (!request) return false;
@@ -58,38 +71,79 @@ export async function listMCPServers(): Promise<MCPListResponse> {
 
 export async function upsertMCPServer(
   server: MCPServerInput,
-  operator: boolean,
   envKeys?: string[]
 ): Promise<MCPListResponse> {
   // A test connect can take a few seconds; allow headroom.
   const body = await request<MCPListResponse>("/mcp/servers", {
     method: "POST",
     timeoutMs: 60_000,
-    body: JSON.stringify({ operator, server, reload: true, envKeys }),
+    body: JSON.stringify({ server, reload: true, envKeys }),
   });
   return body;
 }
 
-export async function deleteMCPServer(serverId: string, operator: boolean): Promise<{ success: boolean; removed: string }> {
-  return request(`/mcp/servers/${encodeURIComponent(serverId)}`, {
-    method: "DELETE",
-    body: JSON.stringify({ operator }),
-  });
+export async function deleteMCPServer(serverId: string): Promise<{ success: boolean; removed: string }> {
+  return request(`/mcp/servers/${encodeURIComponent(serverId)}`, { method: "DELETE" });
 }
 
 /** Connect + discover a candidate config WITHOUT persisting or activating it. */
-export async function testMCPServer(server: MCPServerInput, operator: boolean): Promise<MCPTestResult> {
+export async function testMCPServer(server: MCPServerInput): Promise<MCPTestResult> {
   return request<MCPTestResult>("/mcp/servers/test", {
     method: "POST",
     timeoutMs: 60_000,
-    body: JSON.stringify({ operator, server }),
+    body: JSON.stringify({ server }),
   });
 }
 
-export async function reloadMCP(operator: boolean): Promise<MCPListResponse> {
-  return request<MCPListResponse>("/mcp/reload", {
+/** Record the operator's review of a server's current catalog digest. */
+export async function confirmMCPCatalog(serverId: string): Promise<MCPListResponse> {
+  return request<MCPListResponse>(`/mcp/servers/${encodeURIComponent(serverId)}/confirm`, {
     method: "POST",
     timeoutMs: 60_000,
-    body: JSON.stringify({ operator }),
   });
+}
+
+export async function reloadMCP(): Promise<MCPListResponse> {
+  return request<MCPListResponse>("/mcp/reload", { method: "POST", timeoutMs: 60_000 });
+}
+
+// ── Finance presets, workflows, diagnostics (product layer) ─────────────────
+
+export async function listMCPIntegrations(): Promise<MCPIntegrationView[]> {
+  const body = await request<{ integrations: MCPIntegrationView[] }>("/mcp/integrations", { method: "GET" });
+  return body.integrations ?? [];
+}
+
+export async function listMCPWorkflows(): Promise<MCPWorkflowView[]> {
+  const body = await request<{ workflows: MCPWorkflowView[] }>("/mcp/workflows", { method: "GET" });
+  return body.workflows ?? [];
+}
+
+export async function getMCPDiagnostics(knownSecrets: string[] = []): Promise<MCPDiagnosticsResponse> {
+  return request<MCPDiagnosticsResponse>("/mcp/diagnostics", {
+    method: "POST",
+    timeoutMs: 30_000,
+    // Secret NAMES only — never values. Lets the runtime check references.
+    body: JSON.stringify({ knownSecrets }),
+  });
+}
+
+// ── Effectful-tool approvals (5G) ───────────────────────────────────────────
+
+export async function listMCPApprovals(status?: string): Promise<MCPApprovalView[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const body = await request<{ approvals: MCPApprovalView[] }>(`/mcp/approvals${query}`, { method: "GET" });
+  return body.approvals ?? [];
+}
+
+export async function decideMCPApproval(
+  approvalId: string,
+  approve: boolean,
+  reason = ""
+): Promise<MCPApprovalView> {
+  const body = await request<{ approval: MCPApprovalView }>(
+    `/mcp/approvals/${encodeURIComponent(approvalId)}/decide`,
+    { method: "POST", body: JSON.stringify({ approve, reason }) }
+  );
+  return body.approval;
 }

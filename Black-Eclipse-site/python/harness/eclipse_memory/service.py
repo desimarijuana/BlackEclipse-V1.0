@@ -319,12 +319,18 @@ class EclipseMemoryService:
         user_text: str,
         *,
         user_id: Optional[str] = None,
+        recurring: bool = False,
         is_skill_run: bool = False,
     ) -> Any:
         """Run the shared decision gate for one user turn.
 
         Reads policy + recent-dismissal state; never writes. Returns a
         `MemoryDecision`. Every write path must consult this gate.
+
+        `recurring` is evidence that the same durable-sounding statement was seen
+        in prior conversation history (computed by the caller from
+        `RunRequest.input.history`); it lets a project convention be saved
+        without a per-run prompt once it repeats.
         """
         from .decision import content_signature, decide_turn as _decide  # noqa: PLC0415
 
@@ -344,7 +350,7 @@ class EclipseMemoryService:
         return _decide(
             user_text, user_id=user_id, settings=settings,
             has_prior_memory=prior, recently_dismissed=recently_dismissed,
-            is_skill_run=is_skill_run,
+            recurring=recurring, is_skill_run=is_skill_run,
         )
 
     def create_suggestion(
@@ -542,7 +548,7 @@ class EclipseMemoryService:
         """The ONE write entry point for a `MemoryDecision`.
 
         Only a ``save`` decision with a memory action persists. A ``suggest``
-        decision creates an inert suggestion (no durable memory). ``run_only``
+        decision creates an inert suggestion (no durable memory). ``history_only``
         and ``ignore`` write nothing and return an honest outcome. Corrections
         and forgets preserve history (supersede/archive), never hard-delete.
         """
@@ -557,8 +563,11 @@ class EclipseMemoryService:
                 "outcome": "ignore", "reason": decision.reason,
                 "financial": decision.financial,
             }
-        if decision.outcome == "run_only":
-            return {"ok": False, "action": "run_only", "outcome": "run_only", "reason": decision.reason}
+        if decision.outcome in ("run_only", "history_only"):
+            return {
+                "ok": False, "action": "history_only",
+                "outcome": decision.outcome, "reason": decision.reason,
+            }
         if decision.outcome == "suggest":
             suggestion = self.create_suggestion(decision, run_id=run_id, scope_id=user_id)
             return {
@@ -644,8 +653,10 @@ class EclipseMemoryService:
     ) -> dict[str, Any]:
         """Analyze a finished run per the current policy.
 
-        When `auto_candidate_detection` is enabled, learning candidates are
-        created for qualifying experiences (still inert — promotion is separate).
+        Under `skill_learning_mode != off`, learning candidates are created for
+        qualifying experiences (still inert — promotion is separate). An
+        eligible run is not, by itself, enough: implicit procedure candidates
+        require recurrence evidence (enforced in `skills.learning.analyze_run`).
         Mistake detection always runs (it is cheap, deterministic and auditable).
         Never enables a skill, never claims improvement.
         """
@@ -664,7 +675,8 @@ class EclipseMemoryService:
         except Exception as exc:  # noqa: BLE001 - analysis must never break a run
             result["mistakeError"] = str(exc)
 
-        if not settings["auto_candidate_detection"]:
+        mode = str(settings.get("skill_learning_mode") or "automatic_selective")
+        if mode == "off":
             result["candidateDetection"] = "disabled by policy"
             return result
 

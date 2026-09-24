@@ -258,12 +258,13 @@ Closes the real-world reliability gaps that made memory/skills feel unreliable.
    Refusals (secrets, sensitive IDs, raw dumps, policy overrides) and unclear
    scope are never written.
 3. **Auto candidate detection was disabled and manual flow only covered skill
-   runs.** Auto-detection is now **on by default** (`auto_candidate_detection`):
+   runs.** Auto-detection was later unified into the `skill_learning_mode` (see
+   the "Memory selectivity" and "Unified learning lifecycle" sections below);
    eligible completed runs create inert candidates automatically and the run's
    `memory` blob reports `autoCaptured`/`candidatesCreated`. Added
-   ordinary-chat eligibility (`learning_eligibility_for_run`) and kept the
-   explicit "Learn from this run" action for cases auto-detection does not cover.
-   Candidates stay inert and deduplicated; promotion remains operator-gated.
+   ordinary-chat eligibility (`learning_eligibility_for_run`). Candidates stay
+   inert and deduplicated; an implicit `successful_procedure` additionally
+   requires recurrence evidence, and promotion remains operator-gated.
 4. **Drafts were manifest-only.** `skills/draft.py` now generates a complete
    procedure (steps, typed I/O, existing safe tools only, provenance,
    limitations, evaluation cases) while staying inert; no-evidence drafts state
@@ -344,6 +345,12 @@ unsafe `true` override for the two pre-existing keys (recording the reset in
 all existing records are preserved. A code-default change alone would have left a
 stored `true` in force.
 
+> **Superseded by "Unified learning lifecycle" (below).** The off-by-default
+> three-boolean model was itself replaced: automatic learning is now a single
+> mode (`memory_mode`/`skill_learning_mode`, default `automatic_selective`) with
+> the booleans derived. Migration 7 removes any stored boolean rows. This
+> paragraph is retained for history; the mode model is authoritative.
+
 **Suggestions.** A `MemorySuggestion` (migration 6) is an inert, never-recalled
 proposal with a quiet Save/Dismiss control. Accepting writes exactly one scoped
 memory through the gate; dismissing is retained so the same item is not
@@ -393,3 +400,84 @@ the concurrent `src/lib/regime/` work, unrelated to this change).
 `harness/{graph,main,memory_tools,tools}.py`, `src/lib/harness/eclipse-memory-*`,
 `src/components/screens/eclipse-memory/eclipse-memory-screen.tsx`,
 `src/lib/chat/memory-action.ts` + panel.
+
+## Unified learning lifecycle — one mode, selective by default (2026-09-24)
+
+**Brief.** Learn selectively and automatically when the evidence is strong — do
+not save everything, and do not repeatedly ask whether to learn. Keep
+conversation history, durable memory and skills distinct.
+
+**Verified root causes (this pass).**
+
+1. **No coherent learning mode.** Three independent booleans
+   (`auto_capture_enabled`, `auto_suggest_enabled`, `auto_candidate_detection`)
+   all defaulted **off**, so automatic learning never happened and the product
+   could only ever prompt. There was no `automatic_selective` /
+   `ask_before_saving` / `off` model.
+2. **Vocabulary gap.** The gate emitted `run_only`; the required lifecycle
+   distinguishes `history_only` (searchable conversation/run history) from
+   `ignore`.
+3. **Explicit skill request was a dead end.** `decide_turn(action="skill")` only
+   emitted `memory.skill_requested`; no candidate/draft was created, so the user
+   had to repeat the request through a separate "Learn from this run" button.
+4. **Implicit skill learning fired on one-off runs.** A single multi-step run
+   produced a `successful_procedure` candidate, and ordinary eligibility marked
+   any tool-using run "eligible", making the chat panel offer to learn on
+   ordinary runs.
+5. **Repeated prompt.** The chat panel rendered a learn button for every eligible
+   run.
+6. **Contradictory docs.** ADR-H35 said automatic detection default **on**;
+   ADR-H37 said **off**.
+
+**The unified mode.** `policy.py` now defines two mode keys —
+`memory_mode` and `skill_learning_mode`, each `automatic_selective` (default) |
+`ask_before_saving` | `off`. The legacy booleans are **derived** from the modes
+(`derived_flags`): they are neither stored nor settable, so they cannot drift.
+Migration 7 records and removes any stored legacy boolean rows. The default is
+consistent across policy code, persisted settings, migrations, the API, the UI,
+tests and docs.
+
+**Selective automatic learning.** In `automatic_selective`, `decide_turn` saves
+a direct user preference (`I prefer …`) on first statement; a project convention
+(`always use …`) is saved only with recurrence evidence (the same statement in
+prior conversation history), otherwise it is `history_only` — never a prompt.
+One-off task details, questions, greetings and financial/market figures are
+`history_only`/`ignore`. `ask_before_saving` stages an inert suggestion; `off`
+creates nothing. Explicit remember/forget/correct remain a separate always-on
+path, and secrets/sensitive identifiers are refused for every path.
+
+**Skills are separate.** An explicit "turn this into a skill" request now
+creates a real inert candidate + draft through `capture_from_run` +
+`propose_draft` at run completion — no second click. An implicit
+`successful_procedure` candidate requires recurrence evidence; a failure
+recovery or validation failure remains strong single-run evidence. Nothing is
+ever enabled; evaluation + operator approval gate promotion.
+
+**UI.** The chat panel shows a learning line only for a genuine automatic
+capture or an explicit draft; a merely eligible run shows nothing, and the
+repeated "Learn from this run?" button is replaced by a one-off "Create skill
+draft" for an uncaptured explicit request. The Policies tab renders the two mode
+keys as labelled selectors with plain-language hints; the derived booleans are
+hidden.
+
+**Tests.** New/updated Python coverage in `test_memory_selectivity.py`,
+`test_memory_policy.py`, `test_phase3m_reliability.py`, `test_skills_learning.py`,
+`test_skills_scenarios.py` (positive + negative: durable preference saved
+automatically; explicit remember works regardless of mode; one-off task and
+changing market value not saved; recurrence saves without confirmation; duplicate
+and correction behaviours; sensitive content refused; project scope isolation; a
+single eligible run creates no skill; an explicit request creates a pending
+draft; repeated workflow yields a controlled candidate; no repetitive prompt).
+TS `memory-action.test.ts` covers the draft-ready presentation.
+
+**Checks.** Python **672 passed**; Vitest **1732 passed**; `npx tsc --noEmit`
+clean.
+
+**Files:** `eclipse_memory/{policy,decision,intent,schema,service}.py`,
+`harness/{graph,memory_tools}.py`, `skills/learning.py`,
+`src/lib/chat/memory-action.ts` (+ test), `src/lib/harness/types.ts`,
+`src/components/chat/memory-action-panel.tsx`,
+`src/components/screens/eclipse-memory/eclipse-memory-screen.tsx`; docs:
+`harness/decisions.md` (ADR-H43, ADR-H35/H37 corrected), `NAVIGATION.md`,
+`harness/architecture.md`, this file.
+

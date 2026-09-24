@@ -21,6 +21,7 @@ import {
 } from "@/lib/web-search";
 import type { RetrievalDiagnostic } from "@/lib/retrieval-diagnostics";
 import { resolveProviderKey } from "@/lib/provider-keys";
+import { resolveMcpSecret } from "@/lib/harness/mcp-secrets";
 import { fetchSecCompanyFacts, secAvailable } from "@/lib/fundamentals/providers/sec-edgar";
 import { buildCapabilityMatrix } from "@/lib/harness/capability";
 import {
@@ -424,9 +425,24 @@ export async function fetchCapability(
       return webSearchCapability(params);
     case "web_fetch":
       return webFetchCapability(params);
+    case "mcp_secret_resolve":
+      return mcpSecretResolve(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
+}
+
+/**
+ * Resolve a NAMED MCP secret to its value for the Python runtime — the ONLY
+ * consumer of a secret value. This capability is reachable only through the
+ * authenticated, read-only bridge (never a browser route); the value is returned
+ * to the runtime so it can spawn an MCP child process and is never persisted.
+ */
+async function mcpSecretResolve(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const name = String(params.name ?? "");
+  const value = await resolveMcpSecret(name);
+  if (value === null) return unavailable(`unknown or unreadable MCP secret ${name}`);
+  return { status: "OK", value };
 }
 
 async function marketSnapshot(params: Record<string, unknown>): Promise<DataBridgeResult> {

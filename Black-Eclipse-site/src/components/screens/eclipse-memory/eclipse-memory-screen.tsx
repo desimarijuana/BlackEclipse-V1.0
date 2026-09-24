@@ -485,9 +485,8 @@ function ActivityView() {
 // ── Policies ────────────────────────────────────────────────────────────────
 
 const POLICY_LABELS: Record<string, string> = {
-  auto_capture_enabled: "Automatic memory capture",
-  auto_candidate_detection: "Automatic learning-candidate detection",
-  auto_suggest_enabled: "Automatic memory suggestions",
+  memory_mode: "Automatic memory learning",
+  skill_learning_mode: "Automatic skill learning",
   candidate_confidence_threshold: "Candidate confidence threshold",
   context_budget_chars: "Retrieval context budget (chars)",
   retrieval_limit: "Max memories per retrieval",
@@ -496,6 +495,39 @@ const POLICY_LABELS: Record<string, string> = {
   include_proposed_in_retrieval: "Inject proposed memory without review",
   audit_retention_rows: "Audit rows kept (0 = unlimited)",
   auto_promote_low_risk: "Auto-promote low-risk skills (locked off)",
+};
+
+const LEARNING_MODE_OPTIONS: { value: string; label: string; hint: string }[] = [
+  {
+    value: "automatic_selective",
+    label: "Automatic (selective)",
+    hint: "Save strong, durable, low-risk facts automatically — no per-run prompt. Requires recurrence for project-specific claims.",
+  },
+  {
+    value: "ask_before_saving",
+    label: "Ask before saving",
+    hint: "Stage candidates and request approval (an inert suggestion); never save on your behalf.",
+  },
+  {
+    value: "off",
+    label: "Off",
+    hint: "Do not learn automatically. Explicit “remember/forget/correct” requests still work.",
+  },
+];
+
+const LEARNING_MODE_KEYS = new Set(["memory_mode", "skill_learning_mode"]);
+
+// Legacy derived booleans are read-only projections of the learning modes; they
+// are not user-editable policy keys and must not render as controls.
+const DERIVED_POLICY_KEYS = new Set([
+  "auto_capture_enabled",
+  "auto_suggest_enabled",
+  "auto_candidate_detection",
+]);
+
+const POLICY_HINTS: Record<string, string> = {
+  memory_mode: "How durable user preferences and project facts are learned.",
+  skill_learning_mode: "How reusable procedures become learning candidates (always inert until reviewed).",
 };
 
 function Policies({ isOperator }: { isOperator: boolean }) {
@@ -554,8 +586,9 @@ function Policies({ isOperator }: { isOperator: boolean }) {
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
 
       <div className="space-y-2">
-        {Object.entries(draft).map(([key, value]) => {
+        {Object.entries(draft).filter(([key]) => !DERIVED_POLICY_KEYS.has(key)).map(([key, value]) => {
           const locked = lockedKeys.has(key);
+          const isMode = LEARNING_MODE_KEYS.has(key);
           const isBool = typeof data.defaults[key] === "boolean";
           const numeric = typeof data.defaults[key] === "number";
           return (
@@ -563,8 +596,25 @@ function Policies({ isOperator }: { isOperator: boolean }) {
               <div className="min-w-0">
                 <p className="text-[12px] text-foreground">{POLICY_LABELS[key] ?? key}</p>
                 <p className="font-mono text-[9px] text-muted-foreground">{key}{locked ? " · locked" : ""}</p>
+                {POLICY_HINTS[key] && <p className="mt-1 text-[10px] text-muted-foreground/80">{POLICY_HINTS[key]}</p>}
+                {isMode && (
+                  <p className="mt-1 text-[10px] text-muted-foreground/80">
+                    {LEARNING_MODE_OPTIONS.find((o) => o.value === value)?.hint}
+                  </p>
+                )}
               </div>
-              {isBool ? (
+              {isMode ? (
+                <select
+                  value={String(value)}
+                  disabled={!isOperator || saving}
+                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                  className="shrink-0 rounded-xl border border-border/30 bg-background/60 px-2 py-1 text-[11px] outline-none focus:border-primary/40 disabled:opacity-60"
+                >
+                  {LEARNING_MODE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              ) : isBool ? (
                 <button
                   disabled={!isOperator || locked || saving}
                   onClick={() => setDraft({ ...draft, [key]: !value })}

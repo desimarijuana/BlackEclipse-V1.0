@@ -26,6 +26,7 @@ const CAPABILITIES: DataCapability[] = [
   "macro_resolve",
   "web_search",
   "web_fetch",
+  "mcp_secret_resolve",
 ];
 
 export async function POST(request: Request) {

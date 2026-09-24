@@ -1,0 +1,118 @@
+{
+  "_comment": [
+    "Example MCP server configuration for BlackEclipse. Copy to `mcp-servers.json`",
+    "(same folder) — that file is gitignored because it may hold scoped env values.",
+    "Two transports are supported: `stdio` (a local subprocess via npx/python) and",
+    "`http` (a remote Streamable-HTTP endpoint). `secret_refs` maps an env var the",
+    "server reads to a NAMED secret stored encrypted in the vault (Settings > MCP",
+    "Servers > Secret vault); an http server uses `auth` (kind/name/prefix/secretRef)",
+    "instead. Never put a raw API key in this file. `enabled` defaults to false and",
+    "`selected_tools` to empty: nothing activates until you choose it. `tool_effects`",
+    "declares a tool's real effect (read is the only one that needs no per-call",
+    "approval). Remote endpoints must be https and are refused if they resolve to a",
+    "private address (loopback http is allowed for local testing)."
+  ],
+  "servers": [
+    {
+      "id": "filesystem",
+      "name": "Local files",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "enabled": false,
+      "selected_tools": ["read_file", "list_directory"],
+      "tool_effects": { "read_file": "read", "list_directory": "read" },
+      "description": "Read files under the app folder (research notes, exported CSVs)."
+    },
+    {
+      "id": "powerpoint",
+      "name": "Word / Excel / PowerPoint (Office)",
+      "command": "npx",
+      "args": ["-y", "@mindstone/mcp-server-office"],
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Create Office memos/decks (local files). Writes need approval."
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "secret_refs": { "NOTION_TOKEN": "notion_integration_token" },
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Official Notion server. Needs an internal integration token stored as the vault secret 'notion_integration_token'."
+    },
+    {
+      "id": "sheets",
+      "name": "Google Sheets",
+      "command": "npx",
+      "args": ["-y", "mcp-google-sheets"],
+      "secret_refs": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "google_service_account_json_path",
+        "GOOGLE_OAUTH_CREDENTIALS": "google_oauth_credentials_json_path"
+      },
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Community Google Sheets server (service-account or OAuth JSON). Store the credential FILE PATH as a vault secret."
+    },
+    {
+      "id": "excel",
+      "name": "Excel files",
+      "command": "npx",
+      "args": ["-y", "@negokaz/excel-mcp-server"],
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Reads/writes local .xlsx workbooks (read tools need no approval; write tools do)."
+    },
+    {
+      "id": "tavily",
+      "name": "Tavily web search",
+      "command": "npx",
+      "args": ["-y", "tavily-mcp"],
+      "secret_refs": { "TAVILY_API_KEY": "tavily_api_key" },
+      "enabled": false,
+      "selected_tools": ["tavily-search", "tavily-extract"],
+      "tool_effects": { "tavily-search": "read", "tavily-extract": "read" },
+      "description": "Investor-grade web search + page extraction, independent of Eclipse's native web research."
+    },
+    {
+      "id": "brave",
+      "name": "Brave Search",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "secret_refs": { "BRAVE_API_KEY": "brave_api_key" },
+      "enabled": false,
+      "selected_tools": ["brave_web_search"],
+      "tool_effects": { "brave_web_search": "read" },
+      "description": "Second independent search provider (news, filings context)."
+    },
+    {
+      "id": "yahoo-finance",
+      "name": "Yahoo Finance",
+      "command": "npx",
+      "args": ["-y", "yahoo-finance-mcp"],
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Quotes/history/news. Treat as EXTERNAL and unverified — Eclipse will not label it Eclipse-verified."
+    },
+    {
+      "id": "memory",
+      "name": "Knowledge-graph memory",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "enabled": false,
+      "selected_tools": [],
+      "description": "A local knowledge graph for research entities and notes."
+    },
+    {
+      "id": "remote-example",
+      "name": "Remote MCP (HTTP)",
+      "transport": "http",
+      "url": "https://mcp.example.com/mcp",
+      "auth": { "kind": "header", "name": "Authorization", "prefix": "Bearer ", "secretRef": "remote_mcp_token" },
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Template for a remote Streamable-HTTP server with a vault-backed bearer token. Remote endpoints must be https; private hosts are refused."
+    }
+  ]
+}

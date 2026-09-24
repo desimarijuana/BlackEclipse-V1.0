@@ -1,0 +1,242 @@
+"""MCP setup diagnostics (Phase 5 — actionable setup).
+
+Setup fails for mundane, fixable reasons: `npx`/`node` not installed, a vault
+secret missing, a remote endpoint unreachable, a server that starts but exposes
+no selected tool, Windows temp-directory permissions. Every check here returns a
+STRUCTURED diagnostic with:
+
+  * `code`     — a stable machine category,
+  * `status`   — ok | warn | error | skipped,
+  * `message`  — what is wrong, in plain language,
+  * `recovery` — the exact next step the user can take.
+
+Nothing here activates a server or runs a tool; it only inspects. It never logs
+or returns secret values.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import socket
+from dataclasses import asdict, dataclass, field
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+from .config import MCPServerConfig
+from .ssrf import check_outbound_url
+
+OK = "ok"
+WARN = "warn"
+ERROR = "error"
+SKIPPED = "skipped"
+
+
+@dataclass
+class Diagnostic:
+    code: str
+    status: str
+    message: str
+    recovery: str = ""
+
+    def to_public(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ServerDiagnostics:
+    server_id: str
+    transport: str
+    checks: list[Diagnostic] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not any(c.status == ERROR for c in self.checks)
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "serverId": self.server_id,
+            "transport": self.transport,
+            "ok": self.ok,
+            "checks": [c.to_public() for c in self.checks],
+        }
+
+
+def _which(executable: str) -> Optional[str]:
+    return shutil.which(executable)
+
+
+def _toolchain_check(executable: str, label: str, recovery: str) -> Diagnostic:
+    found = _which(executable)
+    if found:
+        return Diagnostic(f"{executable}_available", OK, f"{label} found at {found}")
+    return Diagnostic(f"{executable}_missing", ERROR, f"{label} was not found on this machine", recovery)
+
+
+def _secret_resolution_check(config: MCPServerConfig, resolved: Optional[dict[str, bool]]) -> Diagnostic:
+    names = config.secret_ref_names()
+    if not names:
+        return Diagnostic("secrets_not_required", OK, "No vault secrets are required")
+    if resolved is None:
+        return Diagnostic(
+            "secrets_unverified", WARN,
+            f"This server needs {len(names)} vault secret(s): {', '.join(names)}",
+            "Open Settings › MCP Servers › Secret vault and confirm each name exists.",
+        )
+    missing = [n for n in names if not resolved.get(n)]
+    if missing:
+        return Diagnostic(
+            "secrets_missing", ERROR,
+            f"Missing vault secret(s): {', '.join(missing)}",
+            "Add the missing secret by name under Settings › MCP Servers › Secret vault.",
+        )
+    return Diagnostic("secrets_ok", OK, "All referenced vault secrets are present")
+
+
+def _network_check(url: str) -> Diagnostic:
+    safe, reason = check_outbound_url(url)
+    if not safe:
+        return Diagnostic(
+            "endpoint_unsafe", ERROR,
+            f"The endpoint was refused by the safety check: {reason}",
+            "Use an https URL for a public host. Private/loopback endpoints are only allowed for local testing.",
+        )
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=4):
+            pass
+    except OSError as exc:
+        return Diagnostic(
+            "endpoint_unreachable", ERROR,
+            f"Could not reach {host}:{port} ({exc.__class__.__name__})",
+            "Check your network/VPN and that the MCP endpoint is running and reachable.",
+        )
+    return Diagnostic("endpoint_reachable", OK, f"Reached {host}:{port}")
+
+
+def check_server(
+    config: MCPServerConfig,
+    *,
+    resolved_secrets: Optional[dict[str, bool]] = None,
+    connection_state: Optional[str] = None,
+    discovered_tools: Optional[int] = None,
+    selected_tools: Optional[int] = None,
+) -> ServerDiagnostics:
+    """Run all setup checks for one configured server (pure inspection)."""
+    out = ServerDiagnostics(server_id=config.id, transport=config.transport)
+
+    if config.transport == "stdio":
+        if not config.command:
+            out.checks.append(Diagnostic("command_missing", ERROR, "No command is configured",
+                                         "Set the executable the server runs (e.g. `npx` or `python`)."))
+        else:
+            recovery = (
+                f"Install {config.command} (or use a tool that exposes it), then Test again."
+            )
+            out.checks.append(_toolchain_check(config.command, f"Command `{config.command}`", recovery))
+            if config.requires_node_runtime():
+                out.checks.append(_toolchain_check(
+                    "npx", "Node/npx (npx servers need Node.js)",
+                    "Install Node.js 20+ (https://nodejs.org), reopen the app, then Test again.",
+                ))
+    else:
+        if not config.url:
+            out.checks.append(Diagnostic("url_missing", ERROR, "No endpoint URL is configured",
+                                         "Set the https endpoint URL for the remote server."))
+        else:
+            out.checks.append(_network_check(config.url))
+
+    out.checks.append(_secret_resolution_check(config, resolved_secrets))
+
+    if connection_state is not None:
+        if connection_state == "connected":
+            out.checks.append(Diagnostic("server_connected", OK, "Server connected and responded to discovery"))
+        elif connection_state in ("failed", "closed"):
+            out.checks.append(Diagnostic(
+                "server_not_connected", ERROR, f"Server state is `{connection_state}`",
+                "Run Test connection to see the server's own startup error, then fix the cause above.",
+            ))
+        else:
+            out.checks.append(Diagnostic(
+                "server_not_started", WARN, f"Server state is `{connection_state}`",
+                "Enable the server and Test connection.",
+            ))
+
+    if discovered_tools is not None:
+        if discovered_tools == 0:
+            out.checks.append(Diagnostic("no_tools_discovered", WARN, "The server exposed no tools",
+                                         "Confirm the server started correctly; check its Test diagnostic."))
+        else:
+            out.checks.append(Diagnostic("tools_discovered", OK, f"{discovered_tools} tool(s) discovered"))
+
+    if selected_tools is not None and discovered_tools is not None:
+        if selected_tools == 0:
+            out.checks.append(Diagnostic(
+                "no_tools_selected", WARN, "No tools are selected, so nothing is callable",
+                "Review the discovered tools and select the read-only ones you want (writes still need approval).",
+            ))
+        else:
+            out.checks.append(Diagnostic("tools_selected", OK, f"{selected_tools} tool(s) selected"))
+
+    return out
+
+
+def environment_diagnostics() -> list[Diagnostic]:
+    """Whole-environment checks shared by every server (Node/Python/temp dir)."""
+    checks: list[Diagnostic] = []
+    checks.append(_toolchain_check(
+        "node", "Node.js",
+        "Install Node.js 20+ (https://nodejs.org). npx-based MCP servers need it; Python-based servers do not.",
+    ))
+    checks.append(_toolchain_check(
+        "npx", "npx",
+        "npx ships with Node.js — install Node.js 20+ and reopen the app.",
+    ))
+    checks.append(_toolchain_check(
+        "python", "Python",
+        "Install Python 3.10+ or run `npm run setup:python` for the bundled runtime.",
+    ))
+    checks.append(_temp_dir_check())
+    return checks
+
+
+def _temp_dir_check() -> Diagnostic:
+    """A writable temp directory is required by the test suite and by some servers.
+
+    On Windows a locked-down `%TEMP%` (or a bad TMPDIR) makes healthy tests look
+    broken. We detect it and tell the user how to point the tooling elsewhere.
+    """
+    import tempfile
+
+    candidates = [os.environ.get("BLACK_ECLIPSE_TMP"), os.environ.get("TMPDIR"), tempfile.gettempdir()]
+    for base in candidates:
+        if not base:
+            continue
+        try:
+            os.makedirs(base, exist_ok=True)
+            probe = os.path.join(base, ".be_write_probe")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return Diagnostic("temp_writable", OK, f"Temporary directory is writable: {base}")
+        except OSError:
+            continue
+    return Diagnostic(
+        "temp_not_writable", WARN,
+        "No writable temporary directory was found",
+        "Set BLACK_ECLIPSE_TMP to a writable folder (e.g. your user temp dir) and restart, so tests and servers can write scratch files.",
+    )
+
+
+__all__ = [
+    "Diagnostic",
+    "ServerDiagnostics",
+    "check_server",
+    "environment_diagnostics",
+    "OK",
+    "WARN",
+    "ERROR",
+    "SKIPPED",
+]

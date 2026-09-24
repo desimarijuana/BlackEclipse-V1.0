@@ -90,6 +90,15 @@ describe('buildMemoryRunView', () => {
     expect(view?.eligibility?.learnQueuePath).toBe('/api/learning/candidates');
   });
 
+  it('surfaces an explicit skill draft as ready (not a prompt)', () => {
+    const view = buildMemoryRunView({
+      action: 'skill_requested',
+      learningEligibility: { eligible: true, reason: 'the user asked', skillRequested: true, skillDraftReady: true },
+    });
+    expect(view?.eligibility?.skillDraftReady).toBe(true);
+    expect(view?.eligibility?.autoCaptured).toBe(false);
+  });
+
   it('combines an action and eligibility', () => {
     const view = buildMemoryRunView({
       action: 'skill_requested',
@@ -97,6 +106,7 @@ describe('buildMemoryRunView', () => {
     });
     expect(view?.action?.kind).toBe('skill_requested');
     expect(view?.eligibility?.skillRequested).toBe(true);
+    expect(view?.eligibility?.skillDraftReady).toBe(false);
   });
 
   it('ignores unknown action names', () => {

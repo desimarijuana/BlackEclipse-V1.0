@@ -10,17 +10,21 @@ Candidate creation is criteria-driven and conservative:
 CREATE a candidate when:
   * a failure was recovered through a reusable fallback (failure_recovery);
   * a user correction reveals a generalizable validation rule (user_correction);
-  * a multi-step procedure succeeded and is plausibly reusable
-    (successful_procedure);
+  * a multi-step procedure succeeded AND was observed more than once
+    (successful_procedure — recurrence is required; a single run is not proof);
   * a missing-data condition was resolved by a verified method
     (validation_improvement / source_selection_improvement).
 
 DO NOT create a general skill from:
   * a single instrument-specific event;
+  * a single successful run (one-off workflow — no recurrence evidence);
   * an unverified factual claim;
   * a temporary data anomaly with no reusable solution;
   * a user-specific preference (that belongs in memory);
   * a model explanation with no supporting evidence.
+
+An eligible run is NOT itself permission to create a skill: recurrence (the same
+successful workflow seen across runs) or an explicit user request is required.
 
 Duplicate suppression uses a deterministic `signature` (type + normalized
 problem) so the same experience never yields repeated candidates.
@@ -60,6 +64,52 @@ def _run_tools(store: Any, run_id: str) -> list[dict[str, Any]]:
         return store.list_tool_executions(run_id)
     except Exception:  # noqa: BLE001
         return []
+
+
+# How many recent completed runs are scanned for recurrence evidence. Bounded so
+# a long history cannot make post-run analysis expensive.
+_RECURRENCE_SCAN_LIMIT = 40
+
+
+def _candidate_recurrence_key(candidate_type: str, tools: list[dict[str, Any]]) -> Optional[str]:
+    """A deterministic key for "the same experience" so recurrence can be counted
+    across runs without storing raw prose. Two runs share a key when their tool
+    evidence for that candidate type is the same."""
+    if candidate_type in ("failure_recovery", "validation_improvement",
+                          "source_selection_improvement", "provider_eligibility_improvement"):
+        names = sorted({str(t.get("name")) for t in tools if not t.get("ok")})
+    elif candidate_type == "successful_procedure":
+        names = sorted({str(t.get("name")) for t in tools if t.get("ok")})
+    else:
+        return None
+    if not names:
+        return None
+    return f"{candidate_type}:" + ",".join(names)
+
+
+def _recurrence_count(
+    store: Any, run_id: str, candidate_type: str, tools: list[dict[str, Any]]
+) -> int:
+    """How many PRIOR completed runs carried the same evidence key.
+
+    This is the evidence an implicit skill candidate requires: an eligible run
+    alone is not proof of a reusable procedure, but the same successful workflow
+    (or the same recovered failure) seen before is. Never raises.
+    """
+    key = _candidate_recurrence_key(candidate_type, tools)
+    if not key:
+        return 0
+    count = 0
+    try:
+        runs = store.list_runs(limit=_RECURRENCE_SCAN_LIMIT)
+    except Exception:  # noqa: BLE001
+        return 0
+    for prior in runs:
+        if prior.get("id") == run_id or prior.get("status") != "completed":
+            continue
+        if _candidate_recurrence_key(candidate_type, _run_tools(store, prior["id"])) == key:
+            count += 1
+    return count
 
 
 # Markets the run touched, so a lesson NEVER generalizes one country/provider to
@@ -218,7 +268,9 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
         drafts.append(draft)
 
     # ── 3. Successful procedure: a multi-step run completed with verified
-    #         evidence and enough steps to be a reusable procedure.
+    #         evidence, AND the same successful workflow was observed at least
+    #         once before. An eligible run is not by itself proof a procedure
+    #         generalizes — recurrence is the evidence.
     if (
         run.get("status") == "completed"
         and run.get("modelSteps", 0) >= _REUSABLE_MIN_STEPS
@@ -226,23 +278,28 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
         and "tool.failed" not in event_types
     ):
         successful_tools = sorted({t["name"] for t in tool_successes})
-        draft = {
-            "candidateType": "successful_procedure",
-            "title": f"Reusable procedure: {', '.join(successful_tools[:3])}",
-            "problem": "A multi-step research procedure completed with no tool failures.",
-            "observedBehavior": f"{run.get('modelSteps')} model steps; tools: {', '.join(successful_tools)}.",
-            "proposedLesson": "This tool sequence is a candidate reusable procedure for similar objectives.",
-            "proposedProcedure": [
-                {"step": i + 1, "action": f"call {name}"} for i, name in enumerate(successful_tools)
-            ],
-            "evidenceReferences": [
-                {"kind": "tool", "name": t["name"], "at": t.get("createdAt")} for t in tool_successes
-            ],
-            "confidence": 0.45,
-            "generalizationNotes": "Reusability must be confirmed across more than one run.",
-            "knownLimitations": "One successful run is weak evidence for a general skill.",
-        }
-        drafts.append(draft)
+        recurrence = _recurrence_count(store, run_id, "successful_procedure", tool_successes)
+        if recurrence >= 1:
+            draft = {
+                "candidateType": "successful_procedure",
+                "title": f"Reusable procedure: {', '.join(successful_tools[:3])}",
+                "problem": "A multi-step research procedure completed with no tool failures.",
+                "observedBehavior": f"{run.get('modelSteps')} model steps; tools: {', '.join(successful_tools)}.",
+                "proposedLesson": "This tool sequence is a reusable procedure for similar objectives.",
+                "proposedProcedure": [
+                    {"step": i + 1, "action": f"call {name}"} for i, name in enumerate(successful_tools)
+                ],
+                "evidenceReferences": [
+                    {"kind": "tool", "name": t["name"], "at": t.get("createdAt")} for t in tool_successes
+                ],
+                "confidence": min(0.8, 0.5 + 0.1 * recurrence),
+                "generalizationNotes": (
+                    f"Observed in {recurrence + 1} runs with the same tool evidence; "
+                    "still requires evaluation before promotion."
+                ),
+                "knownLimitations": "Confirm the procedure still holds across the supported markets/capabilities.",
+            }
+            drafts.append(draft)
 
     # ── 4. Source-selection improvement: a source failed and another provided
     #         the data (only when the run recorded retrieval source events).

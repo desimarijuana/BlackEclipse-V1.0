@@ -213,6 +213,8 @@ export interface MemoryRunInfo {
     toolCalls: number;
     skillRequested: boolean;
     learnQueuePath: string;
+    autoCaptured?: boolean;
+    skillDraftReady?: boolean;
   };
 }
 
@@ -337,4 +339,5 @@ export type DataCapability =
   | "macro_series"
   | "macro_resolve"
   | "web_search"
-  | "web_fetch";
+  | "web_fetch"
+  | "mcp_secret_resolve";

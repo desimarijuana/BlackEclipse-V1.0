@@ -79,6 +79,12 @@ python/**/*.egg-info/
 # rolling DB backups created by scripts/db-guard.js
 /backups/
 
+# Test scratch directories (temp fixtures / MCP workflows). Runtime-only, never
+# committed; on Windows these may be unreadable by git while a test still holds
+# them, so they must be ignored rather than tracked.
+/.test-tmp/
+.tmp-tests/
+
 # vendored embedded Python (downloaded on-demand, never committed)
 /scripts/vendor/python/
 

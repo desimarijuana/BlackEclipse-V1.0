@@ -4,6 +4,7 @@ import { MARKET_CURRENCY } from "@/lib/market-currency";
 import { searchIndices, resolveIndex } from "@/lib/indices";
 import { fetchPsxIndexQuote } from "@/lib/scraper/fetchers/psx-index";
 import { stripExchangeSuffix } from "@/lib/utils";
+import { getLiveQuotes, STORED_QUOTE_FRESH_MS, type LiveQuote } from "@/lib/scraper/live-quote";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,19 @@ export async function GET(request: Request) {
       })
     );
 
+    // ── Read-through live refresh ──────────────────────────────────────────
+    // The background scraper writes `Price` on a ~15-min cycle, so serving the
+    // stored row alone made a 30-second poll return the same stale number. For
+    // any non-index asset whose stored row is older than STORED_QUOTE_FRESH_MS,
+    // fetch the live quote directly (shared cache + dedup, no Python). A failed
+    // fetch returns nothing and the stored row is used, honestly labelled.
+    const staleAssets = assetSymbols
+      .map((sym) => bySymbol.get(assetKey(sym)))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r?.price))
+      .filter((r) => Date.now() - r.price!.updatedAt.getTime() > STORED_QUOTE_FRESH_MS)
+      .map((r) => ({ symbol: r.symbol, market: r.marketId }));
+    const live = await getLiveQuotes(staleAssets);
+
     const quotes = symbols.map((sym) => {
       // Indices first — they are not Asset rows, so the asset map can never
       // resolve them. Report the requested `sym` back so the caller's key matches.
@@ -267,16 +281,21 @@ export async function GET(request: Request) {
       if (!r || !r.price || r.price.price <= 0) {
         return { symbol: sym, name: sym, price: 0, changePercent: 0, currency: "$", found: false };
       }
+      // Prefer a freshly read-through live value when we have one; otherwise
+      // return the stored row (with its real timestamp + `source`, so the UI can
+      // honestly show it as stale rather than pretending it is live).
+      const liveQ: LiveQuote | undefined = live.get(r.symbol.toUpperCase());
+      const usingLive = Boolean(liveQ);
       return {
         symbol: sym,
         name: r.name,
-        price: r.price.price,
-        changePercent: r.price.changePct,
-        currency: MARKET_CURRENCY[r.marketId] || "$",
+        price: usingLive ? liveQ!.price : r.price.price,
+        changePercent: usingLive ? (liveQ!.changePct ?? 0) : r.price.changePct,
+        currency: liveQ?.currency || MARKET_CURRENCY[r.marketId] || "$",
         marketId: r.marketId,
         sector: r.sector ?? undefined,
-        source: r.price.source,
-        updatedAt: r.price.updatedAt,
+        source: usingLive ? "live" : r.price.source,
+        updatedAt: usingLive ? new Date(liveQ!.at).toISOString() : r.price.updatedAt,
         found: true,
       };
     });

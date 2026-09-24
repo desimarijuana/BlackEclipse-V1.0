@@ -218,15 +218,17 @@ def test_scenario_6_user_correction_candidate(env):
 
 def test_scenario_7_evaluate_generated_draft(env):
     run_id = "run_draft"
-    env["store"].create_run(run_id, "eclipse-agent", {"query": "x"})
-    env["store"].append_event(run_id, "run.started", 1)
 
     class T:
         tool_call_id = "c1"; name = "research_search"; ok = True; duration_ms = 3
         text = "x"; error = None; args = {}
 
-    env["store"].record_tool_execution(run_id, T())
-    env["store"].update_run(run_id, status="completed", output="done", modelSteps=3)
+    # Recurrence: the same successful workflow seen once before.
+    for rid in ("run_draft_seed", run_id):
+        env["store"].create_run(rid, "eclipse-agent", {"query": "x"})
+        env["store"].append_event(rid, "run.started", 1)
+        env["store"].record_tool_execution(rid, T())
+        env["store"].update_run(rid, status="completed", output="done", modelSteps=3)
     capture_from_run(run_id, env["store"], env["skill_store"], actor_is_operator=True)
     candidate = env["skill_store"].list_candidates()[0]
 

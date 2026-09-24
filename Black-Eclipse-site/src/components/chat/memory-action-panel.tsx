@@ -10,7 +10,7 @@
 // Presentation only — all logic lives in `lib/chat/memory-action.ts`.
 
 import { useState } from 'react';
-import { Brain, Check, Info, ListChecks, Loader2, RotateCcw, ShieldAlert, X } from 'lucide-react';
+import { Brain, Check, Info, ListChecks, Loader2, RotateCcw, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildMemoryRunView } from '@/lib/chat/memory-action';
 import { learnFromRun } from '@/lib/harness/skills-browser';
@@ -41,17 +41,24 @@ export function MemoryActionPanel({
   const view = buildMemoryRunView(memory);
   if (!view) return null;
   const { action, eligibility } = view;
-  // Show the panel only when the run took a memory action or is a genuine
-  // learning candidate (or the user explicitly asked to turn it into a skill).
-  // An ordinary informational reply stays uncluttered; its eligibility reason is
+  // Show the panel only when the run took a memory action or produced a genuine
+  // learning outcome (an automatic candidate, an explicit skill draft, or an
+  // explicit skill request that could not be captured). Ordinary informational
+  // replies — and merely "eligible" runs — stay uncluttered: eligibility is
   // still recorded on the run and readable via /api/learning/eligibility/:runId.
-  if (!action && !eligibility?.eligible) return null;
+  const hasLearningOutcome = Boolean(
+    eligibility &&
+      (eligibility.autoCaptured ||
+        eligibility.skillDraftReady ||
+        eligibility.skillRequested),
+  );
+  if (!action && !hasLearningOutcome) return null;
 
   const handleLearn = async () => {
     if (!runId || learnState === 'busy') return;
     setLearnState('busy');
     try {
-      const result = await learnFromRun(runId, eligibility?.skillRequested ? 'turn this into a skill' : undefined);
+      const result = await learnFromRun(runId, 'turn this into a skill');
       if (result.ok && (result.created?.length ?? 0) > 0) {
         setLearnState('done');
         setLearnMessage(`Captured ${result.created.length} learning candidate(s)`);
@@ -127,46 +134,53 @@ export function MemoryActionPanel({
         );
       })()}
 
-      {eligibility && (
-        <div className="flex flex-wrap items-center gap-2 text-muted-foreground/80">
-          {eligibility.eligible ? (
-            <Brain className="h-3.5 w-3.5 shrink-0 text-primary/80" />
-          ) : (
-            <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          )}
-          <span>
-            {eligibility.autoCaptured
-              ? `Automatically captured as a learning candidate${eligibility.candidatesCreated > 1 ? ` (${eligibility.candidatesCreated})` : ''} — ${eligibility.reason}`
-              : eligibility.eligible
-                ? `Can learn from this run — ${eligibility.reason}`
-                : `Not a learning candidate — ${eligibility.reason}`}
-          </span>
-          {eligibility.autoCaptured ? (
-            <a
-              href={eligibility.learnQueuePath}
-              className="text-primary underline-offset-2 hover:underline"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Review in Learning Queue
-            </a>
-          ) : runId && (
-            <button
-              type="button"
-              onClick={handleLearn}
-              disabled={learnState === 'busy' || learnState === 'done'}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-0.5 transition-colors hover:bg-white/5',
-                'text-primary disabled:opacity-60',
-              )}
-            >
-              {learnState === 'busy' && <Loader2 className="h-3 w-3 animate-spin" />}
-              {learnState === 'done' ? 'Learned' : 'Learn from this run'}
-            </button>
-          )}
-          {learnMessage && <span className="w-full text-muted-foreground/70">{learnMessage}</span>}
-        </div>
-      )}
+      {eligibility && (() => {
+        // A quiet outcome line. No button is shown for an ordinary, merely
+        // "eligible" run — only a genuine automatic capture or an explicit
+        // skill draft/request produces a learning line, so the user is never
+        // asked to learn after every run.
+        const captured = eligibility.autoCaptured || eligibility.skillDraftReady;
+        return (
+          <div className="flex flex-wrap items-center gap-2 text-muted-foreground/80">
+            {captured ? (
+              <Brain className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+            ) : (
+              <ListChecks className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+            )}
+            <span>
+              {eligibility.skillDraftReady
+                ? `Draft skill created for review — ${eligibility.reason}`
+                : eligibility.autoCaptured
+                  ? `Automatically captured as a learning candidate${eligibility.candidatesCreated > 1 ? ` (${eligibility.candidatesCreated})` : ''} — ${eligibility.reason}`
+                  : `Skill request noted — ${eligibility.reason}`}
+            </span>
+            {captured ? (
+              <a
+                href={eligibility.learnQueuePath}
+                className="text-primary underline-offset-2 hover:underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Review in Learning Queue
+              </a>
+            ) : runId && (
+              <button
+                type="button"
+                onClick={handleLearn}
+                disabled={learnState === 'busy' || learnState === 'done'}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-0.5 transition-colors hover:bg-white/5',
+                  'text-primary disabled:opacity-60',
+                )}
+              >
+                {learnState === 'busy' && <Loader2 className="h-3 w-3 animate-spin" />}
+                {learnState === 'done' ? 'Learned' : 'Create skill draft'}
+              </button>
+            )}
+            {learnMessage && <span className="w-full text-muted-foreground/70">{learnMessage}</span>}
+          </div>
+        );
+      })()}
     </div>
   );
 }

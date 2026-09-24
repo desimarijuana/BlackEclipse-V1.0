@@ -602,30 +602,35 @@ runs only for explicit intent.
 ## ADR-H35 — Learning is automatic for eligible runs; drafts carry real procedures
 
 **Decision.** Completed ordinary chat runs (not just skill runs) are analyzed
-automatically after the run (`auto_candidate_detection` default **on**): the
-deterministic, criteria-driven analyzer creates inert learning candidates
-without the user asking, and the run's `memory` blob reports
+automatically after the run. Under the current default (`skill_learning_mode:
+automatic_selective`) the deterministic, criteria-driven analyzer creates inert
+learning candidates without the user asking, and the run's `memory` blob reports
 `learningEligibility.autoCaptured` + `learningAnalysis.candidatesCreated` for the
 UI. Candidates are deduplicated by signature (bounded queue) and are NEVER
-enabled/promoted. The explicit "Learn from this run" action remains for cases
-auto-detection does not cover (e.g. an explicit turn-into-skill request on a run
-with no tool trace), and an explicit request always yields an inert candidate.
-Candidate → draft generation produces a complete `SKILL.md` (procedure steps,
-typed input/output assumptions, existing safe tools only, source-run provenance,
-limitations, evaluation cases) while remaining `status: draft` /
+enabled/promoted. A merely eligible run is *not* itself proof of a reusable
+procedure: an implicit `successful_procedure` candidate additionally requires
+recurrence evidence (the same successful workflow observed in a prior completed
+run); a recovered failure or a user correction is strong single-run evidence. An
+explicit "turn this into a skill" request creates an inert candidate + draft
+through the real persistence path immediately — no second "Learn from this run"
+click. Candidate → draft generation produces a complete `SKILL.md` (procedure
+steps, typed input/output assumptions, existing safe tools only, source-run
+provenance, limitations, evaluation cases) while remaining `status: draft` /
 `evaluationStatus: not_evaluated`. When the trace has no evidence for a real
 procedure, the draft says so and stays a manual-authoring candidate.
 
 **Why.** Drafts were manifest-only (`instructions: None`), so "turn this into a
 skill" produced an unusable artifact; ordinary chat runs could not become
 learning candidates; and requiring the user to manually trigger learning meant
-successful work routinely never became a candidate.
+successful work routinely never became a candidate. A later selectivity pass
+(ADR-H37) showed the opposite failure — treating any eligible run as a skill —
+so recurrence was added as the missing evidence gate.
 
 **Consequences.** No automatic skill enablement/promotion/permission expansion —
 the hard rule is preserved (the policy `auto_promote_low_risk` stays locked
 off). Automatic learning at most creates inert records; a draft is stored as an
 inert version and only evaluation + operator approval can enable it. Operators
-can disable detection entirely via `auto_candidate_detection=false`.
+can disable detection entirely via `skill_learning_mode: off`.
 
 ## ADR-H36 — Chat can explicitly invoke an enabled skill as a controlled sub-run
 
@@ -653,7 +658,8 @@ that returns exactly one of four outcomes:
 - `save` — high-value, durable, clearly-intended, safe; persist now;
 - `suggest` — possibly durable, but intent/scope unclear; do NOT persist, show a
   quiet Save/Dismiss control (an inert `MemorySuggestion` row);
-- `run_only` — relevant to this task/conversation only;
+- `history_only` — relevant to this task/conversation and searchable in
+  conversation/run history, but not worth recalling as durable memory;
 - `ignore` — low-value, redundant, temporary, unsafe, unsupported or irrelevant.
 
 The gate validates a proposal against the actual user message, identity, scope,
@@ -665,8 +671,10 @@ own write — the gate re-checks it against the user turn, and tool output,
 retrieved memory, attached documents and web content are never user intent.
 Financial facts (prices, valuations, earnings, predictions, unverified claims)
 are never durable memory. Automatic memory capture, automatic candidate
-detection and automatic suggestions all default **off**; turning them on is an
-explicit operator choice that still only produces inert records.
+detection and automatic suggestions are controlled by two *mode* keys
+(`memory_mode`, `skill_learning_mode`: `automatic_selective` | `ask_before_saving`
+| `off`), defaulting to `automatic_selective`; the legacy booleans are derived
+from the modes and are neither stored nor settable (migration 7, ADR-H43).
 
 **Why.** The Phase 3-M reliability pass made capture deterministic but too eager:
 `auto_capture_enabled`/`auto_candidate_detection` defaulted on, an incidental "I
@@ -677,15 +685,16 @@ occasionally financial text — exactly what a durable memory must not contain.
 
 **Consequences.** One code path authorizes every write, so a new surface cannot
 quietly bypass the rules. Explicit controls stay dependable; everything else is
-selective and usually `run_only`/`ignore`. A persisted unsafe `true` policy
+selective and usually `history_only`/`ignore`. A persisted unsafe `true` policy
 override is migrated to the safe default (migration 5, recorded in
 `MemoryPolicyMigration`) rather than silently continuing the old behaviour. The
 storage budget (`max_memories`, default unlimited) fails a new unique save
 truthfully as `memory_full` rather than auto-deleting user memory; inert history
 does not consume it. The learning path is distinct: a skill candidate is an
-on-demand procedure created only through an explicit "turn this into a skill"
-request or the operator's "Learn from this run" action (automatic detection
-opt-in), never a second memory note.
+on-demand procedure created through an explicit "turn this into a skill" request
+or an automatic-selective run with recurrence evidence, never a second memory
+note. See ADR-H43 for the mode model that supersedes the per-boolean tuning.
+
 
 ## ADR-H38 — MCP is a user-directed extension surface adapted into the one ToolRegistry
 
@@ -749,6 +758,202 @@ are shown, and a blank `KEY=` edit keeps the stored value. The whole
 `mcp-servers.json` file (which may hold scoped env values) is gitignored.
 Effectful-tool approval (5G) is still required before any write/action tool can
 be activated — this phase does not weaken that.
+
+## ADR-H40 — MCP trust is explicit: operator-declared effects, confirmed catalogs, transport-authenticated mutations
+
+**Decision.** An MCP server's own metadata is untrusted. Three rules follow:
+
+1. **Effects.** A tool is activatable only when its effect is `read` AND that
+   classification is *explicit and reviewable*. An operator `tool_effects`
+   declaration is trusted. A server's `readOnlyHint` is untrusted: it can classify
+   a tool as `read` for review, but on its own it leaves the tool disabled until
+   the operator confirms the current `catalogDigest`. `destructive_hint=True`
+   never activates. Only `read` ever activates; `write`/`external_action`/
+   `unknown` need the future approval gate (5G).
+2. **Catalog invalidation.** A changed tool set, description or schema yields a
+   new `catalogDigest`; the previous confirmation no longer matches, so an
+   annotation-sourced tool becomes inert again until re-confirmed.
+3. **Authorization.** MCP mutations are authorized by *transport* (loopback) or by
+   the runtime secret (`X-Harness-Operator`/`Bearer`), never by a JSON
+   `operator: true` field. The TS front door still applies `checkMutationAllowed`;
+   Python re-checks independently, so a directly reachable runtime cannot be
+   handed arbitrary subprocess configuration by spoofing a boolean.
+4. **Credentials.** Scoped env VALUES are persisted in the gitignored
+   `mcp-servers.json`, written owner-only (0600 where supported). The secure
+   settings vault is a TypeScript/Prisma store this Python process cannot read and
+   the SDK needs the value to spawn the child; the API returns key names only and
+   values are redacted from diagnostics/events/results.
+
+**Why.** A malicious or compromised MCP server controls its own descriptions,
+annotations and results. Letting `readOnlyHint` alone enable a tool is a
+server-granted permission — the exact thing the product forbids. And a JSON
+boolean is not authentication: any client that can reach the runtime could
+otherwise configure arbitrary subprocesses.
+
+**Consequences.** A genuinely read-only server still needs one explicit operator
+act (declare the effect, or confirm the catalog). The default Eclipse agent can
+call selected MCP tools via `allowMcpTools` — an expansion over *registered*
+tools only, which registration already gates on enabled + selected + permitted
+effect. Custom agents/skills keep exact allowlists. **Limit:** env secrets live in
+local plaintext config for now; resolving them from the secure vault through a
+secret reference (value never reaching TS/models/events/logs/receipts) is a later
+gate. Remote HTTP/OAuth (5D), effectful approval (5G), Eclipse-as-server (5H)
+and MCP-aware native source planning (5F) remain future work.
+
+## ADR-H41 — MCP secrets resolve from the encrypted vault; effectful tools require a per-call approval
+
+**Decision.** Two additions close the MCP secret and effect gaps:
+
+1. **Secret references.** A server config may reference a NAMED secret
+   (`secret_refs: { ENV_VAR: secretName }`) stored encrypted in JDDS
+   (`SystemConfig.key = 'mcp_secrets_v1'`, AES-256-GCM via `connectors/secrets`).
+   Only names/masked hints are exposed to the UI. The Python runtime resolves the
+   value at child spawn over the authenticated, read-only data bridge
+   (`mcp_secret_resolve`); the value is never returned to a browser, the model, an
+   event, a log, or a run trace, and it joins the connection's in-memory
+   redaction set. Inline plaintext `env` remains supported as the legacy path.
+2. **Effectful approvals.** A `write`/`external_action` tool needs (a) the
+   operator to enable that effect for the server (`enabled_effects`, default
+   `["read"]`) and (b) a valid APPROVED approval for the exact
+   `(serverId, tool, argsDigest)`. The digest covers the canonicalized validated
+   arguments; a changed payload needs a new approval, a denial is terminal, and
+   `unknown` is never approvable. Enforcement is inside the ONE `ToolRegistry`:
+   a non-read tool runs only when `ToolContext.authorize_effect` approves THIS
+   call; with no authorizer wired, non-read tools are refused.
+
+**Why.** The earlier slice stored scoped MCP env values as local plaintext and
+refused every non-read tool with no path forward. Plaintext is not acceptable for
+a credential when an encrypted vault already exists, and "there is no approval
+flow" is a permanent dead-end rather than a safe default. Both gaps had a
+well-scoped fix that reuses existing pieces (the connector crypto, the bridge, the
+registry execution seam) rather than a new subsystem.
+
+**Consequences.** A read-only server still stores no secret; a credential-using
+server references the vault. Approvals are persisted in `agent-memory.db`
+(`McpApproval`) with no secret material and expire (default 15 min). An
+unapproved effectful call is refused and surfaces a PENDING request; the operator
+decides in Settings. **Limits:** the Python process still receives the resolved
+value at spawn (it must, to start the child); the vault key is instance-scoped
+(`CONNECTOR_SECRET_KEY` on hosted deployments). Remote HTTP/OAuth (5D),
+Eclipse-as-server (5H), MCP-aware native source planning (5F) and
+resources/prompts/subscriptions (5I) remain future work.
+
+## ADR-H42 — Remote MCP uses Streamable HTTP with vault-backed auth and an SSRF guard
+
+**Decision.** `MCPServerConfig` gains a `transport` field (`"stdio"` default, or
+`"http"` with a required `url`). The HTTP path uses the MCP SDK's
+Streamable-HTTP client (`mcp.client.streamable_http`) and shares the *same*
+connection lifecycle, discovery, effect/approval gating, output bounding and
+redaction as stdio — only the stream source differs. Authentication is a **vault
+secret reference** (`auth: {kind: "header"|"query", name, prefix?, secretRef}`):
+the token is resolved at connect time over the authenticated bridge, added to the
+connection's in-memory redaction set, and never stored in config, returned to the
+UI, or logged. Every remote URL passes an **SSRF guard** (Python
+`harness/mcp/ssrf.py`, mirrored on the TS side by `checkOutboundUrl`):
+https-only (loopback `http` allowed for local testing), embedded credentials
+refused, private/link-local/metadata IP literals and private-resolving hostnames
+refused, and the check runs BEFORE any outbound connection.
+
+**Why.** "Users can connect anything" is false while only local stdio is
+supported — most third-party MCP servers (hosted Google Workspace, Canva, many
+financial APIs) are remote. A config-driven outbound connection is also a classic
+SSRF vector, and an API token must not be the one secret still stored in
+plaintext.
+
+**Consequences.** Header/bearer auth covers the majority of API-key servers
+immediately; interactive OAuth (localhost callback, token refresh/clear) is
+deferred. `secret_refs` (stdio env) and `auth.secretRef` (http) both resolve
+through the same vault. `test_server` refuses an unsafe URL with a diagnostic and
+makes no network call. The connection/manager/adapter/approval layer is unchanged
+— remote servers reuse the exact same enforcement. Remaining future work:
+OAuth lifecycle and TLS/redirect knobs (part of 5D), resources/prompts (5I),
+MCP-aware native source planning (5F), and Eclipse-as-server (5H).
+
+## ADR-H43 — Automatic learning is one mode, not several booleans; it saves selectively without prompting
+
+**Decision.** Automatic memory learning and automatic skill learning are each
+controlled by a single *mode* key rather than independent booleans:
+
+- `memory_mode`: `automatic_selective` (default) — save strong, durable,
+  low-risk, non-sensitive information automatically, without interrupting the
+  user; treat one-off requests, temporary task details, generated analysis, tool
+  output and changing market data as `history_only`/`ignore`; require recurrence
+  for project-specific conventions; a direct user preference is saved on first
+  statement. `ask_before_saving` — stage an inert suggestion instead.
+  `off` — create nothing automatically.
+- `skill_learning_mode`: same three modes, gating automatic learning-candidate
+  detection. Implicit `successful_procedure` candidates require recurrence
+  evidence; a merely eligible run is not enough. An explicit request always
+  creates an inert draft through the real persistence path.
+
+The legacy booleans (`auto_capture_enabled`, `auto_suggest_enabled`,
+`auto_candidate_detection`) are now **derived** from the modes: they are neither
+stored nor settable, so they cannot drift out of sync. `policy.derived_flags`
+projects the modes to the booleans for existing call sites. Migration 7 records
+and removes any stored legacy boolean rows so the mode defaults govern.
+
+**Why.** The prior design used three independent booleans whose defaults and
+meaning drifted across code, docs, and tests (ADR-H35 said candidate detection
+default on; ADR-H37 said all off). A one-flag "fix" left the real product
+behaviour wrong in either direction: indiscriminate prompt-after-every-run, or no
+learning at all. The intended behaviour is *selective automatic learning* — one
+coherent lifecycle with a single source of truth.
+
+**Consequences.** The default is consistent across policy code, persisted
+settings, migration, API/UI, tests and documentation. Explicit remember/forget/
+correct remain a separate always-on path. The decision outcomes are now
+`save`/`suggest`/`history_only`/`ignore` (`run_only` renamed to `history_only` to
+name conversation history explicitly). Noisy per-run prompts are removed: the
+chat panel shows a learning line only for a genuine automatic capture or an
+explicit draft — a merely eligible run shows nothing, and a repeated "Learn from
+this run?" confirmation is gone.
+
+## ADR-H43 — MCP is presented as finance workflows with provenance, diagnostics and safe defaults
+
+**Decision.** A product layer sits on top of the MCP machinery:
+
+1. **Finance presets & workflows** (`python/harness/mcp/presets.py`). Known
+   finance integrations (Sheets, Excel, filings, web search, calendar, cloud
+   docs, Canva/Figma/Office decks, Notion) with plain-language setup, plus named
+   workflows a user recognises — Import Portfolio, Review Portfolio Risk,
+   Prepare Earnings Brief, Compare Companies, Analyze Trade Journal, Create
+   Investment Memo, Export Portfolio Report. Each workflow lists its steps, which
+   integration each step uses, which steps are native (Eclipse data), and which
+   need approval. Presets are **data**, contain no secrets, and never activate
+   anything — a workflow is a plan the user reviews.
+2. **Honest labeling.** Every integration says whether its launch values were
+   `verified` against the package registry; unverified entries are marked
+   `UNVERIFIED` in their notes and remote templates are flagged. Community
+   servers are labelled.
+3. **Source provenance on every result.** Each MCP result carries a machine-
+   readable `provenance` block (`verification: "external"`, `eclipseVerified:
+   false`, `source`, `retrievedAt`, `truncated`) and the result text says
+   "EXTERNAL source … NOT Eclipse-verified". Eclipse's native JDdS/portfolio data
+   remains authoritative; a workflow's native steps are marked `native_data`.
+4. **Setup diagnostics** (`python/harness/mcp/diagnostics.py`): command / Node /
+   npx / Python availability, vault secret references, endpoint safety +
+   reachability, connection state, discovery and selection — each with a
+   `recovery` step. A whole-environment check also reports whether a writable
+   temp directory exists (Windows permission problems must not look like a broken
+   server).
+5. **Approval clarity.** An effectful approval records a plain-language
+   `actionSummary`, the `affectedData`, and a `risk` level alongside the argument
+   digest; the UI shows them and uses "Approve this exact call".
+6. **Resilient tests.** `python/harness/mcp/_testtmp.py` resolves a writable temp
+   base, falling back from `%TEMP%` to a repo-local `.tmp-tests`, so a locked-down
+   Windows temp dir cannot make a healthy test look broken.
+
+**Why.** A user should not have to reason about servers, JSON and tool names to
+do a finance job, and must never mistake external data for Eclipse-verified
+data. The runtime already enforced execution safety; what was missing was
+task-orientation, provenance, and actionable setup feedback.
+
+**Consequences.** The wizard/API expose integrations and workflows read-only;
+activation still requires an explicit operator action and read tools still need
+selection + catalog confirmation, writes still need per-call approval. Secrets
+remain vault-only. Automated end-to-end coverage
+(`python/tests/test_mcp_workflow.py`) proves import → native analysis → report →
+approved export → provenance, and that a changed payload needs a new approval.
 
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

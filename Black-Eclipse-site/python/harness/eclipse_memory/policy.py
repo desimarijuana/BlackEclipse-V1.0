@@ -6,9 +6,27 @@ migration.
 
 Critically, policy can only loosen/tighten *within safe bounds*. Some settings
 have a floor that policy can never cross (e.g. automatic skill promotion is
-always off, automatic capture can never be enabled to store arbitrary text, the
-context budget cannot exceed the hard ceiling). This keeps a stored setting from
-becoming a security bypass — the same principle as the permission policy.
+always off, the context budget cannot exceed the hard ceiling). This keeps a
+stored setting from becoming a security bypass — the same principle as the
+permission policy.
+
+**One coherent learning lifecycle.** Automatic memory capture and automatic
+skill learning are each controlled by a single *mode* key — not by several
+independent booleans that can drift out of sync:
+
+    * ``automatic_selective`` — learn automatically, but only when the evidence
+      is strong: high-confidence, durable, low-risk, non-sensitive. Incidental
+      or project-specific claims additionally require recurrence. The user is
+      never asked once per run.
+    * ``ask_before_saving`` — stage candidates and ask (an inert suggestion),
+      never save a durable memory on the user's behalf.
+    * ``off`` — never create a durable memory or learning candidate
+      automatically. Explicit "remember/forget/correct" requests still work.
+
+The legacy boolean keys (`auto_capture_enabled`, `auto_suggest_enabled`,
+`auto_candidate_detection`) are now **derived** from the modes and are no longer
+persisted or settable — the mode is the one source of truth. They remain in the
+resolved settings dict only so existing call sites can read them consistently.
 """
 
 from __future__ import annotations
@@ -17,26 +35,33 @@ from typing import Any, Optional
 
 from .db import now_iso
 
+# ── Learning modes ──────────────────────────────────────────────────────────
+
+MODE_VALUES = ("automatic_selective", "ask_before_saving", "off")
+
+# Keys whose value is one of MODE_VALUES.
+MODE_KEYS = ("memory_mode", "skill_learning_mode")
+
+# Old boolean keys that are now derived from the modes. They are NOT in DEFAULTS
+# (so they cannot be persisted or set) but ARE injected into resolved settings
+# by `PolicyStore.get_all` for call sites that still read them.
+DERIVED_KEYS = ("auto_capture_enabled", "auto_suggest_enabled", "auto_candidate_detection")
+
 # ── Defaults ────────────────────────────────────────────────────────────────
 
 DEFAULTS: dict[str, Any] = {
-    # Automatic capture of a run's explicit user memory INTENT ("remember this",
-    # "save this preference", "forget this", "correct this"). Off by default:
-    # routine chat turns are never auto-stored. The deterministic explicit-intent
-    # path still runs (clear, safe, user-authored save/forget/correct commands
-    # are always honoured) — this flag only gates the *automatic* incidental
-    # path. A non-explicit "I prefer X" mention never saves; it may at most
-    # become a suggestion when `auto_suggest_enabled` is on.
-    "auto_capture_enabled": False,
-    # Automatic learning-candidate detection after a completed run. Off by
-    # default: completing a run, using multiple tools, or taking multiple model
-    # steps is NOT proof a procedure generalizes. Operators may opt in; even then
-    # detection creates ONLY inert candidates (never enables/promotes a skill).
-    "auto_candidate_detection": False,
-    # Automatic *suggestion* of incidental durable information ("I prefer …").
-    # Off by default. Suggestions are inert (no DB record until the user accepts);
-    # they never write anything on their own.
-    "auto_suggest_enabled": False,
+    # Automatic durable-memory learning. The intended product default: save
+    # strong, durable, low-risk information automatically (no per-run prompt),
+    # treat one-off/task/market/tool content as history-only, and require
+    # recurrence for project-specific claims. `ask_before_saving` stages an inert
+    # suggestion instead; `off` disables automatic memory entirely (explicit
+    # "remember/forget/correct" always remains available). See decision.py.
+    "memory_mode": "automatic_selective",
+    # Automatic skill-candidate learning. An eligible run is NOT itself proof of
+    # a reusable procedure: implicit candidates additionally require recurrence
+    # evidence. Created candidates are always inert; nothing is ever enabled or
+    # promoted without evaluation + operator approval.
+    "skill_learning_mode": "automatic_selective",
     # Minimum confidence a detected candidate must have to be recorded.
     "candidate_confidence_threshold": 0.4,
     # Retrieval context budget (characters).
@@ -75,6 +100,27 @@ LOCKED_VALUES: dict[str, Any] = {
     "auto_promote_low_risk": False,  # automatic promotion stays disabled
 }
 
+# Module-level so tests/UI can import the mapping instead of re-deriving it.
+_MEMORY_MODE_FLAGS: dict[str, dict[str, bool]] = {
+    "off": {"auto_capture_enabled": False, "auto_suggest_enabled": False},
+    "ask_before_saving": {"auto_capture_enabled": False, "auto_suggest_enabled": True},
+    "automatic_selective": {"auto_capture_enabled": True, "auto_suggest_enabled": True},
+}
+_SKILL_MODE_FLAGS: dict[str, dict[str, bool]] = {
+    "off": {"auto_candidate_detection": False},
+    "ask_before_saving": {"auto_candidate_detection": True},
+    "automatic_selective": {"auto_candidate_detection": True},
+}
+
+
+def derived_flags(resolved: dict[str, Any]) -> dict[str, bool]:
+    """The legacy booleans implied by the resolved modes (read-only)."""
+    memory_mode = resolved.get("memory_mode") or "automatic_selective"
+    skill_mode = resolved.get("skill_learning_mode") or "automatic_selective"
+    flags = dict(_MEMORY_MODE_FLAGS.get(memory_mode, _MEMORY_MODE_FLAGS["automatic_selective"]))
+    flags.update(_SKILL_MODE_FLAGS.get(skill_mode, _SKILL_MODE_FLAGS["automatic_selective"]))
+    return flags
+
 
 class PolicyError(ValueError):
     """A policy change was rejected (unknown key, out of range, or locked)."""
@@ -92,9 +138,16 @@ def _coerce(key: str, value: Any) -> Any:
 
 
 def validate(key: str, value: Any) -> Any:
+    if key in DERIVED_KEYS:
+        raise PolicyError(
+            f"policy {key!r} is derived from the learning mode; set "
+            f"'memory_mode'/'skill_learning_mode' instead"
+        )
     if key not in DEFAULTS:
         raise PolicyError(f"unknown policy key {key!r}")
     coerced = _coerce(key, value)
+    if key in MODE_KEYS and coerced not in MODE_VALUES:
+        raise PolicyError(f"policy {key!r} must be one of {MODE_VALUES}")
     if key in LOCKED_VALUES and coerced != LOCKED_VALUES[key]:
         raise PolicyError(f"policy {key!r} is locked to {LOCKED_VALUES[key]!r}")
     if key in BOUNDS:
@@ -126,9 +179,14 @@ class PolicyStore:
                 # A corrupted/now-invalid stored value falls back to the safe
                 # default rather than being honoured.
                 resolved[key] = default
+        # The legacy booleans are never stored or read directly — they are
+        # derived from the modes so they can never drift out of sync.
+        resolved.update(derived_flags(resolved))
         return resolved
 
     def get(self, key: str) -> Any:
+        if key in DERIVED_KEYS:
+            return self.get_all().get(key)
         return self.get_all().get(key, DEFAULTS.get(key))
 
     def set(self, key: str, value: Any, *, updated_by: Optional[str] = None) -> dict[str, Any]:
@@ -169,4 +227,15 @@ def _decode(raw: str, default: Any) -> Any:
         return default
 
 
-__all__ = ["BOUNDS", "DEFAULTS", "LOCKED_VALUES", "PolicyError", "PolicyStore", "validate"]
+__all__ = [
+    "BOUNDS",
+    "DEFAULTS",
+    "DERIVED_KEYS",
+    "LOCKED_VALUES",
+    "MODE_KEYS",
+    "MODE_VALUES",
+    "PolicyError",
+    "PolicyStore",
+    "derived_flags",
+    "validate",
+]

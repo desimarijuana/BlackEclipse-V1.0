@@ -96,8 +96,12 @@ class _Request:
 class MCPConnection:
     """A single stdio server connection with bounded, serialized operations."""
 
-    def __init__(self, config: MCPServerConfig) -> None:
+    def __init__(self, config: MCPServerConfig, secret_resolver: Any = None) -> None:
         self.config = config
+        # An optional async `(name) -> value | None` resolver for vault secret
+        # references. The value is used ONLY to populate the child environment at
+        # spawn and is never stored on the connection, logged, or emitted.
+        self._secret_resolver = secret_resolver
         self.limits = config.limits()
         self._secrets = config.secret_values()
         self._runner: Optional[asyncio.Task[None]] = None
@@ -111,6 +115,8 @@ class MCPConnection:
         self._protocol_version: Optional[str] = None
         self._server_info: Optional[dict[str, Any]] = None
         self._call_count = 0
+        # Auth secret resolved in memory for an http connection (never persisted).
+        self._resolved_auth: dict[str, Any] = {}
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -162,6 +168,15 @@ class MCPConnection:
     @property
     def call_count(self) -> int:
         return self._call_count
+
+    @property
+    def redaction_values(self) -> list[str]:
+        """In-memory secret values to scrub from output (declared + resolved).
+
+        Includes values resolved from the vault at spawn, so a server that echoes
+        its own credential cannot leak it through a result or diagnostic.
+        """
+        return list(self._secrets)
 
     async def close(self) -> None:
         """Signal shutdown and wait for the runner to finish (bounded)."""
@@ -218,14 +233,13 @@ class MCPConnection:
     # -- runner --------------------------------------------------------------
 
     async def _run(self) -> None:
-        params = StdioServerParameters(
-            command=self.config.command,
-            args=list(self.config.args),
-            env=self.config.resolve_environment(),
-            cwd=self.config.resolve_cwd(),
-        )
+        # Resolve vault secret references at connect time (never persisted).
+        resolved_secrets = await self._resolve_env_secrets()
+        await self._resolve_auth_secret()
         try:
-            async with stdio_client(params) as (read_stream, write_stream):
+            transport_cm = self._transport(resolved_secrets)
+            async with transport_cm as streams:
+                read_stream, write_stream = streams[0], streams[1]
                 async with ClientSession(read_stream, write_stream) as session:
                     init = await asyncio.wait_for(
                         session.initialize(),
@@ -259,6 +273,88 @@ class MCPConnection:
             self._ready.set()
             self._fail_pending()
             self._state = "closed" if self._state != "failed" else "failed"
+
+    async def _resolve_env_secrets(self) -> dict[str, str]:
+        """Resolve `secret_refs` at spawn/connect; add values to redaction."""
+        resolved: dict[str, str] = {}
+        if self._secret_resolver is None or not self.config.secret_refs:
+            return resolved
+        for env_name, secret_name in self.config.secret_refs.items():
+            value = await self._safe_resolve(secret_name)
+            if value:
+                resolved[env_name] = value
+                if value not in self._secrets:
+                    self._secrets = [*self._secrets, value]
+        return resolved
+
+    async def _safe_resolve(self, secret_name: str) -> Optional[str]:
+        try:
+            return await self._secret_resolver(secret_name)
+        except Exception:  # noqa: BLE001 - a resolver failure is never authorization
+            return None
+
+    async def _resolve_auth_secret(self) -> None:
+        """Resolve the configured auth secret into memory (never persisted)."""
+        auth = self.config.auth if isinstance(self.config.auth, dict) else None
+        if not auth or self._secret_resolver is None:
+            return
+        ref = auth.get("secretRef")
+        if not ref:
+            return
+        value = await self._safe_resolve(str(ref))
+        self._resolved_auth = {"kind": auth.get("kind"), "name": auth.get("name"), "value": value}
+        if value and value not in self._secrets:
+            self._secrets = [*self._secrets, value]
+
+    def _transport(self, resolved_secrets: dict[str, str]):
+        """Return the async context manager yielding `(read, write)` streams.
+
+        stdio launches a local subprocess; http connects to a remote
+        Streamable-HTTP endpoint. Both yield the same stream pair, so the session
+        lifecycle, discovery, serving, and error handling above are shared.
+        """
+        if self.config.transport == "http":
+            return self._http_transport()
+        params = StdioServerParameters(
+            command=self.config.command,
+            args=list(self.config.args),
+            env=self.config.resolve_environment(resolved_secrets),
+            cwd=self.config.resolve_cwd(),
+        )
+        return stdio_client(params)
+
+    def _http_transport(self):
+        """A Streamable-HTTP transport with vault-backed header/query auth."""
+        import httpx2
+        from mcp.client.streamable_http import streamable_http_client, create_mcp_http_client
+
+        url = self.config.url or ""
+        auth = self.config.auth if isinstance(self.config.auth, dict) else None
+        headers: dict[str, str] = {}
+        query: dict[str, str] = {}
+        if auth:
+            token = None
+            # `_auth_secret` is resolved synchronously via the injected resolver
+            # only in an async context; here we accept a pre-resolved value cached
+            # on the connection by `_run`. See `_resolved_auth`.
+            token = self._resolved_auth.get("value")
+            if token:
+                if auth.get("kind") == "query":
+                    query[str(auth.get("name"))] = token
+                else:
+                    headers[str(auth.get("name"))] = f"{auth.get('prefix') or ''}{token}"
+                if token not in self._secrets:
+                    self._secrets = [*self._secrets, token]
+        if query:
+            url = f"{url}{'&' if '?' in url else '?'}" + "&".join(f"{k}={v}" for k, v in query.items())
+        http_client = (
+            create_mcp_http_client(headers=headers)
+            if headers
+            else None
+        )
+        # https-only / private-host refusal is enforced before this call (manager).
+        return streamable_http_client(url, http_client=http_client)
+
 
     async def _discover(self, session: ClientSession) -> None:
         try:

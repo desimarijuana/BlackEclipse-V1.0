@@ -90,6 +90,39 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
 
 
+def _effect_authorizer(approvals: Optional[Any], run_id: str, emitter: RunEmitter) -> Optional[Any]:
+    """The run's effect authorizer, or None when no approval store is wired.
+
+    With no authorizer, the registry refuses every non-read tool — the safe
+    default. When wired, only an explicit matching operator approval passes.
+    """
+    if approvals is None:
+        return None
+    from .mcp.approvals import make_effect_authorizer
+
+    return make_effect_authorizer(approvals, run_id, emitter)
+
+
+def effective_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[set[str]]:
+    """The run's tool allowlist, with an explicit, narrow MCP opt-in.
+
+    When the agent sets `allowMcpTools`, the allowlist is expanded to include the
+    MCP tools CURRENTLY REGISTERED in the registry (names under the `mcp_`
+    namespace). Registration already requires an enabled server, explicit
+    per-tool selection and a read-only effect, so this cannot surface a merely
+    discovered tool. Every other agent keeps its exact allowlist — the opt-in is
+    per-agent and defaults off, so a restricted custom agent or skill can never
+    reach an MCP tool it did not name. When the agent has NO allowlist (None =
+    all tools), the expansion is a no-op.
+    """
+    if agent.tools is None:
+        return None
+    allowed = set(agent.tools)
+    if agent.allowMcpTools:
+        allowed.update(name for name in registry.names() if name.startswith("mcp_"))
+    return allowed
+
+
 def build_graph(
     request: RunRequest,
     registry: ToolRegistry,
@@ -101,13 +134,14 @@ def build_graph(
     retrieval_cache: Optional[Any] = None,
     memory_service: Optional[Any] = None,
     skill_registry: Optional[Any] = None,
+    effect_authorizer: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
     max_steps: int = agent.maxSteps or 8
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
-    allowed = set(agent.tools) if agent.tools else None
+    allowed = effective_allowlist(agent, registry)
 
     model = build_chat_model(request.modelSettings)
     lc_tools = registry.langchain_tools(allowed)
@@ -134,6 +168,7 @@ def build_graph(
         model_settings=request.modelSettings,
         bus=bus,
         tool_registry=registry,
+        authorize_effect=effect_authorizer,
     )
     registry.set_active_context(ctx)
 
@@ -411,6 +446,7 @@ async def execute_run(
     retrieval_cache: Optional[Any] = None,
     memory_service: Optional[Any] = None,
     skill_registry: Optional[Any] = None,
+    approvals: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     agent = resolve_agent(request)
@@ -471,6 +507,7 @@ async def execute_run(
         app = build_graph(
             request, registry, data_bridge, store, emitter, bus, cancel_event,
             retrieval_cache, memory_service, skill_registry,
+            _effect_authorizer(approvals, request.runId, emitter),
         )
         final_state = await app.ainvoke(
             {
@@ -503,11 +540,20 @@ async def execute_run(
     store.update_run(request.runId, status="completed", output=output, finishedAt=now_iso())
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
+    # An explicit "turn this into a skill" request is now turned into a real
+    # inert skill draft from the completed run's trace — through the same
+    # candidate + draft persistence path, without a second click. It is never
+    # enabled: evaluation + operator approval remain the only promotion gates.
+    if memory_outcome and memory_outcome.get("action") == "skill_requested":
+        skill_draft = _create_explicit_skill_draft(
+            request, store=store, skill_registry=skill_registry, registry=registry,
+        )
+        if skill_draft:
+            memory_outcome["skillDraft"] = skill_draft
+            eligibility["skillDraftReady"] = bool(skill_draft.get("captured"))
     # Automatic learning analysis runs for eligible completed runs — the user
     # should not have to ask. It creates ONLY inert candidates (never enables a
-    # skill). The explicit "Learn from this run" action remains for the cases
-    # auto-detection does not cover (e.g. an explicit turn-into-skill request on
-    # a run with no tool trace).
+    # skill) and, for implicit procedures, only when recurrence evidence exists.
     analysis = await _post_run_analysis(request.runId, store, memory_service, skill_registry)
     memory_blob = _memory_blob(memory_outcome, eligibility, analysis)
     if memory_blob:
@@ -724,17 +770,25 @@ async def _apply_memory_intent(
 
     Every turn goes through `EclipseMemoryService.decide_turn` (the ONE write
     gate). An explicit "remember/forget/correct" command is always honoured when
-    safe and clear; a casual durable mention may at most create an inert
-    suggestion; anything else is `run_only`/`ignore` and writes nothing.
+    safe and clear; a casual durable mention follows `memory_mode`
+    (automatic_selective saves strong low-risk evidence without a prompt;
+    ask_before_saving stages an inert suggestion; off creates nothing); anything
+    else is `history_only`/`ignore` and writes no durable record. An explicit
+    "turn this into a skill" request is surfaced here and turned into a real
+    inert skill draft AFTER the run's trace exists (see `_create_explicit_skill_draft`
+    called from `execute_run`).
+
     Deterministic; never raises. Returns a bounded outcome dict for the run
     blob, or None when there is nothing user-visible.
     """
     if memory_service is None:
         return None
+    recurring = _is_recurring_statement(request)
     try:
         decision = memory_service.decide_turn(
             request.input.query,
             user_id=request.userId,
+            recurring=recurring,
             is_skill_run=False,
         )
     except Exception as exc:  # noqa: BLE001 - memory must never break a run
@@ -744,13 +798,13 @@ async def _apply_memory_intent(
             pass
         return None
 
-    if decision.outcome in ("ignore", "run_only") and not decision.refused:
+    if decision.outcome in ("ignore", "history_only") and not decision.refused:
         # Nothing durable: leave the turn uncluttered. A skill request is
-        # surfaced so the chat can offer "Learn from this run".
+        # surfaced so the run's completion can create the draft from its trace.
         if decision.action == "skill":
             await emitter.emit("memory.skill_requested", {"runId": request.runId})
             return {
-                "outcome": "run_only", "action": "skill_requested", "ok": False,
+                "outcome": "history_only", "action": "skill_requested", "ok": False,
                 "reason": decision.reason, "requiresConfirmation": False, "refused": False,
             }
         return None
@@ -774,7 +828,7 @@ async def _apply_memory_intent(
         "needs_clarification": "memory.intent_needs_clarification",
         "refused": "memory.intent_refused",
         "ignored": "memory.intent_ignored",
-        "run_only": "memory.intent_run_only",
+        "history_only": "memory.intent_history_only",
     }.get(outcome.get("action"))
     if event_type:
         await emitter.emit(event_type, {
@@ -784,6 +838,78 @@ async def _apply_memory_intent(
             "refused": bool(outcome.get("action") == "refused"),
         })
     return _outcome_blob(outcome, decision)
+
+
+def _is_recurring_statement(request: RunRequest) -> bool:
+    """True when the current query repeats a durable-sounding statement from
+    prior conversation history (deterministic normalized match)."""
+    from .eclipse_memory.decision import content_signature  # noqa: PLC0415
+
+    query = (request.input.query or "").strip()
+    if not query:
+        return False
+    signature = content_signature(query)
+    for turn in request.input.history or []:
+        if turn.role != "user":
+            continue
+        if content_signature(turn.content) == signature:
+            return True
+    return False
+
+
+def _create_explicit_skill_draft(
+    request: RunRequest, *, store: Optional[AgentMemoryStore], skill_registry: Optional[Any],
+    registry: Optional[ToolRegistry] = None,
+) -> Optional[dict[str, Any]]:
+    """Create an inert skill draft from an explicit "turn this into a skill".
+
+    Uses the real `capture_from_run` + `propose_draft` persistence path: a
+    learning candidate is recorded and a `status: draft` version is stored. The
+    draft is never enabled — evaluation + operator approval remain the only way
+    to promote it. Never raises; a failure is reported honestly in the blob.
+    """
+    if store is None or skill_registry is None:
+        return None
+    skill_store = getattr(skill_registry, "store", None)
+    if skill_store is None:
+        return None
+    try:
+        from .skills.draft import propose_draft  # noqa: PLC0415
+        from .skills.learning import capture_from_run  # noqa: PLC0415
+
+        result = capture_from_run(
+            request.runId, store, skill_store,
+            actor_is_operator=True, user_intent="turn this into a skill",
+        )
+        candidates = result.get("created") or []
+        if not candidates:
+            return {"captured": False, "reason": "no candidate produced"}
+        candidate_id = candidates[0]["id"]
+        available = registry.names() if registry is not None else _agent_tool_names(request)
+        draft = propose_draft(
+            candidate_id, skill_store, available_tools=list(available),
+            user_intent="turn this into a skill",
+        )
+        return {
+            "captured": True,
+            "candidateId": candidate_id,
+            "skillId": (draft.get("draft") or {}).get("id") if draft.get("ok") else None,
+            "status": "draft",
+            "draftOk": bool(draft.get("ok")),
+            "reusable": draft.get("reusable"),
+            "issues": draft.get("issues") or [],
+        }
+    except Exception as exc:  # noqa: BLE001 - a draft failure must not break the run
+        return {"captured": False, "reason": str(exc)}
+
+
+def _agent_tool_names(request: RunRequest) -> list[str]:
+    """Tools the run may use, for draft tool-evidence validation. Best-effort."""
+    try:
+        agent = resolve_agent(request)
+        return list(agent.tools or [])
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:

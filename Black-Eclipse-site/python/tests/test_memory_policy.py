@@ -33,17 +33,49 @@ def env():
 
 def test_policy_defaults(env):
     settings = env["memory"].policy.get_all()
-    # Routine automatic capture, automatic candidate detection and automatic
-    # suggestions are OFF by default: completing a run is not proof of a
-    # reusable lesson, and incidental preferences are not silently saved.
-    # Explicit "remember/forget/correct" commands still work (separate path).
-    assert settings["auto_candidate_detection"] is False
-    assert settings["auto_capture_enabled"] is False
-    assert settings["auto_suggest_enabled"] is False
+    # The intended default: learn automatically but selectively — strong,
+    # durable, low-risk facts save without a prompt; project-specific claims
+    # require recurrence; explicit "remember/forget/correct" always work.
+    assert settings["memory_mode"] == "automatic_selective"
+    assert settings["skill_learning_mode"] == "automatic_selective"
+    # Legacy booleans are derived from the modes and are consistent.
+    assert settings["auto_capture_enabled"] is True
+    assert settings["auto_suggest_enabled"] is True
+    assert settings["auto_candidate_detection"] is True
     assert settings["context_budget_chars"] == 4000
     assert settings["max_memories"] == 0
     # Automatic promotion remains structurally impossible.
     assert settings["auto_promote_low_risk"] is False
+
+
+def test_learning_modes_are_consistent(env):
+    # A mode is one source of truth: the legacy booleans can never drift.
+    env["memory"].policy.set("memory_mode", "off")
+    settings = env["memory"].policy.get_all()
+    assert settings["auto_capture_enabled"] is False
+    assert settings["auto_suggest_enabled"] is False
+
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
+    settings = env["memory"].policy.get_all()
+    assert settings["auto_capture_enabled"] is False
+    assert settings["auto_suggest_enabled"] is True
+
+    env["memory"].policy.set("skill_learning_mode", "off")
+    assert env["memory"].policy.get_all()["auto_candidate_detection"] is False
+
+
+def test_legacy_boolean_key_cannot_be_set(env):
+    # The old booleans are derived; setting one directly is rejected so the mode
+    # remains the single source of truth.
+    with pytest.raises(PolicyError):
+        env["memory"].policy.set("auto_capture_enabled", True)
+    with pytest.raises(PolicyError):
+        env["memory"].policy.set("auto_candidate_detection", False)
+
+
+def test_mode_rejects_unknown_value(env):
+    with pytest.raises(PolicyError):
+        env["memory"].policy.set("memory_mode", "everything")
 
 
 def test_policy_set_and_persist(env):
@@ -81,15 +113,15 @@ def test_policy_reset(env):
 
 
 def test_stored_true_override_is_migrated_to_safe_default(tmp_path):
-    # A persisted `true` override from the old (over-saving) default must not
-    # continue the unwanted behaviour: migration 5 deletes it so the new safe
-    # default applies. Other overrides are preserved.
+    # A persisted legacy boolean override is removed by the mode migration so it
+    # cannot continue out-of-band behaviour; the mode defaults govern instead.
+    # Other overrides are preserved.
     import sqlite3
 
     from harness.eclipse_memory.db import now_iso
 
     path = os.path.join(str(tmp_path), "eclipse-memory.db")
-    # Build a schema-v4 database with an unsafe stored override.
+    # Build a schema-v4 database with legacy stored overrides.
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE SchemaMigration (version INTEGER PRIMARY KEY, appliedAt TEXT NOT NULL)")
     for version, statements in __import__("harness.eclipse_memory.schema", fromlist=["MIGRATIONS"]).MIGRATIONS:
@@ -117,17 +149,19 @@ def test_stored_true_override_is_migrated_to_safe_default(tmp_path):
     try:
         assert service.migration_status()["upToDate"] is True
         settings = service.policy.get_all()
-        assert settings["auto_capture_enabled"] is False
-        assert settings["auto_candidate_detection"] is False
+        # The mode defaults govern; the legacy booleans are derived from them.
+        assert settings["memory_mode"] == "automatic_selective"
+        assert settings["auto_capture_enabled"] is True
+        assert settings["auto_candidate_detection"] is True
         # An unrelated operator override is preserved.
         assert settings["retrieval_limit"] == 20
-        # The reset is observable.
+        # The migration is observable.
         rows = service.store._db.execute(
             "SELECT key, previousValue FROM MemoryPolicyMigration"
         ).fetchall()
         keys = {r["key"] for r in rows}
         assert {"auto_capture_enabled", "auto_candidate_detection"} <= keys
-        # A stored MemoryPolicy row for the unsafe key is gone.
+        # A stored MemoryPolicy row for the legacy key is gone.
         remaining = {
             r["key"] for r in service.store._db.execute("SELECT key FROM MemoryPolicy").fetchall()
         }
@@ -233,11 +267,11 @@ def test_mistake_capture_is_idempotent(env):
     assert second == []
 
 
-# ── Auto candidate detection (policy-gated) ─────────────────────────────────
+# ── Automatic candidate detection (mode-gated) ──────────────────────────────
 
 
 def test_auto_detection_can_be_disabled_by_policy(env):
-    env["memory"].policy.set("auto_candidate_detection", False)
+    env["memory"].policy.set("skill_learning_mode", "off")
     env["run_store"].create_run("run_8", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_8", _tool("get_fundamentals", False, "TOOL_ERROR"))
     env["run_store"].record_tool_execution("run_8", _tool("research_search", True))
@@ -247,32 +281,43 @@ def test_auto_detection_can_be_disabled_by_policy(env):
     assert result["candidatesCreated"] == 0
 
 
-def test_auto_detection_off_by_default_creates_no_candidates(env):
+def test_auto_detection_off_creates_no_candidates(env):
+    env["memory"].policy.set("skill_learning_mode", "off")
     env["run_store"].create_run("run_8b", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_8b", _tool("get_fundamentals", False, "TOOL_ERROR"))
     env["run_store"].record_tool_execution("run_8b", _tool("research_search", True))
     env["run_store"].update_run("run_8b", status="completed", output="Recovered.", modelSteps=3)
     result = env["memory"].analyze_run("run_8b", env["run_store"])
-    # A single tool-using run is NOT automatically a learning candidate.
     assert result["candidateDetection"] == "disabled by policy"
     assert result["candidatesCreated"] == 0
     assert env["memory"].store.list_candidates() == []
 
 
-def test_auto_detection_opt_in_creates_only_inert_candidates(env):
-    env["memory"].policy.set("auto_candidate_detection", True)
+def test_single_successful_run_creates_no_procedure_candidate(env):
+    # One successful multi-step run is NOT proof of a reusable procedure: a
+    # successful_procedure candidate requires recurrence.
     env["run_store"].create_run("run_8c", "eclipse-agent", {"query": "x"})
-    env["run_store"].record_tool_execution("run_8c", _tool("get_fundamentals", False, "TOOL_ERROR"))
     env["run_store"].record_tool_execution("run_8c", _tool("research_search", True))
-    env["run_store"].update_run("run_8c", status="completed", output="Recovered.", modelSteps=3)
+    env["run_store"].update_run("run_8c", status="completed", output="done", modelSteps=3)
     result = env["memory"].analyze_run("run_8c", env["run_store"])
+    assert result["candidatesCreated"] == 0
+    assert env["memory"].store.list_candidates() == []
+
+
+def test_recovered_failure_creates_inert_candidate(env):
+    # A recovered failure IS strong single-run evidence and produces an inert
+    # candidate under the default automatic_selective mode.
+    env["run_store"].create_run("run_8d", "eclipse-agent", {"query": "x"})
+    env["run_store"].record_tool_execution("run_8d", _tool("get_fundamentals", False, "TOOL_ERROR"))
+    env["run_store"].record_tool_execution("run_8d", _tool("research_search", True))
+    env["run_store"].update_run("run_8d", status="completed", output="Recovered.", modelSteps=3)
+    result = env["memory"].analyze_run("run_8d", env["run_store"])
     assert result["candidatesCreated"] >= 1
     for candidate in env["memory"].store.list_candidates():
         assert candidate["resultingSkillId"] is None  # inert
 
 
 def test_auto_detection_creates_inert_candidates(env):
-    env["memory"].policy.set("auto_candidate_detection", True)
     env["memory"].policy.set("candidate_confidence_threshold", 0.1)
     env["run_store"].create_run("run_9", "eclipse-agent", {"query": "x"})
     env["run_store"].append_event("run_9", "run.started", 1)
@@ -281,13 +326,11 @@ def test_auto_detection_creates_inert_candidates(env):
     env["run_store"].update_run("run_9", status="completed", output="Recovered with research.", modelSteps=3)
     result = env["memory"].analyze_run("run_9", env["run_store"])
     assert result["candidatesCreated"] >= 1
-    # Created candidates are inert — no resulting skill was enabled.
     for candidate in env["memory"].store.list_candidates():
         assert candidate["resultingSkillId"] is None
 
 
 def test_auto_detection_respects_confidence_threshold(env):
-    env["memory"].policy.set("auto_candidate_detection", True)
     env["memory"].policy.set("candidate_confidence_threshold", 0.99)
     env["run_store"].create_run("run_10", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_10", _tool("get_fundamentals", False, "TOOL_ERROR"))

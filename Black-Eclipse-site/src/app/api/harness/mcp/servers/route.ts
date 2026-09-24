@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listMCPServers, upsertMCPServer, isOperatorRequest } from "@/lib/harness/mcp-client";
+import { listMCPServers, upsertMCPServer } from "@/lib/harness/mcp-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { MCPServerInput } from "@/lib/harness/mcp-types";
 
@@ -30,11 +30,15 @@ export async function POST(request: Request) {
     if (!server || typeof server.id !== "string" || !server.id.trim()) {
       return NextResponse.json({ error: "server.id is required" }, { status: 400 });
     }
-    if (typeof server.command !== "string" || !server.command.trim()) {
+    if (server.transport === "http") {
+      if (typeof server.url !== "string" || !server.url.trim()) {
+        return NextResponse.json({ error: "server.url is required for the http transport" }, { status: 400 });
+      }
+    } else if (typeof server.command !== "string" || !server.command.trim()) {
       return NextResponse.json({ error: "server.command is required" }, { status: 400 });
     }
     const envKeys = Array.isArray(body.envKeys) ? body.envKeys.filter((k) => typeof k === "string") : undefined;
-    const result = await upsertMCPServer(server, isOperatorRequest(request), envKeys);
+    const result = await upsertMCPServer(server, envKeys);
     return NextResponse.json({ ...result, success: true });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

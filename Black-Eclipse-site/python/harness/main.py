@@ -23,7 +23,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -55,17 +55,28 @@ logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(nam
 
 service = AgenticService()
 
+# The service is process-wide, but FastAPI may enter/exit the lifespan more than
+# once (nested test clients, reload). Reference-count so only the LAST exit tears
+# MCP down — an inner lifespan must never disconnect the servers a sibling still
+# uses.
+_lifespan_refs = 0
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Connect configured MCP servers and register selected read-only tools. A
     # failure is a diagnostic, never a boot blocker (AgenticService.start_mcp).
-    await service.start_mcp()
+    global _lifespan_refs
+    _lifespan_refs += 1
+    if _lifespan_refs == 1:
+        await service.start_mcp()
     try:
         yield
     finally:
-        # Terminate MCP server subprocesses cleanly so none leak across restarts.
-        await service.stop_mcp()
+        _lifespan_refs -= 1
+        if _lifespan_refs == 0:
+            # Terminate MCP server subprocesses cleanly so none leak across restarts.
+            await service.stop_mcp()
 
 
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_lifespan)
@@ -122,10 +133,52 @@ def retrieval_metrics() -> dict[str, Any]:
 
 # ── MCP server catalog (Phase 5E) ───────────────────────────────────────────
 # Add / test / enable / disable / remove local stdio MCP servers and select
-# their tools. Mutations are operator-gated (the front door authenticates the
-# runtime secret); reads are always available. Config may carry scoped env
-# values, so responses are secret-free (env KEYS only) and the file is
-# gitignored.
+# their tools. Mutations require PROOF OF AUTHORIZATION, never a caller-supplied
+# JSON boolean: the request must originate from the loopback interface (the
+# Next.js front door / a local operator) OR present the runtime secret. A
+# directly reachable Python runtime therefore cannot be handed arbitrary
+# subprocess configuration by spoofing `operator: true`. Reads stay open and are
+# secret-free (env KEYS only).
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _is_loopback(request: Request) -> bool:
+    client = request.client
+    host = (client.host if client else "") or ""
+    return host in _LOOPBACK_HOSTS
+
+
+def _valid_operator_token(request: Request) -> bool:
+    """Validate the runtime secret WITHOUT ever logging or echoing it."""
+    import hmac
+    import os
+
+    secret = os.environ.get("CRON_SECRET")
+    if not secret or secret == "change-me-to-a-random-secret":
+        return False
+    provided = request.headers.get("x-harness-operator") or ""
+    auth = request.headers.get("authorization") or ""
+    bearer = auth[7:] if auth.startswith("Bearer ") else ""
+    for candidate in (provided, bearer):
+        if candidate and hmac.compare_digest(candidate, secret):
+            return True
+    return False
+
+
+def require_mcp_operator(request: Request) -> None:
+    """FastAPI dependency: authorize an MCP mutation by transport or token.
+
+    Loopback is trusted (zero-config local use keeps working). A remote caller
+    must present the runtime secret as `X-Harness-Operator` (or a Bearer token).
+    The body is never consulted, so `{"operator": true}` cannot authorize.
+    """
+    if _is_loopback(request) or _valid_operator_token(request):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="MCP configuration requires an authorized operator (loopback or runtime secret)",
+    )
 
 
 @app.get("/mcp/servers")
@@ -137,7 +190,6 @@ def list_mcp_servers() -> dict[str, Any]:
 class MCPServerUpsertRequest(BaseModel):
     """Create/replace one server. The full config is validated by pydantic."""
 
-    operator: bool = False
     server: MCPServerConfig
     reload: bool = True
     # The authoritative env key set (values are write-only and never echoed to
@@ -146,19 +198,14 @@ class MCPServerUpsertRequest(BaseModel):
 
 
 @app.post("/mcp/servers")
-async def upsert_mcp_server(request: MCPServerUpsertRequest) -> JSONResponse:
-    if not request.operator:
-        raise HTTPException(status_code=403, detail="mcp config requires an authorized operator")
+async def upsert_mcp_server(request: MCPServerUpsertRequest, _: None = Depends(require_mcp_operator)) -> JSONResponse:
     upsert_mcp_config(request.server, env_keys=request.envKeys)
     summary = await service.reload_mcp() if request.reload else service.mcp.summary()
     return JSONResponse({"success": True, **summary})
 
 
 @app.delete("/mcp/servers/{server_id}")
-async def delete_mcp_server(server_id: str, payload: Optional[dict[str, Any]] = None) -> JSONResponse:
-    payload = payload or {}
-    if not payload.get("operator"):
-        raise HTTPException(status_code=403, detail="mcp config requires an authorized operator")
+async def delete_mcp_server(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
     removed = remove_mcp_config(server_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -167,10 +214,8 @@ async def delete_mcp_server(server_id: str, payload: Optional[dict[str, Any]] = 
 
 
 @app.post("/mcp/servers/test")
-async def test_mcp_server(payload: dict[str, Any]) -> JSONResponse:
+async def test_mcp_server(payload: dict[str, Any], _: None = Depends(require_mcp_operator)) -> JSONResponse:
     """Connect + discover a candidate config WITHOUT persisting or activating."""
-    if not payload.get("operator"):
-        raise HTTPException(status_code=403, detail="mcp test requires an authorized operator")
     raw = payload.get("server")
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="server config is required")
@@ -183,12 +228,83 @@ async def test_mcp_server(payload: dict[str, Any]) -> JSONResponse:
 
 
 @app.post("/mcp/reload")
-async def reload_mcp(payload: Optional[dict[str, Any]] = None) -> JSONResponse:
-    payload = payload or {}
-    if not payload.get("operator"):
-        raise HTTPException(status_code=403, detail="mcp reload requires an authorized operator")
+async def reload_mcp(_: None = Depends(require_mcp_operator)) -> JSONResponse:
     summary = await service.reload_mcp()
     return JSONResponse({"success": True, **summary})
+
+
+@app.post("/mcp/servers/{server_id}/confirm")
+async def confirm_mcp_catalog(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
+    """Record the operator's review of a server's current catalog digest.
+
+    The explicit act that lets an annotation-sourced read-only tool activate.
+    """
+    result = await service.confirm_mcp_catalog(server_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=str(result.get("reason") or "confirm failed"))
+    return JSONResponse(result)
+
+
+# ── Effectful-tool approvals (Phase 5G) ─────────────────────────────────────
+# A write/external_action MCP tool needs an operator decision bound to the exact
+# server/tool/arguments. These endpoints let the operator review and decide;
+# they hold no secret material — only identity + an argument digest.
+
+
+@app.get("/mcp/approvals")
+def list_mcp_approvals(status: Optional[str] = None) -> dict[str, Any]:
+    return {"success": True, "approvals": service.approvals.list(status)}
+
+
+@app.post("/mcp/approvals/{approval_id}/decide")
+async def decide_mcp_approval(
+    approval_id: str, payload: dict[str, Any], _: None = Depends(require_mcp_operator)
+) -> JSONResponse:
+    approve = bool(payload.get("approve"))
+    result = service.approvals.decide(
+        approval_id, approve=approve,
+        decided_by=str(payload.get("decidedBy") or "operator"),
+        reason=str(payload.get("reason") or ""),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    return JSONResponse({"success": True, "approval": result})
+
+
+# ── Finance presets, workflows and setup diagnostics (product layer) ────────
+# These describe and inspect; they never activate a server or run a tool.
+
+
+@app.get("/mcp/integrations")
+def list_mcp_integrations() -> dict[str, Any]:
+    from .mcp.presets import list_integrations
+
+    return {"success": True, "integrations": list_integrations()}
+
+
+@app.get("/mcp/workflows")
+def list_mcp_workflows() -> dict[str, Any]:
+    from .mcp.presets import list_workflows
+
+    return {"success": True, "workflows": list_workflows()}
+
+
+@app.post("/mcp/diagnostics")
+def mcp_diagnostics(payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Setup diagnostics for every configured server + the environment.
+
+    `knownSecrets` (secret NAMES only) lets the runtime report missing vault
+    references without ever seeing a value.
+    """
+    known = set()
+    if isinstance(payload, dict):
+        for name in payload.get("knownSecrets") or []:
+            if isinstance(name, str):
+                known.add(name)
+    resolved: dict[str, dict[str, bool]] = {}
+    for cfg in service.mcp._runtimes.values():  # noqa: SLF001 - read-only inspection
+        resolved[cfg.config.id] = {name: (name in known) for name in cfg.config.secret_ref_names()}
+    return {"success": True, **service.mcp.diagnostics(resolved)}
 
 
 class ResearchRunRequest(BaseModel):

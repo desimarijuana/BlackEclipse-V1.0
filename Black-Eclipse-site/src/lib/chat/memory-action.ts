@@ -44,6 +44,8 @@ export interface LearningEligibilityView {
   skillRequested: boolean;
   /** True when automatic learning already captured a candidate for this run. */
   autoCaptured: boolean;
+  /** True when an explicit skill request already produced an inert draft. */
+  skillDraftReady: boolean;
   /** How many candidates automatic detection created. */
   candidatesCreated: number;
 }
@@ -129,6 +131,7 @@ export function buildMemoryRunView(memory: unknown): MemoryRunView | null {
       learnQueuePath: str(eligibility.learnQueuePath) ?? '/api/learning/candidates',
       skillRequested: Boolean(eligibility.skillRequested),
       autoCaptured: Boolean(eligibility.autoCaptured),
+      skillDraftReady: Boolean(eligibility.skillDraftReady),
       candidatesCreated: Number(analysis?.candidatesCreated ?? 0) || 0,
     };
   }

@@ -132,6 +132,18 @@ in place, because the schema enforces uniqueness:
 **`Price.source` is the provenance field.** `'scraper'` = live scrape;
 `'csv'` = imported. Use it to distinguish fresh from imported data.
 
+**Read-through live quotes (`/api/quote`).** The background cycle writes `Price`
+on a ~15-minute cadence, so serving that row alone made every 30-second consumer
+poll (chart panels, the header ribbon, portfolio) return the same up-to-15-min
+number. `scraper/live-quote.ts` adds a bounded read-through: when the stored row
+is older than `STORED_QUOTE_FRESH_MS` (60s), it fetches the live price directly
+from Yahoo's chart `meta.regularMarketPrice` (one browser-UA HTTP request, **no
+Python spawn**) with a 15s shared cache + in-flight dedup, so N clients share one
+upstream call. `scraper/yahoo-chart.ts` holds the single chart-fetch / ticker-
+candidate implementation (shared with `/api/price-history`). A failed read-through
+returns nothing and the stored row is served under its real `source`/`updatedAt`
+— never fabricated; indices stay on `IndexQuote`, PSX on its own endpoint.
+
 ### Universe data
 
 - `universe-sync.ts` — scans TradingView markets, upserts new listings, and

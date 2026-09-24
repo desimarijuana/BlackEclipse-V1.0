@@ -98,10 +98,18 @@ def test_successful_procedure_requires_multiple_steps(env):
 
     env["store"].record_tool_execution(run_id, T())
     env["store"].update_run(run_id, status="completed", modelSteps=3, toolCalls=1)
-    drafts = analyze_run(run_id, env["store"])
-    assert any(d["candidateType"] == "successful_procedure" for d in drafts)
+    # A single successful run has no recurrence evidence — no procedure
+    # candidate yet.
+    assert not any(d["candidateType"] == "successful_procedure" for d in analyze_run(run_id, env["store"]))
 
-    # A single-step run is not a reusable procedure.
+    # The same successful workflow seen once before IS recurrence evidence.
+    seed = "run_ok_seed"
+    env["store"].create_run(seed, "eclipse-agent", {"query": "research"})
+    env["store"].record_tool_execution(seed, T())
+    env["store"].update_run(seed, status="completed", modelSteps=3, toolCalls=1)
+    assert any(d["candidateType"] == "successful_procedure" for d in analyze_run(run_id, env["store"]))
+
+    # A single-step run is not a reusable procedure even with recurrence.
     run2 = "run_single"
     env["store"].create_run(run2, "eclipse-agent", {"query": "quote"})
     env["store"].record_tool_execution(run2, T())

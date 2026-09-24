@@ -285,8 +285,9 @@ def test_eligibility_accepts_multistep_run(env):
 
 
 def test_graph_run_reports_automatic_learning(env):
-    # Automatic learning is OFF by default: a single successful tool-using run
-    # must not create a candidate. Eligibility metadata is still reported.
+    # Under the default automatic_selective skill-learning mode, a single
+    # successful tool-using run is NOT a reusable procedure (no recurrence), so
+    # no candidate is created. Eligibility metadata is still reported.
     from harness.schemas import ModelSettings, RunInput, RunRequest
     from harness import graph as graph_module
 
@@ -323,7 +324,39 @@ def test_graph_run_reports_automatic_learning(env):
     blob = env["run_store"].get_run(run_id)["memory"]
     assert blob["learningAnalysis"]["candidatesCreated"] == 0
     assert env["memory"].store.list_candidates() == []
-    assert blob["learningAnalysis"]["candidateDetection"] == "disabled by policy"
+
+
+def test_single_run_does_not_become_a_skill_candidate(env):
+    # A merely eligible run is not permission to create a skill: one successful
+    # multi-step workflow without recurrence yields no candidate.
+    env["run_store"].create_run("run_once", "eclipse-agent", {"query": "x"})
+
+    class T:
+        tool_call_id = "c1"; name = "research_search"; ok = True
+        duration_ms = 3; text = "x"; error = None; args = {}
+
+    env["run_store"].record_tool_execution("run_once", T())
+    env["run_store"].update_run("run_once", status="completed", output="done", modelSteps=3, toolCalls=1)
+    result = env["memory"].analyze_run("run_once", env["run_store"])
+    assert result["candidatesCreated"] == 0
+    assert env["memory"].store.list_candidates() == []
+
+
+def test_repeated_successful_workflow_yields_a_candidate(env):
+    # The same successful workflow observed across runs is evidence of a
+    # reusable procedure and produces a controlled (inert) candidate.
+    class T:
+        tool_call_id = "c1"; name = "research_search"; ok = True
+        duration_ms = 3; text = "x"; error = None; args = {}
+
+    for run_id in ("run_rep_a", "run_rep_b"):
+        env["run_store"].create_run(run_id, "eclipse-agent", {"query": "x"})
+        env["run_store"].record_tool_execution(run_id, T())
+        env["run_store"].update_run(run_id, status="completed", output="done", modelSteps=3, toolCalls=1)
+    result = env["memory"].analyze_run("run_rep_b", env["run_store"])
+    assert result["candidatesCreated"] >= 1
+    for candidate in env["memory"].store.list_candidates():
+        assert candidate["resultingSkillId"] is None  # inert, not enabled
 
 
 def test_explicit_skill_candidate_marks_no_evidence(env):
@@ -333,9 +366,8 @@ def test_explicit_skill_candidate_marks_no_evidence(env):
     assert "human must author" in (draft["knownLimitations"] or "").lower()
 
 
-def test_incidental_capture_off_by_default(env):
-    # A casually-stated preference is NOT saved by default — it is not an
-    # explicit "remember this" request.
+def test_understood_question_is_not_durable_memory(env):
+    # A question is never a durable statement — it stays searchable history.
     import asyncio
 
     from harness.schemas import ModelSettings, RunInput, RunRequest
@@ -354,7 +386,7 @@ def test_incidental_capture_off_by_default(env):
     orig = graph_module.build_chat_model
     graph_module.build_chat_model = lambda settings: M()  # type: ignore
     req = RunRequest(
-        runId="run_gate", input=RunInput(query="I prefer terse answers"),
+        runId="run_gate", input=RunInput(query="Why do I prefer terse answers?"),
         agentId="eclipse-agent", userId="u1",
         modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
         callbackBaseUrl="http://localhost:3000",
@@ -370,15 +402,15 @@ def test_incidental_capture_off_by_default(env):
     assert env["memory"].store.list_suggestions(status="pending") == []
 
 
-def test_explicit_remember_still_saves_when_auto_capture_off(env):
-    # Explicit "remember this" is a separate, always-on path: turning automatic
-    # capture off must not break it.
+def test_explicit_remember_still_saves(env):
+    # Explicit "remember this" is a separate, always-on path: it works
+    # regardless of the automatic learning mode.
     import asyncio
 
     from harness.schemas import ModelSettings, RunInput, RunRequest
     from harness import graph as graph_module
 
-    assert env["memory"].policy.get("auto_capture_enabled") is False
+    env["memory"].policy.set("memory_mode", "off")
 
     class M:
         def bind_tools(self, tools):
@@ -426,8 +458,9 @@ def test_capture_from_run_honours_explicit_intent(env):
 
 
 def _candidate_with_tools(env, tools=("research_search", "fundamentals_get_financials")):
+    # A successful_procedure candidate requires recurrence, so the same
+    # successful workflow is recorded twice before analysis.
     run_id = "run_draft"
-    env["run_store"].create_run(run_id, "eclipse-agent", {"query": "analyse"})
 
     class T:
         def __init__(self, name):
@@ -439,9 +472,11 @@ def _candidate_with_tools(env, tools=("research_search", "fundamentals_get_finan
             self.error = None
             self.args = {}
 
-    for name in tools:
-        env["run_store"].record_tool_execution(run_id, T(name))
-    env["run_store"].update_run(run_id, status="completed", output="done", modelSteps=3, toolCalls=len(tools))
+    for rid in ("run_draft_seed", run_id):
+        env["run_store"].create_run(rid, "eclipse-agent", {"query": "analyse"})
+        for name in tools:
+            env["run_store"].record_tool_execution(rid, T(name))
+        env["run_store"].update_run(rid, status="completed", output="done", modelSteps=3, toolCalls=len(tools))
     result = capture_from_run(run_id, env["run_store"], env["memory"].store, actor_is_operator=True)
     assert result["created"]
     return result["created"][0]["id"]

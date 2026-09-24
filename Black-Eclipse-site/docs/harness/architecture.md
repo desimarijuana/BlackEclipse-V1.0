@@ -61,7 +61,7 @@ Two boundaries, both deliberate:
 | `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt, plus the bounded web escalation (Phase 5) |
 | `mcp/` | the **MCP integration** (Phase 5A–5C): typed stdio server/effect contract + threat boundary (`config.py`), namespacing/schema validation (`naming.py`), local stdio client over the MCP SDK (`client.py`), and the `ToolRegistry` adapter + lifecycle (`manager.py`). Only selected read-only tools activate. |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
-| `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables. `config.py` resolves a **repo-rooted** path (cwd-independent, `ECLIPSE_MEMORY_DB_PATH` override) and reconciles legacy cwd-based stores non-destructively; `intent.py` deterministically classifies explicit save/forget/correct/skill intent; `decision.py` is the **one shared write gate** (`save`/`suggest`/`run_only`/`ignore`) every memory/suggestion/correction/learning write passes through |
+| `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables. `config.py` resolves a **repo-rooted** path (cwd-independent, `ECLIPSE_MEMORY_DB_PATH` override) and reconciles legacy cwd-based stores non-destructively; `intent.py` deterministically classifies explicit save/forget/correct/skill intent; `decision.py` is the **one shared write gate** (`save`/`suggest`/`history_only`/`ignore`) every memory/suggestion/correction/learning write passes through; `policy.py` holds the single learning-mode keys (`memory_mode`, `skill_learning_mode`) with the legacy booleans *derived*, not stored |
 | `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke` tools — a `memory` write is a *proposal* re-authorized against the user turn by `eclipse_memory/decision.py` |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
@@ -531,23 +531,36 @@ change system instructions, enable a tool, or authorize a call.
 
 | Module | Owns |
 |---|---|
-| `config.py` | the typed stdio server contract (id, argv command/args, per-server env allowlist/values, cwd resolution, enabled state, per-tool selection, declared effects, startup/catalog/call/output/concurrency budgets) + secret redaction. Host execution controls only — not a domain allowlist. |
-| `naming.py` | collision-resistant namespacing (`mcp_<server>_<tool>` with a stable digest on a sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (declared → MCP `readOnlyHint`/`destructiveHint` → `unknown`). |
+| `config.py` | the typed stdio server contract (id, argv command/args, per-server env allowlist/values, cwd resolution, enabled state, per-tool selection, declared effects, confirmed catalog digest, startup/catalog/call/output/concurrency budgets) + secret redaction and owner-restricted config writes. Host execution controls only — not a domain allowlist. |
+| `naming.py` | collision-resistant namespacing (`mcp_<server>_<tool>` with a stable digest on a sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (operator-declared → untrusted MCP annotation → `unknown`). |
 | `client.py` | the local **stdio** client over the maintained MCP Python SDK (`mcp`): argv launch with no shell, safe default env, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, structured redacted errors. |
-| `manager.py` | discovery, per-tool selection, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
+| `manager.py` | discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
 
 **Lifecycle.** `AgenticService.start_mcp()` (run from the FastAPI lifespan)
 connects every **enabled** server, discovers and validates its tools, then
 registers only **selected, read-only** tools into the ONE `ToolRegistry`.
-`stop_mcp()` terminates every subprocess cleanly on shutdown. `/health` reports
-configured/connected/registered counts (never secrets).
+`stop_mcp()` terminates every subprocess cleanly on shutdown and unregisters only
+the names the manager owns (native tools are never touched). `/health` reports
+configured/connected/registered counts (never secrets). A `test_server` probe
+always tears its temporary child down (success, failure or cancellation).
 
-**Discovery is not activation.** `enabled` defaults to False and
-`selected_tools` defaults to empty, so a discovered tool is inert until the
-operator selects it. Only `read`-effect tools are activatable in this slice; the
+**Default-agent reachability.** The Eclipse agent sets `allowMcpTools: true`,
+which expands its run allowlist to include the MCP tools **currently registered**
+in the registry (`mcp_*`). Registration already requires an enabled server, an
+explicit per-tool selection and a permitted effect, so this cannot surface a
+merely discovered tool. Custom agents and skills do **not** set the flag and keep
+their exact restricted allowlists.
+
+**Discovery is not activation.** `enabled` defaults to False, `selected_tools`
+defaults to empty, and only `read`-effect tools are activatable in this slice; the
 current runtime refuses non-read tools and there is no approval flow yet, so a
-`write` / `external_action` / `unknown` tool is not registered. This does **not**
-claim to complete later write/action approval support.
+`write` / `external_action` / `unknown` tool is never registered. Further, an
+effect is trusted only from an **operator declaration** (`tool_effects`) or from
+the operator confirming the server's `catalogDigest`: a server's own
+`readOnlyHint` is untrusted and, on its own, leaves the tool disabled. A changed
+catalog (tool set / description / schema) produces a new digest and invalidates
+prior confirmation until the operator re-confirms. This does **not** claim to
+complete later write/action approval support.
 
 **Execution stays authoritative.** Every MCP call enters through
 `ToolRegistry.execute`, so argument validation (pydantic), the agent allowlist,
@@ -563,31 +576,112 @@ marked truncated when cut, and redacted — source identity (`serverId`, origina
 per-server env allowlist/values reach the child — never the Eclipse process
 environment, settings vault, model credentials or callback token. A relative
 cwd resolves against the repository root, so it cannot be redirected by the
-launch cwd. Server descriptions and results are untrusted data.
+launch cwd. Server descriptions and results are untrusted data and can never
+widen tools, permissions or instructions.
 
-**Configuration.** `<repo root>/mcp-servers.json` (override:
-`HARNESS_MCP_CONFIG`); a missing file means MCP is simply not configured. The
-file may hold scoped env VALUES, so it is gitignored. See the config contract for
-the field list.
+**Configuration & credentials.** `<repo root>/mcp-servers.json` (override:
+`HARNESS_MCP_CONFIG`); a missing file means MCP is simply not configured.
+Discovered env VALUES are persisted in that file because the secure settings
+vault is a TypeScript/Prisma store this Python process cannot read and the SDK
+needs the value to spawn the child. The file is gitignored and written
+owner-only (0600 where the OS supports it); the API returns env KEY names only,
+and values are redacted from every diagnostic/event/result (see ADR-H40 for the
+vault-integration limitation and the planned secret-reference resolution).
 
 **Catalog selection (Phase 5E).** `python/harness/main.py` exposes the catalog
 over the runtime API — `GET /mcp/servers`, `POST /mcp/servers`,
-`POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST /mcp/reload` — and
-the TS front door proxies them at `/api/harness/mcp/*`
-(`src/lib/harness/mcp-client.ts`, `src/lib/harness/mcp-types.ts`). The Settings UI
+`POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST /mcp/reload`,
+`POST /mcp/servers/{id}/confirm` — and the TS front door proxies them at
+`/api/harness/mcp/*` (`src/lib/harness/mcp-client.ts`,
+`src/lib/harness/mcp-types.ts`). The Settings UI
 (`src/components/screens/mcp-settings.tsx`, section `mcp`) lets an operator
 add / test / enable / disable / remove a server, review its discovered tools and
-their effect classes, and select the read-only tools to activate. A save reloads
-the manager in place: only the MCP tools it previously registered are dropped and
-re-registered, so a change takes effect without a runtime restart and native
-tools are untouched. Responses are secret-free — env VALUES are write-only and
-the API returns only env KEY names. Each server also has a versioned
-`catalogDigest` (identity + effect + schema) so a changed tool set is reviewable.
-This is not a finance-domain allowlist: the user chooses which servers and tools
-to connect. Remote HTTP/OAuth (`5D`), broad source-freshness integration (`5F`),
-effectful-tool approval (`5G`), Eclipse-as-MCP-server (`5H`), and
-resources/prompts/subscriptions (`5I`) are **future work**. Decisions:
-ADR-H38 and ADR-H39 in [`decisions.md`](./decisions.md).
+their effect classes, select the read-only tools to activate, and confirm a
+changed catalog. A save reloads the manager in place: only the MCP tools it
+previously registered are dropped and re-registered, so a change takes effect
+without a runtime restart and native tools are untouched. Responses are
+secret-free — env VALUES are write-only and the API returns only env KEY names.
+Each server also has a versioned `catalogDigest` (identity + effect + schema) so
+a changed tool set is reviewable. This is not a finance-domain allowlist: the
+user chooses which servers and tools to connect.
+
+**Authorization.** MCP mutations require proof of authorization — the request
+must originate from loopback (the front door / local operator) **or** present the
+runtime secret (`X-Harness-Operator` / `Bearer`), never a caller-supplied JSON
+boolean. So a directly reachable Python runtime cannot be handed arbitrary
+subprocess configuration by spoofing `operator: true`. Reads stay open.
+
+**Transports (Phase 5D).** A server is `stdio` (local subprocess, default) or
+`http` (remote Streamable-HTTP). `MCPServerConfig.transport` selects it; `http`
+requires a `url` and may carry `auth: {kind: "header"|"query", name, prefix,
+secretRef}` resolved from the vault at connect time. Both transports share the
+SAME connection lifecycle, discovery, effect/approval gating, output bounding and
+redaction — only the stream source differs (`client._transport`). A remote URL is
+checked by `harness/mcp/ssrf.py` (https-only, loopback http allowed; private
+addresses and embedded credentials refused) BEFORE any outbound connection.
+Interactive OAuth and TLS/redirect tuning remain future work within 5D.
+
+**Finance product layer (presets, workflows, diagnostics).** MCP is presented to
+an investor as finance jobs, not servers. `python/harness/mcp/presets.py` is pure
+data: finance **integrations** (Sheets/Excel, filings, web search, calendar,
+cloud docs, Canva/Figma/Office decks, Notion — each with plain-language setup,
+verification/community flags, and read/write tool-name hints) and named
+**workflows** (Import Portfolio, Review Portfolio Risk, Prepare Earnings Brief,
+Compare Companies, Analyze Trade Journal, Create Investment Memo, Export
+Portfolio Report — each with steps, per-step integration, native-vs-MCP, and
+approval steps). `python/harness/mcp/diagnostics.py` produces actionable setup
+diagnostics (command/Node/npx/Python availability, vault secret references,
+endpoint safety + reachability, connection, discovery, selection, and a writable
+temp dir) with a `recovery` step each. Runtime routes `/mcp/integrations`,
+`/mcp/workflows`, `/mcp/diagnostics`; TS proxies under `/api/harness/mcp/` and a
+workflow wizard + diagnostics panel in Settings › MCP Servers. **Every MCP
+result carries provenance** (`verification: external`, `eclipseVerified: false`,
+source, `retrievedAt`) and is labelled external in its text; native JDdS/portfolio
+data stays authoritative. An effectful approval records a plain-language
+`actionSummary`, `affectedData` and `risk`. Decisions: ADR-H43.
+
+**Source independence.** MCP results are never routed through JDdS or the native
+research verifier and are never labelled Eclipse-verified; they are attributed to
+their server/tool. The default prompt tells the agent that JDdS is one fallible
+source and to try other eligible configured sources and selected MCP tools before
+concluding evidence is unavailable. Broad, MCP-aware *native* source planning
+(treating MCP tools as a `RetrievalSource` class with freshness/conflict
+comparison) is **not** implemented — a generic MCP tool does not implement the
+native `RetrievalSource` contract — and remains a later gate (`5F`). Remote
+HTTP/OAuth (`5D`), Eclipse-as-MCP-server (`5H`), and
+resources/prompts/subscriptions (`5I`) are likewise **future work**.
+Decisions: ADR-H38, ADR-H39, ADR-H40, ADR-H41 and ADR-H42 in
+[`decisions.md`](./decisions.md).
+
+### MCP secret references and effectful approvals (Phase 5 extras)
+
+**Vault-backed secret references.** A server can reference a NAMED secret instead
+of storing a value: `secret_refs: { API_TOKEN: "my_server_token" }`. The secret
+is stored ENCRYPTED in JDDS (`SystemConfig.key = 'mcp_secrets_v1'`, AES-256-GCM
+via `connectors/secrets`) and exposed only as names/masked hints
+(`/api/harness/mcp/secrets`). The Python runtime resolves the value at spawn over
+the authenticated, read-only data bridge (`mcp_secret_resolve`) — a
+server-to-server path. The value never reaches a browser, the model, an event, a
+log, or a run trace; it is added to the connection's in-memory redaction set so a
+server cannot echo it back either. Inline `env` values remain supported but are
+the legacy/plaintext path; `secret_refs` is preferred.
+
+**Effectful-tool approvals (5G).** A tool whose effect is `write` or
+`external_action` is not run on the model's say-so. Two gates apply:
+1. the operator must enable that effect class for the server (`enabled_effects`,
+   default `["read"]`); and
+2. every call must match an APPROVED, unexpired approval bound to
+   `(serverId, tool, argsDigest)`, where the digest is the canonicalized
+   validated arguments. A changed payload requires a new approval; a denial is
+   terminal for that digest; `unknown` effect is never approvable.
+
+Enforcement is in the ONE `ToolRegistry`: a non-read `ToolDefinition` executes
+only when the run's `ToolContext.authorize_effect` authorizer approves the exact
+call. With no authorizer wired, every non-read tool is refused (the prior safe
+default). When a call is unapproved, the runtime records a PENDING request and
+refuses it, emitting `mcp.tool.approval_required`; the operator decides in
+Settings › MCP Servers (`/api/harness/mcp/approvals`). Approvals live in
+`agent-memory.db` (`McpApproval`) and hold no secret material.
 
 | To add… | Do this |
 |---|---|
@@ -598,7 +692,7 @@ ADR-H38 and ADR-H39 in [`decisions.md`](./decisions.md).
 | A capability the retrieval layer needs | Add a capability to `data-bridge.ts` + the `DataCapability` union + the API route whitelist. |
 | An agent | Add a prompt to `python/harness/prompts.py` and an `AgentConfig` to `AGENT_PRESETS` in `python/harness/agents.py` (update `DEFAULT_AGENT_ID` if it should be the default). |
 | A model provider | Add a `ProviderSpec` to `PROVIDER_CATALOG`; add its package to `requirements.txt` if it needs a native integration. |
-| A local MCP server | Add an entry to `<repo root>/mcp-servers.json` (see `harness/mcp/config.py`): `id`, `command`, `args`, optional `env`/`env_allowlist`/`cwd`, `enabled: true`, and the `selected_tools` include list. Only read-only tools activate in this slice. Or use Settings › MCP Servers (`/api/harness/mcp/*`). |
+| A local MCP server | Add an entry to `<repo root>/mcp-servers.json` (see `harness/mcp/config.py`): `id`, `command`, `args`, optional `env`/`env_allowlist`/`secret_refs`/`cwd`, `enabled: true`, and the `selected_tools` include list. Only read-only tools activate in this slice. Or use Settings › MCP Servers (`/api/harness/mcp/*`). A ready-to-edit set (Notion, Google Sheets, Excel, Tavily/Brave search, filesystem, Yahoo Finance, memory) is in `mcp-servers.example.json`. |
 | Durable knowledge | Use `store.remember` / `store.recall` or `store.propose_skill`. |
 | A runtime skill | Add a folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (and optional `tests/cases.json`); it loads at boot via `skills/loader.py`. |
 | A skill API surface | Add a proxy route under `src/app/api/skills/` (or `learning/`) and a typed call in `skills-client.ts` (server) / `skills-browser.ts` (UI). |

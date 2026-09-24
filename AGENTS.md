@@ -68,8 +68,15 @@ If docs and code disagree, **the code wins** — then fix the doc.
 - **Run the checks after every change:** `npm run test` **and**
   `npx tsc --noEmit` (from `Black-Eclipse-site/`). Both must pass.
 - **Never fabricate financial data.** Unavailable data renders an `UNAVAILABLE`
-  state; simulated/stale data is always labeled. All market data is read through
-  JDdS (`jdds.db`) — the agentic layer never queries a second data source.
+  state; simulated/stale data is always labeled. JDdS (`jdds.db`) is the app's
+  own market-data vault and the default source for native tools, but it is **one
+  source, not a universal authority** — it can be stale or incomplete. MCP is a
+  user-directed extension surface: a user may connect external MCP servers and
+  use their tools for any finance workflow, and those results are explicitly
+  **not** routed through JDdS or the native research verifier and are never
+  labeled Eclipse-verified. Native retrieval selects among configured sources
+  (JDdS, providers, official/web, selected MCP tools) by fit, freshness and
+  provenance; MCP tools are called directly, not forced through JDdS.
 - **The agentic runtime is Python.** Agents, tools, model providers, harness
   events and run persistence live in `Black-Eclipse-site/python/harness/`
   (FastAPI + LangChain + LangGraph). Next.js is the front door: it validates

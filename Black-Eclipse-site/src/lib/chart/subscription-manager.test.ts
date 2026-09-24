@@ -4,7 +4,8 @@
 // fetch and assert the dedup contract directly.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DataSubscriptionManager } from './subscription-manager';
+import { DataSubscriptionManager, barsTtl, barsRefreshMs } from './subscription-manager';
+import { DAILY_HISTORY_TTL_MS } from './price-history-ttl';
 
 const originalFetch = global.fetch;
 
@@ -88,6 +89,58 @@ describe('DataSubscriptionManager — bars', () => {
     expect(got.some(Boolean)).toBe(true);
     expect(fetches).toHaveLength(1);
     u2();
+  });
+});
+
+describe('barsTtl / barsRefreshMs (timeframe-aware freshness)', () => {
+  it('gives intraday timeframes a short TTL and daily a long one', () => {
+    expect(barsTtl('1m')).toBe(30_000);
+    expect(barsTtl('5m')).toBe(60_000);
+    expect(barsTtl('15m')).toBeLessThan(DAILY_HISTORY_TTL_MS);
+    expect(barsTtl('1H')).toBeLessThan(DAILY_HISTORY_TTL_MS);
+    expect(barsTtl('1D')).toBe(DAILY_HISTORY_TTL_MS);
+    expect(barsTtl('1W')).toBe(DAILY_HISTORY_TTL_MS);
+  });
+
+  it('auto-refreshes intraday series but leaves daily on demand only', () => {
+    expect(barsRefreshMs('1m')).toBeGreaterThan(0);
+    expect(barsRefreshMs('5m')).toBeGreaterThan(0);
+    expect(barsRefreshMs('1H')).toBeGreaterThan(0);
+    // Daily+ never polls — the long TTL plus the on-demand refresh covers them.
+    expect(barsRefreshMs('1D')).toBe(0);
+    expect(barsRefreshMs('1W')).toBe(0);
+    expect(barsRefreshMs('1M')).toBe(0);
+  });
+});
+
+describe('DataSubscriptionManager — intraday auto-refresh', () => {
+  beforeEach(() => {
+    global.fetch = originalFetch;
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('re-fetches an intraday series on the refresh cadence', async () => {
+    const fetches: string[] = [];
+    mockFetch((url) => {
+      fetches.push(url);
+      return { json: { symbol: 'AAPL', currency: '$', source: 'yfinance', series: [
+        { date: '2025-01-01', open: 1, high: 2, low: 0.5, close: 1.5, volume: 1 },
+        { date: '2025-01-02', open: 1.5, high: 2, low: 1, close: 1.8, volume: 1 },
+      ] } };
+    });
+    const mgr = new DataSubscriptionManager();
+    const unsub = mgr.subscribeBars('AAPL', 'US', '1m', () => {});
+    await vi.waitFor(() => expect(fetches.length).toBe(1));
+
+    // Advance past one refresh interval; the series must refresh silently.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetches.length).toBeGreaterThanOrEqual(2);
+    unsub();
   });
 });
 

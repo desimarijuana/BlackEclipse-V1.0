@@ -47,7 +47,7 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         # The shared decision gate re-checks the proposal against the actual user
         # turn, identity, scope, provenance, category, evidence, privacy rules and
         # policy. A proposal not backed by explicit user intent is downgraded
-        # (suggest / run_only / ignore) rather than persisted.
+        # (suggest / history_only / ignore) rather than persisted.
         from .eclipse_memory.decision import authorize_proposal  # noqa: PLC0415
 
         try:
@@ -84,6 +84,12 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
                         "limit": outcome.get("limit"), "active": outcome.get("active"),
                         "reason": outcome.get("reason"),
                     },
+                )
+            if outcome.get("action") == "history_only":
+                return (
+                    "MEMORY NOT SAVED — this stays in conversation history, not durable memory. "
+                    "The user may re-state it explicitly to save it. Do not claim it was remembered.",
+                    {"saved": False, "outcome": "history_only", "reason": decision.reason or outcome.get("reason")},
                 )
             return (
                 f"MEMORY NOT SAVED — {decision.reason or outcome.get('reason')}",

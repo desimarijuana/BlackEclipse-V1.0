@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Optional
 
 from .eclipse_memory import EclipseMemoryService
@@ -16,6 +17,7 @@ from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
 from .mcp import MCPManager
+from .mcp.approvals import ApprovalStore
 from .memory_tools import register_memory_tools
 from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
@@ -25,6 +27,15 @@ from .skills import SkillRegistry
 from .tools import DataBridge, ToolRegistry
 
 log = logging.getLogger("harness.service")
+
+
+def _default_callback_base_url() -> str:
+    """The Next.js front door base URL for process-wide bridge calls.
+
+    The runtime is spawned by the front door; `HARNESS_CALLBACK_URL` is the
+    explicit override, otherwise loopback on the app port.
+    """
+    return os.environ.get("HARNESS_CALLBACK_URL") or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
 
 
 class _HttpDataBridge(DataBridge):
@@ -93,6 +104,28 @@ class AgenticService:
         # tools register into THIS registry, so execution stays authoritative.
         self.mcp = MCPManager()
         self.mcp_registered_tools: list[str] = []
+        # Effectful-tool approvals (5G): persisted in the runtime's own DB and
+        # consulted by every run's effect authorizer.
+        self.approvals = ApprovalStore(self.store)
+
+    def _secret_resolver(self, bridge: DataBridge):
+        """Bind an async vault-secret resolver to a run's data bridge.
+
+        The MCP manager calls this at child spawn; the value is fetched through
+        the authenticated, read-only bridge and never stored or logged.
+        """
+
+        async def resolve(name: str) -> Optional[str]:
+            try:
+                payload = await bridge.fetch("mcp_secret_resolve", {"name": name})
+            except Exception:  # noqa: BLE001 - an unreachable vault is not a value
+                return None
+            if isinstance(payload, dict) and payload.get("status") == "OK":
+                value = payload.get("value")
+                return str(value) if value else None
+            return None
+
+        return resolve
 
     async def start_mcp(self) -> None:
         """Connect enabled MCP servers and register selected read-only tools.
@@ -101,6 +134,12 @@ class AgenticService:
         diagnostic and does not block the runtime or other servers.
         """
         try:
+            # A process-wide bridge is used only for secret resolution at spawn;
+            # per-run tools still receive their own run bridge.
+            bridge = self.build_bridge(
+                _default_callback_base_url(), None
+            )
+            self.mcp.set_secret_resolver(self._secret_resolver(bridge))
             await self.mcp.start()
             self.mcp_registered_tools = self.mcp.register_selected_tools(self.registry)
         except Exception:  # noqa: BLE001 - MCP must never prevent the runtime booting
@@ -124,6 +163,26 @@ class AgenticService:
         self.mcp.load_diagnostics = diagnostics
         self.mcp_registered_tools = await self.mcp.reload(configs)
         return self.mcp.summary()
+
+    async def confirm_mcp_catalog(self, server_id: str) -> dict[str, Any]:
+        """Snapshot the live catalog digest as the operator's reviewed version.
+
+        This is the explicit review act that lets an annotation-sourced read-only
+        tool activate. Doing it re-reads config, records the digest, and reloads
+        so activation takes effect immediately.
+        """
+        from .mcp.config import load_mcp_configs, upsert_mcp_config
+
+        digest = self.mcp.catalog_digest_for(server_id)
+        if not digest:
+            return {"success": False, "reason": "server is not connected; test it first"}
+        configs, _ = load_mcp_configs()
+        target = next((c for c in configs if c.id == server_id), None)
+        if target is None:
+            return {"success": False, "reason": "server not found"}
+        upsert_mcp_config(target.model_copy(update={"confirmed_catalog_digest": digest}))
+        await self.reload_mcp()
+        return {"success": True, "serverId": server_id, "catalogDigest": digest, **self.mcp.summary()}
 
     def build_bridge(self, base_url: str, token: Optional[str]) -> DataBridge:
         """Build the read-only JDdS bridge for a research request."""
@@ -151,6 +210,7 @@ class AgenticService:
             request, self.registry, bridge, self.store, self.bus,
             retrieval_cache=self.retrieval_cache,
             memory_service=self.memory, skill_registry=self.skill_registry,
+            approvals=self.approvals,
         )
 
     async def run_skill(self, request: Any) -> Any:
@@ -181,6 +241,7 @@ class AgenticService:
                     request, self.registry, bridge, self.store, self.bus,
                     retrieval_cache=self.retrieval_cache,
                     memory_service=self.memory, skill_registry=self.skill_registry,
+                    approvals=self.approvals,
                 )
             finally:
                 # Signal live SSE consumers that the run is over, whatever the

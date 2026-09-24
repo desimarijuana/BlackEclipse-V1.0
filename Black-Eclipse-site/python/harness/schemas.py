@@ -97,6 +97,13 @@ class AgentConfig(BaseModel):
     maxSteps: Optional[int] = Field(default=8, ge=1, le=32)  # noqa: N815
     toolTimeoutMs: Optional[int] = Field(default=20_000, ge=100, le=120_000)  # noqa: N815
     runTimeoutMs: Optional[int] = Field(default=120_000, ge=1000, le=600_000)  # noqa: N815
+    # Narrow opt-in: when True, the run's effective allowlist is expanded to also
+    # include the MCP tools CURRENTLY registered, selected and namespaced in the
+    # registry (`mcp_*`). Default False, so a custom/skill agent keeps its exact
+    # restricted allowlist and can never call an MCP tool it did not name. It is
+    # an expansion over registration state, not permission to call arbitrary
+    # tools: registration itself already enforces enabled + selected + read-only.
+    allowMcpTools: bool = False  # noqa: N815
 
     model_config = {"populate_by_name": True}
 

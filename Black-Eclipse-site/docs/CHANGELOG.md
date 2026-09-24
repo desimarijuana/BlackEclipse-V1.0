@@ -8,6 +8,205 @@ last-verified: 2026-09-15
 
 ## 2026-09-24
 
+- **MCP product layer — finance workflows, provenance, diagnostics, approval
+  clarity** — Turned MCP from "servers and tools" into finance jobs an investor
+  recognises. Added `python/harness/mcp/presets.py`: 11 finance **integrations**
+  (Sheets, Excel, filings, web search, calendar, cloud docs, Canva/Figma/Office
+  decks, Notion) with plain-language setup, `verified`/community flags and
+  read/write tool-name hints, plus 7 **workflows** (Import Portfolio, Review
+  Portfolio Risk, Prepare Earnings Brief, Compare Companies, Analyze Trade
+  Journal, Create Investment Memo, Export Portfolio Report) with per-step
+  integration, native-vs-MCP marking and approval steps. Added
+  `python/harness/mcp/diagnostics.py` (command/Node/npx/Python availability,
+  vault secret refs, endpoint safety+reachability, connection, discovery,
+  selection, writable-temp-dir) each with an actionable `recovery`. Every MCP
+  result now carries a machine-readable `provenance` block (`verification:
+  external`, `eclipseVerified: false`, source, retrievedAt) and the text says
+  "EXTERNAL … NOT Eclipse-verified"; native JDdS/portfolio data stays
+  authoritative and workflow native steps are marked. Effectful approvals record
+  a plain-language `actionSummary`, `affectedData` and `risk`; the UI shows them
+  and uses "Approve this exact call". New runtime routes `/mcp/integrations`,
+  `/mcp/workflows`, `/mcp/diagnostics` + TS proxies + a workflow wizard and
+  diagnostics panel in Settings › MCP Servers. `mcp-servers.example.json`
+  corrected (`powerpoint-mcp` did not exist → `@mindstone/mcp-server-office`) and
+  unverified remote templates flagged. Added `_testtmp.py` (Windows temp-dir
+  resilience) and `python/tests/test_mcp_workflow.py` proving import → native
+  analysis → report → approved export → provenance, plus a changed payload
+  requiring a new approval. 685 pytest, 1732 Vitest, `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H43), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
+- **Eclipse memory + skill learning — one selective lifecycle (root-cause fix)** —
+  Fixed memory/skill learning end to end, not just prompts. **Verified root
+  causes:** (1) automatic learning was governed by three independent booleans
+  (`auto_capture_enabled`/`auto_suggest_enabled`/`auto_candidate_detection`) that
+  all defaulted **off**, so nothing was ever learned automatically and the product
+  could only prompt; there was no `automatic_selective`/`ask_before_saving`/`off`
+  model and defaults were contradictory across code/docs/tests (ADR-H35 "on" vs
+  ADR-H37 "off"). (2) The gate emitted `run_only` instead of a distinct
+  `history_only`. (3) An explicit "turn this into a skill" only set a flag — no
+  candidate/draft was created, forcing a second "Learn from this run" click. (4)
+  Implicit skill learning fired on a single multi-step run (no recurrence
+  evidence). (5) The chat panel prompted on every eligible run.
+  **Fixes:** `policy.py` now defines two mode keys — `memory_mode` and
+  `skill_learning_mode` (`automatic_selective` default | `ask_before_saving` |
+  `off`); the legacy booleans are **derived** (`derived_flags`) and neither stored
+  nor settable; migration 7 records and removes stored legacy rows so the mode
+  defaults govern for new and existing installs. In `automatic_selective` a direct
+  user preference saves on first statement, a project convention requires
+  recurrence, and one-off/task/question/market content is `history_only`/`ignore`
+  — no per-run prompt; `ask_before_saving` stages an inert suggestion; `off`
+  creates nothing. Decision outcomes are now `save`/`suggest`/`history_only`/
+  `ignore`. An explicit skill request creates a real inert candidate + draft via
+  `capture_from_run`+`propose_draft` at run end; implicit `successful_procedure`
+  candidates require recurrence (recovered failures/corrections remain strong
+  single-run evidence); nothing is ever enabled (evaluation + operator approval
+  gate promotion). The chat panel now shows a learning line only for a genuine
+  automatic capture or explicit draft. Tests: `python/tests/` updated across
+  memory-selectivity, policy, reliability, skills-learning and skills-scenarios
+  (positive + negative: auto-save of a durable preference, explicit remember
+  regardless of mode, one-off/market values not saved, recurrence saves without
+  confirmation, duplicate/correction behaviour, sensitive refusal, scope
+  isolation, eligible-run-is-not-a-skill, explicit request → pending draft,
+  repeated workflow → controlled candidate, no repetitive prompt); TS
+  `memory-action.test.ts` covers draft-ready presentation. Python 672 passed;
+  Vitest 1732 passed; `tsc` clean.
+  docs updated: `harness/decisions.md` (ADR-H43; ADR-H35/H37 corrected),
+  `harness/phase-3-memory-progress.md`, `harness/architecture.md`, `NAVIGATION.md`
+
+## 2026-09-24
+
+- **Harness Phase 5D — remote MCP transport (Streamable HTTP + vault auth + SSRF
+  guard)** — Users can now connect **remote** MCP servers, not just local stdio.
+  `MCPServerConfig` gained `transport: "stdio"|"http"` (+ required `url` and
+  optional `auth: {kind, name, prefix, secretRef}`); the HTTP path uses the MCP
+  SDK's Streamable-HTTP client and shares the SAME connection lifecycle,
+  discovery, effect/approval gating, output bounding and redaction as stdio
+  (only the stream source differs). Auth is a **vault secret reference** resolved
+  at connect time and added to the in-memory redaction set — never stored,
+  returned, or logged. Every remote URL passes an **SSRF guard**
+  (`python/harness/mcp/ssrf.py`, mirrored by `checkOutboundUrl`): https-only
+  (loopback http allowed for local testing), embedded credentials refused,
+  private/link-local/metadata hosts refused, checked BEFORE any outbound
+  connection. Settings › MCP Servers gained a transport selector + URL/auth
+  fields; `mcp-servers.example.json` gained a remote template. New offline
+  end-to-end test `python/tests/test_mcp_http.py` (local Streamable-HTTP fixture
+  requiring the vault-resolved bearer). Interactive OAuth, TLS/redirect knobs,
+  resources/prompts (5I), MCP-aware source planning (5F) and Eclipse-as-server
+  (5H) remain future work. MCP suite green; `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H42), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
+- **MCP — ready-to-use investor server examples** — Added
+  `mcp-servers.example.json` (committable; no secrets) with verified installable
+  local stdio servers investors can enable: `filesystem`, `notion`
+  (`@notionhq/notion-mcp-server`), `sheets` (`mcp-google-sheets`, service-account
+  or OAuth JSON), `excel` (`@negokaz/excel-mcp-server`), `tavily`
+  (`tavily-mcp`), `brave` (`@modelcontextprotocol/server-brave-search`),
+  `yahoo-finance` (`yahoo-finance-mcp`), `memory`
+  (`@modelcontextprotocol/server-memory`). Credentials use `secret_refs`
+  (vault-backed), never inline values; every server defaults to disabled with an
+  empty selection. Documented in NAVIGATION + architecture. Note: Canva and
+  hosted Google Workspace MCP are **remote/OAuth-only** and need the
+  still-unimplemented remote transport (5D); Notion/Sheets are reachable today
+  via their local stdio servers. `no doc change` beyond the rows below — this is
+  a config example plus navigation pointers.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`
+
+## 2026-09-24
+
+- **Harness Phase 5 MCP — vault secret references + effectful-tool approvals
+  (5G)** — Closed the two follow-ups from the MCP audit. **Secrets:** added an
+  encrypted named-secret vault (`src/lib/harness/mcp-secrets.ts`, AES-256-GCM in
+  JDDS `SystemConfig` `mcp_secrets_v1`) exposed only as names/masked hints
+  (`/api/harness/mcp/secrets`); a server references a secret by name
+  (`MCPServerConfig.secret_refs`) and the Python runtime resolves the value at
+  spawn over the authenticated bridge (`mcp_secret_resolve`), never persisting,
+  logging, returning, or leaving it redaction-unaware (a resolved value joins the
+  connection's in-memory redaction set). **Approvals (5G):** a `write`/
+  `external_action` tool now needs (a) the operator to enable that effect for the
+  server (`enabled_effects`, default `["read"]`) and (b) a valid APPROVED
+  approval bound to the exact `(serverId, tool, argsDigest)`; enforcement is in
+  the ONE `ToolRegistry` via a `ToolContext.authorize_effect` seam — with no
+  authorizer, non-read tools stay refused. New `python/harness/mcp/approvals.py`
+  (`McpApproval` table in `agent-memory.db`, no secret material, expiry,
+  digest-change invalidation, terminal denial, `unknown` never approvable),
+  `/mcp/approvals[/{id}/decide]` runtime routes + `/api/harness/mcp/approvals/*`
+  proxies, and Vault + Approvals panels in Settings › MCP Servers. Remote
+  HTTP/OAuth (5D), Eclipse-as-server (5H), MCP-aware native source planning (5F)
+  and resources/prompts/subscriptions (5I) remain future work. 647 pytest, 1731
+  Vitest, `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H41), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
+- **Harness Phase 5 MCP — audit & hardening** — Audited the shipped MCP slice
+  and fixed five gaps. (1) **Default-agent reachability:** the Eclipse agent's
+  exact allowlist omitted `mcp_*`, so selected MCP tools were registered but
+  never bound; added a narrow `AgentConfig.allowMcpTools` opt-in
+  (`schemas.py`/`agents.py`) expanded by `graph.effective_allowlist` to include
+  only *currently registered* MCP tools — custom agents/skills keep exact
+  allowlists. End-to-end graph test proves a selected tool is bound and callable,
+  plus denial tests for unselected tools and restricted agents. (2) **Test-server
+  teardown:** `MCPManager.test_server` now closes its temporary child in a
+  `finally` (success/failure/cancellation); regression tests assert the child
+  reaches `closed`. (3) **Credential security:** documented that scoped env
+  values persist only in the gitignored `mcp-servers.json` (now written
+  owner-only 0600 where supported) because the secure vault is a TS/Prisma store
+  Python cannot read; added leak tests. (4) **Runtime auth:** replaced the
+  body-`operator` boolean with a FastAPI dependency that authorizes MCP mutations
+  by loopback or the runtime secret (`X-Harness-Operator`/Bearer), never a JSON
+  field; the TS proxy sends the secret and no longer trusts a client boolean.
+  Direct-API tests cover unauthorized/loopback/token paths. (5) **Effect trust:**
+  a server's `readOnlyHint` is untrusted and no longer activates a tool on its
+  own — activation requires an operator `tool_effects` declaration or an operator
+  confirmation of the server's `catalogDigest` (`POST /mcp/servers/{id}/confirm`);
+  a changed catalog invalidates the confirmation (ADR-H40). Also added stdio
+  boundary tests, an MCP-awareness paragraph to the prompt, and reconciled the
+  root `AGENTS.md` JDdS rule (JDdS is one fallible source; MCP is user-directed).
+  Remote HTTP/OAuth, effectful approval, Eclipse-as-server, resources/prompts and
+  MCP-aware native source planning remain future work (5D/5F–5I). 635 pytest,
+  1724 Vitest, `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H40), `docs/NAVIGATION.md`, `AGENTS.md`
+
+## 2026-09-24
+
+- **Live prices — read-through instead of 15-min scrape cadence (fix huge price
+  delay)** — `/api/quote` served only the JDDS `Price` row, which the background
+  scraper writes on a `DEFAULT_INTERVAL_MIN = 15` cycle, so every 30-second
+  consumer poll (chart panels, header ribbon, portfolio) returned the same
+  up-to-15-minute-old price. New `src/lib/scraper/live-quote.ts` adds a bounded
+  read-through: for a non-index asset whose stored row is older than
+  `STORED_QUOTE_FRESH_MS` (60s) it fetches the live price from Yahoo's chart
+  `meta.regularMarketPrice` (one browser-UA HTTP request, no Python spawn), with
+  a 15s shared cache + in-flight dedup so N clients share one upstream call; a
+  failed fetch returns nothing and the stored row is served under its real
+  `source`/`updatedAt` (never fabricated). The chart-fetch + ticker-candidate
+  logic was extracted to `src/lib/scraper/yahoo-chart.ts` and shared with
+  `/api/price-history`. Tests: `src/lib/scraper/live-quote.test.ts` (7). 1731
+  Vitest, `tsc` clean.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`
+
+- **Charts — timeframe-aware freshness (fix ~10–20 min intraday delay)** — Chart
+  candles had two stacked flat 10-minute caches (client `DataSubscriptionManager`
+  `BARS_TTL` and the server `HISTORY_TTL_MS`), and the client never re-fetched
+  candles while a panel stayed open — only the live *last price* polled. Intraday
+  series therefore lagged badly. Fix: a shared, pure `ttlForInterval`
+  (`src/lib/chart/price-history-ttl.ts`) maps the Yahoo interval to a lifetime
+  (1m→30s, 5m→60s, 15/30m→2m, 60m→5m, daily+→10m), used by both the route and
+  the client; the client gains an intraday auto-refresh timer (`barsRefreshMs`,
+  cleared when the last listener leaves) and silent background refreshes no
+  longer flash a loading state. Tests: `price-history-ttl.test.ts` +
+  `subscription-manager.test.ts` (intraday refresh). 1724 Vitest, `tsc` clean.
+  docs updated: `docs/CHANGELOG.md` only — cache-lifetime tuning, no contract or
+  architecture change.
+
 - **Harness Phase 5E — MCP catalog selection & settings UX** — Added the
   front-door catalog for MCP servers. Python now exposes `GET /mcp/servers`,
   `POST /mcp/servers`, `POST /mcp/servers/test`, `DELETE /mcp/servers/{id}` and

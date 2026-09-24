@@ -19,9 +19,13 @@ Security rules encoded here (never relaxed by a server):
     explicit per-tool selection may register a tool;
   * startup/catalog/call/output/concurrency budgets are bounded.
 
-Secret VALUES are held in memory only. They are never logged, persisted, emitted
-in an event, or returned in a tool result; `redact_secrets` scrubs them from any
-diagnostic text that leaves the manager.
+Secret VALUES in `env` are persisted ONLY in the local `mcp-servers.json`
+(gitignored, owner-restricted where the OS supports it) because the secure
+settings vault is a TypeScript/Prisma store this Python process cannot read, and
+the Python SDK requires the value to spawn the child. They are never logged,
+emitted in an event, or returned by the API (which exposes only key NAMES);
+`redact_secrets` scrubs them from any diagnostic text that leaves the manager.
+See the ADR (ADR-H40) for the vault-integration limitation and the planned fix.
 """
 
 from __future__ import annotations
@@ -41,6 +45,10 @@ log = logging.getLogger("harness.mcp.config")
 # Effect classes. Only `read` is activatable in this slice; the others are
 # declared so a later approval gate (5G) can bind consent to them.
 EffectClass = Literal["read", "write", "external_action", "unknown"]
+
+# Transports. `stdio` launches a local subprocess; `http` connects to a remote
+# Streamable-HTTP MCP endpoint (vault-backed header/bearer auth).
+MCPServerTransport = Literal["stdio", "http"]
 
 # Configuration file resolution:
 #   1. HARNESS_MCP_CONFIG (absolute or relative path);
@@ -90,21 +98,47 @@ class MCPServerConfig(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     # A stable, human-meaningful label; defaults to `id`.
     name: Optional[str] = None
+    # Transport: a local subprocess (`stdio`) or a remote Streamable-HTTP endpoint.
+    transport: MCPServerTransport = "stdio"
     # Executable + argument array as SEPARATE values. Never a shell string.
-    command: str = Field(min_length=1)
+    # Required for `stdio`; ignored for `http`.
+    command: str = ""
     args: list[str] = Field(default_factory=list)
+    # Remote endpoint URL. Required for `http` (https, or http on loopback).
+    url: Optional[str] = None
+    # Header auth for `http`. The VALUE is a vault secret NAME resolved at
+    # connect time; a literal value may be given via `env`-style `env`? No —
+    # header values are always secret references so a token is never stored here.
+    #   {"kind": "header", "name": "Authorization", "prefix": "Bearer ", "secretRef": "x"}
+    #   {"kind": "query", "name": "api_key", "secretRef": "x"}   (query params)
+    auth: Optional[dict[str, Any]] = None
     # Explicit env values for THIS server only (e.g. a scoped API base URL).
+    # Non-secret values only; use `secret_refs` for anything secret.
     env: dict[str, str] = Field(default_factory=dict)
     # Host env var NAMES to copy through to the child (values resolved at spawn).
     env_allowlist: list[str] = Field(default_factory=list)
+    # Environment variable NAME → vault secret NAME. The value is resolved from
+    # the encrypted vault (served over the authenticated read-only bridge) at
+    # spawn time and is never written to this config file, a log, an event, or a
+    # run trace. This is the preferred way to give a server a credential.
+    secret_refs: dict[str, str] = Field(default_factory=dict)
     # Optional working directory; a relative value resolves against repo_root().
     cwd: Optional[str] = None
     enabled: bool = False
     # Explicit include list. Discovery never activates; only this selects.
     selected_tools: list[str] = Field(default_factory=list)
-    # Optional declared effect per original tool name. Overrides annotations when
-    # present; an undeclared tool with no read-only annotation is `unknown`.
+    # Optional declared effect per original tool name. This is the ONLY trusted
+    # source of an effect: a server's own `readOnlyHint` is untrusted metadata
+    # and can never, by itself, activate a tool.
     tool_effects: dict[str, EffectClass] = Field(default_factory=dict)
+    # The catalog digest the operator last reviewed/confirmed. A tool activates
+    # only when the live catalog digest equals this, so a changed tool set,
+    # description or schema invalidates prior selection until re-confirmed.
+    confirmed_catalog_digest: Optional[str] = None
+    # Effect classes the operator has opted in to for THIS server. Defaults to
+    # {"read"} only. A non-read effect (write/external_action) additionally
+    # requires a per-call approval (5G); enabling it here is the standing opt-in.
+    enabled_effects: list[str] = Field(default_factory=lambda: ["read"])
     # Budgets / bounds.
     startup_timeout_ms: int = DEFAULT_STARTUP_TIMEOUT_MS
     catalog_timeout_ms: int = DEFAULT_CATALOG_TIMEOUT_MS
@@ -134,15 +168,31 @@ class MCPServerConfig(BaseModel):
                 raise ValueError("argument contains a NUL byte")
         return value
 
-    @field_validator("command")
+    @field_validator("command", "url")
     @classmethod
-    def _no_shell_meta(cls, value: str) -> str:
-        # This is a defensive check, not the security boundary: the boundary is
-        # that we never use a shell and pass an argv list (see client.py). A NUL
-        # byte is refused here so it can never reach the spawn.
-        if "\x00" in value:
-            raise ValueError("command contains a NUL byte")
+    def _no_nul(cls, value: Optional[str]) -> Optional[str]:
+        # Defensive, not the boundary: we never use a shell, and the http URL is
+        # validated by the SSRF guard. A NUL byte is refused so it cannot reach a
+        # spawn or an HTTP client.
+        if value is not None and "\x00" in value:
+            raise ValueError("value contains a NUL byte")
         return value
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401 - pydantic hook
+        # A transport must be fully specified: stdio needs a command, http needs
+        # a URL. Enforced here (not a field validator) so the error is one clear
+        # message and both transports share the same model.
+        if self.transport == "stdio":
+            if not self.command or not self.command.strip():
+                raise ValueError("stdio transport requires `command`")
+        elif self.transport == "http":
+            if not self.url or not self.url.strip():
+                raise ValueError("http transport requires `url`")
+            if self.auth is not None:
+                if not isinstance(self.auth, dict) or self.auth.get("kind") not in ("header", "query"):
+                    raise ValueError("auth must be {kind: 'header'|'query', name, secretRef}")
+                if not self.auth.get("name") or not self.auth.get("secretRef"):
+                    raise ValueError("auth requires `name` and `secretRef`")
 
     def limits(self) -> dict[str, int]:
         return {
@@ -170,12 +220,15 @@ class MCPServerConfig(BaseModel):
         candidate = os.path.abspath(candidate)
         return candidate if os.path.isdir(candidate) else None
 
-    def resolve_environment(self) -> dict[str, str]:
-        """The explicit env for the child: allowlisted host vars + declared values.
+    def resolve_environment(self, resolved_secrets: Optional[dict[str, str]] = None) -> dict[str, str]:
+        """The explicit env for the child: allowlisted host vars + declared values
+        + resolved vault secrets.
 
         Only names in `env_allowlist` are copied from the host; the process
         environment, settings vault, model credentials and callback token are
-        never forwarded wholesale.
+        never forwarded wholesale. `resolved_secrets` maps an env var NAME to its
+        resolved value (from the encrypted vault — see ADR-H41); when a reference
+        is unresolved it is simply omitted, never guessed.
         """
         resolved: dict[str, str] = {}
         for name in self.env_allowlist:
@@ -185,11 +238,31 @@ class MCPServerConfig(BaseModel):
             if value is not None:
                 resolved[name] = value
         resolved.update({k: v for k, v in self.env.items() if k})
+        for name, value in (resolved_secrets or {}).items():
+            if name and value:
+                resolved[name] = value
         return resolved
 
     def secret_values(self) -> list[str]:
         """Values that must never appear in a log/event/result (for redaction)."""
         return [v for v in self.env.values() if v]
+
+    def secret_ref_names(self) -> list[str]:
+        """Vault secret NAMES referenced by this server (not values)."""
+        names = [v for v in self.secret_refs.values() if v]
+        auth = self.auth or {}
+        ref = auth.get("secretRef") if isinstance(auth, dict) else None
+        if ref:
+            names.append(str(ref))
+        return names
+
+    def requires_node_runtime(self) -> bool:
+        """Heuristic: does this stdio server likely need Node/npx?
+
+        True for `npx`/`node`/`npm` commands, so diagnostics can tell a user to
+        install Node.js. Not a hard requirement check by itself.
+        """
+        return self.transport == "stdio" and self.command in ("npx", "node", "npm")
 
     def public_dict(self) -> dict[str, Any]:
         """A secret-free, camelCase view safe to return over the API/UI.
@@ -201,16 +274,36 @@ class MCPServerConfig(BaseModel):
         return {
             "id": self.id,
             "name": self.name,
+            "transport": self.transport,
             "command": self.command,
             "args": list(self.args),
+            "url": self.url,
+            # Auth metadata WITHOUT the secret value: the kind/name/prefix and the
+            # vault secret NAME only. The resolved token is never in a response.
+            "auth": (
+                {
+                    "kind": (self.auth or {}).get("kind"),
+                    "name": (self.auth or {}).get("name"),
+                    "prefix": (self.auth or {}).get("prefix"),
+                    "secretRef": (self.auth or {}).get("secretRef"),
+                }
+                if isinstance(self.auth, dict)
+                else None
+            ),
             "env": {k: None for k in self.env},
             "envKeys": sorted(self.env.keys()),
             "envAllowlist": list(self.env_allowlist),
+            # Vault secret REFERENCES: env var name → secret name. Names only;
+            # values live encrypted in the vault and are never returned.
+            "secretRefs": {k: v for k, v in self.secret_refs.items()},
+            "secretRefNames": sorted(self.secret_refs.values()),
             "secretCount": len(self.secret_values()),
             "cwd": self.cwd,
             "enabled": self.enabled,
             "selectedTools": list(self.selected_tools),
             "toolEffects": dict(self.tool_effects),
+            "enabledEffects": list(self.enabled_effects),
+            "confirmedCatalogDigest": self.confirmed_catalog_digest,
             "protocolVersion": self.protocol_version,
             "description": self.description,
             "limits": self.limits(),
@@ -304,7 +397,22 @@ def write_mcp_configs(
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(tmp, path)
+    _restrict_permissions(path)
     return path
+
+
+def _restrict_permissions(path: str) -> None:
+    """Best-effort owner-only permissions on the config file.
+
+    The file may hold scoped env values, so it is written 0600 where the OS
+    supports POSIX modes. On Windows this is a limited no-op (the file inherits
+    the user profile's ACL); it is defense in depth, not a substitute for the
+    gitignore + secret-free API boundary.
+    """
+    try:
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover - some filesystems reject chmod
+        log.debug("could not restrict permissions on %s", path)
 
 
 def upsert_mcp_config(

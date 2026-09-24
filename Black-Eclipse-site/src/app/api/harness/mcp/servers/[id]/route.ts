@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { deleteMCPServer, isOperatorRequest } from "@/lib/harness/mcp-client";
+import { deleteMCPServer } from "@/lib/harness/mcp-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-// DELETE /api/harness/mcp/servers/:id — remove a server (operator-gated).
+// DELETE /api/harness/mcp/servers/:id — remove a server (operator-gated at the
+// front door; the runtime independently authorizes by loopback/token).
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const blocked = guardMutation(request, "mcp-servers-delete");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const { id } = await params;
-    const result = await deleteMCPServer(id, isOperatorRequest(request));
+    const result = await deleteMCPServer(id);
     return NextResponse.json({ ...result, success: true });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

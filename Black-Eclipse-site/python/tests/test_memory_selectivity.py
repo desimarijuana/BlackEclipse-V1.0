@@ -37,7 +37,7 @@ from harness.finance_tools import register_finance_tools
 from harness.memory_tools import register_memory_tools
 from harness.persistence import AgentMemoryStore
 from harness.retrieval_tools import register_retrieval_tools
-from harness.schemas import AgentConfig, ModelSettings, RunInput, RunRequest
+from harness.schemas import AgentConfig, ConversationTurn, ModelSettings, RunInput, RunRequest
 from harness.skills import SkillRegistry
 from harness.tools import DataBridge, ToolContext, ToolRegistry
 
@@ -144,16 +144,20 @@ def test_explicit_save_is_idempotent_on_repeat(env):
 # ── 2. Casual preference does not save ──────────────────────────────────────
 
 
-def test_casual_preference_does_not_save(env):
+def test_casual_preference_is_saved_automatically(env):
+    # automatic_selective (the default): a clear, low-risk user preference is
+    # worth remembering and is saved without interrupting the user.
     _run(env, "I prefer concise answers")
-    assert env["memory"].store.list_memories() == []
+    saved = env["memory"].store.list_memories()
+    assert len(saved) == 1
+    assert saved[0]["scope"] == "user"
+    assert saved[0]["memoryType"] == "preference"
 
 
-def test_casual_preference_suggests_only_when_enabled(env):
-    env["memory"].policy.set("auto_suggest_enabled", True)
-    env["memory"].policy.set("auto_capture_enabled", True)
+def test_casual_preference_ask_mode_suggests_only(env):
+    # ask_before_saving: stage an inert suggestion, never a durable memory.
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
     _run(env, "I prefer concise answers with bullet points")
-    # Still no durable memory — a suggestion is inert.
     assert env["memory"].store.list_memories() == []
     pending = env["memory"].store.list_suggestions(status="pending")
     assert len(pending) == 1
@@ -164,8 +168,7 @@ def test_casual_preference_suggests_only_when_enabled(env):
 
 
 def test_accepting_suggestion_writes_one_record(env):
-    env["memory"].policy.set("auto_suggest_enabled", True)
-    env["memory"].policy.set("auto_capture_enabled", True)
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
     _run(env, "I prefer concise answers")
     suggestion = env["memory"].store.list_suggestions(status="pending")[0]
     outcome = env["memory"].accept_suggestion(suggestion["id"], user_id="u1")
@@ -175,14 +178,20 @@ def test_accepting_suggestion_writes_one_record(env):
 
 
 def test_dismissed_suggestion_is_not_reoffered(env):
-    env["memory"].policy.set("auto_suggest_enabled", True)
-    env["memory"].policy.set("auto_capture_enabled", True)
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
     _run(env, "I prefer concise answers", run_id="run_x")
     suggestion = env["memory"].store.list_suggestions(status="pending")[0]
     env["memory"].dismiss_suggestion(suggestion["id"])
     _run(env, "I prefer concise answers", run_id="run_y")
     # The same suggestion is not re-created after dismissal.
     assert len(env["memory"].store.list_suggestions(status="pending")) == 0
+
+
+def test_memory_off_mode_learns_nothing(env):
+    env["memory"].policy.set("memory_mode", "off")
+    _run(env, "I prefer concise answers")
+    assert env["memory"].store.list_memories() == []
+    assert env["memory"].store.list_suggestions(status="pending") == []
 
 
 # ── 3. One-off instruction ──────────────────────────────────────────────────
@@ -399,12 +408,20 @@ def test_gate_failure_does_not_fail_chat(env, monkeypatch):
 # ── 11. Explicit turn-into-skill: inert candidate only ──────────────────────
 
 
-def test_explicit_skill_request_candidate_is_inert_and_no_findings(env):
+def test_explicit_skill_request_creates_inert_draft(env):
     _run(env, "Turn this workflow into a skill", run_id="run_skill_req")
     blob = env["run_store"].get_run("run_skill_req")["memory"]
     assert blob["action"] == "skill_requested"
-    # No candidate is auto-created while automatic detection is off.
-    assert env["memory"].store.list_candidates() == []
+    # The explicit request creates a real, inert draft through the persistence
+    # path — no second "Learn from this run" click.
+    assert blob.get("skillDraft", {}).get("captured") is True
+    candidates = env["memory"].store.list_candidates()
+    assert candidates, "explicit request must create a candidate"
+    drafted = [c for c in candidates if c.get("resultingSkillId")]
+    assert drafted, "the candidate must have produced a draft"
+    for candidate in drafted:
+        # The generated skill is a draft, never enabled.
+        assert env["memory"].store.get_skill(candidate["resultingSkillId"])["status"] == "draft"
 
 
 def test_capture_from_run_creates_inert_candidate_only(env):
@@ -444,24 +461,30 @@ def test_scope_isolation_and_recall_survive_reopen(env):
 # ── Decision-quality fixtures: false-save vs missed explicit-save ───────────
 
 
-# (text, expected_outcome). These encode the target selectivity.
+# (text, expected_outcome). These encode the target selectivity under the
+# default automatic_selective mode.
 _DECISION_FIXTURES = [
     ("Remember that I prefer concise answers with source links.", "save"),
     ("Save this preference: always show figures in the local currency.", "save"),
-    ("I prefer concise answers", "ignore"),
-    ("I like charts better", "ignore"),
+    # A clear, low-risk user preference is worth remembering automatically.
+    ("I prefer concise answers", "save"),
+    ("I like charts better", "save"),
+    # Task-scoped/question/one-off content is never durable memory.
     ("Compare these two companies today.", "ignore"),
+    ("Why do I prefer charts?", "history_only"),
     ("What is the price of AAPL?", "ignore"),
     ("Thanks!", "ignore"),
     ("Hi, can you help me?", "ignore"),
-    ("Always use consolidated figures", "save"),
-    ("Always use X for this task", "run_only"),
+    # A project convention needs recurrence before it is saved; without it, it
+    # is searchable history only.
+    ("Always use consolidated figures", "history_only"),
+    ("Always use X for this task", "history_only"),
     ("Current price is 190", "ignore"),
     ("AAPL earnings were strong, save this", "ignore"),
     ("The valuation estimate is 3B", "ignore"),
     ("Forget this", "save"),          # forget is an explicit control action
     ("That's wrong, actually it's 5%", "save"),
-    ("Turn this into a skill", "run_only"),
+    ("Turn this into a skill", "history_only"),
     ("Remember my api key is sk-abcdefghijklmnopqrstuvwx", "ignore"),
 ]
 
@@ -479,10 +502,23 @@ def test_decision_quality_fixtures(env):
         decision = decide_turn(text, user_id="u1", settings=settings)
         if expected == "save" and decision.outcome != "save":
             missed_saves.append(text)
-        if expected in ("ignore", "run_only") and decision.outcome == "save":
+        if expected in ("ignore", "history_only") and decision.outcome == "save":
             false_saves.append(text)
     assert false_saves == [], f"false saves: {false_saves}"
     assert missed_saves == [], f"missed explicit saves: {missed_saves}"
+
+
+def test_recurring_convention_saves_without_prompt(env):
+    # The same project convention stated again (recurrence evidence) is saved
+    # automatically, without a per-run prompt.
+    decision = decide_turn(
+        "Always use consolidated figures",
+        user_id="u1",
+        settings=env["memory"].policy.get_all(),
+        recurring=True,
+    )
+    assert decision.outcome == "save"
+    assert decision.metadata.get("evidence") == "recurrence"
 
 
 # ── Storage budget: truthful "memory is full", never auto-delete ────────────
@@ -539,3 +575,110 @@ def test_budget_unlimited_by_default(env):
     budget = env["memory"].memory_budget()
     assert budget["unlimited"] is True
     assert budget["remaining"] is None
+
+
+# ── Automatic-selective lifecycle (positive + negative) ─────────────────────
+
+
+def test_durable_preference_saved_automatically_in_selective_mode(env):
+    # automatic_selective (default): a clear, durable, low-risk preference is
+    # saved without asking each time.
+    assert env["memory"].policy.get("memory_mode") == "automatic_selective"
+    _run(env, "I prefer dividend-adjusted charts", run_id="run_auto_pref")
+    saved = env["memory"].store.list_memories()
+    assert len(saved) == 1
+    assert saved[0]["scope"] == "user"
+    # Provenance is preserved for audit.
+    assert saved[0]["source"] == "explicit_user"
+
+
+def test_onetime_task_detail_not_saved(env):
+    # A temporary task detail is history-only, never durable memory.
+    _run(env, "For this task use the last 5 years of data", run_id="run_onetime")
+    assert env["memory"].store.list_memories() == []
+
+
+def test_changing_market_value_not_saved(env):
+    # A changing market value is never durable memory (even if phrased as one).
+    _run(env, "The current price of AAPL is $190.50", run_id="run_market")
+    assert env["memory"].store.list_memories() == []
+    assert env["memory"].store.list_suggestions(status="pending") == []
+
+
+def test_repeated_convention_saved_without_confirmation(env):
+    # Repeated low-risk evidence can produce a memory without per-run
+    # confirmation: a convention stated in a prior conversation turn recurs.
+    req = RunRequest(
+        runId="run_recur",
+        input=RunInput(
+            query="Always use consolidated figures",
+            history=[ConversationTurn(role="user", content="Always use consolidated figures")],
+        ),
+        agentId="eclipse-agent", userId="u1",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    orig = graph_module.build_chat_model
+    graph_module.build_chat_model = lambda settings: _plain_model()  # type: ignore
+    try:
+        asyncio.run(graph_module.execute_run(
+            req, env["registry"], FakeBridge(), env["run_store"],
+            memory_service=env["memory"], skill_registry=env["skill_registry"],
+        ))
+    finally:
+        graph_module.build_chat_model = orig  # type: ignore
+    assert len(env["memory"].store.list_memories()) == 1
+    assert env["memory"].store.list_suggestions(status="pending") == []
+
+
+def test_project_scoped_fact_does_not_leak_across_scope(env):
+    # A project/user-scoped memory is never recalled for a different scope.
+    env["memory"].write_memory(
+        memory_type="preference", content="project A uses TTM figures",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    other = env["memory"].retrieve(query="TTM figures", actor_scope="user", scope_id="u2")
+    assert all(m.get("scopeId") != "u1" for m in other.memories)
+
+
+def test_sensitive_looking_preference_is_not_auto_saved(env):
+    # A statement mixing a preference with a sensitive identifier is refused
+    # rather than persisted as ordinary memory.
+    decision = decide_turn(
+        "Remember my medical diagnosis and api key is sk-abcdefghijklmnopqrstuvwx",
+        user_id="u1",
+    )
+    assert decision.outcome == "ignore"
+    assert decision.refused
+    assert env["memory"].store.list_memories() == []
+
+
+def test_no_repetitive_prompt_for_ordinary_runs(env):
+    # An ordinary eligible-looking run (multi-step, tool-using) produces no
+    # suggestion and no candidate, so there is nothing to prompt about.
+    tool_call = AIMessage(
+        content="", tool_calls=[{"id": "c1", "name": "get_market_snapshot", "args": {"symbol": "AAPL"}}]
+    )
+    model = ScriptedModel([tool_call, AIMessage(content="Here is the analysis.")])
+    agent = AgentConfig(id="a2", name="A", systemPrompt="sys", tools=["get_market_snapshot"], maxSteps=3)
+    orig = graph_module.build_chat_model
+    graph_module.build_chat_model = lambda settings: model  # type: ignore
+    req = RunRequest(
+        runId="run_noprompt", input=RunInput(query="Analyse AAPL over a few steps"),
+        agent=agent, userId="u1",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    try:
+        result = asyncio.run(graph_module.execute_run(
+            req, env["registry"], FakeBridge(), env["run_store"],
+            memory_service=env["memory"], skill_registry=env["skill_registry"],
+        ))
+    finally:
+        graph_module.build_chat_model = orig  # type: ignore
+    assert result.status == "completed"
+    blob = env["run_store"].get_run("run_noprompt")["memory"]
+    assert blob["learningAnalysis"]["candidatesCreated"] == 0
+    assert env["memory"].store.list_candidates() == []
+    assert env["memory"].store.list_suggestions(status="pending") == []
+

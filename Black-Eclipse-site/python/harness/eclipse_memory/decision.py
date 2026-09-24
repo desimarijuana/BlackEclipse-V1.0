@@ -19,16 +19,19 @@ retrieved memory, attached documents and web content are never user intent.
 
 Outcomes (exactly four):
 
-  * ``save``     — high-value, durable information with clear user intent and no
-                   unresolved safety/scope issue. Persist now.
-  * ``suggest``  — potentially useful durable information, but intent or scope is
-                   unclear. Do NOT persist; surface a quiet Save/Dismiss control.
-  * ``run_only`` — relevant to this task or conversation but not worth recalling
-                   later.
-  * ``ignore``   — low-value, redundant, temporary, unsafe, unsupported or
-                   irrelevant.
+  * ``save``        — high-value, durable information permitted by policy. Persist
+                      now (explicit user intent, or automatic-selective strong
+                      evidence).
+  * ``suggest``     — potentially useful durable information, but intent or scope
+                      is unclear. Do NOT persist; surface a quiet Save/Dismiss
+                      control (inert, non-recalled).
+  * ``history_only``— relevant to this task/conversation and searchable in
+                      conversation/run history, but not worth recalling as durable
+                      memory.
+  * ``ignore``      — low-value, redundant, temporary, unsafe, unsupported or
+                      irrelevant.
 
-The system must usually choose ``run_only`` or ``ignore``.
+The system must usually choose ``history_only`` or ``ignore``.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-OUTCOMES = frozenset({"save", "suggest", "run_only", "ignore"})
+OUTCOMES = frozenset({"save", "suggest", "history_only", "ignore"})
 
 # Provenance of a proposed write. Only these are permitted (mirrors
 # `service.VALID_SOURCES` but names the *path*, not the stored source label).
@@ -113,6 +116,17 @@ _GREETING_RE = re.compile(
     r"^\s*(hi|hello|hey|yo|thanks|thank you|good (morning|afternoon|evening)|"
     r"cheers|ok|okay|sure|cool|nice)\b[\s!.,]*$",
     re.IGNORECASE,
+)
+
+# Explicit memory directives that save immediately (no recurrence needed),
+# as opposed to a bare convention directive.
+SAVE_DIRECTIVE_PHRASES = (
+    r"\bremember\b",
+    r"\bsave (this|that|my)\b",
+    r"\bnote (this|that|down)\b",
+    r"\bkeep (this )?in mind\b",
+    r"\bfrom now on\b",
+    r"\bfor future (reference|runs|sessions)\b",
 )
 
 
@@ -200,6 +214,10 @@ def _ignore(reason: str, *, provenance: str = "", content: str = "", **kw: Any) 
     return MemoryDecision(outcome="ignore", reason=reason, provenance=provenance, content=content, **kw)
 
 
+def _history_only(reason: str, *, content: str = "", **kw: Any) -> MemoryDecision:
+    return MemoryDecision(outcome="history_only", reason=reason, content=content, **kw)
+
+
 def _classify_type(text: str) -> str:
     lowered = text.lower()
     if re.search(r"\b(always|never|don'?t|must|require|constraint)\b", lowered):
@@ -228,15 +246,16 @@ def decide_turn(
     settings: Optional[dict[str, Any]] = None,
     has_prior_memory: bool = False,
     recently_dismissed: bool = False,
+    recurring: bool = False,
     is_skill_run: bool = False,
 ) -> MemoryDecision:
     """Authorize the memory disposition of one user turn.
 
     Explicit save/forget/correct/skill commands are always evaluated (this is
-    the reliable explicit-intent path; it is not gated by the automatic-capture
-    policy). Non-explicit durable mentions may at most become a suggestion, and
-    only when ``auto_suggest_enabled`` is on and the topic was not recently
-    dismissed.
+    the reliable explicit-intent path; it is not gated by the automatic learning
+    mode). Non-explicit durable mentions follow the configured `memory_mode`:
+    ``automatic_selective`` saves only strong, low-risk evidence, ``ask_before_saving``
+    stages an inert suggestion, and ``off`` keeps the turn history-only.
     """
     settings = settings or {}
     text = (user_text or "").strip()
@@ -279,10 +298,12 @@ def decide_turn(
                 metadata=dict(intent.metadata),
             )
         if intent.action == "skill":
-            # A learning request, not a memory write. The run's chat surface
-            # offers the explicit "Learn from this run" action.
+            # An explicit learning request creates an inert skill draft through
+            # the real persistence path (see graph `_apply_memory_intent`); it is
+            # NEVER silently activated. The outcome is history-only here because
+            # the skill itself is not a durable memory.
             return MemoryDecision(
-                outcome="run_only", action="skill", reason=intent.reason,
+                outcome="history_only", action="skill", reason=intent.reason,
                 content=intent.content, scope="task",
                 matched_phrase=intent.matched_phrase, provenance="explicit_user",
             )
@@ -301,10 +322,28 @@ def decide_turn(
             # "Always use X for this task" is a one-off instruction, not a
             # durable rule — it applies only to the current run.
             return MemoryDecision(
-                outcome="run_only", action="save",
+                outcome="history_only", action="save",
                 reason="one-off task instruction — applies to this run only",
                 content=intent.content, scope=intent.scope, subject=intent.subject,
                 matched_phrase=intent.matched_phrase, provenance="explicit_user",
+            )
+        # A bare convention ("always use X") is project-specific and may be a
+        # one-off instruction. A memory directive ("remember/from now on") is
+        # an explicit, immediate save; a bare convention needs recurrence
+        # evidence and otherwise flows through the incidental path.
+        from .intent import BARE_CONVENTION_PHRASES  # noqa: PLC0415
+
+        is_bare_convention = (
+            _matches(intent.matched_phrase or text, BARE_CONVENTION_PHRASES)
+            and not _matches(text, SAVE_DIRECTIVE_PHRASES)
+        )
+        if is_bare_convention:
+            # A bare "always use X" convention is handled by the incidental path,
+            # which saves it automatically under automatic_selective only once
+            # recurrence evidence exists (and records that evidence).
+            return _decide_incidental(
+                text, user_id=user_id, settings=settings,
+                recently_dismissed=recently_dismissed, recurring=recurring,
             )
         if intent.requires_confirmation:
             return MemoryDecision(
@@ -323,46 +362,97 @@ def decide_turn(
         )
 
     # ── No explicit command: is this incidentally durable? ──────────────────
-    return _decide_incidental(text, user_id=user_id, settings=settings,
-                              recently_dismissed=recently_dismissed)
+    return _decide_incidental(
+        text, user_id=user_id, settings=settings,
+        recently_dismissed=recently_dismissed, recurring=recurring,
+    )
 
 
 def _decide_incidental(
-    text: str, *, user_id: Optional[str], settings: dict[str, Any], recently_dismissed: bool
+    text: str, *, user_id: Optional[str], settings: dict[str, Any],
+    recently_dismissed: bool, recurring: bool,
 ) -> MemoryDecision:
-    """A casual statement: usually run_only or ignore, occasionally a suggestion."""
+    """A casual statement: usually history-only or ignore; under
+    ``automatic_selective`` a strong, low-risk fact may save without asking."""
     if _GREETING_RE.match(text):
         return _ignore("greeting — no durable content")
+    if looks_like_secret(text):
+        return MemoryDecision(
+            outcome="ignore", reason="content looks like a secret/credential — not stored",
+            content="", refused=True, provenance="explicit_user",
+        )
     if looks_like_financial_fact(text):
         return _ignore("financial/market figure belongs to the run, not durable memory")
     if _matches(text, _ONE_OFF_PATTERNS):
-        return _ignore("task-scoped one-off — run only")
+        return _history_only("task-scoped one-off — searchable history only", content=text)
 
-    durable = _matches(text, _CONVENTION_PATTERNS) or bool(
-        re.search(r"\b(i (?:prefer|like|always|never)|my preference|we (?:always|never))\b", text, re.IGNORECASE)
-    )
+    # A direct user preference ("I prefer …", "my preference is …") is about the
+    # user and low-risk; a project convention ("always / from now on / rule")
+    # is a project-specific assertion that needs stronger evidence. A question
+    # ("why do I prefer …?") is not a durable statement.
+    is_question = text.rstrip().endswith("?") or bool(re.match(
+        r"^\s*(why|what|how|when|where|which|who|do|does|did|can|could|should|"
+        r"would|is|are|was|were|will)\b",
+        text, re.IGNORECASE,
+    ))
+    if is_question:
+        return _history_only("question, not a durable statement — searchable history only", content=text)
+    direct_preference = bool(re.search(
+        r"\b(i (?:prefer|like|always|never)|my preference|we (?:always|never))\b",
+        text, re.IGNORECASE,
+    ))
+    convention = _matches(text, _CONVENTION_PATTERNS)
+    durable = direct_preference or convention
     if not durable:
-        return _ignore("not durable information")
+        return _history_only("not durable information — searchable history only", content=text)
 
     if recently_dismissed:
-        return _ignore("a similar suggestion was recently dismissed")
+        return _history_only("a similar suggestion was recently dismissed", content=text)
 
-    # `auto_capture_enabled` is the master switch for ANY automatic (non-explicit)
-    # memory action; `auto_suggest_enabled` decides whether the automatic action
-    # may offer an inert suggestion. Both are off by default, so routine turns
-    # never produce even a suggestion unless the operator opts in.
-    if not settings.get("auto_capture_enabled", False) or not settings.get("auto_suggest_enabled", False):
-        return _ignore("automatic memory suggestions are off — explicit request required")
+    mode = str(settings.get("memory_mode") or "automatic_selective")
+
+    # `off`: never learn automatically; explicit requests are the only path.
+    if mode == "off":
+        return _history_only("automatic memory learning is off — explicit request required", content=text)
 
     scope, subject = _infer_scope(text)
     memory_type = _classify_type(text)
     if memory_type == "preference" and scope == "general":
         scope = "user"
-    return MemoryDecision(
-        outcome="suggest", action="save", reason="possible durable preference/convention — confirm to remember",
-        content=text, memory_type=memory_type, scope=scope,
-        scope_id=user_id if scope == "user" else None, subject=subject,
-        confidence=0.5, importance=0.5, provenance="explicit_user",
+    scope_id = user_id if scope == "user" else None
+
+    if mode == "ask_before_saving":
+        return MemoryDecision(
+            outcome="suggest", action="save",
+            reason="possible durable preference/convention — confirm to remember",
+            content=text, memory_type=memory_type, scope=scope, scope_id=scope_id,
+            subject=subject, confidence=0.5, importance=0.5, provenance="explicit_user",
+        )
+
+    # automatic_selective: strong, low-risk, durable evidence saves without a
+    # prompt. A direct user preference qualifies on first statement; a
+    # project-specific convention additionally requires recurrence.
+    if direct_preference:
+        return MemoryDecision(
+            outcome="save", action="save",
+            reason="high-confidence, low-risk user preference — saved automatically",
+            content=text, memory_type="preference", scope="user",
+            scope_id=user_id, subject=subject, confidence=0.75, importance=0.6,
+            provenance="explicit_user",
+            metadata={"automatic": True, "evidence": "direct user preference"},
+        )
+    if convention and recurring:
+        return MemoryDecision(
+            outcome="save", action="save",
+            reason="recurring project convention — saved automatically",
+            content=text, memory_type=memory_type, scope=scope, scope_id=scope_id,
+            subject=subject, confidence=0.6, importance=0.55, provenance="explicit_user",
+            metadata={"automatic": True, "evidence": "recurrence"},
+        )
+    # Not enough evidence yet: keep it as searchable history, do NOT prompt.
+    return _history_only(
+        "durable-sounding but not yet strong enough evidence — searchable history only",
+        content=text,
     )
 
 
@@ -459,13 +549,26 @@ def authorize_proposal(
                 subject=subject, confidence=confidence, importance=0.7,
                 provenance="memory_tool", evidence=evidence,
             )
-        # A clearly durable user preference stated this turn may become a
-        # suggestion (never an unauthorized save).
+        # A clearly durable user preference stated this turn may be saved under
+        # automatic_selective (or staged as a suggestion under ask_before_saving).
+        # A bare project convention still requires recurrence, so it is not
+        # auto-saved from a model proposal.
         user_text = user_message or ""
-        durable = _matches(user_text, _CONVENTION_PATTERNS) or bool(
-            re.search(r"\b(i (?:prefer|like|always|never)|my preference|we (?:always|never))\b", user_text, re.IGNORECASE)
-        )
-        if durable and settings.get("auto_suggest_enabled", False):
+        direct_preference = bool(re.search(
+            r"\b(i (?:prefer|like|always|never)|my preference|we (?:always|never))\b",
+            user_text, re.IGNORECASE,
+        ))
+        durable = direct_preference
+        mode = str(settings.get("memory_mode") or "automatic_selective")
+        if durable and mode == "automatic_selective":
+            return MemoryDecision(
+                outcome="save", action="save",
+                reason="the user stated a durable preference — saved automatically",
+                content=text_value, memory_type=memory_type, scope=scope, scope_id=scope_id,
+                subject=subject, confidence=max(confidence, 0.6), importance=0.6,
+                provenance="memory_tool", evidence=evidence,
+            )
+        if durable and mode == "ask_before_saving":
             return MemoryDecision(
                 outcome="suggest", action="save",
                 reason="the model proposed a durable fact, but the user did not explicitly ask to remember it",
@@ -480,13 +583,26 @@ def authorize_proposal(
         )
 
     if provenance == "run_analysis":
-        # Automatic lesson capture may only suggest, never silently save.
-        return MemoryDecision(
-            outcome="suggest", action="save", reason="automatic analysis proposed a durable lesson — confirm to remember",
-            content=text_value, memory_type=memory_type, scope=scope, scope_id=scope_id,
-            subject=subject, confidence=confidence, importance=0.5,
-            provenance="run_analysis", evidence=evidence,
-        )
+        # Automatic lesson capture may only save under automatic_selective; under
+        # ask_before_saving it stages a suggestion; otherwise it never persists.
+        mode = str(settings.get("memory_mode") or "automatic_selective")
+        if mode == "automatic_selective":
+            return MemoryDecision(
+                outcome="save", action="save",
+                reason="automatic analysis captured a durable lesson",
+                content=text_value, memory_type=memory_type, scope=scope, scope_id=scope_id,
+                subject=subject, confidence=max(confidence, 0.6), importance=0.55,
+                provenance="run_analysis", evidence=evidence,
+            )
+        if mode == "ask_before_saving":
+            return MemoryDecision(
+                outcome="suggest", action="save",
+                reason="automatic analysis proposed a durable lesson — confirm to remember",
+                content=text_value, memory_type=memory_type, scope=scope, scope_id=scope_id,
+                subject=subject, confidence=confidence, importance=0.5,
+                provenance="run_analysis", evidence=evidence,
+            )
+        return _history_only("automatic memory learning is off", content=text_value, provenance=provenance)
 
     if provenance == "skill_lesson":
         # A validated execution lesson from a skill run carries execution

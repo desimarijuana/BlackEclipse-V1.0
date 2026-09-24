@@ -40,6 +40,12 @@ from typing import Any, Optional
 # request; it may at most become a suggestion (see `decision.py`). Requiring a
 # directive verb is what distinguishes "remember that I prefer X" from a casual
 # "I prefer X" said during a one-off discussion.
+#
+# A bare imperative convention ("always use X", "never do Y") is deliberately NOT
+# here: it is project-specific and ambiguous (it may be a one-off instruction for
+# this run), so it flows through the incidental path, where `automatic_selective`
+# saves it only once it recurs. A user-level "I always prefer X" is still saved
+# as a direct preference by the same path.
 SAVE_PHRASES = (
     r"\bremember (this|that|my|the following|to)\b",
     r"\bsave (this|that|my|this preference)\b",
@@ -49,6 +55,15 @@ SAVE_PHRASES = (
     r"\balways (do|use|prefer|answer|respond|call)\b",
     r"\bdon'?t ever\b",
     r"\bfor future (reference|runs|sessions)\b",
+)
+
+# A bare convention directive ("always use X", "never do Y") is project-specific
+# and may be a one-off instruction for the current run. Unlike a memory directive
+# ("remember/save/note/from now on"), it needs recurrence evidence before it is
+# stored as a durable project fact (see `decision.decide_turn`).
+BARE_CONVENTION_PHRASES = (
+    r"\balways (do|use|prefer|answer|respond|call)\b",
+    r"\bdon'?t ever\b",
 )
 FORGET_PHRASES = (
     r"\bforget (this|that|my|about)\b",
