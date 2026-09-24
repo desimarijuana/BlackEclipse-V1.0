@@ -72,6 +72,9 @@ class ResearchReceipt(BaseModel):
     # unresolved facts remain). Both optional so older receipts stay valid.
     legStatus: list[dict[str, Any]] = Field(default_factory=list)
     stopReason: Optional[str] = None
+    # Phase 7 WS6 (additive): the identity/comparability verdict. Present when a
+    # comparison was checked; a blocked pair is why a change was NOT computed.
+    comparability: Optional[dict[str, Any]] = None
     finalStatus: str = "rejected"
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -95,6 +98,7 @@ def build_receipt(
     escalation: Optional[dict[str, Any]] = None,
     leg_status: Optional[list[dict[str, Any]]] = None,
     stop_reason: Optional[str] = None,
+    comparability: Optional[dict[str, Any]] = None,
 ) -> ResearchReceipt:
     """Assemble a receipt from the run's decision objects.
 
@@ -171,6 +175,7 @@ def build_receipt(
         budget=budget,
         legStatus=leg_status or [],
         stopReason=stop_reason,
+        comparability=comparability,
         finalStatus=status,
         provider=provider,
         model=model,

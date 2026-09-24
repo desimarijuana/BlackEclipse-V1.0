@@ -150,21 +150,28 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
             "from history; treat any answer as unverified.",
             {"status": "OK", "failureClass": "no_data", "count": 0},
         )
-    lines = ["Source health (per route = provider × market × asset class):"]
+    lines = ["Source health (per route = provider × market × asset class × capability):"]
     for r in rows:
         rate = r.get("successRate")
         rate_txt = f"{int(rate * 100)}%" if isinstance(rate, (int, float)) else "n/a"
         last = r.get("updatedAt") or "never"
         err = f" lastError={r.get('lastError')}" if r.get("lastError") else ""
+        truth = r.get("sourceOfTruth") or "live"
         lines.append(
-            f"  {r.get('source')} · {r.get('market')} · {r.get('assetClass')}: "
+            f"  {r.get('source')} · {r.get('market')} · {r.get('assetClass')} · {r.get('capability', 'quote')}: "
             f"{r.get('health', 'unknown')} — {r.get('success', 0)} ok / {r.get('fail', 0)} fail "
-            f"(success {rate_txt}, last {last}){err}"
+            f"(success {rate_txt}, last {last}, via {truth}){err}"
         )
     lines.append("")
     lines.append(
         "'unknown' means NO ATTEMPTS RECORDED yet — it is neither healthy nor "
         "failing. Only a route with recorded runs can be working or failing."
+    )
+    lines.append(
+        "Each CAPABILITY is a separate route: a healthy quote route does NOT make "
+        "statements, filings, news, web search or PDF extraction healthy. "
+        "`configured` (a credential exists) is not the same as `healthy` (runs "
+        "succeed), and `via fixture` rows are offline tests — never live health."
     )
     return "\n".join(lines), {"status": "OK", "count": len(rows)}
 
@@ -271,6 +278,17 @@ async def get_coverage(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         "concluding that evidence is unavailable. Return UNAVAILABLE only when every "
         "eligible route has been tried and none produced the fact. For the full "
         "per-capability detail, use get_capability_matrix."
+    )
+    lines.append("")
+    lines.append(
+        "Four distinctions this summary enforces:\n"
+        "  1. RECOGNISED market ≠ WORKING data route — a country can be listed while "
+        "no statement/filing route exists for it.\n"
+        "  2. CONFIGURED ≠ HEALTHY — a route with a credential may still be failing.\n"
+        "  3. UNKNOWN / NO ATTEMPTS ≠ FAILURE — a route with zero recorded runs is "
+        "neither healthy nor failing; it is simply untested.\n"
+        "  4. MISSING JDdS DATA ≠ STOP — a vault miss is a reason to try the other "
+        "eligible routes, not to conclude the fact does not exist."
     )
     return "\n".join(lines), {"status": "OK", "count": len(rows)}
 

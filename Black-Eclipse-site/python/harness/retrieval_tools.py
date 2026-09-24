@@ -236,9 +236,19 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
         category = diagnostics[0].get("category") if diagnostics else None
         hint = ""
         if category == "unsupported_document":
-            hint = " The document has no extractable text (likely a scanned/image PDF); OCR is unavailable — try another source."
+            hint = " The document was FETCHED but has no extractable text (likely a scanned/image PDF); OCR is unavailable — try another source."
         elif category == "javascript_only":
             hint = " The page is a JavaScript-only shell with no server-rendered text — try an alternate official source."
+        elif category == "too_large":
+            hint = " The document exceeded the size cap. It was not read; try a specific section, a smaller document, or another source."
+        elif category == "empty_response":
+            hint = " The remote returned an empty body — treat as no evidence, not as a document with no values."
+        elif category == "parse_failure":
+            hint = " The document was fetched but no values could be extracted (e.g. a value-less taxonomy) — it is not evidence."
+        elif category == "blocked":
+            hint = " The host refused or blocked the request (anti-bot/robots). This is not evidence that the document does not exist."
+        elif category == "no_instrument":
+            hint = " The document could not be attributed to the requested instrument."
         elif category in ("timeout", "transport_error", "http_error"):
             hint = " This is a retrieval/transport failure, not evidence that the document does not exist."
         return (
@@ -250,9 +260,33 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
     title = payload.get("title") or url
     extraction = payload.get("extraction")
     language = payload.get("language")
-    meta = f" (extracted via {extraction}" + (f", language={language}" if language else "") + ")" if extraction else ""
+    document_id = payload.get("documentId")
+    published_at = payload.get("publishedAt")
+    retrieved_at = payload.get("retrievedAt")
+    meta_bits = []
+    if extraction:
+        meta_bits.append(f"extracted via {extraction}")
+    if language:
+        meta_bits.append(f"language={language}")
+    if document_id:
+        meta_bits.append(f"documentId={document_id}")
+    if published_at:
+        meta_bits.append(f"published={published_at}")
+    if retrieved_at:
+        meta_bits.append(f"retrieved={retrieved_at}")
+    meta = f" ({', '.join(meta_bits)})" if meta_bits else ""
     body = f"Retrieved source: {title}\nURL: {url}{meta}\n\n{text}"
-    return body, {"status": "OK", "url": url, "title": title, "text": text, "extraction": extraction, "language": language}
+    return body, {
+        "status": "OK",
+        "url": url,
+        "title": title,
+        "text": text,
+        "extraction": extraction,
+        "language": language,
+        "documentId": document_id,
+        "publishedAt": published_at,
+        "retrievedAt": retrieved_at,
+    }
 
 
 async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -464,7 +498,11 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
             handler=research_search_news,
             permission="read",
             risk="low",
-            timeout_ms=30_000,
+            # News is an OPTIONAL enrichment step. It keeps its OWN bounded
+            # timeout so a slow news provider can never consume the whole run or
+            # cancel financial-statement retrieval / partial-answer rendering
+            # (WS2). It is deliberately shorter than a statement fetch.
+            timeout_ms=12_000,
         )
     )
     registry.register(

@@ -149,6 +149,26 @@ export interface ResearchRunInfo {
   /** Phase 5: what web escalation paths were attempted, and the budget audit. */
   escalation?: ResearchEscalation | null;
   budget?: ResearchBudgetSnapshot | null;
+  /**
+   * Structured source-route failures (`"{provider} — {category}: {detail}"`),
+   * moved OUT of the answer prose so the UI can show them beside the Sources
+   * list. Deduplicated, ordered, bounded by the runtime.
+   */
+  failedRoutes?: string[] | null;
+  /** Human-readable reason the loop stopped, when it recorded one. */
+  stopReasonText?: string | null;
+  /**
+   * Phase 8 (WS6/WS7): comparisons the deterministic identity/comparability gate
+   * BLOCKED, each with the exact reason. A blocked pair is why a percentage
+   * change was not computed; each verified leg is still reported separately.
+   */
+  blockedComparisons?: BlockedComparison[] | null;
+}
+
+export interface BlockedComparison {
+  legs: [string, string] | string[];
+  dimension: string;
+  reason: string;
 }
 
 export interface RunResult {
@@ -165,6 +185,35 @@ export interface RunResult {
   totalTokens: number;
   /** Phase 4 evidence-grounded research metadata, when the run was gated. */
   research?: ResearchRunInfo;
+  /** Phase 3-M Reliability: explicit memory-intent outcome + learning eligibility. */
+  memory?: MemoryRunInfo;
+}
+
+export interface MemoryRunInfo {
+  /** saved | forgotten | corrected | refused | needs_confirmation | skill_requested */
+  action?: string;
+  ok?: boolean;
+  refused?: boolean;
+  requiresConfirmation?: boolean;
+  reason?: string;
+  matchedPhrase?: string;
+  memoryId?: string;
+  memoryType?: string;
+  scope?: string;
+  subject?: string;
+  contentPreview?: string;
+  inspectPath?: string;
+  undoPath?: string;
+  supersededMemoryId?: string;
+  archivedMemoryIds?: string[];
+  learningEligibility?: {
+    eligible: boolean;
+    reason: string;
+    modelSteps: number;
+    toolCalls: number;
+    skillRequested: boolean;
+    learnQueuePath: string;
+  };
 }
 
 export interface RunRecord {
@@ -185,6 +234,8 @@ export interface RunRecord {
   model: string | null;
   /** Phase 4 research metadata (null for ordinary chat / older rows). */
   research?: ResearchRunInfo | null;
+  /** Phase 3-M Reliability memory-intent/eligibility (null for older rows). */
+  memory?: MemoryRunInfo | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, FlaskConical, Library, Lightbulb } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
+import { useSubroute } from "@/hooks/use-subroute";
 import {
   listSkills, getSkill, listCandidates, generateDraft, rejectCandidate,
   listSkillExecutions, learnFromRun, evaluateSkill, setSkillLifecycle,
@@ -29,6 +30,12 @@ type Tab = "library" | "learning" | "evaluation" | "activity";
 
 export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("library");
+  // Deep links (e.g. "Learning Queue" from an originating chat run) land on the
+  // matching sub-tab: skills.library/learning/evaluation/activity.
+  useSubroute("skills", (req) => {
+    const next = req.subroute.split(".")[1] as Tab | undefined;
+    if (next && ["library", "learning", "evaluation", "activity"].includes(next)) setTab(next);
+  });
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [duplicates, setDuplicates] = useState<string[]>([]);
@@ -167,7 +174,12 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const handleGenerateDraft = useCallback(async (candidateId: string) => {
     try {
       const result = await generateDraft(candidateId);
-      flash(result.ok ? "ok" : "error", result.ok ? "Draft generated (inactive)" : (result.error ?? "draft failed"));
+      const message = result.ok
+        ? result.reusable === false
+          ? "Draft generated (inactive) — insufficient evidence for a reusable procedure; manual authoring required"
+          : "Draft generated (inactive)"
+        : (result.error ?? "draft failed");
+      flash(result.ok ? "ok" : "error", message);
       await loadCandidates();
     } catch (err) {
       flash("error", err instanceof Error ? err.message : "draft failed");

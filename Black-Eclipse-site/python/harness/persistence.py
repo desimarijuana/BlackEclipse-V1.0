@@ -158,11 +158,18 @@ def _iso_days_ago(days: int) -> str:
     return then.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
 
 
+def _harness_root() -> str:
+    """The application root that owns the runtime databases, independent of the
+    process working directory. Matches `eclipse_memory.config.repo_root()` so
+    `agent-memory.db` and `eclipse-memory.db` live side by side."""
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
 def default_db_path() -> str:
     override = os.environ.get("AGENT_MEMORY_DB_PATH")
     if override:
         return os.path.abspath(override)
-    return os.path.join(os.getcwd(), DB_FILENAME)
+    return os.path.join(_harness_root(), DB_FILENAME)
 
 
 # Columns added after the first release. `CREATE TABLE IF NOT EXISTS` does not
@@ -177,6 +184,10 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # citations, coverage, gaps, receipt availability). NULL for ordinary
         # chat and for older rows, so existing clients stay compatible.
         ("research", "TEXT"),
+        # Phase 3-M Reliability: the deterministic outcome of explicit user
+        # memory intent for this run (saved/forgotten/corrected/refused) plus
+        # learning eligibility. Additive and NULL for older rows.
+        ("memory", "TEXT"),
     ],
 }
 
@@ -225,14 +236,14 @@ class AgentMemoryStore:
         allowed = {
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
-            "provider", "model", "startedAt", "finishedAt", "research",
+            "provider", "model", "startedAt", "finishedAt", "research", "memory",
         }
         sets, params = [], []
         for key, value in patch.items():
             if key not in allowed:
                 continue
             sets.append(f"{key} = ?")
-            if key in ("error", "research") and value is not None:
+            if key in ("error", "research", "memory") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -661,6 +672,7 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "provider": row["provider"],
         "model": row["model"],
         "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
+        "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
         "createdAt": row["createdAt"],
         "updatedAt": row["updatedAt"],
         "startedAt": row["startedAt"],

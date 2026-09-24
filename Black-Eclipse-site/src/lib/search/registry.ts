@@ -180,6 +180,18 @@ registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skil
 registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
+// Skills sub-pages — so the Learning Queue and draft review are reachable from
+// an originating chat run ("Learn from this run" → Learning Queue), not only by
+// opening the Skills tab and hunting for the right sub-tab.
+registerPage({ id: 'sub-skills-library', kind: 'page', title: 'Skill Library', aliases: ['skill library', 'skills'], keywords: ['skills', 'library'], icon: 'skills', tab: 'skills', subroute: 'skills.library', group: 'skills', child: true });
+registerPage({ id: 'sub-skills-learning', kind: 'page', title: 'Learning Queue', aliases: ['learning queue', 'learning candidates', 'learn from run', 'candidates'], keywords: ['learning', 'candidates', 'queue', 'learn'], icon: 'skills', tab: 'skills', subroute: 'skills.learning', group: 'skills', child: true, rankBoost: 1.15 });
+registerPage({ id: 'sub-skills-evaluation', kind: 'page', title: 'Evaluation Center', aliases: ['evaluation', 'skill evaluation'], keywords: ['evaluation', 'skills'], icon: 'skills', tab: 'skills', subroute: 'skills.evaluation', group: 'skills', child: true });
+registerPage({ id: 'sub-skills-activity', kind: 'page', title: 'Execution Activity', aliases: ['skill activity', 'skill executions'], keywords: ['skills', 'activity', 'executions'], icon: 'skills', tab: 'skills', subroute: 'skills.activity', group: 'skills', child: true });
+// Eclipse Memory sub-pages.
+registerPage({ id: 'sub-memory-explorer', kind: 'page', title: 'Memory Explorer', aliases: ['memory explorer', 'saved memory'], keywords: ['memory', 'explorer'], icon: 'memory', tab: 'memory', subroute: 'memory.explorer', group: 'memory', child: true });
+registerPage({ id: 'sub-memory-activity', kind: 'page', title: 'Memory Activity', aliases: ['memory activity', 'retrieval diagnostics'], keywords: ['memory', 'activity', 'retrieval'], icon: 'memory', tab: 'memory', subroute: 'memory.activity', group: 'memory', child: true });
+registerPage({ id: 'sub-memory-health', kind: 'page', title: 'Memory Health', aliases: ['memory health', 'database identity'], keywords: ['memory', 'health', 'database'], icon: 'memory', tab: 'memory', subroute: 'memory.health', group: 'memory', child: true });
+
 // ── Sub-pages ────────────────────────────────────────────────────────────────
 // Every internal view that used to be unreachable (the shell ignored
 // `Destination.subroute`). These are real destinations: each `subroute` is

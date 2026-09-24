@@ -40,6 +40,50 @@ if (!fs.existsSync(path.join(root, "src", "generated", "prisma", "client.js")) &
   fix("Prisma client", "npx prisma generate");
 }
 
+// 3a. Native SQLite binding for the Prisma adapter. Prisma's
+//     `@prisma/adapter-better-sqlite3` depends on `better-sqlite3@^12`, which npm
+//     may install NESTED under the adapter even when a different top-level
+//     version exists. That nested copy is the one the runtime actually loads, and
+//     it must have its native `better_sqlite3.node`. A plain `require()` of the
+//     top-level package passes even when the nested binding is missing, so probe
+//     the exact path the adapter resolves and repair it when absent. (Without
+//     this, the DB reads fail at runtime and the app reports "no LLM provider is
+//     configured" — the vault lives in jdds.db.)
+{
+  const adapterNested = path.join(
+    root, "node_modules", "@prisma", "adapter-better-sqlite3", "node_modules", "better-sqlite3"
+  );
+  if (fs.existsSync(adapterNested)) {
+    let bindingOk = false;
+    try {
+      const Database = require(adapterNested);
+      const db = new Database(path.join(root, "jdds.db"), { readonly: true });
+      db.prepare("select 1").get();
+      db.close();
+      bindingOk = true;
+    } catch {
+      bindingOk = false;
+    }
+    if (!bindingOk) {
+      const prebuild = path.join(root, "node_modules", "prebuild-install", "bin.js");
+      if (fs.existsSync(prebuild)) {
+        console.log("[setup] Prisma adapter's better-sqlite3 binding missing — repairing...");
+        const r = spawnSync(process.execPath, [prebuild], { cwd: adapterNested, stdio: "pipe", encoding: "utf8" });
+        if (r.status === 0) {
+          fixed++;
+        } else {
+          console.error(
+            "[setup] Could not install the native SQLite binding for the Prisma adapter.\n" +
+            "        Install a C++ build toolchain (or set a prebuilt binary) and run:\n" +
+            `          cd "${adapterNested}" && node "${prebuild}"`
+          );
+          process.exit(1);
+        }
+      }
+    }
+  }
+}
+
 // 4. Database (committed seed should exist; create empty if clone was partial)
 if (!fs.existsSync(path.join(root, "jdds.db"))) {
   fix("Database", "npx prisma db push");

@@ -12,7 +12,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ run
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const { runId } = await params;
-    const result = await learnFromRun(runId, isOperatorRequest(request));
+    const body = (await request.json().catch(() => ({}))) as { userIntent?: string };
+    const result = await learnFromRun(runId, isOperatorRequest(request), body.userIntent);
     return NextResponse.json(result, { status: result.ok ? 200 : 403 });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

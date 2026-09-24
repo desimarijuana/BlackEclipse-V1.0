@@ -124,6 +124,33 @@ def test_candidate_round_trips_diagnostics_and_scope(env):
     assert stored["scope"]["markets"]
 
 
+def test_candidate_scope_names_capability_and_regression_case(env):
+    """Phase 8 WS8: a candidate is scoped to the observed capability + a targeted
+    regression case, never generalized to all countries/capabilities."""
+    run_id = _run_with_ineligible_provider(env["store"], run_id="run_p8_cap")
+    drafts = analyze_run(run_id, env["store"])
+    candidate = next(
+        d for d in drafts if d["candidateType"] in ("source_selection_improvement", "provider_eligibility_improvement")
+    )
+    scope = candidate["scope"]
+    # The candidate names the capability it is about (statements, from the failing
+    # fundamentals_get_financials tool) so a lesson is never applied cross-capability.
+    assert scope.get("capability") == "financial_statements"
+    assert scope.get("regressionCase")
+    assert "fixture" in scope["regressionCase"]
+
+
+def test_scope_capability_is_not_global(env):
+    """A candidate must never claim every capability from one run's failure."""
+    run_id = _run_with_ineligible_provider(env["store"], run_id="run_p8_cap2")
+    draft = next(
+        d for d in analyze_run(run_id, env["store"])
+        if d["candidateType"] == "provider_eligibility_improvement"
+    )
+    # Capability is a single observed value, not "all".
+    assert draft["scope"]["capability"] in (None, "financial_statements")
+
+
 def test_unreviewed_candidate_cannot_be_promoted(env):
     """An inert candidate with no evaluation cannot become an enabled skill."""
     run_id = _run_with_ineligible_provider(env["store"], run_id="run_p7_promo")

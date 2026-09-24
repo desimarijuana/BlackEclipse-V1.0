@@ -82,10 +82,21 @@ Phase-1 runtime and Phase-2 retrieval.
 
 ## Database location / configuration
 
-- Path: `ECLIPSE_MEMORY_DB_PATH` → else `<cwd>/eclipse-memory.db`.
+- Path: `ECLIPSE_MEMORY_DB_PATH` → else `<repo root>/eclipse-memory.db`, where
+  repo root is the directory containing `python/` (NOT the process working
+  directory). This was changed in the Phase 3-M Reliability fix: the previous
+  `<cwd>` default meant a runtime launched from `python/` read/wrote a different
+  memory store than one launched from the repo root (`eclipse_memory/config.py`
+  `repo_root()` / `default_db_path()`).
+- **Legacy reconciliation.** On open of the stable default, if it is empty, rows
+  are copied forward from a legacy `<cwd>`/`python/eclipse-memory.db` via
+  `INSERT OR IGNORE`. The source is never deleted or modified; a populated
+  stable database skips reconciliation (`db.reconcile_legacy()`).
 - `.gitignore` ignores `eclipse-memory.db*` (runtime state, like
   `agent-memory.db`).
-- `GET /eclipse-memory/health` reports integrity + migration status.
+- `GET /eclipse-memory/health` reports integrity + migration status; `GET
+  /health` reports the resolved path + a non-secret identity (path hash) so a
+  cwd mismatch is observable (`eclipse_memory/config.py` `db_identity()`).
 
 ## Schema (eclipse-memory.db)
 
@@ -230,6 +241,50 @@ missing legacy files.
 - The legacy import copies skill rows only; it does not delete the originals.
 - The Memory Control Room's Save/Review/Archive use the existing operator guard
   (same as Skills); there is no separate accounts system.
+
+## Phase 3-M Reliability & Learning UX (2026-09-24)
+
+Closes the real-world reliability gaps that made memory/skills feel unreliable.
+
+**Verified root causes.**
+
+1. **Unstable DB identity.** `<cwd>/eclipse-memory.db` meant the repo held two
+   databases (root: memories+skills; `python/`: skills only, schema v3 vs v4).
+   Fixed: repo-rooted default + `ECLIPSE_MEMORY_DB_PATH` override + non-secret
+   identity in `/health` + non-destructive legacy reconciliation.
+2. **Capture relied on the model calling `memory`.** Added a deterministic
+   `eclipse_memory/intent.py` classifier wired pre-model in `graph.execute_run`;
+   explicit save/forget/correct are written through `EclipseMemoryService`.
+   Refusals (secrets, sensitive IDs, raw dumps, policy overrides) and unclear
+   scope are never written.
+3. **Auto candidate detection was disabled and manual flow only covered skill
+   runs.** Auto-detection is now **on by default** (`auto_candidate_detection`):
+   eligible completed runs create inert candidates automatically and the run's
+   `memory` blob reports `autoCaptured`/`candidatesCreated`. Added
+   ordinary-chat eligibility (`learning_eligibility_for_run`) and kept the
+   explicit "Learn from this run" action for cases auto-detection does not cover.
+   Candidates stay inert and deduplicated; promotion remains operator-gated.
+4. **Drafts were manifest-only.** `skills/draft.py` now generates a complete
+   procedure (steps, typed I/O, existing safe tools only, provenance,
+   limitations, evaluation cases) while staying inert; no-evidence drafts state
+   manual authoring is required.
+5. **No controlled skill invocation seam.** Added `skill_invoke` (enabled
+   compatible skills only) executing through the existing `execute_skill` with
+   `parentRunId` + enforced allowlist/permissions.
+6. **UI could not follow outcomes from the originating chat.** Added the
+   `memory` blob on `RunResult`/`client.final`, a `MemoryActionPanel`, learning
+   eligibility + "Learn from this run", and deep links into the Learning Queue /
+   Memory sub-pages.
+
+**APIs added:** `GET /learning/eligibility/{runId}`; `memory` field on
+`RunResult`; TS `GET /api/learning/eligibility/[runId]`; `userIntent` on
+learning/draft endpoints.
+
+**Tests:** `python/tests/test_phase3m_reliability.py` (31) incl. cross-working-
+directory path resolution, legacy reconciliation without deletion, secret/refusal
+negatives, forget/correct archive/supersede, usable inert drafts, and controlled
+child-run invocation; graph integration tests for the deterministic memory path
+and eligibility. `src/lib/chat/memory-action.test.ts` (8).
 
 ## Deferred work
 

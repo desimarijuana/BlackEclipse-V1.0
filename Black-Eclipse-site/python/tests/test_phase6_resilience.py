@@ -312,18 +312,33 @@ class _FakeOutcome:
         self.stopReason = "provider_routes_unavailable"
 
 
-def test_final_answer_keeps_verified_facts_and_names_failed_routes():
+def test_answer_prose_is_clean_and_keeps_verified_facts():
+    """The prose carries the answer only — no citations/footers (the UI renders
+    provenance in a separate Sources/Limitations area from structured fields)."""
     text = _render_answer(_FakeOutcome())
     assert "revenue FY2024 = 60,922" in text          # verified fact retained
-    assert "Sources tried (failed):" in text
-    assert "duckduckgo-html — blocked" in text
-    assert "safe-get — http_error: HTTP 403" in text
-    assert "Stopped because:" in text
+    assert "Evidence cited:" not in text
+    assert "Sources tried (failed):" not in text
+    assert "Stopped because:" not in text
+    assert "http" not in text.lower()                 # no raw URLs in prose
 
 
-def test_failed_routes_deduplicates():
+def test_failed_routes_are_exposed_structurally_and_deduplicated():
     rows = _failed_routes(_FakeOutcome())
     assert len(rows) == 2
+    assert any("duckduckgo-html — blocked" in r for r in rows)
+    assert any("safe-get — http_error: HTTP 403" in r for r in rows)
+
+
+def test_stop_reason_text_is_human_readable():
+    from harness.research.run import _stop_reason_text
+
+    assert _stop_reason_text("provider_routes_unavailable") == (
+        "every available source route failed or was unavailable"
+    )
+    assert _stop_reason_text(None) is None
+    # An unknown reason is passed through rather than dropped.
+    assert _stop_reason_text("something_new") == "something_new"
 
 
 # ── SEC source unit ───────────────────────────────────────────────────────────

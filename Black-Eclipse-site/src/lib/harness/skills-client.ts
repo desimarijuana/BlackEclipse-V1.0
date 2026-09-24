@@ -218,17 +218,31 @@ export async function getCandidate(candidateId: string): Promise<LearningCandida
   }
 }
 
-export async function learnFromRun(runId: string, operator: boolean): Promise<{ ok: boolean; created: LearningCandidate[]; duplicates: string[]; error?: string }> {
+export async function learnFromRun(runId: string, operator: boolean, userIntent?: string): Promise<{ ok: boolean; created: LearningCandidate[]; duplicates: string[]; error?: string }> {
   return request(`/learning/from-run/${encodeURIComponent(runId)}`, {
     method: "POST",
-    body: JSON.stringify({ operator }),
+    body: JSON.stringify({ operator, userIntent }),
   });
 }
 
-export async function generateDraft(candidateId: string, operator: boolean): Promise<{ ok: boolean; draft?: Record<string, unknown>; issues?: string[]; error?: string }> {
+export interface LearningEligibility {
+  runId: string;
+  eligible: boolean;
+  reason: string;
+  modelSteps: number;
+  toolCalls: number;
+  skillRequested: boolean;
+  learnQueuePath: string;
+}
+
+export async function getLearningEligibility(runId: string): Promise<LearningEligibility> {
+  return request(`/learning/eligibility/${encodeURIComponent(runId)}`, { method: "GET" });
+}
+
+export async function generateDraft(candidateId: string, operator: boolean, userIntent?: string): Promise<{ ok: boolean; draft?: Record<string, unknown>; issues?: string[]; reusable?: boolean; error?: string }> {
   return request(`/learning/candidates/${encodeURIComponent(candidateId)}/generate-draft`, {
     method: "POST",
-    body: JSON.stringify({ operator }),
+    body: JSON.stringify({ operator, userIntent }),
   });
 }
 

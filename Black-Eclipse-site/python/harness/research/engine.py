@@ -22,6 +22,7 @@ from ..retrieval.contract import (
 from .budget import ResearchBudget
 from .citations import ResponseMetadata, build_response_metadata
 from .claims import Synthesis, ValidationOutcome, render_prose, validate_claims
+from .comparability import ComparabilityVerdict, descriptor_from_leg, check_comparability
 from .coverage import CoverageReport, build_coverage
 from .escalation import escalate_web
 from .mandate import FactLeg, ResearchMandate
@@ -60,6 +61,9 @@ class ResearchOutcome:
     # Phase 6: per-leg retrieval status + diagnostics, and WHY the loop stopped.
     legStatus: list[dict[str, Any]] = field(default_factory=list)
     stopReason: Optional[str] = None
+    # Phase 7 WS6: the deterministic identity/comparability verdict. A blocked
+    # comparison is reported instead of a misleading change.
+    comparability: Optional[ComparabilityVerdict] = None
 
     @property
     def status(self) -> str:
@@ -171,6 +175,21 @@ async def run_research(
 
     outcome.coverage = build_coverage(mandate, unique_evidence, conflicts=conflicts)
 
+    # ── Deterministic identity/comparability gate (WS6) ──────────────────────
+    # Before any derived change is presented, verify the legs describe the same
+    # fact (entity, security, period, duration, metric, basis, currency, unit,
+    # scale). A blocked pair is named exactly; each verified leg is still shown.
+    descriptors = []
+    for leg in mandate.factLegs:
+        identity = None
+        for entity in mandate.entities:
+            if entity.symbol and entity.symbol == leg.entitySymbol:
+                identity = entity.canonical
+                break
+        descriptors.append(descriptor_from_leg(leg, identity=identity))
+    outcome.comparability = check_comparability(descriptors)
+    comparability_blocked = outcome.comparability.to_dict()
+
     # ── Bounded web escalation ───────────────────────────────────────────────
     # When structured sources left required legs unsatisfied (empty, wrong
     # period, stale, or metadata-incomplete), escalate to trusted web sources
@@ -226,12 +245,14 @@ async def run_research(
         outcome.metadata = build_response_metadata(
             mandate, outcome.coverage, unique_evidence,
             conflicts=conflicts, calculations=outcome.calculations,
+            comparability=comparability_blocked,
         )
         outcome.receipt = build_receipt(
             run_id, mandate, coverage=outcome.coverage, evidence=unique_evidence,
             retrieval_requests=retrieval_requests, provider=provider, model=model,
             budget=outcome.budget, escalation=escalation_audit,
             leg_status=outcome.legStatus, stop_reason=outcome.stopReason,
+            comparability=comparability_blocked,
         )
         return outcome
 
@@ -264,6 +285,7 @@ async def run_research(
     outcome.metadata = build_response_metadata(
         mandate, outcome.coverage, unique_evidence,
         validation=validation, conflicts=conflicts, calculations=outcome.calculations,
+        comparability=comparability_blocked,
     )
     outcome.receipt = build_receipt(
         run_id, mandate, coverage=outcome.coverage, validation=validation,
@@ -272,6 +294,7 @@ async def run_research(
         provider=provider, model=model,
         budget=outcome.budget, escalation=escalation_audit,
         leg_status=outcome.legStatus, stop_reason=outcome.stopReason,
+        comparability=comparability_blocked,
     )
     return outcome
 

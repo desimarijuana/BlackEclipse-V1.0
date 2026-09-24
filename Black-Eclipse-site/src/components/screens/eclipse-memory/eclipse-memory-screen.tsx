@@ -11,6 +11,7 @@ import {
   Search, Settings2, ShieldCheck, Trash2, Wrench, X,
 } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
+import { useSubroute } from "@/hooks/use-subroute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,16 @@ const STATUSES = ["all", "active", "proposed", "archived", "superseded", "reject
 
 export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("overview");
+  // Deep links land on the matching sub-page:
+  // memory.explorer/activity/health → Memories/Activity/Health.
+  useSubroute("memory", (req) => {
+    const slug = req.subroute.split(".")[1];
+    const map: Record<string, Tab> = {
+      explorer: "memories", activity: "activity", health: "health",
+      memories: "memories", overview: "overview", policies: "policies",
+    };
+    if (slug && map[slug]) setTab(map[slug]);
+  });
 
   return (
     <div className="w-full px-4 py-6 md:px-8">

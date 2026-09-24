@@ -166,6 +166,15 @@ async def maybe_run_research(
         "budget": outcome.budget,
         "legStatus": outcome.legStatus,
         "stopReason": outcome.stopReason,
+        # Structured provenance for the chat UI's separate Sources/Limitations
+        # area. Kept out of the prose so the answer stays clean and no long URL
+        # or raw source label sits inside a sentence.
+        "failedRoutes": _failed_routes(outcome),
+        "stopReasonText": _stop_reason_text(outcome.stopReason),
+        # WS6/WS7: comparisons the deterministic gate blocked, with the exact
+        # reason. The answer presents each verified fact and names the blocked
+        # change rather than emitting a misleading percentage.
+        "blockedComparisons": (outcome.comparability.to_dict().get("blocked") if outcome.comparability else None),
     }
 
 
@@ -178,49 +187,107 @@ _STOP_REASON_TEXT = {
 }
 
 
+def _stop_reason_text(stop_reason: Optional[str]) -> Optional[str]:
+    """Human-readable stop reason (None when the run did not record one)."""
+    if not stop_reason:
+        return None
+    return _STOP_REASON_TEXT.get(stop_reason, stop_reason)
+
+
 def _render_answer(outcome: Any) -> str:
-    """Render the validated answer with a compact evidence/limitation footer.
+    """Render the answer PROSE — validated claims PLUS useful verified partials.
 
-    The response always reports every independently verified fact it has, names
-    the source routes tried and why they failed, and states exactly what remains
-    unresolved — it never collapses to a bare "I can't find it" when some facts
-    were established.
+    The validated answer text is the base. When a run is partial, every fact the
+    coverage gate marked `covered`/`qualified` is still presented (WS7) so a
+    single missing optional step never hides verified facts. Blocked comparisons
+    are named with their exact reason. Citations/limitations/failed routes stay in
+    STRUCTURED fields for the chat UI's Sources area.
     """
+    prose = (outcome.prose or "").strip()
+
+    parts: list[str] = []
+    if prose:
+        parts.append(prose)
+
+    # WS7: present every independently verified covered/qualified leg. This is
+    # deterministic — it copies values already established by the coverage gate,
+    # and never invents one.
+    verified_lines = _verified_fact_lines(outcome)
+    if verified_lines and not _prose_mentions_verified(outcome):
+        parts.append("Verified facts established from evidence:")
+        parts.extend(verified_lines)
+
+    # WS6/WS7: name each blocked comparison so the absence of a change is
+    # explained, not silently omitted.
+    blocked_lines = _blocked_comparison_lines(outcome)
+    if blocked_lines:
+        parts.append("Comparison not computed (inputs are not comparable):")
+        parts.extend(blocked_lines)
+
+    if parts:
+        return "\n".join(parts).strip()
+    if outcome.coverage.status == "rejected":
+        return "No usable evidence was retrieved, so no factual answer can be established."
+    return ""
+
+
+def _verified_fact_lines(outcome: Any) -> list[str]:
+    """One deterministic line per covered/qualified leg, from its evidence objects."""
+    evidence = getattr(outcome, "evidence", []) or []
+    by_id = {getattr(item, "id", ""): item for item in evidence}
     lines: list[str] = []
-    if outcome.prose:
-        lines.append(outcome.prose)
-    elif outcome.coverage.status == "rejected":
-        lines.append("No usable evidence was retrieved, so no factual answer can be established.")
+    for leg in getattr(getattr(outcome, "coverage", None), "legs", []) or []:
+        if leg.status not in ("covered", "qualified"):
+            continue
+        rendered = False
+        for evidence_id in leg.evidenceIds:
+            item = by_id.get(evidence_id)
+            if item is None:
+                continue
+            for obj in getattr(item, "objects", []) or []:
+                if str(getattr(obj, "name", "")).lower() != str(leg.metric).lower():
+                    continue
+                value = getattr(obj, "value", None)
+                if value is None:
+                    continue
+                currency = getattr(obj, "currency", None) or ""
+                unit = getattr(obj, "unit", None) or ""
+                period = getattr(obj, "period", None) or leg.period or ""
+                source = getattr(getattr(item, "source", None), "source", "source")
+                qualifier = " (qualified)" if leg.status == "qualified" else ""
+                lines.append(
+                    f"- {leg.metric} {period}: {value} {currency}{unit} — source: {source}{qualifier}"
+                )
+                rendered = True
+                break
+            if rendered:
+                break
+        if not rendered:
+            source_hint = ", ".join(sorted(set(leg.sourceTiers))) or "verified evidence"
+            lines.append(f"- {leg.metric} {leg.period or ''}: established ({source_hint})")
+    return lines
 
-    limitations = outcome.metadata.limitations if outcome.metadata is not None else []
-    if limitations:
-        lines.append("")
-        lines.append("Limitations:")
-        lines.extend(f"- {item}" for item in limitations[:8])
 
-    citations = outcome.metadata.citations if outcome.metadata else []
-    if citations:
-        lines.append("")
-        lines.append("Evidence cited:")
-        for citation in citations[:8]:
-            label = citation.source or citation.evidenceId
-            if citation.url:
-                lines.append(f"- [{citation.evidenceId}] {label} — {citation.url}")
-            else:
-                lines.append(f"- [{citation.evidenceId}] {label}")
+def _prose_mentions_verified(outcome: Any) -> bool:
+    """True when the validated prose already lists supported claims.
 
-    # Source routes tried and why they failed, in concise user-facing language.
-    failed = _failed_routes(outcome)
-    if failed:
-        lines.append("")
-        lines.append("Sources tried (failed):")
-        lines.extend(f"- {row}" for row in failed[:8])
+    Avoids duplicating the fact list when synthesis already rendered them.
+    """
+    validation = getattr(outcome, "validation", None)
+    if validation is None:
+        return False
+    return any(getattr(c, "supportStatus", "") == "supported" for c in getattr(validation, "claims", []) or [])
 
-    if outcome.stopReason:
-        text = _STOP_REASON_TEXT.get(outcome.stopReason, outcome.stopReason)
-        lines.append("")
-        lines.append(f"Stopped because: {text}.")
-    return "\n".join(lines).strip()
+
+def _blocked_comparison_lines(outcome: Any) -> list[str]:
+    comparability = getattr(outcome, "comparability", None)
+    if comparability is None:
+        return []
+    out: list[str] = []
+    for blocked in comparability.blocked:
+        legs = blocked.legs
+        out.append(f"- {legs[0]} vs {legs[1]}: {blocked.reason}")
+    return out
 
 
 def _failed_routes(outcome: Any) -> list[str]:

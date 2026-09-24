@@ -20,11 +20,20 @@ from .db import now_iso
 # ── Defaults ────────────────────────────────────────────────────────────────
 
 DEFAULTS: dict[str, Any] = {
-    # Automatic memory capture from a completed run (only permitted-source
-    # lessons; never raw conversation text).
-    "auto_capture_enabled": False,
-    # Automatic learning-candidate detection after a run.
-    "auto_candidate_detection": False,
+    # Automatic capture of a run's EXPLICIT user memory intent ("remember this",
+    # "save this preference", "forget this", "correct this"). Safe default True:
+    # only clear, non-refused, explicitly-user-authored content is ever written
+    # through the service pipeline (secrets/sensitive IDs/raw dumps/overrides are
+    # refused regardless). This is NOT a capture-every-turn switch — non-explicit
+    # conversation is never auto-stored.
+    "auto_capture_enabled": True,
+    # Automatic learning-candidate detection after a completed run. Safe default
+    # True: analysis is deterministic and creates ONLY inert candidates (never
+    # enables/promotes a skill, never changes policy). Duplicate suppression by
+    # signature bounds the queue, so this does not grow without limit. The
+    # explicit "Learn from this run" action remains for cases auto-detection does
+    # not cover.
+    "auto_candidate_detection": True,
     # Minimum confidence a detected candidate must have to be recorded.
     "candidate_confidence_threshold": 0.4,
     # Retrieval context budget (characters).

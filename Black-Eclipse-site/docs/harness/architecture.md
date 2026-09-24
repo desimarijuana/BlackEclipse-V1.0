@@ -57,8 +57,8 @@ Two boundaries, both deliberate:
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
 | `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt, plus the bounded web escalation (Phase 5) |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
-| `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables |
-| `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view` tools |
+| `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables. `config.py` resolves a **repo-rooted** path (cwd-independent, `ECLIPSE_MEMORY_DB_PATH` override) and reconciles legacy cwd-based stores non-destructively; `intent.py` deterministically classifies explicit save/forget/correct/skill intent |
+| `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke` tools |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |
@@ -108,6 +108,7 @@ tool → Financial Retrieval Layer → planner (task-aware source selection)
 | `conflicts.py` | preserve discrepancies; resolve only with a stated reason |
 | `aggregate.py` | `EvidenceSet` keeping evidence kinds distinct |
 | `planner.py` | deterministic, explainable source selection |
+| `routing.py` | route eligibility + outcome categories (ineligible / not_implemented / unconfigured / provider_failure / no_instrument / no_data / …), so a skip is never reported as an outage |
 | `layer.py` | the orchestrator the tools call |
 
 **Source selection is task-aware, not "JDdS first" or "web first".** It is data
@@ -148,6 +149,7 @@ objective → mandate → per-leg retrieval → coverage → structured claims
 | `citations.py` | `Citation`/`ResponseMetadata` assembled only from retrieved evidence (stable interfaces for future workflow nodes) |
 | `failures.py` | failure classification (timeout / provider / no-coverage / incomplete / stale / ambiguous / invalid / conflict) |
 | `periods.py` | canonical annual/quarter/date/range parsing + matching (no substring-of-digits) |
+| `comparability.py` | deterministic identity/comparability gate: blocks a change across a demerger/ticker reuse, unequal durations (9M vs 12M), consolidation basis, metric definition, currency, unit, scale or an unstated restatement, with the exact reason |
 | `ids.py` | stable SHA-256 content digests for evidence/calculation identifiers |
 | `synthesis.py` | the bounded, tool-less `ModelSynthesizer` (mandate + evidence packet + coverage only) |
 | `supersession.py` | source-grounded, cycle-checked restatement chains |
@@ -193,6 +195,40 @@ type, not by a US default.
 The Python research loop, receipt, and per-leg statuses are unchanged; this
 phase changes WHICH routes are selected and how their outcomes are reported, not
 the evidence contracts.
+
+### Reliability & global-research hardening (Phase 8)
+
+Phase 8 closes the reliability gaps the international runs exposed, without
+changing the evidence contracts:
+
+- **Capability tools are reachable.** `get_capability_matrix` and
+  `get_research_health` are read-only and in the Eclipse agent allowlist. Missing
+  capability data returns a structured error, never a silent fallback to
+  `get_coverage`.
+- **Timeouts are independent.** A tool's own `timeout_ms` is authoritative; the
+  agent's `toolTimeoutMs` is only a ceiling (`tools.effective_timeout_ms`). News
+  enrichment has its own bounded budget, so a slow news provider cannot cancel
+  statement retrieval or partial-answer rendering. Transient-only retry is
+  unchanged (`retry.py`).
+- **Route outcomes are distinct.** `retrieval/routing.py` reports ineligible /
+  not_implemented / unconfigured / provider_failure / no_instrument / no_data /
+  no_matching_period / stale_data / invalid_document, so "we did not try it
+  because it does not apply" is never reported as an outage. `capability.ts`
+  names each market's real regulator filing system.
+- **Capability-specific health.** `sourceHealth` keys
+  `(source × market × assetClass × capability × probeKind)` — a healthy quote
+  never makes statements/filings look healthy. Zero attempts stays `unknown`;
+  fixture probes are labelled and excluded from observed live health.
+- **Documents.** The fetch transport distinguishes `too_large`, `empty_response`,
+  `javascript_only`, `unsupported_document` and `parse_failure`, preserves
+  title/document-id/publication/retrieval metadata, streams to a bounded size,
+  and refuses a value-less XBRL taxonomy and a search snippet as evidence.
+- **Comparability gate.** `research/comparability.py` deterministically blocks an
+  incompatible change (entity/ticker reuse from a demerger, unequal period
+  durations, consolidation basis, metric definition, currency, unit, scale,
+  unstated restatement) with the exact reason, recorded in the receipt
+  (`comparability`) and metadata (`blockedComparisons`). Each verified leg is
+  still reported; no misleading percentage is computed.
 
 ### Retrieval escalation (Phase 5) and resilient multi-source research (Phase 6)
 
@@ -280,8 +316,8 @@ registry or agent loop. `python/harness/skills/` owns it:
 | `loader.py` | loading `skill.json` + `SKILL.md` (+ optional `tests/cases.json`) |
 | `registry.py` | the single registry: discovery, validation, versions, dependencies |
 | `runtime.py` | `SkillExecutionRequest`/`Result` + execution via `execute_run` |
-| `learning.py` | run-trace analysis → inert learning candidates |
-| `draft.py` | candidate → unvalidated draft (never auto-enabled) |
+| `learning.py` | run-trace analysis → inert learning candidates; ordinary-chat eligibility + explicit "turn this into a skill" candidates |
+| `draft.py` | candidate → unvalidated draft with a real generated procedure + evaluation cases (never auto-enabled) |
 | `evaluation.py` | deterministic evaluation + promotion gates |
 | `lifecycle.py` | submit-review / approve / reject / rollback |
 | `library/` | the shipped skills (research, quality, finance, system) |
@@ -456,6 +492,11 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
   `http://127.0.0.1:8765`), `HARNESS_CALLBACK_URL`, `AGENT_MEMORY_DB_PATH`.
 - The runtime is spawned automatically on first use. If it cannot start, agent
   runs return **503 "runtime unavailable"** — never a fake agent.
+- **Stable database location.** `eclipse-memory.db` and `agent-memory.db` default
+  to the repository root (the dir containing `python/`), not the process cwd;
+  `ECLIPSE_MEMORY_DB_PATH` / `AGENT_MEMORY_DB_PATH` override. `GET /health`
+  reports the resolved path + a non-secret identity. A legacy cwd-based
+  `eclipse-memory.db` is reconciled forward once, non-destructively.
 - **Stale-runtime detection.** The spawned Python child outlives a Next.js
   restart (an orphan holding the port), so `ensurePythonRuntime()` compares the
   runtime's `/health` `startedAtMs` against the newest mtime in

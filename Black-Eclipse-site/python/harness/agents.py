@@ -14,6 +14,13 @@ from .schemas import AgentConfig
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
 # (the agent asks for the *objective*; the retrieval layer picks the source).
 # The legacy JDdS-only tools are kept for compatibility.
+#
+# The truthful-capability tools (`get_capability_matrix`, `get_research_health`)
+# are read-only diagnostics and MUST be in the allowlist: without them the agent
+# was reduced to the coarser `get_coverage` and could not tell whether a market's
+# statement route was implemented/configured (verified in the SYS/RELIANCE/Tata
+# runs, where `get_capability_matrix` returned TOOL_FORBIDDEN). They stay
+# read-only; no write tool is widened here.
 ECLIPSE_AGENT = AgentConfig(
     id="eclipse-agent",
     name="Eclipse Agent",
@@ -34,13 +41,24 @@ ECLIPSE_AGENT = AgentConfig(
         "get_news",
         "get_source_health",
         "get_coverage",
-        # Eclipse-Memory: persistent memory + progressive skill discovery.
+        # Truthful per-capability diagnostics (read-only). Recognised ≠ working,
+        # configured ≠ healthy, and zero attempts ≠ failure.
+        "get_capability_matrix",
+        "get_research_health",
+        # Eclipse-Memory: persistent memory + progressive skill discovery and
+        # explicit, permission-checked skill invocation as a controlled sub-run.
         "memory",
         "skill_list",
         "skill_view",
+        "skill_invoke",
     ],
     maxSteps=8,
-    toolTimeoutMs=20_000,
+    # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
+    # authoritative; this only bounds a tool that declares more. It is a distinct
+    # budget from `runTimeoutMs` (the whole model turn). 30s lets the declared
+    # `research_search_news` (30s) run in full instead of being clamped to 20s and
+    # timing out, while still bounding any runaway call.
+    toolTimeoutMs=30_000,
     runTimeoutMs=120_000,
 )
 

@@ -6,6 +6,7 @@ import { Markdown } from './markdown';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
+import { MemoryActionPanel } from './memory-action-panel';
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -167,6 +168,9 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
                   {msg.content && <AssistantContent content={msg.content} compact={compact} />}
                   {msg.research ? (
                     <ResearchEvidencePanel research={msg.research} compact={compact} />
+                  ) : null}
+                  {msg.memory ? (
+                    <MemoryActionPanel memory={msg.memory} runId={msg.runId} compact={compact} />
                   ) : null}
                   {!working && msg.content && (
                     <div className="hover-reveal mt-1 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

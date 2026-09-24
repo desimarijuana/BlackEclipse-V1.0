@@ -22,6 +22,14 @@ export interface Message {
    * rows. Narrowed by the chat surface via `ResearchRunInfo`.
    */
   research?: unknown;
+  /**
+   * Phase 3-M Reliability: explicit memory-intent outcome (saved/forgotten/
+   * corrected/refused/needs_confirmation) and learning eligibility for an
+   * ordinary chat run. Absent on user turns, skill runs and legacy rows.
+   */
+  memory?: unknown;
+  /** The harness run id for this turn (enables run-scoped actions/diagnostics). */
+  runId?: string;
   /** A recoverable failure on this turn. */
   error?: TurnError;
   /** User rating on an assistant turn, if given. Persisted with the message. */

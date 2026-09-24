@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .skills.permissions import Actor, check_permissions
 from .tools import ToolContext, ToolDefinition, ToolRegistry
 
 
@@ -154,6 +155,97 @@ async def skill_view_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
     }
 
 
+# ── skill_invoke (controlled child-run) ─────────────────────────────────────
+
+
+async def skill_invoke_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Invoke one enabled skill as a controlled sub-run of the current run.
+
+    The model may select from enabled skills only. Execution goes through the
+    existing `execute_skill` runtime, which enforces the skill's tool allowlist
+    and the default-deny permission policy in code — a skill can never gain
+    arbitrary tools or widen the agent's grants through this path. The child run
+    keeps `parentRunId` so its trace links to this turn.
+    """
+    registry = getattr(ctx, "skill_registry", None)
+    if registry is None:
+        return "Skills are not available in this run.", {"found": False, "invoked": False}
+    skill_id = str(args.get("name") or args.get("skill_id") or "").strip()
+    if not skill_id:
+        return "A skill name is required.", {"found": False, "invoked": False}
+    manifest = registry.manifest(skill_id)
+    if manifest is None:
+        return f"No skill named {skill_id!r}. Use skill_list to see available skills.", {"found": False, "invoked": False}
+
+    from .skills.runtime import invoke_skill_from_run, list_invocable_skills
+
+    invocable = {s["id"] for s in list_invocable_skills(registry)}
+    if skill_id not in invocable:
+        return (
+            f"Skill {skill_id!r} is not enabled for invocation.",
+            {"found": True, "invoked": False, "error": "SKILL_NOT_ENABLED"},
+        )
+
+    # Explicit, permission-checked selection: the actor must hold every
+    # permission the skill declares. The runtime re-checks on execution.
+    actor = Actor(id=ctx.user_id or "local", operator=False)
+    decision = check_permissions(manifest.permissions, actor)
+    if not decision.allowed:
+        return (
+            f"Invoking {skill_id!r} is not permitted: {decision.reason}",
+            {"found": True, "invoked": False, "error": "PERMISSION_DENIED", "missing": list(decision.missing)},
+        )
+
+    if ctx.model_settings is None:
+        return "The run has no model configuration; cannot invoke a skill.", {"found": True, "invoked": False}
+
+    payload = args.get("input") or {}
+    if not isinstance(payload, dict):
+        return "input must be an object.", {"found": True, "invoked": False}
+
+    if getattr(ctx, "tool_registry", None) is None:
+        return "The run has no tool registry; cannot invoke a skill.", {"found": True, "invoked": False}
+
+    result = await invoke_skill_from_run(
+        skill_id=skill_id,
+        input_data=payload,
+        parent_run_id=ctx.run_id,
+        tool_registry=ctx.tool_registry,
+        data_bridge=ctx.data_bridge,
+        memory_store=ctx.memory_store,
+        skill_registry=registry,
+        model_settings=ctx.model_settings,
+        user_id=ctx.user_id,
+        bus=getattr(ctx, "bus", None),
+        emitter=ctx.emitter,
+        memory_service=ctx.memory_service,
+        timeout_ms=args.get("timeout_ms"),
+    )
+    data = {
+        "found": True,
+        "invoked": result.status in ("completed",),
+        "skillId": result.skillId,
+        "version": result.version,
+        "childRunId": result.runId,
+        "parentRunId": ctx.run_id,
+        "status": result.status,
+        "outputValidated": result.outputValidated,
+        "limitations": result.limitations,
+        "missingData": result.missingData,
+        "error": result.error,
+    }
+    if result.status != "completed":
+        return (
+            f"Skill {skill_id!r} did not complete ({result.status}). "
+            f"{(result.error or {}).get('message', '')}".strip(),
+            data,
+        )
+    return (
+        f"Skill {skill_id!r} completed (child run {result.runId}).\n\n{result.output or ''}".strip(),
+        data,
+    )
+
+
 def register_memory_tools(registry: ToolRegistry) -> None:
     registry.register(
         ToolDefinition(
@@ -225,6 +317,32 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             permission="read",
             risk="low",
             timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="skill_invoke",
+            description=(
+                "Deliberately invoke ONE enabled skill as a controlled sub-run of this turn. "
+                "Use skill_list first to find candidate skills, then pass the skill id and an "
+                "`input` object matching the skill's input schema. Execution enforces the "
+                "skill's tool allowlist and permissions; the child run keeps this run's id as "
+                "its parent and its events/results are returned. This is the only supported way "
+                "to actually RUN a skill from chat — discovery alone does not invoke it."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The enabled skill id, e.g. 'research.planning'."},
+                    "input": {"type": "object", "description": "Inputs matching the skill's input schema."},
+                    "timeout_ms": {"type": "integer", "description": "Optional bounded timeout for the sub-run."},
+                },
+                "required": ["name"],
+            },
+            handler=skill_invoke_handler,
+            permission="read",
+            risk="low",
+            timeout_ms=240_000,
         )
     )
 

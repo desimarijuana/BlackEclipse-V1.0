@@ -45,6 +45,7 @@ from .planner import (
     plan_retrieval,
 )
 from .retry import retrieve_with_retry, DEFAULT_MAX_RETRIES
+from .routing import classify_outcome, classify_skip
 from .sources import RetrievalSource, SourceOutcome, outcome_diagnostics
 from .structured import JddsSource, LiveStructuredSource, SecFilingsSource
 from .validate import detect_incomplete, validate_objects
@@ -227,13 +228,32 @@ class FinancialRetrievalLayer:
         fallback_notes: list[str] = []
         for name in plan.sources:
             source = self._sources.get(name)
-            if source is None or not source.available(request):
+            # Preserve the EXACT reason a route was skipped (ineligible /
+            # not_implemented / unconfigured). A skipped route is never recorded
+            # as a provider failure, and is auditable in the receipt (WS4).
+            skip = classify_skip(name, source, request) if source is not None else ("not_implemented", f"{name} is not registered")
+            if skip is not None:
+                category, reason = skip
+                diagnostics.append(
+                    {
+                        "provider": name,
+                        "category": category,
+                        "routeCategory": category,
+                        "normalizedStatus": "skipped",
+                        "retryable": False,
+                        "detail": reason,
+                    }
+                )
+                await self._emit("retrieval.source_skipped", {"source": name, "category": category, "reason": reason})
                 continue
             self.metrics["sourceCalls"] += 1
             await self._emit("retrieval.source_start", {"source": name, "dataType": request.dataType})
             outcome = await self._retrieve_one(source, request)
             attempts.append(outcome)
-            diagnostics.extend(outcome_diagnostics(outcome))
+            for d in outcome_diagnostics(outcome):
+                # Tag each ran-outcome with its route category so "no data" is
+                # distinguishable from "provider failure" downstream.
+                diagnostics.append({**d, "routeCategory": classify_outcome(outcome)})
             # AMBIGUOUS is terminal: the ticker does not name one instrument, and
             # no other source can change that. Return it rather than trying a
             # different provider that might guess.

@@ -20,6 +20,7 @@ import {
   failedDiagnostic,
   okDiagnostic,
   type RetrievalDiagnostic,
+  type RetrievalFailureCategory,
 } from "@/lib/retrieval-diagnostics";
 import {
   DuckDuckGoHtmlProvider,
@@ -38,12 +39,18 @@ export interface WebPage {
   extraction?: "html" | "json" | "xml" | "text" | "pdf";
   /** Original document language, when a `lang` attribute is present. */
   language?: string | null;
+  /** Document-identity metadata preserved for citations/receipts (all optional). */
+  documentId?: string | null;
+  publishedAt?: string | null;
+  retrievedAt?: string | null;
 }
 
 const FETCH_TIMEOUT_MS = 8_000;
-const MAX_HTML_BYTES = 512 * 1024;
-const MAX_PDF_BYTES = 8 * 1024 * 1024;
-const MAX_TEXT_CHARS = 20_000;
+// Bounded download caps. Large reports stream up to MAX_REPORT_BYTES so an
+// oversized PDF/annual report can still be read; the cap is enforced by the
+// streamed reader (never `res.text()`), so memory stays bounded.
+const MAX_DOC_BYTES = 16 * 1024 * 1024;
+const MAX_TEXT_CHARS = 40_000;
 
 /**
  * The outbound User-Agent. A DECLARED, contact-bearing identity — verified to
@@ -122,8 +129,15 @@ export interface FetchOutcome {
  * with no text layer) is reported as `unsupported_document`, never returned as
  * garbage.
  */
-export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
+export async function fetchWebPageDetailed(
+  url: string,
+  // Injectable transport for deterministic offline tests. Production always uses
+  // the SSRF-hardened `safeGet`; a test supplies a stub that returns fixture
+  // bytes so document-handling branches can be exercised without the network.
+  deps?: { get?: typeof safeGet }
+): Promise<FetchOutcome> {
   const base = { capability: "web_fetch" as const, provider: "safe-get", tier: "unknown" as const };
+  const get = deps?.get ?? safeGet;
   const check = validateOutboundUrl(url);
   if (!check.safe) {
     return {
@@ -137,10 +151,12 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
   const started = Date.now();
   let res;
   try {
-    res = await safeGet({
+    res = await get({
       url,
       timeoutMs: FETCH_TIMEOUT_MS,
-      maxBytes: MAX_PDF_BYTES,
+      // Stream with a bounded document cap: large official reports are readable
+      // up to MAX_DOC_BYTES, and a stream beyond it is stopped (not buffered).
+      maxBytes: MAX_DOC_BYTES,
       // Official regulator/exchange hosts commonly 301/302 (Taiwan MOPS, Canada
       // SEDAR, company IR sites). Follow a bounded number, each hop re-validated
       // by the same SSRF gate (https-only, DNS-pinned).
@@ -152,21 +168,27 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
     });
   } catch (err) {
     const code = err instanceof OutboundError ? err.code : "";
-    const category =
+    const category: RetrievalFailureCategory =
       code === "timeout"
         ? "timeout"
-        : code === "blocked_host" || code === "blocked_protocol" || code === "blocked_credentials"
-          ? "blocked"
-          : "transport_error";
+        : code === "too_large"
+          ? "too_large"
+          : code === "blocked_host" || code === "blocked_protocol" || code === "blocked_credentials"
+            ? "blocked"
+            : "transport_error";
     const timedOut = category === "timeout";
+    const detail =
+      category === "too_large"
+        ? `document exceeded the ${MAX_DOC_BYTES} byte cap`
+        : timedOut
+          ? `page request timed out after ${FETCH_TIMEOUT_MS} ms`
+          : `page request failed (${code || "transport"})`;
     return {
       page: null,
-      diagnostic: failedDiagnostic(
-        base,
-        category,
-        timedOut ? `page request timed out after ${FETCH_TIMEOUT_MS} ms` : `page request failed (${code || "transport"})`,
-        { latencyMs: Date.now() - started, timedOut }
-      ),
+      diagnostic: failedDiagnostic(base, category, detail, {
+        latencyMs: Date.now() - started,
+        timedOut,
+      }),
     };
   }
 
@@ -229,9 +251,11 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
   if (isJson || isXml || isPlainText) {
     const text = res.text.slice(0, MAX_TEXT_CHARS);
     if (!text.trim()) {
+      // A valid content type with a genuinely empty body is its own category —
+      // "empty response", not a parse failure and not evidence.
       return {
         page: null,
-        diagnostic: failedDiagnostic(base, "parse_failure", "the source body was empty", {
+        diagnostic: failedDiagnostic(base, "empty_response", "the source returned an empty body", {
           latencyMs,
           httpStatus,
           bytes,
@@ -239,8 +263,31 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
         }),
       };
     }
+    // An XBRL taxonomy with no values is not evidence: if the document looks
+    // like XBRL but carries no numeric facts, report it as such rather than
+    // handing a value-less taxonomy to the extractor.
+    if (isXml && _looksLikeValueLessXbrl(text)) {
+      return {
+        page: null,
+        diagnostic: failedDiagnostic(
+          base,
+          "parse_failure",
+          "the XBRL document is a taxonomy/context with no numeric facts",
+          { latencyMs, httpStatus, bytes, parseOutcome: "empty" }
+        ),
+      };
+    }
+    const retrievedAt = new Date().toISOString();
     return {
-      page: { url, title: null, text, bytes, extraction: isJson ? "json" : isXml ? "xml" : "text" },
+      page: {
+        url,
+        title: null,
+        text,
+        bytes,
+        extraction: isJson ? "json" : isXml ? "xml" : "text",
+        documentId: _documentIdFromUrl(url),
+        retrievedAt,
+      },
       diagnostic: okDiagnostic(base, { latencyMs, httpStatus, bytes, parseOutcome: "parsed" }),
     };
   }
@@ -260,9 +307,15 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
     };
   }
   const language = $("html").attr("lang")?.trim() || null;
-  $("script, style, noscript, nav, header, footer, aside, form, svg").remove();
   const title =
     ($('meta[property="og:title"]').attr("content") || $("title").first().text() || "").trim() || null;
+  const publishedAt =
+    ($('meta[property="article:published_time"]').attr("content") ||
+      $('meta[name="date"]').attr("content") ||
+      $("time[datetime]").first().attr("datetime") ||
+      "").trim() || null;
+  const documentId = _documentIdFromUrl(url);
+  $("script, style, noscript, nav, header, footer, aside, form, svg").remove();
   const text = $("body").text().replace(/\s+/g, " ").trim().slice(0, MAX_TEXT_CHARS);
   if (!text) {
     // A page with no body text is usually a JavaScript-only shell that must be
@@ -282,9 +335,55 @@ export async function fetchWebPageDetailed(url: string): Promise<FetchOutcome> {
     };
   }
   return {
-    page: { url, title, text, bytes: res.bytes, extraction: "html", language },
+    page: {
+      url,
+      title,
+      text,
+      bytes: res.bytes,
+      extraction: "html",
+      language,
+      documentId,
+      publishedAt,
+      retrievedAt: new Date().toISOString(),
+    },
     diagnostic: okDiagnostic(base, { latencyMs, httpStatus, bytes, parseOutcome: "parsed" }),
   };
+}
+
+/**
+ * A stable document id derived ONLY from the real URL (never fabricated). For a
+ * known filing host this is the accession/recall number; otherwise the path
+ * basename. Returned as an audit hint, not a claim about the document's content.
+ */
+function _documentIdFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // SEC EDGAR accession numbers look like 0001193125-25-123456.
+    const accession = u.pathname.match(/\d{10}-\d{2}-\d{6}/);
+    if (accession) return accession[0];
+    // DART receipt numbers are 14 digits.
+    const dart = u.searchParams.get("rcpNo");
+    if (dart) return dart;
+    const base = u.pathname.split("/").filter(Boolean).pop();
+    return base || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Heuristic: an XBRL instance that declares contexts/taxonomy but contains no
+ * numeric fact value is not evidence. This deliberately errs toward "no values"
+ * (returning the document as unusable) rather than handing a taxonomy to the
+ * extractor as if it carried facts.
+ */
+function _looksLikeValueLessXbrl(text: string): boolean {
+  const lower = text.toLowerCase();
+  const looksXbrl = lower.includes("xbrl") || lower.includes("<context") || lower.includes("xsd");
+  if (!looksXbrl) return false;
+  // A numeric fact appears as a non-empty element body with digits.
+  const hasNumericFact = />\s*-?[\d,]{3,}(\.\d+)?\s*</.test(text);
+  return !hasNumericFact;
 }
 
 // ── Bounded PDF text extraction ──────────────────────────────────────────────

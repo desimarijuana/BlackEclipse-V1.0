@@ -37,6 +37,15 @@ class Citation(BaseModel):
     publishedAt: Optional[str] = None
     retrievedAt: Optional[str] = None
     validationStatus: Optional[str] = None
+    # Phase 5 provenance, copied from the evidence's normalized object when the
+    # source states it. All optional: absent fields render as unknown, never
+    # guessed. `fiscalPeriod` is the issuer-reported label (or the period-end
+    # date); `basis` is present ONLY when the source explicitly states it.
+    fiscalPeriod: Optional[str] = None
+    basis: Optional[str] = None
+    currency: Optional[str] = None
+    unit: Optional[str] = None
+    sourceSpan: Optional[str] = None
 
 
 class ResponseMetadata(BaseModel):
@@ -51,13 +60,63 @@ class ResponseMetadata(BaseModel):
     missingEvidence: list[str] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     calculations: list[dict[str, Any]] = Field(default_factory=list)
+    # Phase 7 WS6 (additive): comparisons that were BLOCKED by the deterministic
+    # identity/comparability gate, with the exact reason, so the answer can show
+    # each verified fact and name why a change was not computed.
+    blockedComparisons: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _period_for(item: Any) -> tuple[Optional[str], Any]:
+    """The evidence's fiscal period when it is UNAMBIGUOUS, else None.
+
+    A single-observation item (a web fact, a quote) has one period. A multi-period
+    statement item packs many rows under one id, and `objects[0]` is simply the
+    oldest — so reporting it would put the WRONG period next to a source that
+    supports a different year. When the objects do not all agree on one period we
+    return None (the UI renders "unknown"), never the first row's. The matched
+    period is already visible per leg/claim; this only labels the source itself.
+    """
+    objects = getattr(item, "objects", None) or []
+    if not objects:
+        return None, None
+    periods = {
+        (getattr(o, "period", None) or getattr(o, "dataTimestamp", None))
+        for o in objects
+    }
+    periods.discard(None)
+    if len(periods) != 1:
+        return None, None
+    period = next(iter(periods))
+    obj = next(
+        (o for o in objects if (getattr(o, "period", None) or getattr(o, "dataTimestamp", None)) == period),
+        objects[0],
+    )
+    return str(period), obj
+
+
+def _extraction_span(item: Any) -> Optional[str]:
+    data = getattr(item, "data", None)
+    if isinstance(data, dict) and isinstance(data.get("extraction"), dict):
+        span = data["extraction"].get("sourceSpan")
+        return str(span) if span else None
+    if isinstance(data, dict) and data.get("sourceSpan"):
+        return str(data["sourceSpan"])
+    return None
 
 
 def build_citations(evidence: list[Any]) -> list[Citation]:
-    """Citations derived strictly from retrieved evidence records."""
+    """Citations derived strictly from retrieved evidence records.
+
+    Provenance is copied field-by-field from the evidence and its first
+    normalized object; an absent field stays None (rendered as unknown), never
+    inferred. `basis` is emitted only when the source actually states it.
+    """
     out: list[Citation] = []
     for item in evidence:
         source = getattr(item, "source", None)
+        # Period/basis/currency/unit describe the SOURCE; they are emitted only
+        # when the evidence states them unambiguously (see `_period_for`).
+        fiscal_period, obj = _period_for(item)
         out.append(
             Citation(
                 evidenceId=getattr(item, "id", ""),
@@ -69,6 +128,11 @@ def build_citations(evidence: list[Any]) -> list[Citation]:
                 publishedAt=getattr(source, "publishedAt", None),
                 retrievedAt=getattr(source, "retrievedAt", None),
                 validationStatus=getattr(source, "validationStatus", None),
+                fiscalPeriod=fiscal_period,
+                basis=(str(getattr(obj, "basis", None)) if obj is not None and getattr(obj, "basis", None) else None),
+                currency=(str(getattr(obj, "currency", None)) if obj is not None and getattr(obj, "currency", None) else None),
+                unit=(str(getattr(obj, "unit", None)) if obj is not None and getattr(obj, "unit", None) else None),
+                sourceSpan=_extraction_span(item),
             )
         )
     return out
@@ -116,6 +180,7 @@ def build_response_metadata(
     validation: Optional[ValidationOutcome] = None,
     conflicts: Optional[list[dict[str, Any]]] = None,
     calculations: Optional[list[Any]] = None,
+    comparability: Optional[dict[str, Any]] = None,
 ) -> ResponseMetadata:
     """Assemble the final, renderable research metadata.
 
@@ -156,6 +221,13 @@ def build_response_metadata(
 
     status = validation.status if validation is not None else coverage.status
 
+    limitations = summarize_limitations(coverage, validation)
+    for blocked in (comparability or {}).get("blocked") or []:
+        legs = blocked.get("legs") or []
+        reason = blocked.get("reason") or "legs are not comparable"
+        if len(legs) == 2:
+            limitations.append(f"comparison blocked: {legs[0]} vs {legs[1]} — {reason}")
+
     return ResponseMetadata(
         taskType=mandate.taskType,
         status=status,
@@ -164,10 +236,13 @@ def build_response_metadata(
         assumptions=sorted(set(assumptions))[:20],
         estimates=sorted(set(estimates))[:20],
         interpretations=sorted(set(interpretations))[:20],
-        limitations=summarize_limitations(coverage, validation),
+        limitations=limitations[:30],
         missingEvidence=[l for l in summarize_limitations(coverage, validation) if l.startswith("no evidence")],
         conflicts=conflict_rows,
         calculations=calc_rows,
+        blockedComparisons=(
+            (comparability or {}).get("blocked") or []
+        ),
     )
 
 

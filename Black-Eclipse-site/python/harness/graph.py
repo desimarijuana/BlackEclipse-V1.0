@@ -121,12 +121,18 @@ def build_graph(
         run_id=request.runId,
         log=lambda m, d=None: None,
         user_id=request.userId,
+        # A skill run is composed with an agent id of the form `skill:<id>`; its
+        # memory saves carry execution-lesson provenance, not explicit-user.
+        is_skill_run=agent.id.startswith("skill:"),
         data_bridge=data_bridge,
         retrieval_cache=retrieval_cache,
         emitter=emitter,
         memory_store=store,
         memory_service=memory_service,
         skill_registry=skill_registry,
+        model_settings=request.modelSettings,
+        bus=bus,
+        tool_registry=registry,
     )
     registry.set_active_context(ctx)
 
@@ -440,6 +446,19 @@ async def execute_run(
     # run (it is recorded in the retrieval audit instead).
     memory_block = await _memory_context(request, memory_service, emitter)
 
+    # Deterministic explicit-intent handling. A clear "remember this" / "forget
+    # this" / "correct this" must not depend on the model voluntarily calling the
+    # `memory` tool. Detection runs before the model; a refused or
+    # confirmation-pending intent is recorded but NEVER written. Detection is
+    # purely a function of the user's query, so one call suffices.
+    #
+    # A skill child-run's "query" is the rendered skill input, not the user's
+    # words — it never carries chat intent, so skip detection there.
+    memory_outcome = (
+        None if agent.id.startswith("skill:")
+        else await _apply_memory_intent(request, memory_service, emitter)
+    )
+
     messages: list[BaseMessage] = [
         SystemMessage(content=agent.systemPrompt),
         *_history_messages(request),
@@ -482,8 +501,19 @@ async def execute_run(
     output = final_state.get("final") or ""
     store.update_run(request.runId, status="completed", output=output, finishedAt=now_iso())
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
-    await _post_run_analysis(request.runId, store, memory_service, skill_registry)
-    return _result(request.runId, "completed", store, None, output)
+    eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
+    # Automatic learning analysis runs for eligible completed runs — the user
+    # should not have to ask. It creates ONLY inert candidates (never enables a
+    # skill). The explicit "Learn from this run" action remains for the cases
+    # auto-detection does not cover (e.g. an explicit turn-into-skill request on
+    # a run with no tool trace).
+    analysis = await _post_run_analysis(request.runId, store, memory_service, skill_registry)
+    memory_blob = _memory_blob(memory_outcome, eligibility, analysis)
+    if memory_blob:
+        store.update_run(request.runId, memory=memory_blob)
+    result = _result(request.runId, "completed", store, None, output)
+    result.memory = memory_blob or None
+    return result
 
 
 async def _maybe_research(
@@ -575,6 +605,11 @@ async def _finish_research(
         "validation": research.get("validation"),
         "escalation": research.get("escalation"),
         "budget": research.get("budget"),
+        # Structured provenance for the chat UI's separate Sources section (the
+        # answer prose carries none of it).
+        "failedRoutes": research.get("failedRoutes"),
+        "stopReasonText": research.get("stopReasonText"),
+        "blockedComparisons": research.get("blockedComparisons"),
     }
     store.update_run(
         request.runId,
@@ -600,23 +635,25 @@ async def _post_run_analysis(
     store: AgentMemoryStore,
     memory_service: Optional[Any],
     skill_registry: Optional[Any],
-) -> None:
+) -> Optional[dict[str, Any]]:
     """Deterministic, policy-gated post-run analysis (mistakes + candidates).
 
     Never raises and never blocks the terminal result: analysis is diagnostics,
     not control flow. It can only create inert records — it cannot enable a
-    skill or claim improvement.
+    skill or claim improvement. Returns a bounded summary for the run's memory
+    blob (so the UI can show that automatic learning ran and what it produced).
     """
     if memory_service is None:
-        return
+        return None
     try:
         skill_store = getattr(skill_registry, "store", None)
-        memory_service.analyze_run(run_id, store, skill_store=skill_store)
+        return memory_service.analyze_run(run_id, store, skill_store=skill_store)
     except Exception:  # noqa: BLE001
         try:
             store.append_event(run_id, "memory.analysis_failed", 0, {})
         except Exception:  # noqa: BLE001
             pass
+        return None
 
 
 MAX_HISTORY_TURNS = 20
@@ -675,6 +712,200 @@ async def _memory_context(
         },
     )
     return result.context
+
+
+async def _apply_memory_intent(
+    request: RunRequest,
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+) -> Optional[dict[str, Any]]:
+    """Detect and apply an explicit memory intent for this turn.
+
+    Deterministic; never raises. Returns a bounded outcome dict for the run
+    blob, or None when no explicit intent is present.
+    """
+    if memory_service is None:
+        return None
+    # Policy gate: explicit-intent capture can be turned off entirely. This is a
+    # narrow, high-confidence path (never capture-every-turn); disabling it means
+    # the model's own `memory` tool remains the only route.
+    try:
+        if not memory_service.policy.get("auto_capture_enabled"):
+            return None
+    except Exception:  # noqa: BLE001 - a policy read failure must not break a run
+        return None
+    try:
+        from .eclipse_memory.intent import detect_memory_intent
+
+        prior = bool(
+            getattr(memory_service.store, "list_memories", None)
+            and memory_service.store.list_memories(scope_id=request.userId, limit=1, include_inactive=False)
+        )
+        intent = detect_memory_intent(
+            request.input.query,
+            user_id=request.userId,
+            assistant_text=None,
+            has_prior_memory=prior,
+        )
+        if not intent.detected:
+            return None
+        if intent.action == "skill":
+            # A "turn this into a skill" request is a learning action, not a
+            # memory write. The run remains the source; the chat surface offers
+            # the explicit "Learn from this run" action.
+            await emitter.emit("memory.skill_requested", {"runId": request.runId})
+            return {
+                "action": "skill_requested", "ok": False,
+                "reason": "explicit turn-into-skill request",
+                "requiresConfirmation": False, "refused": False,
+            }
+        outcome = memory_service.apply_explicit_intent(
+            intent, run_id=request.runId, user_id=request.userId
+        )
+        event_type = {
+            "saved": "memory.explicit_saved",
+            "forgotten": "memory.explicit_forgotten",
+            "corrected": "memory.explicit_corrected",
+            "refused": "memory.intent_refused",
+            "needs_confirmation": "memory.intent_needs_confirmation",
+        }.get(outcome.get("action"))
+        if event_type:
+            await emitter.emit(event_type, {
+                "runId": request.runId,
+                "action": outcome.get("action"),
+                "refused": bool(outcome.get("action") == "refused"),
+            })
+        return _outcome_blob(outcome, intent)
+    except Exception as exc:  # noqa: BLE001 - memory must never break a run
+        try:
+            await emitter.emit("memory.intent_failed", {"error": str(exc)})
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
+def _outcome_blob(outcome: dict[str, Any], intent: Any) -> dict[str, Any]:
+    memory = outcome.get("memory") or {}
+    blob: dict[str, Any] = {
+        "action": outcome.get("action"),
+        "ok": bool(outcome.get("ok")),
+        "refused": bool(outcome.get("action") == "refused"),
+        "requiresConfirmation": bool(outcome.get("action") == "needs_confirmation"),
+        "reason": outcome.get("reason") or intent.reason,
+        "matchedPhrase": getattr(intent, "matched_phrase", ""),
+    }
+    if memory.get("id"):
+        blob["memoryId"] = memory["id"]
+        blob["memoryType"] = memory.get("memoryType")
+        blob["scope"] = memory.get("scope")
+        blob["subject"] = memory.get("subject")
+        blob["contentPreview"] = (memory.get("content") or "")[:400]
+        blob["inspectPath"] = f"/api/eclipse-memory/memories/{memory['id']}"
+        blob["undoPath"] = f"/api/eclipse-memory/memories/{memory['id']}/archive"
+    if outcome.get("superseded"):
+        blob["supersededMemoryId"] = outcome["superseded"]
+    if outcome.get("archived"):
+        blob["archivedMemoryIds"] = outcome["archived"]
+    return blob
+
+
+def _memory_blob(
+    memory_outcome: Optional[dict[str, Any]],
+    eligibility: dict[str, Any],
+    analysis: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    blob: dict[str, Any] = {"learningEligibility": eligibility}
+    if memory_outcome:
+        blob.update(memory_outcome)
+    if analysis:
+        created = int(analysis.get("candidatesCreated") or 0)
+        duplicates = int(analysis.get("candidatesSkipped") or 0)
+        blob["learningAnalysis"] = {
+            "candidatesCreated": created,
+            "candidatesSkipped": duplicates,
+            "mistakesCreated": analysis.get("mistakesCreated", 0),
+            "candidateDetection": analysis.get("candidateDetection"),
+        }
+        # The eligibility heuristic and the criteria-driven analyzer are not the
+        # same test. If automatic learning actually produced a candidate, report
+        # the run as eligible so the UI never claims "not a learning candidate"
+        # for a run that was just captured.
+        if created > 0:
+            eligibility["eligible"] = True
+            eligibility["autoCaptured"] = True
+            if not eligibility.get("skillRequested"):
+                eligibility["reason"] = "automatically captured a reusable lesson"
+    return blob
+
+
+def learning_eligibility_for_run(run_id: str, store: AgentMemoryStore) -> dict[str, Any]:
+    """Why a completed ordinary chat run is/isn't a learning candidate.
+
+    Read-only eligibility (does not create anything): a plain informational
+    reply is not eligible; a run that used tools / took multiple steps / asked
+    to become a skill is. Creating a candidate stays an explicit operator action
+    ("Learn from this run").
+    """
+    run = store.get_run(run_id) or {}
+    memory_blob = run.get("memory") or {}
+    skill_requested = memory_blob.get("action") == "skill_requested"
+    reason = ""
+    eligible = False
+    steps = int(run.get("modelSteps") or 0)
+    tool_calls = int(run.get("toolCalls") or 0)
+    if run.get("status") != "completed":
+        reason = "run did not complete"
+    elif skill_requested:
+        eligible, reason = True, "the user asked to turn this run into a skill"
+    elif tool_calls == 0:
+        reason = "no tool use — an informational reply has no reusable procedure"
+    elif steps < 2:
+        reason = "single model step — not enough structure to generalize"
+    else:
+        eligible, reason = True, "multi-step run with tool evidence"
+    return {
+        "runId": run_id,
+        "eligible": eligible,
+        "reason": reason,
+        "modelSteps": steps,
+        "toolCalls": tool_calls,
+        "skillRequested": skill_requested,
+        "isSkillRun": False,
+        "learnQueuePath": "/api/learning/candidates",
+    }
+
+
+def _learning_eligibility(
+    *, run_id: str, store: AgentMemoryStore, memory_outcome: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Eligibility for the just-finished run (uses the in-memory outcome, which
+    is not yet persisted when this is called)."""
+    run = store.get_run(run_id) or {}
+    skill_requested = bool(memory_outcome and memory_outcome.get("action") == "skill_requested")
+    reason = ""
+    eligible = False
+    steps = int(run.get("modelSteps") or 0)
+    tool_calls = int(run.get("toolCalls") or 0)
+    if run.get("status") != "completed":
+        reason = "run did not complete"
+    elif skill_requested:
+        eligible, reason = True, "the user asked to turn this run into a skill"
+    elif tool_calls == 0:
+        reason = "no tool use — an informational reply has no reusable procedure"
+    elif steps < 2:
+        reason = "single model step — not enough structure to generalize"
+    else:
+        eligible, reason = True, "multi-step run with tool evidence"
+    return {
+        "runId": run_id,
+        "eligible": eligible,
+        "reason": reason,
+        "modelSteps": steps,
+        "toolCalls": tool_calls,
+        "skillRequested": skill_requested,
+        "isSkillRun": False,
+        "learnQueuePath": "/api/learning/candidates",
+    }
 
 
 def _user_message(request: RunRequest) -> str:

@@ -81,10 +81,10 @@ export async function listSkillEvaluations(skillId: string): Promise<SkillEvalua
   return body.evaluations ?? [];
 }
 
-export async function generateDraft(candidateId: string) {
-  return api<{ ok: boolean; draft?: Record<string, unknown>; issues?: string[]; error?: string }>(
+export async function generateDraft(candidateId: string, userIntent?: string) {
+  return api<{ ok: boolean; draft?: Record<string, unknown>; issues?: string[]; reusable?: boolean; error?: string }>(
     `/api/learning/candidates/${encodeURIComponent(candidateId)}/generate-draft`,
-    { method: "POST", body: JSON.stringify({}) }
+    { method: "POST", body: JSON.stringify({ userIntent }) }
   );
 }
 
@@ -95,10 +95,10 @@ export async function rejectCandidate(candidateId: string) {
   );
 }
 
-export async function learnFromRun(runId: string) {
+export async function learnFromRun(runId: string, userIntent?: string) {
   return api<{ ok: boolean; created: LearningCandidate[]; duplicates: string[]; error?: string }>(
     `/api/learning/from-run/${encodeURIComponent(runId)}`,
-    { method: "POST", body: JSON.stringify({}) }
+    { method: "POST", body: JSON.stringify({ userIntent }) }
   );
 }
 

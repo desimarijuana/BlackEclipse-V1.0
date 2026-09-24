@@ -561,6 +561,8 @@ function StockChatContent() {
         status: turn.status,
         activities: turn.activities,
         research: turn.research,
+        memory: turn.memory,
+        runId: turn.runId,
         error: turn.error,
       }, turn.done);
     };

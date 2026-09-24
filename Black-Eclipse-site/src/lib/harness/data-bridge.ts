@@ -34,7 +34,7 @@ import {
   type InstrumentIdentity,
 } from "@/lib/instrument-identity";
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
-import { coverageSummary, isCovered, coverageFor, healthTargets } from "@/lib/harness/coverage";
+import { coverageSummary, isCovered, coverageFor, healthTargets, capabilityHealthTargets } from "@/lib/harness/coverage";
 import { resolveMacroSeries } from "@/lib/harness/macro-identity";
 import { MARKET_FULL_NAME, resolveMarketId, splitExchangeSuffix } from "@/lib/markets";
 import type { DataCapability } from "./types";
@@ -322,22 +322,56 @@ function unavailableClass(cls: FailureClass, detail?: string): DataBridgeResult 
  * no schema change to the committed DB. Best-effort: a health write never
  * affects the answer.
  */
+/**
+ * Encode the capability + probe-kind dimensions into the `symbol` column so
+ * health can be keyed per-capability WITHOUT a schema change to the committed
+ * DB. Format: `<assetClass>#<capability>[!fixture]`. A legacy row with no `#`
+ * is treated as the `quote` capability from a live probe. `assetClass` values
+ * never contain `#` or `!`, so the split is unambiguous.
+ */
+const HEALTH_CAP_SEP = "#";
+const HEALTH_FIXTURE_SUFFIX = "!fixture";
+
+export function encodeHealthKey(assetClass: string, capability: string, probeKind: "live" | "fixture"): string {
+  const cap = probeKind === "fixture" ? `${capability}${HEALTH_FIXTURE_SUFFIX}` : capability;
+  return `${assetClass}${HEALTH_CAP_SEP}${cap}`;
+}
+
+function decodeHealthKey(symbol: string): { assetClass: string; capability: string; probeKind: "live" | "fixture" } {
+  const idx = symbol.indexOf(HEALTH_CAP_SEP);
+  if (idx === -1) {
+    // Legacy row: assetClass only, treated as a live quote probe.
+    return { assetClass: symbol, capability: "quote", probeKind: "live" };
+  }
+  const assetClass = symbol.slice(0, idx);
+  let cap = symbol.slice(idx + 1);
+  let probeKind: "live" | "fixture" = "live";
+  if (cap.endsWith(HEALTH_FIXTURE_SUFFIX)) {
+    cap = cap.slice(0, -HEALTH_FIXTURE_SUFFIX.length);
+    probeKind = "fixture";
+  }
+  return { assetClass, capability: cap || "quote", probeKind };
+}
+
 async function recordHealth(
   source: string,
   market: string,
   assetClass: string,
   ok: boolean,
   error?: string,
+  capability: string = "quote",
+  probeKind: "live" | "fixture" = "live",
 ): Promise<void> {
   try {
-    const id = `${source}:${market}:${assetClass}`;
+    const symbol = encodeHealthKey(assetClass, capability, probeKind);
+    const id = `${source}:${market}:${symbol}`;
     await prisma.sourceHealth.upsert({
       where: { id },
       create: {
         id,
         source,
         market,
-        symbol: assetClass,
+        symbol,
         successCount: ok ? 1 : 0,
         failCount: ok ? 0 : 1,
         lastStatus: ok ? "ok" : "fail",
@@ -645,12 +679,11 @@ async function sourceHealth(): Promise<DataBridgeResult> {
   });
 
   // ── Key health by the dimensions that actually identify a route ────────────
-  // A route is (source, market, assetClass). The old code collapsed recorded
-  // runs to (market, assetClass) and then copied that ONE aggregate onto every
-  // declared (source × assetClass) row — so `JDDS (US, equity)` and
-  // `JDDS (US, etf)` reported the same counter, and two different providers
-  // reported each other's numbers. Here each recorded (source, market, class)
-  // is kept distinct, and a declared-but-unrun target is `unknown`.
+  // A route is (source × market × assetClass × CAPABILITY × probe-kind). Each
+  // recorded run is kept distinct; a declared-but-unrun target is `unknown`.
+  // A working quote can never make a statement route look healthy — they are
+  // different rows (WS3). `symbol` encodes assetClass + capability; the
+  // decoder preserves legacy assetClass-only rows as `quote`/live.
   interface Stat {
     success: number;
     fail: number;
@@ -659,21 +692,23 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     lastError: string | null;
   }
   const recorded = new Map<string, Stat>();
-  const recordedProviders = new Map<string, Set<string>>();
+  const meta = new Map<string, { assetClass: string; capability: string; probeKind: "live" | "fixture" }>();
   for (const r of rows) {
-    const assetClass = r.symbol === "*" ? "*" : r.symbol;
-    const key = `${r.source}|${r.market}|${assetClass}`;
+    const decoded = r.symbol === "*"
+      ? { assetClass: "*", capability: "quote", probeKind: "live" as const }
+      : decodeHealthKey(r.symbol);
+    const key = `${r.source}|${r.market}|${decoded.assetClass}|${decoded.capability}|${decoded.probeKind}`;
+    meta.set(key, decoded);
     const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, lastStatus: null, lastError: null };
     cur.success += r._sum.successCount ?? 0;
     cur.fail += r._sum.failCount ?? 0;
     const updated = r._max.updatedAt ? new Date(r._max.updatedAt).toISOString() : null;
     if (updated && (!cur.updated || updated > cur.updated)) cur.updated = updated;
-    // lastStatus from the group aggregate is not per-row; classify from counts.
     recorded.set(key, cur);
   }
 
-  const shape = (source: string, market: string, assetClass: string) => {
-    const key = `${source}|${market}|${assetClass}`;
+  const shape = (t: { source: string; market: string; assetClass: string; capability: string; probeKind: "live" | "fixture" }) => {
+    const key = `${t.source}|${t.market}|${t.assetClass}|${t.capability}|${t.probeKind}`;
     const stat = recorded.get(key);
     const success = stat?.success ?? 0;
     const fail = stat?.fail ?? 0;
@@ -687,9 +722,11 @@ async function sourceHealth(): Promise<DataBridgeResult> {
         : "degraded";
     const updated = stat?.updated ?? null;
     return {
-      source,
-      market,
-      assetClass,
+      source: t.source,
+      market: t.market,
+      assetClass: t.assetClass,
+      capability: t.capability,
+      probeKind: t.probeKind,
       success,
       fail,
       total,
@@ -698,30 +735,38 @@ async function sourceHealth(): Promise<DataBridgeResult> {
       successRate: total === 0 ? null : Math.round((success / total) * 100) / 100,
       updatedAt: updated,
       staleSeconds: updated ? (Date.now() - Date.parse(updated)) / 1000 : null,
+      lastError: stat?.lastError ?? null,
+      // A fixture probe is deterministic offline evidence and must never be
+      // presented as live-provider health.
+      sourceOfTruth: t.probeKind === "fixture" ? "fixture" : "live smoke/production",
     };
   };
 
-  // Every declared (source, market, assetClass) the system CAN serve, so a known
-  // source with no runs reports `unknown` rather than being absent. Each target
-  // is emitted once (deduplicated), and a route with its OWN record is distinct
-  // from another route under the same market.
-  const declared = healthTargets();
+  // Every declared target the system CAN serve — the legacy quote axis plus the
+  // capability-specific axis — so a known route with no runs reports `unknown`
+  // rather than being absent. Each target is emitted once (deduplicated).
+  const declared: Array<{ source: string; market: string; assetClass: string; capability: string; probeKind: "live" | "fixture" }> = [
+    ...healthTargets(),
+    ...capabilityHealthTargets(),
+  ];
   const seen = new Set<string>();
   const out: ReturnType<typeof shape>[] = [];
   for (const t of declared) {
-    const key = `${t.source}|${t.market}|${t.assetClass}`;
+    const key = `${t.source}|${t.market}|${t.assetClass}|${t.capability}|${t.probeKind}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(shape(t.source, t.market, t.assetClass));
+    out.push(shape(t));
   }
 
   // Recorded combinations not in the registry (e.g. a provider that ran for a
-  // market the registry does not declare) are included under their own source.
+  // market/capability the registry does not declare) are included under their
+  // own source.
   for (const key of recorded.keys()) {
     if (seen.has(key)) continue;
     seen.add(key);
-    const [source, market, assetClass] = key.split("|");
-    out.push(shape(source, market, assetClass));
+    const info = meta.get(key)!;
+    const [source, market] = key.split("|");
+    out.push(shape({ source, market, ...info }));
   }
 
   if (out.length === 0) return { status: "OK", failureClass: "no_data", rows: [] };
@@ -756,21 +801,41 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
       /* leave counts empty — matrix reports null */
     }
 
-    // Observed health per market from recorded runs: any success ⇒ working,
-    // only failures ⇒ failing, mixed ⇒ degraded.
-    const observedByMarket: Record<string, "working" | "degraded" | "failing"> = {};
+    // Observed health PER CAPABILITY from recorded runs (WS3). Each
+    // (market × capability) is classified independently so a working quote never
+    // marks the statement/filings axis as working. Fixture probe rows are
+    // EXCLUDED — only live runs may claim observed working/failing health.
+    const observedByCapability: Record<string, "working" | "degraded" | "failing"> = {};
     const liveCheckedMarkets: string[] = [];
     try {
       const rows = await prisma.sourceHealth.groupBy({
-        by: ["market"],
+        by: ["market", "symbol"],
         _sum: { successCount: true, failCount: true },
       });
       for (const r of rows) {
+        const decoded = r.symbol === "*"
+          ? { assetClass: "*", capability: "quote", probeKind: "live" as const }
+          : decodeHealthKey(r.symbol);
+        if (decoded.probeKind === "fixture") continue;
+        // Map the internal capability id to a matrix axis name.
+        const axis =
+          decoded.capability === "live_quote" || decoded.capability === "quote" ? "quote"
+            : decoded.capability === "price_history" ? "history"
+            : decoded.capability === "fundamentals" || decoded.capability === "financial_statements" ? "fundamentals"
+            : decoded.capability === "sec_filings" ? "filings"
+            : "web";
+        const key = `${r.market}|${axis}`;
         const s = r._sum.successCount ?? 0;
         const f = r._sum.failCount ?? 0;
-        if (s > 0 && f === 0) observedByMarket[r.market] = "working";
-        else if (s > 0) observedByMarket[r.market] = "degraded";
-        else if (f > 0) observedByMarket[r.market] = "failing";
+        // Merge conservatively: any failure keeps a market degraded/failing.
+        const current = observedByCapability[key];
+        if (s > 0 && f === 0) {
+          if (current !== "degraded" && current !== "failing") observedByCapability[key] = "working";
+        } else if (s > 0) {
+          observedByCapability[key] = "degraded";
+        } else if (f > 0) {
+          observedByCapability[key] = "failing";
+        }
       }
     } catch {
       /* leave observed empty (unknown) */
@@ -800,6 +865,17 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
       multiMarketVendor = false;
     }
 
+    // A market-level overlay is kept only as a backwards-compatible fallback for
+    // markets with no capability-keyed rows yet.
+    const observedByMarket: Record<string, "working" | "degraded" | "failing"> = {};
+    for (const [key, health] of Object.entries(observedByCapability)) {
+      const market = key.split("|")[0];
+      const current = observedByMarket[market];
+      if (health === "working" && (!current || current === "working")) observedByMarket[market] = "working";
+      else if (health === "degraded") observedByMarket[market] = "degraded";
+      else if (health === "failing" && current !== "degraded") observedByMarket[market] = current ?? "failing";
+    }
+
     // Web routes are available when the keyless fetch transport is usable (it
     // always is — it is built in); a keyed search provider is an addition.
     const webAvailable = true;
@@ -807,6 +883,7 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
     const matrix = buildCapabilityMatrix({
       universeCounts,
       observedByMarket,
+      observedByCapability,
       liveCheckedMarkets,
       fundamentalsAvailability: { usFilings, keylessVendor, multiMarketVendor },
       webAvailable,
@@ -880,10 +957,14 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
         result.status === "network_error" || result.status === "timeout"
           ? "source_failure"
           : "no_data";
-      void recordHealth(result.source ?? "scraper", identity.market, identity.assetClass, false, result.error);
+      void recordHealth(
+        result.source ?? "scraper", identity.market, identity.assetClass, false, result.error, "live_quote"
+      );
       return unavailableClass(cls, result.error);
     }
-    void recordHealth(result.source ?? "scraper", identity.market, identity.assetClass, true);
+    void recordHealth(
+      result.source ?? "scraper", identity.market, identity.assetClass, true, undefined, "live_quote"
+    );
 
     // The provider must have answered for the SAME instrument. A currency or
     // venue disagreement means it priced something else — discard it rather

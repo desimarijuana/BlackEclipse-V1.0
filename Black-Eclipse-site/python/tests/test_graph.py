@@ -489,6 +489,82 @@ async def test_forbidden_tool_is_recorded_as_error_but_run_completes(store, monk
 
 
 @pytest.mark.asyncio
+async def test_explicit_remember_is_captured_deterministically(store, monkeypatch):
+    """An explicit "remember this" is persisted through the service even though
+    the (scripted) model never calls the memory tool — the deterministic path."""
+    from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
+
+    directory = tempfile.mkdtemp(prefix="be-graph-mem-")
+    memory = EclipseMemoryService(EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db")))
+    model = ScriptedModel([AIMessage(content="Got it.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    req = RunRequest(
+        runId="run_remember",
+        input=RunInput(query="Remember that I prefer terse answers"),
+        agentId="eclipse-agent",
+        userId="u1",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    try:
+        result = await graph_module.execute_run(
+            req, registry(), FakeBridge({"status": "UNAVAILABLE"}), store, memory_service=memory
+        )
+        assert result.status == "completed"
+        assert result.memory and result.memory.get("action") == "saved"
+        assert result.memory.get("memoryId")
+        rows = memory.store.list_memories()
+        assert any("terse answers" in r["content"] and r["memoryType"] == "preference" for r in rows)
+        # Persisted on the run too, so the UI reads it after restart.
+        assert store.get_run("run_remember")["memory"]["action"] == "saved"
+    finally:
+        memory.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_secret_is_refused_not_stored(store, monkeypatch):
+    from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
+
+    directory = tempfile.mkdtemp(prefix="be-graph-mem2-")
+    memory = EclipseMemoryService(EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db")))
+    model = ScriptedModel([AIMessage(content="Understood.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    req = RunRequest(
+        runId="run_secret",
+        input=RunInput(query="Remember my API key is sk-abcdefghijklmnopqrstuvwxyz"),
+        agentId="eclipse-agent",
+        userId="u1",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    try:
+        result = await graph_module.execute_run(
+            req, registry(), FakeBridge({"status": "UNAVAILABLE"}), store, memory_service=memory
+        )
+        assert result.memory and result.memory.get("action") == "refused"
+        assert memory.store.list_memories() == []
+    finally:
+        memory.close()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_chat_records_learning_eligibility(store, monkeypatch):
+    model = ScriptedModel([AIMessage(content="AAPL trades at 237.42.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+    )
+    assert result.status == "completed"
+    assert result.memory is not None
+    eligibility = result.memory["learningEligibility"]
+    assert eligibility["eligible"] is False
+    assert "no tool use" in eligibility["reason"]
+    assert eligibility["learnQueuePath"]
+
+
+@pytest.mark.asyncio
 async def test_unavailable_data_yields_honest_tool_ok(store, monkeypatch):
     # An UNAVAILABLE bridge response is an HONEST tool result (ok), not an error:
     # the tool deliberately reports "no data" instead of inventing a price.

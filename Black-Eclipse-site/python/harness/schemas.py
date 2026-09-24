@@ -133,6 +133,11 @@ class RunResult(BaseModel):
     # gated run. Absent/None for ordinary chat and for older persisted rows, so
     # existing clients remain compatible.
     research: Optional[dict[str, Any]] = None  # noqa: N815
+    # Phase 3-M Reliability (additive, optional): the deterministic outcome of
+    # explicit user memory intent for this turn (saved/forgotten/corrected/
+    # refused/needs_confirmation) and whether the run is eligible to become a
+    # learning candidate. Absent for skill runs and older rows.
+    memory: Optional[dict[str, Any]] = None  # noqa: N815
 
 
 EventLiteral = Literal[

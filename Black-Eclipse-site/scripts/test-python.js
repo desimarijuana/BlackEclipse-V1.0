@@ -38,14 +38,30 @@ if (!py) {
 // `node scripts/test-python.js smoke` runs the OPERATOR-TRIGGERED live smoke
 // checks, which contact real external providers. They are deliberately separate
 // from the default offline suite: never part of `npm test`.
+// The vendored interpreter ships a `python312._pth` that disables implicit
+// sys.path[0] insertion, so `-m harness.*` cannot resolve the package from cwd
+// alone. Set PYTHONPATH explicitly for every child (pytest and the smoke runner)
+// so the vendored and system interpreters behave identically.
+const childEnv = { ...process.env, PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : "") };
+
 if (process.argv.includes("smoke")) {
   console.log("[test] Running live network smoke checks (contacts real providers)…");
-  const smoke = spawnSync(py, ["-m", "harness.research.smoke"], {
+  // The vendored interpreter ships a `python312._pth` that ignores PYTHONPATH and
+  // cwd, so `-m harness.*` cannot resolve the package. Inject the path explicitly
+  // and call the runner, which works identically for vendored and system pythons.
+  const launcher = [
+    "import sys",
+    `sys.path.insert(0, ${JSON.stringify(pythonDir)})`,
+    "from harness.research.smoke import main",
+    "sys.exit(main())",
+  ].join("; ");
+  const smoke = spawnSync(py, ["-c", launcher], {
     stdio: "inherit",
     cwd: pythonDir,
+    env: childEnv,
   });
   process.exit(smoke.status ?? 1);
 }
 
-const result = spawnSync(py, ["-m", "pytest", pythonDir], { stdio: "inherit", cwd: root });
+const result = spawnSync(py, ["-m", "pytest", pythonDir], { stdio: "inherit", cwd: root, env: childEnv });
 process.exit(result.status ?? 1);

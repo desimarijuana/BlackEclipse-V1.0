@@ -415,6 +415,69 @@ async def execute_skill(
     )
 
 
+def list_invocable_skills(registry: SkillRegistry) -> list[dict[str, Any]]:
+    """Enabled, executable skills the agent may deliberately invoke from chat.
+
+    Metadata-only (progressive disclosure): the model chooses from id/name/
+    description + declared tools, and full instructions load only on execution.
+    """
+    out: list[dict[str, Any]] = []
+    for manifest in registry.all_manifests():
+        stored = registry.store.get_skill(manifest.id)
+        status = stored["status"] if stored else manifest.status
+        if status != "enabled":
+            continue
+        out.append({
+            "id": manifest.id,
+            "name": manifest.name,
+            "description": manifest.description,
+            "category": manifest.category,
+            "version": registry.resolve_version(manifest.id),
+            "requiredTools": manifest.requiredTools,
+            "inputSchema": manifest.inputSchema,
+        })
+    return out
+
+
+async def invoke_skill_from_run(
+    *,
+    skill_id: str,
+    input_data: dict[str, Any],
+    parent_run_id: str,
+    tool_registry: ToolRegistry,
+    data_bridge: DataBridge,
+    memory_store: AgentMemoryStore,
+    skill_registry: SkillRegistry,
+    model_settings: ModelSettings,
+    user_id: Optional[str] = None,
+    bus: Optional[Any] = None,
+    emitter: Optional[Any] = None,
+    memory_service: Optional[Any] = None,
+    timeout_ms: Optional[int] = None,
+) -> SkillExecutionResult:
+    """Invoke an enabled skill as a controlled CHILD of the current run.
+
+    This is the explicit orchestration seam: the model selects from enabled,
+    compatible skills only; execution uses the existing `execute_skill` runtime
+    (allowlist + permissions enforced in code), preserves the parent run id and
+    trace, and returns a structured result the caller can surface. A skill can
+    never widen the agent's tools or permissions through this path.
+    """
+    request = SkillExecutionRequest(
+        skillId=skill_id,
+        input=input_data,
+        parentRunId=parent_run_id,
+        executionMode="agent",
+        userId=user_id,
+        modelSettings=model_settings,
+        timeoutMs=timeout_ms,
+    )
+    return await execute_skill(
+        request, skill_registry, tool_registry, data_bridge, memory_store,
+        bus=bus, emitter=emitter, memory_service=memory_service,
+    )
+
+
 def _compose_system_prompt(manifest: Any, instructions: str, order: list[tuple[str, str]]) -> str:
     """Compose the skill's system prompt.
 

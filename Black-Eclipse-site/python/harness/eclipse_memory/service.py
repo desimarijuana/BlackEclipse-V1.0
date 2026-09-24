@@ -243,6 +243,133 @@ class EclipseMemoryService:
     def record_mistake(self, mistake: dict[str, Any]) -> str:
         return self.store.save_mistake(mistake)
 
+    # ── Explicit user intent (deterministic post-run path) ──────────────────
+
+    def apply_explicit_intent(
+        self,
+        intent: Any,
+        *,
+        run_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Persist (or act on) a detected explicit user intent.
+
+        `intent` is a `MemoryIntent` (or its dict). Persistence always goes
+        through `write_memory` (type/scope/dedupe/evidence/audit). A refused or
+        confirmation-pending intent NEVER writes — it is returned as an honest
+        outcome for the caller to surface.
+
+        Outcomes:
+          * save   → `{action: "saved", memory: {...}, requiresConfirmation: False}`
+          * correct→ supersedes the prior memory (never hard-deletes) + writes a
+                     correction memory
+          * forget → archives the matching memory(ies) (never hard-deletes)
+          * refused/confirm → `{action: "refused"|"needs_confirmation", ...}`
+        """
+        from .intent import MemoryIntent
+
+        if isinstance(intent, dict):
+            intent = MemoryIntent(
+                action=intent.get("action"),
+                content=intent.get("content") or "",
+                memory_type=intent.get("memoryType") or intent.get("memory_type") or "semantic",
+                scope=intent.get("scope") or "general",
+                scope_id=intent.get("scopeId") or intent.get("scope_id"),
+                subject=intent.get("subject"),
+                confidence=float(intent.get("confidence", 0.8)),
+                requires_confirmation=bool(intent.get("requiresConfirmation")),
+                refused=bool(intent.get("refused")),
+                reason=intent.get("reason") or "",
+                matched_phrase=intent.get("matchedPhrase") or "",
+                generalizable=bool(intent.get("generalizable")),
+                metadata=intent.get("metadata") or {},
+            )
+
+        if intent.refused:
+            self.store.append_memory_event(
+                "memory.intent_refused", run_id=run_id,
+                data={"action": intent.action, "reason": intent.reason},
+            )
+            return {"ok": False, "action": "refused", "reason": intent.reason}
+
+        if intent.requires_confirmation:
+            self.store.append_memory_event(
+                "memory.intent_needs_confirmation", run_id=run_id,
+                data={"action": intent.action, "reason": intent.reason},
+            )
+            return {
+                "ok": False, "action": "needs_confirmation",
+                "reason": intent.reason, "intent": intent.to_dict(),
+            }
+
+        scope_id = intent.scope_id or (user_id if intent.scope == "user" else None)
+
+        if intent.action == "save":
+            memory = self.write_memory(
+                memory_type=intent.memory_type, content=intent.content,
+                source="explicit_user", scope=intent.scope, scope_id=scope_id,
+                subject=intent.subject, source_run_id=run_id,
+                confidence=intent.confidence,
+                verification="unverified", created_by=user_id or "user",
+            )
+            self.store.append_memory_event(
+                "memory.explicit_saved", memory_id=memory["id"], run_id=run_id,
+                data={"matchedPhrase": intent.matched_phrase},
+            )
+            return {"ok": True, "action": "saved", "memory": memory}
+
+        if intent.action == "correct":
+            target = self._find_target_memory(intent, scope_id)
+            result = self.record_correction(
+                wrong=(intent.metadata.get("priorAssistantText") or "").strip()
+                or (target["content"] if target else ""),
+                correction=intent.content,
+                subject=intent.subject, run_id=run_id,
+                provided_by=user_id or "user", scope=intent.scope,
+                generalizable=intent.generalizable,
+            )
+            if target:
+                # Never hard-delete: supersede + link, history retained.
+                self.store.supersede_memory(target["id"], result["memory"]["id"])
+            return {"ok": True, "action": "corrected", "memory": result["memory"],
+                    "superseded": target["id"] if target else None}
+
+        if intent.action == "forget":
+            archived = self._forget_matching(intent, scope_id, run_id=run_id)
+            return {"ok": True, "action": "forgotten", "archived": archived}
+
+        return {"ok": False, "action": "unsupported", "reason": f"unknown action {intent.action!r}"}
+
+    def _find_target_memory(self, intent: Any, scope_id: Optional[str]) -> Optional[dict[str, Any]]:
+        result = self.retrieve(
+            query=intent.content, subject=intent.subject,
+            scope_id=scope_id, actor_scope="user" if scope_id else None,
+            limit=1, run_id=None,
+        )
+        return result.memories[0] if result.memories else None
+
+    def _forget_matching(
+        self, intent: Any, scope_id: Optional[str], *, run_id: Optional[str]
+    ) -> list[str]:
+        """Archive the memories a forget request targets (never hard-delete)."""
+        query = (intent.metadata.get("target") or intent.content or "").strip()
+        if not query:
+            return []
+        result = self.retrieve(
+            query=query, subject=intent.subject,
+            scope_id=scope_id, actor_scope="user" if scope_id else None,
+            limit=5, run_id=run_id,
+        )
+        archived: list[str] = []
+        for memory in result.memories:
+            self.store.archive_memory(memory["id"], status="archived")
+            self.store.append_memory_event(
+                "memory.explicit_forgotten", memory_id=memory["id"], run_id=run_id,
+                data={"query": query[:200]},
+            )
+            archived.append(memory["id"])
+        return archived
+
     # ── Post-run analysis (policy-gated, deterministic, never auto-enables) ──
 
     def analyze_run(

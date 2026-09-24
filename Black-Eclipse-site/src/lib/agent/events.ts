@@ -27,7 +27,7 @@ export type HarnessUiEvent =
       /** Short user-safe result summary (e.g. "3 records") when reported. */
       summary?: string;
     }
-  | { kind: 'final'; output?: string; error?: string; status?: string; research?: unknown }
+  | { kind: 'final'; output?: string; error?: string; status?: string; research?: unknown; memory?: unknown; runId?: string }
   | { kind: 'error'; message: string; code?: string };
 
 /**
@@ -150,6 +150,8 @@ export function normalizeHarnessEvent(
       error: str(payload.error),
       status: str(payload.status),
       research: payload.research ?? undefined,
+      memory: payload.memory ?? undefined,
+      runId: str(payload.runId),
     };
   }
 

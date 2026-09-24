@@ -73,14 +73,44 @@ const TRADINGVIEW_QUOTE_MARKETS = new Set(Object.keys(MARKET_SLUG));
 const LIVE_QUOTE_MARKETS = new Set([...TRADINGVIEW_QUOTE_MARKETS, "US", "CRYPTO", "FX"]);
 
 /**
- * Official filing/regulator routes by market. SEC covers US issuers. For every
- * other market the route is NOT IMPLEMENTED here (local regulator/exchange
- * filing systems are a future adapter), which the matrix states rather than
- * implying SEC or a search engine stands in for it. `web` research may still
- * find a filing; that is a different (bounded, snippet-caveated) route.
+ * Official filing/regulator routes by market.
+ *
+ * `configured` = a direct structured/bridge route exists for this market.
+ * `unconfigured` = the local regulator/exchange filing system is a RECOGNISED
+ *   route (the market's real filing authority) but has no direct structured
+ *   adapter here; it is reachable only through bounded web research into that
+ *   regulator, and — for the credential-gated ones (Korea DART API) — needs an
+ *   operator-supplied key that is currently absent. The matrix names the actual
+ *   system rather than pretending SEC or a search engine stands in for it.
+ *
+ * A missing credential disables ONLY that route; issuer IR / structured vendors
+ * / bounded secondary web remain eligible (WS4). `not_implemented` is reserved
+ * for markets with no known filing authority at all.
  */
-const FILING_ROUTES: Record<string, { level: CapabilityLevel; via?: string }> = {
+export const FILING_ROUTES: Record<string, { level: CapabilityLevel; via?: string }> = {
   US: { level: "configured", via: "SEC EDGAR (data.sec.gov XBRL + filing index)" },
+  TW: { level: "unconfigured", via: "Taiwan MOPS (公開資訊觀測站) — web research route; no direct adapter" },
+  KR: { level: "unconfigured", via: "Korea DART — web route; direct API needs a DART key (absent)" },
+  IN: { level: "unconfigured", via: "India BSE/NSE — web research route; no direct adapter" },
+  PK: { level: "unconfigured", via: "Pakistan PSX — web research route; no direct adapter" },
+  BR: { level: "unconfigured", via: "Brazil CVM/B3 — web research route; no direct adapter" },
+  JP: { level: "unconfigured", via: "Japan TDnet/EDINET — web research route; no direct adapter" },
+  UK: { level: "unconfigured", via: "UK Companies House — web research route; no direct adapter" },
+  DE: { level: "unconfigured", via: "Germany Bundesanzeiger — web research route; no direct adapter" },
+  FR: { level: "unconfigured", via: "France AMF — web research route; no direct adapter" },
+  HK: { level: "unconfigured", via: "HKEXnews — web research route; no direct adapter" },
+  CN: { level: "unconfigured", via: "SSE/SZSE — web research route; no direct adapter" },
+  CA: { level: "unconfigured", via: "Canada SEDAR+ — web research route (bot-walled); no direct adapter" },
+  AU: { level: "unconfigured", via: "Australia ASX — web research route; no direct adapter" },
+  SG: { level: "unconfigured", via: "Singapore SGX — web research route; no direct adapter" },
+  MY: { level: "unconfigured", via: "Bursa Malaysia — web research route; no direct adapter" },
+  TH: { level: "unconfigured", via: "Thailand SET — web research route; no direct adapter" },
+  ID: { level: "unconfigured", via: "Indonesia IDX — web research route; no direct adapter" },
+  SA: { level: "unconfigured", via: "Saudi Tadawul — web research route; no direct adapter" },
+  AE: { level: "unconfigured", via: "UAE ADX/DFM — web research route; no direct adapter" },
+  ZA: { level: "unconfigured", via: "South Africa JSE — web research route; no direct adapter" },
+  TR: { level: "unconfigured", via: "Borsa Istanbul — web research route; no direct adapter" },
+  MX: { level: "unconfigured", via: "Mexico BMV — web research route; no direct adapter" },
   // EU issuers with US cross-listings can appear in SEC; that is issuer-specific,
   // not a market-level guarantee, so it is not advertised per-market here.
 };
@@ -90,6 +120,14 @@ export interface CapabilityInputs {
   universeCounts?: Record<string, number>;
   /** Markets with at least one recorded live success (from SourceHealth). */
   observedByMarket?: Record<string, ObservedHealth>;
+  /**
+   * Observed health PER capability, keyed `<market>|<capability>` where
+   * capability ∈ quote/history/fundamentals/filings/web. When present this is
+   * authoritative for the matching axis: a working quote never lends its health
+   * to the statement or filings axes (WS3). Missing keys fall back to
+   * `observedByMarket` for backwards compatibility.
+   */
+  observedByCapability?: Record<string, ObservedHealth>;
   /** Markets with a recorded live smoke check. */
   liveCheckedMarkets?: string[];
   /** Fundamentals providers usable right now. */
@@ -112,6 +150,8 @@ export interface CapabilityInputs {
 export function buildCapabilityMatrix(inputs: CapabilityInputs = {}): MarketCapabilities[] {
   const counts = inputs.universeCounts ?? {};
   const observed = inputs.observedByMarket ?? {};
+  const observedByCapability = inputs.observedByCapability ?? {};
+  const hasCapabilityHealth = Object.keys(observedByCapability).length > 0;
   const liveChecked = new Set(inputs.liveCheckedMarkets ?? []);
   const fa = inputs.fundamentalsAvailability ?? { usFilings: false, keylessVendor: false, multiMarketVendor: false };
   const web = inputs.webAvailable ?? true;
@@ -129,8 +169,12 @@ export function buildCapabilityMatrix(inputs: CapabilityInputs = {}): MarketCapa
   for (const market of markets) {
     const entry = COVERAGE[market];
     const assetClasses = entry?.assetClasses ?? [];
-    const hasUniverse = (counts[market] ?? 0) > 0;
     const obs = observed[market] ?? "unknown";
+    // Per-axis observed health (WS3). When capability-keyed health is supplied
+    // it is authoritative for that axis; otherwise fall back to the market-level
+    // overlay for backwards compatibility.
+    const obsFor = (capability: string): ObservedHealth =>
+      observedByCapability[`${market}|${capability}`] ?? (hasCapabilityHealth ? "unknown" : obs);
     const isLiveQuote = LIVE_QUOTE_MARKETS.has(market);
     const isStatementMarket = (entry?.dataTypes ?? []).includes("financial_statements");
 
@@ -169,11 +213,11 @@ export function buildCapabilityMatrix(inputs: CapabilityInputs = {}): MarketCapa
       currency: MARKET_CURRENCY_ISO[market] ?? "USD",
       assetClasses,
       universe: market in counts ? counts[market] : null,
-      quote: { level: quoteLevel, via: quoteVia, observed: obs },
-      history: { level: historyLevel, via: isLiveQuote ? (quoteVia ?? "structured history") : undefined, observed: obs },
-      fundamentals: { level: fundLevel, via: fundVia, observed: isStatementMarket ? obs : "unknown" },
-      filings,
-      web: webAxis,
+      quote: { level: quoteLevel, via: quoteVia, observed: obsFor("quote") },
+      history: { level: historyLevel, via: isLiveQuote ? (quoteVia ?? "structured history") : undefined, observed: obsFor("history") },
+      fundamentals: { level: fundLevel, via: fundVia, observed: isStatementMarket ? obsFor("fundamentals") : "unknown" },
+      filings: { ...filings, observed: obsFor("filings") },
+      web: { ...webAxis, observed: obsFor("web") },
       liveChecked: liveChecked.has(market),
     });
   }

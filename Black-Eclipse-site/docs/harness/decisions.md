@@ -559,6 +559,90 @@ failure must not be generalized to "all countries".
 **Consequences.** The Skills UI shows the affected scope and linked diagnostics;
 an unreviewed candidate cannot influence live behavior (regression-tested).
 
+## ADR-H33 — Memory/skills DB path is repo-rooted; legacy stores reconcile non-destructively
+
+**Decision.** `eclipse-memory.db` (and `agent-memory.db`) default to the
+repository root (`Black-Eclipse-site/`), NOT the process working directory;
+`ECLIPSE_MEMORY_DB_PATH` / `AGENT_MEMORY_DB_PATH` remain explicit overrides.
+`GET /health` reports the resolved path plus a non-secret identity (path hash).
+On open of the stable default, a one-time non-destructive reconciliation copies
+rows forward from a legacy `<cwd>`/`python/` database when the stable one is
+empty, using `INSERT OR IGNORE` and never touching the source.
+
+**Why.** The runtime is spawned from the repo root, but a manual `uvicorn
+--app-dir python`, a pytest run, or any tool started from `python/` resolved a
+different file. The repo held TWO `eclipse-memory.db` files (root: memories +
+skills; `python/`: skills only), so a runtime launched from a different cwd read
+and wrote a different memory store.
+
+**Consequences.** One stable application-data location across launch dirs; a
+mismatch is observable in health. A source database is never deleted or
+overwritten; a populated stable database skips reconciliation entirely.
+
+## ADR-H34 — Explicit memory intent is detected deterministically, never auto-published
+
+**Decision.** Explicit user phrases ("remember this", "save this preference",
+"always do X", "for this ticker", "forget this", "correct this", "turn this into
+a skill") are detected by a deterministic classifier (`eclipse_memory/intent.py`)
+before the model turn, independent of whether the model calls the `memory` tool.
+Clear, safe saves/forgets/corrections are written through
+`EclipseMemoryService`; refusals (secrets/credentials, sensitive identifiers,
+raw dumps, policy-override attempts) and unclear scope are NEVER written.
+Forget/correct archive/supersede — never hard-delete.
+
+**Why.** Normal chat relied on the model voluntarily calling `memory`; durable
+preferences stated in plain language were often lost. Auto-capture was disabled
+by default, so nothing deterministic filled the gap.
+
+**Consequences.** Every explicit action emits an auditable `memory.*` event and
+returns a visible confirmation with scope + inspect/undo links. Automatic capture
+remains OFF by default (no auto-capture of every turn); the deterministic path
+runs only for explicit intent.
+
+## ADR-H35 — Learning is automatic for eligible runs; drafts carry real procedures
+
+**Decision.** Completed ordinary chat runs (not just skill runs) are analyzed
+automatically after the run (`auto_candidate_detection` default **on**): the
+deterministic, criteria-driven analyzer creates inert learning candidates
+without the user asking, and the run's `memory` blob reports
+`learningEligibility.autoCaptured` + `learningAnalysis.candidatesCreated` for the
+UI. Candidates are deduplicated by signature (bounded queue) and are NEVER
+enabled/promoted. The explicit "Learn from this run" action remains for cases
+auto-detection does not cover (e.g. an explicit turn-into-skill request on a run
+with no tool trace), and an explicit request always yields an inert candidate.
+Candidate → draft generation produces a complete `SKILL.md` (procedure steps,
+typed input/output assumptions, existing safe tools only, source-run provenance,
+limitations, evaluation cases) while remaining `status: draft` /
+`evaluationStatus: not_evaluated`. When the trace has no evidence for a real
+procedure, the draft says so and stays a manual-authoring candidate.
+
+**Why.** Drafts were manifest-only (`instructions: None`), so "turn this into a
+skill" produced an unusable artifact; ordinary chat runs could not become
+learning candidates; and requiring the user to manually trigger learning meant
+successful work routinely never became a candidate.
+
+**Consequences.** No automatic skill enablement/promotion/permission expansion —
+the hard rule is preserved (the policy `auto_promote_low_risk` stays locked
+off). Automatic learning at most creates inert records; a draft is stored as an
+inert version and only evaluation + operator approval can enable it. Operators
+can disable detection entirely via `auto_candidate_detection=false`.
+
+## ADR-H36 — Chat can explicitly invoke an enabled skill as a controlled sub-run
+
+**Decision.** A `skill_invoke` tool lets the model deliberately run ONE enabled,
+compatible skill from chat. Execution uses the existing
+`SkillExecutionRequest`/`execute_skill` runtime, preserves `parentRunId` and the
+trace, enforces the skill's tool allowlist and the default-deny permission policy
+in code, and returns the child run's events/results. Discovery (`skill_list` /
+`skill_view`) does not equal invocation.
+
+**Why.** The runtime could discover and view skills but ordinary chat had no safe
+way to actually run one; pretending discovery equals use was misleading.
+
+**Consequences.** A skill can never widen the agent's tools or grants through
+this path; only enabled skills are invocable; the child's `skill.*` events ride
+the parent's SSE stream.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack

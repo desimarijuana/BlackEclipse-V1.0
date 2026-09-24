@@ -73,6 +73,16 @@ def health() -> dict[str, Any]:
         "defaultAgentId": DEFAULT_AGENT_ID,
         "providers": [p["id"] for p in list_providers()],
         "retrieval": service.retrieval_metrics(),
+        # The RESOLVED memory/skills database path + non-secret identity. This is
+        # what makes a cwd-mismatch observable instead of silent. Deliberately
+        # lighter than /eclipse-memory/health (no integrity_check) because this
+        # endpoint is polled by the launcher.
+        "eclipseMemory": {
+            **service.memory.store.db.identity_summary(),
+            "schemaVersion": service.memory.store.migration_status()["schemaVersion"],
+            "upToDate": service.memory.store.migration_status()["upToDate"],
+        },
+        "runStore": {"path": service.store.path},
         "skills": {
             "installed": len(service.skill_registry.all_manifests()),
             "loadErrors": service.skill_load_errors,
@@ -754,8 +764,24 @@ def learn_from_run(run_id: str, payload: Optional[dict[str, Any]] = None) -> dic
     result = capture_from_run(
         run_id, service.store, service.skill_store,
         actor_is_operator=bool(payload.get("operator")),
+        user_intent=str(payload.get("userIntent") or ""),
     )
     return {"success": result.get("ok", False), **result}
+
+
+@app.get("/learning/eligibility/{run_id}")
+def learning_eligibility(run_id: str) -> dict[str, Any]:
+    """Why a run is (or is not) a learning candidate — read-only, no creation.
+
+    Surfaces the same deterministic eligibility logic the runtime records on the
+    run, so the chat UI can show the reason and link to the Learning Queue.
+    """
+    from .graph import learning_eligibility_for_run
+
+    run = service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"success": True, **learning_eligibility_for_run(run_id, service.store)}
 
 
 @app.post("/learning/candidates/{candidate_id}/generate-draft")
@@ -763,7 +789,10 @@ def generate_draft(candidate_id: str, payload: Optional[dict[str, Any]] = None) 
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
-    result = propose_draft(candidate_id, service.skill_store, available_tools=service.registry.names())
+    result = propose_draft(
+        candidate_id, service.skill_store, available_tools=service.registry.names(),
+        user_intent=payload.get("userIntent"),
+    )
     return {"success": result.get("ok", False), **result}
 
 

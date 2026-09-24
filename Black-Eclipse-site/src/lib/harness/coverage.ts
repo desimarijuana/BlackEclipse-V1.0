@@ -106,21 +106,73 @@ export interface HealthTarget {
   source: string;
   market: string;
   assetClass: AssetClass;
+  /**
+   * The data capability this health row is about. A route is only meaningful
+   * per-capability: `yfinance · US · equity · live_quote` succeeding says
+   * NOTHING about `yfinance · US · equity · financial_statements`. Before this,
+   * health was keyed by (source × market × assetClass) only, so a working quote
+   * was indistinguishable from a working statement route. `quote` is the
+   * legacy default for pre-existing rows.
+   */
+  capability: string;
+  /**
+   * How the health was observed. `fixture` rows come from deterministic offline
+   * tests; `live` rows come from real provider smoke/production runs. A fixture
+   * must never be presented as live-provider health.
+   */
+  probeKind: "live" | "fixture";
 }
 
-/** The declared source registry per market × asset class. */
+/**
+ * The capabilities that require their OWN health record. A capability is listed
+ * with the source ids that may serve it; each becomes a declared target that
+ * reports `unknown` until it has recorded runs.
+ */
+const CAPABILITY_TARGETS: Array<{ capability: string; sources: string[] }> = [
+  { capability: "live_quote", sources: ["LIVE_STRUCTURED"] },
+  { capability: "price_history", sources: ["LIVE_STRUCTURED"] },
+  { capability: "fundamentals", sources: ["JDDS", "LIVE_STRUCTURED"] },
+  { capability: "financial_statements", sources: ["JDDS", "LIVE_STRUCTURED", "SEC"] },
+  { capability: "sec_filings", sources: ["SEC"] },
+  { capability: "news", sources: ["WEB"] },
+  { capability: "web_search", sources: ["WEB"] },
+  { capability: "web_fetch", sources: ["WEB"] },
+];
+
+/** The declared source registry per market × asset class (legacy quote axis). */
 export function healthTargets(): HealthTarget[] {
   const out: HealthTarget[] = [];
   for (const entry of Object.values(COVERAGE)) {
     for (const assetClass of entry.assetClasses) {
       for (const source of entry.sources) {
-        out.push({ source, market: entry.market, assetClass });
+        out.push({ source, market: entry.market, assetClass, capability: "quote", probeKind: "live" });
       }
     }
   }
   // FX and crypto live on the live structured path.
   for (const [market, assetClass] of [["FX", "fx"], ["CRYPTO", "crypto"]] as const) {
-    out.push({ source: "LIVE_STRUCTURED", market, assetClass });
+    out.push({ source: "LIVE_STRUCTURED", market, assetClass, capability: "live_quote", probeKind: "live" });
+  }
+  return out;
+}
+
+/**
+ * The declared capability-specific health targets: one row per
+ * (source × market × assetClass × capability). This is what lets the UI say
+ * "quote works, statements untested" instead of one blended verdict. Equity
+ * markets get the full capability set; every declared target with zero runs
+ * stays `unknown`.
+ */
+export function capabilityHealthTargets(): HealthTarget[] {
+  const out: HealthTarget[] = [];
+  for (const entry of Object.values(COVERAGE)) {
+    for (const assetClass of entry.assetClasses) {
+      for (const { capability, sources } of CAPABILITY_TARGETS) {
+        for (const source of sources) {
+          out.push({ source, market: entry.market, assetClass, capability, probeKind: "live" });
+        }
+      }
+    }
   }
   return out;
 }

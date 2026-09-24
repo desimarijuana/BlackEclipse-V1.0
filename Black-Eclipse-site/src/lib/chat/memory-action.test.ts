@@ -1,0 +1,77 @@
+import { describe, expect, it } from 'vitest';
+import { buildMemoryRunView } from './memory-action';
+
+describe('buildMemoryRunView', () => {
+  it('returns null for absent/non-object input', () => {
+    expect(buildMemoryRunView(undefined)).toBeNull();
+    expect(buildMemoryRunView(null)).toBeNull();
+    expect(buildMemoryRunView('nope')).toBeNull();
+    expect(buildMemoryRunView([])).toBeNull();
+    expect(buildMemoryRunView({})).toBeNull();
+  });
+
+  it('maps a saved action with inspect + undo', () => {
+    const view = buildMemoryRunView({
+      action: 'saved',
+      contentPreview: 'User prefers terse answers',
+      memoryType: 'preference',
+      scope: 'user',
+      inspectPath: '/api/eclipse-memory/memories/mem_1',
+      undoPath: '/api/eclipse-memory/memories/mem_1/archive',
+    });
+    expect(view?.action?.kind).toBe('saved');
+    expect(view?.action?.headline).toBe('Remembered');
+    expect(view?.action?.inspectPath).toContain('mem_1');
+    expect(view?.action?.undoPath).toContain('archive');
+  });
+
+  it('maps a refusal honestly (no inspect link)', () => {
+    const view = buildMemoryRunView({ action: 'refused', reason: 'looks like a secret' });
+    expect(view?.action?.kind).toBe('refused');
+    expect(view?.action?.headline).toBe('Not saved');
+    expect(view?.action?.reason).toContain('secret');
+    expect(view?.action?.inspectPath).toBeUndefined();
+  });
+
+  it('maps needs_confirmation without a save', () => {
+    const view = buildMemoryRunView({ action: 'needs_confirmation', reason: 'sensitive' });
+    expect(view?.action?.kind).toBe('needs_confirmation');
+  });
+
+  it('surfaces learning eligibility and always provides the queue path', () => {
+    const view = buildMemoryRunView({
+      learningEligibility: { eligible: false, reason: 'no tool use', learnQueuePath: '/api/learning/candidates' },
+    });
+    expect(view?.eligibility?.eligible).toBe(false);
+    expect(view?.eligibility?.learnQueuePath).toBe('/api/learning/candidates');
+    expect(view?.eligibility?.autoCaptured).toBe(false);
+  });
+
+  it('surfaces automatic capture with the created-candidate count', () => {
+    const view = buildMemoryRunView({
+      learningEligibility: { eligible: true, reason: 'automatically captured a reusable lesson', autoCaptured: true },
+      learningAnalysis: { candidatesCreated: 2 },
+    });
+    expect(view?.eligibility?.autoCaptured).toBe(true);
+    expect(view?.eligibility?.candidatesCreated).toBe(2);
+  });
+
+  it('defaults the queue path when the backend omits it', () => {
+    const view = buildMemoryRunView({ learningEligibility: { eligible: true, reason: 'multi-step' } });
+    expect(view?.eligibility?.learnQueuePath).toBe('/api/learning/candidates');
+  });
+
+  it('combines an action and eligibility', () => {
+    const view = buildMemoryRunView({
+      action: 'skill_requested',
+      learningEligibility: { eligible: true, reason: 'the user asked', skillRequested: true },
+    });
+    expect(view?.action?.kind).toBe('skill_requested');
+    expect(view?.eligibility?.skillRequested).toBe(true);
+  });
+
+  it('ignores unknown action names', () => {
+    const view = buildMemoryRunView({ action: 'something_new' });
+    expect(view).toBeNull();
+  });
+});

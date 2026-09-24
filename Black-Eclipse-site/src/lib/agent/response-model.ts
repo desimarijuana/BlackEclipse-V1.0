@@ -62,6 +62,19 @@ export interface AssistantTurn {
    * it via `ResearchRunInfo`.
    */
   research?: unknown;
+  /**
+   * Phase 3-M Reliability: explicit memory-intent outcome + learning-eligibility
+   * for an ordinary chat run. `undefined` when the turn had no memory action and
+   * the eligibility metadata is absent. Typed loosely to keep the client model
+   * free of a harness-runtime dependency.
+   */
+  memory?: unknown;
+  /**
+   * The harness run id for this turn. Carried so the chat surface can offer the
+   * explicit "Learn from this run" action and read run-scoped diagnostics
+   * (eligibility, events) from the originating turn.
+   */
+  runId?: string;
   /** True once a terminal state has been reached. */
   done: boolean;
 }

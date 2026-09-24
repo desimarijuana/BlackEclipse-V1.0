@@ -33,7 +33,11 @@ def env():
 
 def test_policy_defaults(env):
     settings = env["memory"].policy.get_all()
-    assert settings["auto_candidate_detection"] is False
+    # Automatic candidate detection and explicit-intent capture are ON by default
+    # (safe: candidates are inert, capture is explicit-intent only). Automatic
+    # promotion remains structurally impossible.
+    assert settings["auto_candidate_detection"] is True
+    assert settings["auto_capture_enabled"] is True
     assert settings["context_budget_chars"] == 4000
     assert settings["auto_promote_low_risk"] is False
 
@@ -172,7 +176,8 @@ def test_mistake_capture_is_idempotent(env):
 # ── Auto candidate detection (policy-gated) ─────────────────────────────────
 
 
-def test_auto_detection_disabled_by_default(env):
+def test_auto_detection_can_be_disabled_by_policy(env):
+    env["memory"].policy.set("auto_candidate_detection", False)
     env["run_store"].create_run("run_8", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_8", _tool("get_fundamentals", False, "TOOL_ERROR"))
     env["run_store"].record_tool_execution("run_8", _tool("research_search", True))
@@ -180,6 +185,17 @@ def test_auto_detection_disabled_by_default(env):
     result = env["memory"].analyze_run("run_8", env["run_store"])
     assert result["candidateDetection"] == "disabled by policy"
     assert result["candidatesCreated"] == 0
+
+
+def test_auto_detection_on_by_default_creates_inert_candidates(env):
+    env["run_store"].create_run("run_8b", "eclipse-agent", {"query": "x"})
+    env["run_store"].record_tool_execution("run_8b", _tool("get_fundamentals", False, "TOOL_ERROR"))
+    env["run_store"].record_tool_execution("run_8b", _tool("research_search", True))
+    env["run_store"].update_run("run_8b", status="completed", output="Recovered.", modelSteps=3)
+    result = env["memory"].analyze_run("run_8b", env["run_store"])
+    assert result["candidatesCreated"] >= 1
+    for candidate in env["memory"].store.list_candidates():
+        assert candidate["resultingSkillId"] is None  # inert
 
 
 def test_auto_detection_creates_inert_candidates(env):

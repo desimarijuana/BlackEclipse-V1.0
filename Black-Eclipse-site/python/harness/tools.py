@@ -32,6 +32,14 @@ ToolRisk = str  # "none" | "low" | "medium" | "high"
 TIMEOUT_FLOOR_MS = 100
 TIMEOUT_CEILING_MS = 120_000
 DEFAULT_TIMEOUT_MS = 20_000
+# The agent-level tool timeout. This is a CEILING, not a blanket override: a
+# tool's own declared `timeout_ms` is authoritative and is only shortened when it
+# exceeds this ceiling. Before this, the graph passed its agent value as a hard
+# override, so `research_search_news` (declared 30s) was silently clamped to 20s
+# and timed out — collapsing a per-tool budget into the agent default. The global
+# *run* timeout (`runTimeoutMs`) remains a distinct, larger budget for the model
+# turn; this ceiling only bounds one tool call.
+DEFAULT_TOOL_CEILING_MS = 30_000
 
 
 @dataclass
@@ -73,6 +81,15 @@ class ToolContext:
     # The harness memory store (AgentMemoryStore), for durable retrieval replay
     # (D1) and agent memory/skill tools.
     memory_store: Any = None
+    # The model settings for THIS run, so a controlled skill sub-run inherits the
+    # same provider/credentials (never a second adapter).
+    model_settings: Any = None
+    # The run's live event bus, so a skill child-run's `skill.*` events reach the
+    # parent's SSE stream.
+    bus: Any = None
+    # The active ToolRegistry, so a controlled skill child-run can execute through
+    # the SAME registry (no second registry).
+    tool_registry: Any = None
 
 
 class DataBridge:
@@ -219,11 +236,22 @@ class ToolRegistry:
             return self._failure(call_id, name, "TOOL_VALIDATION_FAILED", str(exc), started)
         clean = {k: v for k, v in validated.model_dump().items() if k != "_unused"}
 
-        effective_timeout = _clamp_timeout(timeout_ms or tool.timeout_ms)
+        effective_timeout = effective_timeout_ms(tool.timeout_ms, timeout_ms)
         try:
-            output = await asyncio.wait_for(tool.handler(clean, ctx), timeout=effective_timeout / 1000)
+            # Wait slightly past the logical deadline so a tool that honors its
+            # own internal timeout can return its structured diagnostic (naming
+            # the timeout category + latency) instead of being hard-killed by
+            # asyncio before it can report WHY. The wait_for is still bounded.
+            output = await asyncio.wait_for(
+                tool.handler(clean, ctx), timeout=(effective_timeout + _TIMEOUT_GRACE_MS) / 1000
+            )
         except asyncio.TimeoutError:
-            return self._failure(call_id, name, "TOOL_TIMEOUT", f"Tool {name!r} timed out after {effective_timeout}ms", started)
+            return self._failure(
+                call_id, name, "TOOL_TIMEOUT",
+                f"Tool {name!r} timed out after {effective_timeout}ms "
+                f"(category=timeout, retryable=false at the tool boundary)",
+                started,
+            )
         except Exception as exc:  # noqa: BLE001 - tool failures are data, not crashes
             return self._failure(call_id, name, "TOOL_ERROR", str(exc), started)
 
@@ -248,10 +276,32 @@ class ToolRegistry:
         )
 
 
+# Grace added to the asyncio wait so an internally-timed-out tool can surface its
+# structured diagnostic before being hard-killed. Bounded and small.
+_TIMEOUT_GRACE_MS = 1_500
+
+
 def _clamp_timeout(ms: int) -> int:
     if ms is None:
         return DEFAULT_TIMEOUT_MS
     return max(TIMEOUT_FLOOR_MS, min(int(ms), TIMEOUT_CEILING_MS))
+
+
+def effective_timeout_ms(tool_timeout_ms: Optional[int], agent_ceiling_ms: Optional[int]) -> int:
+    """Resolve the effective per-tool timeout.
+
+    The tool's OWN declared timeout is authoritative. The agent value is a
+    ceiling: it may only shorten a tool that declares more, never override a
+    tool that declares less. This keeps per-tool budgets distinct from the
+    agent/global run budget (WS2). An explicit per-call override
+    (`execute(..., timeout_ms=...)`) is still honored as an exact value — that is
+    what tests use to drive the floor.
+    """
+    tool_ms = _clamp_timeout(tool_timeout_ms if tool_timeout_ms is not None else DEFAULT_TIMEOUT_MS)
+    if agent_ceiling_ms is None:
+        return tool_ms
+    ceiling = _clamp_timeout(agent_ceiling_ms)
+    return min(tool_ms, ceiling)
 
 
 def dumps(value: Any) -> str:

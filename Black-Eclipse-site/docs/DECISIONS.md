@@ -602,4 +602,39 @@ to an ADR if it gets challenged.
 ## ADR-031 — Global market research: truthful capability matrix, suffix-aware identity, declared UA, provider eligibility (2026)
 **Decision:** Coverage is a per-market CAPABILITY MATRIX (recognition / searchable universe / quote / history / fundamentals / official filings / web+documents / observed health / live-checked) rather than a country list, so a listed country is never read as 'every capability works'. Source health is keyed by route dimensions (source x market x assetClass). Instrument identity is global and suffix-aware: a recognised exchange suffix is split into an implied market and the vault is queried for both the bare code and the suffixed form; an unknown suffix is never guessed. Providers are gated by eligibility (SEC is skipped for non-US issuers, not attempted-then-failed). The shared fetch transport sends a declared email-contact User-Agent (SEC requires it; verified), and handles JSON/XML/XBRL plus bounded text-PDF extraction (scanned PDFs reported, not garbled). Learning candidates carry run diagnostics and explicit regional scope, remain inert, and promotion stays operator-gated.
 **Why:** Real non-US runs (TSMC/Samsung/Petrobras) failed US-centrically. Verified causes: browser-UA spoof gets 403 from SEC/TSMC IR while a declared email UA gets 200; the vault stores bare local codes while users type suffixes (2330.TW returned not_found though 2330 on TW existed); the retrieval planner ignored SEC's US-only supports() gate; source-health collapsed runs to (market, assetClass) producing duplicates; get_coverage told the agent to stop when JDdS lacked a ticker.
-**Impact:** src/lib/{markets,web-research,web-search,retrieval-diagnostics}.ts, src/lib/harness/*, src/lib/fundamentals/providers/sec-edgar.ts; python/harness/{finance_tools,retrieval_tools,prompts}.py, python/harness/retrieval/structured.py, esearch/escalation.py, skills/learning.py, eclipse_memory/{schema,store}.py. Full decisions: ADR-H29..H32 in docs/harness/decisions.md.
+**Impact:** src/lib/{markets,web-research,web-search,retrieval-diagnostics}.ts, src/lib/harness/*, src/lib/fundamentals/providers/sec-edgar.ts; python/harness/{finance_tools,retrieval_tools,prompts}.py, python/harness/retrieval/structured.py, 
+esearch/escalation.py, skills/learning.py, eclipse_memory/{schema,store}.py. Full decisions: ADR-H29..H32 in docs/harness/decisions.md.
+
+---
+
+## ADR-032 — Reliability & global-research hardening: capability-specific health, distinct route categories, a deterministic comparability gate (2026)
+**Decision:** (1) The truthful-capability tools (`get_capability_matrix`,
+`get_research_health`) are read-only and in the Eclipse agent allowlist. (2) A
+tool's own `timeout_ms` is authoritative; the agent `toolTimeoutMs` is only a
+ceiling, and optional news enrichment has its own bounded budget. (3) Source
+health is keyed `(source × market × assetClass × capability × probeKind)`: a
+healthy quote never makes statements/filings healthy, zero attempts stays
+`unknown`, and fixture probes are labelled and excluded from live health. (4) The
+route planner reports distinct categories (ineligible / not_implemented /
+unconfigured / provider_failure / no_instrument / no_data / no_matching_period /
+stale_data / invalid_document) so a skip is never an outage. (5) Documents
+distinguish `too_large` / `empty_response` / `javascript_only` /
+`unsupported_document` / `parse_failure`, preserve title/document-id/publication
+metadata, stream to a bounded size, and refuse a value-less XBRL taxonomy. (6) A
+comparison is permitted only when the legs are the same fact for the same entity
+— `research/comparability.py` blocks a demerger/ticker reuse, unequal durations
+(9M vs 12M), consolidation basis, metric definition, currency, unit, scale or an
+unstated restatement, with the exact reason; each verified leg is still reported
+and no misleading percentage is computed. The model is never the validator.
+**Why:** The international runs recorded `TOOL_FORBIDDEN` for
+`get_capability_matrix`, a 20s news timeout despite a declared 30s budget,
+`unknown — 0 ok / 0 fail` health rows beside a `configured` coverage claim, SEC
+attempted for non-US issuers, and correctness risks (Tata demerger, 9M vs 12M,
+standalone vs consolidated, gross vs operations, issuer currency vs thousands,
+EPS after a subdivision) that only the model understood.
+**Impact:** `python/harness/{agents,finance_tools,retrieval_tools,tools,graph}.py`,
+`python/harness/retrieval/{routing,layer}.py`,
+`python/harness/research/{comparability,engine,run,receipt,citations}.py`,
+`src/lib/harness/{capability,coverage,data-bridge,types}.ts`,
+`src/lib/{web-research,retrieval-diagnostics}.ts`, `scripts/test-python.js`.
+Progress: `docs/harness/phase-4-progress.md` (Phase 8).

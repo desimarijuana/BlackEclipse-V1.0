@@ -71,11 +71,17 @@ _MARKET_TOKENS = (
 
 
 def _infer_scope(tools: list[dict[str, Any]]) -> dict[str, Any]:
-    """The regional/provider scope a lesson is supported by (never 'all countries')."""
-    text = " ".join(str(t.get("text") or "") for t in tools).upper()
-    markets = sorted({m for m in _MARKET_TOKENS if re.search(rf"\b{m}\b", text)})
+    """The regional/provider/capability scope a lesson is supported by.
+
+    Never "all countries". The capability and a suggested regression case are
+    folded here (JSON, no schema change) so a candidate states exactly which data
+    type it is about and offers a narrowly-scoped test to add on review.
+    """
+    markets = _markets_in(tools)
     return {
         "markets": markets,
+        "capability": _infer_capability(tools),
+        "regressionCase": _regression_case(tools),
         "scopeClaim": "observed markets only" if markets else "unspecified",
     }
 
@@ -84,7 +90,7 @@ def _diagnostic_summary(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Structured failure diagnostics a run recorded (category + provider)."""
     out: list[dict[str, Any]] = []
     for e in events:
-        if e["type"] not in ("retrieval.source_unavailable", "retrieval.source_failed", "research.page_fetch_failed", "research.web_search_failed"):
+        if e["type"] not in ("retrieval.source_unavailable", "retrieval.source_failed", "retrieval.source_skipped", "research.page_fetch_failed", "research.web_search_failed"):
             continue
         data = e.get("data") or {}
         out.append({
@@ -95,6 +101,61 @@ def _diagnostic_summary(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(out) >= 8:
             break
     return out
+
+
+# Tool name → capability, so a candidate names the data type a lesson is about
+# (a lesson about quote routing must not be applied to filings, etc.).
+_TOOL_CAPABILITY: dict[str, str] = {
+    "market_get_quote": "live_quote",
+    "market_get_ohlcv": "price_history",
+    "fundamentals_get_company_profile": "fundamentals",
+    "fundamentals_get_financials": "financial_statements",
+    "get_capability_matrix": "capability",
+    "get_coverage": "capability",
+    "get_source_health": "health",
+    "get_research_health": "health",
+    "research_search": "web_search",
+    "research_search_news": "news",
+    "research_retrieve_source": "web_fetch",
+    "macro_get_series": "macro_series",
+}
+
+
+def _infer_capability(tools: list[dict[str, Any]]) -> Optional[str]:
+    """The dominant capability a run exercised, when determinable (else None)."""
+    counts: dict[str, int] = {}
+    for t in tools:
+        cap = _TOOL_CAPABILITY.get(str(t.get("name") or ""))
+        if cap:
+            counts[cap] = counts.get(cap, 0) + 1
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _markets_in(tools: list[dict[str, Any]]) -> list[str]:
+    """Markets named in the run's tool text (bounded, de-duplicated)."""
+    text = " ".join(str(t.get("text") or "") for t in tools).upper()
+    return sorted({m for m in _MARKET_TOKENS if re.search(rf"\b{m}\b", text)})
+
+
+def _regression_case(tools: list[dict[str, Any]]) -> Optional[str]:
+    """A short, deterministic regression label from the observed run.
+
+    Suggests a narrowly scoped case (e.g. a fixture for the market+capability),
+    so the operator can add a targeted test rather than a broad claim. It never
+    invents a fixture name beyond the markets/capability the run actually touched.
+    """
+    markets = _markets_in(tools)
+    capability = _infer_capability(tools)
+    if not markets and not capability:
+        return None
+    parts = []
+    if markets:
+        parts.append("+".join(markets[:3]))
+    if capability:
+        parts.append(capability)
+    return f"fixture: {'_'.join(parts)} — assert route category + no fabricated value"
 
 
 def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
@@ -198,6 +259,8 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
             "evidenceReferences": [{"kind": "event", "id": e["id"], "type": e["type"]} for e in source_failures[:5]],
             "diagnostics": _diagnostic_summary(events),
             "scope": scope,
+            "capability": _infer_capability(tools),
+            "regressionCase": _regression_case(tools),
             "confidence": 0.4,
             "generalizationNotes": (
                 "A source outage is often transient; only generalize if it recurs. "
@@ -231,6 +294,8 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
             "evidenceReferences": [{"kind": "event", "id": e["id"], "type": e["type"]} for e in ineligible[:5]],
             "diagnostics": _diagnostic_summary(events),
             "scope": scope,
+            "capability": _infer_capability(tools),
+            "regressionCase": _regression_case(tools),
             "confidence": 0.5,
             "generalizationNotes": (
                 "A provider's eligibility is issuer/market-specific; apply it only to the "
@@ -243,12 +308,68 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
     return drafts
 
 
+def explicit_skill_candidate(
+    run_id: str, run_store: Any, *, user_intent: str = ""
+) -> dict[str, Any]:
+    """A candidate synthesized from an explicit "turn this into a skill" request.
+
+    Ordinary informational runs do not qualify for automatic candidate detection
+    (they carry no reusable procedure). When the USER explicitly asks to turn a
+    run into a skill, we still may not have evidence of a real procedure — so the
+    candidate records the evidence that exists (tools used, steps taken) and,
+    when there is no tool trace, explicitly states that manual authoring is
+    required rather than fabricating a procedure. Always inert.
+    """
+    run = run_store.get_run(run_id) or {}
+    tools = _run_tools(run_store, run_id)
+    successes = sorted({t["name"] for t in tools if t.get("ok")})
+    successful_procedure = [
+        {"step": i + 1, "action": f"call {name}"} for i, name in enumerate(successes)
+    ]
+    objective = ((run.get("input") or {}).get("query") or "").strip()
+    lesson = (
+        (user_intent or "").strip()
+        or (
+            f"Reusable procedure observed for the objective: {objective[:300]}"
+            if objective else "User-requested reusable procedure."
+        )
+    )
+    no_evidence = not successes
+    draft = {
+        "candidateType": "successful_procedure",
+        "title": (objective[:120] or "User-requested skill")[:200],
+        "problem": "The user explicitly asked to turn this run into a reusable skill.",
+        "observedBehavior": (
+            f"Run {run_id}: {run.get('modelSteps', 0)} model steps; tools: "
+            f"{', '.join(successes) if successes else 'none observed'}."
+        ),
+        "proposedLesson": lesson,
+        "proposedProcedure": successful_procedure,
+        "evidenceReferences": [
+            {"kind": "tool", "name": t["name"], "at": t.get("createdAt")}
+            for t in tools if t.get("ok")
+        ],
+        "confidence": 0.5 if successes else 0.25,
+        "generalizationNotes": (
+            "Requested by the user; reusability must be confirmed before this becomes a skill."
+        ),
+        "knownLimitations": (
+            "No tool trace was observed in the source run; a human must author the "
+            "procedure before this candidate can become a usable skill."
+            if no_evidence
+            else "A single run is weak evidence for a general procedure."
+        ),
+    }
+    return draft
+
+
 def capture_from_run(
     run_id: str,
     run_store: Any,
     skill_store: Any,
     *,
     actor_is_operator: bool = False,
+    user_intent: str = "",
 ) -> dict[str, Any]:
     """Analyze a run and persist any qualifying candidates (deduplicated).
 
@@ -257,11 +378,19 @@ def capture_from_run(
     responsibilities. Requires operator authorization for the capture action
     itself (creating learning records is controlled). Returns the created
     candidates and any duplicates suppressed.
+
+    `user_intent` is an explicit "turn this into a skill" request: when present,
+    a candidate is created even if automatic detection would not qualify, so the
+    explicit request is honored — still inert and operator-reviewed.
     """
     if not actor_is_operator:
         return {"ok": False, "error": "skill.create requires an authorized operator", "created": [], "duplicates": []}
 
     drafts = analyze_run(run_id, run_store)
+    if user_intent:
+        explicit = explicit_skill_candidate(run_id, run_store, user_intent=user_intent)
+        if not any(d["candidateType"] == "successful_procedure" for d in drafts):
+            drafts.append(explicit)
     created: list[dict[str, Any]] = []
     duplicates: list[str] = []
     for draft in drafts:

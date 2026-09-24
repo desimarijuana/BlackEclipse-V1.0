@@ -19,9 +19,10 @@ export async function POST(
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const operator = isOperatorRequest(request);
+    const body = (await request.json().catch(() => ({}))) as { userIntent?: string };
     const result =
       action === "generate-draft"
-        ? await generateDraft(id, operator)
+        ? await generateDraft(id, operator, body.userIntent)
         : await rejectCandidate(id, operator);
     return NextResponse.json(result, { status: result.ok ? 200 : 403 });
   } catch (err) {

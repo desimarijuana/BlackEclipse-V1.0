@@ -8,7 +8,67 @@ last-verified: 2026-09-23
 
 **Phase:** 4 — Research mandates, answer validation, point-in-time evidence,
 deterministic calculations, and evaluation
-**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added + Phase 7 global market research
+**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added + Phase 7 global market research + Phase 8 reliability/global-research hardening
+
+## Phase 8 — Reliability & global-research hardening (2026-09-23)
+
+**Brief.** The latest international run (`run_ed472f26…` and the SYS/RELIANCE/
+TATAMOTORS/Samsung runs) exposed concrete reliability gaps. Goal: make Eclipse
+persistent, globally useful and precise — try more eligible routes, return every
+verified fact, and never invent values, citations, periods, units, consolidation
+basis or company identity.
+
+**Verified root causes (from the persisted runs/receipts in `agent-memory.db`).**
+
+- **WS1 — capability tool forbidden.** `run_21c6307e…` recorded
+  `HarnessToolExecution: get_capability_matrix ok=0 error={"code":"TOOL_FORBIDDEN"}`.
+  Cause: `finance_tools.register_finance_tools` registers `get_capability_matrix`
+  and `get_research_health`, but `agents.ECLIPSE_AGENT.tools` did not list them,
+  so the graph's `allowed` set blocked them. The agent had to fall back to the
+  coarser `get_coverage`. Fixed in `agents.py` (allowlist) and reinforced in the
+  `get_coverage` text.
+- **WS2 — news timeout collapsed into the agent default.**
+  `run_7f5c48d5…` recorded `research_search_news` `TOOL_TIMEOUT after 20000ms`
+  although the tool declares `timeout_ms=30_000`. Cause: the graph passed its
+  agent `toolTimeoutMs=20_000` as a hard OVERRIDE, so every tool was clamped to
+  20s. Fixed: the tool's own timeout is authoritative; the agent value is only a
+  ceiling (`effective_timeout_ms`). News also got its own shorter budget (12s).
+- **WS3 — health was not capability-specific.** `SourceHealth` grouped by
+  `(source, market, symbol)` where `symbol` held only the asset class, so a
+  working quote and an untested statement route shared a counter. `get_coverage`
+  reported PK/IN `fundamentals: configured` while every JDDS/LIVE_STRUCTURED row
+  read `unknown — 0 ok / 0 fail`. Fixed: health is keyed
+  `(source × market × assetClass × capability × probeKind)`; zero attempts stays
+  `unknown`; fixture probes are labelled and excluded from observed live health.
+- **WS4 — routing collapsed skip and failure.** SEC was attempted for non-US
+  issuers (HTTP 400) and reported as a generic outage; "filings: not implemented"
+  read as "impossible" rather than "not configured, try another route". Fixed:
+  `retrieval/routing.py` gives the planner the distinct categories
+  ineligible / not_implemented / unconfigured / provider_failure / no_instrument /
+  no_data / no_matching_period / stale_data / invalid_document, and
+  `capability.py` now names each market's real regulator route.
+- **WS5 — document handling conflated outcomes.** Oversized PDFs (too_large),
+  HTTP 403/404, JS shells, scanned PDFs, value-less XBRL and empty bodies all
+  surfaced as near-identical failures. Fixed: distinct categories
+  (`too_large`, `empty_response`, …), preserved page/title/document-id/
+  publication/retrieval metadata, bounded streaming to 16 MB, and a value-less
+  XBRL guard.
+- **WS6 — no deterministic comparability gate.** The model was the only place
+  that knew Tata Motors' demerger/ticker reuse, a nine- vs twelve-month base,
+  standalone vs consolidated, gross revenue vs revenue from operations, issuer
+  currency vs thousands, or EPS after a subdivision. Fixed:
+  `research/comparability.py` deterministically blocks an incompatible pair with
+  the exact reason and lets the verified legs be reported separately.
+- **WS7 — partial answers.** The answer now presents every `covered`/`qualified`
+  leg and names each blocked comparison, instead of a blanket "I cannot find it".
+- **WS8 — skill feedback.** Learning candidates now carry the observed
+  capability and a scoped regression case inside `scope`; still operator-gated
+  and inert until reviewed.
+
+New: `python/harness/retrieval/routing.py`,
+`python/harness/research/comparability.py`,
+`python/tests/test_phase8_reliability.py`,
+`src/lib/document-extraction.test.ts`, `src/lib/harness/phase8-health.test.ts`.
 
 ## Phase 7 — Global market research (2026-09-23)
 

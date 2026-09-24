@@ -116,26 +116,34 @@ describe("fetchCapability — other capabilities", () => {
     expect((result.items as unknown[]).length).toBe(1);
   });
 
-  it("source_health keys each route by provider × market × asset class", async () => {
+  it("source_health keys each route by provider × market × asset class × capability", async () => {
     groupBy.mockResolvedValue([
       { source: "yfinance", market: "US", symbol: "equity", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok", updatedAt: new Date() } },
     ]);
     const result = await fetchCapability("source_health", {});
     expect(result.status).toBe("OK");
-    const rows = result.rows as Array<{ source: string; market: string; assetClass: string; success: number; health: string; providers?: unknown }>;
+    const rows = result.rows as Array<{ source: string; market: string; assetClass: string; capability: string; success: number; health: string }>;
     expect(rows.length).toBeGreaterThan(1);
     // The recorded route is keyed by ITS provider, not merged onto every source.
     const recorded = rows.find((r) => r.source === "yfinance" && r.market === "US" && r.assetClass === "equity");
     expect(recorded?.success).toBe(3);
     expect(recorded?.health).toBe("degraded");
     // A different provider's US-equity route must NOT inherit those counts.
-    const jdds = rows.find((r) => r.source === "JDDS" && r.market === "US" && r.assetClass === "equity");
+    const jdds = rows.find((r) => r.source === "JDDS" && r.market === "US" && r.assetClass === "equity" && r.capability === "quote");
     expect(jdds?.success).toBe(0);
     expect(jdds?.health).toBe("unknown");
     // A declared target with no recorded runs reports `unknown`, not absent.
     expect(rows.some((r) => r.health === "unknown")).toBe(true);
-    // Rows are unique per (source, market, assetClass) — no duplicate keys.
-    const keys = rows.map((r) => `${r.source}|${r.market}|${r.assetClass}`);
+    // Capabilities on the SAME source×market×assetClass are DISTINCT rows — a
+    // working quote never shares a counter with an untested statement route.
+    const jddsQuote = rows.find((r) => r.source === "JDDS" && r.assetClass === "equity" && r.capability === "quote");
+    const jddsStmt = rows.find((r) => r.source === "JDDS" && r.assetClass === "equity" && r.capability === "financial_statements");
+    expect(jddsStmt).toBeTruthy();
+    expect(jddsStmt!.success).toBe(0);
+    expect(jddsStmt!.health).toBe("unknown");
+    void jddsQuote;
+    // Rows are unique per (source, market, assetClass, capability) — no dupes.
+    const keys = rows.map((r) => `${r.source}|${r.market}|${r.assetClass}|${r.capability}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 

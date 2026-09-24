@@ -18,6 +18,8 @@ export type RetrievalFailureCategory =
   | "unsupported_document"  // e.g. a scanned/image PDF with no text layer (no OCR)
   | "javascript_only"       // a JS-rendered shell with no server-rendered text
   | "parse_failure"         // fetched, but nothing parseable was extracted
+  | "too_large"             // the document exceeded the bounded size cap
+  | "empty_response"        // the remote returned a 2xx with an empty body
   | "not_configured"        // the provider has no credentials/base URL
   | "invalid_request";      // bad input (empty query, bad URL)
 

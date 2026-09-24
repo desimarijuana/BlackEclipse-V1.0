@@ -131,6 +131,8 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
         case 'final': {
           if (event.output) t.finalText = event.output;
           if (event.research) t.research = event.research;
+          if (event.memory) t.memory = event.memory;
+          if (event.runId) t.runId = event.runId;
           if (event.error) {
             t.error = { message: event.error };
             t.status = 'error';

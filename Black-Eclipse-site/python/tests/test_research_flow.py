@@ -28,6 +28,29 @@ from harness.retrieval.contract import (
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 
+def test_citation_period_is_ambiguous_safe():
+    """A multi-period statement item must NOT label its source with the first
+    (oldest) object's period — that would show the wrong year beside a source
+    that supports a different one. Single-period evidence keeps its period."""
+    from harness.research.citations import build_citations
+
+    source = SourceReference(source="SEC EDGAR", sourceType="primary")
+    multi = EvidenceItem(
+        id="ev_multi", kind="structured", summary="statements", source=source,
+        objects=[
+            NormalizedFinancialObject(name="revenue", value=1, period="2019", source=source),
+            NormalizedFinancialObject(name="revenue", value=2, period="2024", source=source),
+        ],
+    )
+    single = EvidenceItem(
+        id="ev_single", kind="filing", summary="fact", source=source,
+        objects=[NormalizedFinancialObject(name="revenue", value=2, period="FY2024", source=source)],
+    )
+    citations = {c.evidenceId: c for c in build_citations([multi, single])}
+    assert citations["ev_multi"].fiscalPeriod is None       # ambiguous → unknown
+    assert citations["ev_single"].fiscalPeriod == "FY2024"  # unambiguous kept
+
+
 def obj(
     name="revenue",
     value=1000.0,
