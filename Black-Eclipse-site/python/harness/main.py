@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -27,6 +28,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
+from .mcp.config import (
+    MCPServerConfig,
+    remove_mcp_config,
+    upsert_mcp_config,
+)
 from .models import list_providers
 from .persistence import now_iso
 from .research.engine import run_research
@@ -47,8 +53,22 @@ from .skills.runtime import SkillExecutionRequest
 
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0")
 service = AgenticService()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Connect configured MCP servers and register selected read-only tools. A
+    # failure is a diagnostic, never a boot blocker (AgenticService.start_mcp).
+    await service.start_mcp()
+    try:
+        yield
+    finally:
+        # Terminate MCP server subprocesses cleanly so none leak across restarts.
+        await service.stop_mcp()
+
+
+app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_lifespan)
 
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier
@@ -88,6 +108,9 @@ def health() -> dict[str, Any]:
             "loadErrors": service.skill_load_errors,
             "duplicates": service.skill_registry.duplicate_ids(),
         },
+        # MCP (Phase 5): configured/connected server counts + registered tool
+        # count. Never includes secret values or full server output.
+        "mcp": service.mcp.summary(),
     }
 
 
@@ -95,6 +118,77 @@ def health() -> dict[str, Any]:
 def retrieval_metrics() -> dict[str, Any]:
     """Retrieval-layer performance counters (cache hits/misses, in-flight)."""
     return {"success": True, **service.retrieval_metrics()}
+
+
+# ── MCP server catalog (Phase 5E) ───────────────────────────────────────────
+# Add / test / enable / disable / remove local stdio MCP servers and select
+# their tools. Mutations are operator-gated (the front door authenticates the
+# runtime secret); reads are always available. Config may carry scoped env
+# values, so responses are secret-free (env KEYS only) and the file is
+# gitignored.
+
+
+@app.get("/mcp/servers")
+def list_mcp_servers() -> dict[str, Any]:
+    """Configured servers + live status + discovered tools (secret-free)."""
+    return {"success": True, "servers": service.mcp.public_configs(), **service.mcp.summary()}
+
+
+class MCPServerUpsertRequest(BaseModel):
+    """Create/replace one server. The full config is validated by pydantic."""
+
+    operator: bool = False
+    server: MCPServerConfig
+    reload: bool = True
+    # The authoritative env key set (values are write-only and never echoed to
+    # the UI, so the client sends key names to add/remove while values persist).
+    envKeys: Optional[list[str]] = None  # noqa: N815
+
+
+@app.post("/mcp/servers")
+async def upsert_mcp_server(request: MCPServerUpsertRequest) -> JSONResponse:
+    if not request.operator:
+        raise HTTPException(status_code=403, detail="mcp config requires an authorized operator")
+    upsert_mcp_config(request.server, env_keys=request.envKeys)
+    summary = await service.reload_mcp() if request.reload else service.mcp.summary()
+    return JSONResponse({"success": True, **summary})
+
+
+@app.delete("/mcp/servers/{server_id}")
+async def delete_mcp_server(server_id: str, payload: Optional[dict[str, Any]] = None) -> JSONResponse:
+    payload = payload or {}
+    if not payload.get("operator"):
+        raise HTTPException(status_code=403, detail="mcp config requires an authorized operator")
+    removed = remove_mcp_config(server_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Server not found")
+    summary = await service.reload_mcp()
+    return JSONResponse({"success": True, "removed": server_id, **summary})
+
+
+@app.post("/mcp/servers/test")
+async def test_mcp_server(payload: dict[str, Any]) -> JSONResponse:
+    """Connect + discover a candidate config WITHOUT persisting or activating."""
+    if not payload.get("operator"):
+        raise HTTPException(status_code=403, detail="mcp test requires an authorized operator")
+    raw = payload.get("server")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="server config is required")
+    try:
+        config = MCPServerConfig(**raw)
+    except Exception as exc:  # noqa: BLE001 - a bad config is a 400, not a crash
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await service.mcp.test_server(config)
+    return JSONResponse({"success": result.get("state") == "connected", **result})
+
+
+@app.post("/mcp/reload")
+async def reload_mcp(payload: Optional[dict[str, Any]] = None) -> JSONResponse:
+    payload = payload or {}
+    if not payload.get("operator"):
+        raise HTTPException(status_code=403, detail="mcp reload requires an authorized operator")
+    summary = await service.reload_mcp()
+    return JSONResponse({"success": True, **summary})
 
 
 class ResearchRunRequest(BaseModel):

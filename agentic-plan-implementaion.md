@@ -156,7 +156,9 @@ Examples:
 - Python execution MCP server.
 - Documentation and knowledge MCP server.
 - User-installed third-party MCP servers.
-However, MCP support does not automatically make a tool safe or trustworthy. Every connection needs capability discovery, permission control, validation, and execution boundaries.
+MCP is a user-directed extension surface. A user may connect financial MCP servers and use them for any finance workflow they choose; Eclipse must not impose its own financial-task allowlist or require external MCP data to pass through JDdS or Eclipse's native research verifier. Eclipse still makes the source and execution boundary visible: externally supplied results are attributed to their MCP server and tool, and are not described as Eclipse-verified unless a separate Eclipse verification flow actually verifies them.
+
+Every connection still needs capability discovery, user-controlled tool selection, credential isolation, input/output validation, resource bounds, and execution boundaries. These protections govern how a server is connected and called; they do not limit the user's financial use case. Tool effects must be declared and visible. Read-only tools can be enabled directly; tools that write data, move assets, send messages, or otherwise cause external effects require an explicit user-controlled permission/approval path before invocation. A server's own description or result cannot grant itself permission.
 5.2 Eclipse MCP servers
 We should expose Eclipse capabilities as MCP tools when that makes sense.
 Potential servers:
@@ -202,6 +204,8 @@ Use MCP for:
 - Sharing Eclipse capabilities with other MCP-compatible clients.
 Build one internal tool contract and, where appropriate, expose it through MCP adapters. That avoids implementing the same logic twice.
 
+**Financial data boundary.** JDdS is one configured source, not the authority or mandatory path for every financial question. Its contents may be stale, incomplete, or constrained by the APIs configured by the user. The harness should select and, where useful, compare available JDdS, built-in provider, web/official-source, and user-enabled MCP evidence based on the request, observed freshness, coverage, and provenance. User-connected MCP tools may also be used directly for any financial workflow the user chooses; they need not be forced through the native retrieval or research gate. Preserve source identity and timestamps, surface conflicts and stale/missing coverage, and never describe external data as independently verified by Eclipse unless an explicit verification path actually checked it. A user may choose a source or direct MCP workflow; source selection should be visible and controllable.
+
 
 
 
@@ -227,7 +231,10 @@ Our MCP layer should include:
 - Audit logging.
 - User approval for sensitive operations.
 - Version compatibility and graceful degradation.
-Never allow an arbitrary MCP server to inherit all of Eclipse's credentials or unrestricted filesystem access.
+- User-managed enabled/disabled state and per-tool selection.
+- Per-server process, network, concurrency, time, and response-size bounds.
+- Source attribution for every MCP result and visible run-level tool trace.
+Never allow an arbitrary MCP server to inherit all of Eclipse's credentials or unrestricted filesystem access. Do not silently narrow finance use cases or rewrite external data into native JDdS evidence. Preserve the user's selected MCP result with attribution; native Eclipse verification is an optional, explicit subsequent step.
 The official MCP tool guidance also emphasizes human control, visible tool invocation, and confirmation for operations that require it. 
 
 GitHub
@@ -836,7 +843,7 @@ Memory can help find prior information. It should not override fresh data, sourc
 
 15. Code generation: Eclipse should be able to build its own tools
 This is where the engineering agent becomes extremely important.
-Your goal is not merely to generate Python snippets in a chat window. You want an agent that can build actual financial software.
+Your goal is not merely to generate Python snippets in a chat window. You want an agent that can build actual financial software. The target is a bounded, reviewable coding agent that can complete a small repository task end to end while the user remains in control of consequential changes.
 Examples:
 - A new market data adapter.
 - An MCP server.
@@ -859,6 +866,46 @@ Controlled Engineering Loop
 7. Present the changes, test results, and remaining risks.
 8. Require approval before merging or deploying, according to policy.
 
+15.2 Coding-agent capability contract
+The Code Agent is a specialized harness agent, not a prompt-only mode. It uses the existing Python harness, run lifecycle, model providers, event stream, skill system, and front-door conventions. Its tools are explicit, typed, permissioned, bounded, auditable, and restricted to a task workspace. It must not inherit the finance agent's tools or access just because both agents share the harness.
+
+The minimum end-to-end contract is:
+- Receive a task, repository identity, base revision, user-selected scope, and execution policy.
+- Inspect repository status before work; preserve pre-existing user changes and never treat them as agent-owned.
+- Search and read files selectively; use repository metadata and architecture docs to retrieve relevant context rather than dumping the whole repository into the prompt.
+- Produce a plan with target files, expected behavior, risks, and checks. Let the user review/adjust the plan for broad or ambiguous tasks; small, reversible tasks can proceed under the selected policy.
+- Create an isolated worktree or equivalent disposable checkout at the selected base revision. Never edit the user's active checkout by default.
+- Apply validated patches only within the task workspace. Reject traversal, symlink escapes, protected paths, oversized writes, and writes outside declared scope unless scope is explicitly expanded and recorded.
+- Run only allowlisted commands in an OS/container sandbox with no inherited secrets, bounded CPU/memory/time/output, controlled dependency/network access, and no access to production databases, credentials, broker APIs, or live-order paths.
+- Capture command, working directory, exit code, duration, bounded output, and tool identity in the run trace. A model statement is never proof that a command ran or passed.
+- Inspect the final diff against the task base, identify generated/untracked files, secret-like content, unexpected database changes, and scope violations; report checks actually run and checks skipped with reasons.
+- Keep all edits as a reviewable patch/worktree. Never commit, push, open a PR, deploy, or merge without an explicit user request and applicable approval.
+- Support cancellation, restart/resume from durable checkpoints, and cleanup of task workspaces without deleting user data.
+
+The agent should support explicit autonomy profiles:
+1. **Plan only:** inspect and propose; do not write or execute.
+2. **Edit and verify:** write inside the isolated task workspace and run policy-approved checks; return a diff for review.
+3. **User-approved external action:** commit, publish, deploy, or other external side effect only after an explicit request/approval. This profile never implies permission to trade or mutate financial production data.
+
+Every file and command tool must enforce policy in code, not rely on the model prompt. A proposed tool call is not authorization. The policy engine checks the run's user, repository, workspace root, allowed paths, command class, network policy, resource budget, and current approval state before execution. Denials are structured results and are visible in the trace.
+
+15.3 Delivery phases and acceptance gates
+Build this as a vertical slice in the roadmap's Phase 7. Do not unlock broad autonomous operation before earlier gates pass:
+
+**7A — Read-only repository navigator.** Bind a run to one repository and base revision; expose status, file listing, bounded search, and text reads. Ignore or redact secrets/binary/vendor/generated data by policy. Acceptance: answers cite paths and line ranges; tests prove paths cannot escape the root and pre-existing dirty files are visible and untouched.
+
+**7B — Isolated patch authoring.** Allocate a disposable worktree, apply bounded diffs, and stream progress. Acceptance: a fixture task edits the intended file, preserves unrelated dirty checkout changes, rejects traversal/symlink/protected-path writes, can be cancelled, and leaves a reviewable diff.
+
+**7C — Sandboxed checks.** Add a command broker with an allowlist and OS/container isolation, bounded resources, no secret inheritance, network denied by default, and explicit dependency policy. Acceptance: benign checks pass; timeout, output flood, forbidden command, filesystem escape, network, and secret-access probes are blocked or contained and recorded.
+
+**7D — Review and repair loop.** Compare changes with the base, run configured checks, return failures to the agent for a bounded repair attempt, then produce a summary with exact diff and verified command results. Acceptance: checks cannot be reported as passing unless the command broker recorded success; retry count and total budgets are enforced.
+
+**7E — Product workflow and policy controls.** Add task creation/resume/cancel, autonomy profiles, approval events for protected paths or elevated commands, worktree lifecycle, artifact download/open, and audit UI. Acceptance: approval is bound to the exact action and workspace; changed action/payload requires new approval; restart resumes without duplicate side effects; cleanup cannot remove the user's checkout.
+
+**7F — Evaluation and controlled expansion.** Maintain coding task fixtures, quality metrics, and adversarial safety cases. Measure task completion, diff correctness, regression rate, check reliability, cost, latency, and policy violations. Expand command/network/path capabilities only when evaluations demonstrate the need and isolation tests pass. MCP adapters, remote containers, commits, PRs, and deployment are later integrations, not prerequisites for safe local patching.
+
+Phase 7 is complete only when all gates pass on supported platforms, failures are honestly surfaced, run traces and diffs are durable, and the user can inspect or discard the isolated result. “Model produced code” or “tests exist” alone does not satisfy the phase.
+
 Code execution isolation
 Code generation is not enough. The execution environment matters.
 Use a sandbox abstraction supporting, depending on deployment:
@@ -872,6 +919,7 @@ Use a sandbox abstraction supporting, depending on deployment:
 - Artifact collection.
 - Test execution.
 For a financial application, generated code must not be allowed to silently modify production databases, expose credentials, or place live orders.
+The implementation must default to deny for network and writes outside the isolated worktree. Treat database files, settings vaults, key material, broker/trading interfaces, deployment credentials, and production configuration as protected resources. Code-agent permissions are separate from finance research permissions; no coding sandbox may silently gain access to market-data secrets or execution credentials.
 Repository awareness
 Eclipse should understand its own codebase through:
 - Repository indexing.
@@ -1671,11 +1719,35 @@ Build:
 - Server registry.
 - Capability discovery.
 - Tool schema normalization.
-- Permission mapping.
+- User-facing permission/effect metadata and per-tool controls.
 - Connection management.
-- Approval flow.
-- Internal Eclipse MCP servers.
-Start with read-only and low-risk capabilities.
+- Per-server and per-tool user selection, enabled state, and connection diagnostics.
+- Run-event, audit, provenance, timeout, cancellation, and bounded-output integration.
+- Approval flow for tools with external or irreversible effects.
+- Internal Eclipse MCP server exposing selected existing capabilities without duplicating domain logic.
+Start with one read-only vertical slice to validate transport and registry integration, then support the full user-selected tool surface through declared effect metadata and explicit permissions. Do not impose finance-domain restrictions on MCP calls. JDdS is one source among configured sources; native source selection should consider freshness, coverage, provenance, and conflicts, while direct MCP workflows remain available by user choice. Add stdio and remote Streamable HTTP transports; keep MCP protocol/version compatibility explicit. Implement tools first, then resources/prompts/subscriptions as capability slices with their own lifecycle, context and security handling.
+
+**Phase 5 delivery plan and gates**
+
+**5A — Contract and threat model. — IMPLEMENTED (2026-09-24).** Define server configuration, owner/scope, transport, auth reference, protocol negotiation, capability catalog, tool identity, effect classes (`read`, `write`, `external_action`, `unknown`), status/error model, and budgets. Distinguish host execution controls from domain policy: the former are mandatory; the latter cannot silently prohibit user-selected finance workflows. Acceptance: architecture/ADR defines trust, data-flow, cancellation, redaction, prompt-injection boundary, and backward-compatible runtime integration. *Delivered in `python/harness/mcp/config.py` (typed `MCPServerConfig` + effect classes + budgets + redaction) and `naming.py` (tool identity, effect classification); documented in `docs/harness/architecture.md` (MCP boundary) and `docs/harness/decisions.md` ADR-H38.*
+
+**5B — Local stdio client and fixture server. — IMPLEMENTED (2026-09-24).** Launch a configured command/argv without a shell; pass only explicitly scoped environment; handshake, list tools, normalize schemas, call a selected tool, and shut down cleanly. Acceptance: fake-server tests cover startup, malformed protocol, schema, duplicate names, timeout, cancellation, output bounds, and child termination; no server tools activate just because discovered. *Delivered in `python/harness/mcp/client.py` (MCP SDK stdio, bounded startup/catalog/call, cancellation, clean tree shutdown) + `naming.py` schema validation; fixtures `python/tests/mcp_fixtures/` and tests in `python/tests/test_mcp.py`.*
+
+**5C — Tool registry adapter and run lifecycle. — IMPLEMENTED (2026-09-24).** Convert selected MCP tools to namespaced `ToolDefinition`s in the existing registry. Re-check server enabled state, per-tool selection, agent allowlist, and user permission on every call; validate inputs and outputs; propagate run/tool deadlines and cancellation; emit redacted `mcp.server.*` and `mcp.tool.*` events plus normal tool records. Acceptance: persisted and live traces identify server/tool, action class, duration, outcome, and safe diagnostics without secrets or oversized payloads. *Delivered in `python/harness/mcp/manager.py` (registry adapter, per-call rechecks, bounded/redacted output, `mcp.tool.*` events) with only selected read-only tools activated.*
+
+**5D — Remote Streamable HTTP and authentication. — NOT STARTED.** Add HTTPS remote connections, request headers from a secret reference, OAuth authorization lifecycle where supported, credential refresh/clear, auth diagnostics, redirect/DNS protections, and optional enterprise TLS configuration. Acceptance: secrets never enter project config, prompts, model schemas, logs, or receipts; auth/session state is scoped by user and server; server origin and redirect policy are revalidated.
+
+**5E — Catalog selection and settings UX. — IMPLEMENTED (2026-09-24).** Provide add/test/enable/disable/remove, discovered capability review, per-tool include/exclude selection, permission/effect display, and connection/auth diagnostics. Newly discovered tools default to disabled until selected; catalog changes trigger review and a versioned diff. Acceptance: users can understand exactly what is enabled and why a call is denied; no MCP endpoint is enabled implicitly. *Delivered via `/mcp/*` runtime routes, `/api/harness/mcp/*` proxies, and Settings › MCP Servers (`src/components/screens/mcp-settings.tsx`); a per-server `catalogDigest` versions the discovered catalog. Remote HTTP/OAuth diagnostics remain part of 5D.*
+
+**5F — Financial source independence and freshness. — NOT STARTED.** Extend native retrieval planning to treat JDdS, other configured structured providers, official/web research, and user-enabled MCP data as selectable source classes when appropriate. Add source health scoped by provider × market × asset class × capability × observation time; freshness/TTL by data type; requested as-of semantics; stale-but-usable labeling; parallel or sequential fallback; conflict preservation; and provider-independent evidence provenance. Do not silently claim equal trust or quality across providers. Keep direct MCP tool use available even when a tool does not implement Eclipse's retrieval contract. Acceptance: tests demonstrate stale JDdS loses preference when a fresher eligible source exists, no-data/failure/stale are distinct, conflicts survive, and the agent can explain source choice. Users can inspect or override source preferences.
+
+**5G — Effectful tools and approval. — NOT STARTED.** Support tools that write or cause external effects only after their effects and permission requirements are declared, and after Eclipse can bind user approval to the exact server, tool, arguments/payload digest, run, and expiry. Re-approval is required if arguments or server identity change; deny unknown effect class by default. Acceptance: no prompt injection, tool description, prior approval, or model claim can authorize a changed action. Financial integrations remain user-directed; this approval gate governs consequential execution, not research topics or analytical choices.
+
+**5H — Eclipse as MCP server. — NOT STARTED.** Expose selected existing read APIs through a separately authenticated MCP server/transport. Reuse the existing services and ownership checks; provide stable schemas, instructions, attribution, pagination/limits, and protocol compatibility. Start with status/capability and research receipt access, then allow user-selected data capabilities. Acceptance: external clients receive only authorized data and no credentials or internal orchestration state; a client smoke test validates interoperability.
+
+**5I — Resources, prompts, subscriptions, evaluation, and operations. — NOT STARTED.** Add only capabilities the product can govern and explain: resource URI authorization and bounds; prompt versioning; subscription notification ownership/rate limits; diagnostics, health, metrics, reconnect and graceful degradation; adversarial prompt-injection and credential-isolation evaluations; interoperability matrix against representative clients/models (including DeepSeek function/tool calling). Acceptance: evaluation records protocol/client/server versions, tests context growth and catalog-size behavior, and verifies restart/cancellation/shutdown without leaked subprocesses or duplicate side effects.
+
+**Phase completion gate.** User can connect local and remote MCP servers, inspect and select tools, choose finance workflows without a JDdS gate, and see every call with source/effect attribution. Calls pass through Eclipse's existing runtime validation, permissions, timeout/cancellation, persistence and observability. Native research can use multiple configured sources and treats JDdS as fallible; freshness, conflicts, provenance and uncertainty are explicit. Consequential actions are bound to fresh user approval. Eclipse can also expose selected read capabilities over MCP without duplicating domain services.
 Phase 6 — Workflow engine
 Automation
 Build:

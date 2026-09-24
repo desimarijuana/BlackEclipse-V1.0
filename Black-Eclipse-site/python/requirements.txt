@@ -17,6 +17,10 @@ langchain>=1.0
 langchain-core>=1.0
 langgraph>=1.0
 
+# MCP client (Phase 5): local stdio servers. The maintained MCP Python SDK;
+# pinned <3 so a future v3 does not change the transport/lifecycle under us.
+mcp>=2,<3
+
 # Model providers (universal coverage).
 # langchain-openai also powers EVERY OpenAI-compatible endpoint (Ollama, LM
 # Studio, OpenRouter, DeepSeek, xAI, Perplexity, Together, Fireworks, custom).

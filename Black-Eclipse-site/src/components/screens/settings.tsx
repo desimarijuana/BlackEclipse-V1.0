@@ -16,7 +16,7 @@ import {
   ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, SlidersHorizontal, Volume2, BarChart3,
-  GitBranch,
+  GitBranch, Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
@@ -31,6 +31,7 @@ import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { AnalyticsSettingsPanel } from "./analytics-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
@@ -114,12 +115,12 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
   | "general" | "customization" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
-  | "analytics" | "sidebar" | "alerts" | "data" | "git" | "system";
+  | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "general", "customization", "sound", "ai", "investor-eye", "economics", "market", "news",
-  "analytics", "sidebar", "alerts", "data", "git", "system",
+  "analytics", "sidebar", "alerts", "data", "git", "mcp", "system",
 ] as const;
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
@@ -461,6 +462,7 @@ export function Settings({
     { id: "market", label: "Market Data", desc: "Screener, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
     { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub"] },
     { id: "analytics", label: "Analytics", desc: "Token usage & runs", icon: BarChart3, group: "Intelligence", terms: ["analytics", "usage", "tokens", "token", "consumption", "cost", "spend", "runs", "steps", "agent", "llm", "metrics", "stats"] },
+    { id: "mcp", label: "MCP Servers", desc: "External tool connections", icon: Plug, group: "Intelligence", terms: ["mcp", "model context protocol", "servers", "tools", "external", "stdio", "integration", "plugins"] },
 
     { id: "alerts", label: "Alerts", desc: "Notification channels", icon: ShieldCheck, group: "System", terms: ["alerts", "notifications", "channels", "email", "webhook", "telegram", "discord", "slack"] },
     { id: "data", label: "Data & Storage", desc: "Local data & reset", icon: Database, group: "System", terms: ["data", "storage", "clear", "reset", "chats", "watchlist", "portfolio", "cache"] },
@@ -1169,6 +1171,11 @@ export function Settings({
                 <GitPanel />
               </div>
             )}
+
+            {/* ── MCP servers ─────────────────────────────────────────────
+                The user-directed extension surface: connect local stdio MCP
+                servers and select which read-only tools the agent may use. */}
+            {section === "mcp" && <MCPSettingsPanel />}
 
             {/* ── System ──────────────────────────────────────────────────
                 Technical/internal only: database, health and the status of

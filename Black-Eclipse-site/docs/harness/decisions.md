@@ -687,6 +687,69 @@ on-demand procedure created only through an explicit "turn this into a skill"
 request or the operator's "Learn from this run" action (automatic detection
 opt-in), never a second memory note.
 
+## ADR-H38 — MCP is a user-directed extension surface adapted into the one ToolRegistry
+
+**Decision.** Phase 5 adds `python/harness/mcp/` implementing a local **stdio**
+MCP client over the maintained MCP Python SDK, a typed server/effect contract and
+threat boundary, collision-resistant namespacing, schema validation, and an
+adapter that registers **only selected, read-only** MCP tools into the existing
+`ToolRegistry`. There is no second agent loop, tool registry, model adapter or
+retrieval system, and MCP results never pass through the native research
+verifier. This slice implements gates 5A–5C only; remote HTTP/OAuth (5D), catalog
+UX (5E), source-freshness integration (5F), effectful-tool approval (5G),
+Eclipse-as-MCP-server (5H), and resources/prompts/subscriptions (5I) remain
+future work.
+
+**Why.** MCP must be a user-directed surface — a user may connect a server and
+use its tools for any finance workflow, without a finance-domain allowlist and
+without JDdS as a mandatory path. But the host still owns execution: launch with
+an argv list and no shell, a per-server env allowlist (never the Eclipse
+environment/vault/credentials), explicit selection, bounded timeouts/output/
+concurrency, cancellation, redaction, and observable events. Routing every call
+through `ToolRegistry.execute` means MCP inherits the same validation,
+allowlist, read-only enforcement, timeout, persistence and tool-trace as native
+tools for free.
+
+**Consequences.** Discovery is not activation: `enabled` defaults False and
+`selected_tools` defaults empty, so a discovered tool is inert until named. Only
+`read`-effect tools activate; a tool a server does not mark read-only is not
+assumed safe — the effect resolves from an operator declaration, then MCP
+`readOnlyHint`/`destructiveHint`, else `unknown`. A sanitization collision
+appends a stable SHA-256 digest (never a silent merge). Output is bounded and
+marked truncated, secrets are redacted, and results carry their server/tool
+identity and are labelled external — never Eclipse-verified. `/health` reports
+non-secret MCP counts. Turning on a server is explicit operator configuration
+(`mcp-servers.json`).
+
+## ADR-H39 — The MCP catalog is operator-reviewed; discovery never activates
+
+**Decision.** Phase 5E adds a catalog API and Settings UI (`GET/POST
+/mcp/servers`, `POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST
+/mcp/reload` in Python; `/api/harness/mcp/*` proxies; Settings › MCP Servers) to
+add / test / enable / disable / remove local stdio MCP servers and select their
+tools. A save reloads the manager in place: only the MCP tools it previously
+registered are dropped and re-registered, so native tools are untouched and no
+runtime restart is needed. Responses are secret-free — env VALUES are write-only,
+and the API returns only env KEY names. Each server carries a versioned
+`catalogDigest` (identity + effect + schema) so a changed tool set is reviewable.
+Mutations are operator-gated by the same `checkMutationAllowed` rule as every
+other mutation; reads are open.
+
+**Why.** The 5A–5C slice was config-file-only: a user had to hand-edit
+`mcp-servers.json` and could not see what a server offered, what effect a tool
+had, or why a tool was unavailable. That is neither usable nor reviewable. The
+phase explicitly requires that newly discovered tools default to disabled and
+that users can understand exactly what is enabled and why a call is denied.
+
+**Consequences.** Discovery remains distinct from activation: `enabled` and
+`selected_tools` are the only activation inputs, and the panel disables every
+non-read/unparseable tool with the reason shown. Removing or disabling a server
+revokes its tools on the next reload. Secrets are never echoed; only key names
+are shown, and a blank `KEY=` edit keeps the stored value. The whole
+`mcp-servers.json` file (which may hold scoped env values) is gitignored.
+Effectful-tool approval (5G) is still required before any write/action tool can
+be activated — this phase does not weaken that.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning
 **Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely

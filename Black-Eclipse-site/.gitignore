@@ -60,6 +60,12 @@ agent-memory.db-*
 eclipse-memory.db
 eclipse-memory.db-*
 
+# MCP server configuration (Phase 5). May hold scoped env VALUES (secrets) for
+# local MCP servers, so it is runtime state and is NEVER committed — same tier
+# as agent-memory.db. The shipped default is an example, not a secret store.
+mcp-servers.json
+mcp-servers.json.tmp
+
 # Per-conversation session workspaces (user uploads + agent output). Runtime
 # data, never committed — same tier as agent-memory.db.
 /.black-eclipse/

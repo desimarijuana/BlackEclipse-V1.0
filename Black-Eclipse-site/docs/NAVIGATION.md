@@ -56,6 +56,8 @@ Black-Eclipse-site/
 | Add/edit a dashboard widget | `src/lib/dashboard/registry.tsx` + `widgets.tsx` (and `widget-def.ts` contract) |
 | Work on the widget-grid engine | `src/lib/workspace/`, `src/components/workspace/` |
 | Work on the agentic runtime (agents, tools, providers, events) | `python/harness/` (`agents.py`, `tools.py`, `models.py`, `graph.py`, `events.py`); architecture: `docs/harness/architecture.md`; evidence-grounded answering: `docs/harness/phase-4-progress.md` and `phase-4-opencode-prompt.md` |
+| Work on MCP (connect local stdio servers, select tools) | `python/harness/mcp/` (`config.py` = server/effect contract + threat boundary, `naming.py` = namespacing/schema validation, `client.py` = stdio client, `manager.py` = registry adapter + lifecycle); config `<repo root>/mcp-servers.json` (`HARNESS_MCP_CONFIG` override); catalog API `python/harness/main.py` (`/mcp/*`); front door `src/lib/harness/mcp-{client,types}.ts` + `src/app/api/harness/mcp/`; UI Settings › MCP Servers (`src/components/screens/mcp-settings.tsx`); architecture `docs/harness/architecture.md` (MCP boundary), ADR-H38/H39 in `docs/harness/decisions.md`; tests `python/tests/test_mcp*.py` + fixtures `python/tests/mcp_fixtures/` |
+| Install / repair the MCP client dependency | `python/requirements.txt` (`mcp`), `scripts/setup-python.js`, `scripts/doctor.js` (probes `import mcp`), `src/lib/harness/runtime-config.ts` (`PYTHON_MCP_DEPS`) |
 | Review the agentic-coding roadmap | Repository root `agentic-plan-implementaion.md` §15 (capability contract + Phase 7 delivery gates); current runtime boundaries: `docs/harness/architecture.md` |
 | Review the original agentic harness implementation vision | Repository root `agentic-plan-implementaion.md` (planning reference; current architecture is in `docs/harness/`) |
 | Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
@@ -269,6 +271,9 @@ health).
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |
 | Harness tool contract | `python/harness/tools.py` (`ToolDefinition`, `ToolRegistry`) |
+| MCP server/effect contract | `python/harness/mcp/config.py` (`MCPServerConfig`, `EffectClass`) |
+| MCP client / adapter | `python/harness/mcp/client.py` (`MCPConnection`), `python/harness/mcp/manager.py` (`MCPManager`) |
+| MCP catalog front door | `src/lib/harness/mcp-types.ts` (`MCPServerView`), `src/lib/harness/mcp-client.ts`, routes `src/app/api/harness/mcp/` |
 | Harness model-provider contract | `python/harness/models.py` (`ProviderSpec`, `PROVIDER_CATALOG`) |
 | Harness run persistence | `python/harness/persistence.py` (`agent-memory.db`) |
 | Harness usage analytics | `src/lib/harness/types.ts` (`UsageSummary`), route `src/app/api/harness/usage/route.ts` |

@@ -8,6 +8,56 @@ last-verified: 2026-09-15
 
 ## 2026-09-24
 
+- **Harness Phase 5E — MCP catalog selection & settings UX** — Added the
+  front-door catalog for MCP servers. Python now exposes `GET /mcp/servers`,
+  `POST /mcp/servers`, `POST /mcp/servers/test`, `DELETE /mcp/servers/{id}` and
+  `POST /mcp/reload` (operator-gated, secret-free), with `public_configs()` +
+  a versioned per-server `catalogDigest`; `MCPManager.test_server()` does a
+  no-persist connect/discover, `reload()` re-registers in place (dropping only
+  the MCP tools it added, so native tools and a running process are untouched),
+  and `ToolRegistry.unregister` was added. `upsert_mcp_config` preserves scoped
+  env values write-only (`envKeys` keeps secrets across an enable toggle), and
+  `MCPServerConfig` accepts camelCase (TS) and snake_case (config file). The TS
+  front door adds `src/lib/harness/mcp-types.ts` + `mcp-client.ts` and
+  `/api/harness/mcp/*` proxy routes; a new Settings › MCP Servers panel
+  (`src/components/screens/mcp-settings.tsx`) lets an operator add/test/enable/
+  disable/remove servers, review discovered tools with their effect classes, and
+  select the read-only tools to activate — non-read/unparseable tools render
+  disabled with the reason. `mcp-servers.json` is now gitignored (it may hold
+  scoped env values). New tests: `python/tests/test_mcp_api.py` + config/reload
+  cases in `test_mcp.py`. 614 pytest, 1718 Vitest, `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H39), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
+- **Harness Phase 5A–5C — MCP integration (local stdio vertical slice)** —
+  Added `python/harness/mcp/`: a typed stdio server contract + host threat
+  boundary (`config.py`: id, argv command/args, per-server env allowlist, cwd
+  resolution, enabled state, per-tool selection, declared effects, bounded
+  startup/catalog/call/output/concurrency budgets, secret redaction),
+  collision-resistant namespacing + JSON-schema validation + effect
+  classification (`naming.py`), the local **stdio client over the maintained MCP
+  Python SDK** with bounded timeouts/cancellation/clean process-tree shutdown
+  (`client.py`), and a `ToolRegistry` adapter + lifecycle (`manager.py`).
+  Selected **read-only** tools register into the ONE existing registry, so
+  validation, agent allowlist, read-only enforcement, timeout, cancellation,
+  persistence and tool events stay authoritative; discovery is not activation
+  (`enabled`/`selected_tools` default off), only `read` effects activate, output
+  is bounded/redacted, and results are attributed to their server/tool and never
+  labelled Eclipse-verified. Wired into `AgenticService` (FastAPI lifespan
+  start/stop), exposed non-secret counts on `/health`, added `mcp` to
+  `requirements.txt` + `doctor.js`/`runtime-config.ts` probes, and a
+  deterministic offline test suite (`python/tests/test_mcp.py`, fixtures in
+  `python/tests/mcp_fixtures/`). Remote HTTP/OAuth, settings UI, effectful-tool
+  approval, Eclipse-as-MCP-server, resources/prompts/subscriptions and broad
+  source-planner changes remain future work (5D–5I). 601 pytest, 1718 Vitest,
+  `tsc` clean.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H38), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
 - **Agentic coding roadmap** — Expanded the root implementation plan's Phase 7
   into a bounded coding-agent contract and staged acceptance gates for repository
   inspection, isolated edits, sandboxed checks, diff review, product controls,
@@ -2915,3 +2965,7 @@ proves the documentation obligation was considered rather than skipped.
   `.opencode/skills/black-eclipse-workspace/SKILL.md`
 - **Agent prompt — finance-first, runtime-accurate guidance** — Tightened the Eclipse Agent prompt around dated/provenanced evidence, comparable financial metrics, risk and counter-theses, quantitative auditability, untrusted retrieved content, and honest tool boundaries; removed generic orchestration claims the registered agent cannot guarantee.
   docs updated: `docs/harness/architecture.md`
+# 2026-09-24
+
+- **Agentic roadmap — detailed MCP Phase 5 plan** — Defined user-controlled MCP integration across stdio/remote transports, tool governance, auth, approvals, source freshness and provenance; clarified JDdS as a fallible source, not the mandatory authority.
+  docs updated: `agentic-plan-implementaion.md`, `docs/harness/architecture.md`

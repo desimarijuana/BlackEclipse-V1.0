@@ -15,6 +15,7 @@ from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
+from .mcp import MCPManager
 from .memory_tools import register_memory_tools
 from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
@@ -87,6 +88,42 @@ class AgenticService:
         # dataset at the same moment share a single provider call (Milestone 2H),
         # and a fresh cached result is reused across runs.
         self.retrieval_cache = RetrievalCache()
+        # MCP (Phase 5): configured local stdio servers. Construction only reads
+        # config; nothing is launched until `start_mcp()`. Selected read-only MCP
+        # tools register into THIS registry, so execution stays authoritative.
+        self.mcp = MCPManager()
+        self.mcp_registered_tools: list[str] = []
+
+    async def start_mcp(self) -> None:
+        """Connect enabled MCP servers and register selected read-only tools.
+
+        Called once at service startup. A server failure is recorded as a
+        diagnostic and does not block the runtime or other servers.
+        """
+        try:
+            await self.mcp.start()
+            self.mcp_registered_tools = self.mcp.register_selected_tools(self.registry)
+        except Exception:  # noqa: BLE001 - MCP must never prevent the runtime booting
+            log.warning("MCP startup failed", exc_info=True)
+
+    async def stop_mcp(self) -> None:
+        try:
+            await self.mcp.close()
+        except Exception:  # noqa: BLE001
+            log.warning("MCP shutdown failed", exc_info=True)
+
+    async def reload_mcp(self) -> dict[str, Any]:
+        """Apply a persisted MCP config change without a runtime restart.
+
+        Removes only the MCP tools this manager added, then reconnects and
+        re-registers from the current config file. Returns non-secret status.
+        """
+        from .mcp.config import load_mcp_configs
+
+        configs, diagnostics = load_mcp_configs()
+        self.mcp.load_diagnostics = diagnostics
+        self.mcp_registered_tools = await self.mcp.reload(configs)
+        return self.mcp.summary()
 
     def build_bridge(self, base_url: str, token: Optional[str]) -> DataBridge:
         """Build the read-only JDdS bridge for a research request."""

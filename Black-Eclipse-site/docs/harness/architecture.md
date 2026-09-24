@@ -29,10 +29,10 @@ Next.js front door  (src/lib/harness/, src/app/api/harness/)
 Python agent runtime  (python/harness/)
       │  • owned: agents, tools, model providers, events, run persistence
       │  • LangGraph StateGraph: agent ⇄ tools loop
-      │  • tool needs JDdS data → HTTP → Next.js data bridge
+      │  • native finance tool may use JDdS or another planned retrieval source
       ▼
-Next.js JDdS bridge  POST /api/harness/data   (read-only)
-      └─ Prisma → jdds.db     ← the ONE market-data layer
+Next.js data bridge  POST /api/harness/data   (read-only)
+      └─ Prisma → JDdS plus configured source adapters
 ```
 
 Two boundaries, both deliberate:
@@ -40,8 +40,11 @@ Two boundaries, both deliberate:
 - **Next.js → Python on `/runs`** — Next.js owns nothing agentic. It resolves
   what the runtime cannot (vault credentials, run id) and forwards.
 - **Python → Next.js on `/api/harness/data`** — the Python tools own their
-  contracts (name, schema, permission, risk); the bridge only *reads* JDdS.
-  This keeps exactly one financial data path and forbids a second one.
+  contracts (name, schema, permission, risk); the bridge provides the existing
+  JDdS-backed capabilities. JDdS is a source, not an absolute freshness or
+  completeness authority. The retrieval layer may select among configured
+  sources; user-enabled MCP tools may also be called directly under the normal
+  harness tool policy.
 
 ## Python runtime (`python/harness/`)
 
@@ -56,6 +59,7 @@ Two boundaries, both deliberate:
 | `retrieval/` | the **Financial Retrieval Layer**: provider-agnostic hybrid retrieval (Phase 2) |
 | `retrieval_tools.py` | the Phase-2 tools; they call the retrieval layer, never a provider |
 | `research/` | the **Evidence-Grounded Answering** flow (Phase 4): mandate → coverage → claims → calculations → validation → receipt, plus the bounded web escalation (Phase 5) |
+| `mcp/` | the **MCP integration** (Phase 5A–5C): typed stdio server/effect contract + threat boundary (`config.py`), namespacing/schema validation (`naming.py`), local stdio client over the MCP SDK (`client.py`), and the `ToolRegistry` adapter + lifecycle (`manager.py`). Only selected read-only tools activate. |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
 | `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables. `config.py` resolves a **repo-rooted** path (cwd-independent, `ECLIPSE_MEMORY_DB_PATH` override) and reconciles legacy cwd-based stores non-destructively; `intent.py` deterministically classifies explicit save/forget/correct/skill intent; `decision.py` is the **one shared write gate** (`save`/`suggest`/`run_only`/`ignore`) every memory/suggestion/correction/learning write passes through |
 | `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke` tools — a `memory` write is a *proposal* re-authorized against the user turn by `eclipse_memory/decision.py` |
@@ -83,7 +87,7 @@ the prompt is a one-file change in `prompts.py`.
 
 ### The Financial Retrieval Layer (Phase 2)
 
-The agent requests an **objective + data type**, not a provider:
+The agent requests an **objective + data type**, not a mandatory provider:
 
 ```
 tool → Financial Retrieval Layer → planner (task-aware source selection)
@@ -91,7 +95,9 @@ tool → Financial Retrieval Layer → planner (task-aware source selection)
      → normalization → validation → conflict resolution → evidence → tool result
 ```
 
-`retrieval/` owns this and is the only place that knows a provider exists:
+`retrieval/` owns native financial source planning; it can select among the
+configured providers for the requested data type. User-enabled MCP tools are
+also available as general tools and are not required to implement this contract:
 
 | Module | Owns |
 |---|---|
@@ -506,6 +512,83 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 
 ## Extension points
 
+### MCP boundary and source strategy (Phase 5)
+
+MCP is a **user-directed interoperability layer** around the existing Python
+`ToolRegistry`. A user may connect MCP servers and use their tools for any
+finance workflow; Eclipse does not impose a finance-task allowlist and does not
+require external results to go through JDdS or the native research verifier.
+JDdS is one source among several and may be stale or incomplete; native retrieval
+chooses among configured sources by fit, freshness, coverage and provenance,
+while directly connected MCP tools remain available under the user's selection.
+
+An MCP result is attributed to its server/tool and retains upstream provenance
+when provided. It is **never** labelled Eclipse-verified unless a separate
+verification flow actually checked it. A server's description or result cannot
+change system instructions, enable a tool, or authorize a call.
+
+**Implemented (Phase 5A–5C).** A new package `python/harness/mcp/`:
+
+| Module | Owns |
+|---|---|
+| `config.py` | the typed stdio server contract (id, argv command/args, per-server env allowlist/values, cwd resolution, enabled state, per-tool selection, declared effects, startup/catalog/call/output/concurrency budgets) + secret redaction. Host execution controls only — not a domain allowlist. |
+| `naming.py` | collision-resistant namespacing (`mcp_<server>_<tool>` with a stable digest on a sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (declared → MCP `readOnlyHint`/`destructiveHint` → `unknown`). |
+| `client.py` | the local **stdio** client over the maintained MCP Python SDK (`mcp`): argv launch with no shell, safe default env, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, structured redacted errors. |
+| `manager.py` | discovery, per-tool selection, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
+
+**Lifecycle.** `AgenticService.start_mcp()` (run from the FastAPI lifespan)
+connects every **enabled** server, discovers and validates its tools, then
+registers only **selected, read-only** tools into the ONE `ToolRegistry`.
+`stop_mcp()` terminates every subprocess cleanly on shutdown. `/health` reports
+configured/connected/registered counts (never secrets).
+
+**Discovery is not activation.** `enabled` defaults to False and
+`selected_tools` defaults to empty, so a discovered tool is inert until the
+operator selects it. Only `read`-effect tools are activatable in this slice; the
+current runtime refuses non-read tools and there is no approval flow yet, so a
+`write` / `external_action` / `unknown` tool is not registered. This does **not**
+claim to complete later write/action approval support.
+
+**Execution stays authoritative.** Every MCP call enters through
+`ToolRegistry.execute`, so argument validation (pydantic), the agent allowlist,
+read-only permission, timeout and persistence are enforced exactly as for native
+tools. The adapter additionally re-checks, at call time, that the server is still
+enabled and connected, the tool is still selected/activatable, and the effect is
+permitted. Task cancellation propagates to the MCP request; no retries are issued
+for a call that may have side effects. Output is bounded to the configured size,
+marked truncated when cut, and redacted — source identity (`serverId`, original
+`tool`) and upstream `structuredContent` are retained.
+
+**Trust boundary.** Launch uses an argv list with no shell. Only an explicit
+per-server env allowlist/values reach the child — never the Eclipse process
+environment, settings vault, model credentials or callback token. A relative
+cwd resolves against the repository root, so it cannot be redirected by the
+launch cwd. Server descriptions and results are untrusted data.
+
+**Configuration.** `<repo root>/mcp-servers.json` (override:
+`HARNESS_MCP_CONFIG`); a missing file means MCP is simply not configured. The
+file may hold scoped env VALUES, so it is gitignored. See the config contract for
+the field list.
+
+**Catalog selection (Phase 5E).** `python/harness/main.py` exposes the catalog
+over the runtime API — `GET /mcp/servers`, `POST /mcp/servers`,
+`POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST /mcp/reload` — and
+the TS front door proxies them at `/api/harness/mcp/*`
+(`src/lib/harness/mcp-client.ts`, `src/lib/harness/mcp-types.ts`). The Settings UI
+(`src/components/screens/mcp-settings.tsx`, section `mcp`) lets an operator
+add / test / enable / disable / remove a server, review its discovered tools and
+their effect classes, and select the read-only tools to activate. A save reloads
+the manager in place: only the MCP tools it previously registered are dropped and
+re-registered, so a change takes effect without a runtime restart and native
+tools are untouched. Responses are secret-free — env VALUES are write-only and
+the API returns only env KEY names. Each server also has a versioned
+`catalogDigest` (identity + effect + schema) so a changed tool set is reviewable.
+This is not a finance-domain allowlist: the user chooses which servers and tools
+to connect. Remote HTTP/OAuth (`5D`), broad source-freshness integration (`5F`),
+effectful-tool approval (`5G`), Eclipse-as-MCP-server (`5H`), and
+resources/prompts/subscriptions (`5I`) are **future work**. Decisions:
+ADR-H38 and ADR-H39 in [`decisions.md`](./decisions.md).
+
 | To add… | Do this |
 |---|---|
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |
@@ -515,6 +598,7 @@ step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 | A capability the retrieval layer needs | Add a capability to `data-bridge.ts` + the `DataCapability` union + the API route whitelist. |
 | An agent | Add a prompt to `python/harness/prompts.py` and an `AgentConfig` to `AGENT_PRESETS` in `python/harness/agents.py` (update `DEFAULT_AGENT_ID` if it should be the default). |
 | A model provider | Add a `ProviderSpec` to `PROVIDER_CATALOG`; add its package to `requirements.txt` if it needs a native integration. |
+| A local MCP server | Add an entry to `<repo root>/mcp-servers.json` (see `harness/mcp/config.py`): `id`, `command`, `args`, optional `env`/`env_allowlist`/`cwd`, `enabled: true`, and the `selected_tools` include list. Only read-only tools activate in this slice. Or use Settings › MCP Servers (`/api/harness/mcp/*`). |
 | Durable knowledge | Use `store.remember` / `store.recall` or `store.propose_skill`. |
 | A runtime skill | Add a folder under `python/harness/skills/library/<category>/<name>/` with `skill.json` + `SKILL.md` (and optional `tests/cases.json`); it loads at boot via `skills/loader.py`. |
 | A skill API surface | Add a proxy route under `src/app/api/skills/` (or `learning/`) and a typed call in `skills-client.ts` (server) / `skills-browser.ts` (UI). |

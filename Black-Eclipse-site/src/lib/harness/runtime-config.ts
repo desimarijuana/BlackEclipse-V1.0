@@ -8,6 +8,9 @@
  */
 export const PYTHON_RUNTIME_DEPS = "langgraph";
 
+/** A second probe for a package added after the initial runtime (Phase 5 MCP). */
+export const PYTHON_MCP_DEPS = "mcp";
+
 /** Packages installed by scripts/setup-python.js for the runtime. */
 export const PYTHON_RUNTIME_PACKAGES = [
   "fastapi",
@@ -19,4 +22,5 @@ export const PYTHON_RUNTIME_PACKAGES = [
   "langchain-anthropic",
   "langchain-google-genai",
   "langchain-mistralai",
+  "mcp",
 ] as const;

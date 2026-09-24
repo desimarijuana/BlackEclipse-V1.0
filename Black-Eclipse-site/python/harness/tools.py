@@ -166,6 +166,15 @@ class ToolRegistry:
     def get(self, name: str) -> Optional[ToolDefinition]:
         return self._tools.get(name)
 
+    def unregister(self, name: str) -> bool:
+        """Remove a tool. Returns whether it existed.
+
+        Used by MCP reload: a server's tool set can change between catalogs, so
+        re-registration must be able to drop stale names. Native tools are never
+        unregistered by that path (it tracks only the names it added).
+        """
+        return self._tools.pop(name, None) is not None
+
     def names(self) -> list[str]:
         return list(self._tools.keys())
 

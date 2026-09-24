@@ -169,6 +169,15 @@ if (py) {
       fix("Python agent runtime", `"${py}" -m pip install -r "${requirements}"`);
     }
   }
+
+  // 5c. MCP client (Phase 5). `langgraph` presence does not imply `mcp` on an
+  //     install predating it, so probe the MCP SDK explicitly.
+  if (run(`"${py}" -c "import mcp"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python MCP client", `"${py}" -m pip install -r "${requirements}"`);
+    }
+  }
 } else {
   console.log("[setup] Python not found — live prices and the agent runtime are disabled.");
   console.log("        Install from https://python.org, then:");
