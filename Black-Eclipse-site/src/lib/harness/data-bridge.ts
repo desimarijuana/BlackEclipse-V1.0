@@ -390,7 +390,65 @@ async function recordHealth(
   }
 }
 
+// Capabilities that fetch no market data of their own, so they must NOT be
+// health-recorded: the introspection/reporting routes would otherwise record
+// themselves (recursion/self-noise) and the identity/secret resolvers are not
+// data routes. Everything else is instrumented at the boundary below.
+const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
+  "source_health",
+  "research_health",
+  "coverage",
+  "capability_matrix",
+  "macro_resolve",
+  "mcp_secret_resolve",
+]);
+
+// Bridge capability → the health capability name the registry declares. Mostly
+// identity, but `market_snapshot` serves a quote, so it reports as `live_quote`.
+const HEALTH_CAPABILITY: Readonly<Record<string, string>> = {
+  market_snapshot: "live_quote",
+  live_quote: "live_quote",
+  price_history: "price_history",
+  fundamentals: "fundamentals",
+  financial_statements: "financial_statements",
+  sec_filings: "sec_filings",
+  news: "news",
+  web_search: "web_search",
+  web_fetch: "web_fetch",
+  macro_series: "macro_series",
+};
+
+// The source id to attribute a route to when the result does not name one.
+const DEFAULT_HEALTH_SOURCE: Readonly<Record<string, string>> = {
+  market_snapshot: "JDDS",
+  live_quote: "LIVE_STRUCTURED",
+  price_history: "LIVE_STRUCTURED",
+  fundamentals: "JDDS",
+  financial_statements: "JDDS",
+  sec_filings: "SEC",
+  news: "WEB",
+  web_search: "WEB",
+  web_fetch: "WEB",
+  macro_series: "JDDS",
+};
+
 export async function fetchCapability(
+  capability: DataCapability,
+  params: Record<string, unknown>
+): Promise<DataBridgeResult> {
+  const result = await dispatchCapability(capability, params);
+  // ONE instrumentation seam: every data-fetching capability records here, so a
+  // US-equity quote, a crypto/FX quote, fundamentals, filings, news and web
+  // research all land in the same ledger via the same canonical route key. The
+  // call is fire-and-forget and best-effort; a health failure never fails a data
+  // request. Introspection routes are excluded (they would record themselves).
+  if (!NON_DATA_CAPABILITIES.has(capability)) {
+    void recordCapabilityHealth(capability, params, result);
+  }
+  return result;
+}
+
+async function dispatchCapability(
   capability: DataCapability,
   params: Record<string, unknown>
 ): Promise<DataBridgeResult> {
@@ -430,6 +488,53 @@ export async function fetchCapability(
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
+}
+
+// Capabilities that are not about one instrument (news, web research), so their
+// route key uses the existing `*` wildcard rather than a per-instrument class.
+const INSTRUMENT_LESS_CAPABILITIES: ReadonlySet<string> = new Set([
+  "news",
+  "web_search",
+  "web_fetch",
+]);
+
+/**
+ * Derive the canonical route key from a capability + its result and record the
+ * outcome. Source/market/assetClass come from the result when it carries them
+ * (provenance fields), from an explicit `healthContext` on a failure, else from
+ * a per-capability default or `unknown`. `unknown` is honest: a request that
+ * never resolved its instrument is a failed attempt, not a healthy route.
+ */
+async function recordCapabilityHealth(
+  capability: string,
+  params: Record<string, unknown>,
+  result: DataBridgeResult
+): Promise<void> {
+  const healthCap = HEALTH_CAPABILITY[capability];
+  if (!healthCap) return; // unmapped → do not guess a route
+  const instrumentLess = INSTRUMENT_LESS_CAPABILITIES.has(capability);
+  const ok = result.status === "OK";
+  const ctx = (result.healthContext as { source?: string; market?: string; assetClass?: string } | undefined) ?? {};
+  const source =
+    (typeof result.provider === "string" && result.provider) ||
+    (typeof result.priceSource === "string" && result.priceSource) ||
+    ctx.source ||
+    DEFAULT_HEALTH_SOURCE[capability] ||
+    "unknown";
+  const market = instrumentLess
+    ? "*"
+    : (typeof result.market === "string" && result.market) ||
+      (typeof result.country === "string" && result.country) ||
+      ctx.market ||
+      (typeof params.market === "string" && params.market) ||
+      "unknown";
+  const assetClass = instrumentLess
+    ? "*"
+    : (typeof result.assetClass === "string" && result.assetClass) ||
+      ctx.assetClass ||
+      "unknown";
+  const error = ok ? undefined : (typeof result.error === "string" ? result.error : undefined);
+  await recordHealth(source, String(market), String(assetClass), ok, error, healthCap);
 }
 
 /**
@@ -557,6 +662,7 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
         retrievedAt: cached.fetchedAt.toISOString(),
         statementSource: snapshot.primarySource ?? cached.primarySource,
         provenance: "CACHED",
+        assetClass: identity.assetClass,
         periods,
       };
     }
@@ -587,6 +693,7 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
       retrievedAt: snapshot.retrievedAt,
       statementSource: snapshot.primarySource,
       provenance: snapshot.provenance,
+      assetClass: identity.assetClass,
       periods: snapshot.periods,
     };
   } catch (err) {
@@ -743,12 +850,26 @@ async function sourceHealth(): Promise<DataBridgeResult> {
       assetClass: t.assetClass,
       capability: t.capability,
       probeKind: t.probeKind,
+      // `attempted` mirrors `total` explicitly so a report reader does not have
+      // to know the success+fail arithmetic. Everything below is honest about
+      // zero-attempt routes: `unknown`, never healthy.
+      attempted: total,
       success,
       fail,
       total,
       lastStatus: total === 0 ? null : (fail > 0 && success === 0 ? "fail" : "ok"),
       health,
+      // Reliability over the recorded window (0..1); null when never attempted.
+      reliability: total === 0 ? null : Math.round((success / total) * 100) / 100,
       successRate: total === 0 ? null : Math.round((success / total) * 100) / 100,
+      // Retryable hint: a degraded/failing route may be worth retrying, but we
+      // do not claim a specific transient cause from a counter alone.
+      retryable: health === "degraded" || health === "failing" ? true : health === "unknown" ? null : false,
+      // The most recent write to this row. NOTE: `SourceHealth` keeps per-route
+      // counters + last status, not separate last-success/last-failure stamps;
+      // `updatedAt` is "last attempt" for a route. Distinguishing success/failure
+      // timestamps would need new columns (a deliberate seed-DB migration).
+      lastAttemptAt: updated,
       updatedAt: updated,
       staleSeconds: updated ? (Date.now() - Date.parse(updated)) / 1000 : null,
       lastError: stat?.lastError ?? null,
@@ -968,19 +1089,24 @@ async function liveQuote(params: Record<string, unknown>): Promise<DataBridgeRes
     }
     if (result.status !== "ok" || !result.quote) {
       // A provider that ran but returned nothing is `no_data`; a transport
-      // failure is `source_failure`. Never conflate the two (B2).
+      // failure is `source_failure`. Never conflate the two (B2). Health is
+      // recorded once at the `fetchCapability` boundary (all capabilities share
+      // that one seam), so this function does NOT record its own outcome.
       const cls: FailureClass =
         result.status === "network_error" || result.status === "timeout"
           ? "source_failure"
           : "no_data";
-      void recordHealth(
-        result.source ?? "scraper", identity.market, identity.assetClass, false, result.error, "live_quote"
-      );
-      return unavailableClass(cls, result.error);
+      return {
+        ...unavailableClass(cls, result.error),
+        // Tell the boundary recorder the route that was attempted even though the
+        // instrument/identity resolved and no OK fields exist to read.
+        healthContext: {
+          source: result.source ?? "scraper",
+          market: identity.market,
+          assetClass: identity.assetClass,
+        },
+      } as DataBridgeResult;
     }
-    void recordHealth(
-      result.source ?? "scraper", identity.market, identity.assetClass, true, undefined, "live_quote"
-    );
 
     // The provider must have answered for the SAME instrument. A currency or
     // venue disagreement means it priced something else — discard it rather
@@ -1062,6 +1188,7 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
         status: "OK",
         symbol: identity.symbol,
         market: identity.market,
+        assetClass: identity.assetClass,
         currency: identity.currency,
         instrumentId: `${identity.market}:${identity.symbol}`,
         interval,
@@ -1126,8 +1253,13 @@ async function macroSeries(params: Record<string, unknown>): Promise<DataBridgeR
     return {
       status: "OK",
       source: effectiveSource,
+      provider: effectiveSource,
       seriesKey: identity.id,
       seriesIdentity: identity,
+      // Route identity for health: macro is its own asset class; the geography
+      // (or `*` for a global series) is the market axis.
+      assetClass: "macro",
+      market: identity.geography ?? "*",
       // A rate/level without a unit is not a number (#3).
       units: identity.unit ?? null,
       currency: identity.currency ?? null,

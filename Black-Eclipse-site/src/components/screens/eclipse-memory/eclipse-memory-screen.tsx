@@ -31,6 +31,17 @@ type Tab = "overview" | "memories" | "suggestions" | "activity" | "policies" | "
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
 
+/** Confidence as a percentage, tolerant of a null/undefined value.
+ *
+ * A memory row can lack confidence (a partial/suggestion-shaped object), and the
+ * previous `(confidence * 100)` threw "Cannot read properties of null" when the
+ * user typed in the memory search box (the reported `None` conversion error).
+ * Render an honest placeholder instead of crashing the screen. */
+function formatConfidence(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(0)}%`;
+}
+
 export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("overview");
   // Deep links land on the matching sub-page:
@@ -272,7 +283,7 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                   <p className="mt-1.5 text-[12px] text-foreground leading-relaxed line-clamp-2">{memory.content}</p>
                 </div>
                 <span className="shrink-0 text-[9px] text-muted-foreground">
-                  {(memory.confidence * 100).toFixed(0)}% · {memory.verification}
+                  {formatConfidence(memory.confidence)} · {memory.verification}
                 </span>
               </div>
             </button>
@@ -295,7 +306,7 @@ function Memories({ isOperator }: { isOperator: boolean }) {
               <Meta label="Subject" value={detail.memory.subject ?? "—"} />
               <Meta label="Source" value={detail.memory.source ?? "—"} />
               <Meta label="Run" value={detail.memory.sourceRunId ?? "—"} />
-              <Meta label="Confidence" value={`${(detail.memory.confidence * 100).toFixed(0)}%`} />
+              <Meta label="Confidence" value={formatConfidence(detail.memory.confidence)} />
               <Meta label="Verification" value={detail.memory.verification} />
               <Meta label="Accesses" value={String(detail.memory.accessCount)} />
               <Meta label="Created" value={detail.memory.createdAt} />

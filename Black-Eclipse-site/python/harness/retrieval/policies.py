@@ -48,11 +48,29 @@ FRESHNESS_MAX_AGE_SECONDS: dict[str, int] = {
     "any": 10 * 365 * 24 * 60 * 60,
 }
 
+# Natural PUBLISHING cadence per data type, when a source does not declare its
+# own. Some data is periodic by nature: a `financial_statements` leg's newest
+# observation is the last FY/quarter END, so a currently-valid annual filing is
+# always ~1 year "old" by wall-clock. Comparing that against a 7-day freshness
+# window would flag every legitimate filing stale (Issue 4). The cadence lets the
+# validator treat a within-cadence figure as DELAYED-by-design, not stale, while
+# keeping strict windows for prices/quotes (which have no cadence entry here).
+DEFAULT_CADENCE_SECONDS: dict[str, int] = {
+    "financial_statements": 400 * 24 * 60 * 60,  # ~annual reporting + filing lag
+    "earnings": 95 * 24 * 60 * 60,               # ~quarterly
+    "macro_series": 45 * 24 * 60 * 60,           # monthly releases + revision lag
+}
+
 
 def freshness_for(data_type: str, requested: Optional[str] = None) -> FreshnessRequirement:
     if requested:
         return requested  # type: ignore[return-value]
     return DEFAULT_FRESHNESS.get(data_type, "any")
+
+
+def cadence_for(data_type: str) -> Optional[int]:
+    """The natural publishing cadence for a data type, or None (not periodic)."""
+    return DEFAULT_CADENCE_SECONDS.get(data_type)
 
 
 def ttl_seconds(data_type: str) -> int:
@@ -83,8 +101,10 @@ __all__ = [
     "DEFAULT_FRESHNESS",
     "CACHE_TTL_SECONDS",
     "FRESHNESS_MAX_AGE_SECONDS",
+    "DEFAULT_CADENCE_SECONDS",
     "TIER_RANK",
     "freshness_for",
+    "cadence_for",
     "ttl_seconds",
     "max_age_seconds",
     "tier_rank",

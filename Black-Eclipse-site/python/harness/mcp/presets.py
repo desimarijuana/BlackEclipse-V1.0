@@ -98,6 +98,13 @@ class WorkflowSpec:
     # Native-first: workflows that need the user's own positions are driven by
     # Eclipse's portfolio/JDdS data; integrations add imports/exports only.
     requires_native_portfolio: bool = False
+    # True when the workflow depends on a capability this agent does not have
+    # yet (e.g. no native portfolio/watchlist source, no configured destination).
+    # The UI must label these UNAVAILABLE rather than let a user retry a job that
+    # cannot run; it is a scope/provisioning fact, not a transient outage.
+    requires_provisioning: bool = False
+    # Plain-language note on WHAT is missing, shown when requires_provisioning.
+    provisioning_note: str = ""
 
     def to_public(self) -> dict[str, Any]:
         return {
@@ -108,6 +115,8 @@ class WorkflowSpec:
             "integrations": list(self.integrations),
             "output": self.output,
             "requiresNativePortfolio": self.requires_native_portfolio,
+            "requiresProvisioning": self.requires_provisioning,
+            "provisioningNote": self.provisioning_note,
             "steps": [s.to_public() for s in self.steps],
             "approvalSteps": [s.id for s in self.steps if s.effect != EFFECT_READ],
         }
@@ -290,6 +299,11 @@ WORKFLOWS: list[WorkflowSpec] = [
         category="portfolio",
         integrations=["google_sheets", "excel", "filesystem"],
         requires_native_portfolio=True,
+        requires_provisioning=True,
+        provisioning_note=(
+            "Needs a read-only portfolio/watchlist source and a spreadsheet destination "
+            "(spreadsheet ID + tab + account scope). Until those are provisioned this workflow is unavailable."
+        ),
         output="Holdings/watchlist rows read from your sheet or file, ready to review and import.",
         steps=[
             _step("read_source", "Read your source file", "Read the selected sheet/workbook/file (read-only).", integration="google_sheets"),
@@ -305,6 +319,11 @@ WORKFLOWS: list[WorkflowSpec] = [
         category="portfolio",
         integrations=[],
         requires_native_portfolio=True,
+        requires_provisioning=True,
+        provisioning_note=(
+            "Needs a read-only portfolio/watchlist source for this agent. Until it is "
+            "provisioned this workflow is unavailable (it is not a transient outage)."
+        ),
         output="A risk review computed from Eclipse's authoritative portfolio + JDdS data.",
         steps=[
             _step("load_portfolio", "Load your portfolio", "Use Eclipse's own portfolio holdings (native, authoritative).", native=True),
@@ -348,6 +367,11 @@ WORKFLOWS: list[WorkflowSpec] = [
         category="journal",
         integrations=["google_sheets", "excel", "filesystem"],
         requires_native_portfolio=True,
+        requires_provisioning=True,
+        provisioning_note=(
+            "Needs a read-only journal/portfolio source plus a spreadsheet destination. "
+            "Until provisioned this workflow is unavailable."
+        ),
         output="Journal analytics from your trade history plus a plain-language review.",
         steps=[
             _step("read_trades", "Read your trade log", "Read trades from a sheet/workbook/file (read-only).", integration="google_sheets"),
@@ -377,6 +401,11 @@ WORKFLOWS: list[WorkflowSpec] = [
         category="reporting",
         integrations=["google_sheets", "excel", "powerpoint", "canva"],
         requires_native_portfolio=True,
+        requires_provisioning=True,
+        provisioning_note=(
+            "Needs a read-only portfolio source and a configured destination "
+            "(spreadsheet ID + tab or a deck provider). Until provisioned this workflow is unavailable."
+        ),
         output="A report written to your sheet/workbook or a generated deck.",
         steps=[
             _step("build_report", "Build the report", "Assemble holdings, performance and risk from Eclipse data.", native=True),

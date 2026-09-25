@@ -129,6 +129,36 @@ def local_filing_hint(market: Optional[str]) -> str:
     return LOCAL_FILING_HINTS.get(key, "annual report regulatory filing")
 
 
+# Tracking/analytics query params that do not change the underlying article, so
+# two URLs differing only by them are the same item.
+_UTM_PREFIXES = ("utm_", "gclid", "fbclid", "mc_cid", "mc_eid", "ref", "ref_src", "igshid")
+
+
+def _normalize_url_for_dedup(url: str) -> str:
+    """A stable key for "is this the same article?".
+
+    Lowercases scheme/host, drops the fragment and tracking query params, and
+    removes a trailing slash. Two distinct articles keep distinct keys; the same
+    article syndicated with different tracking params collapses to one (Issue 5).
+    """
+    if not url:
+        return ""
+    try:
+        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+        parsed = urlparse(url.strip())
+        kept = [
+            (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if not k.lower().startswith(_UTM_PREFIXES)
+        ]
+        path = parsed.path.rstrip("/")
+        return urlunparse(
+            (parsed.scheme.lower(), parsed.netloc.lower(), path, "", urlencode(kept), "")
+        )
+    except Exception:  # noqa: BLE001 - a malformed URL just dedups by raw text
+        return url.strip().lower()
+
+
 def _classify_source(host: str, url: str) -> SourceTier:
     probe = f"{host}{url}".lower()
     if any(h in probe for h in _PRIMARY_HOST_HINTS):
@@ -136,6 +166,33 @@ def _classify_source(host: str, url: str) -> SourceTier:
     if any(h in probe for h in _SECONDARY_HOST_HINTS):
         return "secondary"
     return "secondary" if host else "unknown"
+
+
+# Hosts that commonly appear as brokerage/investor-relations landing pages rather
+# than a specific article. A result from one of these is not "news" unless it has
+# a real article path; it is deprioritized so it is never presented as coverage.
+_LANDING_HOST_HINTS = (
+    "interactivebrokers", "robinhood.com", "fidelity.com", "schwab.com",
+    "etrade.com", "tdameritrade", "vanguard.com", "investor.",
+)
+_LANDING_PATH_HINTS = ("/quote", "/quotes", "/symbol", "/stocks/", "/stock/", "/market-activity", "/overview")
+
+
+def _looks_like_landing_page(url: str, host: str) -> bool:
+    """Heuristic: is this a generic landing/quote page rather than an article?
+
+    Used only to DEPRIORITIZE (sort last) and label — never to claim a page is
+    irrelevant with certainty. A brokerage quote page is not news (Issue 5).
+    """
+    probe = f"{host}{url}".lower()
+    if any(h in probe for h in _LANDING_HOST_HINTS):
+        return True
+    # A quote/symbol path with no article-looking segment.
+    if any(p in url for p in _LANDING_PATH_HINTS) and not any(
+        a in url for a in ("/news/", "/article/", "/story/", "/blog/", "/press")
+    ):
+        return True
+    return False
 
 
 def _as_evidence(item: dict[str, Any], query: str, *, retrieved: bool, validation: str) -> EvidenceItem:
@@ -225,10 +282,24 @@ class WebResearchSource:
         results = search.get("results") or []
         ranked = self._rank(results)
         evidence: list[EvidenceItem] = []
+        # Deduplicate by URL before ranking-retrieval: the same article commonly
+        # appears multiple times in a result set (syndication, mirrors, tracking
+        # params), which inflates the evidence list and the count. One URL = one
+        # evidence item here (Issue 5). The first occurrence wins.
+        seen_urls: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for item in ranked:
+            url = str(item.get("url") or "").strip()
+            key = _normalize_url_for_dedup(url)
+            if key and key in seen_urls:
+                continue
+            if key:
+                seen_urls.add(key)
+            deduped.append(item)
 
         # Retrieve the underlying page for the best candidates so a snippet is
         # never treated as final evidence when the page itself is reachable.
-        for item in ranked[:3]:
+        for item in deduped[:3]:
             page = await self._call("web_fetch", {"url": item.get("url")})
             if page.get("diagnostics"):
                 diagnostics = [*diagnostics, *page["diagnostics"]]
@@ -239,7 +310,7 @@ class WebResearchSource:
                 evidence.append(_as_evidence(item, query, retrieved=False, validation="unverified"))
 
         # Remaining results are snippet-only, explicitly unverified.
-        for item in ranked[3:]:
+        for item in deduped[3:]:
             evidence.append(_as_evidence(item, query, retrieved=False, validation="unverified"))
 
         references = [e.source for e in evidence]
@@ -266,9 +337,11 @@ class WebResearchSource:
     def _rank(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Deterministic ranking: primary sources first, then result order.
 
-        No LLM here — the ranking must be explainable and reproducible.
+        No LLM here — the ranking must be explainable and reproducible. A
+        brokerage/landing page (no real article path, or a known landing host)
+        sorts behind genuine results so it is not presented as news (Issue 5).
         """
-        def score(item: dict[str, Any]) -> int:
+        def score(item: dict[str, Any]) -> tuple[int, int]:
             url = (item.get("url") or "").lower()
             host = ""
             try:
@@ -279,7 +352,8 @@ class WebResearchSource:
                 host = ""
             tier = _classify_source(host, url)
             base = {"primary": 0, "official": 1, "secondary": 2, "unknown": 3}.get(tier, 3)
-            return base
+            landing = 1 if _looks_like_landing_page(url, host) else 0
+            return (base, landing)
 
         return sorted(results, key=score)
 

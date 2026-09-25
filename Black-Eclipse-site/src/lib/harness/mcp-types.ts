@@ -187,6 +187,10 @@ export interface MCPWorkflowView {
   integrations: string[];
   output: string;
   requiresNativePortfolio: boolean;
+  /** True when the workflow needs provisioning this agent does not have yet. */
+  requiresProvisioning: boolean;
+  /** Plain-language note on what is missing when requiresProvisioning. */
+  provisioningNote: string;
   steps: MCPWorkflowStepView[];
   approvalSteps: string[];
 }

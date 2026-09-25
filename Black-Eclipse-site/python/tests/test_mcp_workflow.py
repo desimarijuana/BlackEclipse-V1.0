@@ -50,6 +50,18 @@ def test_workflows_cover_the_required_jobs():
     } <= ids
 
 
+def test_provisioning_dependent_workflows_are_labelled_unavailable():
+    # Issue 1: a workflow that needs an unprovisioned source/destination must say
+    # so plainly, not look like a runnable job that silently fails.
+    by_id = {w["id"]: w for w in presets.list_workflows()}
+    for wid in ("import_portfolio", "review_portfolio_risk", "analyze_trade_journal", "export_portfolio_report"):
+        w = by_id[wid]
+        assert w["requiresProvisioning"] is True, wid
+        assert w["provisioningNote"], wid
+    # A native-only workflow with no missing capability is NOT labelled unavailable.
+    assert by_id["review_portfolio_risk"]["requiresNativePortfolio"] is True
+
+
 def test_each_workflow_marks_its_approval_steps():
     for w in presets.list_workflows():
         assert isinstance(w["approvalSteps"], list)

@@ -8,6 +8,60 @@ last-verified: 2026-09-15
 
 ## 2026-09-24
 
+- **Read-only-test findings - Issues 4, 5, 6 (plus 1 labelling)** - Fixed the
+  defect-level findings from the reliability review. **Issue 6 (memory search
+  `None`):** `eclipse-memory-screen.tsx` dereferenced `memory.confidence * 100`
+  with no guard, so a row with a null confidence crashed the screen when the user
+  typed in the search box; added `formatConfidence()` and used it in both render
+  sites. `_score()` also formatted the raw importance/confidence (would raise
+  `NoneType.__format__` for a partial dict); now formats the same defaulted values
+  it scored with. **Issue 5 (news/evidence):** `WebResearchSource` now
+  deduplicates results by a normalized URL (tracking params/fragment/trailing
+  slash ignored) so the same article cannot inflate the evidence list; the tool
+  summarizer now states the true total ("6 of N shown ... N-k more") so a bounded
+  list never reads as silently dropped items. **Issue 4 (stale statements):** added
+  `DEFAULT_CADENCE_SECONDS` (statements annual, earnings quarterly, macro monthly)
+  and wired it through `layer.py`, so a currently-valid annual filing is
+  DELAYED-by-design, not flagged stale by a 7-day window, while prices/quotes (no
+  cadence) keep their strict windows. **Issue 1 (labelling):** workflow specs
+  gained `requiresProvisioning` + `provisioningNote`; the four native-portfolio
+  workflows now render as "unavailable" with the exact missing provisioning rather
+  than a runnable job that cannot start. Tests:
+  `python/tests/test_readonly_test_findings.py` (7) + updated `test_mcp_workflow.py`.
+  1736 Vitest, tsc clean. (One unrelated Python failure remains from a concurrent
+  `prompts.py` edit vs `test_graph.py`; not this change.)
+  docs updated: `docs/CHANGELOG.md` - fixes restore declared behaviour; no
+  contract/architecture change (new optional fields only).
+
+## 2026-09-24
+
+- **Retrieval health — one instrumentation seam for every capability** — Fixed
+  the confirmed Issue 2 defect: health was recorded ONLY inside `liveQuote`, so a
+  US-equity quote served via `market_snapshot` and every fundamentals / filings /
+  news / price-history / macros route never reached the ledger (crypto/FX were
+  recorded only because they route through `liveQuote`). `fetchCapability` now
+  wraps `dispatchCapability` and records every data-fetching capability once at
+  the boundary, deriving the canonical route key
+  (`source × market × assetClass × capability`) from the result's provenance,
+  an explicit `healthContext` on failure, or per-capability defaults; instrument-
+  less routes (news/web) use the existing `*` wildcard. Introspection routes
+  (health/coverage/capability_matrix/macro_resolve/secret) are excluded so they
+  cannot record themselves. `liveQuote` no longer double-records. The report
+  adds explicit `attempted`, `reliability`, `retryable` and `lastAttemptAt`
+  while preserving `unknown` for zero-attempt routes. Deliberately did NOT add
+  last-success/last-failure columns (would require a seed-DB migration); that is
+  documented as a follow-up. New test `data-bridge-health.test.ts` proves a
+  market_snapshot quote records, a failure records as failure, introspection
+  routes do not self-record, and macro keys to its asset class. 1736 Vitest, tsc
+  clean. (Python suite has one unrelated failure from a concurrent `prompts.py`
+  edit vs `test_graph.py`; not this change.)
+  docs updated: `docs/CHANGELOG.md` only — internal instrumentation; the health
+  report fields are additive and the route-key scheme is unchanged.
+
+## 2026-09-24
+
+## 2026-09-24
+
 - **MCP product layer — finance workflows, provenance, diagnostics, approval
   clarity** — Turned MCP from "servers and tools" into finance jobs an investor
   recognises. Added `python/harness/mcp/presets.py`: 11 finance **integrations**

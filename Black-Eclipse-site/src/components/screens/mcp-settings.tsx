@@ -1119,12 +1119,15 @@ function FinanceWorkflowWizard({
               <button
                 key={w.id}
                 onClick={() => setSelected(w.id === selected ? null : w.id)}
+                title={w.requiresProvisioning ? w.provisioningNote : undefined}
                 className={cn(
                   "rounded-xl border px-3 py-1.5 text-[11px] transition-colors cursor-pointer",
-                  w.id === selected ? "border-primary/50 bg-primary/15 text-primary" : "border-border/30 text-muted-foreground hover:bg-accent/20"
+                  w.id === selected ? "border-primary/50 bg-primary/15 text-primary" : "border-border/30 text-muted-foreground hover:bg-accent/20",
+                  w.requiresProvisioning && "opacity-70"
                 )}
               >
                 {w.name}
+                {w.requiresProvisioning && <span className="ml-1 text-[9px] text-amber-400">unavailable</span>}
               </button>
             ))}
           </div>
@@ -1134,6 +1137,14 @@ function FinanceWorkflowWizard({
                 <p className="text-xs text-foreground">{active.summary}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">Produces: {active.output}</p>
               </div>
+              {active.requiresProvisioning && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-muted-foreground">
+                    <strong className="text-foreground/90">Not available yet.</strong> {active.provisioningNote}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1">Steps</p>
                 <ol className="space-y-1">

@@ -86,7 +86,13 @@ def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> 
         reasons.append("exact subject match")
     score += float(memory.get("importance") or 0.5)
     score += float(memory.get("confidence") or 0.5)
-    reasons.append(f"importance {memory.get('importance'):.2f} · confidence {memory.get('confidence'):.2f}")
+    # Format the SAME defaulted values the score used. Formatting the raw
+    # `memory.get(...)` would raise "unsupported format string passed to
+    # NoneType.__format__" for a row with a null importance/confidence — the
+    # memory-search `None` conversion error (Issue 6).
+    importance = float(memory.get("importance") or 0.5)
+    confidence = float(memory.get("confidence") or 0.5)
+    reasons.append(f"importance {importance:.2f} · confidence {confidence:.2f}")
     if memory.get("verification") == "verified":
         score += 1.0
         reasons.append("verified")

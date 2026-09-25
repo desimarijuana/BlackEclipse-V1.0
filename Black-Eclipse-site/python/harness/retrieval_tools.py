@@ -102,11 +102,19 @@ def _summarize(result: Any) -> str:
         lines.append(_render_data(result.data))
     if result.evidence:
         lines.append("")
-        lines.append("Evidence:")
-        for item in result.evidence[:6]:
+        # The count and the list must agree. The summary is bounded for context
+        # size, so when the list is truncated we SAY so and give the true total —
+        # otherwise a reader sees "evidenceCount=N" beside a shorter list and
+        # reasonably concludes items were dropped silently (Issue 5).
+        total = len(result.evidence)
+        shown = result.evidence[:6]
+        lines.append(f"Evidence ({len(shown)} of {total} shown):")
+        for item in shown:
             lines.append(f"  [{item.kind}/{item.quality}] {item.summary[:240]}")
             if item.source.url:
                 lines.append(f"    {item.source.url}")
+        if total > len(shown):
+            lines.append(f"  …and {total - len(shown)} more evidence item(s) not shown.")
     if result.warnings:
         lines.append("")
         lines.append("Warnings:")

@@ -37,6 +37,7 @@ from .contract import (
     RetrievalStatus,
 )
 from .parallel import run_parallel
+from .policies import cadence_for
 from .planner import (
     SEC_FILINGS,
     STRUCTURED_LIVE,
@@ -386,12 +387,17 @@ class FinancialRetrievalLayer:
             self.metrics["conflicts"] += 1
 
         # A source may declare how often it publishes (`cadenceSeconds` in its
-        # raw payload); a slow-cadence source is DELAYED, not stale.
+        # raw payload); a slow-cadence source is DELAYED, not stale. When it does
+        # not, fall back to the data type's natural cadence (Issue 4) so a
+        # currently-valid annual filing is not flagged stale by a 7-day window —
+        # prices/quotes have no cadence and keep their strict windows.
         cadence = None
         if isinstance(outcome.raw, dict):
             cadence = outcome.raw.get("cadenceSeconds")
             if not isinstance(cadence, (int, float)):
                 cadence = None
+        if cadence is None:
+            cadence = cadence_for(request.dataType)
         objects, quality_warnings = validate_objects(
             chosen, request.freshnessRequirement, source_cadence_seconds=cadence
         )
