@@ -13,6 +13,7 @@ export type MemoryActionKind =
   | 'refused'
   | 'needs_confirmation'
   | 'needs_clarification'
+  | 'needs_review'
   | 'memory_full'
   | 'suggested'
   | 'skill_requested';
@@ -89,6 +90,18 @@ function actionView(blob: Record<string, unknown>): MemoryActionView | null {
       return { kind: 'needs_confirmation', headline: 'Confirmation needed', preview, reason };
     case 'needs_clarification':
       return { kind: 'needs_clarification', headline: 'Which memory?', preview, reason };
+    case 'needs_review':
+      // NOT saved as active truth: it conflicts with an existing memory.
+      return {
+        kind: 'needs_review',
+        headline: 'Not saved — conflicts with an existing memory',
+        preview,
+        memoryType,
+        scope,
+        subject,
+        inspectPath,
+        reason,
+      };
     case 'memory_full':
       return { kind: 'memory_full', headline: 'Memory is full — not saved', preview, reason };
     case 'suggested':

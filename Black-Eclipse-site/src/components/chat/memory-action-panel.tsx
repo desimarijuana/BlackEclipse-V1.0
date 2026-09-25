@@ -22,6 +22,7 @@ const ACTION_META: Record<string, { icon: typeof Check; tone: string; label: str
   refused: { icon: ShieldAlert, tone: 'text-amber-500', label: 'Not saved' },
   needs_confirmation: { icon: Info, tone: 'text-amber-500', label: 'Confirmation needed' },
   needs_clarification: { icon: Info, tone: 'text-amber-500', label: 'Which memory?' },
+  needs_review: { icon: ShieldAlert, tone: 'text-amber-500', label: 'Conflicts — needs review' },
   memory_full: { icon: ShieldAlert, tone: 'text-amber-500', label: 'Memory is full' },
   suggested: { icon: Info, tone: 'text-sky-400', label: 'Not saved — suggestion' },
   skill_requested: { icon: ListChecks, tone: 'text-primary', label: 'Ready to learn' },

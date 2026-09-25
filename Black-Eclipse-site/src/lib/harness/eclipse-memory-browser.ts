@@ -5,10 +5,15 @@
 import type {
   CorrectionRecord,
   EclipseMemoryHealth,
+  MemoryDatabaseHealth,
   MemoryDetail,
+  MemoryExportDocument,
+  MemoryLifecycleResponse,
   MemoryOverview,
   MemoryRecord,
+  MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
+  MemorySemanticStatus,
   MistakeRecord,
 } from "./eclipse-memory-types";
 
@@ -86,6 +91,68 @@ export async function reviewMemory(memoryId: string, approve: boolean) {
   return api<{ success: boolean; memory: MemoryRecord }>(
     `/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/review`,
     { method: "POST", body: JSON.stringify({ approve }) }
+  );
+}
+
+export async function memoryLifecycle(view?: string, scopeId?: string, limit = 100): Promise<MemoryLifecycleResponse> {
+  const params = new URLSearchParams();
+  if (view) params.set("view", view);
+  if (scopeId) params.set("scopeId", scopeId);
+  params.set("limit", String(limit));
+  return api<MemoryLifecycleResponse>(`/api/eclipse-memory/lifecycle?${params.toString()}`);
+}
+
+export async function memoryRetention(): Promise<MemoryRetentionStatus> {
+  return api<MemoryRetentionStatus>("/api/eclipse-memory/retention");
+}
+
+export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
+  return api<MemorySemanticStatus>("/api/eclipse-memory/semantic-status");
+}
+
+export async function restoreMemory(memoryId: string) {
+  return api<{ success: boolean; memory: MemoryRecord }>(
+    `/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/restore`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+export async function renewMemory(memoryId: string, days?: number) {
+  return api<{ success: boolean; memory: MemoryRecord }>(
+    `/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/renew`,
+    { method: "POST", body: JSON.stringify({ days }) }
+  );
+}
+
+export async function exportMemory(): Promise<MemoryExportDocument> {
+  return api<MemoryExportDocument>("/api/eclipse-memory/export");
+}
+
+export async function importMemory(
+  document: MemoryExportDocument,
+  dryRun = false
+): Promise<{ success: boolean; imported: number; skipped: number; rejected: Array<{ index: number; reason: string }>; dryRun: boolean }> {
+  return api("/api/eclipse-memory/import", {
+    method: "POST",
+    body: JSON.stringify({ document, dryRun }),
+  });
+}
+
+export async function backupMemory() {
+  return api<{ success: boolean; path: string; bytes: number }>("/api/eclipse-memory/backup", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function memoryDatabaseHealth(): Promise<MemoryDatabaseHealth> {
+  return api<MemoryDatabaseHealth>("/api/eclipse-memory/database-health");
+}
+
+export async function resetMemory(confirm: boolean) {
+  return api<{ success: boolean; cleared: Record<string, number>; backup: { path: string } | null }>(
+    "/api/eclipse-memory/reset",
+    { method: "POST", body: JSON.stringify({ confirm }) }
   );
 }
 

@@ -543,3 +543,161 @@ Technologies"); Vitest **1732 passed**; `npx tsc --noEmit` clean.
 `harness/decisions.md` (ADR-H43, ADR-H35/H37 corrected), `NAVIGATION.md`,
 `harness/architecture.md`, this file.
 
+## Memory Maturity — local personal memory (2026-09-25)
+
+**Brief.** Make Eclipse-Memory a mature local, single-user personal memory
+system: explicit lifecycle, deterministic contradiction handling, better
+paraphrase retrieval, operator-visible explanations, safe export/import/backup/
+reset, richer privacy policy, measured skill quality, and honest failure
+behaviour. The architecture is unchanged: one `eclipse-memory.db`, one
+`EclipseMemoryService`, one decision gate, one retrieval seam, the same UI and
+APIs. `userId`/`scopeId` remain local labels, not security identities.
+
+**Phase 0 — baseline.** `docs/harness/memory-maturity-baseline.md` records the
+pre-change architecture, the eval metrics, and the seven code-located gaps.
+Baseline eval (dataset v1, 15 cases): recall 0.900, precision 0.714,
+synonym-paraphrase 0.500, forbidden 0, leakage 0, no-match clean, 0 over-budget.
+
+**Phase 1 — lifecycle & temporal state.** Migration 10 adds `lastConfirmedAt`,
+`lastUsedAt`, `lastReviewedAt`, `authority` (`explicit`/`automatic`),
+`statusReason`. `write_memory` now persists `expiresAt` (a latent bug — it was
+accepted and dropped). Re-stating a fact refreshes `lastConfirmedAt` instead of
+duplicating. `record_access` also stamps `lastUsedAt`. New store helpers:
+`confirm_memory`, `restore_memory`, `mark_reviewed`, `memory_lifecycle_counts`,
+`list_lifecycle_memories`. Retention (`retention_days`) is applied by
+`expire_due_memories` and only ever marks **automatic** memories `expired` —
+explicit memories are never silently expired. Nothing is hard-deleted.
+
+**Phase 2 — contradiction & replacement.** `conflicts.py` is a deterministic
+lexical detector (replacement-language patterns + opposing-polarity pairs +
+same-subject/overlap). `write_memory` resolves a conflict before creating a
+second active truth: explicit replacement supersedes the old record(s) (linked,
+retained); an ambiguous contradiction stores the new statement inert (`proposed`)
+so it is visible for review, and the existing active record keeps authority.
+Scope isolation is authoritative — different scopes never conflict. Retrieval
+gains a safety net (`_highest_authority_only`) so legacy/manually-edited
+contradictory rows recall only the highest-authority, most-recent truth.
+
+**Phase 3 — retrieval & paraphrase.** `normalize.py` adds human-reviewed synonym
+groups, light plural stemmming, subject aliases, and bounded (edit-distance-1,
+length ≥6) typo tolerance. `_score` matches on word boundaries through
+normalization; fuzzy matching runs per-token so a generic exact hit cannot mask a
+misspelled topical token. The labeled set grew from 15 to 21 cases (typo,
+multi-turn, ambiguous, conflict, expired, risk-paraphrase). **Semantic retrieval
+was deliberately NOT added** — the deterministic retriever now scores
+synonym/typo at 1.0 and the release-threshold gate (`THRESHOLDS`,
+`check_thresholds`) fails on any forbidden hit / scope leak / no-match overreach.
+
+**Phase 4 — explanations & Control Room.** `service.explain_memory` states why a
+memory exists (save reason from provenance) and its recall disposition.
+`GET /eclipse-memory/memories/{id}` carries it; `GET /eclipse-memory/lifecycle`
+exposes counts + named views (active, never-used, frequently-recalled, automatic,
+expired, superseded/conflicts, rejected, archived). The UI gains a **Lifecycle**
+tab and explanation panels; new deep links `memory.lifecycle`/`memory.policies`.
+
+**Phase 5 — export / import / backup / reset.** `transfer.py`: readable versioned
+JSON export; validated import that runs every record through the SAME decision
+gate + `write_memory` (privacy rules apply) with `imported` provenance and
+duplicate/idempotent handling; atomic backup (temp + rename, never overwrites);
+stronger `database_health` (integrity + foreign-key + free-page ratio); reset
+requires explicit `confirm`, backs up first, and clears ONLY the memory domain
+(skills and unrelated tables survive). Endpoints + front-door proxies + a
+Health/Transfer UI panel.
+
+**Phase 6 — policy & privacy.** New policy keys: `memory_enabled` (hard off — no
+memory at all, even explicit), `memory_in_diagnostics`,
+`semantic_indexing_enabled` (recorded intent; changes nothing today),
+per-category `capture_policy`/`recall_policy` (allow/suggest/deny — can only
+tighten). All are validated/bounded; recall policy is applied after the
+authoritative scope/status filter. Safety floors (secrets, credentials, dumps,
+financial facts, no auto-promotion) hold under every setting.
+
+**Phase 7 — learning & skill quality.** `skill_quality.py` derives success/
+failure, output-validation, tool-budget-failure, duration/tool-call metrics and
+an advisory usefulness score + deprecation recommendation from real
+`SkillExecution` rows; `compare_versions` detects cross-version regression;
+`promotion_evidence` assembles operator-readable evidence and states it is
+advisory only. Endpoints added. Promotion stays evaluation + operator gated.
+
+**Phase 8 — reliability.** Busy timeout on open; `integrity_ok`; retrieval/
+policy-read failures are diagnostics, not crashes; import rejects malformed
+records with reasons; interrupted backup leaves no partial file; a refused write
+returns an honest outcome (the model is never told it was saved); memory being
+unavailable yields a truthful 503 / "memory unavailable".
+
+**Phase 9 — verification.** From `Black-Eclipse-site`:
+
+| Check | Result |
+|---|---|
+| `npm run test` (vitest + python) | Vitest **1742 passed** (136 files); Python **841 passed** |
+| `npx tsc --noEmit` | 0 errors |
+| `python -m harness.eclipse_memory.eval` | gate **PASS** |
+
+**Retrieval metrics — before → after.** recall 0.900 → **1.000**; precision
+0.714 → **0.727**; synonym-paraphrase 0.500 → **1.000**; typo 0.000 → **1.000**;
+forbidden hits 0 → 0; scope leakage 0 → 0; no-match clean → clean; over-budget
+0 → 0.
+
+**Migrations added.** Migration 10 (`MemoryRecord` lifecycle columns). Additive
+and idempotent; a pre-v10 database opens and gains the columns without data loss
+(covered by `test_migration_from_existing_v9_database_preserves_rows`).
+
+**Semantic retrieval.** Deliberately deferred. No embeddings, no network service,
+no new dependency. The labeled eval is the gate; it currently shows no measured
+need, and `semantic_indexing_enabled` exists only to record operator intent.
+
+**Known limitations.** Contradiction detection is lexical (a paraphrase with no
+shared token and no replacement language can be missed); the synonym table is
+small and human-reviewed (an unlisted pair is a miss); skill usefulness metrics
+are per-version aggregates with no time weighting.
+
+**Files.** New: `eclipse_memory/{conflicts,normalize,transfer,skill_quality}.py`;
+tests `test_memory_{lifecycle,conflicts,retrieval_normalization,explanations_api,
+transfer,privacy_policy,reliability}.py`, `test_skill_quality.py`. Modified:
+`eclipse_memory/{schema,db,store,service,retrieval,policy}.py`,
+`harness/main.py`; TS `eclipse-memory-{types,client,browser}.ts` (+ test),
+`eclipse-memory-screen.tsx`, `src/lib/search/registry.ts`, new API routes
+`eclipse-memory/{lifecycle,export,import,backup,database-health,reset,...}`.
+Docs: this file, `memory-maturity-baseline.md`, `architecture.md`,
+`NAVIGATION.md`, `DECISIONS.md` (ADR-H49), `CHANGELOG.md`.
+
+## Retention & contradiction hardening (2026-09-25)
+
+A follow-up made the two least-production-ready areas safe for the local
+single-user product. Full audit + resolved-gap list:
+`docs/harness/memory-retention-conflict-audit.md`.
+
+**Retention is now automatic and observable.** The sweep runs at runtime startup
+through the existing FastAPI lifespan (`main._lifespan` → `AgenticService.
+run_startup_maintenance` → `EclipseMemoryService.run_retention_maintenance`) — no
+new daemon or thread — and can never block boot. It is idempotent; each run is
+recorded in `MemoryMaintenance` (migration 11: operation, ranAt, ok, inspected,
+expired, skipped, error) and surfaced on `/eclipse-memory/health` (`retention`)
+and `GET /eclipse-memory/retention` with no content. Confirming/renewing refreshes
+`lastConfirmedAt` and extends/clears an automatic memory's `expiresAt` from
+`retention_days`; explicit memories are never given a policy expiry. Changing
+`retention_days` never mutates existing rows. Retrieval keeps excluding a due
+memory by timestamp even before a sweep. A duplicate write no longer revives an
+inert record. When a sweep fails it is reported honestly and the app still starts.
+
+**Contradictions are authoritative.** `_resolve_conflict` uses authority: explicit
+replacement and explicit-over-automatic supersede (auditable old→new link);
+automatic-vs-explicit and two ambiguous explicit statements store the new record
+inert (`proposed`). Detection (`conflicts.py`) uses subject identity +
+`SUBJECT_ALIASES` + normalized (synonym/stemmed) tokens, with a tightened
+opposing-pair table (no broad `\bdo\b` arm); a missed conflict is preferred over
+replacing unrelated memory.
+
+**Migrations.** Migration 11 (`MemoryMaintenance`) — additive, preserves v10 data,
+reopen-tested.
+
+**UI.** Lifecycle tab shows retention/last-sweep, expiry/last-confirmed/last-used/
+last-reviewed, supersede links, and Confirm-&-renew / Restore / Approve / Archive;
+an ambiguous conflict renders as "Not saved — conflicts with an existing memory".
+
+**Checks.** Focused Python suite 211 passed; full `npm run test` Vitest **1752**
+passed (137 files) + Python **883** passed; `tsc` clean; retrieval eval unchanged
+(recall 1.0, precision 0.727, leakage 0, forbidden 0, gate PASS).
+
+
+

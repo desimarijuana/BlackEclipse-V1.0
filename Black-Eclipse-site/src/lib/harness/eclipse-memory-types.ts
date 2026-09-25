@@ -35,6 +35,93 @@ export interface MemoryRecord {
   supersededBy: string | null;
   reviewedAt: string | null;
   reviewStatus: string | null;
+  lastConfirmedAt?: string | null;
+  lastUsedAt?: string | null;
+  lastReviewedAt?: string | null;
+  authority?: "explicit" | "automatic" | string;
+  statusReason?: string | null;
+}
+
+export interface MemoryExplanation {
+  memoryId: string;
+  memoryType: string;
+  scope: string;
+  scopeId: string | null;
+  authority: string;
+  provenance: string;
+  saveReason: string;
+  status: string;
+  statusReason: string | null;
+  recallDisposition: string;
+  timeline: {
+    createdAt: string | null;
+    lastConfirmedAt: string | null;
+    lastUsedAt: string | null;
+    lastReviewedAt: string | null;
+    expiresAt: string | null;
+  };
+  supersededBy: string | null;
+  verification: string | null;
+  confidence: number | null;
+  conflict?: MemoryConflictDetail | null;
+}
+
+export type MemoryLifecycleView =
+  | "active" | "expired" | "superseded" | "rejected" | "archived"
+  | "never-used" | "frequently-recalled" | "automatic" | "conflicts";
+
+export interface MemoryLifecycleOverview {
+  counts: Record<string, number>;
+  views: Record<string, number>;
+  budget: {
+    limit: number;
+    active: number;
+    unlimited: boolean;
+    full: boolean;
+    remaining: number | null;
+  };
+}
+
+export interface MemoryLifecycleResponse extends MemoryLifecycleOverview {
+  view?: MemoryLifecycleView;
+  memories?: MemoryRecord[];
+}
+
+export interface MemorySweepRecord {
+  operation: string;
+  ranAt: string;
+  ok: boolean;
+  inspected: number;
+  expired: number;
+  skipped: number;
+  error: string | null;
+}
+
+export interface MemoryRetentionStatus {
+  retentionDays: number;
+  automaticExpiryEnabled: boolean;
+  explicitMemoriesExempt: boolean;
+  lastSweep: MemorySweepRecord | null;
+}
+
+export interface MemorySemanticStatus {
+  mode: "lexical" | "lexical+semantic" | "lexical+semantic-unavailable" | string;
+  lexicalActive: boolean;
+  semanticEnabled: boolean;
+  semanticAvailable: boolean;
+  backend: string;
+  detectorVersion: string;
+  reason: string;
+}
+
+export interface MemoryConflictDetail {
+  decision: string;
+  reason: string;
+  detector: string;
+  similarity: number | null;
+  candidateIds: string[];
+  authority: string;
+  requiresConfirmation: boolean;
 }
 
 export interface MemoryEvidence {
@@ -55,6 +142,7 @@ export interface MemoryDetail {
   memory: MemoryRecord;
   evidence: MemoryEvidence[];
   links: Array<{ id: string; fromId: string; toId: string; relation: string; note: string | null; createdAt: string }>;
+  explanation?: MemoryExplanation | null;
 }
 
 export interface MemoryRetrievalDiagnostics {
@@ -91,6 +179,29 @@ export interface EclipseMemoryHealth {
   appliedVersions?: number[];
   upToDate?: boolean;
   memoryBudget?: { limit: number; active: number; unlimited: boolean; full: boolean; remaining: number | null };
+  retention?: MemoryRetentionStatus;
+  semanticConflict?: MemorySemanticStatus;
+  error?: string;
+}
+
+export interface MemoryExportDocument {
+  schema: string;
+  version: number;
+  exportedAt: string;
+  sourceDatabase?: string;
+  counts: { memories: number; suggestions: number };
+  memories: Array<Record<string, unknown>>;
+  suggestions: Array<Record<string, unknown>>;
+}
+
+export interface MemoryDatabaseHealth {
+  ok: boolean;
+  path: string;
+  integrity?: string;
+  foreignKeyViolations?: number;
+  pageCount?: number;
+  freePages?: number;
+  freeRatio?: number;
   error?: string;
 }
 

@@ -36,6 +36,45 @@ _STANDING_TYPES = _retrieval._STANDING_TYPES
 
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "dataset_v1.json")
 
+# Release thresholds. A retrieval change is a REGRESSION if it crosses these.
+# Safety is absolute (forbidden hits and scope leakage must be zero) and the
+# lexical slice the retriever is designed to serve must stay complete. Recall and
+# precision are floors, not targets: an improvement is always allowed.
+THRESHOLDS: dict[str, Any] = {
+    "forbiddenHits": 0,
+    "scopeLeakage": 0,
+    "noMatchClean": True,
+    "overBudgetCases": 0,
+    "recallSupported": 1.0,
+    "recall": 0.9,
+    "precision": 0.66,
+}
+
+
+def check_thresholds(report: dict[str, Any]) -> dict[str, Any]:
+    """Compare a report's metrics against the release thresholds.
+
+    Returns `{"passed": bool, "failures": [...]}`. A change that introduces a
+    forbidden hit, a scope leak, or excessive no-match recall fails here — the
+    eval is the evidence, and these are the gates.
+    """
+    metrics = report.get("metrics", {})
+    failures: list[str] = []
+    for key, limit in THRESHOLDS.items():
+        value = metrics.get(key)
+        if value is None:
+            continue
+        if limit is True:
+            if value is not True:
+                failures.append(f"{key}: expected True, got {value!r}")
+        elif limit == 0:
+            if value != 0:
+                failures.append(f"{key}: expected 0, got {value!r}")
+        else:
+            if float(value) < float(limit):
+                failures.append(f"{key}: expected >= {limit}, got {value!r}")
+    return {"passed": not failures, "failures": failures}
+
 
 @dataclass
 class EvalCase:
@@ -265,4 +304,4 @@ def format_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["DATASET_PATH", "EvalCase", "CaseResult", "format_report", "load_dataset", "run_evaluation"]
+__all__ = ["DATASET_PATH", "EvalCase", "CaseResult", "THRESHOLDS", "check_thresholds", "format_report", "load_dataset", "run_evaluation"]

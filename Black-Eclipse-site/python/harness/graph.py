@@ -862,6 +862,7 @@ async def _apply_memory_intent(
         "forgotten": "memory.explicit_forgotten",
         "corrected": "memory.explicit_corrected",
         "suggested": "memory.suggested",
+        "needs_review": "memory.conflict_needs_review",
         "needs_clarification": "memory.intent_needs_clarification",
         "refused": "memory.intent_refused",
         "ignored": "memory.intent_ignored",
@@ -965,6 +966,7 @@ def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:
         blob["memoryType"] = memory.get("memoryType")
         blob["scope"] = memory.get("scope")
         blob["subject"] = memory.get("subject")
+        blob["status"] = memory.get("status")
         blob["contentPreview"] = (memory.get("content") or "")[:400]
         blob["inspectPath"] = f"/api/eclipse-memory/memories/{memory['id']}"
         blob["undoPath"] = f"/api/eclipse-memory/memories/{memory['id']}/archive"

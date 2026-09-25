@@ -1,0 +1,259 @@
+{
+  "name": "memory-contradictions",
+  "version": 1,
+  "description": "Human-labeled contradiction cases for the deterministic conflict detector. Each case states one existing active memory, one new statement, the new statement's authority, and the SAFE expected disposition. Kinds: direct-polarity, paraphrase-conflict, confirmation, unrelated, different-subject, different-scope, temporary, observation-vs-preference, replacement, ambiguous, authority. A missed conflict is safer than a false conflict, so unrelated/scope/subject cases expect 'none'.",
+  "cases": [
+    {
+      "caseId": "direct-concise-detailed",
+      "kind": "direct-polarity",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "direct-include-never",
+      "kind": "direct-polarity",
+      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Never include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "direct-auto-vs-auto",
+      "kind": "direct-polarity",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
+      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "automatic",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-punchy",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Keep it punchy", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Give me the full deep-dive every time", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-fluff",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I don't want any fluff", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Some elaboration is welcome", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-skip-sources",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Always give me the sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Please skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-unrounded",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Prefer numbers rounded", "subject": "number-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Show me the exact unrounded figures", "subject": "number-format", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-negation-intro",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Don't include any preamble", "subject": "answer-style", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "A short intro is fine", "subject": "answer-style", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "para-theme-light",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "A bright light theme suits me better", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "confirm-identical",
+      "kind": "confirmation",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "confirm",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "confirm-paraphrase",
+      "kind": "confirmation",
+      "existing": {"content": "I like short answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Keep responses brief", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "confirm",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "confirm-paraphrase-citations",
+      "kind": "confirmation",
+      "existing": {"content": "I prefer concise answers with source links", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Keep answers brief and cite sources", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "confirm",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "unrelated-theme-answer",
+      "kind": "unrelated",
+      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "unrelated-generic-overlap",
+      "kind": "unrelated",
+      "existing": {"content": "I prefer conservative options", "subject": "risk-profile", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer simple answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "unrelated-shared-word",
+      "kind": "unrelated",
+      "existing": {"content": "I like dark candlestick charts", "subject": "charts", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I like dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "different-subject-no-conflict",
+      "kind": "different-subject",
+      "existing": {"content": "I prefer candlestick charts", "subject": "charts", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "different-scope-no-conflict",
+      "kind": "different-scope",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u2", "authority": "explicit"},
+      "new": {"content": "I prefer detailed answers now", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "scope-user-vs-general",
+      "kind": "different-scope",
+      "existing": {"content": "Report figures in the local currency", "subject": "currency", "memoryType": "constraint", "scope": "general", "scopeId": null, "authority": "explicit"},
+      "new": {"content": "Report figures in USD instead", "subject": "currency", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "temporary-for-this-task",
+      "kind": "temporary",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "For this task, give me detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "temporary-just-this-once",
+      "kind": "temporary",
+      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Just this once, skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "observation-vs-preference",
+      "kind": "observation-vs-preference",
+      "existing": {"content": "The user has asked for concise answers twice", "subject": "answer-style", "memoryType": "observation", "scope": "user", "scopeId": "u1", "authority": "automatic"},
+      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "replacement-now",
+      "kind": "replacement",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer detailed answers now", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "replacement-from-now-on",
+      "kind": "replacement",
+      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "From now on, skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "replacement-changed-mind",
+      "kind": "replacement",
+      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I changed my mind, use the light theme instead", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "ambiguous-paraphrase",
+      "kind": "ambiguous",
+      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Bright light themes look better to me", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "authority-explicit-over-automatic",
+      "kind": "authority",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
+      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "authority-automatic-vs-explicit",
+      "kind": "authority",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "automatic",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "authority-automatic-replacement-by-explicit-para",
+      "kind": "authority",
+      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
+      "new": {"content": "I want thorough write-ups from now on", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    }
+  ]
+}

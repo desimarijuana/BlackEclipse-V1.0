@@ -151,6 +151,20 @@ class AgenticService:
         except Exception:  # noqa: BLE001
             log.warning("MCP shutdown failed", exc_info=True)
 
+    def run_startup_maintenance(self) -> dict[str, Any]:
+        """Run one-time memory maintenance at runtime startup.
+
+        Currently the retention sweep: due AUTOMATIC memories become inert. It is
+        idempotent, best-effort, and NEVER raises — a failure must not stop the
+        application or agent runtime from starting. There is no new daemon or
+        thread; this reuses the existing FastAPI lifespan startup hook.
+        """
+        try:
+            return self.memory.run_retention_maintenance()
+        except Exception:  # noqa: BLE001 - startup maintenance must never block boot
+            log.warning("startup memory maintenance failed", exc_info=True)
+            return {"ok": False, "error": "maintenance failed"}
+
     async def reload_mcp(self) -> dict[str, Any]:
         """Apply a persisted MCP config change without a runtime restart.
 

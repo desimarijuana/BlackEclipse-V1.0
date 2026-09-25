@@ -41,7 +41,9 @@ _STOPWORDS = frozenset(
 # match outside this set is a deterministic, explainable specificity gate.
 _GENERIC_TERMS = frozenset(
     {"user", "prefer", "prefers", "preferred", "like", "likes", "want", "wants",
-     "always", "never", "should", "would", "could", "please", "answer", "style"}
+     "always", "never", "should", "would", "could", "please", "answer", "style",
+     # Canonical (normalized) forms of the above.
+     "preference", "response", "format"}
 )
 
 
@@ -91,44 +93,110 @@ def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> 
     The signal is what the relevance gate uses: importance/confidence alone must
     not cause an unrelated memory to be recalled for a query with real terms.
 
-    Matching is on WORD BOUNDARIES, not substrings: a query token `use` must not
-    match `User`, or `art` match `chart`. `_terms`/`_word_tokens` both return
-    `[a-z0-9]+` tokens, so the comparison is token-to-token.
+    Matching is on WORD BOUNDARIES, not substrings (`use` must not match `User`),
+    then folded through `normalize` (synonyms + light stemming), with a bounded,
+    safe typo tolerance as a last resort. All of this is deterministic and only
+    affects candidate relevance — scope/status/privacy filtering is authoritative
+    and already ran before this.
     """
+    from .normalize import SUBJECT_ALIASES, canonical_tokens, fuzzy_token_match  # noqa: PLC0415
+
     score = 0.0
     reasons: list[str] = []
     haystack = " ".join(
         str(memory.get(k) or "") for k in ("content", "subject")
     ).lower()
-    haystack_tokens = set(re.findall(r"[a-z0-9]+", haystack))
-    matched = [t for t in terms if t in haystack_tokens]
+    raw_tokens = set(re.findall(r"[a-z0-9]+", haystack))
+    haystack_tokens = set(canonical_tokens(raw_tokens))
+    query_tokens = canonical_tokens(terms)
+    matched = [t for t in query_tokens if t in haystack_tokens]
+    # Bounded typo tolerance runs for the tokens with no exact match, so a single
+    # generic exact hit ("user") does not mask a misspelled topical token.
+    fuzzy = [
+        t for t in query_tokens
+        if t not in haystack_tokens and fuzzy_token_match(t, haystack_tokens)
+    ]
+    if fuzzy:
+        reasons.append(f"fuzzy match: {', '.join(sorted(set(fuzzy))[:3])}")
+    matched = matched + fuzzy
     # A match counts as a relevance signal only when at least one matched term is
     # specific (not generic preference/profile vocabulary). Matching only
     # "user"/"prefer" is a near-match, not topical relevance.
     has_signal = any(t not in _GENERIC_TERMS for t in matched)
     if matched:
-        score += 2.0 * len(matched)
-        reasons.append(f"keyword match: {', '.join(matched[:4])}")
+        score += 2.0 * len(set(matched))
+        reasons.append(f"keyword match: {', '.join(sorted(set(matched))[:4])}")
     if subject and (memory.get("subject") or "").lower() == subject.lower():
         score += 3.0
         reasons.append("exact subject match")
         has_signal = True
+    # Subject alias: a query mentioning the subject's human phrasing recalls the
+    # memory even when it does not share a literal token.
+    alias_hit = _subject_alias_hit(memory, query_tokens, SUBJECT_ALIASES)
+    if alias_hit and not matched:
+        score += 1.5
+        reasons.append("subject alias match")
+        has_signal = True
     score += float(memory.get("importance") or 0.5)
     score += float(memory.get("confidence") or 0.5)
-    # Format the SAME defaulted values the score used. Formatting the raw
-    # `memory.get(...)` would raise "unsupported format string passed to
-    # NoneType.__format__" for a row with a null importance/confidence — the
-    # memory-search `None` conversion error (Issue 6).
     importance = float(memory.get("importance") or 0.5)
     confidence = float(memory.get("confidence") or 0.5)
     reasons.append(f"importance {importance:.2f} · confidence {confidence:.2f}")
     if memory.get("verification") == "verified":
         score += 1.0
         reasons.append("verified")
+    # Explicit authority outranks an automatically learned memory on relevance.
+    if (memory.get("authority") or "explicit") == "explicit":
+        score += 0.5
+    # Usage: frequently and recently used memories rank higher, but bounded.
     score += min(int(memory.get("accessCount") or 0), 5) * 0.2
     if int(memory.get("accessCount") or 0) > 0:
         reasons.append("previously useful")
+    # Recency: a fresher record (recent confirmation/use/update) ranks higher. A
+    # large but bounded bonus keeps old-but-relevant memory recallable.
+    score += _recency_bonus(memory)
     return score, reasons, has_signal
+
+
+def _subject_alias_hit(memory: dict[str, Any], query_tokens: list[str], aliases: dict[str, tuple[str, ...]]) -> bool:
+    alias_tokens = aliases.get((memory.get("subject") or "").lower())
+    if not alias_tokens:
+        return False
+    from .normalize import canonical_tokens  # noqa: PLC0415
+
+    alias_folded = set(canonical_tokens(alias_tokens))
+    return bool(alias_folded & set(query_tokens))
+
+
+def _recency_bonus(memory: dict[str, Any]) -> float:
+    """A small, bounded recency score from the freshest lifecycle timestamp."""
+    stamp = (
+        memory.get("lastConfirmedAt") or memory.get("lastUsedAt")
+        or memory.get("updatedAt") or memory.get("createdAt")
+    )
+    if not stamp:
+        return 0.0
+    try:
+        parsed = _parse_iso(stamp)
+    except Exception:  # noqa: BLE001
+        return 0.0
+    age_days = max(0.0, (time.time() - parsed) / 86400.0)
+    # 0.5 at day 0 decaying to ~0 by ~180 days.
+    return max(0.0, 0.5 * (1.0 - min(age_days, 180.0) / 180.0))
+
+
+def _parse_iso(stamp: str) -> float:
+    import calendar  # noqa: PLC0415
+
+    text = stamp.replace("Z", "+00:00")
+    try:
+        import datetime  # noqa: PLC0415
+
+        return datetime.datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        # Fall back to a manual format used across the codebase.
+        base = text.split(".")[0]
+        return calendar.timegm(time.strptime(base, "%Y-%m-%dT%H:%M:%S"))
 
 
 def retrieve_memories(
@@ -144,12 +212,17 @@ def retrieve_memories(
     limit: int = 8,
     run_id: Optional[str] = None,
     include_proposed: bool = False,
+    recall_denied_types: Optional[set[str]] = None,
 ) -> RetrievalResult:
     """Retrieve a bounded, ranked, provenance-carrying memory context.
 
     Scope isolation: a caller scoped to a user may only retrieve memories in
     that user's scope (plus truly-global `general` memories). This prevents one
     user's preferences leaking into another's run.
+
+    `recall_denied_types` is the operator's per-category recall policy (Phase 6).
+    It can only TIGHTEN recall — it is applied after the authoritative
+    scope/status/privacy filter, never instead of it.
     """
     started = time.monotonic()
     diagnostics = RetrievalDiagnostics(query=query, candidates=0, selected=0, budgetChars=budget_chars)
@@ -190,6 +263,9 @@ def retrieve_memories(
         # ── Filter by scope, status, permission ─────────────────────────────
         eligible: list[dict[str, Any]] = []
         for memory in candidates:
+            if recall_denied_types and memory["memoryType"] in recall_denied_types:
+                diagnostics.excluded.append({"id": memory["id"], "reason": "recall denied by policy"})
+                continue
             if memory["status"] in INERT_STATUSES:
                 diagnostics.excluded.append({"id": memory["id"], "reason": f"status={memory['status']}"})
                 continue
@@ -222,6 +298,13 @@ def retrieve_memories(
                 diagnostics.excluded.append({"id": memory["id"], "reason": "low confidence, unverified"})
                 continue
             eligible.append(memory)
+
+        # ── Contradiction guard (highest authority wins) ─────────────────────
+        # If legacy or manually-edited data ever leaves two active, contradictory
+        # memories for the same subject/scope, only the highest-authority (and,
+        # on a tie, most recent) one may be recalled. Scope/status filtering
+        # above remains authoritative; this only removes a losing duplicate truth.
+        eligible = _highest_authority_only(eligible)
 
         # ── Rank ────────────────────────────────────────────────────────────
         terms = _terms(query)
@@ -286,6 +369,41 @@ def retrieve_memories(
 
     result.diagnostics = diagnostics.to_dict()
     return result
+
+
+def _highest_authority_only(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a lower-authority active memory when a higher-authority one exists
+    for the same subject, scope and owner.
+
+    Deterministic and conservative: only an exact subject match groups records
+    (a missing subject never groups unrelated facts). Explicit authority beats
+    automatic; on a tie the more recently updated record wins. This is a safety
+    net for legacy/manually-edited data — normal writes already supersede.
+    """
+    authority_rank = {"explicit": 2, "automatic": 1}
+    winners: dict[tuple[str, str, Optional[str], str], dict[str, Any]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for memory in memories:
+        subject = (memory.get("subject") or "").strip().lower()
+        if not subject:
+            passthrough.append(memory)
+            continue
+        key = (subject, memory.get("scope") or "", memory.get("scopeId"), memory.get("memoryType") or "")
+        current = winners.get(key)
+        if current is None:
+            winners[key] = memory
+            continue
+        cand_rank = (
+            authority_rank.get(memory.get("authority") or "explicit", 0),
+            memory.get("updatedAt") or "",
+        )
+        cur_rank = (
+            authority_rank.get(current.get("authority") or "explicit", 0),
+            current.get("updatedAt") or "",
+        )
+        if cand_rank > cur_rank:
+            winners[key] = memory
+    return passthrough + list(winners.values())
 
 
 def _render(memory: dict[str, Any]) -> str:

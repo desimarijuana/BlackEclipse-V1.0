@@ -10,10 +10,15 @@ import { redactSecrets } from "./errors";
 import type {
   CorrectionRecord,
   EclipseMemoryHealth,
+  MemoryDatabaseHealth,
   MemoryDetail,
+  MemoryExportDocument,
+  MemoryLifecycleResponse,
   MemoryOverview,
   MemoryRecord,
+  MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
+  MemorySemanticStatus,
   MistakeRecord,
 } from "./eclipse-memory-types";
 
@@ -75,15 +80,85 @@ export async function listMemories(filters: {
 
 export async function getMemory(memoryId: string): Promise<MemoryDetail | null> {
   try {
-    const body = await request<{ memory: MemoryRecord; evidence: MemoryDetail["evidence"]; links: MemoryDetail["links"] }>(
+    const body = await request<{ memory: MemoryRecord; evidence: MemoryDetail["evidence"]; links: MemoryDetail["links"]; explanation?: MemoryDetail["explanation"] }>(
       `/eclipse-memory/memories/${encodeURIComponent(memoryId)}`,
       { method: "GET" }
     );
-    return { memory: body.memory, evidence: body.evidence ?? [], links: body.links ?? [] };
+    return { memory: body.memory, evidence: body.evidence ?? [], links: body.links ?? [], explanation: body.explanation ?? null };
   } catch (err) {
     if (err instanceof Error && /404/.test(err.message)) return null;
     throw err;
   }
+}
+
+export async function memoryLifecycle(view?: string, scopeId?: string, limit = 100): Promise<MemoryLifecycleResponse> {
+  const params = new URLSearchParams();
+  if (view) params.set("view", view);
+  if (scopeId) params.set("scopeId", scopeId);
+  params.set("limit", String(limit));
+  return request<MemoryLifecycleResponse>(`/eclipse-memory/lifecycle?${params.toString()}`, { method: "GET" });
+}
+
+export async function memoryRetention(): Promise<MemoryRetentionStatus> {
+  return request<MemoryRetentionStatus>("/eclipse-memory/retention", { method: "GET" });
+}
+
+export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
+  return request<MemorySemanticStatus>("/eclipse-memory/semantic-status", { method: "GET" });
+}
+
+export async function restoreMemory(memoryId: string, operator: boolean) {
+  return request<{ success: boolean; memory: MemoryRecord }>(
+    `/eclipse-memory/memories/${encodeURIComponent(memoryId)}/restore`,
+    { method: "POST", body: JSON.stringify({ operator }) }
+  );
+}
+
+export async function renewMemory(memoryId: string, operator: boolean, days?: number) {
+  return request<{ success: boolean; memory: MemoryRecord }>(
+    `/eclipse-memory/memories/${encodeURIComponent(memoryId)}/renew`,
+    { method: "POST", body: JSON.stringify({ operator, days }) }
+  );
+}
+
+export async function retentionSweep(operator: boolean) {
+  return request<{ success: boolean; expired: number; ids: string[] }>(
+    "/eclipse-memory/retention/sweep",
+    { method: "POST", body: JSON.stringify({ operator }) }
+  );
+}
+
+export async function exportMemory(): Promise<MemoryExportDocument> {
+  return request<MemoryExportDocument>("/eclipse-memory/export", { method: "GET" });
+}
+
+export async function importMemory(
+  document: MemoryExportDocument,
+  operator: boolean,
+  dryRun = false
+): Promise<{ success: boolean; imported: number; skipped: number; rejected: Array<{ index: number; reason: string }>; dryRun: boolean }> {
+  return request("/eclipse-memory/import", {
+    method: "POST",
+    body: JSON.stringify({ operator, document, dryRun }),
+  });
+}
+
+export async function backupMemory(operator: boolean) {
+  return request<{ success: boolean; path: string; bytes: number }>("/eclipse-memory/backup", {
+    method: "POST",
+    body: JSON.stringify({ operator }),
+  });
+}
+
+export async function memoryDatabaseHealth(): Promise<MemoryDatabaseHealth> {
+  return request<MemoryDatabaseHealth>("/eclipse-memory/database-health", { method: "GET" });
+}
+
+export async function resetMemory(operator: boolean, confirm: boolean): Promise<{ success: boolean; cleared: Record<string, number>; backup: { path: string } | null }> {
+  return request("/eclipse-memory/reset", {
+    method: "POST",
+    body: JSON.stringify({ operator, confirm, backupFirst: true }),
+  });
 }
 
 export async function createMemory(payload: {

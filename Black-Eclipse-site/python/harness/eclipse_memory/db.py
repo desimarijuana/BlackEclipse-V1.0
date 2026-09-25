@@ -42,17 +42,28 @@ class EclipseMemoryDb:
         # callers that pass an explicit path must never pull in repo data.
         self._is_stable_default = path is None and not os.environ.get("ECLIPSE_MEMORY_DB_PATH")
         self.path = resolve_path(path)
-        self._db = sqlite3.connect(self.path, check_same_thread=False)
+        # A busy timeout makes a concurrent writer wait instead of failing
+        # immediately with "database is locked" (local app: SQLite serialises).
+        self._db = sqlite3.connect(self.path, check_same_thread=False, timeout=30.0)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode = WAL;")
         self._db.execute("PRAGMA synchronous = NORMAL;")
         self._db.execute("PRAGMA foreign_keys = ON;")
+        self._db.execute("PRAGMA busy_timeout = 30000;")
         self._migrate()
         if self._is_stable_default:
             try:
                 self.reconcile_legacy()
             except Exception:  # noqa: BLE001 - reconciliation must never block boot
                 pass
+
+    def integrity_ok(self) -> bool:
+        """Whether the database passes an integrity check. Used to fail honestly
+        (503 / "memory unavailable") rather than answer with corrupt data."""
+        try:
+            return self._db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        except Exception:  # noqa: BLE001 - unreadable is not ok
+            return False
 
     # ── Migrations ──────────────────────────────────────────────────────────
 

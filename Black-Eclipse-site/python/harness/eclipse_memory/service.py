@@ -61,10 +61,20 @@ VALID_SOURCES = frozenset(
         "skill_promotion",    # a validated skill produced a procedural memory
         "mistake",            # a captured mistake/recovery
         "manual",             # an operator wrote it through the UI/API
+        "imported",           # restored from an operator export file
     }
 )
 
 MAX_CONTENT_CHARS = 4000
+
+# Sources that mark a memory as EXPLICIT (a human stated or wrote it). Everything
+# else is automatically learned and may become stale / require review. An explicit
+# memory is never silently expired by retention policy.
+EXPLICIT_SOURCES = frozenset({"explicit_user", "user_correction", "manual", "imported"})
+
+
+def _derive_authority(source: str) -> str:
+    return "explicit" if source in EXPLICIT_SOURCES else "automatic"
 
 
 class EclipseMemoryService:
@@ -96,6 +106,18 @@ class EclipseMemoryService:
         # 1. Classify / validate type.
         if memory_type not in MEMORY_TYPES:
             raise MemoryWriteError(f"unknown memory type {memory_type!r}")
+        # 1b. Local privacy controls (Phase 6). These can only REFUSE a write,
+        # never authorize one, and never bypass scope/privacy rules below.
+        try:
+            settings = self.policy.get_all()
+        except Exception:  # noqa: BLE001 - a policy read failure fails closed on the controls below
+            settings = {}
+        if settings.get("memory_enabled") is False:
+            raise MemoryWriteError("memory is disabled by policy — no memory is stored")
+        from .policy import category_policy  # noqa: PLC0415
+
+        if source != "user_correction" and category_policy(settings, "capture_policy", memory_type) == "deny":
+            raise MemoryWriteError(f"capture of {memory_type!r} memory is denied by policy")
         # 2. Validate content.
         text_value = (content or "").strip()
         if not text_value:
@@ -114,29 +136,130 @@ class EclipseMemoryService:
         if not allow_duplicate:
             existing = self._find_duplicate(signature)
             if existing:
-                self.store.append_memory_event(
-                    "memory.duplicate_skipped", memory_id=existing["id"], run_id=source_run_id,
-                    data={"signature": signature},
-                )
-                return existing
+                # Re-stating the same durable fact is a CONFIRMATION: refresh the
+                # freshness anchor rather than creating a second record. This keeps
+                # "last confirmed" meaningful and prevents a re-save from counting
+                # against the storage budget. An automatic memory's retention is
+                # refreshed too, so a re-affirmed fact does not expire on its old
+                # clock. A non-active record is NEVER revived by a duplicate write —
+                # unless the new statement carries explicit replacement intent
+                # ("prefer X now"), which falls through so the user can deliberately
+                # re-assert a reversed preference as a fresh active truth.
+                if existing.get("status") == "active":
+                    existing = self._confirm_existing(existing)
+                    self.store.append_memory_event(
+                        "memory.duplicate_skipped", memory_id=existing["id"],
+                        run_id=source_run_id, data={"signature": signature},
+                    )
+                    return existing
+                from .conflicts import is_replacement_intent  # noqa: PLC0415
 
-        # 5b. Storage budget. A duplicate return above does not consume budget;
+                if not is_replacement_intent(text_value):
+                    # An inert duplicate without replacement intent is returned
+                    # unchanged — never revived, never duplicated.
+                    self.store.append_memory_event(
+                        "memory.duplicate_inert_skipped", memory_id=existing["id"],
+                        run_id=source_run_id, data={"signature": signature},
+                    )
+                    return existing
+
+        # 5b. Contradiction / replacement handling. Before a second active truth
+        # is created, detect a conflict with an existing active memory in the same
+        # scope. Explicit replacement supersedes the old record; an automatic
+        # memory conflicting with an explicit one is stored inert; a conflicting
+        # explicit statement supersedes the older one (latest explicit wins).
+        # Nothing is ever merged, and the old record is always retained + linked.
+        # 5b. Contradiction / replacement handling. Before a second active truth
+        # is created, detect a conflict with an existing active memory in the same
+        # scope + dimension. Authority decides: explicit replacement and explicit-
+        # over-automatic supersede the old record (linked, retained); an automatic
+        # conflict with explicit, or two ambiguous explicit statements, store the
+        # new record inert (`proposed`) for review. Nothing is ever merged.
+        superseded_ids: list[str] = []
+        write_status = "active"
+        write_reason: Optional[str] = None
+        detector_meta: Optional[dict[str, Any]] = None
+        authority = _derive_authority(source)
+        if not allow_duplicate and source != "user_correction" and memory_type != "correction":
+            assessment = self._assess_conflict(
+                memory_type=memory_type, scope=scope, scope_id=scope_id,
+                subject=subject, content=text_value, new_authority=authority,
+            )
+            from .conflicts import DECISION_CONFIRM  # noqa: PLC0415
+
+            if assessment.decision == DECISION_CONFIRM:
+                # Same statement restated: confirm the existing record (refresh
+                # freshness/expiry) instead of creating a second record.
+                first = assessment.related[0]
+                confirmed = self._confirm_existing(first)
+                self.store.append_memory_event(
+                    "memory.conflict_confirmed", memory_id=first["id"], run_id=source_run_id,
+                    data={"reason": assessment.reason},
+                )
+                return confirmed
+            if assessment.conflict:
+                superseded_ids, write_status = self._resolve_conflict(
+                    assessment, new_authority=authority,
+                    subject=subject, run_id=source_run_id,
+                )
+                if write_status == "proposed":
+                    write_reason = f"conflict: {assessment.reason}"
+            elif assessment.decision == "none":
+                # The lexical detector found no conflict. The optional local
+                # semantic layer may only surface a *candidate* for review — it
+                # can never supersede or activate. A strong candidate makes the
+                # new record inert (`proposed`) with an explanatory reason so the
+                # user can confirm; a weak/none leaves the write active.
+                semantic = self._semantic_conflict_candidate(
+                    memory_type=memory_type, scope=scope, scope_id=scope_id,
+                    subject=subject, content=text_value,
+                )
+                if semantic is not None:
+                    write_status = "proposed"
+                    write_reason = "possible contradiction detected (semantic candidate)"
+                    detector_meta = semantic
+
+        # 5c. Storage budget. A duplicate return above does not consume budget;
         # a genuinely new record must fit. The budget is never enforced by
         # auto-deleting user memory — the write fails truthfully instead. A
         # correction is exempt: it supersedes an existing record right after, so
         # it does not grow the retained set, and blocking an explicit correction
         # would be worse than a temporarily over-full count.
-        if source != "user_correction":
+        if source != "user_correction" and write_status != "proposed":
             self._check_budget()
+
+        # Retention: only AUTOMATIC memories are eligible for a policy-derived
+        # expiry. An explicit memory is never silently expired (the brief: do not
+        # silently expire explicit memories). An explicit caller value always
+        # wins over the policy-derived default.
+        if expires_at is None and authority == "automatic":
+            expires_at = self._retention_expiry()
 
         memory = self.store.save_memory(
             memory_type=memory_type, scope=scope, content=text_value,
             scope_id=scope_id, subject=subject, structured_data=structured_data,
             source=source, source_run_id=source_run_id, confidence=confidence,
-            importance=importance, status="active", verification=verification,
+            importance=importance, status=write_status, verification=verification,
             created_by=created_by, expires_at=expires_at,
+            authority=authority, status_reason=write_reason,
         )
         memory = self.store.update_memory(memory["id"], structuredData=structured_data) or memory
+        # Link any superseded records to the new one (history retained).
+        for old_id in superseded_ids:
+            self.store.supersede_memory(
+                old_id, memory["id"], reason="superseded by a later conflicting memory",
+            )
+        if superseded_ids:
+            memory = self.store.get_memory(memory["id"]) or memory
+        # 5d. Audit the detector metadata when a semantic candidate produced a
+        # review outcome. Only ids/score/detector are recorded — never raw
+        # embeddings or sensitive diagnostic payloads.
+        if detector_meta is not None:
+            self.store.append_memory_event(
+                "memory.semantic_candidate", memory_id=memory["id"], run_id=source_run_id,
+                data={"decision": "proposed", "authority": authority,
+                      "requiresConfirmation": True, **detector_meta},
+            )
         # 6. Evidence.
         if evidence:
             self.store.add_evidence(
@@ -173,10 +296,17 @@ class EclipseMemoryService:
 
     def review_memory(self, memory_id: str, *, approve: bool, reviewed_by: Optional[str] = None) -> Optional[dict[str, Any]]:
         status = "active" if approve else "rejected"
-        updated = self.store.update_memory(
-            memory_id, status=status, reviewStatus="approved" if approve else "rejected",
-            reviewedAt=_now(),
-        )
+        now = _now()
+        patch: dict[str, Any] = {
+            "status": status,
+            "reviewStatus": "approved" if approve else "rejected",
+            "reviewedAt": now,
+            "lastReviewedAt": now,
+            "statusReason": "reviewed: approved" if approve else "reviewed: rejected",
+        }
+        if approve:
+            patch["lastConfirmedAt"] = now
+        updated = self.store.update_memory(memory_id, **patch)
         if updated:
             self.store.append_memory_event(
                 f"memory.{status}", memory_id=memory_id, data={"reviewedBy": reviewed_by}
@@ -184,13 +314,150 @@ class EclipseMemoryService:
         return updated
 
     def _find_duplicate(self, signature: str) -> Optional[dict[str, Any]]:
-        for memory in self.store.list_memories(limit=500, include_inactive=False):
+        """The existing memory with this signature, across ALL statuses.
+
+        Searching inactive records too is what stops a duplicate write from
+        silently re-asserting an expired/superseded/archived/rejected fact as a
+        new active truth: the inert record is returned unchanged (never revived
+        by duplicate handling — an explicit restore is the only way back).
+        """
+        for memory in self.store.list_memories(limit=500, include_inactive=True):
             if _content_signature(
                 memory["memoryType"], memory["scope"], memory.get("scopeId"),
                 memory.get("subject"), memory["content"],
             ) == signature:
                 return memory
         return None
+
+    def _confirm_existing(self, existing: dict[str, Any]) -> dict[str, Any]:
+        """Confirm an active existing memory on a duplicate write.
+
+        Refreshes `lastConfirmedAt`, and for an AUTOMATIC memory also extends
+        `expiresAt` from the current retention policy (an explicit memory keeps
+        no retention expiry). Never changes status, so an inert record can never
+        be revived here.
+        """
+        now = _now()
+        patch: dict[str, Any] = {"lastConfirmedAt": now}
+        if (existing.get("authority") or "explicit") == "automatic":
+            patch["expiresAt"] = self.renewal_expiry()
+        updated = self.store.update_memory(existing["id"], **patch)
+        if updated:
+            self.store.append_memory_event("memory.confirmed", memory_id=existing["id"])
+        return updated or existing
+
+    # ── Contradiction / replacement ─────────────────────────────────────────
+
+    def _assess_conflict(
+        self, *, memory_type: str, scope: str, scope_id: Optional[str],
+        subject: Optional[str], content: str, new_authority: str,
+    ) -> Any:
+        """Deterministically assess a conflict with an existing active memory."""
+        from .conflicts import detect_conflict  # noqa: PLC0415
+
+        try:
+            existing = self.store.list_memories(
+                memory_type=memory_type, scope=scope, scope_id=scope_id,
+                limit=200, include_inactive=False,
+            )
+        except Exception:  # noqa: BLE001 - conflict detection must never block a write
+            existing = []
+        return detect_conflict(
+            memory_type=memory_type, scope=scope, scope_id=scope_id,
+            subject=subject, content=content, existing=existing,
+            new_authority=new_authority,
+        )
+
+    def _resolve_conflict(
+        self, assessment: Any, *, new_authority: str,
+        subject: Optional[str], run_id: Optional[str],
+    ) -> tuple[list[str], str]:
+        """Decide the disposition of a detected conflict.
+
+        Returns `(superseded_ids, new_status)`. Authority MATTERS here — it is
+        what distinguishes "explicit overrides automatic" from "ambiguous".
+
+          * ``supersede`` (explicit replacement, or explicit over automatic): the
+            old record(s) are superseded (linked, retained) and the new one is
+            active;
+          * ``propose`` (automatic vs explicit, or two explicit statements): the
+            new record is stored inert (`proposed`) so it is visible for review;
+            no second active truth is created.
+        """
+        from .conflicts import DECISION_SUPERSEDE  # noqa: PLC0415
+
+        if assessment.decision == DECISION_SUPERSEDE:
+            superseded = [m["id"] for m in assessment.related]
+            self.store.append_memory_event(
+                "memory.conflict_superseded", run_id=run_id,
+                data={"superseded": superseded, "replacement": assessment.replacement,
+                      "authority": new_authority, "reason": assessment.reason},
+            )
+            return superseded, "active"
+        self.store.append_memory_event(
+            "memory.conflict_needs_review", run_id=run_id,
+            data={"against": [m["id"] for m in assessment.related],
+                  "authority": new_authority, "reason": assessment.reason},
+        )
+        return [], "proposed"
+
+    def _semantic_conflict_candidate(
+        self, *, memory_type: str, scope: str, scope_id: Optional[str],
+        subject: Optional[str], content: str,
+    ) -> Optional[dict[str, Any]]:
+        """Find a semantic contradiction candidate, or None.
+
+        SAFETY: the candidate layer is local, optional and bounded. It can ONLY
+        return a review suggestion — never a supersede. The caller stores the new
+        record inert (`proposed`). Scope/status/type/dimension/authority filtering
+        is applied HERE, before similarity, so similarity can never widen access.
+        Any failure (disabled, unavailable, timeout, bad setting) returns None,
+        leaving lexical-only behavior intact.
+        """
+        try:
+            settings = self.policy.get_all()
+            if not settings.get("semantic_conflict_enabled"):
+                return None
+            from . import semantic  # noqa: PLC0415
+
+            # Stage 1 — deterministic filtering (the authoritative set).
+            try:
+                pool = self.store.list_memories(
+                    memory_type=memory_type, scope=scope, scope_id=scope_id,
+                    limit=500, include_inactive=False,
+                )
+            except Exception:  # noqa: BLE001 - filtering failure means lexical-only
+                return None
+            from .conflicts import same_dimension  # noqa: PLC0415
+
+            same = [
+                m for m in pool
+                if m.get("status") == "active"
+                and same_dimension(subject, m.get("subject"))
+            ]
+            if not same:
+                return None
+
+            # Stage 2 — bounded local similarity among the authorized candidates.
+            result = semantic.find_candidates(
+                content=content, same_dimension=same, settings=settings,
+            )
+            if not result.available or not result.candidates:
+                return None
+            best = result.candidates[0]
+            return {
+                "detector": result.detector,
+                "detectorVersion": semantic.DETECTOR_VERSION,
+                "similarity": best.score,
+                "candidateIds": [c.memoryId for c in result.candidates],
+                "requiresConfirmation": True,
+                "reason": (
+                    "local semantic similarity suggests this may restate or "
+                    "contradict an existing memory"
+                ),
+            }
+        except Exception:  # noqa: BLE001 - the semantic layer must never break a write
+            return None
 
     def _active_memory_count(self) -> int:
         try:
@@ -240,6 +507,156 @@ class EclipseMemoryService:
             "remaining": None if limit <= 0 else max(0, limit - active),
         }
 
+    # ── Retention / lifecycle ───────────────────────────────────────────────
+
+    def _retention_expiry(self) -> Optional[str]:
+        """The `expiresAt` for a newly written AUTOMATIC memory, from
+        `retention_days` (0 = never). Explicit memories never call this."""
+        try:
+            days = int(self.policy.get("retention_days") or 0)
+        except Exception:  # noqa: BLE001
+            days = 0
+        if days <= 0:
+            return None
+        import datetime
+
+        expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+        return expiry.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+
+    def renewal_expiry(self, *, days: Optional[int] = None) -> Optional[str]:
+        """The new `expiresAt` for an automatic memory when it is confirmed or
+        renewed. `days` defaults to the current `retention_days` (0 = clear
+        expiry). Explicit memories are never given an expiry by this path."""
+        if days is None:
+            try:
+                days = int(self.policy.get("retention_days") or 0)
+            except Exception:  # noqa: BLE001
+                days = 0
+        if days <= 0:
+            return None
+        import datetime
+
+        expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+        return expiry.strftime("%Y-%m-%dT%H:%M:%S") + ".000Z"
+
+    def expire_due_memories(self) -> dict[str, Any]:
+        """Mark due AUTOMATIC memories `expired` (never delete). Idempotent.
+
+        Retention is a review threshold, not deletion: a due record becomes inert
+        and reviewable. EXPLICIT memories are exempt — retention never silently
+        expires something the user stated.
+
+        The result is observable (requirement: inspected/expired/skipped/reason)
+        and is persisted so health/lifecycle diagnostics can report the last
+        sweep. A sweep failure is reported honestly and never raised.
+        """
+        now = _now()
+        inspected = 0
+        expired: list[str] = []
+        skipped = 0
+        try:
+            rows = self.store._db.execute(
+                "SELECT id FROM MemoryRecord WHERE status='active'"
+                " AND authority='automatic' AND expiresAt IS NOT NULL AND expiresAt <= ?",
+                (now,),
+            ).fetchall()
+            inspected = len(rows)
+            for row in rows:
+                updated = self.store.archive_memory(
+                    row["id"], status="expired",
+                    reason="retention period elapsed (automatic memory)",
+                )
+                if updated:
+                    expired.append(row["id"])
+                else:
+                    skipped += 1
+        except Exception as exc:  # noqa: BLE001 - a sweep failure must never crash
+            self.store.record_maintenance(
+                "retention_sweep", ok=False, inspected=inspected,
+                expired=len(expired), skipped=skipped, error=str(exc),
+            )
+            return {
+                "ok": False, "inspected": inspected, "expired": len(expired),
+                "skipped": skipped, "ids": expired, "error": str(exc),
+                "ranAt": self.store.maintenance_status().get("ranAt")
+                if self.store.maintenance_status() else None,
+            }
+        if expired:
+            self.store.append_memory_event(
+                "memory.retention_swept", data={"expired": len(expired)}
+            )
+        self.store.record_maintenance(
+            "retention_sweep", ok=True, inspected=inspected,
+            expired=len(expired), skipped=skipped,
+        )
+        status = self.store.maintenance_status() or {}
+        return {
+            "ok": True, "inspected": inspected, "expired": len(expired),
+            "skipped": skipped, "ids": expired, "error": None,
+            "ranAt": status.get("ranAt"),
+        }
+
+    def run_retention_maintenance(self) -> dict[str, Any]:
+        """The boot/lifecycle entrypoint for retention.
+
+        Safe to call on every start and idempotent. Always returns a result and
+        NEVER raises, so a failure cannot stop the application from starting
+        (requirement 5). The caller (the runtime lifespan) invokes this; there is
+        no new daemon or thread.
+        """
+        try:
+            return self.expire_due_memories()
+        except Exception as exc:  # noqa: BLE001 - retention must never block boot
+            try:
+                self.store.record_maintenance(
+                    "retention_sweep", ok=False, error=str(exc)
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return {"ok": False, "inspected": 0, "expired": 0, "skipped": 0,
+                    "ids": [], "error": str(exc)}
+
+    def retention_status(self) -> dict[str, Any]:
+        """The retention policy state + the last sweep outcome (no content)."""
+        try:
+            retention_days = int(self.policy.get("retention_days") or 0)
+        except Exception:  # noqa: BLE001
+            retention_days = 0
+        last = self.store.maintenance_status()
+        return {
+            "retentionDays": retention_days,
+            "automaticExpiryEnabled": retention_days > 0,
+            "explicitMemoriesExempt": True,
+            "lastSweep": last,
+        }
+
+    def renew_memory(self, memory_id: str, *, days: Optional[int] = None) -> Optional[dict[str, Any]]:
+        """Extend or clear an automatic memory's retention on explicit request.
+
+        Confirming or renewing refreshes the lifecycle timestamps (requirement 8)
+        and sets `expiresAt` from `days` (or the current policy when omitted).
+        An explicit memory never receives an expiry from this path.
+        """
+        memory = self.store.get_memory(memory_id)
+        if memory is None:
+            return None
+        expires: Optional[str]
+        if (memory.get("authority") or "explicit") == "explicit" and days is None:
+            # An explicit memory being (re)confirmed keeps no retention expiry.
+            expires = None
+        else:
+            expires = self.renewal_expiry(days=days)
+        now = _now()
+        updated = self.store.update_memory(
+            memory_id, expiresAt=expires, lastConfirmedAt=now, lastReviewedAt=now,
+            statusReason="renewed/confirmed",
+        )
+        if updated:
+            self.store.append_memory_event(
+                "memory.renewed", memory_id=memory_id, data={"expiresAt": expires},
+            )
+        return updated
+
     # ── Retrieval pipeline ──────────────────────────────────────────────────
 
     def retrieve(
@@ -257,7 +674,18 @@ class EclipseMemoryService:
         include_proposed: Optional[bool] = None,
     ) -> RetrievalResult:
         # Policy supplies the defaults; an explicit caller value still wins.
-        settings = self.policy.get_all()
+        # A policy read failure must not crash retrieval — fall back to safe
+        # defaults and let the retrieval path report its own diagnostics.
+        try:
+            settings = self.policy.get_all()
+        except Exception:  # noqa: BLE001
+            from .policy import DEFAULTS  # noqa: PLC0415
+
+            settings = dict(DEFAULTS)
+        denied: set[str] = set()
+        recall_table = settings.get("recall_policy") or {}
+        if isinstance(recall_table, dict):
+            denied = {str(t) for t, v in recall_table.items() if str(v).lower() == "deny"}
         return retrieve_memories(
             self.store, query=query, memory_types=memory_types, scope=scope,
             scope_id=scope_id, subject=subject, actor_scope=actor_scope,
@@ -266,6 +694,7 @@ class EclipseMemoryService:
             run_id=run_id,
             include_proposed=include_proposed if include_proposed is not None
             else settings["include_proposed_in_retrieval"],
+            recall_denied_types=denied or None,
         )
 
     # ── Corrections / mistakes ──────────────────────────────────────────────
@@ -548,6 +977,20 @@ class EclipseMemoryService:
                 confidence=intent.confidence,
                 verification="unverified", created_by=user_id or "user",
             )
+            if memory.get("status") == "proposed":
+                # A contradiction with an existing active memory was stored inert
+                # for review. NEVER claim it was saved as active truth.
+                self.store.append_memory_event(
+                    "memory.conflict_needs_review", memory_id=memory["id"], run_id=run_id,
+                    data={"reason": memory.get("statusReason") or "conflicting memory requires review"},
+                )
+                return {
+                    "ok": False, "action": "needs_review", "memory": memory,
+                    "reason": (
+                        "This conflicts with an existing memory and was NOT saved as "
+                        "active truth — it needs review or clarification."
+                    ),
+                }
             self.store.append_memory_event(
                 "memory.explicit_saved", memory_id=memory["id"], run_id=run_id,
                 data={"matchedPhrase": intent.matched_phrase},
@@ -631,6 +1074,18 @@ class EclipseMemoryService:
             return {
                 "ok": False, "action": "memory_full", "outcome": "save",
                 "reason": str(exc), "limit": exc.limit, "active": exc.active,
+            }
+        except MemoryWriteError as exc:
+            # A policy floor (memory disabled, category denied, content refused)
+            # or an invalid record is an HONEST outcome, never a crash. The model/
+            # caller is told nothing was saved.
+            self.store.append_memory_event(
+                "memory.write_refused", run_id=run_id,
+                data={"action": intent.action, "reason": str(exc)},
+            )
+            return {
+                "ok": False, "action": "refused", "outcome": "save",
+                "reason": str(exc),
             }
 
     def _resolve_target(
@@ -846,10 +1301,167 @@ class EclipseMemoryService:
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def health(self) -> dict[str, Any]:
-        return {**self.store.health(), "memoryBudget": self.memory_budget()}
+        return {
+            **self.store.health(),
+            "memoryBudget": self.memory_budget(),
+            "retention": self.retention_status(),
+            "semanticConflict": self.semantic_status(),
+        }
+
+    def semantic_status(self) -> dict[str, Any]:
+        """The active conflict-detection mode + semantic fallback state.
+
+        `mode` is one of `lexical` (semantic off/unavailable — the safe default),
+        `lexical+semantic` (enabled and a local backend is available), or
+        `lexical+semantic-unavailable` (enabled but the backend could not load —
+        behavior is lexical-only). Never exposes an embedding or model path.
+        """
+        from . import semantic  # noqa: PLC0415
+
+        enabled = False
+        try:
+            enabled = bool(self.policy.get("semantic_conflict_enabled"))
+        except Exception:  # noqa: BLE001 - a policy read failure is lexical-only
+            enabled = False
+        backend = semantic.backend_status()
+        if not enabled:
+            mode = "lexical"
+            reason = "semantic conflict detection is disabled"
+        elif backend["available"]:
+            mode = "lexical+semantic"
+            reason = "local semantic candidates enabled"
+        else:
+            mode = "lexical+semantic-unavailable"
+            reason = "semantic enabled but no local backend is available; lexical-only"
+        return {
+            "mode": mode,
+            "lexicalActive": True,
+            "semanticEnabled": enabled,
+            "semanticAvailable": backend["available"],
+            "backend": backend["backend"],
+            "detectorVersion": semantic.DETECTOR_VERSION,
+            "reason": reason,
+        }
 
     def migration_status(self) -> dict[str, Any]:
         return self.store.migration_status()
+
+    # ── Explainability ──────────────────────────────────────────────────────
+
+    def explain_memory(self, memory_id: str) -> Optional[dict[str, Any]]:
+        """A concise, non-sensitive explanation of why a memory exists and its
+        current lifecycle state. Never includes secrets — only the stored content
+        the operator is already entitled to view locally."""
+        memory = self.store.get_memory(memory_id)
+        if memory is None:
+            return None
+        source = memory.get("source") or "unknown"
+        authority = memory.get("authority") or "explicit"
+        # Human reason for the original save, derived from provenance.
+        save_reason = {
+            "explicit_user": "saved because the user explicitly requested it",
+            "user_correction": "saved because the user corrected an earlier answer",
+            "manual": "saved by the operator through the UI",
+            "execution_lesson": "learned automatically from a validated execution",
+            "run_analysis": "learned automatically from post-run analysis",
+            "system_decision": "saved because an architecture decision was recorded",
+            "verified_source": "saved from a verified source",
+            "skill_promotion": "saved from a validated promoted skill",
+            "mistake": "saved from a captured mistake/recovery",
+        }.get(source, f"saved from source '{source}'")
+
+        # Current lifecycle disposition.
+        status = memory.get("status") or "active"
+        recall_reason: str
+        if status == "active":
+            if memory.get("expiresAt"):
+                recall_reason = f"active; expires at {memory['expiresAt']}"
+            else:
+                recall_reason = "active and eligible for recall"
+        elif status == "proposed":
+            recall_reason = "inert suggestion/conflict — awaiting review; excluded from recall"
+        elif status == "superseded":
+            recall_reason = f"excluded from recall because it was superseded by {memory.get('supersededBy') or 'a later memory'}"
+        elif status == "expired":
+            recall_reason = "excluded from recall because it expired"
+        elif status == "rejected":
+            recall_reason = "excluded from recall because review rejected it"
+        elif status == "archived":
+            recall_reason = "excluded from recall because it was archived"
+        else:
+            recall_reason = f"excluded from recall (status={status})"
+
+        timeline = {
+            "createdAt": memory.get("createdAt"),
+            "lastConfirmedAt": memory.get("lastConfirmedAt"),
+            "lastUsedAt": memory.get("lastUsedAt"),
+            "lastReviewedAt": memory.get("lastReviewedAt"),
+            "expiresAt": memory.get("expiresAt"),
+        }
+        return {
+            "memoryId": memory_id,
+            "memoryType": memory.get("memoryType"),
+            "scope": memory.get("scope"),
+            "scopeId": memory.get("scopeId"),
+            "authority": authority,
+            "provenance": source,
+            "saveReason": save_reason,
+            "status": status,
+            "statusReason": memory.get("statusReason"),
+            "recallDisposition": recall_reason,
+            "timeline": timeline,
+            "supersededBy": memory.get("supersededBy"),
+            "verification": memory.get("verification"),
+            "confidence": memory.get("confidence"),
+            "conflict": self._conflict_detail(memory_id, memory),
+        }
+
+    def _conflict_detail(self, memory_id: str, memory: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """The most recent conflict/candidate audit metadata for a memory.
+
+        Built from stored audit events, so it reflects the ACTUAL decision. No raw
+        embeddings are stored; only detector/score/ids/reason/authority.
+        """
+        try:
+            events = [
+                e for e in self.store.list_memory_events(limit=500)
+                if e.get("memoryId") == memory_id
+                and e.get("type") in (
+                    "memory.conflict_needs_review", "memory.conflict_superseded",
+                    "memory.conflict_confirmed", "memory.semantic_candidate",
+                )
+            ]
+        except Exception:  # noqa: BLE001 - explanation must never fail
+            return None
+        if not events:
+            return None
+        event = events[0]
+        data = event.get("data") or {}
+        candidate_ids = data.get("candidateIds") or data.get("against") or data.get("superseded") or []
+        return {
+            "decision": data.get("decision") or event.get("type", "").replace("memory.", ""),
+            "reason": data.get("reason") or memory.get("statusReason"),
+            "detector": data.get("detector"),
+            "similarity": data.get("similarity"),
+            "candidateIds": list(candidate_ids),
+            "authority": data.get("authority"),
+            "requiresConfirmation": bool(
+                data.get("requiresConfirmation")
+                or event.get("type") == "memory.conflict_needs_review"
+            ),
+        }
+
+    def lifecycle_overview(self) -> dict[str, Any]:
+        """Counts + views for the Control Room. Content is local operator data."""
+        counts = self.store.memory_lifecycle_counts()
+        views = {
+            name: len(self.store.list_lifecycle_memories(name, limit=200))
+            for name in (
+                "active", "expired", "superseded", "rejected", "archived",
+                "never-used", "frequently-recalled", "automatic", "conflicts",
+            )
+        }
+        return {"counts": counts, "views": views, "budget": self.memory_budget()}
 
     def close(self) -> None:
         self.store.close()

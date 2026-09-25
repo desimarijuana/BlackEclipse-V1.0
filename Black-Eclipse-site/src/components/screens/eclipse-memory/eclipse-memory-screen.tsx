@@ -17,16 +17,22 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
-  archiveMemory, reviewMemory, listCorrections, listMistakes, retrieveMemories,
+  archiveMemory, reviewMemory, restoreMemory, renewMemory, memoryLifecycle, memoryRetention,
+  memorySemanticStatus, listCorrections,
+  listMistakes, retrieveMemories,
   getPolicies, updatePolicies, clientIsOperator,
+  exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
   listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
 } from "@/lib/harness/eclipse-memory-browser";
 import type {
-  CorrectionRecord, EclipseMemoryHealth, MemoryDetail, MemoryOverview,
+  CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
+  MemoryExportDocument, MemoryLifecycleView,
+  MemoryLifecycleResponse, MemoryOverview,
+  MemoryRetentionStatus, MemorySemanticStatus,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "suggestions" | "activity" | "policies" | "health";
+type Tab = "overview" | "memories" | "lifecycle" | "suggestions" | "activity" | "policies" | "health";
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -51,7 +57,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
     const map: Record<string, Tab> = {
       explorer: "memories", activity: "activity", health: "health",
       memories: "memories", overview: "overview", policies: "policies",
-      suggestions: "suggestions",
+      suggestions: "suggestions", lifecycle: "lifecycle",
     };
     if (slug && map[slug]) setTab(map[slug]);
   });
@@ -62,6 +68,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
         items={[
           { id: "overview", label: "Overview", icon: Brain },
           { id: "memories", label: "Memories", icon: Database },
+          { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
           { id: "suggestions", label: "Suggestions", icon: Plus },
           { id: "activity", label: "Activity", icon: Activity },
           { id: "policies", label: "Policies", icon: Settings2 },
@@ -73,10 +80,262 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       />
       {tab === "overview" && <Overview />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
+      {tab === "lifecycle" && <Lifecycle isOperator={isOperator} />}
       {tab === "suggestions" && <Suggestions isOperator={isOperator} />}
       {tab === "activity" && <ActivityView />}
       {tab === "policies" && <Policies isOperator={isOperator} />}
-      {tab === "health" && <Health />}
+      {tab === "health" && <Health isOperator={isOperator} />}
+    </div>
+  );
+}
+
+// ── Lifecycle (active / suggestions / expired / superseded / conflicts) ──────
+
+const LIFECYCLE_VIEWS: Array<{ id: MemoryLifecycleView; label: string; hint: string }> = [
+  { id: "active", label: "Active", hint: "Usable and eligible for recall." },
+  { id: "never-used", label: "Never used", hint: "Active but never recalled — candidates for review." },
+  { id: "frequently-recalled", label: "Frequently recalled", hint: "Recalled 3+ times — likely useful." },
+  { id: "automatic", label: "Automatically learned", hint: "Learned from runs/conventions, not stated by the user." },
+  { id: "expired", label: "Expired", hint: "Retention elapsed — inert, retained for audit." },
+  { id: "superseded", label: "Superseded / conflicts", hint: "Replaced by a later memory; excluded from recall." },
+  { id: "rejected", label: "Rejected", hint: "Refused at review; never recalled." },
+  { id: "archived", label: "Archived", hint: "Deliberately retired; retained for audit." },
+];
+
+function Lifecycle({ isOperator }: { isOperator: boolean }) {
+  const [overview, setOverview] = useState<MemoryLifecycleResponse | null>(null);
+  const [view, setView] = useState<MemoryLifecycleView>("active");
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<MemoryDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [retention, setRetention] = useState<MemoryRetentionStatus | null>(null);
+  const [semantic, setSemantic] = useState<MemorySemanticStatus | null>(null);
+
+  const load = useCallback(async (target: MemoryLifecycleView) => {
+    setLoading(true); setError(null);
+    try {
+      const body = await memoryLifecycle(target);
+      setOverview(body);
+      setMemories(body.memories ?? []);
+      setRetention(await memoryRetention());
+      setSemantic(await memorySemanticStatus());
+    } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(view); }, [load, view]);
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true);
+    try { await fn(); setToast(message); await load(view); }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
+  };
+
+  const active = LIFECYCLE_VIEWS.find((v) => v.id === view);
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header
+        title="Memory Lifecycle"
+        hint="Every memory has an explicit state. Expired, superseded, rejected and archived memory is never recalled; conflicts do not coexist as active truth."
+      />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+
+      {retention && (
+        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
+          <p className="text-[11px] font-semibold text-foreground">Retention</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {retention.automaticExpiryEnabled
+              ? `Automatically learned memory expires after ${retention.retentionDays} day(s); explicit memory is never silently expired.`
+              : "Automatic retention is off (0 days) — automatic memory never expires by policy. Explicit memory is never silently expired."}
+          </p>
+          {retention.lastSweep ? (
+            <p className={cn("mt-1 text-[10px]", retention.lastSweep.ok ? "text-muted-foreground" : "text-amber-400")}>
+              Last sweep {retention.lastSweep.ranAt}: inspected {retention.lastSweep.inspected}, expired {retention.lastSweep.expired}, skipped {retention.lastSweep.skipped}
+              {!retention.lastSweep.ok && retention.lastSweep.error ? ` — failed: ${retention.lastSweep.error}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-[10px] text-muted-foreground">No sweep recorded yet.</p>
+          )}
+        </div>
+      )}
+
+      {semantic && (
+        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
+          <p className="text-[11px] font-semibold text-foreground">Contradiction detection</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {semantic.mode === "lexical+semantic"
+              ? "Lexical + local semantic candidates. Semantic similarity can only suggest a possible contradiction for review — it never supersedes or activates memory."
+              : semantic.mode === "lexical+semantic-unavailable"
+                ? "Semantic detection is enabled but no local backend is available — detection is lexical-only (safe fallback)."
+                : "Lexical detection only. No network, no model, no embeddings."}
+          </p>
+          <p className="mt-1 text-[10px] text-muted-foreground/80">
+            backend: {semantic.backend} · detector {semantic.detectorVersion}
+          </p>
+        </div>
+      )}
+
+      {overview && (
+        <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+          {[
+            { label: "Active", value: overview.counts.active },
+            { label: "Explicit", value: overview.counts.explicit },
+            { label: "Automatic", value: overview.counts.automatic },
+            { label: "Never used", value: overview.counts.neverUsed },
+            { label: "Frequently recalled", value: overview.counts.frequentlyRecalled },
+            { label: "Superseded", value: overview.counts.superseded },
+            { label: "Expired", value: overview.counts.expired },
+            { label: "Rejected", value: overview.counts.rejected },
+          ].map((tile) => (
+            <div key={tile.label} className="rounded-2xl border border-white/10 glass-card p-3">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{tile.label}</p>
+              <p className="mt-1 text-[18px] font-semibold text-foreground">{tile.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {LIFECYCLE_VIEWS.map((v) => (
+          <button
+            key={v.id}
+            onClick={() => setView(v.id)}
+            className={cn(
+              "rounded-xl px-2.5 py-1 text-[10px] border cursor-pointer",
+              view === v.id
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-white/10 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      {active && <p className="mb-3 text-[10px] text-muted-foreground">{active.hint}</p>}
+
+      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : memories.length === 0 ? (
+        <EmptyBox title="Nothing in this view" hint="Memory only appears here once it exists in that lifecycle state." />
+      ) : (
+        <div className="space-y-2">
+          {memories.map((memory) => (
+            <button
+              key={memory.id}
+              onClick={async () => setDetail(await getMemory(memory.id))}
+              className="w-full text-left rounded-2xl border border-white/10 glass-card p-3.5 hover:border-primary/30 cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <TypeBadge type={memory.memoryType} />
+                    <StatusPill status={memory.status} />
+                    <span className="text-[9px] text-muted-foreground">
+                      {memory.authority === "automatic" ? "automatic" : "explicit"}
+                    </span>
+                    {memory.subject && <span className="text-[9px] text-primary">#{memory.subject}</span>}
+                  </div>
+                  <p className="mt-1.5 text-[12px] text-foreground leading-relaxed line-clamp-2">{memory.content}</p>
+                  {memory.statusReason && (
+                    <p className="mt-0.5 text-[9px] text-muted-foreground/80">{memory.statusReason}</p>
+                  )}
+                </div>
+                <span className="shrink-0 text-[9px] text-muted-foreground">
+                  {memory.lastUsedAt ? `used ${memory.lastUsedAt.slice(0, 10)}` : "never used"}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setDetail(null)} />
+          <div className="relative w-full max-w-md h-full glass-card-strong border-l border-white/10 overflow-y-auto p-5">
+            <button onClick={() => setDetail(null)} className="mb-3 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer">← Close</button>
+            <p className="text-[12px] text-foreground leading-relaxed">{detail.memory.content}</p>
+            {detail.explanation && (
+              <div className="mt-4 rounded-2xl border border-white/10 glass-card-subtle p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Why this memory exists</p>
+                <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.saveReason}</p>
+                <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.recallDisposition}</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  authority: {detail.explanation.authority}
+                  {detail.explanation.statusReason ? ` · ${detail.explanation.statusReason}` : ""}
+                </p>
+              </div>
+            )}
+            <dl className="mt-4 text-[11px]">
+              <Meta label="Status" value={detail.memory.status} />
+              <Meta label="Authority" value={detail.memory.authority ?? "explicit"} />
+              <Meta label="Expires" value={detail.memory.expiresAt ?? "never"} />
+              <Meta label="Last confirmed" value={detail.memory.lastConfirmedAt ?? "—"} />
+              <Meta label="Last used" value={detail.memory.lastUsedAt ?? "never"} />
+              <Meta label="Last reviewed" value={detail.memory.lastReviewedAt ?? detail.memory.reviewedAt ?? "—"} />
+              {detail.memory.supersededBy && <Meta label="Superseded by" value={detail.memory.supersededBy} />}
+            </dl>
+            {detail.explanation?.conflict && (
+              <div className="mt-3 rounded-2xl border border-amber-400/20 glass-card-subtle p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-amber-400">Possible contradiction</p>
+                <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.conflict.reason}</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  detector: {detail.explanation.conflict.detector ?? "lexical"}
+                  {detail.explanation.conflict.similarity != null ? ` · similarity ${detail.explanation.conflict.similarity}` : ""}
+                  {detail.explanation.conflict.authority ? ` · authority ${detail.explanation.conflict.authority}` : ""}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground/80">
+                  {detail.explanation.conflict.requiresConfirmation
+                    ? "This is NOT active truth until you confirm. The existing memory stays authoritative."
+                    : "Both records are retained for audit; the authoritative one is the active memory."}
+                </p>
+              </div>
+            )}
+            {detail.links.filter((l) => l.relation === "superseded").length > 0 && (
+              <div className="mt-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Conflict history</p>
+                <ul className="mt-1 space-y-1">
+                  {detail.links.filter((l) => l.relation === "superseded").map((link) => (
+                    <li key={link.id} className="text-[10px] text-muted-foreground">
+                      superseded {link.toId === detail.memory.id ? link.fromId : link.toId}
+                      {link.note ? ` — ${link.note}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mt-5 flex flex-wrap gap-2">
+              {detail.memory.status === "active" && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => renewMemory(detail.memory.id), "Memory confirmed / renewed")}>
+                  Confirm & renew
+                </Button>
+              )}
+              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
+                  Restore
+                </Button>
+              )}
+              {detail.memory.status === "proposed" && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
+                  Approve
+                </Button>
+              )}
+              {detail.memory.status !== "archived" && (
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
+                  onClick={() => act(() => archiveMemory(detail.memory.id), "Memory archived")}>
+                  <Trash2 size={12} className="mr-1" /> Archive
+                </Button>
+              )}
+            </div>
+            {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — changes require operator authorization.</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -301,6 +560,13 @@ function Memories({ isOperator }: { isOperator: boolean }) {
               <StatusPill status={detail.memory.status} />
             </div>
             <p className="mt-3 text-[12px] text-foreground leading-relaxed">{detail.memory.content}</p>
+            {detail.explanation && (
+              <div className="mt-3 rounded-2xl border border-white/10 glass-card-subtle p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Why this memory exists</p>
+                <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.saveReason}</p>
+                <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.recallDisposition}</p>
+              </div>
+            )}
             <dl className="mt-4 text-[11px]">
               <Meta label="Scope" value={`${detail.memory.scope}${detail.memory.scopeId ? `:${detail.memory.scopeId}` : ""}`} />
               <Meta label="Subject" value={detail.memory.subject ?? "—"} />
@@ -308,7 +574,9 @@ function Memories({ isOperator }: { isOperator: boolean }) {
               <Meta label="Run" value={detail.memory.sourceRunId ?? "—"} />
               <Meta label="Confidence" value={formatConfidence(detail.memory.confidence)} />
               <Meta label="Verification" value={detail.memory.verification} />
+              <Meta label="Authority" value={detail.memory.authority ?? "explicit"} />
               <Meta label="Accesses" value={String(detail.memory.accessCount)} />
+              <Meta label="Last used" value={detail.memory.lastUsedAt ?? "never"} />
               <Meta label="Created" value={detail.memory.createdAt} />
             </dl>
 
@@ -341,6 +609,12 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                 <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
                   onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
                   Approve
+                </Button>
+              )}
+              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
+                  Restore
                 </Button>
               )}
               {detail.memory.status !== "archived" && (
@@ -506,6 +780,17 @@ const POLICY_LABELS: Record<string, string> = {
   include_proposed_in_retrieval: "Inject proposed memory without review",
   audit_retention_rows: "Audit rows kept (0 = unlimited)",
   auto_promote_low_risk: "Auto-promote low-risk skills (locked off)",
+  memory_enabled: "Memory enabled (hard off switch)",
+  memory_in_diagnostics: "Show memory in diagnostic views",
+  semantic_indexing_enabled: "Allow optional local semantic indexing (not implemented)",
+  capture_policy: "Per-category capture policy",
+  recall_policy: "Per-category recall policy",
+  semantic_conflict_enabled: "Local semantic contradiction candidates",
+  semantic_conflict_threshold: "Semantic candidate threshold",
+  semantic_conflict_max_candidates: "Max semantic candidates",
+  semantic_conflict_max_index: "Max semantic index size",
+  semantic_conflict_timeout_ms: "Semantic search timeout (ms)",
+  semantic_conflict_diagnostics: "Show conflict detector metadata",
 };
 
 const LEARNING_MODE_OPTIONS: { value: string; label: string; hint: string }[] = [
@@ -539,7 +824,22 @@ const DERIVED_POLICY_KEYS = new Set([
 const POLICY_HINTS: Record<string, string> = {
   memory_mode: "How durable user preferences and project facts are learned.",
   skill_learning_mode: "How reusable procedures become learning candidates (always inert until reviewed).",
+  memory_enabled: "Hard local off switch: when off, no memory is stored at all — not even an explicit “remember this”.",
+  retention_days: "Days an automatically learned memory is kept before it becomes eligible for expiry review. 0 = never. Explicit memory is never auto-expired.",
+  memory_in_diagnostics: "Whether memory content appears in the Lifecycle and explanation views. Off hides it without deleting anything.",
+  semantic_indexing_enabled: "Reserved: optional local semantic indexing. Not implemented — semantic retrieval is deliberately deferred because the labeled evaluation showed no measured need. Turning this on changes nothing today and never enables a network service.",
+  capture_policy: "Per-category capture rule. “deny” refuses a category; it can never widen authorization.",
+  recall_policy: "Per-category recall rule. “deny” removes a category from recall; scope/privacy filtering stays authoritative.",
+  semantic_conflict_enabled: "Off by default. When on, a local, bounded similarity check may surface a possible contradiction as an inert item for review. It never supersedes, activates, archives or deletes anything, and never bypasses scope, privacy or authority rules. Lexical detection stays active either way.",
+  semantic_conflict_threshold: "Minimum similarity for a semantic candidate (0–1). Higher is more conservative.",
+  semantic_conflict_max_candidates: "Maximum semantic candidates considered per write.",
+  semantic_conflict_max_index: "Maximum same-dimension memories compared per write.",
+  semantic_conflict_timeout_ms: "Wall-clock budget for one semantic search (ms). On timeout, detection falls back to lexical-only.",
+  semantic_conflict_diagnostics: "Whether the detector used, similarity and candidate ids are shown in the Control Room. Never affects a decision.",
 };
+
+const CATEGORY_POLICY_KEYS = new Set(["capture_policy", "recall_policy"]);
+const CATEGORY_POLICY_OPTIONS = ["", "allow", "suggest", "deny"] as const;
 
 function Policies({ isOperator }: { isOperator: boolean }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof getPolicies>> | null>(null);
@@ -602,6 +902,39 @@ function Policies({ isOperator }: { isOperator: boolean }) {
           const isMode = LEARNING_MODE_KEYS.has(key);
           const isBool = typeof data.defaults[key] === "boolean";
           const numeric = typeof data.defaults[key] === "number";
+          const isCategory = CATEGORY_POLICY_KEYS.has(key);
+          if (isCategory) {
+            const table = (value && typeof value === "object" ? value : {}) as Record<string, string>;
+            return (
+              <div key={key} className="rounded-2xl border border-white/10 glass-card p-3.5">
+                <p className="text-[12px] text-foreground">{POLICY_LABELS[key] ?? key}</p>
+                <p className="font-mono text-[9px] text-muted-foreground">{key}</p>
+                {POLICY_HINTS[key] && <p className="mt-1 text-[10px] text-muted-foreground/80">{POLICY_HINTS[key]}</p>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {MEMORY_TYPES.filter((t) => t !== "all").map((t) => (
+                    <label key={t} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span>{t}</span>
+                      <select
+                        value={table[t] ?? ""}
+                        disabled={!isOperator || saving}
+                        onChange={(e) => {
+                          const next = { ...table };
+                          if (e.target.value) next[t] = e.target.value;
+                          else delete next[t];
+                          setDraft({ ...draft, [key]: next });
+                        }}
+                        className="rounded-lg border border-border/30 bg-background/60 px-1.5 py-0.5 text-[10px] outline-none focus:border-primary/40 disabled:opacity-60"
+                      >
+                        {CATEGORY_POLICY_OPTIONS.map((option) => (
+                          <option key={option || "unset"} value={option}>{option || "mode default"}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={key} className="rounded-2xl border border-white/10 glass-card p-3.5 flex items-center justify-between gap-4">
               <div className="min-w-0">
@@ -668,20 +1001,50 @@ function Policies({ isOperator }: { isOperator: boolean }) {
   );
 }
 
-// ── Health ──────────────────────────────────────────────────────────────────
+// ── Health + Transfer ───────────────────────────────────────────────────────
 
-function Health() {
+function Health({ isOperator }: { isOperator: boolean }) {
   const [health, setHealth] = useState<EclipseMemoryHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dbHealth, setDbHealth] = useState<MemoryDatabaseHealth | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setHealth(await memoryHealth()); }
+    try {
+      setHealth(await memoryHealth());
+      setDbHealth(await memoryDatabaseHealth());
+    }
     catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true);
+    try { const result = await fn(); setToast(message); await load(); return result; }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+  };
+
+  const downloadExport = async () => {
+    setBusy(true);
+    try {
+      const payload = await exportMemory();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `eclipse-memory-export-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setToast(`Exported ${payload.counts.memories} memories`);
+    } catch (err) { setToast(err instanceof Error ? err.message : "export failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+  };
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox message={error} />;
@@ -689,7 +1052,8 @@ function Health() {
 
   return (
     <div className="animate-fade-in-up">
-      <Header title="Database Health" hint="eclipse-memory is a separate SQLite database with its own schema and migrations." />
+      <Header title="Database Health & Recovery" hint="eclipse-memory is a separate SQLite database with its own schema and migrations. Export, back up, import and reset are local operator actions." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
       <div className="rounded-2xl border border-white/10 glass-card p-4">
         <div className="flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full", health.ok ? "bg-emerald-400" : "bg-rose-400")} />
@@ -698,12 +1062,75 @@ function Health() {
         <dl className="mt-3 text-[11px]">
           <Meta label="Path" value={health.path} />
           <Meta label="Integrity" value={health.integrity ?? "—"} />
+          <Meta label="Foreign-key violations" value={String(dbHealth?.foreignKeyViolations ?? "—")} />
+          <Meta label="Free-page ratio" value={dbHealth?.freeRatio !== undefined ? String(dbHealth.freeRatio) : "—"} />
           <Meta label="Schema version" value={String(health.schemaVersion ?? "—")} />
           <Meta label="Up to date" value={health.upToDate ? "yes" : "no"} />
           <Meta label="Tables" value={String(health.tables ?? "—")} />
           {health.counts && Object.entries(health.counts).map(([k, v]) => <Meta key={k} label={k} value={String(v)} />)}
         </dl>
       </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+        <p className="text-[11px] font-semibold text-foreground">Export & Backup</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">A readable JSON export you own, plus a consistent copy of the database file. Backups never overwrite an existing file.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={busy} onClick={downloadExport}>
+            Download JSON export
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act(() => backupMemory(), "Backup created")}>
+            Back up database
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+        <p className="text-[11px] font-semibold text-foreground">Import</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">Records are validated and written through the normal memory pipeline; secrets and unsafe content are rejected with reasons.</p>
+        <label className="mt-3 inline-flex">
+          <input type="file" accept="application/json,.json" className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              try {
+                const document = JSON.parse(await file.text()) as MemoryExportDocument;
+                const result = await act(() => importMemory(document), "Import complete");
+                if (result && typeof result === "object" && "rejected" in result) {
+                  const rejected = (result as { rejected: unknown[] }).rejected;
+                  if (rejected.length) setToast(`Import finished — ${rejected.length} record(s) rejected`);
+                }
+              } catch (err) {
+                setToast(err instanceof Error ? err.message : "invalid file");
+              }
+            }}
+          />
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer pointer-events-none" disabled={!isOperator || busy}>
+            Import JSON file…
+          </Button>
+        </label>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-rose-400/20 glass-card p-4">
+        <p className="text-[11px] font-semibold text-rose-300">Reset all memory</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">Deletes memory records, suggestions, corrections and audit events only. Skills, learning candidates and unrelated application data are never touched. A backup is taken first.</p>
+        {confirmReset ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
+              onClick={async () => { await act(() => resetMemory(true), "Memory reset (backup taken)"); setConfirmReset(false); }}>
+              Confirm reset
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => setConfirmReset(false)}>Cancel</Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" className="mt-3 rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
+            onClick={() => setConfirmReset(true)}>
+            Reset memory…
+          </Button>
+        )}
+      </div>
+
       <Button variant="outline" size="sm" className="mt-4 rounded-xl cursor-pointer" onClick={load}>
         <RefreshCcw size={13} className="mr-1" /> Refresh
       </Button>

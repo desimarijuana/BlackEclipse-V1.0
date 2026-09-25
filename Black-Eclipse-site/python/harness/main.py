@@ -69,6 +69,9 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global _lifespan_refs
     _lifespan_refs += 1
     if _lifespan_refs == 1:
+        # Retention: mark due AUTOMATIC memories expired on startup. Idempotent
+        # and best-effort — a failure is a diagnostic, never a boot blocker.
+        service.run_startup_maintenance()
         await service.start_mcp()
     try:
         yield
@@ -610,6 +613,20 @@ def eclipse_memory_health() -> dict[str, Any]:
     return {"success": True, **service.memory.health()}
 
 
+def _memory_available() -> bool:
+    """True when the memory database is readable and not corrupt.
+
+    A corrupt database must fail HONESTLY ("memory unavailable") rather than
+    answer a recall/write with wrong data. Cheap enough for the mutation/read
+    paths that guard on it.
+    """
+    try:
+        store = service.memory_store
+        return bool(store.db.integrity_ok())
+    except Exception:  # noqa: BLE001 - unreadable memory is unavailable memory
+        return False
+
+
 @app.get("/eclipse-memory/overview")
 def eclipse_memory_overview() -> dict[str, Any]:
     """Real counts only — never fabricated activity."""
@@ -655,7 +672,33 @@ def get_memory(memory_id: str) -> dict[str, Any]:
         "memory": memory,
         "evidence": service.memory_store.list_evidence(memory_id),
         "links": service.memory_store.list_links(memory_id),
+        "explanation": service.memory.explain_memory(memory_id),
     }
+
+
+@app.get("/eclipse-memory/lifecycle")
+def memory_lifecycle(view: Optional[str] = None, scopeId: Optional[str] = None, limit: int = 100) -> dict[str, Any]:
+    """Lifecycle overview + a named view (active/expired/superseded/never-used/…).
+
+    Content is returned because this is the local operator's own memory; never
+    expose secrets (there are none stored — secrets are refused on write).
+    """
+    overview = service.memory.lifecycle_overview()
+    payload: dict[str, Any] = {"success": True, **overview}
+    if view:
+        payload["memories"] = service.memory_store.list_lifecycle_memories(
+            view, scope_id=scopeId, limit=limit,
+        )
+        payload["view"] = view
+    return payload
+
+
+@app.get("/eclipse-memory/memories/{memory_id}/explain")
+def explain_memory(memory_id: str) -> dict[str, Any]:
+    explanation = service.memory.explain_memory(memory_id)
+    if explanation is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "explanation": explanation}
 
 
 @app.post("/eclipse-memory/memories")
@@ -708,10 +751,59 @@ def archive_memory(memory_id: str, payload: Optional[dict[str, Any]] = None, _: 
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory archive requires an authorized operator")
-    updated = service.memory_store.archive_memory(memory_id, payload.get("status", "archived"))
+    updated = service.memory_store.archive_memory(
+        memory_id, payload.get("status", "archived"), reason=payload.get("reason"),
+    )
     if updated is None:
         raise HTTPException(status_code=404, detail="Memory not found")
     return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/memories/{memory_id}/restore")
+def restore_memory(memory_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory restore requires an authorized operator")
+    updated = service.memory_store.restore_memory(memory_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/memories/{memory_id}/renew")
+def renew_memory(memory_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory renewal requires an authorized operator")
+    days = payload.get("days")
+    updated = service.memory.renew_memory(memory_id, days=int(days) if days is not None else None)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "memory": updated}
+
+
+@app.post("/eclipse-memory/retention/sweep")
+def retention_sweep(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Apply the configured retention policy: due AUTOMATIC memories become
+    inert (`expired`). Never deletes; explicit memories are exempt. Idempotent
+    and observable (inspected/expired/skipped/ranAt)."""
+    return {"success": True, **service.memory.expire_due_memories()}
+
+
+@app.get("/eclipse-memory/retention")
+def retention_status() -> dict[str, Any]:
+    """The retention policy state + the last sweep outcome (no memory content)."""
+    return {"success": True, **service.memory.retention_status()}
+
+
+@app.get("/eclipse-memory/semantic-status")
+def semantic_status() -> dict[str, Any]:
+    """The active conflict-detection mode + semantic fallback state.
+
+    Read-only; exposes no embedding, model path or memory content. `mode` is
+    `lexical`, `lexical+semantic`, or `lexical+semantic-unavailable`.
+    """
+    return {"success": True, **service.memory.semantic_status()}
 
 
 @app.post("/eclipse-memory/memories/{memory_id}/review")
@@ -726,6 +818,8 @@ def review_memory(memory_id: str, payload: dict[str, Any], _: bool = Depends(req
 
 @app.post("/eclipse-memory/retrieve")
 def retrieve_memory(payload: dict[str, Any]) -> dict[str, Any]:
+    if not _memory_available():
+        raise HTTPException(status_code=503, detail="memory is unavailable (database unreadable or corrupt)")
     result = service.memory.retrieve(
         query=str(payload.get("query") or ""),
         memory_types=payload.get("types"),
@@ -842,6 +936,86 @@ def list_memory_events(limit: int = 100) -> dict[str, Any]:
         "events": service.memory_store.list_memory_events(limit),
         "skillEvents": service.skill_store.list_events(limit=limit),
     }
+
+
+# ── Export / import / backup / health / reset (local operator control) ───────
+
+
+@app.get("/eclipse-memory/export")
+def export_memory(include_inactive: bool = True) -> dict[str, Any]:
+    """A readable, versioned JSON export of the memory domain (read-only)."""
+    from .eclipse_memory.transfer import export_payload
+
+    return {"success": True, **export_payload(service.memory_store, include_inactive=include_inactive)}
+
+
+@app.post("/eclipse-memory/import")
+def import_memory(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Validate + import an export document through the normal write pipeline.
+
+    Requires operator authorization. Each record is written via `write_memory`
+    (privacy/type/scope/conflict/duplicate rules apply) with `imported`
+    provenance, so an import can never bypass the safety gates.
+    """
+    from .eclipse_memory.transfer import import_payload
+
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory import requires an authorized operator")
+    document = payload.get("document")
+    if document is None:
+        # Allow the export body itself to be posted directly.
+        document = payload
+    try:
+        report = import_payload(
+            service.memory, document,
+            source=str(payload.get("source") or "imported"),
+            dry_run=bool(payload.get("dryRun")),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **report}
+
+
+@app.post("/eclipse-memory/backup")
+def backup_memory(payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .eclipse_memory.transfer import create_backup
+
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory backup requires an authorized operator")
+    try:
+        result = create_backup(service.memory_store, payload.get("path"))
+    except (FileNotFoundError, FileExistsError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **result}
+
+
+@app.get("/eclipse-memory/database-health")
+def memory_database_health() -> dict[str, Any]:
+    from .eclipse_memory.transfer import database_health
+
+    return {"success": True, **database_health(service.memory_store)}
+
+
+@app.post("/eclipse-memory/reset")
+def reset_memory_endpoint(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Reset the memory domain only. Requires explicit confirmation; backs up
+    first by default; never touches skills or unrelated application data."""
+    from .eclipse_memory.transfer import reset_memory as _reset
+
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="memory reset requires an authorized operator")
+    if payload.get("confirm") is not True:
+        raise HTTPException(status_code=400, detail="reset requires an explicit confirm=true")
+    try:
+        result = _reset(
+            service.memory_store,
+            confirm=True,
+            backup_first=payload.get("backupFirst", True) is not False,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **result}
 
 
 # ── Memory suggestions (inert, non-recalled Save/Dismiss proposals) ──────────
@@ -1153,6 +1327,32 @@ def submit_draft_review(skill_id: str, payload: dict[str, Any], _: bool = Depend
         evaluation_id=payload.get("evaluationId"),
     )
     return {"success": result.get("ok", False), **result}
+
+
+# ── Skill quality / usefulness evidence (Phase 7) ────────────────────────────
+# Measured from real execution records. Advisory only; promotion stays
+# evaluation- and operator-gated.
+
+
+@app.get("/skills/{skill_id}/quality")
+def skill_quality(skill_id: str, version: Optional[str] = None, limit: int = 200) -> dict[str, Any]:
+    from .eclipse_memory.skill_quality import skill_quality_metrics
+
+    return {"success": True, **skill_quality_metrics(service.skill_store, skill_id, version=version, limit=limit)}
+
+
+@app.get("/skills/{skill_id}/promotion-evidence")
+def skill_promotion_evidence(skill_id: str, version: str) -> dict[str, Any]:
+    from .eclipse_memory.skill_quality import promotion_evidence
+
+    return {"success": True, **promotion_evidence(service.skill_store, skill_id, version)}
+
+
+@app.get("/skills/{skill_id}/quality/compare")
+def skill_quality_compare(skill_id: str, older: str, newer: str) -> dict[str, Any]:
+    from .eclipse_memory.skill_quality import compare_versions
+
+    return {"success": True, **compare_versions(service.skill_store, skill_id, older, newer)}
 
 
 @app.post("/skill-drafts/{skill_id}/approve")

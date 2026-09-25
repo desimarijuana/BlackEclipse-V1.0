@@ -82,6 +82,46 @@ DEFAULTS: dict[str, Any] = {
     # Promotion policy: automatic promotion is structurally impossible; this
     # only records the operator's stated intent for review workflows.
     "auto_promote_low_risk": False,
+    # ── Local privacy controls (Phase 6) ────────────────────────────────────
+    # Memory completely off: no durable memory is written at all — not even an
+    # explicit "remember this". This is the hard local off switch. Distinct from
+    # `memory_mode=off`, which still honours explicit requests.
+    "memory_enabled": True,
+    # How long an automatically learned memory is retained before it becomes
+    # eligible for expiry review (days). 0 = never; explicit memory is exempt.
+    # (Shares the `retention_days` key above; kept as the canonical name.)
+    # Whether a memory may appear in diagnostic/operator views (Lifecycle,
+    # explanations). Off hides content in those views without deleting anything.
+    "memory_in_diagnostics": True,
+    # Whether optional local semantic indexing is permitted. Semantic indexing is
+    # NOT implemented (deliberately deferred — the labeled eval showed the
+    # deterministic retriever serves the set). This flag exists so the operator's
+    # intent is recorded and a future feature can honour it; it never enables a
+    # network service and never bypasses scope/privacy filtering.
+    "semantic_indexing_enabled": False,
+    # Category-specific capture policy: a JSON object mapping memory type ->
+    # "allow" | "suggest" | "deny". Absent types follow the mode. This can only
+    # TIGHTEN capture (a "deny" refuses; it can never widen authorization).
+    "capture_policy": {},
+    # Category-specific recall policy: memory type -> "allow" | "deny".
+    "recall_policy": {},
+    # ── Optional local semantic contradiction candidates (Phase 3) ───────────
+    # OFF by default. When enabled it may only find *candidate* related memories
+    # for the deterministic + authority decision; it can never supersede,
+    # activate, archive or delete, and never bypasses scope/privacy rules. When
+    # disabled — or when no local backend is available — detection stays lexical.
+    "semantic_conflict_enabled": False,
+    # Minimum similarity for a semantic candidate.
+    "semantic_conflict_threshold": 0.72,
+    # Maximum candidates considered per write.
+    "semantic_conflict_max_candidates": 5,
+    # Maximum same-dimension memories indexed/compared per write.
+    "semantic_conflict_max_index": 500,
+    # Wall-clock budget for one semantic candidate search (ms).
+    "semantic_conflict_timeout_ms": 50,
+    # Whether detector metadata (detector, similarity, candidate ids) is shown in
+    # diagnostics/UI. Never affects decisions.
+    "semantic_conflict_diagnostics": True,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
@@ -92,6 +132,10 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "max_memories": (0, 100_000),
     "retention_days": (0, 3650),
     "audit_retention_rows": (0, 100_000),
+    "semantic_conflict_threshold": (0.0, 1.0),
+    "semantic_conflict_max_candidates": (1, 50),
+    "semantic_conflict_max_index": (1, 5000),
+    "semantic_conflict_timeout_ms": (1, 5000),
 }
 
 # Keys that are safety-critical and may NOT be enabled by policy at all — the
@@ -119,7 +163,31 @@ def derived_flags(resolved: dict[str, Any]) -> dict[str, bool]:
     skill_mode = resolved.get("skill_learning_mode") or "automatic_selective"
     flags = dict(_MEMORY_MODE_FLAGS.get(memory_mode, _MEMORY_MODE_FLAGS["automatic_selective"]))
     flags.update(_SKILL_MODE_FLAGS.get(skill_mode, _SKILL_MODE_FLAGS["automatic_selective"]))
+    # `memory_enabled=False` disables automatic capture AND suggestions. Explicit
+    # requests are refused by the service (`write_memory`), so this is a true off.
+    if resolved.get("memory_enabled") is False:
+        flags["auto_capture_enabled"] = False
+        flags["auto_suggest_enabled"] = False
     return flags
+
+
+# Capture/recall policy values. Only these three are accepted; anything else
+# falls back to the safe default ("allow" for capture in automatic modes is
+# governed by the mode, so a bad value never widens capture).
+CATEGORY_POLICY_VALUES = ("allow", "suggest", "deny")
+
+
+def category_policy(resolved: dict[str, Any], key: str, memory_type: str) -> str:
+    """The effective per-category policy value, or "" when unspecified.
+
+    Safety floor: an unknown/invalid value is treated as unspecified, never as a
+    widening. A "deny" can only tighten; it cannot bypass authorization.
+    """
+    table = resolved.get(key) or {}
+    if not isinstance(table, dict):
+        return ""
+    value = str(table.get(memory_type, "")).lower()
+    return value if value in CATEGORY_POLICY_VALUES else ""
 
 
 class PolicyError(ValueError):
@@ -134,6 +202,10 @@ def _coerce(key: str, value: Any) -> Any:
         return int(value)
     if isinstance(default, float):
         return float(value)
+    if isinstance(default, dict):
+        if not isinstance(value, dict):
+            raise PolicyError(f"policy {key!r} must be an object")
+        return dict(value)
     return value
 
 
@@ -154,6 +226,12 @@ def validate(key: str, value: Any) -> Any:
         low, high = BOUNDS[key]
         if not (low <= coerced <= high):
             raise PolicyError(f"policy {key!r} must be between {low} and {high}")
+    if key in ("capture_policy", "recall_policy"):
+        for category, setting in coerced.items():
+            if str(setting).lower() not in CATEGORY_POLICY_VALUES:
+                raise PolicyError(
+                    f"policy {key!r} value for {category!r} must be one of {CATEGORY_POLICY_VALUES}"
+                )
     return coerced
 
 

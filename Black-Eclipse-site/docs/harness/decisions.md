@@ -1012,6 +1012,88 @@ user-scoped retrieve without a `scope_id` leaked other users' memories.
 is scope-aware; `accept_suggestion`/`dismiss_suggestion` take `user_id`;
 new tests `test_memory_retrieval_eval.py` and isolation cases.
 
+## ADR-H50 — Retention is automatic and observable; contradictions are authority-resolved
+
+**Decision.** Two memory areas were hardened without changing the architecture:
+
+1. **Retention.** An automatically learned memory may receive an `expiresAt` from
+   `retention_days`; explicit memory never does. The sweep runs automatically at
+   runtime startup through the existing FastAPI lifespan (`_lifespan` →
+   `run_startup_maintenance` → `run_retention_maintenance`) — no new daemon or
+   thread, and a failure is a recorded diagnostic that never blocks boot. Each
+   run is persisted in `MemoryMaintenance` (migration 11) and reported as
+   inspected/expired/skipped/ranAt/error. Confirmation and renewal refresh the
+   lifecycle timestamps and extend or clear an automatic memory's expiry. A
+   policy change never mutates existing rows; retrieval excludes a due memory by
+   timestamp independent of the sweep; expired memory stays auditable.
+2. **Contradictions.** Conflict resolution is authority-driven: explicit
+   replacement and explicit-over-automatic supersede (old→new linked, retained);
+   automatic-vs-explicit and two ambiguous explicit statements store the new
+   record inert (`proposed`). Detection is deterministic and conservative —
+   subject identity via equality or `SUBJECT_ALIASES`, normalized (synonym/
+   stemmed) tokens, known opposing pairs, and explicit replacement wording; a
+   missed conflict is preferred over replacing unrelated memory.
+
+**Why.** `expire_due_memories()` existed but nothing ran it, and
+`_resolve_conflict` accepted an `authority` argument it never used — so retention
+was manual-only and an explicit statement could not override a learned one
+without magic wording. Both are table stakes for a trustworthy personal memory.
+
+**Impact.** Migration 11; `service.{run_retention_maintenance,retention_status,
+renewal_expiry}`, `store.{record_maintenance,maintenance_status}`,
+`conflicts.detect_conflict` (authority-aware) + `same_dimension`;
+`main._lifespan` startup hook + `/eclipse-memory/retention`; an honest
+`needs_review` memory-action outcome; Control Room retention/conflict views.
+
+## ADR-H49 — Memory is a local personal system: explicit lifecycle, deterministic contracts, operator control
+
+**Decision.** Eclipse-Memory stays a single-user, local system (`userId`/`scopeId`
+are labels, not security identities) and is matured without rewriting its
+architecture:
+
+1. **Explicit lifecycle.** Every `MemoryRecord` carries `createdAt`,
+   `lastConfirmedAt`, `lastUsedAt`, `lastReviewedAt`, `expiresAt`, `status`,
+   `statusReason`, `supersededBy`, provenance and confidence, plus an
+   `authority` (`explicit` vs `automatic`). Re-stating a fact refreshes
+   confirmation rather than duplicating. `expired`/`superseded`/`rejected`/
+   `archived` are never injected. Retention only ever expires **automatic**
+   memories; explicit memories are never silently expired. History is never
+   hard-deleted by default.
+2. **Deterministic contradiction handling.** `conflicts.py` detects a same-scope
+   conflict lexically. Explicit replacement supersedes the old record (linked,
+   retained); an ambiguous contradiction is stored inert (`proposed`) for review
+   — two contradictory preferences never coexist as active truth. Scope isolation
+   is authoritative (different scopes never conflict).
+3. **Measured retrieval, no premature semantics.** Retrieval normalization
+   (synonyms, light stemming, subject aliases, bounded typo tolerance) is added
+   behind the existing seam and judged by the labeled set with release
+   thresholds. Semantic/embedding retrieval is **deferred**: the eval shows no
+   measured need, so no dependency or network service is added. Scope/status/
+   privacy filtering remains authoritative; similarity could only ever find
+   candidates, never authorize access.
+4. **Operator control.** Export/import/backup/health/reset are local operator
+   actions (`transfer.py`); import runs through the same decision gate and write
+   pipeline with `imported` provenance; reset requires explicit confirmation,
+   backs up first, and clears only the memory domain. Policy gains a hard
+   `memory_enabled` off switch and per-category capture/recall rules that can only
+   tighten.
+5. **Measured skill quality.** Skill usefulness (success/validation/tool-budget
+   metrics, version regression, deprecation advisory) is derived from real
+   executions; promotion remains evaluation + operator gated and is never
+   automatic.
+
+**Why.** The system must be correct, private, recoverable, explainable and
+honest about its limits — the properties a personal memory system needs and a
+hosted multi-tenant design would obscure.
+
+**Impact.** Migration 10; new modules `conflicts.py`, `normalize.py`,
+`transfer.py`, `skill_quality.py`; policy keys `memory_enabled`,
+`memory_in_diagnostics`, `semantic_indexing_enabled`, `capture_policy`,
+`recall_policy`; lifecycle/export/import/backup/reset APIs + Control Room
+Lifecycle tab; release thresholds in the eval. Verified by the memory,
+lifecycle, conflict, normalization, transfer, privacy, reliability and
+skill-quality test modules.
+
 ## ADR-H43 — MCP is presented as finance workflows with provenance, diagnostics and safe defaults
 
 **Decision.** A product layer sits on top of the MCP machinery:

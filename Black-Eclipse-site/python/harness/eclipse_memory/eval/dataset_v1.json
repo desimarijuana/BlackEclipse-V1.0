@@ -123,6 +123,38 @@
       "confidence": 0.8,
       "importance": 0.6,
       "verification": "verified"
+    },
+    {
+      "key": "u1-answer-detailed",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers detailed multi-paragraph answers.",
+      "subject": "answer-style",
+      "confidence": 0.8,
+      "importance": 0.6,
+      "status": "superseded"
+    },
+    {
+      "key": "u1-expired-ticker",
+      "memoryType": "semantic",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "The user's temporary note about the old watchlist ticker.",
+      "subject": "watchlist",
+      "confidence": 0.7,
+      "importance": 0.5,
+      "status": "expired"
+    },
+    {
+      "key": "u1-risk-conservative",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers conservative low-risk portfolio suggestions.",
+      "subject": "risk-profile",
+      "confidence": 0.8,
+      "importance": 0.6
     }
   ],
   "cases": [
@@ -255,6 +287,58 @@
       "scopeId": "u1",
       "expectKeys": ["u1-candlestick"],
       "forbidKeys": ["u1-noisy-magnitude"]
+    },
+    {
+      "caseId": "typo-currency",
+      "kind": "typo",
+      "query": "What currancy does the user report in?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-reporting-currency"],
+      "forbidKeys": ["general-fiscal-year"]
+    },
+    {
+      "caseId": "multi-turn-reference",
+      "kind": "multi-turn",
+      "query": "And what about the money used for those statements?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-reporting-currency"],
+      "forbidKeys": ["general-fiscal-year", "general-utc"]
+    },
+    {
+      "caseId": "ambiguous-query-no-overreach",
+      "kind": "ambiguous",
+      "query": "Tell me more about the user's settings.",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "forbidContent": ["weather", "karachi"],
+      "forbidKeys": ["u3-plain-language"]
+    },
+    {
+      "caseId": "conflict-superseded-not-active",
+      "kind": "conflict",
+      "query": "How detailed should this user's answers be?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-concise"],
+      "forbidKeys": ["u1-answer-detailed"]
+    },
+    {
+      "caseId": "expired-record-not-recalled",
+      "kind": "stale",
+      "query": "What is on the user's old watchlist ticker?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "forbidKeys": ["u1-expired-ticker"]
+    },
+    {
+      "caseId": "risk-preference-paraphrase",
+      "kind": "paraphrase",
+      "query": "How risky should suggested portfolios be for this user?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-risk-conservative"]
     }
   ]
 }

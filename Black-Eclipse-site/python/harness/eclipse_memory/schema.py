@@ -576,6 +576,55 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 10 — explicit memory lifecycle + temporal state. Adds the timestamps
+# needed to answer "when was this last confirmed / used / reviewed" and an
+# `authority` column distinguishing an explicit user/operator memory from an
+# automatically learned one. `statusReason` records *why* a record became inert
+# (superseded/expired/rejected) so the lifecycle is auditable.
+#
+# Additive only. Existing rows receive authority='explicit' (the conservative
+# default: an unknown-provenance record is never auto-expired) and NULL for the
+# new timestamps ("not recorded"), which the UI renders honestly.
+MIGRATIONS.append(
+    (
+        10,
+        [
+            "ALTER TABLE MemoryRecord ADD COLUMN lastConfirmedAt TEXT;",
+            "ALTER TABLE MemoryRecord ADD COLUMN lastUsedAt TEXT;",
+            "ALTER TABLE MemoryRecord ADD COLUMN lastReviewedAt TEXT;",
+            "ALTER TABLE MemoryRecord ADD COLUMN authority TEXT NOT NULL DEFAULT 'explicit';",
+            "ALTER TABLE MemoryRecord ADD COLUMN statusReason TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_mem_authority ON MemoryRecord(authority);",
+            "CREATE INDEX IF NOT EXISTS idx_mem_last_used ON MemoryRecord(lastUsedAt);",
+        ],
+    )
+)
+
+# Migration 11 — retention sweep runtime state. One row records the last sweep:
+# when it ran, how many records it inspected/expired/skipped, and the failure
+# reason if it did not complete. This makes automatic retention observable in the
+# health/lifecycle diagnostics without exposing memory content. It is additive
+# and idempotent (a singleton row), so no existing record is touched.
+MIGRATIONS.append(
+    (
+        11,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemoryMaintenance (
+              id            INTEGER PRIMARY KEY CHECK (id = 1),
+              operation     TEXT NOT NULL,
+              ranAt         TEXT NOT NULL,
+              ok            INTEGER NOT NULL DEFAULT 1,
+              inspected     INTEGER NOT NULL DEFAULT 0,
+              expired       INTEGER NOT NULL DEFAULT 0,
+              skipped       INTEGER NOT NULL DEFAULT 0,
+              error         TEXT
+            );
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

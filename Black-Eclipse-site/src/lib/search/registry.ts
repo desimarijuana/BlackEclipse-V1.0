@@ -196,6 +196,8 @@ registerPage({ id: 'sub-skills-activity', kind: 'page', title: 'Execution Activi
 registerPage({ id: 'sub-memory-explorer', kind: 'page', title: 'Memory Explorer', aliases: ['memory explorer', 'saved memory'], keywords: ['memory', 'explorer'], icon: 'memory', tab: 'memory', subroute: 'memory.explorer', group: 'memory', child: true });
 registerPage({ id: 'sub-memory-activity', kind: 'page', title: 'Memory Activity', aliases: ['memory activity', 'retrieval diagnostics'], keywords: ['memory', 'activity', 'retrieval'], icon: 'memory', tab: 'memory', subroute: 'memory.activity', group: 'memory', child: true });
 registerPage({ id: 'sub-memory-health', kind: 'page', title: 'Memory Health', aliases: ['memory health', 'database identity'], keywords: ['memory', 'health', 'database'], icon: 'memory', tab: 'memory', subroute: 'memory.health', group: 'memory', child: true });
+registerPage({ id: 'sub-memory-lifecycle', kind: 'page', title: 'Memory Lifecycle', aliases: ['memory lifecycle', 'expired memory', 'superseded memory'], keywords: ['memory', 'lifecycle', 'expired', 'superseded', 'conflicts'], icon: 'memory', tab: 'memory', subroute: 'memory.lifecycle', group: 'memory', child: true });
+registerPage({ id: 'sub-memory-policies', kind: 'page', title: 'Memory Policies', aliases: ['memory policies', 'memory retention'], keywords: ['memory', 'policy', 'retention'], icon: 'memory', tab: 'memory', subroute: 'memory.policies', group: 'memory', child: true });
 
 // ── Sub-pages ────────────────────────────────────────────────────────────────
 // Every internal view that used to be unreachable (the shell ignored

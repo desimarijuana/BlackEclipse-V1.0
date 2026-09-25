@@ -14,13 +14,18 @@ from __future__ import annotations
 import json
 import sys
 
-from . import format_report, run_evaluation
+from . import check_thresholds, format_report, run_evaluation
 
 
 def main() -> int:
     report = run_evaluation()
     print(format_report(report))
-    return 0
+    gate = check_thresholds(report)
+    if gate["passed"]:
+        print("  threshold gate: PASS")
+    else:
+        print(f"  threshold gate: FAIL — {gate['failures']}")
+    return 0 if gate["passed"] else 1
 
 
 if __name__ == "__main__":

@@ -60,6 +60,8 @@ class EclipseMemoryStore:
         verification: str = "unverified",
         created_by: Optional[str] = None,
         expires_at: Optional[str] = None,
+        authority: str = "explicit",
+        status_reason: Optional[str] = None,
     ) -> dict[str, Any]:
         memory_id = new_id("mem")
         now = now_iso()
@@ -67,15 +69,17 @@ class EclipseMemoryStore:
             """INSERT INTO MemoryRecord
                (id, memoryType, scope, scopeId, subject, content, structuredData, source,
                 sourceRunId, confidence, importance, status, verification, createdBy,
-                createdAt, updatedAt, accessCount)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                createdAt, updatedAt, accessCount, expiresAt, authority, statusReason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
             (
                 memory_id, memory_type, scope, scope_id, subject, content,
                 json.dumps(structured_data) if structured_data is not None else None,
                 source, source_run_id,
                 max(0.0, min(float(confidence), 1.0)),
                 max(0.0, min(float(importance), 1.0)),
-                status, verification, created_by, now, now,
+                status, verification, created_by, now, now, expires_at,
+                authority if authority in ("explicit", "automatic") else "explicit",
+                status_reason,
             ),
         )
         self._db.commit()
@@ -123,11 +127,84 @@ class EclipseMemoryStore:
         ).fetchall()
         return [_memory_row(r) for r in rows]
 
+    def memory_lifecycle_counts(self) -> dict[str, Any]:
+        """Counts for the Control Room lifecycle views (expired, superseded,
+        never-used, frequently-recalled, conflicts). Never returns content."""
+        def _count(sql: str, params: tuple[Any, ...] = ()) -> int:
+            row = self._db.execute(sql, params).fetchone()
+            return int(row[0]) if row else 0
+
+        now = now_iso()
+        return {
+            "active": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='active'"),
+            "expired": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='expired'"),
+            "archived": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='archived'"),
+            "superseded": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='superseded'"),
+            "rejected": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='rejected'"),
+            "proposed": _count("SELECT COUNT(*) FROM MemoryRecord WHERE status='proposed'"),
+            "neverUsed": _count(
+                "SELECT COUNT(*) FROM MemoryRecord WHERE status='active' AND lastUsedAt IS NULL"
+            ),
+            "frequentlyRecalled": _count(
+                "SELECT COUNT(*) FROM MemoryRecord WHERE status='active' AND accessCount >= 3"
+            ),
+            "expiring": _count(
+                "SELECT COUNT(*) FROM MemoryRecord WHERE status='active'"
+                " AND expiresAt IS NOT NULL AND expiresAt <= ?",
+                (now,),
+            ),
+            "automatic": _count("SELECT COUNT(*) FROM MemoryRecord WHERE authority='automatic'"),
+            "explicit": _count("SELECT COUNT(*) FROM MemoryRecord WHERE authority='explicit'"),
+        }
+
+    def list_lifecycle_memories(
+        self,
+        view: str,
+        *,
+        scope_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return memories for a named lifecycle view. Content is included (the
+        Control Room needs to render it); this is a local operator surface."""
+        limit = max(1, min(int(limit), 500))
+        where: list[str] = []
+        params: list[Any] = []
+        if view == "active":
+            where.append("status = 'active'")
+        elif view == "expired":
+            where.append("status = 'expired'")
+        elif view == "superseded":
+            where.append("status = 'superseded'")
+        elif view == "rejected":
+            where.append("status = 'rejected'")
+        elif view == "archived":
+            where.append("status = 'archived'")
+        elif view == "never-used":
+            where.append("status = 'active' AND lastUsedAt IS NULL")
+        elif view == "frequently-recalled":
+            where.append("status = 'active' AND accessCount >= 3")
+        elif view == "automatic":
+            where.append("authority = 'automatic'")
+        elif view == "conflicts":
+            where.append("status = 'superseded'")
+        else:
+            where.append("status = 'active'")
+        if scope_id:
+            where.append("(scopeId = ? OR scopeId IS NULL)")
+            params.append(scope_id)
+        clause = " AND ".join(where)
+        rows = self._db.execute(
+            f"SELECT * FROM MemoryRecord WHERE {clause} ORDER BY updatedAt DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
     def update_memory(self, memory_id: str, **patch: Any) -> Optional[dict[str, Any]]:
         allowed = {
             "content", "structuredData", "confidence", "importance", "status",
             "verification", "reviewedAt", "reviewStatus", "expiresAt", "supersededBy",
-            "lastAccessedAt", "subject",
+            "lastAccessedAt", "subject", "lastConfirmedAt", "lastUsedAt",
+            "lastReviewedAt", "authority", "statusReason", "scope", "scopeId",
         }
         sets, params = [], []
         for key, value in patch.items():
@@ -143,27 +220,65 @@ class EclipseMemoryStore:
         self._db.commit()
         return self.get_memory(memory_id)
 
-    def archive_memory(self, memory_id: str, status: str = "archived") -> Optional[dict[str, Any]]:
-        updated = self.update_memory(memory_id, status=status)
+    def archive_memory(
+        self, memory_id: str, status: str = "archived", *, reason: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
+        updated = self.update_memory(
+            memory_id, status=status,
+            statusReason=reason or f"set to {status}", lastReviewedAt=now_iso(),
+        )
         if updated:
-            self.append_memory_event(f"memory.{status}", memory_id=memory_id)
+            self.append_memory_event(f"memory.{status}", memory_id=memory_id,
+                                     data={"reason": reason} if reason else None)
         return updated
 
-    def supersede_memory(self, old_id: str, new_id_value: str) -> None:
+    def restore_memory(self, memory_id: str) -> Optional[dict[str, Any]]:
+        """Return an inert memory to active. History is retained; the restore is
+        auditable. An explicit memory is restored directly; an automatic memory
+        is restored as active (the caller re-confirms it)."""
+        updated = self.update_memory(
+            memory_id, status="active", statusReason="restored",
+            lastConfirmedAt=now_iso(), lastReviewedAt=now_iso(), supersededBy=None,
+        )
+        if updated:
+            self.append_memory_event("memory.restored", memory_id=memory_id)
+        return updated
+
+    def supersede_memory(self, old_id: str, new_id_value: str, *, reason: Optional[str] = None) -> None:
         """Mark `old_id` superseded by `new_id_value` and link them. The old
         record is retained (never deleted) for audit."""
-        self.update_memory(old_id, status="superseded", supersededBy=new_id_value)
-        self.add_link(old_id, new_id_value, "superseded")
+        self.update_memory(
+            old_id, status="superseded", supersededBy=new_id_value,
+            statusReason=reason or f"superseded by {new_id_value}",
+            lastReviewedAt=now_iso(),
+        )
+        self.add_link(old_id, new_id_value, "superseded", note=reason)
         self.append_memory_event("memory.superseded", memory_id=old_id,
-                                 data={"supersededBy": new_id_value})
+                                 data={"supersededBy": new_id_value, "reason": reason})
+
+    def confirm_memory(self, memory_id: str) -> Optional[dict[str, Any]]:
+        """Record an explicit re-confirmation of an existing memory. Bumps
+        `lastConfirmedAt` (the memory's freshness anchor) without changing
+        content — used when the user restates the same durable fact."""
+        updated = self.update_memory(memory_id, lastConfirmedAt=now_iso())
+        if updated:
+            self.append_memory_event("memory.confirmed", memory_id=memory_id)
+        return updated
+
+    def mark_reviewed(self, memory_id: str) -> Optional[dict[str, Any]]:
+        return self.update_memory(memory_id, lastReviewedAt=now_iso())
 
     def record_access(self, memory_ids: list[str]) -> None:
-        """Bump access counters for retrieved memories (best-effort)."""
+        """Bump access counters AND last-used time for retrieved memories
+        (best-effort). `lastUsedAt` is distinct from `lastAccessedAt`: the latter
+        is a legacy column kept for compatibility; the former is the lifecycle
+        signal used to find never-used / frequently-recalled memories."""
         now = now_iso()
         for memory_id in memory_ids:
             self._db.execute(
-                "UPDATE MemoryRecord SET accessCount = accessCount + 1, lastAccessedAt = ? WHERE id = ?",
-                (now, memory_id),
+                "UPDATE MemoryRecord SET accessCount = accessCount + 1,"
+                " lastAccessedAt = ?, lastUsedAt = ? WHERE id = ?",
+                (now, now, memory_id),
             )
         self._db.commit()
 
@@ -969,6 +1084,47 @@ class EclipseMemoryStore:
 
     def health(self) -> dict[str, Any]:
         return self.db.health()
+
+    # ── Maintenance state (observable retention sweeps) ─────────────────────
+
+    def record_maintenance(
+        self, operation: str, *, ok: bool, inspected: int = 0,
+        expired: int = 0, skipped: int = 0, error: Optional[str] = None,
+    ) -> None:
+        """Persist the outcome of a maintenance operation (singleton per op).
+
+        Best-effort: a bookkeeping failure must never break the operation it
+        records.
+        """
+        try:
+            self._db.execute(
+                """INSERT INTO MemoryMaintenance
+                   (id, operation, ranAt, ok, inspected, expired, skipped, error)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     operation=excluded.operation, ranAt=excluded.ranAt, ok=excluded.ok,
+                     inspected=excluded.inspected, expired=excluded.expired,
+                     skipped=excluded.skipped, error=excluded.error""",
+                (operation, now_iso(), 1 if ok else 0, int(inspected), int(expired),
+                 int(skipped), error),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - maintenance bookkeeping is best-effort
+            pass
+
+    def maintenance_status(self) -> Optional[dict[str, Any]]:
+        """The last recorded maintenance outcome, or None when never run."""
+        try:
+            row = self._db.execute(
+                "SELECT * FROM MemoryMaintenance WHERE id = 1"
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - a pre-migration/closed db reads as unknown
+            return None
+        if not row:
+            return None
+        record = dict(row)
+        record["ok"] = bool(record.get("ok"))
+        return record
 
     def close(self) -> None:
         self.db.close()

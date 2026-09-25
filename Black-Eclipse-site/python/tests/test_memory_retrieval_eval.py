@@ -38,16 +38,17 @@ def test_baseline_recall_precision_and_safety():
 
 
 def test_synonym_gap_is_measured_not_hidden():
-    # A synonym paraphrase sharing no lexical term is a known limitation of a
-    # deterministic lexical retriever. It is reported per-kind so the gap is
-    # visible and tracked rather than masked by a single aggregate recall.
+    # A synonym paraphrase sharing no lexical term used to be a known limitation
+    # of a purely lexical retriever. The normalized retriever (synonyms + light
+    # stemming + bounded typo tolerance) now serves the synonym slice too; the
+    # per-kind metric remains so any future regression is visible and tracked
+    # rather than masked by a single aggregate recall.
     report = run_evaluation()
     metrics = report["metrics"]
     by_kind = metrics["byKind"]
     assert "synonym-paraphrase" in by_kind
-    # The gap is real and recorded: synonym recall is below the lexical slice.
-    # The assertion is an inequality so a future improvement is allowed (and
-    # will simply make the gap smaller) rather than frozen at a known miss.
+    # The inequality keeps the test open to future improvement while locking in
+    # that the synonym slice is never worse than the lexical slice.
     assert by_kind["synonym-paraphrase"]["recall"] <= metrics["recallSupported"]
 
 

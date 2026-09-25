@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { archiveMemory, reviewMemory } from "@/lib/harness/eclipse-memory-client";
+import { archiveMemory, renewMemory, restoreMemory, reviewMemory } from "@/lib/harness/eclipse-memory-client";
 import { isOperatorRequest } from "@/lib/harness/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/eclipse-memory/memories/:id/:action — archive | review.
+const SUPPORTED = new Set(["archive", "review", "restore", "renew"]);
+
+// POST /api/eclipse-memory/memories/:id/:action — archive | review | restore | renew.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; action: string }> }
 ) {
   const { id, action } = await params;
-  if (action !== "archive" && action !== "review") {
+  if (!SUPPORTED.has(action)) {
     return NextResponse.json({ error: "unsupported action" }, { status: 404 });
   }
   const blocked = guardMutation(request, `eclipse-memory-${action}`);
@@ -25,7 +27,11 @@ export async function POST(
     const result =
       action === "archive"
         ? await archiveMemory(id, true, typeof body.status === "string" ? body.status : "archived")
-        : await reviewMemory(id, true, body.approve !== false);
+        : action === "review"
+          ? await reviewMemory(id, true, body.approve !== false)
+          : action === "restore"
+            ? await restoreMemory(id, true)
+            : await renewMemory(id, true, typeof body.days === "number" ? body.days : undefined);
     return NextResponse.json(result);
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

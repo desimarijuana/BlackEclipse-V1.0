@@ -38,6 +38,20 @@ describe('buildMemoryRunView', () => {
     expect(view?.action?.kind).toBe('needs_confirmation');
   });
 
+  it('maps a conflict as needs_review, never as saved', () => {
+    const view = buildMemoryRunView({
+      action: 'needs_review',
+      contentPreview: 'I prefer detailed answers',
+      memoryType: 'preference',
+      reason: 'This conflicts with an existing memory',
+      inspectPath: '/api/eclipse-memory/memories/mem_2',
+    });
+    expect(view?.action?.kind).toBe('needs_review');
+    expect(view?.action?.headline).toContain('conflicts');
+    expect(view?.action?.headline).not.toBe('Remembered');
+    expect(view?.action?.inspectPath).toContain('mem_2');
+  });
+
   it('maps a suggested outcome as NOT saved, with the suggestion path', () => {
     const view = buildMemoryRunView({
       action: 'suggested',
