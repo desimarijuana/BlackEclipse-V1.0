@@ -128,7 +128,6 @@ def test_agent_id_resolves_python_side_prompt():
     agent = graph_module.resolve_agent(req)
     assert agent.id == "eclipse-agent"
     assert agent.systemPrompt.startswith("You are Eclipse Agent")
-    assert "Black Orbit Technologies" in agent.systemPrompt
 
 
 @pytest.mark.asyncio

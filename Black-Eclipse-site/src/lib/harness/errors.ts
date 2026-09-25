@@ -15,6 +15,7 @@ export type HarnessErrorCode =
   | "TOOL_TIMEOUT"
   | "TOOL_ERROR"
   | "MAX_STEPS_EXCEEDED"
+  | "TOOL_BUDGET_EXCEEDED"
   | "CANCELLED"
   | "PERSISTENCE_ERROR"
   | "INTERNAL_ERROR";

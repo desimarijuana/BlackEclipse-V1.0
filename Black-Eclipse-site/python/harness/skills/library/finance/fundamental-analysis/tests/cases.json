@@ -21,6 +21,55 @@
       "expected": {
         "required": ["instrument", "periods", "reported", "derived", "limitations", "evidence"]
       }
+    },
+    {
+      "caseId": "output-valid-full",
+      "name": "A complete analysis validates against the full schema",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "instrument": {"symbol": "AAPL", "market": "US"},
+          "periods": ["FY2024"],
+          "reported": [{"metric": "revenue", "value": 100, "period": "FY2024"}],
+          "derived": [{"metric": "margin", "value": 0.2}],
+          "comparisons": [],
+          "limitations": ["single period"],
+          "warnings": [],
+          "evidence": [{"source": "SEC", "url": "https://sec.gov/x"}]
+        }
+      }
+    },
+    {
+      "caseId": "output-missing-evidence",
+      "name": "An analysis without evidence fails validation",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": {
+          "instrument": {"symbol": "AAPL"},
+          "periods": [],
+          "reported": [],
+          "derived": [],
+          "limitations": []
+        }
+      }
+    },
+    {
+      "caseId": "output-wrong-type",
+      "name": "A scalar where an array is required fails validation",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": {
+          "instrument": {},
+          "periods": "FY2024",
+          "reported": [],
+          "derived": [],
+          "limitations": [],
+          "evidence": []
+        }
+      }
     }
   ]
 }

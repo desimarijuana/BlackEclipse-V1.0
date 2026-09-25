@@ -95,6 +95,10 @@ export interface SkillExecutionRecord {
   traceId: string | null;
   createdAt: string;
   finishedAt: string | null;
+  /** Whether the output was validated against the declared schema. null = not recorded (pre-migration). */
+  outputValidated?: boolean | null;
+  /** Bounded run metrics: toolCalls, toolErrors, modelSteps, totalTokens, durationMs. */
+  metrics?: { toolCalls?: number; toolErrors?: number; modelSteps?: number; totalTokens?: number; durationMs?: number } | null;
 }
 
 export interface SkillEvaluationDimension {

@@ -536,6 +536,46 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 8 — persisted recurrence ledger for durable-sounding statements.
+# A project convention ("always use X") is only saved automatically once it has
+# recurred. Deriving recurrence purely from the bounded chat-history window meant
+# a convention repeated across sessions/after the window was never recognised.
+# This table records one bounded row per normalized content signature (the raw
+# text is never stored — only a non-reversible digest), with a seen-count, so
+# recurrence survives across runs and restarts. The signature is indexed and the
+# table is pruned to the most recent rows by the service, so growth is bounded.
+MIGRATIONS.append(
+    (
+        8,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemoryRecurrence (
+              signature   TEXT PRIMARY KEY,
+              seenCount   INTEGER NOT NULL DEFAULT 1,
+              firstSeenAt TEXT NOT NULL,
+              lastSeenAt  TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_recurrence_last ON MemoryRecurrence(lastSeenAt);",
+        ],
+    )
+)
+
+# Migration 9 — observability columns on SkillExecution. The execution record is
+# the operator's view of a skill run; it must show whether the output was
+# actually validated against the declared schema, and the bounded run metrics
+# (tool calls, model steps, tokens, tool errors). Additive columns only: older
+# rows read as NULL ("unknown"), which the UI renders as "not recorded".
+MIGRATIONS.append(
+    (
+        9,
+        [
+            "ALTER TABLE SkillExecution ADD COLUMN outputValidated INTEGER;",
+            "ALTER TABLE SkillExecution ADD COLUMN metrics TEXT;",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

@@ -91,7 +91,7 @@ selected mode still applies — use Alt+T / Alt+A to switch.
 |---|---|
 | ChatBot | Multi-agent research chat; research-worded questions hit the real research engine. Shared with Terminal |
 | Skills | The skill control room — library, learning queue, evaluation, execution activity |
-| Eclipse Memory | Dedicated agent-memory database: memories, corrections, mistakes, policies, health |
+| Eclipse Memory | Dedicated `eclipse-memory.db` control store: memories, corrections, mistakes, policies, health |
 
 Plus an embedded **Chart** tab reached from other screens (TradingView-backed).
 

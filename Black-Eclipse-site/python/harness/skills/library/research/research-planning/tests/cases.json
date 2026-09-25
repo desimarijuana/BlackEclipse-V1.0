@@ -21,6 +21,66 @@
       "expected": {
         "required": ["objective", "questions", "requiredData", "sourcePlan", "expectedDeliverables"]
       }
+    },
+    {
+      "caseId": "output-valid-full",
+      "name": "A complete plan validates against the full schema",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "objective": "Assess ACME",
+          "questions": ["Is revenue growing?"],
+          "requiredData": [{"leg": "revenue"}],
+          "sourcePlan": [{"source": "SEC"}],
+          "period": "FY2024",
+          "instruments": ["ACME"],
+          "risksAndUncertainties": ["period mismatch"],
+          "expectedDeliverables": ["memo"],
+          "assumptions": ["reported figures"]
+        }
+      }
+    },
+    {
+      "caseId": "output-missing-required",
+      "name": "A plan missing a required field fails validation",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": { "objective": "Assess ACME", "questions": [] }
+      }
+    },
+    {
+      "caseId": "output-nested-type-error",
+      "name": "A non-array questions field fails validation",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": {
+          "objective": "Assess ACME",
+          "questions": "not-an-array",
+          "requiredData": [],
+          "sourcePlan": [],
+          "expectedDeliverables": []
+        }
+      }
+    },
+    {
+      "caseId": "output-missing-data-still-valid",
+      "name": "A plan may be valid while reporting missing data explicitly",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "objective": "Assess ACME",
+          "questions": [],
+          "requiredData": [],
+          "sourcePlan": [],
+          "expectedDeliverables": [],
+          "assumptions": [],
+          "risksAndUncertainties": ["no data available"]
+        }
+      }
     }
   ]
 }

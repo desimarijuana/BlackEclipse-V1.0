@@ -66,15 +66,17 @@ def _run_tools(store: Any, run_id: str) -> list[dict[str, Any]]:
         return []
 
 
-# How many recent completed runs are scanned for recurrence evidence. Bounded so
-# a long history cannot make post-run analysis expensive.
+# How many recent completed runs are scanned as a FALLBACK when the persisted
+# recurrence ledger is unavailable. The ledger (agent-memory.db
+# `LearningRecurrence`) is the primary, indexed, restart-surviving source; this
+# only bounds the legacy scan path.
 _RECURRENCE_SCAN_LIMIT = 40
 
 
 def _candidate_recurrence_key(candidate_type: str, tools: list[dict[str, Any]]) -> Optional[str]:
-    """A deterministic key for "the same experience" so recurrence can be counted
-    across runs without storing raw prose. Two runs share a key when their tool
-    evidence for that candidate type is the same."""
+    """A deterministic signature for "the same experience" so recurrence can be
+    counted across runs without storing raw prose. Two runs share a key when
+    their tool evidence for that candidate type is the same."""
     if candidate_type in ("failure_recovery", "validation_improvement",
                           "source_selection_improvement", "provider_eligibility_improvement"):
         names = sorted({str(t.get("name")) for t in tools if not t.get("ok")})
@@ -84,7 +86,33 @@ def _candidate_recurrence_key(candidate_type: str, tools: list[dict[str, Any]]) 
         return None
     if not names:
         return None
-    return f"{candidate_type}:" + ",".join(names)
+    digest = hashlib.sha256(
+        f"{candidate_type}|{','.join(names)}".encode("utf-8")
+    ).hexdigest()
+    return digest[:32]
+
+
+def _record_recurrence(store: Any, run_id: str, tools: list[dict[str, Any]]) -> None:
+    """Record this run's evidence signatures so a later identical workflow counts
+    as recurring. Uses the persisted ledger when available; never raises.
+
+    Only completed runs with tool evidence contribute, so a failed or empty run
+    cannot manufacture recurrence.
+    """
+    signatures = {
+        key for key in (
+            _candidate_recurrence_key("successful_procedure", tools),
+            _candidate_recurrence_key("failure_recovery", tools),
+        ) if key
+    }
+    record = getattr(store, "record_learning_recurrence", None)
+    if record is None or not signatures:
+        return
+    for signature in signatures:
+        try:
+            record(signature, run_id)
+        except Exception:  # noqa: BLE001 - ledger is best-effort
+            return
 
 
 def _recurrence_count(
@@ -92,24 +120,38 @@ def _recurrence_count(
 ) -> int:
     """How many PRIOR completed runs carried the same evidence key.
 
-    This is the evidence an implicit skill candidate requires: an eligible run
-    alone is not proof of a reusable procedure, but the same successful workflow
-    (or the same recovered failure) seen before is. Never raises.
+    Primary source: the persisted, indexed `LearningRecurrence` ledger (survives
+    restarts and is not bounded by a scan window). Secondary: a bounded scan of
+    recent runs, for runs recorded before the ledger existed or when the ledger
+    API is unavailable. The two are combined with `max` (never summed) so the
+    same prior run is not double-counted. Never raises.
     """
     key = _candidate_recurrence_key(candidate_type, tools)
     if not key:
         return 0
-    count = 0
+
+    ledger_prior = 0
+    counter = getattr(store, "learning_recurrence", None)
+    if counter is not None:
+        try:
+            seen = int(counter(key))
+            # The current run is recorded before this is called, so subtract it.
+            ledger_prior = max(0, seen - 1)
+        except Exception:  # noqa: BLE001
+            ledger_prior = 0
+
+    scan_prior = 0
     try:
         runs = store.list_runs(limit=_RECURRENCE_SCAN_LIMIT)
     except Exception:  # noqa: BLE001
-        return 0
+        runs = []
     for prior in runs:
         if prior.get("id") == run_id or prior.get("status") != "completed":
             continue
         if _candidate_recurrence_key(candidate_type, _run_tools(store, prior["id"])) == key:
-            count += 1
-    return count
+            scan_prior += 1
+
+    return max(ledger_prior, scan_prior)
 
 
 # Markets the run touched, so a lesson NEVER generalizes one country/provider to
@@ -211,13 +253,19 @@ def _regression_case(tools: list[dict[str, Any]]) -> Optional[str]:
 def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
     """Analyze one run and return candidate drafts (not yet persisted).
 
-    Pure analysis: no side effects. `capture_from_run` persists the drafts.
+    Does not create a candidate itself: `capture_from_run` persists the drafts.
+    It DOES record this completed run's recurrence evidence (a bounded,
+    signature-only ledger) so the next identical workflow counts as recurring;
+    that is a bookkeeping side effect, not a candidate.
     """
     run = store.get_run(run_id)
     if run is None:
         return []
     events = _run_events(store, run_id)
     tools = _run_tools(store, run_id)
+
+    if run.get("status") == "completed" and tools:
+        _record_recurrence(store, run_id, tools)
 
     tool_failures = [t for t in tools if not t.get("ok")]
     tool_successes = [t for t in tools if t.get("ok")]

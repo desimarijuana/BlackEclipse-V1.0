@@ -12,6 +12,11 @@ fastapi>=0.115,<1
 uvicorn[standard]>=0.30
 pydantic>=2.7
 
+# Full JSON Schema validation of skill inputs/outputs (nested types, arrays,
+# enums, bounds, required). Already present transitively via the MCP SDK; pinned
+# explicitly because skill contract enforcement depends on it directly.
+jsonschema>=4.21,<5
+
 # Agent runtime
 langchain>=1.0
 langchain-core>=1.0

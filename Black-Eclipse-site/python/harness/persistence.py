@@ -138,6 +138,31 @@ CREATE TABLE IF NOT EXISTS ResearchReceipt (
 );
 CREATE INDEX IF NOT EXISTS idx_research_receipt_status ON ResearchReceipt(finalStatus);
 CREATE INDEX IF NOT EXISTS idx_research_receipt_created ON ResearchReceipt(createdAt);
+
+-- Learning recurrence ledger. An implicit skill candidate (a reusable procedure)
+-- requires recurrence evidence: the same successful workflow observed before.
+-- Counting this by scanning recent runs was O(runs) and missed recurrence beyond
+-- the scan window. This table records one bounded row per deterministic evidence
+-- signature (see `skills.learning._candidate_recurrence_key`) so recurrence is a
+-- single indexed lookup that survives restarts. The signature is a digest of
+-- tool names, never raw content.
+CREATE TABLE IF NOT EXISTS LearningRecurrence (
+  signature   TEXT PRIMARY KEY,
+  seenCount   INTEGER NOT NULL DEFAULT 1,
+  firstRunId  TEXT,
+  firstSeenAt TEXT NOT NULL,
+  lastSeenAt  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_recurrence_last ON LearningRecurrence(lastSeenAt);
+
+-- Which run contributed which recurrence signature, so recording the same run
+-- twice (e.g. an operator re-runs analysis) does NOT inflate the count.
+CREATE TABLE IF NOT EXISTS LearningRecurrenceRun (
+  runId     TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  at        TEXT NOT NULL,
+  PRIMARY KEY (runId, signature)
+);
 """
 
 DB_FILENAME = "agent-memory.db"
@@ -435,6 +460,70 @@ class AgentMemoryStore:
             }
             for r in rows
         ]
+
+    # ── Learning recurrence ledger (bounded, signature-only) ────────────────
+    def record_learning_recurrence(self, signature: str, run_id: Optional[str] = None) -> int:
+        """Bump the seen-count for an evidence signature and return the new count.
+
+        Only a digest is stored (never raw content). Recording the SAME
+        (runId, signature) twice is a no-op, so re-analysing a run does not
+        inflate recurrence. Prunes older rows so the ledger stays bounded.
+        """
+        if not signature:
+            return 0
+        now = now_iso()
+        if run_id:
+            try:
+                inserted = self._db.execute(
+                    "INSERT OR IGNORE INTO LearningRecurrenceRun (runId, signature, at) VALUES (?, ?, ?)",
+                    (run_id, signature, now),
+                )
+                self._db.commit()
+                if inserted.rowcount == 0:
+                    # This run already contributed this signature.
+                    return self.learning_recurrence(signature)
+            except Exception:  # noqa: BLE001 - dedupe is best-effort
+                pass
+        row = self._db.execute(
+            "SELECT seenCount FROM LearningRecurrence WHERE signature=?", (signature,)
+        ).fetchone()
+        if row:
+            count = int(row["seenCount"]) + 1
+            self._db.execute(
+                "UPDATE LearningRecurrence SET seenCount=?, lastSeenAt=? WHERE signature=?",
+                (count, now, signature),
+            )
+        else:
+            count = 1
+            self._db.execute(
+                "INSERT INTO LearningRecurrence (signature, seenCount, firstRunId, firstSeenAt, lastSeenAt)"
+                " VALUES (?, 1, ?, ?, ?)",
+                (signature, run_id, now, now),
+            )
+        self._db.commit()
+        self._prune_learning_recurrence()
+        return count
+
+    def learning_recurrence(self, signature: str) -> int:
+        """How many times this evidence signature has been seen (0 when unseen)."""
+        if not signature:
+            return 0
+        row = self._db.execute(
+            "SELECT seenCount FROM LearningRecurrence WHERE signature=?", (signature,)
+        ).fetchone()
+        return int(row["seenCount"]) if row else 0
+
+    def _prune_learning_recurrence(self, keep: int = 2000) -> None:
+        try:
+            self._db.execute(
+                "DELETE FROM LearningRecurrence WHERE signature IN ("
+                "  SELECT signature FROM LearningRecurrence ORDER BY lastSeenAt DESC LIMIT -1 OFFSET ?"
+                ")",
+                (max(1, int(keep)),),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - pruning must never block a write
+            pass
 
     # ── Durable retrieval records (D1) ──────────────────────────────────────
     def save_retrieval(

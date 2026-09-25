@@ -38,8 +38,9 @@ def test_score_tolerates_null_importance_and_confidence():
         "accessCount": None,
     }
     # Must not raise "unsupported format string passed to NoneType.__format__".
-    score, reasons = _score(memory, ["concise"], None)
+    score, reasons, has_signal = _score(memory, ["concise"], None)
     assert score >= 0
+    assert has_signal is True
     assert any("importance" in r for r in reasons)
 
 

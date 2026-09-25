@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 ---
 
 # Harness Architecture
@@ -65,7 +65,7 @@ Two boundaries, both deliberate:
 | `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke` tools — a `memory` write is a *proposal* re-authorized against the user turn by `eclipse_memory/decision.py` |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
-| `persistence.py` | `agent-memory.db` (runs, events, tool execs, memory, skills) + token usage aggregates |
+| `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …) |
 
@@ -318,10 +318,11 @@ registry or agent loop. `python/harness/skills/` owns it:
 |---|---|
 | `manifest.py` | the pydantic skill manifest + status/risk/category/permission enums, semver |
 | `permissions.py` | the **default-deny** permission policy (enforced in code) |
-| `store.py` | skill lifecycle persistence in `agent-memory.db` (idempotent DDL) |
+| `store.py` | compatibility alias: `SkillStore = EclipseMemoryStore` (skill lifecycle lives in `eclipse-memory.db`) |
 | `loader.py` | loading `skill.json` + `SKILL.md` (+ optional `tests/cases.json`) |
 | `registry.py` | the single registry: discovery, validation, versions, dependencies |
-| `runtime.py` | `SkillExecutionRequest`/`Result` + execution via `execute_run` |
+| `runtime.py` | `SkillExecutionRequest`/`Result` + execution via `execute_run`; enforces manifest limits incl. `maxToolCalls` |
+| `schema_validation.py` | full JSON Schema validation of skill input/output + schema self-validation |
 | `learning.py` | run-trace analysis → inert learning candidates; ordinary-chat eligibility + explicit "turn this into a skill" candidates |
 | `draft.py` | candidate → unvalidated draft with a real generated procedure + evaluation cases (never auto-enabled) |
 | `evaluation.py` | deterministic evaluation + promotion gates |
@@ -480,9 +481,15 @@ surfaced as Settings › Git.
 ## Persistence — a separate database
 
 The Python runtime owns **`agent-memory.db`** (SQLite via stdlib `sqlite3`),
-distinct from JDdS (`jdds.db`). Tables: `HarnessRun`, `HarnessEvent`,
-`HarnessToolExecution`, `AgentMemory` (user/agent/market facts), `AgentSkill`
-(self-improvement). DDL is idempotent, and `_migrate()` adds post-release columns
+distinct from JDdS (`jdds.db`) and from the Eclipse-Memory control database
+(`eclipse-memory.db`). `agent-memory.db` tables: `HarnessRun`, `HarnessEvent`,
+`HarnessToolExecution`, `RetrievalRecord`, `ResearchReceipt`,
+`LearningRecurrence`/`LearningRecurrenceRun`, plus the legacy `AgentMemory`/
+`AgentSkill` tables (superseded by Eclipse-Memory; retained for backward
+compatibility, no longer the memory/skill source of truth). Durable memory + the
+skill lifecycle live in `eclipse-memory.db` (see the `skills/` and
+`eclipse_memory/` rows above).
+DDL is idempotent, and `_migrate()` adds post-release columns
 (e.g. the token columns) to an existing database on open — no manual migration
 step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 `usage_summary()` aggregates them for analytics (`GET /usage`).

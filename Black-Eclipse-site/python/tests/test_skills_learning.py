@@ -331,3 +331,43 @@ def test_rollback_unknown_version_fails(env):
     result = rollback(env["registry"], skill_id="research.planning", to_version="9.9.9",
                       actor=OPERATOR_ACTOR, reason="x")
     assert not result["ok"]
+
+
+# ── Cross-version regression: a new version must not silently regress ────────
+
+
+def test_cross_version_regression_blocks_promotion(env):
+    manifest = env["registry"].manifest("research.planning")
+    # A new version that declares a BLOCKED permission: schema/permission
+    # validation fails, which a prior version passed — a mandatory regression.
+    regressed = manifest.model_copy(update={
+        "version": "2.0.0", "status": "testing", "permissions": ["trade.execute"],
+    })
+    env["registry"]._skills["research.planning"].manifest = regressed
+    env["skill_store"].save_version(regressed.model_dump(), regressed.content_hash())
+    env["skill_store"].set_latest_version("research.planning", "2.0.0")
+
+    # Evaluate v1.0.0 first so a passing prior evaluation exists to compare to.
+    # (Without `run_regression`, since the first version has no prior to compare.)
+    first = evaluate_skill("research.planning", "1.0.0", env["registry"])
+    assert first["status"] == "passed"
+
+    second = evaluate_skill("research.planning", "2.0.0", env["registry"], run_regression=True)
+    regression = next(d for d in second["dimensions"] if d["name"] == "regression")
+    assert regression["status"] == "failed"
+    assert regression["mandatory"] is True
+    assert second["status"] == "blocked"
+    requested = request_promotion(
+        env["registry"], skill_id="research.planning", version="2.0.0",
+        actor=OPERATOR_ACTOR, reason="try",
+    )
+    assert not requested["ok"]
+
+
+def test_regression_dimension_reports_no_prior_to_compare(env):
+    # The FIRST evaluation of a skill has nothing to compare to; that is
+    # needs_review, not a failure.
+    result = evaluate_skill("research.planning", "1.0.0", env["registry"], run_regression=True)
+    regression = next(d for d in result["dimensions"] if d["name"] == "regression")
+    assert regression["status"] == "needs_review"
+    assert regression["mandatory"] is False

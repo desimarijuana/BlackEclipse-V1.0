@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3 — Skill System Architecture
 status: Draft
-last-verified: 2026-09-22
+last-verified: 2026-09-25
 ---
 
 # Harness Phase 3 — Skill System Architecture
@@ -56,8 +56,9 @@ python/harness/skills/
   manifest.py      pydantic manifest + enums (status, risk, category, permission)
   permissions.py   centralized, default-deny permission policy
   registry.py      load/validate/search/filter/version/dependency resolution
-  store.py         skill/execution/learning/evaluation persistence (agent-memory.db)
+  store.py         compatibility alias: SkillStore = EclipseMemoryStore (eclipse-memory.db)
   runtime.py       SkillExecutionRequest/Result + execution through execute_run
+  schema_validation.py  full JSON Schema validation of input/output + schema self-check
   learning.py      trace analysis → learning candidates (no auto-enable)
   draft.py         candidate → unvalidated draft (no auto-enable)
   evaluation.py    deterministic evaluation + promotion gates
@@ -79,28 +80,45 @@ agentic runtime. (ADR: see `docs/DECISIONS.md`.)
 
 ## Data model (one source of truth)
 
-All Phase-3 state lives in **`agent-memory.db`**, the runtime's own database —
-never in JDdS (`jdds.db`). Tables are added idempotently in
-`skills/store.py` (`CREATE TABLE IF NOT EXISTS`), matching
-`persistence.py`'s existing convention — no manual migration step.
+All Phase-3 skill state lives in **`eclipse-memory.db`**, the runtime's dedicated
+control database — never in JDdS (`jdds.db`) and no longer in `agent-memory.db`.
+`harness/skills/store.py` is now a thin alias (`SkillStore = EclipseMemoryStore`);
+the canonical DDL is `harness/eclipse_memory/schema.py` (a list of idempotent
+migrations applied by `eclipse_memory/db.py`). The one-time, idempotent,
+non-destructive import of legacy `agent-memory.db` skill rows is
+`EclipseMemoryService.import_legacy_skills`. (Earlier revisions of this doc said
+`agent-memory.db`; the code has since moved — see ADR-026 and the table split in
+`phase-3-memory-progress.md`.)
 
-| Table | Holds |
-|---|---|
-| `Skill` | identity + latest version pointer + lifecycle status |
-| `SkillVersion` | one immutable manifest revision (hash, status, eval state) |
-| `SkillDependency` | skill→skill edges + version constraints |
-| `SkillToolRequirement` | required tool names per version |
-| `SkillPermissionRequirement` | required permissions per version |
-| `SkillExecution` | one skill run: status, runId, parentRunId, mode, metrics |
-| `SkillEvaluation` | one evaluation run (per version) + per-dimension result |
-| `SkillEvaluationCase` | test cases attached to a version |
-| `LearningCandidate` | a captured lesson (never auto-published) |
-| `SkillPromotionRequest` / `SkillReview` | review lifecycle + audit |
-| `SkillEvent` | skill lifecycle events beyond the run trace |
+| Table | Database | Holds |
+|---|---|---|
+| `Skill` | `eclipse-memory.db` | identity + latest version pointer + lifecycle status |
+| `SkillVersion` | `eclipse-memory.db` | one immutable manifest revision (hash, status, eval state) |
+| `SkillDependency` | `eclipse-memory.db` | skill→skill edges + version constraints |
+| `SkillToolRequirement` | `eclipse-memory.db` | required tool names per version |
+| `SkillPermissionRequirement` | `eclipse-memory.db` | required permissions per version |
+| `SkillExecution` | `eclipse-memory.db` | one skill run: status, runId, parentRunId, mode, metrics |
+| `SkillEvaluation` | `eclipse-memory.db` | one evaluation run (per version) + per-dimension result |
+| `SkillEvaluationCase` | `eclipse-memory.db` | test cases attached to a version |
+| `LearningCandidate` | `eclipse-memory.db` | a captured lesson (never auto-published) |
+| `SkillPromotionRequest` / `SkillReview` | `eclipse-memory.db` | review lifecycle + audit |
+| `SkillEvent` | `eclipse-memory.db` | skill lifecycle events beyond the run trace |
+| `HarnessRun` / `HarnessEvent` / `HarnessToolExecution` | `agent-memory.db` | run traces + tool executions |
+| `RetrievalRecord` / `ResearchReceipt` | `agent-memory.db` | durable retrieval replay + research receipts |
+| `LearningRecurrence` / `LearningRecurrenceRun` | `agent-memory.db` | signature-only skill-workflow recurrence ledger |
+
+**Why the split:** `agent-memory.db` is the *run* store (high-volume traces and
+replayable retrieval receipts); `eclipse-memory.db` is the *control* store
+(durable memory + the skill lifecycle). Keeping them separate means a large run
+history never bloats the small, carefully-bounded control database. `SkillStore`
+aliasing `EclipseMemoryStore` keeps a single implementation with no second
+registry.
 
 Immutable execution history is kept (a `SkillExecution` row is never mutated
 after terminal status; a `SkillVersion` row is never edited — a new version is
-inserted). Enabled behavior cannot change without a new `SkillVersion` row.
+inserted). Enabled behavior cannot change without a new `SkillVersion` row, and
+the persisted version identity (`SkillManifest.version_identity`) covers the
+instruction content as well as the manifest.
 
 ## Execution flow
 

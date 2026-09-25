@@ -682,3 +682,136 @@ def test_no_repetitive_prompt_for_ordinary_runs(env):
     assert env["memory"].store.list_candidates() == []
     assert env["memory"].store.list_suggestions(status="pending") == []
 
+
+# ── Persisted recurrence survives without a long chat-history window ────────
+
+
+def test_convention_recurs_across_separate_runs_and_persists(env):
+    # Recurrence is persisted (signature-only), so a convention repeated in a
+    # later, unrelated run — with no chat history carried along — is still
+    # recognized and saved automatically.
+    _run(env, "Always use consolidated figures", run_id="run_rec1")
+    assert env["memory"].store.list_memories() == []  # first time: history only
+    # A second run, different session, same statement, empty history.
+    _run(env, "Always use consolidated figures", run_id="run_rec2")
+    saved = env["memory"].store.list_memories()
+    assert len(saved) == 1
+    # The raw statement is never stored in the recurrence ledger, only a digest.
+    rows = env["memory"].store._db.execute(
+        "SELECT signature FROM MemoryRecurrence"
+    ).fetchall()
+    assert rows
+    for row in rows:
+        assert "consolidated" not in row["signature"]
+
+
+def test_recurrence_survives_reopen(env):
+    _run(env, "Always use consolidated figures", run_id="run_rec_reopen1")
+    # Simulate a restart: a fresh service over the same database file.
+    reopened = EclipseMemoryService(EclipseMemoryStore(env["memory"].store.path))
+    try:
+        decision = reopened.decide_turn("Always use consolidated figures", user_id="u1")
+    finally:
+        reopened.close()
+    assert decision.outcome == "save"
+    assert decision.metadata.get("evidence") == "recurrence"
+
+
+def test_skill_recurrence_is_persisted_and_idempotent(env):
+    from harness.skills.learning import _candidate_recurrence_key, analyze_run
+
+    class T:
+        tool_call_id = "c1"; name = "research_search"; ok = True
+        duration_ms = 3; text = "x"; error = None; args = {}
+
+    for run_id in ("run_lr_a", "run_lr_b"):
+        env["run_store"].create_run(run_id, "eclipse-agent", {"query": "x"})
+        env["run_store"].record_tool_execution(run_id, T())
+        env["run_store"].update_run(run_id, status="completed", output="done", modelSteps=3, toolCalls=1)
+
+    key = _candidate_recurrence_key("successful_procedure", [{"name": "research_search", "ok": True}])
+    # Analysis records recurrence; re-analyzing the SAME run must not inflate it.
+    analyze_run("run_lr_a", env["run_store"])
+    after_first = env["run_store"].learning_recurrence(key)
+    analyze_run("run_lr_a", env["run_store"])
+    assert env["run_store"].learning_recurrence(key) == after_first
+    # A second distinct run increases the count.
+    analyze_run("run_lr_b", env["run_store"])
+    assert env["run_store"].learning_recurrence(key) == after_first + 1
+
+
+def test_second_successful_workflow_yields_candidate_without_chat_history(env):
+    # The recurrence ledger alone (no chat history) qualifies a repeated
+    # workflow for a controlled candidate.
+    from harness.skills.learning import analyze_run
+
+    class T:
+        tool_call_id = "c1"; name = "research_search"; ok = True
+        duration_ms = 3; text = "x"; error = None; args = {}
+
+    for run_id in ("run_lr_c", "run_lr_d"):
+        env["run_store"].create_run(run_id, "eclipse-agent", {"query": "x"})
+        env["run_store"].record_tool_execution(run_id, T())
+        env["run_store"].update_run(run_id, status="completed", output="done", modelSteps=3, toolCalls=1)
+    # First analysis records recurrence for run_lr_c.
+    analyze_run("run_lr_c", env["run_store"])
+    # Second run's analysis sees the prior occurrence and yields a candidate.
+    drafts = analyze_run("run_lr_d", env["run_store"])
+    assert any(d["candidateType"] == "successful_procedure" for d in drafts)
+
+
+
+
+# -- Cross-user suggestion isolation (identifier guessing must not mutate) ----
+
+
+def test_suggestion_cannot_be_accepted_by_another_user(env):
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
+    _run(env, "I prefer concise answers for u1", run_id="run_iso_1")
+    suggestion = env["memory"].store.list_suggestions(status="pending")[0]
+    # A different user guessing the id cannot accept u1's suggestion.
+    outcome = env["memory"].accept_suggestion(suggestion["id"], user_id="u2")
+    assert outcome["ok"] is False
+    assert outcome["action"] == "forbidden"
+    assert env["memory"].store.get_suggestion(suggestion["id"])["status"] == "pending"
+    assert env["memory"].store.list_memories() == []
+
+
+def test_suggestion_cannot_be_dismissed_by_another_user(env):
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
+    _run(env, "I prefer dark charts for u1", run_id="run_iso_2")
+    suggestion = env["memory"].store.list_suggestions(status="pending")[0]
+    outcome = env["memory"].dismiss_suggestion(suggestion["id"], user_id="u2")
+    assert outcome["ok"] is False
+    assert outcome["action"] == "forbidden"
+    assert env["memory"].store.get_suggestion(suggestion["id"])["status"] == "pending"
+
+
+def test_dismissal_does_not_suppress_another_users_suggestion(env):
+    # u1 dismisses a suggestion; u2 stating the same content still gets one.
+    env["memory"].policy.set("memory_mode", "ask_before_saving")
+    d1 = decide_turn("I prefer weekly summaries", user_id="u1")
+    s1 = env["memory"].create_suggestion(d1, scope_id="u1")
+    env["memory"].dismiss_suggestion(s1["id"], user_id="u1")
+    d2 = decide_turn("I prefer weekly summaries", user_id="u2")
+    s2 = env["memory"].create_suggestion(d2, scope_id="u2")
+    assert s2["status"] == "pending"
+    assert s2["id"] != s1["id"]
+
+
+# -- General memories are recallable by a signed-in user ---------------------
+
+
+def test_general_memory_is_recalled_for_scoped_user(env):
+    env["memory"].write_memory(
+        memory_type="semantic", content="The platform reports figures in UTC",
+        source="manual", scope="general",
+    )
+    env["memory"].write_memory(
+        memory_type="preference", content="u2 prefers candlestick charts",
+        source="explicit_user", scope="user", scope_id="u2",
+    )
+    result = env["memory"].retrieve(query="figures UTC", actor_scope="user", scope_id="u1")
+    contents = " ".join(m["content"] for m in result.memories)
+    assert "UTC" in contents            # general memory is shared
+    assert "candlestick" not in contents  # another user's preference is not

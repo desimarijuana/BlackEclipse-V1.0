@@ -26,6 +26,7 @@ from typing import Any, Optional
 from .manifest import FORBIDDEN_PERMISSIONS, SkillManifest
 from .registry import SkillRegistry
 from .runtime import validate_input
+from .schema_validation import check_schema as _check_json_schema
 from .store import SkillStore
 
 # Dimensions whose failure blocks promotion outright.
@@ -48,6 +49,9 @@ def _json_schema_ok(schema: Any) -> tuple[bool, str]:
         return False, "top-level type must be 'object'"
     if "properties" in schema and not isinstance(schema["properties"], dict):
         return False, "properties must be an object"
+    ok, errors = _check_json_schema(schema)
+    if not ok:
+        return False, f"not a valid JSON Schema: {'; '.join(errors)}"
     return True, "well-formed"
 
 
@@ -84,6 +88,19 @@ def evaluate_skill(
     if manifest is None:
         return {"ok": False, "error": "skill not installed"}
     resolved_version = registry.resolve_version(skill_id, version) or manifest.version
+
+    # When an explicit version differs from the in-memory manifest, evaluate THAT
+    # version's stored manifest — not the latest in-memory one. Otherwise a
+    # cross-version regression check would silently evaluate the wrong revision.
+    # (When the requested version matches the in-memory manifest, the in-memory
+    # one is authoritative, preserving in-place edits used by evaluation tests.)
+    if version and version != manifest.version:
+        stored_version = registry.store.get_version(skill_id, version)
+        if stored_version:
+            try:
+                manifest = SkillManifest(**stored_version["manifest"])
+            except Exception:  # noqa: BLE001 - fall back to the in-memory manifest
+                pass
 
     dimensions: list[dict[str, Any]] = []
 
@@ -213,6 +230,26 @@ def _run_cases(manifest: SkillManifest, cases: list[dict[str, Any]]) -> list[dic
                 "expected": required, "actual": list(props.keys()),
                 "error": f"output schema missing {missing}" if missing else None,
             })
+        elif kind == "output_validation":
+            # A case carrying a concrete output instance, validated against the
+            # FULL declared output schema (nested types/arrays/enums/bounds). The
+            # instance is `expected.output` (or `expected.instance`); `expected.valid`
+            # states whether it should conform.
+            from .schema_validation import validate_output  # noqa: PLC0415
+
+            expected = case.get("expected") if isinstance(case.get("expected"), dict) else {}
+            instance = expected.get("output", expected.get("instance"))
+            expect_valid = bool(expected.get("valid", True))
+            if manifest.outputSchema:
+                ok, errors = validate_output(manifest.outputSchema, instance)
+            else:
+                ok, errors = False, ["no output schema declared"]
+            status = "passed" if ok == expect_valid else "failed"
+            results.append({
+                "caseId": case["caseId"], "kind": kind, "status": status,
+                "expected": expect_valid, "actual": ok,
+                "error": None if status == "passed" else "; ".join(errors),
+            })
         else:
             results.append({
                 "caseId": case["caseId"], "kind": kind, "status": "needs_review",
@@ -256,14 +293,26 @@ def _evidence_shape(manifest: SkillManifest) -> tuple[bool, str]:
 def _regression_dimension(
     store: SkillStore, skill_id: str, version: str, current: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Compare the current dimensions against the most recent prior evaluation
-    for the same skill. A newly-failed mandatory dimension is a regression."""
-    prior = store.list_evaluations(skill_id, limit=5)
-    prior = [e for e in prior if e["version"] == version]
-    if not prior:
+    """Compare the current dimensions against the most recent prior evaluation.
+
+    Prefers an earlier evaluation of the SAME version; when none exists, it falls
+    back to the most recent evaluation of ANY prior version of the skill, so a NEW
+    version cannot silently regress a mandatory behavior that an earlier version
+    passed. A newly-failed mandatory dimension is a regression. Never raises.
+    """
+    prior_all = store.list_evaluations(skill_id, limit=50)
+    same_version = [e for e in prior_all if e["version"] == version]
+    comparison = same_version[0] if same_version else None
+    compared_against = version
+    if comparison is None:
+        prior_versions = [e for e in prior_all if e["version"] != version]
+        if prior_versions:
+            comparison = prior_versions[0]
+            compared_against = comparison["version"]
+    if comparison is None:
         return {"name": "regression", "status": "needs_review",
                 "detail": "no prior evaluation to compare against", "mandatory": False}
-    previous = prior[0]["dimensions"]
+    previous = comparison["dimensions"]
     prev_by_name = {d["name"]: d["status"] for d in previous}
     regressions = [
         f"{d['name']}: {prev_by_name.get(d['name'], 'n/a')} -> {d['status']}"
@@ -272,9 +321,12 @@ def _regression_dimension(
     ]
     if regressions:
         return {"name": "regression", "status": "failed",
-                "detail": "; ".join(regressions), "mandatory": False}
-    return {"name": "regression", "status": "passed", "detail": "no regressions vs the prior evaluation",
-            "mandatory": False}
+                "detail": f"vs {compared_against}: " + "; ".join(regressions), "mandatory": True}
+    return {
+        "name": "regression", "status": "passed",
+        "detail": f"no regressions vs {compared_against}",
+        "mandatory": False,
+    }
 
 
 def promotion_gate(

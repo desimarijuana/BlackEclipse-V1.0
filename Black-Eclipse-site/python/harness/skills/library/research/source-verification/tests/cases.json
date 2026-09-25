@@ -21,6 +21,31 @@
       "expected": {
         "required": ["verified", "unverified", "conflicts", "missingEvidence", "confidenceLimitations"]
       }
+    },
+    {
+      "caseId": "output-valid-full",
+      "name": "A complete verification validates",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "verified": [{"claim": "Revenue grew", "source": "SEC"}],
+          "unverified": [],
+          "conflicts": [],
+          "missingEvidence": [],
+          "confidenceLimitations": ["single source"],
+          "overallConfidence": "medium"
+        }
+      }
+    },
+    {
+      "caseId": "output-missing-required",
+      "name": "A verification missing required arrays fails",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": { "verified": [], "unverified": [] }
+      }
     }
   ]
 }

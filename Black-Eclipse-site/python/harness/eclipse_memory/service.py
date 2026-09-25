@@ -329,16 +329,18 @@ class EclipseMemoryService:
 
         `recurring` is evidence that the same durable-sounding statement was seen
         in prior conversation history (computed by the caller from
-        `RunRequest.input.history`); it lets a project convention be saved
-        without a per-run prompt once it repeats.
+        `RunRequest.input.history`). It is combined with a **persisted**,
+        bounded recurrence ledger (signature-only; no raw text) so a convention
+        repeated across sessions — beyond the bounded chat-history window — is
+        still recognized.
         """
         from .decision import content_signature, decide_turn as _decide  # noqa: PLC0415
 
         settings = self.policy.get_all()
+        signature = content_signature(user_text)
         recently_dismissed = False
         try:
-            sig = content_signature(user_text)
-            existing = self.store.find_suggestion_by_signature(sig)
+            existing = self.store.find_suggestion_by_signature(signature, scope_id=user_id)
             recently_dismissed = bool(existing and existing.get("status") == "dismissed")
         except Exception:  # noqa: BLE001 - dismissal lookup must never block a run
             recently_dismissed = False
@@ -347,11 +349,25 @@ class EclipseMemoryService:
             prior = bool(self.store.list_memories(scope_id=user_id, limit=1, include_inactive=False))
         except Exception:  # noqa: BLE001
             prior = False
-        return _decide(
+        # Persisted recurrence: prior occurrences of this exact statement.
+        try:
+            recurring = recurring or self.store.recurrence_count(signature) >= 1
+        except Exception:  # noqa: BLE001 - recurrence lookup must never block a run
+            pass
+        decision = _decide(
             user_text, user_id=user_id, settings=settings,
             has_prior_memory=prior, recently_dismissed=recently_dismissed,
             recurring=recurring, is_skill_run=is_skill_run,
         )
+        # Record this occurrence (after the decision) so the NEXT occurrence
+        # counts as recurrence. Only durable-sounding turns are recorded, keeping
+        # the ledger bounded and meaningful.
+        try:
+            if decision.action in ("save",) or decision.outcome in ("history_only", "suggest"):
+                self.store.record_recurrence(signature)
+        except Exception:  # noqa: BLE001
+            pass
+        return decision
 
     def create_suggestion(
         self,
@@ -368,7 +384,7 @@ class EclipseMemoryService:
         from .decision import content_signature  # noqa: PLC0415
 
         signature = content_signature(decision.content)
-        existing = self.store.find_suggestion_by_signature(signature)
+        existing = self.store.find_suggestion_by_signature(signature, scope_id=decision.scope_id or scope_id)
         if existing:
             status = existing.get("status")
             if status == "pending":
@@ -395,7 +411,15 @@ class EclipseMemoryService:
         return self.store.get_suggestion(suggestion_id) or {"id": suggestion_id}
 
     def accept_suggestion(self, suggestion_id: str, *, user_id: Optional[str] = None) -> dict[str, Any]:
-        """Accept a suggestion → write one scoped memory, mark it accepted."""
+        """Accept a suggestion → write one scoped memory, mark it accepted.
+
+        Cross-user isolation: a suggestion carrying a `scopeId` may only be
+        accepted by that same user. When both the suggestion's owner and the
+        acting `user_id` are present and differ, the request is refused rather
+        than writing another user's preference into the wrong scope. (When
+        `user_id` is omitted — the single-user/operator path — the suggestion's
+        own scopeId is used and no mismatch can arise.)
+        """
         from .decision import authorize_proposal  # noqa: PLC0415
 
         suggestion = self.store.get_suggestion(suggestion_id)
@@ -403,7 +427,17 @@ class EclipseMemoryService:
             return {"ok": False, "action": "not_found", "reason": "suggestion not found"}
         if suggestion["status"] != "pending":
             return {"ok": False, "action": suggestion["status"], "reason": "suggestion already decided"}
-        scope_id = suggestion.get("scopeId") or user_id
+        owner = suggestion.get("scopeId")
+        if owner and user_id and owner != user_id:
+            self.store.append_memory_event(
+                "memory.suggestion_scope_denied",
+                data={"suggestionId": suggestion_id},
+            )
+            return {
+                "ok": False, "action": "forbidden",
+                "reason": "suggestion belongs to another user scope",
+            }
+        scope_id = owner or user_id
         decision = authorize_proposal(
             content=suggestion["content"], provenance="ui_save",
             user_id=user_id, memory_type=suggestion["memoryType"],
@@ -428,7 +462,17 @@ class EclipseMemoryService:
         )
         return {"ok": True, "action": "saved", "memory": memory}
 
-    def dismiss_suggestion(self, suggestion_id: str) -> dict[str, Any]:
+    def dismiss_suggestion(self, suggestion_id: str, *, user_id: Optional[str] = None) -> dict[str, Any]:
+        """Dismiss a suggestion. A suggestion owned by a different user scope may
+        not be dismissed by another user (identifier guessing must not mutate
+        another user's records)."""
+        suggestion = self.store.get_suggestion(suggestion_id)
+        if suggestion is None:
+            return {"ok": False, "action": "not_found"}
+        owner = suggestion.get("scopeId")
+        if owner and user_id and owner != user_id:
+            return {"ok": False, "action": "forbidden",
+                    "reason": "suggestion belongs to another user scope"}
         suggestion = self.store.set_suggestion_status(suggestion_id, "dismissed")
         if suggestion is None:
             return {"ok": False, "action": "not_found"}

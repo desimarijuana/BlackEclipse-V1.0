@@ -21,6 +21,33 @@
       "expected": {
         "required": ["title", "body", "references", "assumptions", "missingData", "uncertainty"]
       }
+    },
+    {
+      "caseId": "output-valid-full",
+      "name": "A complete report validates",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "title": "ACME FY24",
+          "format": "markdown",
+          "body": "# ACME",
+          "references": [{"source": "SEC"}],
+          "assumptions": ["figures as reported"],
+          "missingData": [],
+          "uncertainty": [],
+          "reportedVsDerived": {"reported": 2, "derived": 1}
+        }
+      }
+    },
+    {
+      "caseId": "output-missing-required",
+      "name": "A report missing references fails",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": { "title": "ACME", "body": "x", "assumptions": [], "missingData": [], "uncertainty": [] }
+      }
     }
   ]
 }

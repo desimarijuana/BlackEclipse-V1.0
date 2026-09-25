@@ -333,6 +333,27 @@ class SkillManifest(BaseModel):
         canonical = json.dumps(payload, sort_keys=True, default=str)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
+    def version_identity(self, instructions: Optional[str] = None) -> str:
+        """A stable identity for the COMPLETE behavior-affecting version.
+
+        `content_hash()` covers only the machine-readable manifest. A skill's
+        behavior is also shaped by its `SKILL.md` instructions (and, for a caller
+        that supplies them, resolved dependency versions). This folds the
+        instruction content into the identity so editing a `SKILL.md` without
+        touching `skill.json` still yields a new identity — an enabled skill's
+        behavior can never change under the same recorded identity.
+        """
+        import hashlib
+        import json
+
+        base = json.dumps(
+            self.model_dump(exclude={"createdAt", "updatedAt"}),
+            sort_keys=True, default=str,
+        )
+        instruction_digest = hashlib.sha256((instructions or "").encode("utf-8")).hexdigest()
+        canonical = f"{base}\x1f{instruction_digest}"
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
 
 __all__ = [
     "DeprecationInfo",

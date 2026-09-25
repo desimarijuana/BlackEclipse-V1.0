@@ -1,7 +1,7 @@
 ---
 title: Decisions (ADR log)
 status: Current
-last-verified: 2026-09-18
+last-verified: 2026-09-25
 ---
 
 # Decisions — Architecture Decision Record
@@ -481,15 +481,17 @@ not absent.
 **Decision:** A Phase-3 skill is a versioned procedure (`skill.json` + `SKILL.md`)
 executed through the **existing** Phase-1 `execute_run` graph — no new runtime or
 tool registry. The skill registry, default-deny permissions and lifecycle live in
-Python (`python/harness/skills/`) and persist in `agent-memory.db`. Instructions
+Python (`python/harness/skills/`) and persist in `eclipse-memory.db` (the Phase-3
+`SkillStore` is now an alias for `EclipseMemoryStore`; see ADR-026). Instructions
 are data, not a security boundary; permissions and the tool allowlist are
 enforced in code on the composed `AgentConfig`. The learning engine only creates
 inert candidates; promotion to an active skill is explicit, evaluated and
 operator-gated.
 **Why:** Duplicate infrastructure and autonomous self-modification are forbidden,
 and prose cannot be a security boundary.
-**Impact:** Additive Phase-3 tables in `agent-memory.db` (idempotent, no manual
-migration). Runtime skills live under `python/harness/skills/library/`, distinct
+**Impact:** Phase-3 tables in `eclipse-memory.db` (idempotent migrations; legacy
+rows imported once from `agent-memory.db`). Runtime skills live under
+`python/harness/skills/library/`, distinct
 from the coding-agent `skills/` folder. Front door adds `/api/skills/**`,
 `/api/learning/**`, `/api/skill-executions/**`, `/api/skill-drafts/**`,
 `/api/evaluations/**` and a Skills tab. pydantic reused (no Zod). See
@@ -503,6 +505,10 @@ skills, skill versions, learning candidates, evaluations and promotion history.
 Skill definitions remain reviewable files; runtime state lives in the DB
 (Option C). The Phase-3 `SkillStore` aliases `EclipseMemoryStore` (one registry);
 existing skill rows are imported once, idempotently and non-destructively.
+`agent-memory.db` remains the run/replay store (`HarnessRun`, `HarnessEvent`,
+`HarnessToolExecution`, `RetrievalRecord`, `ResearchReceipt`, the learning
+recurrence ledger) — the two stores are deliberately split so a large run history
+never bloats the bounded control database.
 **Why:** Audit root cause — memory was never written and never recalled, and the
 system prompt promised tools that did not exist.
 **Impact:** New DB + `memory_tools.py` (`memory`, `skill_list`, `skill_view`),
@@ -665,4 +671,25 @@ simulated/fallback/stale data as live sentiment.
 `src/components/layout/top-bar.tsx`, `src/components/ui/Aurora.tsx` (added `dim`),
 `src/components/screens/stock-chat.tsx` (`be:ask-eclipse`). `aurora-sentiment.ts`
 retains its palette/visual helpers. See `docs/ARCHITECTURE.md` › Market Regime.
+
+## ADR-034 — Memory/skill reliability: enforced contracts, measured retrieval, isolated scopes (2026)
+**Decision:** Tighten the existing Eclipse-Memory and runtime-skills system without
+rebuilding it. Skill input/output contracts are validated as full JSON Schema
+(nested types, arrays, enums, bounds) and manifest `maxToolCalls` is enforced in
+the graph; a run may complete while `outputValidated` is false, never conflated. A
+version's identity folds in instruction content and reports undocumented drift.
+Memory retrieval gets a versioned labeled evaluation set with recorded
+baseline metrics, a deterministic lexical-relevance gate for topical memories
+(standing preferences excluded), and authoritative cross-user isolation on read
+and on suggestion accept/dismiss. The database ownership split is documented:
+`eclipse-memory.db` = control (memory + skill lifecycle), `agent-memory.db` =
+run/replay store.
+**Why:** Output validation only checked top-level `required`; `maxToolCalls` was
+metadata-only; editing prose changed behavior without a new identity; off-domain
+queries recalled unrelated memories; and user-scoped retrieval could leak another
+user's rows. None of this required a second registry, agent loop or database.
+**Impact:** `python/harness/skills/schema_validation.py`, `skills/{manifest,
+registry,runtime,evaluation}.py`, `eclipse_memory/{retrieval,service,store}.py`,
+`python/harness/{graph,schemas}.py`, `eclipse_memory/eval/`, `src/lib/harness/
+errors.ts`. ADR-H45…H47 in `docs/harness/decisions.md`.
 

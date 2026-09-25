@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 ---
 
 # Navigation — Where Things Live
@@ -60,13 +60,19 @@ Black-Eclipse-site/
 | Install / repair the MCP client dependency | `python/requirements.txt` (`mcp`), `scripts/setup-python.js`, `scripts/doctor.js` (probes `import mcp`), `src/lib/harness/runtime-config.ts` (`PYTHON_MCP_DEPS`) |
 | Review the agentic-coding roadmap | Repository root `agentic-plan-implementaion.md` §15 (capability contract + Phase 7 delivery gates); current runtime boundaries: `docs/harness/architecture.md` |
 | Review the original agentic harness implementation vision | Repository root `agentic-plan-implementaion.md` (planning reference; current architecture is in `docs/harness/`) |
-| Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
+| Work on skills (manifest, registry, permissions, execution) | `python/harness/skills/` (`manifest.py`, `registry.py`, `permissions.py`, `store.py`, `runtime.py`, `schema_validation.py`, `learning.py`, `draft.py`, `evaluation.py`, `lifecycle.py`); library `python/harness/skills/library/`; architecture: `docs/harness/phase-3-architecture.md` |
+| Change skill input/output contract validation or execution limits | `python/harness/skills/schema_validation.py` (full JSON Schema + self-check), `runtime.py` (`_validate_output`, `validate_input`, `maxToolCalls`), `python/harness/graph.py` (`tools_node` budget enforcement), `python/harness/schemas.py` (`AgentConfig.maxToolCalls`, `TOOL_BUDGET_EXCEEDED`) |
+| Change a skill's persisted version identity / drift detection | `python/harness/skills/manifest.py` (`version_identity`), `registry.py` (`load_all` drift check, `_materialise_manifest`) |
+| Run/read the memory retrieval evaluation | `python/harness/eclipse_memory/eval/` (`dataset_v1.json` = labeled set, `__init__.py` = runner + metrics + `format_report`, `__main__.py` = `python -m harness.eclipse_memory.eval`) |
+| Change skill execution observability (validation result, tool usage, pinned version) | `python/harness/eclipse_memory/schema.py` (migration 9: `SkillExecution.outputValidated`/`metrics`), `store.py` (`finish_execution`, `_execution_row`), `skills/runtime.py` (persists them), `src/lib/harness/skills-types.ts` (`SkillExecutionRecord`), `src/components/screens/skills/execution-activity.tsx` |
 | Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`, `repo_root`, `db_identity`, `legacy_candidate_paths`), `schema.py` (append a migration tuple), `db.py` (runner + `reconcile_legacy`) |
 | Change explicit memory-intent detection | `python/harness/eclipse_memory/intent.py` (`detect_memory_intent`) wired in `python/harness/graph.py` (`_apply_memory_intent`, `_learning_eligibility`); service apply in `eclipse_memory/service.py` (`apply_explicit_intent`) |
 | Change memory decision/authorization rules (save/suggest/history_only/ignore) | `python/harness/eclipse_memory/decision.py` (`decide_turn`, `authorize_proposal`); every write path routes through `EclipseMemoryService.decide_turn`/`commit_decision` |
+| Change memory retrieval ranking / relevance / scope isolation | `python/harness/eclipse_memory/retrieval.py` (`_score` relevance signal, `_STANDING_TYPES`, scope-owner filter, diagnostics), `service.py` (`retrieve`), `store.py` (`find_suggestion_by_signature` scope-aware) |
 | Work with memory suggestions (Save/Dismiss, inert proposals) | `python/harness/eclipse_memory/{schema,store,service}.py` (`MemorySuggestion`, `create_suggestion`/`accept_suggestion`/`dismiss_suggestion`), routes `src/app/api/eclipse-memory/suggestions/`, UI `src/components/screens/eclipse-memory/eclipse-memory-screen.tsx` (Suggestions tab) |
-| Work on ordinary-chat learning / "Create skill draft" | `python/harness/graph.py` (`_create_explicit_skill_draft`, `_learning_eligibility`, `memory` blob), `python/harness/skills/learning.py` (`analyze_run` recurrence gate, `explicit_skill_candidate`), route `/learning/eligibility/{runId}`, UI `src/components/chat/memory-action-panel.tsx` + `src/lib/chat/memory-action.ts` |
+| Work on ordinary-chat learning / "Create skill draft" | `python/harness/graph.py` (`_create_explicit_skill_draft`, `_is_recurring_statement`, `_learning_eligibility`, `memory` blob), `python/harness/skills/learning.py` (`analyze_run` recurrence gate, `_record_recurrence`, `explicit_skill_candidate`), route `/learning/eligibility/{runId}`, UI `src/components/chat/memory-action-panel.tsx` + `src/lib/chat/memory-action.ts` |
+| Work on recurrence evidence (when a repeated convention/workflow is learned) | `python/harness/eclipse_memory/store.py` (`record_recurrence`/`recurrence_count`, `MemoryRecurrence` migration 8), `python/harness/eclipse_memory/service.py` (`decide_turn`), `python/harness/persistence.py` (`record_learning_recurrence`/`learning_recurrence`, `LearningRecurrence`/`LearningRecurrenceRun`), `python/harness/skills/learning.py` (`_candidate_recurrence_key`, `_recurrence_count`) |
 | Invoke an enabled skill from chat | `python/harness/memory_tools.py` (`skill_invoke`), `python/harness/skills/runtime.py` (`invoke_skill_from_run`, `list_invocable_skills`); prompt in `python/harness/prompts.py` |
 | Change memory policy / defaults / bounds | `python/harness/eclipse_memory/policy.py` (`DEFAULTS`, `BOUNDS`, `LOCKED_VALUES`, `MODE_KEYS`/`derived_flags`); UI `eclipse-memory-screen.tsx` Policies tab |
 | Change mistake detection | `python/harness/eclipse_memory/mistakes.py` (categories + heuristics) |

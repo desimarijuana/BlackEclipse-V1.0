@@ -141,6 +141,10 @@ def build_graph(
     max_steps: int = agent.maxSteps or 8
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
+    # A hard total tool-call budget. A skill manifest declares
+    # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
+    # its declared budget by prompting or by looping). None = unbounded (chat).
+    max_tool_calls: Optional[int] = agent.maxToolCalls
     allowed = effective_allowlist(agent, registry)
 
     model = build_chat_model(request.modelSettings)
@@ -180,8 +184,10 @@ def build_graph(
         # On the last allowed step, forbid tools so the model MUST answer from the
         # evidence it already gathered. Without this a tool-calling model can loop
         # until max steps and produce MAX_STEPS_EXCEEDED instead of an answer —
-        # the exact failure that made the agent "unable to answer".
-        finalizing = step >= max_steps
+        # the exact failure that made the agent "unable to answer". The same
+        # applies once a hard tool-call budget is spent.
+        budget_spent = max_tool_calls is not None and state.get("tool_calls", 0) >= max_tool_calls
+        finalizing = step >= max_steps or budget_spent
         active_model = model if finalizing else model_with_tools
         # A local model often ignores an empty tool list and keeps emitting tool
         # calls from the conversation's momentum (observed hallucinating a
@@ -241,9 +247,21 @@ def build_graph(
             # A forced final turn that produced no text is not an answer. Report
             # the honest failure rather than a blank "completed".
             if finalizing and not final_text.strip():
-                message = f"Reached the maximum of {max_steps} steps without a final answer."
-                await emitter.emit("run.failed", {"error": {"code": "MAX_STEPS_EXCEEDED", "message": message}})
-                return {**state, **usage_state, "step": step, "error": {"code": "MAX_STEPS_EXCEEDED", "message": message}}
+                if budget_spent:
+                    message = (
+                        f"Reached the {max_tool_calls}-tool-call limit without a final answer."
+                    )
+                    code = "TOOL_BUDGET_EXCEEDED"
+                else:
+                    message = f"Reached the maximum of {max_steps} steps without a final answer."
+                    code = "MAX_STEPS_EXCEEDED"
+                try:
+                    store.append_event(request.runId, "skill.tool_budget_exceeded", 0,
+                                       {"maxToolCalls": max_tool_calls, "toolCalls": state.get("tool_calls", 0)})
+                except Exception:  # noqa: BLE001 - audit must not break the run
+                    pass
+                await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
+                return {**state, **usage_state, "step": step, "error": {"code": code, "message": message}}
             return {
                 **state,
                 **usage_state,
@@ -265,6 +283,25 @@ def build_graph(
             name = call.get("name", "")
             args = call.get("args", {}) or {}
             call_id = call.get("id") or f"call_{name}"
+
+            # Enforce the manifest's hard tool-call budget. Once exhausted, no
+            # further tool executes: the model is told plainly (so it answers
+            # from gathered evidence) and the refusal is auditable. The budget is
+            # a runtime limit, not a prompt suggestion.
+            if max_tool_calls is not None and tool_calls >= max_tool_calls:
+                result_text = (
+                    f"Tool call refused: the maximum of {max_tool_calls} tool calls for this run "
+                    "has been reached. Answer using the information already gathered."
+                )
+                await emitter.emit("tool.failed", {"name": name, "toolCallId": call_id, "code": "TOOL_BUDGET_EXCEEDED"})
+                try:
+                    store.append_event(request.runId, "skill.tool_budget_exceeded", 0,
+                                       {"maxToolCalls": max_tool_calls, "toolCalls": tool_calls, "tool": name})
+                except Exception:  # noqa: BLE001 - audit must not break the run
+                    pass
+                tool_errors += 1
+                out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
+                continue
 
             tool_calls += 1
             await emitter.emit("tool.requested", {"name": name, "toolCallId": call_id, "step": state.get("step")})

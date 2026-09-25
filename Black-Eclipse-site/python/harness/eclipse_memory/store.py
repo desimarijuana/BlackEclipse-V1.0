@@ -212,11 +212,26 @@ class EclipseMemoryStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def find_suggestion_by_signature(self, signature: str) -> Optional[dict[str, Any]]:
-        row = self._db.execute(
-            "SELECT * FROM MemorySuggestion WHERE signature=? ORDER BY createdAt DESC LIMIT 1",
-            (signature,),
-        ).fetchone()
+    def find_suggestion_by_signature(
+        self, signature: str, *, scope_id: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
+        """Most recent suggestion with this signature.
+
+        When `scope_id` is given, only suggestions in that user scope (or
+        unscoped ones) match — so one user's dismissal never suppresses another
+        user's suggestion for identical content.
+        """
+        if scope_id is not None:
+            row = self._db.execute(
+                "SELECT * FROM MemorySuggestion WHERE signature=? AND (scopeId IS NULL OR scopeId=?)"
+                " ORDER BY createdAt DESC LIMIT 1",
+                (signature, scope_id),
+            ).fetchone()
+        else:
+            row = self._db.execute(
+                "SELECT * FROM MemorySuggestion WHERE signature=? ORDER BY createdAt DESC LIMIT 1",
+                (signature,),
+            ).fetchone()
         return dict(row) if row else None
 
     def set_suggestion_status(self, suggestion_id: str, status: str) -> Optional[dict[str, Any]]:
@@ -378,6 +393,57 @@ class EclipseMemoryStore:
             "SELECT * FROM CorrectionRecord ORDER BY createdAt DESC LIMIT ?", (max(1, limit),)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Recurrence ledger (bounded, signature-only) ─────────────────────────
+
+    def record_recurrence(self, signature: str) -> int:
+        """Bump the seen-count for a normalized statement signature and return
+        the new count. Only the digest is stored — never the raw text. Idempotent
+        per call; prunes older rows so the table stays bounded."""
+        if not signature:
+            return 0
+        now = now_iso()
+        row = self._db.execute(
+            "SELECT seenCount FROM MemoryRecurrence WHERE signature=?", (signature,)
+        ).fetchone()
+        if row:
+            count = int(row["seenCount"]) + 1
+            self._db.execute(
+                "UPDATE MemoryRecurrence SET seenCount=?, lastSeenAt=? WHERE signature=?",
+                (count, now, signature),
+            )
+        else:
+            count = 1
+            self._db.execute(
+                "INSERT INTO MemoryRecurrence (signature, seenCount, firstSeenAt, lastSeenAt)"
+                " VALUES (?, 1, ?, ?)",
+                (signature, now, now),
+            )
+        self._db.commit()
+        self._prune_recurrence()
+        return count
+
+    def recurrence_count(self, signature: str) -> int:
+        """How many times this signature has been recorded (0 when unseen)."""
+        if not signature:
+            return 0
+        row = self._db.execute(
+            "SELECT seenCount FROM MemoryRecurrence WHERE signature=?", (signature,)
+        ).fetchone()
+        return int(row["seenCount"]) if row else 0
+
+    def _prune_recurrence(self, keep: int = 2000) -> None:
+        """Keep only the most recently seen signatures (bounded growth)."""
+        try:
+            self._db.execute(
+                "DELETE FROM MemoryRecurrence WHERE signature IN ("
+                "  SELECT signature FROM MemoryRecurrence ORDER BY lastSeenAt DESC LIMIT -1 OFFSET ?"
+                ")",
+                (max(1, int(keep)),),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - pruning must never block a write
+            pass
 
     # ── Memory events (audit) ───────────────────────────────────────────────
 
@@ -548,13 +614,17 @@ class EclipseMemoryStore:
         error: Optional[dict[str, Any]] = None, warnings: Optional[list[str]] = None,
         missing_data: Optional[list[str]] = None, limitations: Optional[list[str]] = None,
         evidence: Optional[list[Any]] = None, duration_ms: int = 0,
+        output_validated: Optional[bool] = None, metrics: Optional[dict[str, Any]] = None,
     ) -> None:
         self._db.execute(
             """UPDATE SkillExecution SET status=?, output=?, error=?, warnings=?, missingData=?,
-               limitations=?, evidence=?, durationMs=?, finishedAt=? WHERE id=?""",
+               limitations=?, evidence=?, durationMs=?, finishedAt=?,
+               outputValidated=?, metrics=? WHERE id=?""",
             (status, output, json.dumps(error) if error else None, json.dumps(warnings or []),
              json.dumps(missing_data or []), json.dumps(limitations or []),
-             json.dumps(evidence or []), int(duration_ms), now_iso(), execution_id),
+             json.dumps(evidence or []), int(duration_ms), now_iso(),
+             None if output_validated is None else (1 if output_validated else 0),
+             json.dumps(metrics) if metrics is not None else None, execution_id),
         )
         self._db.commit()
 
@@ -807,12 +877,16 @@ class EclipseMemoryStore:
     @staticmethod
     def _execution_row(row: sqlite3.Row) -> dict[str, Any]:
         record = dict(row)
-        for key in ("input", "error", "warnings", "missingData", "limitations", "evidence"):
+        for key in ("input", "error", "warnings", "missingData", "limitations", "evidence", "metrics"):
             if record.get(key):
                 try:
                     record[key] = json.loads(record[key])
                 except (TypeError, ValueError):
                     pass
+        # SQLite stores the boolean as 0/1/NULL; expose a tri-state to the caller:
+        # True / False / None ("not recorded", for pre-migration rows).
+        raw_validated = record.get("outputValidated")
+        record["outputValidated"] = None if raw_validated is None else bool(raw_validated)
         return record
 
     @staticmethod

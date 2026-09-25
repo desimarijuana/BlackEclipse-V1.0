@@ -6,6 +6,51 @@ last-verified: 2026-09-15
 
 # Change Log
 
+## 2026-09-25
+
+- **Memory + runtime-skills reliability: enforced contracts, measured retrieval,
+  isolated scopes.** Small, phased fixes on the existing architecture (no second
+  loop, registry or database). **Contracts:** skill input/output are now validated
+  as full JSON Schema (nested types, arrays, enums, `minimum`/`maximum`,
+  `minLength`/`maxLength`, `pattern`, `additionalProperties`, required) via the
+  already-present `jsonschema` (`skills/schema_validation.py`); schemas are
+  self-validated at registration/evaluation with actionable errors; a run may
+  `complete` while `outputValidated=false` and the violation is surfaced, never
+  reported as validated. **Limits:** `manifest.limits.maxToolCalls` is carried
+  into `AgentConfig.maxToolCalls` and enforced in `graph.tools_node` (refused
+  with `TOOL_BUDGET_EXCEEDED`, audited, run finalizes) — no longer metadata/prose
+  only. **Identity:** `SkillManifest.version_identity(instructions)` folds the
+  procedure content into the persisted version identity; `registry.load_all`
+  reports `skill.version_drift` when content changes without a bump (legacy
+  manifest-only hashes accepted). **Retrieval:** added a versioned, human-labeled
+  evaluation set + runner (`eclipse_memory/eval/`) recording baseline recall 1.0 /
+  precision 0.5 / scope leakage 0 / forbidden hits 0; a deterministic lexical
+  relevance gate stops off-domain/near-match queries from recalling unrelated
+  topical memories (standing preferences exempt), with inclusion/exclusion
+  diagnostics. **Isolation:** fixed a cross-user leak — `actor_scope="user"` with
+  no `scope_id` returned every user's rows — and refused another user's
+  suggestion accept/dismiss; `find_suggestion_by_signature` is scope-aware.
+  **Docs:** corrected DB ownership drift (`eclipse-memory.db` = control memory +
+  skill lifecycle; `agent-memory.db` = run/replay store) that several docs still
+  attributed to `agent-memory.db`. No `jdds.db` change; existing user data
+  preserved. Tests: Python 727 passed (+30), Vitest 1736 passed, `tsc` clean.
+  docs updated: `harness/phase-3-architecture.md`, `harness/architecture.md`,
+  `harness/decisions.md` (ADR-H45–H47), `DECISIONS.md` (ADR-026 + ADR-034),
+  `NAVIGATION.md`
+- **Memory + skills reliability — completion pass.** (1) Retrieval eval set
+  expanded with topical exact/paraphrase, other-domain no-match and topical
+  scope-boundary cases; added `python -m harness.eclipse_memory.eval` CLI and a
+  pre/post measurable result — the lexical relevance gate lifts precision from
+  0.125 (ungated baseline on the original set) to **0.571** at recall 1.0, with
+  scope leakage and forbidden hits both 0. (2) Operator observability:
+  `SkillExecution` (migration 9, additive) now persists `outputValidated`
+  (tri-state) and bounded `metrics` (toolCalls/toolErrors/modelSteps/totalTokens);
+  the Skills › Execution Activity panel shows the pinned version, manifest
+  identity, validation result and tool usage alongside the existing warnings/
+  missing data/limitations/evidence. Tests: Python 729 passed, Vitest 1736
+  passed, `tsc` clean.
+  docs updated: `harness/phase-3-memory-progress.md`, `NAVIGATION.md`
+
 ## 2026-09-24
 
 - **Read-only-test findings - Issues 4, 5, 6 (plus 1 labelling)** - Fixed the
@@ -89,6 +134,32 @@ last-verified: 2026-09-15
   requiring a new approval. 685 pytest, 1732 Vitest, `tsc` clean.
   docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
   (ADR-H43), `docs/NAVIGATION.md`
+
+## 2026-09-24
+
+- **Eclipse memory + skill learning — persisted recurrence (limitations
+  closed)** — Follow-up to the unified-learning-mode fix. Closed the two known
+  limitations: (1) recurrence for durable-sounding conventions was inferred only
+  from the bounded chat-history window, so a convention repeated after the window
+  (or in a later session) was never learned; (2) implicit skill-workflow
+  recurrence scanned only the 40 most recent runs, so a workflow repeated after a
+  long gap was missed and the scan was O(recent runs). Fixes: a bounded,
+  **signature-only** recurrence ledger — `MemoryRecurrence` (migration 8,
+  `eclipse-memory.db`; `store.record_recurrence`/`recurrence_count`, pruned) read
+  and written by `EclipseMemoryService.decide_turn` — and `LearningRecurrence` +
+  `LearningRecurrenceRun` (`agent-memory.db`;
+  `store.record_learning_recurrence`/`learning_recurrence`) with a per-(run,
+  signature) guard so re-analysing a run does not inflate the count. Skill
+  recurrence is now one indexed lookup (`skills.learning._recurrence_count`),
+  with the bounded scan only as a fallback combined via `max`. No raw text is
+  ever stored (digests only). New tests: recurrence across separate runs with
+  empty history, survival across a service reopen, ledger idempotency, and a
+  repeated workflow yielding a candidate with no chat history. Python 697
+  passed; Vitest 1732 passed; `tsc` clean. (One unrelated pre-existing
+  `test_graph.py` failure from the concurrent `prompts.py` edit that removed
+  "Black Orbit Technologies".)
+  docs updated: `harness/decisions.md` (ADR-H44), `harness/architecture.md`,
+  `harness/phase-3-memory-progress.md`, `NAVIGATION.md`
 
 ## 2026-09-24
 

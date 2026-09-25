@@ -21,6 +21,12 @@ from typing import Any, Optional
 from .schema import SCHEMA_VERSION  # noqa: F401  (import keeps version coupling explicit)
 from .store import EclipseMemoryStore
 
+# Standing user rules (preferences/constraints) are personalization that applies
+# to EVERY turn, so they are injected without a lexical match. Topical factual
+# memory (semantic/episodic/correction/observation/summary) must be relevant to
+# the query — that is where "irrelevant near-match" recall came from.
+_STANDING_TYPES = frozenset({"preference", "constraint"})
+
 # Statuses that are never injected: they are history, not current knowledge.
 INERT_STATUSES = frozenset({"superseded", "archived", "rejected", "expired"})
 
@@ -28,6 +34,14 @@ DEFAULT_BUDGET_CHARS = 4000
 _STOPWORDS = frozenset(
     {"the", "a", "an", "of", "to", "and", "or", "for", "in", "on", "is", "are",
      "what", "how", "why", "when", "me", "my", "i", "do", "does", "with"}
+)
+# Generic preference/profile vocabulary. A memory that matches ONLY these words
+# ("does the user prefer …?" vs "user prefers …") is not necessarily about the
+# same thing: it is a near-match, not a relevant recall. Requiring at least one
+# match outside this set is a deterministic, explainable specificity gate.
+_GENERIC_TERMS = frozenset(
+    {"user", "prefer", "prefers", "preferred", "like", "likes", "want", "wants",
+     "always", "never", "should", "would", "could", "please", "answer", "style"}
 )
 
 
@@ -70,20 +84,30 @@ def _terms(text: str) -> list[str]:
     return [t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if t not in _STOPWORDS and len(t) > 2]
 
 
-def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> tuple[float, list[str]]:
-    """Deterministic relevance score + the reasons it was selected."""
+def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> tuple[float, list[str], bool]:
+    """Deterministic relevance score + the reasons it was selected + whether the
+    memory carried a positive lexical signal (a keyword or exact-subject match).
+
+    The signal is what the relevance gate uses: importance/confidence alone must
+    not cause an unrelated memory to be recalled for a query with real terms.
+    """
     score = 0.0
     reasons: list[str] = []
     haystack = " ".join(
         str(memory.get(k) or "") for k in ("content", "subject")
     ).lower()
     matched = [t for t in terms if t in haystack]
+    # A match counts as a relevance signal only when at least one matched term is
+    # specific (not generic preference/profile vocabulary). Matching only
+    # "user"/"prefer" is a near-match, not topical relevance.
+    has_signal = any(t not in _GENERIC_TERMS for t in matched)
     if matched:
         score += 2.0 * len(matched)
         reasons.append(f"keyword match: {', '.join(matched[:4])}")
     if subject and (memory.get("subject") or "").lower() == subject.lower():
         score += 3.0
         reasons.append("exact subject match")
+        has_signal = True
     score += float(memory.get("importance") or 0.5)
     score += float(memory.get("confidence") or 0.5)
     # Format the SAME defaulted values the score used. Formatting the raw
@@ -99,7 +123,7 @@ def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> 
     score += min(int(memory.get("accessCount") or 0), 5) * 0.2
     if int(memory.get("accessCount") or 0) > 0:
         reasons.append("previously useful")
-    return score, reasons
+    return score, reasons, has_signal
 
 
 def retrieve_memories(
@@ -141,6 +165,20 @@ def retrieve_memories(
                     continue
                 seen.add(memory["id"])
                 candidates.append(memory)
+            # A user-scoped retrieval must ALSO consider truly-global `general`
+            # memories. `list_memories(scope_id=...)` filters `scopeId = ?`, and a
+            # general memory has no scopeId, so without this second query global
+            # memories would never be recalled for a signed-in user — contradicting
+            # the documented "that user's scope (plus truly-global general)".
+            if scope_id and scope is None:
+                for memory in store.list_memories(
+                    memory_type=memory_type, scope="general", scope_id=None,
+                    subject=subject, limit=200, include_inactive=True,
+                ):
+                    if memory["id"] in seen:
+                        continue
+                    seen.add(memory["id"])
+                    candidates.append(memory)
 
         diagnostics.candidates = len(candidates)
 
@@ -156,6 +194,20 @@ def retrieve_memories(
             if actor_scope and memory["scope"] not in ("general", actor_scope):
                 diagnostics.excluded.append({"id": memory["id"], "reason": f"scope {memory['scope']} not authorized"})
                 continue
+            # Cross-user isolation: an actor scoped to a user may only see
+            # user-scoped rows owned by THAT user. A row owned by another user (or
+            # an unattributable user row when no scope_id was supplied) is never
+            # authorized. Without this, `actor_scope="user"` with no `scope_id`
+            # leaked every user's memories.
+            if memory["scope"] == "user":
+                owner = memory.get("scopeId")
+                if scope_id is None:
+                    if owner is not None:
+                        diagnostics.excluded.append({"id": memory["id"], "reason": "user scope not attributable"})
+                        continue
+                elif owner != scope_id:
+                    diagnostics.excluded.append({"id": memory["id"], "reason": "another user's scope"})
+                    continue
             if memory.get("expiresAt") and memory["expiresAt"] < _now():
                 diagnostics.excluded.append({"id": memory["id"], "reason": "expired"})
                 continue
@@ -168,16 +220,31 @@ def retrieve_memories(
 
         # ── Rank ────────────────────────────────────────────────────────────
         terms = _terms(query)
-        ranked: list[tuple[float, dict[str, Any], list[str]]] = []
+        ranked: list[tuple[float, dict[str, Any], list[str], bool]] = []
         for memory in eligible:
-            score, reasons = _score(memory, terms, subject)
-            ranked.append((score, memory, reasons))
+            score, reasons, has_signal = _score(memory, terms, subject)
+            ranked.append((score, memory, reasons, has_signal))
         ranked.sort(key=lambda item: (-item[0], item[1]["id"]))
+
+        # ── Relevance gate ──────────────────────────────────────────────────
+        # When the query has real terms, a TOPICAL memory with no
+        # keyword/subject signal is NOT recalled merely because its
+        # importance/confidence is high — that is how an off-domain or
+        # near-match query dragged in unrelated facts. Standing user rules
+        # (preference/constraint) are personalization that applies to every
+        # turn, so they are exempt. Scope/status/privacy filtering above remains
+        # authoritative; this only decides relevance, never authorization. A
+        # query with no usable terms keeps every eligible memory.
+        require_signal = bool(terms)
 
         # ── Budget pack ─────────────────────────────────────────────────────
         selected: list[dict[str, Any]] = []
         used = 0
-        for score, memory, reasons in ranked:
+        for score, memory, reasons, has_signal in ranked:
+            is_standing = memory["memoryType"] in _STANDING_TYPES
+            if require_signal and not has_signal and not is_standing:
+                diagnostics.excluded.append({"id": memory["id"], "reason": "no lexical relevance to query"})
+                continue
             if len(selected) >= limit:
                 diagnostics.excluded.append({"id": memory["id"], "reason": "rank limit"})
                 continue

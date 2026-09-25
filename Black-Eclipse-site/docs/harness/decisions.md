@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 ---
 
 # Harness Decisions
@@ -674,7 +674,7 @@ are never durable memory. Automatic memory capture, automatic candidate
 detection and automatic suggestions are controlled by two *mode* keys
 (`memory_mode`, `skill_learning_mode`: `automatic_selective` | `ask_before_saving`
 | `off`), defaulting to `automatic_selective`; the legacy booleans are derived
-from the modes and are neither stored nor settable (migration 7, ADR-H43).
+from the modes and are neither stored nor settable (migration 7, ADR-H44).
 
 **Why.** The Phase 3-M reliability pass made capture deterministic but too eager:
 `auto_capture_enabled`/`auto_candidate_detection` defaulted on, an incidental "I
@@ -693,7 +693,7 @@ truthfully as `memory_full` rather than auto-deleting user memory; inert history
 does not consume it. The learning path is distinct: a skill candidate is an
 on-demand procedure created through an explicit "turn this into a skill" request
 or an automatic-selective run with recurrence evidence, never a second memory
-note. See ADR-H43 for the mode model that supersedes the per-boolean tuning.
+note. See ADR-H44 for the mode model that supersedes the per-boolean tuning.
 
 
 ## ADR-H38 — MCP is a user-directed extension surface adapted into the one ToolRegistry
@@ -869,8 +869,7 @@ makes no network call. The connection/manager/adapter/approval layer is unchange
 OAuth lifecycle and TLS/redirect knobs (part of 5D), resources/prompts (5I),
 MCP-aware native source planning (5F), and Eclipse-as-server (5H).
 
-## ADR-H43 — Automatic learning is one mode, not several booleans; it saves selectively without prompting
-
+## ADR-H44 — Automatic learning is one mode, not several booleans; it saves selectively without prompting
 **Decision.** Automatic memory learning and automatic skill learning are each
 controlled by a single *mode* key rather than independent booleans:
 
@@ -907,6 +906,81 @@ name conversation history explicitly). Noisy per-run prompts are removed: the
 chat panel shows a learning line only for a genuine automatic capture or an
 explicit draft — a merely eligible run shows nothing, and a repeated "Learn from
 this run?" confirmation is gone.
+
+**Recurrence is persisted, not window-bound.** Recurrence evidence is stored in
+bounded, signature-only ledgers rather than only inferred from the chat-history
+window: `MemoryRecurrence` (migration 8, `eclipse-memory.db`) for durable-sounding
+statements and `LearningRecurrence`/`LearningRecurrenceRun` (`agent-memory.db`)
+for skill-workflow evidence. This closes two limitations: a convention repeated
+after the bounded history window is still learned, and implicit skill recurrence
+is one indexed lookup that survives restarts (the bounded run scan is only a
+fallback, combined with `max`). No raw text is stored, and re-recording the same
+run does not inflate the count.
+
+## ADR-H45 — Skill contracts are validated in full, and execution limits are enforced in code
+
+**Decision.** A skill's declared `inputSchema`/`outputSchema` are validated as
+JSON Schema documents at registration and evaluation
+(`skills/schema_validation.py`, using the already-present `jsonschema`). A skill
+OUTPUT is validated against the COMPLETE schema (nested object types, array item
+types, enums, `minimum`/`maximum`, `minLength`/`maxLength`, `pattern`,
+`additionalProperties`, required fields) — a top-level `required` check alone is
+not validation. `status="completed"` and `outputValidated=True` are distinct:
+a schema-invalid output keeps `completed` but reports `outputValidated=False`
+with a stated warning, never a silent discard. A manifest's `limits.maxToolCalls`
+is carried into the run's `AgentConfig` and ENFORCED by the graph — once the
+budget is spent, no further tool executes and the run finalizes
+(`TOOL_BUDGET_EXCEEDED`).
+
+**Why.** The prior output check only looked at top-level `required`, so a
+structurally-wrong nested result could be reported as "validated"; `maxToolCalls`
+was advertised in metadata and prompts but never enforced in the loop, so a skill
+could exceed its own budget.
+
+**Impact.** New `skills/schema_validation.py`; `AgentConfig.maxToolCalls`;
+`TOOL_BUDGET_EXCEEDED` added to the error-code vocabulary (Python + TS);
+`jsonschema` declared explicitly in `python/requirements.txt`.
+
+## ADR-H46 — Skill version identity covers instruction content, dependencies and drift
+
+**Decision.** A version's persisted identity is
+`SkillManifest.version_identity(instructions)` — the manifest PLUS a digest of
+the `SKILL.md` procedure content — so an enabled skill's behavior cannot change
+under the same recorded identity. At boot, if a stored version's identity and
+its current manifest/instruction content disagree (a file edited without a
+version bump), the registry records a `skill.version_drift` event and surfaces
+it as a load error rather than silently serving changed behavior.
+
+**Why.** `content_hash()` covered only the machine-readable manifest; editing a
+`SKILL.md` in place changed behavior with no new identity and no signal.
+
+**Impact.** `manifest.version_identity`, `registry.load_all` drift detection,
+execution records carry the instruction-aware identity. Legacy manifest-only
+hashes are still accepted (their stored `instructions` column preserves the
+behavior identity), so existing databases do not report false drift.
+
+## ADR-H47 — Memory retrieval is measured, gated on lexical relevance, and cross-user isolated
+
+**Decision.** Memory retrieval has a versioned, human-labeled evaluation set
+(`eclipse_memory/eval/dataset_v1.json`) and a runner reporting recall, precision,
+scope leakage, forbidden hits, no-match cleanliness and context-budget behavior;
+the recorded baseline is recall 1.0 / precision 0.5 / leakage 0 / forbidden 0.
+Behind the existing seam, retrieval applies a deterministic **relevance gate**:
+for a query with real terms, a topical memory with no keyword/subject signal is
+not recalled merely because its importance/confidence is high; standing user
+rules (`preference`/`constraint`) remain per-turn personalization exempt from the
+gate. Scope/status/privacy filtering stays authoritative and deterministic — no
+semantic similarity authorizes or broadens access. Cross-user isolation is
+enforced on read (`actor_scope="user"` with no `scope_id` no longer leaks every
+user's rows) and on suggestion accept/dismiss (a suggestion owned by another
+scope is refused).
+
+**Why.** Off-domain and near-match queries dragged in unrelated memories; and a
+user-scoped retrieve without a `scope_id` leaked other users' memories.
+
+**Impact.** `retrieval._score` returns a relevance signal; `find_suggestion_by_signature`
+is scope-aware; `accept_suggestion`/`dismiss_suggestion` take `user_id`;
+new tests `test_memory_retrieval_eval.py` and isolation cases.
 
 ## ADR-H43 — MCP is presented as finance workflows with provenance, diagnostics and safe defaults
 

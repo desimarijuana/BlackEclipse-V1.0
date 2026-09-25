@@ -1,0 +1,232 @@
+{
+  "name": "memory-retrieval",
+  "version": 1,
+  "description": "Human-labeled memory-retrieval cases: direct matches, paraphrases, irrelevant near-matches, stale/superseded facts, scope boundaries and no-match queries. Memory keys are stable labels; the runner maps them to seeded ids.",
+  "memories": [
+    {
+      "key": "u1-concise",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers concise answers with source links.",
+      "subject": "answer-style",
+      "confidence": 0.8,
+      "importance": 0.6
+    },
+    {
+      "key": "u1-candlestick",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers candlestick charts over line charts.",
+      "subject": "charts",
+      "confidence": 0.8,
+      "importance": 0.6
+    },
+    {
+      "key": "u1-currency",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers figures shown in the local currency.",
+      "subject": "currency",
+      "confidence": 0.8,
+      "importance": 0.6
+    },
+    {
+      "key": "u2-concise",
+      "memoryType": "preference",
+      "scope": "user",
+      "scopeId": "u2",
+      "content": "User prefers detailed multi-paragraph answers.",
+      "subject": "answer-style",
+      "confidence": 0.8,
+      "importance": 0.6
+    },
+    {
+      "key": "general-utc",
+      "memoryType": "semantic",
+      "scope": "general",
+      "content": "Platform convention: report timestamps in UTC.",
+      "subject": "timestamps",
+      "confidence": 0.7,
+      "importance": 0.5
+    },
+    {
+      "key": "general-ttm",
+      "memoryType": "constraint",
+      "scope": "general",
+      "content": "Platform convention: use trailing-twelve-month figures for annual comparisons.",
+      "subject": "periods",
+      "confidence": 0.7,
+      "importance": 0.5
+    },
+    {
+      "key": "u1-old-expense",
+      "memoryType": "semantic",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "The fund expense ratio is 0.50 percent.",
+      "subject": "expense-ratio",
+      "confidence": 0.9,
+      "importance": 0.7,
+      "status": "superseded"
+    },
+    {
+      "key": "u1-new-expense",
+      "memoryType": "correction",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "Correction — the fund expense ratio is 0.05 percent.",
+      "subject": "expense-ratio",
+      "confidence": 0.9,
+      "importance": 0.7,
+      "verification": "verified"
+    },
+    {
+      "key": "u1-noisy-magnitude",
+      "memoryType": "semantic",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "User prefers the magnitude of price moves shown in basis points.",
+      "subject": "price-moves",
+      "confidence": 0.6,
+      "importance": 0.5
+    },
+    {
+      "key": "u1-reporting-currency",
+      "memoryType": "semantic",
+      "scope": "user",
+      "scopeId": "u1",
+      "content": "The user's reporting currency for statements is PKR.",
+      "subject": "reporting-currency",
+      "confidence": 0.8,
+      "importance": 0.6,
+      "verification": "verified"
+    },
+    {
+      "key": "general-fiscal-year",
+      "memoryType": "semantic",
+      "scope": "general",
+      "content": "Platform convention: fiscal years end in December unless the filing states otherwise.",
+      "subject": "fiscal-year",
+      "confidence": 0.7,
+      "importance": 0.5
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "direct-preference",
+      "kind": "normal",
+      "query": "How should I format answers for this user?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-concise"]
+    },
+    {
+      "caseId": "paraphrase-charts",
+      "kind": "paraphrase",
+      "query": "Which chart style does this user like?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-candlestick"]
+    },
+    {
+      "caseId": "near-match-not-this-user-style",
+      "kind": "negative",
+      "query": "Which preferences does the user have?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "forbidKeys": ["u2-concise"],
+      "forbidContent": ["detailed multi-paragraph"]
+    },
+    {
+      "caseId": "paraphrase-source-citations",
+      "kind": "paraphrase",
+      "query": "What does the user prefer for source citations?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-concise"]
+    },
+    {
+      "caseId": "scope-boundary",
+      "kind": "scope",
+      "query": "What does the user prefer?",
+      "actorScope": "user",
+      "scopeId": "u2",
+      "forbidKeys": ["u1-concise", "u1-candlestick", "u1-currency"]
+    },
+    {
+      "caseId": "general-shared",
+      "kind": "scope",
+      "query": "What timestamp convention is used?",
+      "actorScope": "user",
+      "scopeId": "u2",
+      "expectKeys": ["general-utc"],
+      "forbidKeys": ["u1-concise"]
+    },
+    {
+      "caseId": "superseded-not-recalled",
+      "kind": "stale",
+      "query": "What is the fund expense ratio?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-new-expense"],
+      "forbidKeys": ["u1-old-expense"]
+    },
+    {
+      "caseId": "topical-exact",
+      "kind": "normal",
+      "query": "What reporting currency should statements use?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-reporting-currency"],
+      "forbidKeys": ["general-fiscal-year", "general-utc"]
+    },
+    {
+      "caseId": "topical-paraphrase",
+      "kind": "paraphrase",
+      "query": "Which currency does this user report financial statements in?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-reporting-currency"],
+      "forbidKeys": ["general-fiscal-year"]
+    },
+    {
+      "caseId": "topical-no-match-other-domain",
+      "kind": "no-match",
+      "query": "What is the company's supply chain exposure?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "forbidKeys": ["u1-reporting-currency", "general-fiscal-year", "general-utc", "u1-noisy-magnitude"],
+      "forbidContent": ["supply chain", "supply-chain"]
+    },
+    {
+      "caseId": "topical-scope-boundary",
+      "kind": "scope",
+      "query": "What reporting currency is used for statements?",
+      "actorScope": "user",
+      "scopeId": "u2",
+      "forbidKeys": ["u1-reporting-currency"],
+      "forbidContent": ["reporting currency for statements is pkr"]
+    },
+    {
+      "caseId": "no-match-irrelevant",
+      "kind": "no-match",
+      "query": "What is the weather in Karachi tomorrow?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "forbidKeys": ["general-utc", "u1-old-expense", "u1-new-expense", "u1-noisy-magnitude"],
+      "forbidContent": ["weather", "karachi"]
+    },
+    {
+      "caseId": "near-match-basis-points",
+      "kind": "negative",
+      "query": "Does the user prefer candlestick charts?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-candlestick"],
+      "forbidKeys": ["u1-noisy-magnitude"]
+    }
+  ]
+}

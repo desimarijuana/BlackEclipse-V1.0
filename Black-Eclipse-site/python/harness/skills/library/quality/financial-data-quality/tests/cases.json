@@ -19,6 +19,36 @@
       "name": "Output reports usability and issues",
       "kind": "output_shape",
       "expected": { "required": ["usable", "missingValues", "issues", "limitations"] }
+    },
+    {
+      "caseId": "output-valid-full",
+      "name": "A complete quality report validates",
+      "kind": "output_validation",
+      "expected": {
+        "valid": true,
+        "output": {
+          "usable": true,
+          "instrument": {"symbol": "AAPL"},
+          "period": {"label": "FY2024"},
+          "currency": "USD",
+          "units": "millions",
+          "missingValues": [],
+          "duplicates": [],
+          "freshness": "2024-12-31",
+          "reportedVsDerived": {"reported": 3, "derived": 1},
+          "issues": [],
+          "limitations": ["no comparative period"]
+        }
+      }
+    },
+    {
+      "caseId": "output-wrong-type",
+      "name": "A non-boolean usable field fails validation",
+      "kind": "output_validation",
+      "expected": {
+        "valid": false,
+        "output": { "usable": "yes", "missingValues": [], "issues": [], "limitations": [] }
+      }
     }
   ]
 }

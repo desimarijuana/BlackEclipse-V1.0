@@ -98,6 +98,29 @@ Phase-1 runtime and Phase-2 retrieval.
   /health` reports the resolved path + a non-secret identity (path hash) so a
   cwd mismatch is observable (`eclipse_memory/config.py` `db_identity()`).
 
+## Retrieval evaluation (measurement seam)
+
+`eclipse_memory/eval/` is a small, versioned, human-labeled set
+(`dataset_v1.json`) plus a runner. It seeds a fresh temp `eclipse-memory.db` from
+the corpus and runs the REAL `EclipseMemoryService.retrieve` for each case,
+reporting recall, topical precision, scope leakage, forbidden hits, no-match
+cleanliness and context-budget behaviour. Recorded baseline (dataset v1):
+**recall 1.0, precision 0.571, scope leakage 0, forbidden hits 0**. Run it with
+`python -m harness.eclipse_memory.eval`. A deterministic **lexical relevance
+gate** stops an off-domain/near-match query from recalling a topical memory that
+shares no keyword/subject signal; standing user rules (`preference`/`constraint`)
+are exempt because they are intentional per-turn personalization. Scope, status
+and privacy filtering remain authoritative — semantic similarity is never used
+and never authorizes access.
+
+## Skill-execution observability
+
+`SkillExecution` (migration 9) carries `outputValidated` (tri-state: true/false/
+null-not-recorded) and bounded `metrics` (toolCalls, toolErrors, modelSteps,
+totalTokens). The Skills › Execution Activity panel shows the pinned version,
+manifest identity, validation result, tool usage, warnings, missing data,
+limitations and evidence. Secrets are never part of a trace payload.
+
 ## Schema (eclipse-memory.db)
 
 Memory: `MemoryRecord`, `MemoryEvidence`, `MemoryLink`, `MemoryRetrievalEvent`,
@@ -439,12 +462,27 @@ tests and docs.
 
 **Selective automatic learning.** In `automatic_selective`, `decide_turn` saves
 a direct user preference (`I prefer …`) on first statement; a project convention
-(`always use …`) is saved only with recurrence evidence (the same statement in
-prior conversation history), otherwise it is `history_only` — never a prompt.
-One-off task details, questions, greetings and financial/market figures are
-`history_only`/`ignore`. `ask_before_saving` stages an inert suggestion; `off`
-creates nothing. Explicit remember/forget/correct remain a separate always-on
-path, and secrets/sensitive identifiers are refused for every path.
+(`always use …`) is saved only with recurrence evidence (the same statement seen
+before), otherwise it is `history_only` — never a prompt. One-off task details,
+questions, greetings and financial/market figures are `history_only`/`ignore`.
+`ask_before_saving` stages an inert suggestion; `off` creates nothing. Explicit
+remember/forget/correct remain a separate always-on path, and secrets/sensitive
+identifiers are refused for every path.
+
+**Persisted recurrence (limitation closed).** Recurrence evidence is now
+persisted, not derived only from the bounded chat-history window, so a convention
+or workflow repeated across sessions/after the window is still recognized:
+
+- Memory conventions: `MemoryRecurrence` (migration 8) in `eclipse-memory.db`
+  stores one bounded row per normalized **signature** (a digest — the raw text is
+  never stored) with a seen-count; `EclipseMemoryService.decide_turn` reads it
+  before deciding and records after, and `store._prune_recurrence` caps the table.
+- Skill workflows: `LearningRecurrence` + `LearningRecurrenceRun` in
+  `agent-memory.db` store a seen-count per tool-evidence signature and the set of
+  contributing runs, so `skills.learning._recurrence_count` is a single indexed
+  lookup instead of an O(recent-runs) scan and re-analysing the same run does not
+  inflate the count. The bounded scan remains only as a fallback (combined with
+  the ledger via `max`, never double-counted).
 
 **Skills are separate.** An explicit "turn this into a skill" request now
 creates a real inert candidate + draft through `capture_from_run` +
@@ -464,14 +502,16 @@ hidden.
 `test_memory_policy.py`, `test_phase3m_reliability.py`, `test_skills_learning.py`,
 `test_skills_scenarios.py` (positive + negative: durable preference saved
 automatically; explicit remember works regardless of mode; one-off task and
-changing market value not saved; recurrence saves without confirmation; duplicate
-and correction behaviours; sensitive content refused; project scope isolation; a
-single eligible run creates no skill; an explicit request creates a pending
-draft; repeated workflow yields a controlled candidate; no repetitive prompt).
+changing market value not saved; recurrence saves without confirmation and
+survives a restart; duplicate and correction behaviours; sensitive content
+refused; project scope isolation; a single eligible run creates no skill; an
+explicit request creates a pending draft; repeated workflow yields a controlled
+candidate; re-analysis does not inflate recurrence; no repetitive prompt).
 TS `memory-action.test.ts` covers the draft-ready presentation.
 
-**Checks.** Python **672 passed**; Vitest **1732 passed**; `npx tsc --noEmit`
-clean.
+**Checks.** Python **697 passed** (one unrelated pre-existing failure in
+`test_graph.py` caused by the concurrent `prompts.py` edit removing "Black Orbit
+Technologies"); Vitest **1732 passed**; `npx tsc --noEmit` clean.
 
 **Files:** `eclipse_memory/{policy,decision,intent,schema,service}.py`,
 `harness/{graph,memory_tools}.py`, `skills/learning.py`,

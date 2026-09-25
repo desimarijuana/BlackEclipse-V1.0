@@ -1393,7 +1393,7 @@ for the existing chat/research surfaces.
 | Harness concern | Home | Notes |
 |---|---|---|
 | Agents, tools, model providers, LangGraph loop, events | `python/harness/` (**built**) | FastAPI + LangChain + LangGraph. The runtime owns execution; TS never runs an agent loop. |
-| Run persistence + agent memory/skills | `python/harness/persistence.py` (**built**) | Separate `agent-memory.db` (runs, events, tool executions, `AgentMemory`, `AgentSkill`) — NOT JDdS. See `harness/decisions.md` ADR-H5. |
+| Run persistence + agent memory/skills | `python/harness/persistence.py` + `python/harness/eclipse_memory/` (**built**) | Two separate SQLite stores: `agent-memory.db` (runs, events, tool executions, retrieval/receipt records) and `eclipse-memory.db` (durable memory + the skill lifecycle). Neither is JDdS. See `harness/decisions.md` ADR-H5 and ADR-026. |
 | Front door (validation, vault resolution, proxy) | `src/lib/harness/` (**built**) | `run-service.ts` resolves agent + LLM config; `python-client.ts`/`python-runtime.ts` proxy and spawn the service. |
 | Hybrid financial data + web research (Phase 2) | `python/harness/retrieval/` (**built**) | Provider-agnostic retrieval layer: task-aware source selection, structured + web research, normalization, freshness cache, parallel retrieval, validation, conflict handling, evidence aggregation. |
 | Data access for retrieval/tools | `src/lib/harness/data-bridge.ts` (**built**) | Read-only capability bridge: JDdS plus live providers (scraper chain, Yahoo bridge, economics sources) and the shared web-research transport. Still one market-data layer. |

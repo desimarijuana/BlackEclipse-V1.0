@@ -38,6 +38,8 @@ from .events import emit_skill_event
 from .manifest import EXECUTABLE_STATUSES, ExecutionMode
 from .permissions import Actor, check_permissions
 from .registry import SkillRegistry
+from .schema_validation import check_schema as _check_json_schema
+from .schema_validation import validate_output as _validate_against_schema
 
 
 class SkillExecutionRequest(BaseModel):
@@ -99,8 +101,13 @@ def validate_input(manifest_schema: dict[str, Any], payload: dict[str, Any], ski
     """Validate a skill input against its JSON input schema.
 
     Reuses `tools._args_model` (the registry's existing pydantic builder) rather
-    than hand-rolling a second JSON-schema validator.
+    than hand-rolling a second JSON-schema validator. The schema itself is
+    validated first so a malformed declaration yields an actionable config error
+    instead of a confusing payload error.
     """
+    schema_ok, schema_issues = _check_json_schema(manifest_schema)
+    if not schema_ok:
+        return False, [f"invalid input schema: {i}" for i in schema_issues]
     try:
         model = _args_model(f"skill_{re.sub(r'[^A-Za-z0-9_]', '_', skill_id)}_input", manifest_schema)
         model(**payload)
@@ -147,20 +154,32 @@ def _extract_json(text: str) -> Optional[dict[str, Any]]:
 
 
 def _validate_output(schema: Optional[dict[str, Any]], text: str, skill_id: str) -> tuple[bool, Optional[dict[str, Any]], list[str]]:
-    """Validate the model output against the skill's output schema when one is
-    declared. Returns (ok, parsed, warnings). A missing schema is not a failure.
+    """Validate the model output against the skill's output schema.
+
+    Returns `(ok, parsed, warnings)`. `ok` is True ONLY when a declared schema
+    was present and the COMPLETE output (nested objects, arrays, enums, bounds,
+    required fields) conformed to it.
+
+    A run may legitimately ``complete`` while its output is NOT validated: a
+    prose answer, a missing JSON object, or a schema violation all keep
+    ``status="completed"`` and ``outputValidated=False`` with the failure stated
+    in `warnings` — a schema-invalid result is never reported as validated, and
+    the validation failure is never silently discarded.
+
+    A missing output schema means there is nothing to validate against, so
+    ``ok`` is False (the output was not machine-validated) but no warning is
+    raised — the absence of a contract is not a violation.
     """
     if not schema:
-        return True, _extract_json(text), []
+        return False, _extract_json(text), []
     parsed = _extract_json(text)
     if parsed is None:
         # A prose answer is allowed, but the caller must know it was not
         # machine-validated against the declared schema.
         return False, None, ["output did not contain a JSON object matching the declared schema"]
-    required = schema.get("required") or []
-    missing = [key for key in required if key not in parsed]
-    if missing:
-        return False, parsed, [f"output missing required field(s): {', '.join(missing)}"]
+    ok, errors = _validate_against_schema(schema, parsed)
+    if not ok:
+        return False, parsed, [f"output schema violation: {e}" for e in errors]
     return True, parsed, []
 
 
@@ -288,11 +307,22 @@ async def execute_skill(
         except Exception:  # noqa: BLE001
             emitter = None
 
+    # Load the instructions BEFORE recording the version identity so the
+    # identity covers the prose that shapes behavior, not just the manifest.
+    instructions = ""
+    loaded = registry.get(manifest.id)
+    if loaded is not None:
+        try:
+            instructions = loaded.load_instructions()
+        except OSError:
+            instructions = ""
+    version_identity = manifest.version_identity(instructions)
+
     execution_id = registry.store.create_execution(
         run_id=run_id,
         skill_id=manifest.id,
         version=version,
-        manifest_hash=manifest.content_hash(),
+        manifest_hash=version_identity,
         parent_run_id=request.parentRunId,
         execution_mode=request.executionMode,
         actor=actor.id,
@@ -307,13 +337,6 @@ async def execute_skill(
     # Compose an AgentConfig from the skill. The tool allowlist is the skill's
     # required tools INTERSECTED with what the actor may invoke — never widened
     # by the prose, and never the full registry.
-    instructions = ""
-    loaded = registry.get(manifest.id)
-    if loaded is not None:
-        try:
-            instructions = loaded.load_instructions()
-        except OSError:
-            instructions = ""
     system_prompt = _compose_system_prompt(manifest, instructions, deps.order)
 
     limits = manifest.limits
@@ -326,6 +349,9 @@ async def execute_skill(
         maxSteps=limits.maxSteps,
         toolTimeoutMs=min(20_000, timeout_ms),
         runTimeoutMs=timeout_ms,
+        # Carry the manifest's hard tool-call budget into the runtime so it is
+        # ENFORCED by the graph (never merely advertised in metadata/prose).
+        maxToolCalls=limits.maxToolCalls,
     )
 
     run_input = RunInput(
@@ -369,6 +395,10 @@ async def execute_skill(
         error = result.error.model_dump() if result.error else {"code": "SKILL_FAILED", "message": "run did not complete"}
         registry.store.finish_execution(
             execution_id, status=result.status, output=output, error=error, duration_ms=duration,
+            output_validated=False,
+            metrics={"durationMs": duration, "toolCalls": result.toolCalls,
+                     "toolErrors": result.toolErrors, "modelSteps": result.modelSteps,
+                     "totalTokens": result.totalTokens},
         )
         await emit_skill_event(emitter, "skill.failed",
                                {"skillId": manifest.id, "runId": run_id, "error": error})
@@ -383,15 +413,24 @@ async def execute_skill(
     evidence = _collect_evidence(memory_store, run_id)
     missing_data = _collect_missing_data(parsed)
     limitations = _collect_limitations(parsed)
+    validated = output_ok and parsed is not None
+    run_metrics = {
+        "durationMs": duration,
+        "toolCalls": result.toolCalls,
+        "toolErrors": result.toolErrors,
+        "modelSteps": result.modelSteps,
+        "totalTokens": result.totalTokens,
+    }
 
     registry.store.finish_execution(
         execution_id, status="completed", output=output, warnings=warnings,
         missing_data=missing_data, limitations=limitations, evidence=evidence, duration_ms=duration,
+        output_validated=validated, metrics=run_metrics,
     )
     registry.store.append_event("skill.completed", skill_id=manifest.id, version=version, run_id=run_id,
-                                data={"outputValidated": output_ok, "durationMs": duration})
+                                data={"outputValidated": validated, "durationMs": duration})
     await emit_skill_event(emitter, "skill.completed",
-                           {"skillId": manifest.id, "runId": run_id, "outputValidated": output_ok})
+                           {"skillId": manifest.id, "runId": run_id, "outputValidated": validated})
 
     return SkillExecutionResult(
         status="completed",
@@ -400,18 +439,12 @@ async def execute_skill(
         runId=run_id,
         traceId=run_id,
         output=output or None,
-        outputValidated=output_ok and parsed is not None,
+        outputValidated=validated,
         evidence=evidence,
         warnings=warnings,
         missingData=missing_data,
         limitations=limitations,
-        metrics={
-            "durationMs": duration,
-            "toolCalls": result.toolCalls,
-            "toolErrors": result.toolErrors,
-            "modelSteps": result.modelSteps,
-            "totalTokens": result.totalTokens,
-        },
+        metrics={**run_metrics},
     )
 
 

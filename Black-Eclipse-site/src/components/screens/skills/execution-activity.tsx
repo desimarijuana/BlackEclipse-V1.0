@@ -100,6 +100,26 @@ export function ExecutionActivity({
                         <MetaRow label="Trace ID"><span className="font-mono text-[10px]">{execution.traceId ?? "—"}</span></MetaRow>
                         <MetaRow label="Parent run"><span className="font-mono text-[10px]">{execution.parentRunId ?? "—"}</span></MetaRow>
                         <MetaRow label="Manifest hash"><span className="font-mono text-[10px]">{(execution.manifestHash ?? "—").slice(0, 12)}</span></MetaRow>
+                        <MetaRow label="Output validated">
+                          {execution.outputValidated === true ? (
+                            <span className="text-[10px] font-semibold text-emerald-300">validated</span>
+                          ) : execution.outputValidated === false ? (
+                            <span className="text-[10px] font-semibold text-amber-300">not validated — see warnings</span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">not recorded</span>
+                          )}
+                        </MetaRow>
+                        {execution.metrics && (
+                          <MetaRow label="Execution">
+                            <span className="text-[10px] text-muted-foreground">
+                              {execution.metrics.toolCalls ?? 0} tool calls
+                              {execution.metrics.toolErrors ? ` (${execution.metrics.toolErrors} errors)` : ""}
+                              {" · "}
+                              {execution.metrics.modelSteps ?? 0} steps
+                              {typeof execution.metrics.totalTokens === "number" ? ` · ${execution.metrics.totalTokens} tokens` : ""}
+                            </span>
+                          </MetaRow>
+                        )}
                         <MetaRow label="Actor">{execution.actor ?? "—"}</MetaRow>
                         <MetaRow label="Finished">{formatWhen(execution.finishedAt)}</MetaRow>
                         <button onClick={() => onOpenSkill(execution.skillId)} className="mt-2 text-[10px] text-primary hover:underline cursor-pointer">Open skill</button>

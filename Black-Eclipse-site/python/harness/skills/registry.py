@@ -31,6 +31,14 @@ from .permissions import Actor, PermissionDecision, check_permissions
 from .store import SkillStore
 
 
+def _safe_instructions(loaded: LoadedSkill) -> str:
+    """Best-effort instruction text (file or inline) for version identity."""
+    try:
+        return loaded.load_instructions()
+    except OSError:
+        return ""
+
+
 @dataclass
 class DependencyResolution:
     """The result of resolving a skill's dependency graph.
@@ -136,11 +144,34 @@ class SkillRegistry:
             )
             try:
                 self.store.save_version(
-                    manifest.model_dump(), manifest.content_hash(),
+                    manifest.model_dump(), manifest.version_identity(_safe_instructions(loaded)),
                     instructions=loaded.instructions_text,
                 )
             except ValueError:
-                pass  # immutable version already stored — fine
+                # Immutable version already stored. A version's persisted identity
+                # is `version_identity(manifest, instructions)`, so it covers the
+                # behavior-affecting inputs. Drift is reported only when BOTH the
+                # current identity and the legacy manifest-only hash differ from
+                # the stored hash — a legacy hash (pre-dating instruction-aware
+                # identity) still identifies behavior via the stored `instructions`
+                # column, so it is not treated as drift.
+                try:
+                    existing_version = self.store.get_version(manifest.id, manifest.version)
+                    if existing_version:
+                        stored = existing_version.get("contentHash")
+                        identity = manifest.version_identity(_safe_instructions(loaded))
+                        if stored not in (identity, manifest.content_hash()):
+                            drift = (
+                                f"skill {manifest.id!r} version {manifest.version!r} content changed "
+                                "without a version bump — bump the version so the behavior change is traceable"
+                            )
+                            errors.append(drift)
+                            self.store.append_event(
+                                "skill.version_drift", skill_id=manifest.id, version=manifest.version,
+                                data={"storedHash": stored, "currentHash": identity},
+                            )
+                except Exception:  # noqa: BLE001 - drift detection must not break boot
+                    pass
             # Persist the skill's deterministic cases (idempotent: replace the
             # existing set for this version so a case edit takes effect).
             cases = loaded.load_cases()
@@ -267,7 +298,7 @@ class SkillRegistry:
         )
         try:
             self.store.save_version(
-                manifest.model_dump(), manifest.content_hash(), instructions=instructions,
+                manifest.model_dump(), manifest.version_identity(instructions), instructions=instructions,
             )
         except ValueError:
             pass  # version already materialised
@@ -443,7 +474,16 @@ class SkillRegistry:
             return False, "inputSchema must be an object schema"
         if manifest.outputSchema is not None and not isinstance(manifest.outputSchema, dict):
             return False, "outputSchema must be an object"
-        return True, "input/output schemas are well-formed"
+        from .schema_validation import check_schema  # noqa: PLC0415
+
+        input_ok, input_errors = check_schema(manifest.inputSchema)
+        if not input_ok:
+            return False, f"inputSchema is not a valid JSON Schema: {'; '.join(input_errors)}"
+        if manifest.outputSchema is not None:
+            output_ok, output_errors = check_schema(manifest.outputSchema)
+            if not output_ok:
+                return False, f"outputSchema is not a valid JSON Schema: {'; '.join(output_errors)}"
+        return True, "input/output schemas are valid JSON Schema"
 
     def check_tools(self, skill_id: str, version: Optional[str] = None) -> tuple[bool, str]:
         """Every required tool must be registered in the runtime's tool registry.

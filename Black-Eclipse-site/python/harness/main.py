@@ -830,6 +830,8 @@ def accept_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = No
     result = service.memory.accept_suggestion(suggestion_id, user_id=payload.get("userId"))
     if result.get("action") == "not_found":
         raise HTTPException(status_code=404, detail="Suggestion not found")
+    if result.get("action") == "forbidden":
+        raise HTTPException(status_code=403, detail=result.get("reason") or "suggestion scope denied")
     return {"success": bool(result.get("ok")), **result}
 
 
@@ -838,9 +840,11 @@ def dismiss_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = N
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="dismissing a suggestion requires an authorized operator")
-    result = service.memory.dismiss_suggestion(suggestion_id)
+    result = service.memory.dismiss_suggestion(suggestion_id, user_id=payload.get("userId"))
     if result.get("action") == "not_found":
         raise HTTPException(status_code=404, detail="Suggestion not found")
+    if result.get("action") == "forbidden":
+        raise HTTPException(status_code=403, detail=result.get("reason") or "suggestion scope denied")
     return {"success": bool(result.get("ok")), **result}
 
 

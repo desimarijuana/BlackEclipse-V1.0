@@ -234,3 +234,125 @@ async def test_validate_input_helper_rejects_wrong_type():
 def test_script_bridge_is_read_only(env):
     # Sanity: the fake bridge must not be a write path.
     assert isinstance(env["bridge"], DataBridge)
+
+
+# ── Phase 2: runtime-enforced execution limits + full output validation ──────
+
+
+async def test_max_tool_calls_is_enforced_in_the_runtime(env):
+    # A scripted model that ALWAYS requests a tool must be stopped by the skill's
+    # declared maxToolCalls, not merely told about it in metadata/prose.
+    from harness.schemas import AgentConfig, RunInput, RunRequest
+
+    tool_call = AIMessage(
+        content="",
+        tool_calls=[{"id": "c1", "name": "get_market_snapshot", "args": {"symbol": "AAPL"}}],
+    )
+
+    class LoopingModel:
+        def __init__(self):
+            self.n = 0
+
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            self.n += 1
+            if self.n > 25:
+                return AIMessage(content="{}")
+            return AIMessage(
+                content="",
+                tool_calls=[{"id": f"c{self.n}", "name": "get_market_snapshot",
+                             "args": {"symbol": "AAPL"}}],
+            )
+
+        async def astream(self, messages):
+            yield await self.ainvoke(messages)
+
+    model = LoopingModel()
+    agent = AgentConfig(
+        id="skill:research.planning", name="Loop", systemPrompt="sys",
+        tools=["get_market_snapshot"], maxSteps=20, maxToolCalls=3,
+    )
+    req = RunRequest(
+        runId="run_budget",
+        input=RunInput(query="loop"),
+        agent=agent,
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    from harness import graph as graph_module
+
+    orig = graph_module.build_chat_model
+    graph_module.build_chat_model = lambda settings: model  # type: ignore
+    try:
+        result = await graph_module.execute_run(
+            req, env["tools"], env["bridge"], env["store"], skill_registry=env["registry"],
+        )
+    finally:
+        graph_module.build_chat_model = orig  # type: ignore
+    # The run stopped at the budget (it did not loop to maxSteps=20).
+    assert result.toolCalls <= 3
+    assert env["store"].get_run("run_budget")["toolCalls"] <= 3
+
+
+async def test_output_schema_violation_is_not_reported_validated(env):
+    # A result may complete while its output FAILS the declared schema; it must
+    # never be reported as validated, and the failure must be surfaced.
+    env["model"]._responses = [
+        AIMessage(content='{"objective": 123, "questions": "not-an-array"}')
+    ]
+    result = await execute_skill(
+        _request(), env["registry"], env["tools"], env["bridge"], env["store"]
+    )
+    assert result.status == "completed"
+    assert result.outputValidated is False
+    assert any("schema violation" in w for w in result.warnings)
+
+
+async def test_missing_output_schema_is_not_marked_validated():
+    # No declared output schema => nothing was machine-validated, and the absence
+    # of a contract is not itself a (warning-level) violation.
+    from harness.skills.runtime import _validate_output
+
+    ok, parsed, warnings = _validate_output(None, '{"anything": true}', "s")
+    assert ok is False
+    assert parsed == {"anything": True}
+    assert warnings == []
+
+
+async def test_execution_records_instruction_aware_version_identity(env):
+    result = await execute_skill(
+        _request(), env["registry"], env["tools"], env["bridge"], env["store"]
+    )
+    execution = env["skill_store"].get_execution(result.runId)
+    manifest = env["registry"].manifest("research.planning")
+    instructions = env["registry"].get("research.planning").load_instructions()
+    assert execution["manifestHash"] == manifest.version_identity(instructions)
+
+
+async def test_execution_records_validation_and_metrics(env):
+    env["model"]._responses = [
+        AIMessage(
+            content='{"objective": "x", "questions": ["q"], "requiredData": [], '
+                    '"sourcePlan": [], "expectedDeliverables": ["d"]}'
+        )
+    ]
+    result = await execute_skill(
+        _request(), env["registry"], env["tools"], env["bridge"], env["store"]
+    )
+    execution = env["skill_store"].get_execution(result.runId)
+    # The operator view records the validation result and bounded metrics.
+    assert execution["outputValidated"] is True
+    assert execution["metrics"]["modelSteps"] >= 1
+    assert "toolCalls" in execution["metrics"]
+
+
+async def test_execution_records_not_validated_without_lying(env):
+    env["model"]._responses = [AIMessage(content='{"objective": "x"}')]
+    result = await execute_skill(
+        _request(), env["registry"], env["tools"], env["bridge"], env["store"]
+    )
+    execution = env["skill_store"].get_execution(result.runId)
+    assert execution["status"] == "completed"
+    assert execution["outputValidated"] is False
