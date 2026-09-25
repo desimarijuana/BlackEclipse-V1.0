@@ -190,6 +190,24 @@ def run_evaluation(path: Optional[str] = None) -> dict[str, Any]:
     total_forbidden = sum(len(r.forbiddenHits) for r in results)
     total_leaks = sum(len(r.scopeLeaks) for r in results)
 
+    # Per-kind recall, so a lexical-only retriever's known gap (a synonym
+    # paraphrase sharing no term) is MEASURED and visible separately from the
+    # exact/paraphrase slice it does support. Semantic retrieval is deliberately
+    # not added; this records the limitation instead of hiding it.
+    by_kind: dict[str, dict[str, Any]] = {}
+    for result in results:
+        if not result.expectedIds:
+            continue
+        bucket = by_kind.setdefault(result.kind, {"expected": 0, "hit": 0})
+        bucket["expected"] += len(result.expectedIds)
+        bucket["hit"] += len(result.hitIds)
+    for bucket in by_kind.values():
+        bucket["recall"] = round(bucket["hit"] / bucket["expected"], 3) if bucket["expected"] else 1.0
+
+    supported = [r for r in positive if r.kind in ("normal", "paraphrase")]
+    supported_expected = sum(len(r.expectedIds) for r in supported)
+    supported_hit = sum(len(r.hitIds) for r in supported)
+
     return {
         "datasetName": dataset.get("name"),
         "datasetVersion": dataset.get("version"),
@@ -203,6 +221,9 @@ def run_evaluation(path: Optional[str] = None) -> dict[str, Any]:
             "overBudgetCases": sum(1 for r in results if r.usedChars > r.budgetChars),
             "totalSelected": sum(len(r.selectedIds) for r in results),
             "totalStanding": sum(r.selected - r.selectedTopical for r in results),
+            # The lexical slice the retriever is designed to serve.
+            "recallSupported": round(supported_hit / supported_expected, 3) if supported_expected else 1.0,
+            "byKind": by_kind,
         },
         "budget": {
             "defaultBudgetChars": 4000,
@@ -233,7 +254,14 @@ def format_report(report: dict[str, Any]) -> str:
         f"  recall={metrics['recall']} precision={metrics['precision']} "
         f"scopeLeakage={metrics['scopeLeakage']} forbiddenHits={metrics['forbiddenHits']} "
         f"noMatchClean={metrics['noMatchClean']}",
+        f"  recallSupported={metrics.get('recallSupported')} (lexical slice: normal+paraphrase)",
     ]
+    by_kind = metrics.get("byKind") or {}
+    if by_kind:
+        lines.append("  by kind: " + ", ".join(
+            f"{kind}={row['recall']} ({row['hit']}/{row['expected']})"
+            for kind, row in sorted(by_kind.items())
+        ))
     return "\n".join(lines)
 
 

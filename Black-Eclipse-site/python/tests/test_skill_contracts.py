@@ -38,11 +38,14 @@ def test_check_schema_rejects_malformed_schema():
 
 
 def test_check_schema_rejects_non_object_type():
-    # JSON Schema itself allows a top-level string schema, but the registry's
-    # skill contract requires an object schema; that requirement is enforced
-    # there. `check_schema` returns True (it is a valid JSON Schema document).
+    # A skill's input/output must be an object schema; a top-level string schema
+    # is a valid JSON Schema document but not a valid skill contract.
     ok, errors = check_schema({"type": "string"})
-    assert ok and not errors
+    assert not ok and errors
+    # The structural check reports the same shape requirement.
+    from harness.skills.schema_validation import check_schema_structural
+
+    assert check_schema_structural({"type": "string"})[0] is False
 
 
 def test_check_schema_accepts_missing_schema():
@@ -109,6 +112,36 @@ def test_validate_output_rejects_missing_required():
     ok, errors = validate_output(_schema(), {"status": "ok"})
     assert not ok
     assert any("required" in e.lower() or "score" in e for e in errors)
+
+
+# ── Fail closed when the validator is absent ─────────────────────────────────
+# A supported install always has `jsonschema` (pinned in requirements.txt and
+# probed by doctor). These force the "unavailable" branch to prove it fails
+# closed rather than reporting partial validation as full.
+
+
+def test_check_schema_fails_closed_without_jsonschema(monkeypatch):
+    import harness.skills.schema_validation as sv
+
+    monkeypatch.setattr(sv, "_JSONSCHEMA_AVAILABLE", False)
+    ok, errors = sv.check_schema({"type": "object", "properties": {"n": {"type": "integer"}}})
+    assert ok is False
+    assert any("jsonschema" in e for e in errors)
+
+
+def test_validate_output_fails_closed_without_jsonschema(monkeypatch):
+    import harness.skills.schema_validation as sv
+
+    monkeypatch.setattr(sv, "_JSONSCHEMA_AVAILABLE", False)
+    # A payload that would pass a naive required-only check still fails closed.
+    ok, errors = sv.validate_output({"type": "object", "required": ["n"]}, {"n": 1})
+    assert ok is False
+    assert any("jsonschema" in e for e in errors)
+
+
+def test_validate_output_no_schema_is_not_a_failure():
+    # No declared schema ⇒ nothing to validate; this is not a validation failure.
+    assert validate_output(None, {"anything": True}) == (True, [])
 
 
 # ── Behavior-affecting version identity ──────────────────────────────────────

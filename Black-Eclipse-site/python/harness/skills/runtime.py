@@ -39,6 +39,7 @@ from .manifest import EXECUTABLE_STATUSES, ExecutionMode
 from .permissions import Actor, check_permissions
 from .registry import SkillRegistry
 from .schema_validation import check_schema as _check_json_schema
+from .schema_validation import check_schema_structural as _check_schema_structural
 from .schema_validation import validate_output as _validate_against_schema
 
 
@@ -105,7 +106,11 @@ def validate_input(manifest_schema: dict[str, Any], payload: dict[str, Any], ski
     validated first so a malformed declaration yields an actionable config error
     instead of a confusing payload error.
     """
-    schema_ok, schema_issues = _check_json_schema(manifest_schema)
+    # Input validation is pydantic-based and does not need `jsonschema`, so it
+    # uses the dependency-free STRUCTURAL check (shape only). Full schema
+    # self-validation (which fails closed without `jsonschema`) runs at
+    # registration/evaluation and on OUTPUT validation.
+    schema_ok, schema_issues = _check_schema_structural(manifest_schema)
     if not schema_ok:
         return False, [f"invalid input schema: {i}" for i in schema_issues]
     try:

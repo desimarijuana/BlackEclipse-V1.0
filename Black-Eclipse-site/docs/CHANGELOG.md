@@ -8,6 +8,40 @@ last-verified: 2026-09-15
 
 ## 2026-09-25
 
+- **Reliability follow-up: close the operator-auth bypass, harden schema
+  validation, fix retrieval word-matching.** Investigated the residual risks in
+  the prior commit and fixed the confirmed defects. **(1) API authorization
+  bypass (real):** memory/skill mutation endpoints in `main.py` trusted a
+  caller-supplied body boolean `operator`, while only the MCP endpoints proved
+  authorization by transport/token — so a directly reachable Python runtime (or a
+  crafted proxied payload) could self-authorize memory writes, policy changes,
+  suggestion accept/dismiss, skill author/enable/disable/deprecate/rollback and
+  promotion. Added a `require_operator` FastAPI dependency (loopback or runtime
+  secret, never the body) to every mutation endpoint; the Next.js clients now
+  forward the runtime secret as `X-Harness-Operator`. **(2) Suggestion
+  ownership:** API-level tests prove a caller guessing another scope's suggestion
+  id is refused; listing supports `?scopeId=`. **(3) Schema fail-closed:**
+  `jsonschema`-absent now fails closed (registration/evaluation/output) instead
+  of a required-only fallback that reported partial validation as full; input
+  validation stays pydantic/structural; `runtime-config.ts` + `doctor.js` probe
+  the package and `GET /health` reports `skills.schemaValidation`. **(4)
+  Retrieval:** `_score` matched substrings, so a query token `use` matched
+  `User`; switched to word-boundary matching — eval precision 0.571 → **0.667**
+  at recall 1.0, leakage 0, forbidden 0. Skill execution is not blanket-gated
+  (a non-operator may run an enabled read-only skill), but the body `operator`
+  flag that widens the actor is now honoured only with proven transport/token.
+  **(5) Measured paraphrase gap:** the eval gained a labeled
+  `synonym-paraphrase` slice (paraphrases sharing no lexical term) reported
+  **per kind**, so a deterministic lexical retriever's limitation is measured
+  rather than hidden; `recallSupported` (the exact+paraphrase slice it is built
+  to serve) stays 1.0. No semantic dependency added — the eval is the evidence
+  for whether one is ever warranted. Tests: Python **749 passed** (+20), Vitest
+  **1736 passed**, `tsc` clean. No `jdds.db` change; existing data preserved.
+  docs updated: `harness/architecture.md`, `harness/decisions.md` (ADR-H48),
+  `harness/phase-3-memory-progress.md`, `NAVIGATION.md`
+
+## 2026-09-25
+
 - **Memory + runtime-skills reliability: enforced contracts, measured retrieval,
   isolated scopes.** Small, phased fixes on the existing architecture (no second
   loop, registry or database). **Contracts:** skill input/output are now validated

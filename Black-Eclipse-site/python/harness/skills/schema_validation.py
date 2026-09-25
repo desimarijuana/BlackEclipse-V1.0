@@ -35,23 +35,47 @@ def jsonschema_available() -> bool:
     return _JSONSCHEMA_AVAILABLE
 
 
+def check_schema_structural(schema: Any) -> tuple[bool, list[str]]:
+    """A dependency-free structural check of a schema document.
+
+    Used where the runtime can proceed without the full validator (skill INPUT
+    validation, which is pydantic-based). It verifies only that the document is
+    an object schema, never that nested keywords are valid — so it must not be
+    used to claim a schema was fully validated.
+    """
+    if schema is None:
+        return True, []
+    if not isinstance(schema, dict):
+        return False, [f"schema must be a JSON object, got {type(schema).__name__}"]
+    schema_type = schema.get("type", "object")
+    if schema_type != "object":
+        return False, ["top-level schema type must be 'object'"]
+    if "properties" in schema and not isinstance(schema["properties"], dict):
+        return False, ["properties must be an object"]
+    return True, []
+
+
 def check_schema(schema: Any) -> tuple[bool, list[str]]:
     """Validate that `schema` is itself a well-formed JSON Schema.
 
     Returns `(ok, errors)`. Empty/missing schemas are accepted (a skill may be
     manifest-only or have no output schema). A malformed schema is a hard config
     error with an actionable message — never silently ignored.
+
+    FAILS CLOSED when the validator is unavailable: a declared schema cannot be
+    verified without `jsonschema`, so returning "ok" would let an unverifiable
+    schema be enabled and later report partial validation as full.
     """
     if schema is None:
         return True, []
-    if not isinstance(schema, dict):
-        return False, [f"schema must be a JSON object, got {type(schema).__name__}"]
     if not _JSONSCHEMA_AVAILABLE:
-        # Structural fallback: at minimum require a type of object when present.
-        schema_type = schema.get("type", "object")
-        if schema_type != "object":
-            return False, ["top-level schema type must be 'object'"]
-        return True, []
+        return False, [
+            "full JSON Schema validation requires the 'jsonschema' package "
+            "(install the Python runtime: npm run setup:python)"
+        ]
+    structural_ok, structural_errors = check_schema_structural(schema)
+    if not structural_ok:
+        return False, structural_errors
     try:
         validator_cls = validator_for(schema, default=Draft202012Validator)  # type: ignore[arg-type]
         validator_cls.check_schema(schema)
@@ -75,11 +99,10 @@ def validate_output(schema: Any, instance: Any) -> tuple[bool, list[str]]:
     ok, schema_errors = check_schema(schema)
     if not ok:
         return False, [f"declared output schema is invalid: {e}" for e in schema_errors]
-    if not _JSONSCHEMA_AVAILABLE:
-        # Fallback: required-only check, explicitly reported as partial.
-        required = schema.get("required") or []
-        missing = [k for k in required if not isinstance(instance, dict) or k not in instance]
-        return (not missing), [f"output missing required field(s): {', '.join(missing)}"] if missing else []
+    # `check_schema` already failed closed when `jsonschema` is unavailable, so
+    # reaching here means full validation is possible. There is deliberately no
+    # "required-fields only" fallback: partial validation must never be reported
+    # as full validation.
     try:
         validator_cls = validator_for(schema, default=Draft202012Validator)  # type: ignore[arg-type]
         validator = validator_cls(schema)
@@ -96,4 +119,4 @@ def validate_output(schema: Any, instance: Any) -> tuple[bool, list[str]]:
     return False, messages
 
 
-__all__ = ["check_schema", "jsonschema_available", "validate_output"]
+__all__ = ["check_schema", "check_schema_structural", "jsonschema_available", "validate_output"]

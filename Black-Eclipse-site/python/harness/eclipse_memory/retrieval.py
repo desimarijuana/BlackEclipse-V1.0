@@ -90,13 +90,18 @@ def _score(memory: dict[str, Any], terms: list[str], subject: Optional[str]) -> 
 
     The signal is what the relevance gate uses: importance/confidence alone must
     not cause an unrelated memory to be recalled for a query with real terms.
+
+    Matching is on WORD BOUNDARIES, not substrings: a query token `use` must not
+    match `User`, or `art` match `chart`. `_terms`/`_word_tokens` both return
+    `[a-z0-9]+` tokens, so the comparison is token-to-token.
     """
     score = 0.0
     reasons: list[str] = []
     haystack = " ".join(
         str(memory.get(k) or "") for k in ("content", "subject")
     ).lower()
-    matched = [t for t in terms if t in haystack]
+    haystack_tokens = set(re.findall(r"[a-z0-9]+", haystack))
+    matched = [t for t in terms if t in haystack_tokens]
     # A match counts as a relevance signal only when at least one matched term is
     # specific (not generic preference/profile vocabulary). Matching only
     # "user"/"prefer" is a near-match, not topical relevance.

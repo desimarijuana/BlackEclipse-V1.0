@@ -87,6 +87,13 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 _STARTED_AT_MS = int(time.time() * 1000)
 
 
+def _jsonschema_available() -> bool:
+    """Whether the full JSON Schema validator is installed (skill contracts)."""
+    from .skills.schema_validation import jsonschema_available
+
+    return jsonschema_available()
+
+
 class StartRunResponse(BaseModel):
     success: bool
     runId: str
@@ -118,6 +125,10 @@ def health() -> dict[str, Any]:
             "installed": len(service.skill_registry.all_manifests()),
             "loadErrors": service.skill_load_errors,
             "duplicates": service.skill_registry.duplicate_ids(),
+            # Whether full JSON Schema contract validation is available. False
+            # means skill schemas fail closed (cannot be verified), so an
+            # operator can see why and repair the runtime.
+            "schemaValidation": _jsonschema_available(),
         },
         # MCP (Phase 5): configured/connected server counts + registered tool
         # count. Never includes secret values or full server output.
@@ -164,6 +175,27 @@ def _valid_operator_token(request: Request) -> bool:
         if candidate and hmac.compare_digest(candidate, secret):
             return True
     return False
+
+
+def require_operator(request: Request) -> bool:
+    """FastAPI dependency: prove the caller MAY set the operator flag.
+
+    Proof is transport/token only — NEVER a caller-supplied JSON boolean:
+    the request must originate from the loopback interface (the Next.js front
+    door or a local operator) OR present the runtime secret in
+    `X-Harness-Operator` / a Bearer token.
+
+    A memory/skill mutation endpoint reads the body `operator` flag only AFTER
+    this dependency passes, so a directly reachable Python runtime cannot be
+    handed an operator decision by spoofing `{"operator": true}`; a remote
+    caller without the secret is refused before the body is considered.
+    """
+    if _is_loopback(request) or _valid_operator_token(request):
+        return True
+    raise HTTPException(
+        status_code=403,
+        detail="this operation requires an authorized operator (loopback or runtime secret)",
+    )
 
 
 def require_mcp_operator(request: Request) -> None:
@@ -627,7 +659,7 @@ def get_memory(memory_id: str) -> dict[str, Any]:
 
 
 @app.post("/eclipse-memory/memories")
-def create_memory(payload: dict[str, Any]) -> dict[str, Any]:
+def create_memory(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory write requires an authorized operator")
     # A UI save is a direct human action, but it still passes the ONE shared
@@ -659,7 +691,7 @@ def create_memory(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.patch("/eclipse-memory/memories/{memory_id}")
-def patch_memory(memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def patch_memory(memory_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory update requires an authorized operator")
     updated = service.memory_store.update_memory(
@@ -672,7 +704,7 @@ def patch_memory(memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/eclipse-memory/memories/{memory_id}/archive")
-def archive_memory(memory_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def archive_memory(memory_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory archive requires an authorized operator")
@@ -683,7 +715,7 @@ def archive_memory(memory_id: str, payload: Optional[dict[str, Any]] = None) -> 
 
 
 @app.post("/eclipse-memory/memories/{memory_id}/review")
-def review_memory(memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def review_memory(memory_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="memory review requires an authorized operator")
     updated = service.memory.review_memory(memory_id, approve=bool(payload.get("approve")), reviewed_by="operator")
@@ -725,7 +757,7 @@ def list_mistakes(runId: Optional[str] = None, limit: int = 100) -> dict[str, An
 
 
 @app.post("/eclipse-memory/corrections")
-def create_correction(payload: dict[str, Any]) -> dict[str, Any]:
+def create_correction(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="correction capture requires an authorized operator")
     # A correction is an explicit human action, but it still passes the shared
@@ -772,7 +804,7 @@ def get_policies() -> dict[str, Any]:
 
 
 @app.put("/eclipse-memory/policies")
-def update_policies(payload: dict[str, Any]) -> dict[str, Any]:
+def update_policies(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="policy changes require an authorized operator")
     updates = payload.get("policies") or {}
@@ -790,8 +822,12 @@ def update_policies(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/eclipse-memory/analyze/{run_id}")
-def analyze_run_endpoint(run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """Deterministic post-run analysis: mistakes + (policy-gated) candidates."""
+def analyze_run_endpoint(run_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Deterministic post-run analysis: mistakes + (policy-gated) candidates.
+
+    This creates records, so it requires proof of operator authorization
+    (transport/token) — a body boolean cannot authorize it.
+    """
     payload = payload or {}
     if service.get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -815,15 +851,26 @@ def list_memory_events(limit: int = 100) -> dict[str, Any]:
 
 
 @app.get("/eclipse-memory/suggestions")
-def list_suggestions(status: Optional[str] = "pending", limit: int = 100) -> dict[str, Any]:
+def list_suggestions(
+    status: Optional[str] = "pending", scopeId: Optional[str] = None, limit: int = 100,
+) -> dict[str, Any]:
+    """Inert Save/Dismiss proposals.
+
+    `scopeId` narrows the list to one user scope (plus unscoped suggestions), so
+    a caller can request only their own. This app has no account system, so the
+    filter is caller-supplied by design; the authoritative cross-user guard is
+    the mismatch refusal in accept/dismiss below.
+    """
     return {
         "success": True,
-        "suggestions": service.memory_store.list_suggestions(status=status, limit=limit),
+        "suggestions": service.memory_store.list_suggestions(
+            status=status, scope_id=scopeId, limit=limit,
+        ),
     }
 
 
 @app.post("/eclipse-memory/suggestions/{suggestion_id}/accept")
-def accept_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def accept_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="accepting a suggestion requires an authorized operator")
@@ -836,7 +883,7 @@ def accept_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = No
 
 
 @app.post("/eclipse-memory/suggestions/{suggestion_id}/dismiss")
-def dismiss_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def dismiss_suggestion(suggestion_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="dismissing a suggestion requires an authorized operator")
@@ -863,7 +910,7 @@ def authorable_tools() -> dict[str, Any]:
 
 
 @app.post("/skills/author")
-def create_user_skill(payload: dict[str, Any]) -> dict[str, Any]:
+def create_user_skill(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Create a user-authored skill (operator-gated)."""
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
@@ -887,7 +934,7 @@ def create_user_skill(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.put("/skills/{skill_id}/author")
-def update_user_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_user_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
     from .skills.authoring import SkillAuthoringError
@@ -900,7 +947,7 @@ def update_user_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.delete("/skills/{skill_id}/author")
-def delete_user_skill(skill_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def delete_user_skill(skill_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
@@ -939,10 +986,19 @@ def validate_skill_input(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/skills/{skill_id}/execute")
-async def execute_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> JSONResponse:
-    body = {**payload, "skillId": skill_id}
-    request = SkillExecutionRequest(**body)
-    result = await service.run_skill(request)
+async def execute_skill_endpoint(
+    skill_id: str, payload: dict[str, Any], request: Request,
+) -> JSONResponse:
+    # Execution is a legitimate NON-operator action (an enabled read-only skill),
+    # so this endpoint is not blanket operator-gated. But the body `operator`
+    # flag widens the actor to the operator permission set, so it may only be
+    # honoured when authorization is PROVEN by transport/token — never by the
+    # body alone. A remote caller that sends `{"operator": true}` without proof
+    # is downgraded to the safe read-only actor.
+    proven = _is_loopback(request) or _valid_operator_token(request)
+    body = {**payload, "skillId": skill_id, "operator": bool(payload.get("operator")) and proven}
+    execution = SkillExecutionRequest(**body)
+    result = await service.run_skill(execution)
     return JSONResponse({"success": True, **result.model_dump()})
 
 
@@ -990,7 +1046,7 @@ def get_evaluation(evaluation_id: str) -> dict[str, Any]:
 
 
 @app.post("/skills/{skill_id}/enable")
-def enable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def enable_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     result = service.skill_registry.set_status(
         skill_id, "enabled", _actor(bool(payload.get("operator"))), payload.get("version")
     )
@@ -998,7 +1054,7 @@ def enable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/skills/{skill_id}/disable")
-def disable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def disable_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     result = service.skill_registry.set_status(
         skill_id, "disabled", _actor(bool(payload.get("operator"))), payload.get("version")
     )
@@ -1006,7 +1062,7 @@ def disable_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/skills/{skill_id}/deprecate")
-def deprecate_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def deprecate_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     result = service.skill_registry.deprecate(
         skill_id, _actor(bool(payload.get("operator"))),
         reason=str(payload.get("reason") or "deprecated"),
@@ -1016,7 +1072,7 @@ def deprecate_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/skills/{skill_id}/rollback")
-def rollback_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def rollback_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     result = rollback(
         service.skill_registry, skill_id=skill_id,
         to_version=str(payload.get("version") or ""),
@@ -1040,7 +1096,7 @@ def get_candidate(candidate_id: str) -> dict[str, Any]:
 
 
 @app.post("/learning/from-run/{run_id}")
-def learn_from_run(run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def learn_from_run(run_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     result = capture_from_run(
         run_id, service.store, service.skill_store,
@@ -1066,7 +1122,7 @@ def learning_eligibility(run_id: str) -> dict[str, Any]:
 
 
 @app.post("/learning/candidates/{candidate_id}/generate-draft")
-def generate_draft(candidate_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def generate_draft(candidate_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
@@ -1078,7 +1134,7 @@ def generate_draft(candidate_id: str, payload: Optional[dict[str, Any]] = None) 
 
 
 @app.post("/learning/candidates/{candidate_id}/reject")
-def reject_candidate(candidate_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def reject_candidate(candidate_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     payload = payload or {}
     if not bool(payload.get("operator")):
         raise HTTPException(status_code=403, detail="skill.review requires an authorized operator")
@@ -1090,7 +1146,7 @@ def reject_candidate(candidate_id: str, payload: Optional[dict[str, Any]] = None
 
 
 @app.post("/skill-drafts/{skill_id}/submit-review")
-def submit_draft_review(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def submit_draft_review(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     result = request_promotion(
         service.skill_registry, skill_id=skill_id, version=payload.get("version"),
         actor=_actor(bool(payload.get("operator"))), reason=str(payload.get("reason") or "submit for review"),
@@ -1100,7 +1156,7 @@ def submit_draft_review(skill_id: str, payload: dict[str, Any]) -> dict[str, Any
 
 
 @app.post("/skill-drafts/{skill_id}/approve")
-def approve_draft(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def approve_draft(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     request_id = str(payload.get("requestId") or "")
     if not request_id:
         # Resolve the newest pending request for this skill (the UI holds only
@@ -1120,7 +1176,7 @@ def approve_draft(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/skill-drafts/{skill_id}/reject")
-def reject_draft(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def reject_draft(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     request_id = str(payload.get("requestId") or "")
     if not request_id:
         pending = [

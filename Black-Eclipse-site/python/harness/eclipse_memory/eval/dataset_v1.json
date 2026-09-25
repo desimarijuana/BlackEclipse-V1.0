@@ -112,6 +112,17 @@
       "subject": "fiscal-year",
       "confidence": 0.7,
       "importance": 0.5
+    },
+    {
+      "key": "u3-plain-language",
+      "memoryType": "semantic",
+      "scope": "user",
+      "scopeId": "u3",
+      "content": "The user wants technical jargon avoided in explanations.",
+      "subject": "explanation-style",
+      "confidence": 0.8,
+      "importance": 0.6,
+      "verification": "verified"
     }
   ],
   "cases": [
@@ -209,6 +220,23 @@
       "scopeId": "u2",
       "forbidKeys": ["u1-reporting-currency"],
       "forbidContent": ["reporting currency for statements is pkr"]
+    },
+    {
+      "caseId": "synonym-currency-denominated",
+      "kind": "synonym-paraphrase",
+      "query": "Which money should company accounts be denominated in?",
+      "actorScope": "user",
+      "scopeId": "u1",
+      "expectKeys": ["u1-reporting-currency"],
+      "forbidKeys": ["general-fiscal-year"]
+    },
+    {
+      "caseId": "synonym-plain-language",
+      "kind": "synonym-paraphrase",
+      "query": "How should explanations be phrased for this user?",
+      "actorScope": "user",
+      "scopeId": "u3",
+      "expectKeys": ["u3-plain-language"]
     },
     {
       "caseId": "no-match-irrelevant",

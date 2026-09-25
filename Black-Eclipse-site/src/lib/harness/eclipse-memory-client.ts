@@ -4,6 +4,7 @@
 // Python client); use `eclipse-memory-browser.ts`.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
+import { runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
 import { redactSecrets } from "./errors";
 import type {
@@ -24,9 +25,18 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
     );
   }
   const { timeoutMs = 30_000, ...rest } = init;
+  // The Python runtime authorizes operator mutations by transport (loopback) or
+  // by this secret — never by a body boolean. Forwarding it means the front
+  // door's own authorization is what reaches Python, even if the runtime is
+  // later bound to a non-loopback interface. The value is never logged.
+  const operatorToken = runtimeCallbackToken();
   const res = await fetch(`${HARNESS_PY_URL}${path}`, {
     ...rest,
-    headers: { "Content-Type": "application/json", ...(rest.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(operatorToken ? { "X-Harness-Operator": operatorToken } : {}),
+      ...(rest.headers ?? {}),
+    },
     signal: AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
@@ -194,9 +204,11 @@ export interface MemorySuggestion {
   decidedAt: string | null;
 }
 
-export async function listSuggestions(status = "pending"): Promise<MemorySuggestion[]> {
+export async function listSuggestions(status = "pending", scopeId?: string): Promise<MemorySuggestion[]> {
+  const params = new URLSearchParams({ status });
+  if (scopeId) params.set("scopeId", scopeId);
   const body = await request<{ suggestions: MemorySuggestion[] }>(
-    `/eclipse-memory/suggestions?status=${encodeURIComponent(status)}`,
+    `/eclipse-memory/suggestions?${params.toString()}`,
     { method: "GET" }
   );
   return body.suggestions ?? [];
@@ -209,9 +221,9 @@ export async function acceptSuggestion(id: string, operator: boolean, userId?: s
   );
 }
 
-export async function dismissSuggestion(id: string, operator: boolean) {
+export async function dismissSuggestion(id: string, operator: boolean, userId?: string) {
   return request<{ success: boolean; action: string }>(
     `/eclipse-memory/suggestions/${encodeURIComponent(id)}/dismiss`,
-    { method: "POST", body: JSON.stringify({ operator }) }
+    { method: "POST", body: JSON.stringify({ operator, userId }) }
   );
 }

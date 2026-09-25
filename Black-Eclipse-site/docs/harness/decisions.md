@@ -941,6 +941,36 @@ could exceed its own budget.
 `TOOL_BUDGET_EXCEEDED` added to the error-code vocabulary (Python + TS);
 `jsonschema` declared explicitly in `python/requirements.txt`.
 
+## ADR-H48 — Operator authorization is transport/token proof on every mutation; schema validation fails closed
+
+**Decision.** Every memory/skill mutation endpoint in `main.py` takes the
+`require_operator` FastAPI dependency: the caller must originate from loopback
+(the front door / local operator) **or** present the runtime secret
+(`X-Harness-Operator` / `Bearer`). The body `operator` boolean is read only
+afterward, so it can never, by itself, authorize a remote caller. The Next.js
+memory/skill clients forward the runtime secret so the front door's trusted
+authorization is what reaches Python, matching the MCP endpoints (ADR-H40/H41).
+Additionally, full JSON Schema validation FAILS CLOSED: if `jsonschema` is
+missing, a declared schema cannot be verified, so `check_schema`/`validate_output`
+return failure with an actionable message instead of falling back to a
+required-only check that would report partial validation as full. Skill INPUT
+validation is pydantic-based and keeps working (structural shape check);
+registration/evaluation and OUTPUT validation require the validator.
+
+**Why.** The front door derived `operator` from trusted auth, but the Python
+endpoints trusted a body boolean — so a directly reachable runtime (or a crafted
+proxied payload) could self-authorize memory writes, policy changes, suggestion
+acceptance, skill enablement and promotion. Separately, the `jsonschema`-absent
+fallback silently downgraded contract enforcement to a required-fields check.
+
+**Impact.** `main.py` (`require_operator`, applied to all mutation endpoints),
+`skills/schema_validation.py` (`check_schema_structural`, fail-closed
+`check_schema`/`validate_output`), front-door token forwarding
+(`eclipse-memory-client.ts`, `skills-client.ts`), `runtime-config.ts` +
+`scripts/doctor.js` probe `jsonschema`, `GET /health` reports
+`skills.schemaValidation`. Tests: `test_memory_api_auth.py`,
+`test_suggestion_api_scope.py`, `test_skill_contracts.py`; docs updated.
+
 ## ADR-H46 — Skill version identity covers instruction content, dependencies and drift
 
 **Decision.** A version's persisted identity is

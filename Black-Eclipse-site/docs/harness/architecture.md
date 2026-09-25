@@ -618,6 +618,18 @@ runtime secret (`X-Harness-Operator` / `Bearer`), never a caller-supplied JSON
 boolean. So a directly reachable Python runtime cannot be handed arbitrary
 subprocess configuration by spoofing `operator: true`. Reads stay open.
 
+The SAME rule now guards **every** memory/skill mutation endpoint (memory
+create/update/archive/review, corrections, policies, suggestion accept/dismiss,
+skill author/enable/disable/deprecate/rollback, learning from-run / generate-draft
+/ reject, and skill-draft submit/approve/reject). Each takes the
+`require_operator` FastAPI dependency (`main.py`), which is transport/token only;
+the body `operator` boolean is read afterward and can never by itself authorize.
+Previously these endpoints trusted the body boolean, so a directly reachable
+runtime — or a crafted proxied payload — could self-authorize; the Next.js clients
+now forward the runtime secret as `X-Harness-Operator` so the front door's own
+authorization is what reaches Python. Tests: `test_memory_api_auth.py`,
+`test_mcp_api.py`.
+
 **Transports (Phase 5D).** A server is `stdio` (local subprocess, default) or
 `http` (remote Streamable-HTTP). `MCPServerConfig.transport` selects it; `http`
 requires a `url` and may carry `auth: {kind: "header"|"query", name, prefix,

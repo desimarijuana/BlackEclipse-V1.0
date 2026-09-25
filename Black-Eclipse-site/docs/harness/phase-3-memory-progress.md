@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3-M — Eclipse-Memory
 status: Complete
-last-verified: 2026-09-24
+last-verified: 2026-09-25
 ---
 
 # Phase 3-M — Eclipse-Memory: Dedicated Memory, Skills & Controlled Self-Improvement
@@ -105,13 +105,35 @@ Phase-1 runtime and Phase-2 retrieval.
 the corpus and runs the REAL `EclipseMemoryService.retrieve` for each case,
 reporting recall, topical precision, scope leakage, forbidden hits, no-match
 cleanliness and context-budget behaviour. Recorded baseline (dataset v1):
-**recall 1.0, precision 0.571, scope leakage 0, forbidden hits 0**. Run it with
-`python -m harness.eclipse_memory.eval`. A deterministic **lexical relevance
-gate** stops an off-domain/near-match query from recalling a topical memory that
-shares no keyword/subject signal; standing user rules (`preference`/`constraint`)
-are exempt because they are intentional per-turn personalization. Scope, status
-and privacy filtering remain authoritative — semantic similarity is never used
-and never authorizes access.
+**recallSupported 1.0, precision ≥0.667, scope leakage 0, forbidden hits 0**. Run
+it with `python -m harness.eclipse_memory.eval`. A deterministic **lexical
+relevance gate** stops an off-domain/near-match query from recalling a topical
+memory that shares no keyword/subject signal; matching is on **word boundaries**
+(a query token `use` must not match `User`); standing user rules
+(`preference`/`constraint`) are exempt because they are intentional per-turn
+personalization. Scope, status and privacy filtering remain authoritative —
+semantic similarity is never used and never authorizes access.
+
+The set also carries a labeled **synonym-paraphrase** slice (a paraphrase that
+shares no lexical term, e.g. "which money should accounts be denominated in?"
+vs "reporting currency … PKR"). It is reported **per kind** so the lexical
+retriever's known limitation is measured rather than hidden (currently 1/2). No
+semantic dependency is added until a labeled set demonstrates the need; the eval
+is the evidence, and `recallSupported` (the exact+paraphrase slice the retriever
+is designed to serve) stays at 1.0.
+
+## API authorization (memory + skills)
+
+Every memory/skill MUTATION endpoint requires proof of operator authorization by
+transport or token, not a body boolean: the FastAPI `require_operator`
+dependency accepts a loopback caller (the Next.js front door / local operator) or
+the runtime secret (`X-Harness-Operator` / `Bearer`). The front-door clients
+forward the runtime secret so the front door's trusted decision is what reaches
+Python. Reads stay open. This closes the bypass where a directly reachable
+runtime could self-authorize by sending `{"operator": true}`. Tests:
+`test_memory_api_auth.py`. Suggestion accept/dismiss additionally refuse a
+suggestion owned by another scope (`test_suggestion_api_scope.py`), and listing
+can be narrowed with `?scopeId=`.
 
 ## Skill-execution observability
 

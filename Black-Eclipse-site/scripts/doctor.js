@@ -178,6 +178,16 @@ if (py) {
       fix("Python MCP client", `"${py}" -m pip install -r "${requirements}"`);
     }
   }
+
+  // 5d. JSON Schema validator. Skill input/output contracts are enforced with
+  //     it, so a repair restores it explicitly rather than relying on it
+  //     arriving transitively through `mcp`.
+  if (run(`"${py}" -c "import jsonschema"`, { timeout: 20000 }).status !== 0) {
+    const requirements = path.join(root, "python", "requirements.txt");
+    if (fs.existsSync(requirements)) {
+      fix("Python JSON Schema validator", `"${py}" -m pip install -r "${requirements}"`);
+    }
+  }
 } else {
   console.log("[setup] Python not found — live prices and the agent runtime are disabled.");
   console.log("        Install from https://python.org, then:");
