@@ -970,6 +970,15 @@ def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:
         blob["contentPreview"] = (memory.get("content") or "")[:400]
         blob["inspectPath"] = f"/api/eclipse-memory/memories/{memory['id']}"
         blob["undoPath"] = f"/api/eclipse-memory/memories/{memory['id']}/archive"
+        # A proposed record is NOT active truth. Surface why, and whether the
+        # proposal came from the semantic candidate layer, so the chat panel can
+        # distinguish "proposed for review" from a saved memory.
+        status_reason = memory.get("statusReason") or ""
+        if status_reason:
+            blob["statusReason"] = status_reason
+        if memory.get("status") == "proposed":
+            blob["requiresReview"] = True
+            blob["semanticCandidate"] = "semantic" in status_reason.lower()
     suggestion = outcome.get("suggestion") or {}
     if suggestion.get("id"):
         blob["suggestionId"] = suggestion["id"]

@@ -801,9 +801,34 @@ def semantic_status() -> dict[str, Any]:
     """The active conflict-detection mode + semantic fallback state.
 
     Read-only; exposes no embedding, model path or memory content. `mode` is
-    `lexical`, `lexical+semantic`, or `lexical+semantic-unavailable`.
+    `lexical`, `lexical+semantic`, or `lexical+semantic-unavailable`. Includes
+    bounded controls, backend health and diagnostic counters.
     """
     return {"success": True, **service.memory.semantic_status()}
+
+
+@app.post("/eclipse-memory/semantic/rebuild")
+def semantic_rebuild(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Clear/rebuild the optional local semantic index.
+
+    Honest by design: the v1 local backends hold NO persistent index (similarity
+    is computed per write over an already-authorized in-memory pool), so there is
+    nothing to clear or corrupt. This reports that fact; it never deletes memory
+    and never triggers a model download or network call. A future backend that
+    does keep an index would clear/rebuild it here.
+    """
+    status = service.memory.semantic_status()
+    return {
+        "success": True,
+        "rebuilt": False,
+        "persistentIndex": False,
+        "reason": (
+            "no persistent semantic index exists for the active backend; "
+            "similarity is computed per write"
+        ),
+        "backend": status.get("backend"),
+        "available": status.get("semanticAvailable"),
+    }
 
 
 @app.post("/eclipse-memory/memories/{memory_id}/review")

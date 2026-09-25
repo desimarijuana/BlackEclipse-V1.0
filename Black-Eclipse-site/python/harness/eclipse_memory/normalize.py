@@ -38,7 +38,7 @@ _SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
     ("fiscal", "fy", "financialyear"),
     ("period", "periods", "trailing", "ttm", "twelvemonth", "annual"),
     ("risk", "risky", "volatility", "volatile"),
-    ("buy", "long", "purchase"), ("sell", "short", "dispose"),
+    ("buy", "long", "purchase"), ("sell", "dispose"),
     ("always", "invariably", "consistently"), ("never", "avoid", "refrain"),
     ("include", "show", "display", "with"), ("exclude", "hide", "omit", "without"),
     ("preference", "preferences", "prefer", "prefers", "preferred", "like", "likes", "favorite", "favourite"),

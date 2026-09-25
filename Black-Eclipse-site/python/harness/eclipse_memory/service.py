@@ -216,7 +216,11 @@ class EclipseMemoryService:
                 )
                 if semantic is not None:
                     write_status = "proposed"
-                    write_reason = "possible contradiction detected (semantic candidate)"
+                    candidate_type = semantic.get("candidateType", "conflict_candidate")
+                    write_reason = (
+                        "possible contradiction detected (semantic "
+                        f"{candidate_type.replace('_candidate', '')} candidate)"
+                    )
                     detector_meta = semantic
 
         # 5c. Storage budget. A duplicate return above does not consume budget;
@@ -405,13 +409,17 @@ class EclipseMemoryService:
         self, *, memory_type: str, scope: str, scope_id: Optional[str],
         subject: Optional[str], content: str,
     ) -> Optional[dict[str, Any]]:
-        """Find a semantic contradiction candidate, or None.
+        """Find an ACTIONABLE semantic contradiction candidate, or None.
 
         SAFETY: the candidate layer is local, optional and bounded. It can ONLY
-        return a review suggestion — never a supersede. The caller stores the new
+        return a review suggestion - never a supersede. The caller stores the new
         record inert (`proposed`). Scope/status/type/dimension/authority filtering
         is applied HERE, before similarity, so similarity can never widen access.
-        Any failure (disabled, unavailable, timeout, bad setting) returns None,
+
+        Only `conflict_candidate` / `replacement_candidate` may lead to a review:
+        a `confirmation_candidate` is diagnostic-only (similarity must never
+        confirm or activate memory) and `unrelated_candidate` is inert. Any
+        failure (disabled, unavailable, timeout, bad setting) returns None,
         leaving lexical-only behavior intact.
         """
         try:
@@ -439,25 +447,69 @@ class EclipseMemoryService:
                 return None
 
             # Stage 2 — bounded local similarity among the authorized candidates.
+            backend_name = str(settings.get("semantic_conflict_backend") or "char-ngram")
             result = semantic.find_candidates(
                 content=content, same_dimension=same, settings=settings,
+                backend_name=backend_name,
             )
             if not result.available or not result.candidates:
                 return None
-            best = result.candidates[0]
+
+            # Stage 3 — record bounded diagnostics for ALL candidates (no raw
+            # text/vectors), then act only on the strongest actionable one.
+            self._record_semantic_diagnostics(result, settings)
+            best = semantic.strongest_actionable(result)
+            if best is None:
+                # Only confirmation/unrelated candidates: inert, diagnostic-only.
+                return None
             return {
+                "candidateType": best.kind,
                 "detector": result.detector,
                 "detectorVersion": semantic.DETECTOR_VERSION,
                 "similarity": best.score,
-                "candidateIds": [c.memoryId for c in result.candidates],
+                "candidateIds": [c.memoryId for c in result.candidates
+                                 if c.kind in semantic.ACTIONABLE_KINDS],
                 "requiresConfirmation": True,
-                "reason": (
+                "reason": best.reason or (
                     "local semantic similarity suggests this may restate or "
                     "contradict an existing memory"
                 ),
             }
         except Exception:  # noqa: BLE001 - the semantic layer must never break a write
             return None
+
+    def _record_semantic_diagnostics(self, result: Any, settings: dict[str, Any]) -> None:
+        """Persist bounded candidate metadata for operator diagnostics.
+
+        Records detector, version, candidate ids, per-candidate kind and score,
+        and counts. NEVER records raw memory text or any embedding. Respects
+        `semantic_conflict_diagnostics`.
+        """
+        if not settings.get("semantic_conflict_diagnostics", True):
+            return
+        try:
+            candidates = [
+                {"memoryId": c.memoryId, "kind": c.kind, "score": round(c.score, 3)}
+                for c in result.candidates
+            ]
+            actionable = [
+                c for c in result.candidates
+                if c.kind in ("conflict_candidate", "replacement_candidate")
+            ]
+            self.store.append_memory_event(
+                "memory.semantic_diagnostics",
+                data={
+                    "detector": result.detector,
+                    "candidateCount": len(candidates),
+                    "candidates": candidates,
+                    "actionableCount": len(actionable),
+                    "timedOut": result.timedOut,
+                    "truncated": result.truncated,
+                    "unavailable": False,
+                },
+            )
+        except Exception:  # noqa: BLE001 - diagnostics must never break a write
+            pass
 
     def _active_memory_count(self) -> int:
         try:
@@ -695,6 +747,7 @@ class EclipseMemoryService:
             include_proposed=include_proposed if include_proposed is not None
             else settings["include_proposed_in_retrieval"],
             recall_denied_types=denied or None,
+            semantic_tiebreak=bool(settings.get("semantic_recall_tiebreak")),
         )
 
     # ── Corrections / mistakes ──────────────────────────────────────────────
@@ -1318,12 +1371,13 @@ class EclipseMemoryService:
         """
         from . import semantic  # noqa: PLC0415
 
-        enabled = False
         try:
-            enabled = bool(self.policy.get("semantic_conflict_enabled"))
+            settings = self.policy.get_all()
         except Exception:  # noqa: BLE001 - a policy read failure is lexical-only
-            enabled = False
-        backend = semantic.backend_status()
+            settings = {}
+        enabled = bool(settings.get("semantic_conflict_enabled"))
+        backend_name = str(settings.get("semantic_conflict_backend") or "char-ngram")
+        backend = semantic.backend_status(backend_name)
         if not enabled:
             mode = "lexical"
             reason = "semantic conflict detection is disabled"
@@ -1333,14 +1387,68 @@ class EclipseMemoryService:
         else:
             mode = "lexical+semantic-unavailable"
             reason = "semantic enabled but no local backend is available; lexical-only"
+        stats = self._semantic_stats()
         return {
             "mode": mode,
             "lexicalActive": True,
             "semanticEnabled": enabled,
             "semanticAvailable": backend["available"],
             "backend": backend["backend"],
+            "backendRequested": backend_name,
             "detectorVersion": semantic.DETECTOR_VERSION,
             "reason": reason,
+            # Controls (bounded; reported so the operator can see them).
+            "controls": {
+                "enabled": enabled,
+                "backend": backend_name,
+                "threshold": settings.get("semantic_conflict_threshold"),
+                "candidateLimit": settings.get("semantic_conflict_max_candidates"),
+                "indexLimit": settings.get("semantic_conflict_max_index"),
+                "timeoutMs": settings.get("semantic_conflict_timeout_ms"),
+                "diagnostics": settings.get("semantic_conflict_diagnostics", True),
+            },
+            "backends": semantic.backend_health(),
+            # Counters derived from bounded audit events (no content).
+            "stats": stats,
+        }
+
+    def _semantic_stats(self) -> dict[str, Any]:
+        """Bounded counters from semantic audit events. No content is exposed."""
+        try:
+            events = self.store.list_memory_events(limit=1000)
+        except Exception:  # noqa: BLE001 - stats must never fail health
+            return {"available": False}
+        proposed = 0
+        diagnostic_cases = 0
+        candidates = 0
+        actionable = 0
+        accepted = 0
+        dismissed = 0
+        replacements = 0
+        for event in events:
+            etype = event.get("type")
+            data = event.get("data") or {}
+            if etype == "memory.semantic_candidate":
+                proposed += 1
+                if data.get("candidateType") == "replacement_candidate":
+                    replacements += 1
+            elif etype == "memory.semantic_diagnostics":
+                diagnostic_cases += 1
+                candidates += int(data.get("candidateCount") or 0)
+                actionable += int(data.get("actionableCount") or 0)
+            elif etype == "memory.conflict_confirmed":
+                accepted += 1
+            elif etype == "memory.conflict_needs_review":
+                dismissed += 1
+        return {
+            "available": True,
+            "proposedBySemantics": proposed,
+            "semanticCandidateOccurrences": candidates,
+            "actionableCandidates": actionable,
+            "diagnosticRuns": diagnostic_cases,
+            "confirmedAfterReview": accepted,
+            "keptExistingOrDismissed": dismissed,
+            "replacementProposals": replacements,
         }
 
     def migration_status(self) -> dict[str, Any]:

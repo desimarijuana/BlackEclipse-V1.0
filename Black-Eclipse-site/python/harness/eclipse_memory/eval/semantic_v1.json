@@ -1,0 +1,207 @@
+{
+  "name": "memory-semantic",
+  "version": 1,
+  "description": "Human-labeled cases chosen specifically because deterministic lexical matching does NOT solve them: unfamiliar paraphrased contradictions, indirect negation, same-dimension value substitutions, plus safety negatives (unrelated surface similarity, different subjects/scopes, temporary instructions, secrets, financial facts, and inert lifecycle records). Each case declares the existing memory, the new statement, memory type, subject, scope, authority, the SAFE expected outcome, whether human review is required, and whether supersession is allowed. The runner executes the REAL write pipeline; a case's safety fields must never be violated at any detector setting.",
+  "cases": [
+    {
+      "caseId": "sem-report-pdf-excel",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer reports delivered as Excel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "report-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-alert-email-sms",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Notify me about fills by email", "subject": "alert-channel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Notify me about fills by SMS", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "alert-channel", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-rebalance-cadence",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Rebalance my portfolio quarterly", "subject": "rebalance-cadence", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Rebalance my portfolio monthly", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "rebalance-cadence", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-sizing-drawdown-var",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Size positions by drawdown", "subject": "sizing-method", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Size positions by value at risk", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "sizing-method", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-chart-bg-white-black",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Charts should have a white background", "subject": "chart-theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Charts should have a black canvas", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "chart-theme", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-chart-scale-log-linear",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I prefer charts with log scale", "subject": "chart-scale", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer charts with linear scale", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "chart-scale", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-notes-bullet-paragraph",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Keep notes as bullet points", "subject": "note-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Keep notes as full paragraphs", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "note-style", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-time-24-12",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "Show times in 24-hour format", "subject": "time-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Show times in 12-hour AM/PM", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "time-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-indirect-negation",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I want every response to carry a short intro", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Please leave out any kind of opening", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "answer-style", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-automatic-vs-explicit",
+      "kind": "authority",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer reports delivered as Excel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "report-format", "authority": "automatic"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-explicit-over-automatic",
+      "kind": "authority",
+      "existing": {"content": "Notify me about fills by email", "subject": "alert-channel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
+      "new": {"content": "Notify me about fills by SMS", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "alert-channel", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": true
+    },
+    {
+      "caseId": "sem-replacement-language",
+      "kind": "replacement",
+      "existing": {"content": "Size positions by drawdown", "subject": "sizing-method", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Actually, size positions by value at risk from now on", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "sizing-method", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": true
+    },
+    {
+      "caseId": "sem-confirm-lexical",
+      "kind": "confirmation",
+      "existing": {"content": "I like short answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Keep responses brief", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "answer-style", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-different-subject-near-match",
+      "kind": "unrelated",
+      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer dark candlestick charts", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "charts", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-unrelated-high-similarity",
+      "kind": "unrelated",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer reports delivered with an appendix", "memoryType": "preference", "scope": "general", "scopeId": null, "subject": "report-appendix", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-different-scope",
+      "kind": "different-scope",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u2", "authority": "explicit"},
+      "new": {"content": "I prefer reports delivered as Excel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "report-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-temporary-instruction",
+      "kind": "temporary",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "For this task, deliver the report as Excel", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "report-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-inert-superseded",
+      "kind": "stale",
+      "existing": {"content": "Rebalance my portfolio quarterly", "subject": "rebalance-cadence", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit", "status": "superseded"},
+      "new": {"content": "Rebalance my portfolio monthly", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "rebalance-cadence", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-financial-fact",
+      "kind": "financial",
+      "existing": null,
+      "new": {"content": "AAPL is trading at 190 and that should be remembered", "memoryType": "semantic", "scope": "general", "scopeId": null, "subject": "aapl-price", "authority": "explicit"},
+      "expectStored": false,
+      "expectStatus": "none",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-secret",
+      "kind": "secret",
+      "existing": null,
+      "new": {"content": "Save my API key sk-abc123XYZsecretvalue9876543210", "memoryType": "semantic", "scope": "general", "scopeId": null, "subject": "api-key", "authority": "explicit"},
+      "expectStored": false,
+      "expectStatus": "none",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    }
+  ]
+}

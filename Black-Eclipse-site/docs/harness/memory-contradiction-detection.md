@@ -48,9 +48,12 @@ temporary instruction ("for this task …") treated as durable.
 
 - Identify same-dimension candidates that deterministic filtering already
   authorized (same scope + owner, same memory type, same dimension, active).
-- Produce, alongside the lexical detector: `confirmation_candidate`,
-  `conflict_candidate`, `replacement_candidate` (only with explicit replacement
-  language), or `unrelated`.
+- Classify each above-threshold candidate, deterministically, as one of
+  `confirmation_candidate`, `conflict_candidate`, `replacement_candidate`,
+  `unrelated_candidate` (or `unavailable`). Only `conflict_candidate` and
+  `replacement_candidate` are ACTIONABLE: they may lead the service to store the
+  new record inert (`proposed`) for review. A `confirmation_candidate` is
+  diagnostic only — similarity never confirms or activates a memory.
 
 ## What it is forbidden to do
 
@@ -68,18 +71,67 @@ selected from what is already installed locally; when nothing suitable is presen
 the layer reports itself unavailable and detection stays lexical. No model is
 downloaded at runtime without explicit operator action.
 
+### Backends
+
+- `char-ngram` (default): dependency-free character n-gram cosine similarity,
+  local, deterministic, bounded. **Honest limitation:** the dedicated semantic
+  evaluation shows it scores genuinely unfamiliar paraphrases at ~0.0–0.38, so at
+  any safe threshold it finds essentially no candidate a deterministic lexical
+  rule would miss. It is therefore a bounded fallback, not a source of measured
+  improvement.
+- `local-embedding` (optional, off unless configured): a sentence-transformer
+  loaded ONLY from an explicit local directory
+  (`BLACK_ECLIPSE_MEMORY_EMBEDDING_MODEL`). It never downloads a model, never
+  contacts a network, and its absence is not an error — `auto` falls back to
+  `char-ngram`.
+- `none`: forces lexical-only.
+- `auto`: the strongest *available* backend, else `char-ngram`.
+
+No raw embeddings or memory text are stored; only numeric similarity scores and
+bounded candidate ids/kinds cross into diagnostics.
+
+## Deterministic decision layer
+
+The final disposition is deterministic and explainable. It combines the lexical
+decision, normalized subject identity, the typed semantic candidate,
+similarity, authority, scope, memory type and replacement language. Each outcome
+states why: confirmed, proposed, superseded, ignored, rejected, or unavailable.
+
+A crucial safety fix: a same-dimension **value substitution** ("reports as PDF"
+vs "reports as Excel", "quarterly" vs "monthly", "24-hour" vs "12-hour") is
+NEVER silently confirmed. `conflicts._value_changed` requires both statements to
+carry a distinctive canonical token the other lacks (reviewed synonym folds are
+excluded), and such a case is proposed for review (or superseded when an explicit
+statement overrides an automatic one) — never treated as a restatement that would
+discard the new value.
+
+
 ## Policy controls
 
 - `semantic_conflict_enabled` (default off; lexical always active).
+- `semantic_conflict_backend` (default `char-ngram`; `auto`/`local-embedding`/
+  `none` also accepted, all local).
 - `semantic_conflict_threshold` (candidate similarity floor).
 - `semantic_conflict_max_candidates`.
 - `semantic_conflict_max_index` (index size cap).
 - `semantic_conflict_timeout_ms`.
 - `semantic_conflict_diagnostics` (whether detector metadata is shown in views).
-- Index rebuild / clear actions.
+- `semantic_recall_tiebreak` (default off; optional retrieval reorder of
+  memories that already carry a lexical signal — never widens the eligible set).
+- Index rebuild / clear action: `POST /eclipse-memory/semantic/rebuild`
+  (operator-gated; honest that v1 holds no persistent index).
 
 All are bounded and validated; disabling the layer never disables lexical
 handling, and lowering a threshold never bypasses privacy or authority rules.
+
+## Operational status
+
+`GET /eclipse-memory/semantic-status` reports the mode (`lexical`,
+`lexical+semantic`, `lexical+semantic-unavailable`), backend + version,
+availability, the bounded controls, per-backend health, and bounded counters
+(proposals, actionable candidates, confirmed-after-review, kept/dismissed,
+replacement proposals). No content is exposed.
+
 
 ## Known limits
 
@@ -91,9 +143,11 @@ handling, and lowering a threshold never bypasses privacy or authority rules.
 - The optional semantic layer is a *candidate* aid, not a truth oracle: it is
   conservative by design and may miss weak paraphrases. A missed conflict is
   preferred over replacing unrelated memory.
-- The default semantic backend (`char-ngram`) is surface-level. A future bundled
-  local embedding backend can be registered via `semantic.register_backend`
-  without changing the caller or the safety rules.
+- The default semantic backend (`char-ngram`) is surface-level and is NOT shown
+  by the dedicated evaluation to add measurable recall at a safe threshold. A
+  stronger local embedding backend can be configured
+  (`BLACK_ECLIPSE_MEMORY_EMBEDDING_MODEL` + `semantic_conflict_backend`) without
+  changing the caller or the safety rules, but it stays optional and off.
 
 ## Measurements
 
@@ -116,6 +170,42 @@ temporary-instruction exclusion + subject-identity authority) closed the entire
 measured paraphrase/confirmation gap, so the optional semantic layer was kept
 **off by default** and remains a bounded, local fallback rather than a
 requirement.
+
+### Dedicated semantic evaluation
+
+`python -m harness.eclipse_memory.eval.semantic_cli` runs a separate labeled set
+(`semantic_v1.json`, 20 cases) built specifically from cases lexical matching did
+not solve, through the REAL write pipeline (via the production authorization
+gate) in both lexical-only and semantic-enabled modes, and prints a release gate.
+
+**Phase 0 finding (pre-fix, lexical-only):** the value-substitution cases
+("reports as PDF" vs "reports as Excel", "quarterly" vs "monthly", "24-hour" vs
+"12-hour") were silently **confirmed**, discarding the new value — a real safety
+bug, not just a recall miss. The 24-hour/12-hour numeric tokens were also dropped
+by the length filter, the `short`→`sell` synonym collision mis-folded a
+confirmation, and the financial-fact guard missed "trading at 190".
+
+**After the deterministic fix (both modes):**
+
+| Metric | Value |
+|---|---|
+| contradiction recall | 1.000 |
+| false-conflict rate | 0.000 |
+| confirmation accuracy | 1.000 |
+| scope leakage | 0 |
+| unauthorized supersessions | 0 |
+| automatic-over-explicit | 0 |
+| secret stored | 0 |
+| financial fact stored | 0 |
+
+**Honest conclusion:** the measured improvement came from deterministic
+normalization + the value-substitution safety fix, NOT from semantic similarity.
+The default `char-ngram` backend scores genuinely unfamiliar paraphrases at
+~0.0–0.38, so it finds no candidate above a safe threshold. Semantic matching is
+kept optional, off by default, local, bounded, explainable and fail-safe; a
+stronger local embedding backend can be configured explicitly but is not
+required and is not part of the default install.
+
 
 ## How a user reviews a possible contradiction
 

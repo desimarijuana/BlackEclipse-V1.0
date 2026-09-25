@@ -100,6 +100,10 @@ _FINANCIAL_FACT_PATTERNS = (
     r"(?:[$₹€£]|\brs\.?\b|\bpkr\b|\busd\b|\binr\b|\baed\b|\beur\b|\bgbp\b)\s?\d",
     r"\b\d+(?:\.\d+)?\s?%",
     r"\b(predict(?:ed|ion)?|forecast|target price|will (rise|fall|go up|go down)|expected to (rise|fall|reach))\b",
+    # A quoted level: "trading at 190", "closed at $5", "worth 12.30".
+    r"\b(trading at|trades? at|traded at|closed at|opened at|priced at|quoted at|worth|now at)\s?[$₹€£]?\d",
+    # "<TICKER> is/was at <number>" (a bare ticker-plus-level statement).
+    r"\b[a-zA-Z]{1,5}\b\s+(?:is|was|are|were)\s+(?:now\s+)?(?:at|trading at)\s+\d",
 )
 # A durable convention/rule is procedural or constraint-like and has no market
 # figure. A repeated correction can qualify.

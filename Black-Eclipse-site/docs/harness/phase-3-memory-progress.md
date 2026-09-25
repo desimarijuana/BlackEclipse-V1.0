@@ -699,5 +699,98 @@ an ambiguous conflict renders as "Not saved — conflicts with an existing memor
 passed (137 files) + Python **883** passed; `tsc` clean; retrieval eval unchanged
 (recall 1.0, precision 0.727, leakage 0, forbidden 0, gate PASS).
 
+## Semantic maturity — dedicated eval, typed candidates, false-confirmation fix (2026-09-25)
+
+**Brief.** Make the local memory system as strong as realistically possible
+without changing the architecture or adding hosted services. Every improvement
+had to be measurable, bounded, explainable, local and safer than before.
+
+**Phase 0 — reproduced baseline + found a real bug.** Both evals and the focused
+suites were re-run (`retrieval gate PASS`, `contradiction gate PASS`). Inspecting
+cases that lexical matching misses surfaced a **false-confirmation safety bug**:
+two same-dimension statements that substituted a *value* ("reports as PDF" vs
+"reports as Excel", "portfolio quarterly" vs "portfolio monthly", "24-hour" vs
+"12-hour") were silently treated as the same statement and *confirmed*, which
+discarded the new value and refreshed the old one. Two contributing defects: the
+`normalize.py` synonym group mapped `short`→`sell` (colliding with the trade
+group), and confirmation matched on token overlap alone without checking whether
+the distinctive values actually differed.
+
+**Phase 1 — dedicated semantic evaluation.** `eclipse_memory/eval/semantic_v1.json`
+is a 20-case labeled set built from cases lexical matching does not solve
+(unfamiliar paraphrased contradictions, indirect negation, same-dimension value
+substitutions, and safety negatives: unrelated high similarity, different
+subjects/scopes, temporary instructions, stale/inert records, financial facts,
+secrets). `eval/semantic.py` runs it through the REAL write pipeline (routed
+through the production `authorize_proposal` gate, so secrets/financial facts are
+refused by the same privacy rules) in lexical-only and semantic-enabled modes and
+reports both plus semantic discovery; `eval/semantic_cli.py` prints the release
+gate (absolute safety floors + an improvement floor).
+
+**Phase 2 — honest backend interface.** `semantic.py` gains `backend_health`,
+an `auto` selector, `NullBackend`, and an optional `LocalEmbeddingBackend` that
+loads a sentence-transformer ONLY from an explicit local path
+(`BLACK_ECLIPSE_MEMORY_EMBEDDING_MODEL`); it never downloads a model and never
+contacts a network, and its absence falls back to the dependency-free
+`char-ngram`. `policy.semantic_conflict_backend` selects it (`char-ngram`
+default). The evaluation shows `char-ngram` scores genuine paraphrases at
+~0.0-0.38, so it is NOT a source of measured improvement — documented honestly.
+
+**Phase 3 — typed candidates.** Candidates are classified deterministically as
+`confirmation_candidate`, `conflict_candidate`, `replacement_candidate`,
+`unrelated_candidate` or `unavailable`. Only conflict/replacement are actionable;
+`strongest_actionable` ignores confirmation/unrelated, so similarity can never
+confirm, activate, supersede or archive. Diagnostics persist only detector,
+version, candidate ids/kinds, scores and counts — never raw text or vectors, and
+respect `semantic_conflict_diagnostics`.
+
+**Phase 4 — deterministic decision + safety fix.** `conflicts._value_changed`
+requires both same-dimension statements to carry a distinctive canonical token
+the other lacks (reviewed synonym folds excluded); a differing value is proposed
+for review (or superseded when explicit overrides automatic), never silently
+confirmed. `normalize` no longer folds `short` into `sell`; numeric tokens are
+kept so "12" vs "24" is meaningful; the financial-fact guard now catches
+"trading at 190"-style statements. New reason:
+`same dimension, differing value requires review`.
+
+**Phase 5 — optional retrieval tie-break.** `semantic_recall_tiebreak` (off by
+default) reorders ONLY memories that already passed the authoritative
+scope/status/expiry/recall-policy filter AND already carried a lexical signal,
+pinning the lexical leader so an exact match is never demoted; it cannot surface
+an excluded memory or widen the eligible set. Covered by tests asserting no
+other-scope recall and a clean no-match query.
+
+**Phase 6 — operational controls.** `semantic_status()` now reports bounded
+controls, per-backend health and bounded counters (proposals, actionable,
+confirmed-after-review, kept/dismissed, replacement proposals).
+`POST /eclipse-memory/semantic/rebuild` (operator-gated) is honest that v1 holds
+no persistent index. UI Lifecycle tab shows controls, counters and backend
+health, with a clear/rebuild control.
+
+**Phase 7 — review UX.** A proposed-by-semantics record is surfaced in the chat
+panel as "Not saved — possible conflict, needs review" distinct from a saved
+memory, via `statusReason`/`requiresReview`/`semanticCandidate` on the memory
+blob and the `memory-action` presentation model.
+
+**Phases 8-9 — reliability + honest measurement.** Added tests for missing/
+unavailable/timeout/exception backend, malformed score, threshold/candidate
+bounds, reset/restore, disabled-mode (no candidate stored), no raw text in
+diagnostics, and the honest rebuild route. Honest result: the deterministic
+normalization + value-substitution fix closed the entire measured semantic gap;
+semantic similarity added no measurable recall at a safe threshold, so it stays
+optional and off by default.
+
+**Checks.** Full Python suite passes; Vitest passes; `tsc` clean. All three gates
+PASS (retrieval, contradiction, semantic). No `jdds.db` change.
+
+**Files.** New: `eclipse_memory/eval/semantic.py`, `eval/semantic_cli.py`,
+`eval/semantic_v1.json`, tests `test_memory_semantic_eval.py`, route
+`src/app/api/eclipse-memory/semantic/rebuild/route.ts`. Modified:
+`eclipse_memory/{conflicts,normalize,semantic,service,retrieval,policy}.py`,
+`harness/{main,graph}.py`, `src/lib/harness/eclipse-memory-{types,client,browser}.ts`,
+`src/lib/chat/memory-action.ts`, `eclipse-memory-screen.tsx`; docs this file,
+`memory-contradiction-detection.md`, `NAVIGATION.md`, `CHANGELOG.md`.
+
+
 
 

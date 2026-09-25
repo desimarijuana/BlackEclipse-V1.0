@@ -8,6 +8,52 @@ last-verified: 2026-09-15
 
 ## 2026-09-25
 
+- **Memory: semantic-maturity pass — dedicated semantic evaluation, typed
+  candidates, false-confirmation safety fix, optional stronger backend, review
+  UX and operational controls.** Continued the memory work without changing the
+  architecture (one `eclipse-memory.db`, one `EclipseMemoryService`, local
+  single-user; `userId`/`scopeId` stay labels). **Phase 0** re-ran both evals and
+  the focused suites, then found a real **false-confirmation bug**: two
+  same-dimension statements that substituted a *value* ("reports as PDF" vs
+  "reports as Excel", "quarterly" vs "monthly", "24-hour" vs "12-hour") were
+  silently *confirmed* as the same statement, discarding the new value.
+  **Phase 1** added a dedicated labeled set for cases lexical matching does not
+  solve (`eclipse_memory/eval/semantic_v1.json`) plus a runner/CLI/release gate
+  (`eval/semantic.py`, `eval/semantic_cli.py`) that reports lexical-only vs
+  semantic-enabled vs combined, semantic candidate recall, false-candidate rate,
+  confirmation/conflict-review accuracy, and absolute safety floors. **Phase 2**
+  made the backend interface honest: `backend_status`/`backend_health`, an
+  `auto` selector, and an optional `LocalEmbeddingBackend` that loads a
+  sentence-transformer ONLY from an explicit local path (never downloads, never
+  phones home) and falls back to the dependency-free `char-ngram` default (which
+  the eval shows does not score unfamiliar paraphrases above a safe threshold).
+  **Phase 3** typed candidates — `confirmation_candidate`, `conflict_candidate`,
+  `replacement_candidate`, `unrelated_candidate`, `unavailable` — with only
+  conflict/replacement actionable; similarity can never confirm, activate,
+  supersede or archive. **Phase 4** fixed the confirmation safety bug with a
+  deterministic `_value_changed` gate (same-dimension, both sides carry a
+  distinctive token the other lacks, excluding reviewed synonym folds), tightened
+  the `short`→`sell` synonym collision in `normalize.py`, and added the
+  `same dimension, differing value requires review` reason. **Phase 5** added an
+  optional (off-by-default) `semantic_recall_tiebreak` that reorders ONLY
+  memories already carrying a lexical signal, preserving the lexical leader and
+  never widening the eligible scope/status/expiry-filtered set. **Phase 6**
+  extended `semantic_status` with bounded controls, backend health and bounded
+  diagnostic counters, and added an operator-gated, honest
+  `POST /eclipse-memory/semantic/rebuild` (v1 has no persistent index to clear).
+  **Phase 7** distinguishes a semantic-candidate proposal from a saved memory in
+  the chat panel. **Phase 8/9** added reliability coverage (missing/unavailable/
+  timeout/exception backend, malformed score, bounds, reset/restore, disabled
+  mode, no raw text in diagnostics, no network) and recorded that the
+  deterministic lexical fix closed the measured semantic gap, so the optional
+  backend stays off by default. Evidence: retrieval eval PASS (recall 1.0,
+  precision 0.727, leakage 0, forbidden 0); contradiction eval PASS (recall 1.0,
+  false-conflict 0.0, confirmation 1.0); semantic gate PASS (0 scope leak / 0
+  unauthorized / 0 secret / 0 financial, lexical and enabled). Full Python suite
+  and Vitest pass; `tsc` clean. No `jdds.db` change. docs updated:
+  `harness/memory-contradiction-detection.md`, `harness/phase-3-memory-progress.md`,
+  `NAVIGATION.md`, `CHANGELOG.md`.
+
 - **Contradiction detection: deterministic normalization + optional local
   semantic candidates.** Closed the known lexical gap where a contradictory
   preference phrased with unfamiliar wording was missed. **Phase 1** added a

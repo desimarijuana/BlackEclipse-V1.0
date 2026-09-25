@@ -113,6 +113,11 @@ DEFAULTS: dict[str, Any] = {
     "semantic_conflict_enabled": False,
     # Minimum similarity for a semantic candidate.
     "semantic_conflict_threshold": 0.72,
+    # Which local backend to use: "char-ngram" (default, dependency-free), "auto"
+    # (use a stronger local embedding model only if one is already installed and
+    # configured locally), "local-embedding", or "none" (force lexical-only).
+    # Never triggers a network call or a model download.
+    "semantic_conflict_backend": "char-ngram",
     # Maximum candidates considered per write.
     "semantic_conflict_max_candidates": 5,
     # Maximum same-dimension memories indexed/compared per write.
@@ -122,6 +127,12 @@ DEFAULTS: dict[str, Any] = {
     # Whether detector metadata (detector, similarity, candidate ids) is shown in
     # diagnostics/UI. Never affects decisions.
     "semantic_conflict_diagnostics": True,
+    # Optional: allow the local semantic backend to reorder ONLY memories that
+    # already passed the authoritative scope/status/expiry/recall filters AND
+    # carried a lexical relevance signal. It can never surface an excluded
+    # memory or widen the recalled set. Off by default; lexical ranking remains
+    # the production default.
+    "semantic_recall_tiebreak": False,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
@@ -176,6 +187,10 @@ def derived_flags(resolved: dict[str, Any]) -> dict[str, bool]:
 # governed by the mode, so a bad value never widens capture).
 CATEGORY_POLICY_VALUES = ("allow", "suggest", "deny")
 
+# Accepted semantic backend selectors (see `semantic.py`). `auto` picks the
+# strongest AVAILABLE local backend; it never downloads or contacts a network.
+SEMANTIC_BACKEND_VALUES = ("char-ngram", "local-embedding", "auto", "none")
+
 
 def category_policy(resolved: dict[str, Any], key: str, memory_type: str) -> str:
     """The effective per-category policy value, or "" when unspecified.
@@ -220,6 +235,8 @@ def validate(key: str, value: Any) -> Any:
     coerced = _coerce(key, value)
     if key in MODE_KEYS and coerced not in MODE_VALUES:
         raise PolicyError(f"policy {key!r} must be one of {MODE_VALUES}")
+    if key == "semantic_conflict_backend" and coerced not in SEMANTIC_BACKEND_VALUES:
+        raise PolicyError(f"policy {key!r} must be one of {SEMANTIC_BACKEND_VALUES}")
     if key in LOCKED_VALUES and coerced != LOCKED_VALUES[key]:
         raise PolicyError(f"policy {key!r} is locked to {LOCKED_VALUES[key]!r}")
     if key in BOUNDS:

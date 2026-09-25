@@ -104,14 +104,45 @@ export interface MemoryRetentionStatus {
   lastSweep: MemorySweepRecord | null;
 }
 
+export interface MemorySemanticBackendHealth {
+  backend: string;
+  version: string;
+  available: boolean;
+}
+
+export interface MemorySemanticControls {
+  enabled: boolean;
+  backend: string;
+  threshold: number | null;
+  candidateLimit: number | null;
+  indexLimit: number | null;
+  timeoutMs: number | null;
+  diagnostics: boolean;
+}
+
+export interface MemorySemanticStats {
+  available: boolean;
+  proposedBySemantics?: number;
+  semanticCandidateOccurrences?: number;
+  actionableCandidates?: number;
+  diagnosticRuns?: number;
+  confirmedAfterReview?: number;
+  keptExistingOrDismissed?: number;
+  replacementProposals?: number;
+}
+
 export interface MemorySemanticStatus {
   mode: "lexical" | "lexical+semantic" | "lexical+semantic-unavailable" | string;
   lexicalActive: boolean;
   semanticEnabled: boolean;
   semanticAvailable: boolean;
   backend: string;
+  backendRequested?: string;
   detectorVersion: string;
   reason: string;
+  controls?: MemorySemanticControls;
+  backends?: MemorySemanticBackendHealth[];
+  stats?: MemorySemanticStats;
 }
 
 export interface MemoryConflictDetail {

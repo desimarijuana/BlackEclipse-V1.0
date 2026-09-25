@@ -107,6 +107,17 @@ export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
   return request<MemorySemanticStatus>("/eclipse-memory/semantic-status", { method: "GET" });
 }
 
+export async function rebuildSemanticIndex(): Promise<{
+  success: boolean;
+  rebuilt: boolean;
+  persistentIndex: boolean;
+  reason: string;
+  backend: string;
+  available: boolean;
+}> {
+  return request("/eclipse-memory/semantic/rebuild", { method: "POST", body: JSON.stringify({}) });
+}
+
 export async function restoreMemory(memoryId: string, operator: boolean) {
   return request<{ success: boolean; memory: MemoryRecord }>(
     `/eclipse-memory/memories/${encodeURIComponent(memoryId)}/restore`,

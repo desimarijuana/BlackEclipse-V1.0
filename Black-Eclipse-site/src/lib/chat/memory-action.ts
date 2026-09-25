@@ -32,6 +32,10 @@ export interface MemoryActionView {
   /** Link/action to undo (archive) the affected memory. */
   undoPath?: string;
   reason?: string;
+  /** True when the new statement was stored inert for review (not active truth). */
+  requiresReview?: boolean;
+  /** True when a possible relationship was surfaced by the semantic candidate layer. */
+  semanticCandidate?: boolean;
   /** For a `suggested` outcome: the inert suggestion awaiting Save/Dismiss. */
   suggestionId?: string;
   suggestionPath?: string;
@@ -77,6 +81,8 @@ function actionView(blob: Record<string, unknown>): MemoryActionView | null {
   const undoPath = str(blob.undoPath);
   const suggestionId = str(blob.suggestionId);
   const suggestionPath = str(blob.suggestionPath);
+  const requiresReview = Boolean(blob.requiresReview);
+  const semanticCandidate = Boolean(blob.semanticCandidate);
   switch (action) {
     case 'saved':
       return { kind: 'saved', headline: 'Remembered', preview, memoryType, scope, subject, inspectPath, undoPath };
@@ -94,13 +100,17 @@ function actionView(blob: Record<string, unknown>): MemoryActionView | null {
       // NOT saved as active truth: it conflicts with an existing memory.
       return {
         kind: 'needs_review',
-        headline: 'Not saved — conflicts with an existing memory',
+        headline: semanticCandidate
+          ? 'Not saved — possible conflict, needs review'
+          : 'Not saved — conflicts with an existing memory',
         preview,
         memoryType,
         scope,
         subject,
         inspectPath,
         reason,
+        requiresReview,
+        semanticCandidate,
       };
     case 'memory_full':
       return { kind: 'memory_full', headline: 'Memory is full — not saved', preview, reason };

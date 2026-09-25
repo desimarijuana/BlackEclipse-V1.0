@@ -79,6 +79,7 @@ REASON_CONFIRMATION = "same statement confirmation"
 REASON_UNRELATED_SCOPE = "unrelated scope"
 REASON_UNRELATED_SUBJECT = "unrelated subject"
 REASON_TEMPORARY = "temporary task-scoped instruction"
+REASON_VALUE_CHANGED = "same dimension, differing value requires review"
 
 _STOPWORDS = frozenset(
     {"the", "a", "an", "of", "to", "and", "or", "for", "in", "on", "is", "are",
@@ -93,6 +94,14 @@ _CONFIRM_OVERLAP = 0.6
 
 # Minimum shared normalized tokens to link two subject-less memories at all.
 _RELATED_OVERLAP = 2
+
+# Generic preference/profile vocabulary. A token here never counts as a
+# "distinctive value" when deciding confirmation vs contradiction.
+_GENERIC_TERMS = frozenset(
+    {"user", "preference", "prefer", "prefers", "preferred", "like", "likes",
+     "want", "wants", "always", "never", "should", "would", "could", "please",
+     "answer", "style", "response", "format", "use", "using", "keep", "give"}
+)
 
 
 @dataclass
@@ -118,23 +127,50 @@ class ConflictAssessment:
         }
 
 
+def _distinctive(terms: set[str]) -> set[str]:
+    """Content tokens that carry a value, excluding generic frame vocabulary."""
+    return {t for t in terms if t not in _GENERIC_TERMS}
+
+
+def _value_changed(text_a: str, text_b: str) -> bool:
+    """True when two same-dimension statements substitute different VALUES.
+
+    Both sides must carry a distinctive canonical token the other lacks. Because
+    `normalize` folds reviewed synonyms to one canonical token, a same-value
+    paraphrase ("short" vs "brief" → both `concise`) is NOT a change, while a
+    genuine slot substitution ("PDF" vs "Excel", "monthly" vs "quarterly") is.
+    Deliberately conservative: a same-value paraphrase folds to the same tokens
+    or shares an axis, leaving this false.
+    """
+    a = _distinctive(_normalized_terms(text_a))
+    b = _distinctive(_normalized_terms(text_b))
+    return bool(a - b) and bool(b - a)
+
+
 def is_replacement_intent(text: str) -> bool:
     return any(re.search(p, text or "", re.IGNORECASE) for p in REPLACEMENT_PATTERNS)
 
 
 def _normalized_terms(text: str) -> set[str]:
     """Controlled normalized content tokens (synonyms + light stemming), so a
-    same-dimension restatement is recognised across surface-form differences."""
+    same-dimension restatement is recognised across surface-form differences.
+
+    Numeric tokens are kept regardless of length: a value like "12" vs "24"
+    (hour format) carries meaning even though it is short.
+    """
     from .normalize import canonical_tokens  # noqa: PLC0415
 
     raw = re.findall(r"[a-z0-9]+", (text or "").lower())
-    return {t for t in canonical_tokens(raw) if t not in _STOPWORDS and len(t) > 2}
+    return {
+        t for t in canonical_tokens(raw)
+        if (t.isdigit() or (t not in _STOPWORDS and len(t) > 2))
+    }
 
 
 def _content_terms(text: str) -> set[str]:
     return {
         t for t in re.findall(r"[a-z0-9]+", (text or "").lower())
-        if t not in _STOPWORDS and len(t) > 2
+        if (t.isdigit() or (t not in _STOPWORDS and len(t) > 2))
     }
 
 
@@ -244,24 +280,54 @@ def detect_conflict(
 
     conflicting = [m for m in related if opposing(content, m.get("content") or "")]
     if not conflicting:
-        # Same dimension, same polarity → a confirmation. Recognition is broad:
-        # high token overlap, or a shared concept axis with no opposing polarity
-        # (a same-pole paraphrase such as "keep answers brief" vs "I like short
-        # responses"). Only a genuinely different dimension is `none`.
+        # Same dimension, no known opposing polarity. This is either the SAME
+        # statement restated (a confirmation) or a VALUE substitution on the same
+        # dimension ("prefer reports as PDF" vs "prefer reports as Excel"). The
+        # latter must NEVER be silently confirmed — confirmation refreshes the
+        # existing record and would discard the new value. Recognition is broad
+        # only for genuine same-value paraphrases (high token overlap, or a shared
+        # concept axis on the same pole).
         from .normalize import axes_contradict  # noqa: PLC0415
 
-        close = []
+        close: list[dict[str, Any]] = []
+        changed: list[dict[str, Any]] = []
         for m in related:
             other = m.get("content") or ""
             if axes_contradict(content, other):
                 continue
-            if _jaccard(new_terms, _normalized_terms(other)) >= _CONFIRM_OVERLAP:
+            # A differing value on the same dimension is checked BEFORE the
+            # shared-axis confirmation, so "monthly" vs "quarterly" (both on the
+            # cadence axis) is a reviewable substitution, not a silent
+            # confirmation that would discard the new value.
+            if _value_changed(content, other):
+                changed.append(m)
+                continue
+            if shared_axes(content, other):
+                # Same dimension AND same pole on a reviewed concept axis → same
+                # value expressed differently.
                 close.append(m)
-            elif shared_axes(content, other):
+                continue
+            if _jaccard(new_terms, _normalized_terms(other)) >= _CONFIRM_OVERLAP:
                 close.append(m)
         if close:
             return ConflictAssessment(
                 decision=DECISION_CONFIRM, related=close, reason=REASON_CONFIRMATION,
+            )
+        if changed:
+            # A same-dimension value substitution: not a confirmation. Authority
+            # still decides — explicit over automatic supersedes; otherwise the
+            # new statement is stored inert for review (never a second active
+            # truth, never a silent confirmation).
+            if new_authority == "explicit":
+                automatic = [m for m in changed if (m.get("authority") or "explicit") == "automatic"]
+                explicit = [m for m in changed if (m.get("authority") or "explicit") != "automatic"]
+                if automatic and not explicit:
+                    return ConflictAssessment(
+                        decision=DECISION_SUPERSEDE, related=automatic,
+                        reason=REASON_AUTHORITY_OVERRIDE,
+                    )
+            return ConflictAssessment(
+                decision=DECISION_PROPOSE, related=changed, reason=REASON_VALUE_CHANGED,
             )
         return ConflictAssessment(decision=DECISION_NONE, reason=REASON_UNRELATED_SUBJECT)
 

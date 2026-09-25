@@ -19,6 +19,7 @@ import {
   memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
   archiveMemory, reviewMemory, restoreMemory, renewMemory, memoryLifecycle, memoryRetention,
   memorySemanticStatus, listCorrections,
+  rebuildSemanticIndex,
   listMistakes, retrieveMemories,
   getPolicies, updatePolicies, clientIsOperator,
   exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
@@ -176,6 +177,38 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
           <p className="mt-1 text-[10px] text-muted-foreground/80">
             backend: {semantic.backend} · detector {semantic.detectorVersion}
           </p>
+          {semantic.controls && (
+            <p className="mt-1 text-[10px] text-muted-foreground/80">
+              threshold {String(semantic.controls.threshold ?? "—")} ·
+              {" "}candidates ≤ {String(semantic.controls.candidateLimit ?? "—")} ·
+              {" "}index ≤ {String(semantic.controls.indexLimit ?? "—")} ·
+              {" "}timeout {String(semantic.controls.timeoutMs ?? "—")}ms
+            </p>
+          )}
+          {semantic.stats?.available && (
+            <p className="mt-1 text-[10px] text-muted-foreground/80">
+              semantic proposals: {semantic.stats.proposedBySemantics ?? 0} ·
+              {" "}actionable {semantic.stats.actionableCandidates ?? 0} ·
+              {" "}confirmed {semantic.stats.confirmedAfterReview ?? 0} ·
+              {" "}kept/dismissed {semantic.stats.keptExistingOrDismissed ?? 0}
+            </p>
+          )}
+          {semantic.backends && semantic.backends.length > 0 && (
+            <p className="mt-1 text-[10px] text-muted-foreground/60">
+              backends: {semantic.backends.map((b) => `${b.backend}${b.available ? "" : " (unavailable)"}`).join(", ")}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={!isOperator || busy}
+            onClick={() => act(async () => {
+              const result = await rebuildSemanticIndex();
+              return result.reason;
+            }, "Semantic index: no persistent index to rebuild (computed per write)")}
+            className="mt-2 rounded-lg border border-white/10 px-2 py-0.5 text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-50 cursor-pointer"
+          >
+            Clear / rebuild optional index
+          </button>
         </div>
       )}
 
