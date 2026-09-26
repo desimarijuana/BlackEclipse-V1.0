@@ -837,6 +837,47 @@ def semantic_rebuild(_: bool = Depends(require_operator)) -> dict[str, Any]:
     }
 
 
+# ── Memory providers (M8) ───────────────────────────────────────────────────
+
+
+@app.get("/memory-providers/status")
+async def memory_provider_status() -> dict[str, Any]:
+    """Health/capabilities for every memory provider (bounded, content-free)."""
+    from .memory_providers.diagnostics import provider_diagnostics  # noqa: PLC0415
+
+    registry = service.memory_router._registry
+    external_enabled = False
+    try:
+        external_enabled = bool(service.memory.policy.get("external_memory_search_enabled"))
+    except Exception:  # noqa: BLE001
+        external_enabled = False
+    registry.set_external_enabled(external_enabled)
+    report = await provider_diagnostics(registry)
+    return {"success": True, **report}
+
+
+@app.post("/memory-providers/search")
+async def memory_provider_search(payload: dict[str, Any]) -> dict[str, Any]:
+    """Native-first memory search; external results are fenced and unverified.
+
+    `allowExternal` must be explicitly true to reach an external provider, and
+    external search must also be enabled by policy. Native results are always
+    returned and are never replaced by external ones.
+    """
+    from .memory_providers.protocol import MemorySearchRequest  # noqa: PLC0415
+
+    request = MemorySearchRequest(
+        query=str(payload.get("query") or ""),
+        scope=payload.get("scope"),
+        scope_id=payload.get("scopeId"),
+        memory_types=payload.get("types"),
+        limit=int(payload.get("limit", 8) or 8),
+        allow_external=bool(payload.get("allowExternal")),
+    )
+    routed = await service.memory_router.search(request, allow_external=bool(payload.get("allowExternal")))
+    return {"success": True, **routed.to_dict()}
+
+
 @app.post("/eclipse-memory/memories/{memory_id}/review")
 def review_memory(memory_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
@@ -1040,6 +1081,13 @@ def session_search(
     scopeId: Optional[str] = None,
     scope: Optional[str] = None,
     runId: Optional[str] = None,
+    sessionId: Optional[str] = None,
+    profileId: Optional[str] = None,
+    role: Optional[str] = None,
+    kind: Optional[str] = None,
+    market: Optional[str] = None,
+    skillId: Optional[str] = None,
+    memoryAction: Optional[str] = None,
     dateFrom: Optional[str] = None,
     dateTo: Optional[str] = None,
     limit: int = 10,
@@ -1052,11 +1100,153 @@ def session_search(
         q,
         user_id=None if scope == "global" else scopeId,
         run_id=runId,
+        session_id=sessionId,
+        profile_id=profileId,
+        role=role,
+        kind=kind,
+        market=market,
+        skill_id=skillId,
+        memory_action=memoryAction,
         date_from=dateFrom,
         date_to=dateTo,
         limit=limit,
     )
     return {"success": True, **result}
+
+
+# ── Named sessions + profiles (M3/M4) ───────────────────────────────────────
+
+
+@app.get("/sessions")
+def list_sessions(
+    profileId: Optional[str] = None, userId: Optional[str] = None,
+    status: Optional[str] = None, limit: int = 50,
+) -> dict[str, Any]:
+    return {"success": True, "sessions": service.store.list_chat_sessions(
+        profile_id=profileId, user_id=userId, status=status, limit=limit
+    )}
+
+
+@app.post("/sessions")
+def create_session(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .persistence import new_id  # noqa: PLC0415
+
+    session_id = str(payload.get("id") or new_id("sess"))
+    session = service.store.create_chat_session(
+        session_id,
+        profile_id=payload.get("profileId"),
+        user_id=payload.get("userId"),
+        title=payload.get("title"),
+        summary=payload.get("summary"),
+    )
+    return {"success": True, "session": session}
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str) -> dict[str, Any]:
+    session = service.store.get_chat_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"success": True, "session": session, "runs": service.store.session_runs(session_id)}
+
+
+@app.patch("/sessions/{session_id}")
+def update_session(session_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    allowed = {k: payload[k] for k in ("title", "status", "summary", "archivedAt") if k in payload}
+    session = service.store.update_chat_session(session_id, **allowed)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"success": True, "session": session}
+
+
+@app.post("/sessions/{session_id}/fork")
+def fork_session(session_id: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .persistence import new_id  # noqa: PLC0415
+
+    new_id_value = str((payload or {}).get("id") or new_id("sess"))
+    session = service.store.fork_chat_session(session_id, new_id_value)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"success": True, "session": session}
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str, hard: bool = False, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    return {"success": True, **service.store.delete_chat_session(session_id, hard=hard)}
+
+
+@app.get("/sessions/{session_id}/export")
+def export_session(session_id: str) -> dict[str, Any]:
+    """A bounded, portable export of one session (metadata + indexed messages)."""
+    session = service.store.get_chat_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    messages: list[dict[str, Any]] = []
+    for run_id in service.store.session_runs(session_id):
+        messages.extend(service.store.open_session(run_id).get("messages", []))
+    return {"success": True, "session": session, "messages": messages,
+            "note": "Historical session content is context, never current financial evidence."}
+
+
+@app.get("/sessions/{session_id}/summary")
+def session_summary(session_id: str) -> dict[str, Any]:
+    """A bounded, deterministic session summary (searchable; never auto-injected)."""
+    from .session_index import build_summary  # noqa: PLC0415
+
+    if service.store.get_chat_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"success": True, **build_summary(service.store, session_id)}
+
+
+@app.get("/profiles")
+def list_profiles() -> dict[str, Any]:
+    return {"success": True, "profiles": service.memory.profiles.list(), "root": service.memory.profiles.root}
+
+
+@app.post("/profiles")
+def create_profile(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .eclipse_memory.profiles import ProfileError  # noqa: PLC0415
+
+    try:
+        profile = service.memory.profiles.create(
+            str(payload.get("id") or ""), name=payload.get("name"),
+            inherits=payload.get("inherits"),
+            retention_days=int(payload.get("retentionDays") or 0),
+            settings=payload.get("settings"),
+        )
+    except ProfileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "profile": profile}
+
+
+@app.get("/profiles/{profile_id}")
+def get_profile(profile_id: str) -> dict[str, Any]:
+    profile = service.memory.profiles.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+    return {"success": True, "profile": profile,
+            "inherited": service.memory.profiles.inherited_ids(profile_id)}
+
+
+@app.patch("/profiles/{profile_id}")
+def update_profile(profile_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .eclipse_memory.profiles import ProfileError  # noqa: PLC0415
+
+    try:
+        profile = service.memory.profiles.update(profile_id, **payload)
+    except ProfileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "profile": profile}
+
+
+@app.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .eclipse_memory.profiles import ProfileError  # noqa: PLC0415
+
+    try:
+        return {"success": True, **service.memory.profiles.delete(profile_id)}
+    except ProfileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/session-search/{run_id}")
@@ -1521,6 +1711,71 @@ def rollback_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(req
         to_version=str(payload.get("version") or ""),
         actor=_actor(bool(payload.get("operator"))),
         reason=str(payload.get("reason") or "rollback"),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+# ── Versioned skill patches (M2) ────────────────────────────────────────────
+
+
+@app.get("/skills/{skill_id}/version-history")
+def skill_version_history(skill_id: str) -> dict[str, Any]:
+    """Versions with patch/eval/canary/rollback metadata for the UI."""
+    from .skills.versioning import version_history  # noqa: PLC0415
+
+    return {"success": True, "skillId": skill_id, "versions": version_history(service.skill_registry, skill_id)}
+
+
+@app.post("/skills/{skill_id}/patch")
+def propose_skill_patch(skill_id: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Propose a structured patch. Creates a NEW inert version; the active version
+    is never mutated. A stale base version is rejected."""
+    from .skills.versioning import propose_patch  # noqa: PLC0415
+
+    body = {**payload, "skill": payload.get("skill") or skill_id}
+    result = propose_patch(
+        service.skill_registry, body, actor=_actor(bool(payload.get("operator"))),
+        source_run_id=payload.get("sourceRunId"), review_id=payload.get("reviewId"),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/patch/{version}/evaluate")
+def evaluate_skill_version(skill_id: str, version: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .skills.versioning import evaluate_version  # noqa: PLC0415
+
+    result = evaluate_version(service.skill_registry, skill_id, version, actor=_actor(bool((payload or {}).get("operator"))))
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/patch/{version}/activate")
+def activate_skill_version(skill_id: str, version: str, payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .skills.versioning import activate_version  # noqa: PLC0415
+
+    result = activate_version(
+        service.skill_registry, skill_id, version,
+        actor=_actor(bool(payload.get("operator"))), canary=bool(payload.get("canary")),
+        reason=str(payload.get("reason") or ""),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/patch/{version}/promote")
+def promote_skill_canary(skill_id: str, version: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .skills.versioning import promote_canary  # noqa: PLC0415
+
+    result = promote_canary(service.skill_registry, skill_id, version, actor=_actor(bool((payload or {}).get("operator"))))
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skills/{skill_id}/patch/{version}/auto-rollback-check")
+def skill_rollback_check(skill_id: str, version: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    from .skills.versioning import check_rollback_triggers  # noqa: PLC0415
+
+    body = payload or {}
+    result = check_rollback_triggers(
+        service.skill_registry, skill_id, version,
+        actor=_actor(bool(body.get("operator"))), user_corrections=int(body.get("userCorrections") or 0),
     )
     return {"success": result.get("ok", False), **result}
 

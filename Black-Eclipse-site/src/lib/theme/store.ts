@@ -23,6 +23,7 @@ import {
   type EclipseTheme,
   type ThemeColors,
   type ThemeGlass,
+  type ThemeSidebar,
 } from './tokens';
 import { DEFAULT_CHART_PALETTE, normalizeChartPalette, type ChartPalette } from '@/lib/chart-palette';
 import { useChartPaletteStore } from '@/lib/chart-palette-store';
@@ -141,6 +142,7 @@ export function applyThemeToDocument(theme: EclipseTheme) {
   // The token-driven glass override (which unifies the per-tier recipes) only
   // kicks in when the user changed glass settings or turned glass off. While
   // they match the shipped defaults, the hardcoded tier hierarchy stays intact.
+  // Sidebar changes are excluded: they only ever drive the sidebar's own tokens.
   const dg = DEFAULT_ECLIPSE_THEME.glass;
   const surfacesTouched =
     !theme.glass.enabled ||
@@ -214,6 +216,8 @@ export interface ThemeStore {
   setColor: (key: keyof ThemeColors, value: string) => void;
   /** Patch the glass surface settings. */
   setGlass: (patch: Partial<ThemeGlass>) => void;
+  /** Patch the dedicated sidebar surface settings. */
+  setSidebar: (patch: Partial<ThemeSidebar>) => void;
   /** Replace the theme wholesale (preset application). */
   applyPreset: (theme: EclipseTheme) => void;
   /**
@@ -293,6 +297,14 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const next = normalizeTheme({
       ...get().theme,
       glass: { ...get().theme.glass, ...patch },
+    });
+    set({ theme: commit(next), customized: true });
+  },
+
+  setSidebar: (patch) => {
+    const next = normalizeTheme({
+      ...get().theme,
+      sidebar: { ...get().theme.sidebar, ...patch },
     });
     set({ theme: commit(next), customized: true });
   },

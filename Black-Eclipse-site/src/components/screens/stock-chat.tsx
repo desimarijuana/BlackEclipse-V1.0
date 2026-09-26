@@ -93,6 +93,7 @@ import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
+import { loadGeneralPrefs, recordLastTab, resolveStartTab } from '@/lib/general-prefs';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
@@ -112,7 +113,9 @@ function StockChatContent() {
   // Full-screen theme preview (Settings › Customization) hides the modal so the
   // real app can be auditioned; the panel stays mounted to keep its draft.
   const themePreviewMode = useThemeStore((s) => s.previewMode);
-  const [activeTab, setActiveTab] = useState<AppTab>('chat');
+  // Boot tab: Settings › General can pin a start screen (or "Last screen"). The
+  // URL deep link below always overrides this when one is present.
+  const [activeTab, setActiveTab] = useState<AppTab>(() => resolveStartTab(loadGeneralPrefs()) ?? 'chat');
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
   const [discoveryMarket, setDiscoveryMarket] = useState<string | undefined>(undefined);
@@ -182,14 +185,16 @@ function StockChatContent() {
   // with display:none) after that. Boot mounts ONLY the initial tab, so we
   // keep the old boot behavior (one screen fetching, no mount-all race),
   // while revisits are instant — no chunk reload, no refetch, no loader.
-  const [visited, setVisited] = useState<Set<AppTab>>(() => new Set(['chat']));
+  const [visited, setVisited] = useState<Set<AppTab>>(() => new Set([activeTab]));
   useEffect(() => {
     setVisited(prev => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
   }, [activeTab]);
 
   useEffect(() => {
     setNavHistory((prev) => recordVisit(prev, activeTab));
-  }, [activeTab]);
+    // Remember the last visited tab so `startScreen: 'history'` can resume it.
+    if (mounted) recordLastTab(activeTab);
+  }, [activeTab, mounted]);
 
   // Deep-link boot + history: /?tab=portfolio or /?tab=chart&symbol=AAPL opens
   // that page directly. Powers Ctrl/Cmd-click, middle-click and "open in new

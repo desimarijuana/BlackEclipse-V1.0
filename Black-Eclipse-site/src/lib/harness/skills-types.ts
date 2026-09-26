@@ -5,12 +5,18 @@
 
 export type SkillStatus =
   | "draft"
+  | "evaluating"
   | "testing"
+  | "canary"
   | "review"
   | "validated"
+  | "approved"
   | "enabled"
+  | "active"
   | "disabled"
   | "deprecated"
+  | "superseded"
+  | "rolled_back"
   | "rejected";
 
 export type SkillRisk = "low" | "medium" | "high" | "critical";
@@ -72,6 +78,53 @@ export interface SkillVersionRecord {
   createdAt: string;
   origin: string;
   author: string | null;
+}
+
+// ── Versioned patches (M2) ──────────────────────────────────────────────────
+
+export interface SkillPatchOperation {
+  op: "replace" | "add" | "remove";
+  path: string;
+  value?: unknown;
+}
+
+export interface SkillPatch {
+  skill: string;
+  baseVersion: string;
+  operations: SkillPatchOperation[];
+  reason: string;
+  evidenceRuns: string[];
+  regressionCases: string[];
+  author: string;
+}
+
+export interface SkillVersionHistoryEntry {
+  version: string;
+  status: SkillStatus;
+  isActive: boolean;
+  evaluationStatus: EvaluationStatus | null;
+  baseVersion: string | null;
+  patchSummary: string | null;
+  patchAuthor: string | null;
+  reviewId: string | null;
+  canaryState: string | null;
+  activatedAt: string | null;
+  rolledBackAt: string | null;
+  createdAt: string;
+  patch: SkillPatch | null;
+}
+
+export interface SkillPatchResult {
+  ok: boolean;
+  skillId?: string;
+  version?: string;
+  baseVersion?: string;
+  status?: string;
+  patch?: SkillPatch;
+  error?: string;
+  stage?: string;
+  stale?: boolean;
+  canary?: boolean;
 }
 
 export interface SkillExecutionRecord {

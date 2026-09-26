@@ -157,6 +157,18 @@ DEFAULTS: dict[str, Any] = {
     "session_search_max_results": 10,
     # Whether bounded tool-result summaries are indexed/searchable.
     "session_search_include_tool_summaries": True,
+    # ── External memory providers (M8) ──────────────────────────────────────
+    # Whether external (MCP-backed) memory providers may be SEARCHED at all.
+    # Off by default: discovery never activates a provider, and even when on an
+    # external search still requires an explicit per-call allow flag. External
+    # results are labelled UNVERIFIED CONTEXT and are never promoted to native.
+    "external_memory_search_enabled": False,
+    # Whether an EXPLICIT external write (user request + operator approval) is
+    # permitted. Automatic external writes are structurally impossible (the
+    # provider never declares write for automatic use). Off by default.
+    "external_memory_write_enabled": False,
+    # Native results below which the router may consider external providers.
+    "external_memory_native_sufficiency": 3,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
@@ -178,6 +190,7 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "semantic_conflict_timeout_ms": (1, 5000),
     "session_retention_days": (0, 3650),
     "session_search_max_results": (1, 50),
+    "external_memory_native_sufficiency": (1, 50),
 }
 
 # Keys that are safety-critical and may NOT be enabled by policy at all — the

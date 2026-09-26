@@ -18,7 +18,9 @@ import type {
   SkillExecutionRequest,
   SkillExecutionResult,
   SkillListResponse,
+  SkillPatchOperation,
   SkillSummary,
+  SkillVersionHistoryEntry,
 } from "./skills-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -287,6 +289,52 @@ export async function rollbackSkill(skillId: string, operator: boolean, version:
   return request(`/skills/${encodeURIComponent(skillId)}/rollback`, {
     method: "POST",
     body: JSON.stringify({ operator, version, reason }),
+  });
+}
+
+// ── Versioned skill patches (M2) ────────────────────────────────────────────
+
+export async function getSkillVersionHistory(skillId: string): Promise<{ success: boolean; skillId: string; versions: SkillVersionHistoryEntry[] }> {
+  return request(`/skills/${encodeURIComponent(skillId)}/version-history`, { method: "GET" });
+}
+
+export async function proposeSkillPatch(
+  skillId: string,
+  payload: { baseVersion: string; operations: SkillPatchOperation[]; reason?: string; author?: string; reviewId?: string; sourceRunId?: string; operator: boolean },
+) {
+  return request(`/skills/${encodeURIComponent(skillId)}/patch`, {
+    method: "POST",
+    body: JSON.stringify({ skill: skillId, ...payload }),
+  });
+}
+
+export async function evaluateSkillVersion(skillId: string, version: string, operator: boolean) {
+  return request(`/skills/${encodeURIComponent(skillId)}/patch/${encodeURIComponent(version)}/evaluate`, {
+    method: "POST",
+    body: JSON.stringify({ operator }),
+  });
+}
+
+export async function activateSkillVersion(
+  skillId: string, version: string, operator: boolean, canary = false, reason = "",
+) {
+  return request(`/skills/${encodeURIComponent(skillId)}/patch/${encodeURIComponent(version)}/activate`, {
+    method: "POST",
+    body: JSON.stringify({ operator, canary, reason }),
+  });
+}
+
+export async function promoteSkillCanary(skillId: string, version: string, operator: boolean) {
+  return request(`/skills/${encodeURIComponent(skillId)}/patch/${encodeURIComponent(version)}/promote`, {
+    method: "POST",
+    body: JSON.stringify({ operator }),
+  });
+}
+
+export async function checkSkillRollback(skillId: string, version: string, operator: boolean, userCorrections = 0) {
+  return request(`/skills/${encodeURIComponent(skillId)}/patch/${encodeURIComponent(version)}/auto-rollback-check`, {
+    method: "POST",
+    body: JSON.stringify({ operator, userCorrections }),
   });
 }
 

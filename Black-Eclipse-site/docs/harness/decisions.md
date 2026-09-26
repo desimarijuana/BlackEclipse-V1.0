@@ -1189,6 +1189,153 @@ started/stopped by the FastAPI lifespan. `MemoryProfileSnapshot` (migration 12)
 is additive; `SessionMessage`/`SessionMessageFts`/`LearningReview` are new tables
 in `agent-memory.db`. No new dependency, no embeddings, no cloud service.
 
+## ADR-H52 — External memory providers are a separate, fenced layer over the MCP boundary
+
+**Decision.** External memory is exposed through a dedicated
+`python/harness/memory_providers/` layer that implements one `MemoryProvider`
+contract. The native provider wraps the existing `EclipseMemoryService`; the MCP
+provider reuses the existing `MCPManager` connections and approval gate. Every
+result carries `provider`/`provenance`/`verified`/`retrievedAt`; an external
+result defaults to `provenance=external_provider`, `verified=false`, is fenced as
+`[EXTERNAL MEMORY — PROVIDER: <name> — UNVERIFIED CONTEXT]`, and is NEVER
+promoted to native memory. Routing is native-first, external search requires both
+a policy enablement AND an explicit per-call allow, and external writes require
+an explicit user request AND an operator approval. There is no generic "memory
+table": the four layers (native truth, versioned skills, external providers,
+session archive) stay distinct.
+
+**Why.** The gap was not MCP tool access (already mature) but a first-class,
+provenance-labelled memory-provider contract that cannot silently overwrite
+native memory or masquerade as Eclipse-verified. Reusing the MCP boundary avoids
+a second client, a second secret path, or a second approval flow.
+
+**Consequences.** New policy keys `external_memory_search_enabled` (default off),
+`external_memory_write_enabled` (default off) and
+`external_memory_native_sufficiency`. Automatic external writes are structurally
+absent (the provider never declares `write` for automatic use). Three read-only
+tools and `/memory-providers/*` routes were added. ADR-H40's vault limitation is
+inherited unchanged.
+
+## ADR-H53 — Self-improving skills are structured patches that become new versions; activation is evaluated, canary is bounded, rollback is atomic
+
+**Decision.** A skill change is a structured JSON-pointer patch (`replace`/`add`/
+`remove`) validated against an explicit allowed-field set (`description`, `tags`,
+`name`, `instructions`, `outputSchema`, `limits`). Identity, permission, tool,
+risk and lifecycle fields are not patchable. A patch creates a NEW `SkillVersion`
+(the active version is never mutated) and is rejected when its `baseVersion` is
+stale. Activation requires a passing evaluation; canary is limited to safe,
+non-mutating, low-risk skills and is never allowed for security/permission/
+external-write/policy-shaping skills. Rollback (manual or automatic on a
+regression/failure/correction signal) is atomic and preserves both versions.
+
+**Why.** The product goal is autonomous discovery and proposal, never autonomous
+silent change of truth, permissions or safety behavior. Making every change a
+reviewable, versioned, diffable patch — with evaluation before activation and an
+automatic rollback — gives the autonomy while keeping it reversible and governed.
+
+**Consequences.** Migration 13 adds the patch/version metadata columns to
+`SkillVersion`; new lifecycle statuses `evaluating/canary/approved/active/
+superseded/rolled_back`; `registry.load_all` treats the store's `latestVersion`
+as authoritative so a reload never walks a patched skill back to its source
+manifest. A background review may record a `skill_patch` opportunity but never
+creates a version.
+
+## ADR-H54 — Hybrid memory ranking uses logical namespaces and a bounded semantic term; similarity never authorizes
+
+**Decision.** `eclipse_memory/hybrid.py` maps memories to logical namespaces
+(preference/project_fact/correction/workflow/skill/session_summary) and combines a
+bounded BM25 term, the existing lexical signal, authority/scope/recency/access
+signals and an OPTIONAL, bounded semantic term. The semantic term can only nudge
+an already-authorized, already-lexically-relevant memory; it can never surface an
+excluded memory, confirm, supersede, archive or authorize. There is deliberately
+no persistent vector index and no hosted embedding service (consistent with
+ADR-H49 and the no-new-infrastructure rule).
+
+**Why.** Semantic similarity is retrieval assistance, not authority. Modelling it
+as one bounded component of a deterministic hybrid score — with content
+categories kept in separate ranking namespaces — captures the useful part while
+making "unauthorized supersessions = 0" structurally true.
+
+**Consequences.** The labeled semantic eval gained typo, profile-mismatch and
+temporal-replacement cases; the release gate's absolute safety floors are
+unchanged.
+
+## ADR-H55 — Prompt caching is explicit: immutable segments and a stable identity-only cache key
+
+**Decision.** `python/harness/prompt_segments.py` splits the prompt into named
+segments (system policy, agent identity, tool schemas, profile snapshot, session
+summary, skill manifest, run instructions, user message), each with a content
+hash, source, version and token estimate. A `prompt_cache_key` is composed only
+from identity (agent/policy/tool-schema versions + profile snapshot id + skill
+manifest version + session-summary version), so a new user turn or new run
+instructions do not invalidate the reusable segments, and a profile or skill
+change invalidates only that segment. Skills are injected as a bounded,
+relevant-only manifest (never all skills); full instructions stay behind
+`skill_view`.
+
+**Why.** Hermes-style caching is only useful when the reusable prefix is stable
+and observable. Making segments explicit and the key identity-only gives stable
+reuse and precise invalidation without changing what the model may do.
+
+**Consequences.** `graph.execute_run` emits a `prompt.plan` event with the segment
+hashes and per-segment token estimates. No behavior/permission change.
+
+## ADR-H56 — Long-lived sessions belong to a profile; session recall is ranked and bounded
+
+**Decision.** A durable `ChatSession` (metadata + a bounded deterministic summary)
+lives in `agent-memory.db`; a run belongs to a session, a session belongs to one
+profile. Session search ranks with the documented hybrid (exact phrase > BM25 >
+decision/correction/skill-failure/memory-action > recency > prose) and filters by
+role/kind/session/profile/market/skill/memory-action. A session summary is
+searchable and opt-in but is NEVER injected into every prompt. Historical content
+is context, never current evidence (the prompt says so).
+
+**Why.** The prior `SessionMessage` was a run-keyed search index with BM25 only,
+no session identity, no lifecycle and no summary. Users need "continue this
+session" and "what did we decide last week?" without an unlimited transcript ever
+entering the prompt.
+
+**Consequences.** `ChatSession` + scope columns on `HarnessRun`/`SessionMessage`
+are additive. New `/sessions*` and `/profiles*` routes; `RunRequest` carries
+`sessionId/profileId/projectId`. Delete archives by default and, when hard, clears
+only the search index — the run trace is never destroyed.
+
+## ADR-H57 — Named profiles are a metadata registry with a read-only inheritance chain
+
+**Decision.** `eclipse_memory/profiles.py` is a metadata registry over
+`.black-eclipse/profiles/PROFILES.json` plus a directory projection
+(`PROFILE.json`, `sessions/`, `skills/`, `history/`, `exports/`). A profile scopes
+memory, sessions, skills and providers and carries its prompt profile, retention
+and settings. Inheritance is explicit and READ-ONLY in the child; cycles and
+deleting a parent with children are refused. SQLite remains canonical for
+structured records — the directory is a projection.
+
+**Why.** Profiles are stronger isolation than separate directories: every query
+resolves the profile scope and a cross-profile read is refused. Keeping the
+registry as metadata (not a second store) preserves the one-store architecture.
+
+**Consequences.** `ProfileRegistry` is owned by `EclipseMemoryService`. Profile
+ids are validated slugs; the `default` profile cannot be deleted. No provider
+secret or memory content is written to the directory.
+
+## ADR-H58 — File edits are atomic, versioned and reversible; the file is never the source of truth
+
+**Decision.** The Markdown projection is edited only through a targeted API with
+an `expectedVersion` stale-edit guard, atomic writes (temp + fsync + rename), a
+pre-regenerate backup, and a structured revision history (before/after/actor/
+sourceRun/reviewId/reason/affectedIds/parentRevision/timestamp) with rollback and
+a bounded diff. A stale expected version is refused. Archive/restore remain
+structured-memory actions, not file edits.
+
+**Why.** A direct `writeFile` could lose a concurrent edit or leave a partial
+file, and a hand edit had no audit trail or way back. The brief requires atomic,
+diffable, reversible edits while SQLite stays canonical.
+
+**Consequences.** Entry markers carry a `version`; files are `USER_PROFILE.md`,
+`MEMORY.md`, `PROJECT_MEMORY.md`, `SKILLS.md` (+ `PROFILE.md`/`README.md`). Routes
+`/files/edit` and `/files/history`. Import still routes every entry through the
+existing gated pipeline.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning**Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely
 unavailable, runs fail with a clear 503.

@@ -13,7 +13,10 @@ import type {
   SkillExecutionRecord,
   SkillExecutionRequest,
   SkillExecutionResult,
+  SkillPatchOperation,
+  SkillPatchResult,
   SkillSummary,
+  SkillVersionHistoryEntry,
 } from "./skills-types";
 
 export interface SkillListResult {
@@ -105,6 +108,33 @@ export async function learnFromRun(runId: string, userIntent?: string) {
 export async function setSkillLifecycle(skillId: string, action: "enable" | "disable" | "deprecate" | "rollback", payload: Record<string, unknown> = {}) {
   return api<{ success?: boolean; error?: string; status?: string }>(
     `/api/skills/${encodeURIComponent(skillId)}/${action}`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+// ── Versioned patches (M2) ──────────────────────────────────────────────────
+
+export async function getSkillVersionHistory(skillId: string): Promise<{ success: boolean; skillId: string; versions: SkillVersionHistoryEntry[] }> {
+  return api(`/api/skills/${encodeURIComponent(skillId)}/version-history`);
+}
+
+export async function proposeSkillPatch(
+  skillId: string, baseVersion: string, operations: SkillPatchOperation[],
+  extra: { reason?: string; author?: string; reviewId?: string; sourceRunId?: string } = {},
+) {
+  return api<SkillPatchResult>(`/api/skills/${encodeURIComponent(skillId)}/patch`, {
+    method: "POST",
+    body: JSON.stringify({ baseVersion, operations, ...extra }),
+  });
+}
+
+export async function skillVersionAction(
+  skillId: string, version: string,
+  action: "evaluate" | "activate" | "promote" | "auto-rollback-check",
+  payload: Record<string, unknown> = {},
+) {
+  return api<{ success?: boolean; error?: string; [k: string]: unknown }>(
+    `/api/skills/${encodeURIComponent(skillId)}/patch/${encodeURIComponent(version)}/${action}`,
     { method: "POST", body: JSON.stringify(payload) }
   );
 }

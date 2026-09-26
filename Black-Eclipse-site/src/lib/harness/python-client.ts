@@ -28,6 +28,10 @@ export interface RunRequestPayload {
   agentId: string;
   modelSettings: { provider: string; baseUrl?: string; apiKey?: string; model: string; temperature?: number };
   userId?: string;
+  // M3/M4 request-scoped isolation identity (optional).
+  sessionId?: string;
+  profileId?: string;
+  projectId?: string;
   callbackBaseUrl: string;
   callbackToken?: string;
 }

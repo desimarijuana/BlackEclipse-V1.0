@@ -1222,6 +1222,39 @@ html:not(.dark).theme-glass-off .command-glass-bar {
   background-color: rgb(var(--glass-tint-light) / 0.92) !important;
 }
 
+/* ── Sidebar surface ─────────────────────────────────────────────────────────
+ * The navigation rail has its OWN tint separate from the page/card glass, so it
+ * can ship as a soft grey while the page stays black (and be re-tinted in
+ * Settings › Customization › Sidebar). Declared after the glass recipes so it
+ * overrides `.glass-card-strong` at equal specificity. Light mode keeps a soft
+ * white frost. */
+.sidebar-root {
+  background: rgb(var(--sidebar-rgb, 26 26 28) / var(--sidebar-opacity, 0.9));
+  backdrop-filter: blur(var(--sidebar-blur, 20px)) saturate(1.25);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35), inset -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .sidebar-root {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.10), inset -1px 0 0 rgba(0, 0, 0, 0.06);
+}
+/* The generic glass override / glass-off rules target `.glass-card-strong`
+ * (which the rail also carries) with `!important`, so mirror them here to keep
+ * the sidebar's dedicated tokens authoritative. */
+html.theme-glass-active .sidebar-root {
+  background-color: rgb(var(--sidebar-rgb, 26 26 28) / var(--sidebar-opacity, 0.9)) !important;
+  backdrop-filter: blur(var(--sidebar-blur, 20px)) saturate(1.25);
+}
+html:not(.dark).theme-glass-active .sidebar-root {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+html.theme-glass-off .sidebar-root {
+  backdrop-filter: none !important;
+  background-color: rgb(var(--sidebar-rgb, 26 26 28) / 0.96) !important;
+}
+html:not(.dark).theme-glass-off .sidebar-root {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
 /* Page background treatment (Customization › Background). The app shell paints
  * an opaque `bg-background`, so the pattern must layer on the shell element
  * itself (image paints over the background-color on the same box). */

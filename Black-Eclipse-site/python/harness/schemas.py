@@ -125,6 +125,12 @@ class RunRequest(BaseModel):
     agent: Optional[AgentConfig] = None
     modelSettings: ModelSettings  # noqa: N815
     userId: Optional[str] = None  # noqa: N815
+    # M3/M4: the request-scoped isolation identity. A run belongs to one session,
+    # profile and project. All are optional for backward compatibility; when
+    # absent the runtime uses the default profile and derives a session id.
+    sessionId: Optional[str] = None  # noqa: N815
+    profileId: Optional[str] = None  # noqa: N815
+    projectId: Optional[str] = None  # noqa: N815
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

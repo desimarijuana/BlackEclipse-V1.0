@@ -22,6 +22,8 @@ import type {
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
   MemorySemanticStatus,
+  MemoryProviderSearchResponse,
+  MemoryProviderStatus,
   MistakeRecord,
   SessionOpenResult,
   SessionSearchHealth,
@@ -111,6 +113,26 @@ export async function memoryRetention(): Promise<MemoryRetentionStatus> {
 
 export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
   return request<MemorySemanticStatus>("/eclipse-memory/semantic-status", { method: "GET" });
+}
+
+// ── Memory providers (M8) ───────────────────────────────────────────────────
+
+export async function memoryProviderStatus(): Promise<MemoryProviderStatus> {
+  return request<MemoryProviderStatus>("/memory-providers/status", { method: "GET" });
+}
+
+export async function memoryProviderSearch(params: {
+  query: string;
+  scope?: string;
+  scopeId?: string;
+  types?: string[];
+  limit?: number;
+  allowExternal?: boolean;
+}): Promise<MemoryProviderSearchResponse> {
+  return request<MemoryProviderSearchResponse>("/memory-providers/search", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 }
 
 export async function memoryProfile(scopeId?: string): Promise<MemoryProfileResponse> {

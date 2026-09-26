@@ -14,6 +14,7 @@ export {
   SHADOW_OPTIONS,
   BACKGROUND_OPTIONS,
   GLASS_PRESETS,
+  SIDEBAR_PRESETS,
   isValidHex,
   normalizeHex,
   normalizeTheme,
@@ -38,6 +39,7 @@ export type {
   ThemeShadow,
   ThemeBackground,
   ThemeGlass,
+  ThemeSidebar,
   ThemePreset,
   FontOption,
 } from './tokens';

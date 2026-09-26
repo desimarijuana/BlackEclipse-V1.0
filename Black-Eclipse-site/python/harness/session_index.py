@@ -63,7 +63,15 @@ def _bounded(text: str, limit: int) -> str:
     return text
 
 
-def index_run(store: Any, run_id: str, *, user_id: Optional[str] = None) -> dict[str, Any]:
+def index_run(
+    store: Any,
+    run_id: str,
+    *,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> dict[str, Any]:
     """Index the meaningful messages of a completed run into `SessionMessage`.
 
     Idempotent per (runId, ordinal). Returns counts for observability. Never
@@ -76,10 +84,15 @@ def index_run(store: Any, run_id: str, *, user_id: Optional[str] = None) -> dict
     if not run:
         return {"ok": False, "error": "run not found", "indexed": 0}
 
+    # Prefer the run's own persisted scope; fall back to the caller's.
+    session_id = session_id or run.get("sessionId")
+    profile_id = profile_id or run.get("profileId")
+    project_id = project_id or run.get("projectId")
+
     indexed = 0
     ordinal = 0
 
-    def _add(role: str, content: str, kind: str) -> None:
+    def _add(role: str, content: str, kind: str, **extra: Any) -> None:
         nonlocal indexed, ordinal
         cleaned = redact(content)
         if not cleaned or len(cleaned.strip()) < 2:
@@ -87,7 +100,8 @@ def index_run(store: Any, run_id: str, *, user_id: Optional[str] = None) -> dict
         cleaned = _bounded(cleaned, _MAX_MESSAGE_CHARS if kind == "message" else _MAX_SUMMARY_CHARS)
         result = store.index_session_message(
             run_id=run_id, role=role, content=cleaned, user_id=user_id,
-            kind=kind, ordinal=ordinal,
+            kind=kind, ordinal=ordinal, session_id=session_id, profile_id=profile_id,
+            project_id=project_id, **extra,
         )
         if result:
             indexed += 1
@@ -120,7 +134,8 @@ def index_run(store: Any, run_id: str, *, user_id: Optional[str] = None) -> dict
         if isinstance(memory_blob, dict):
             action = memory_blob.get("action")
             if action and memory_blob.get("contentPreview"):
-                _add("assistant", f"[memory {action}] {memory_blob.get('contentPreview')}", "memory_action")
+                _add("assistant", f"[memory {action}] {memory_blob.get('contentPreview')}",
+                     "memory_action", memory_action=str(action))
             learning = memory_blob.get("learningAnalysis") or {}
             if learning.get("candidatesCreated"):
                 _add("assistant", f"[learning] {learning.get('candidatesCreated')} candidate(s) created", "learning_outcome")
@@ -128,3 +143,85 @@ def index_run(store: Any, run_id: str, *, user_id: Optional[str] = None) -> dict
         pass
 
     return {"ok": True, "indexed": indexed, "runId": run_id}
+
+
+def build_summary(store: Any, session_id: str, *, limit: int = 40) -> dict[str, Any]:
+    """Build a bounded, deterministic session summary from its indexed messages.
+
+    Contains objective / decisions / unresolved / corrections / skills used /
+    memories changed / files or instruments / next actions. It is SEARCHABLE but
+    is never injected into every prompt automatically; a caller opts in. Never
+    raises — a summary is a projection, not truth.
+    """
+    try:
+        messages: list[dict[str, Any]] = []
+        for run_id in store.session_runs(session_id):
+            messages.extend(store.open_session(run_id).get("messages", []))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+    objective = None
+    decisions: list[str] = []
+    corrections: list[str] = []
+    skills: set[str] = set()
+    memories: list[str] = []
+    instruments: set[str] = set()
+    unresolved: list[str] = []
+
+    for message in messages[: max(1, int(limit))]:
+        role = message.get("role")
+        kind = message.get("kind")
+        content = (message.get("content") or message.get("snippet") or "").strip()
+        if not content:
+            continue
+        if role == "user" and objective is None:
+            objective = content[:400]
+        if kind == "memory_action":
+            memories.append(content[:200])
+        if kind in ("decision", "correction"):
+            corrections.append(content[:200])
+        text = content.lower()
+        if "decid" in text:
+            decisions.append(content[:200])
+        if "unresolved" in text or "todo" in text or "next step" in text:
+            unresolved.append(content[:200])
+        if kind == "tool_summary" and "skill" in text:
+            skills.add(content[:120])
+        import re as _re  # noqa: PLC0415
+
+        for ticker in _re.findall(r"\b[A-Z]{1,5}\b", message.get("content") or "")[:5]:
+            instruments.add(ticker)
+
+    summary = {
+        "objective": objective,
+        "decisions": decisions[:5],
+        "unresolved": unresolved[:5],
+        "corrections": corrections[:5],
+        "skillsUsed": sorted(skills)[:10],
+        "memoriesChanged": memories[:5],
+        "instruments": sorted(instruments)[:20],
+        "nextActions": unresolved[:5],
+        "messageCount": len(messages),
+    }
+    try:
+        store.update_chat_session(session_id, summary=summary)
+    except Exception:  # noqa: BLE001 - persisting a summary must not fail the caller
+        pass
+    return {"ok": True, "sessionId": session_id, "summary": summary}
+
+
+def summary_prompt_block(session: dict[str, Any]) -> str:
+    """A bounded prompt block for an ACTIVE session, or "" when there is none.
+
+    Deliberately small: a session summary is context, never financial evidence,
+    and is only injected when a caller asks for an active-workflow block.
+    """
+    summary = (session or {}).get("summary")
+    if not isinstance(summary, dict):
+        return ""
+    lines = ["## Active workflow (session context — not financial evidence)"]
+    if summary.get("objective"):
+        lines.append(f"Objective: {summary['objective']}")
+    if summary.get("nextActions"):
+        lines.append("Next actions: " + "; ".join(str(a) for a in summary["nextActions"][:3]))
+    return "\n".join(lines) if len(lines) > 1 else ""

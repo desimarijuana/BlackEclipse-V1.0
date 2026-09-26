@@ -135,6 +135,7 @@ def build_graph(
     memory_service: Optional[Any] = None,
     skill_registry: Optional[Any] = None,
     effect_authorizer: Optional[Any] = None,
+    memory_router: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -168,6 +169,7 @@ def build_graph(
         emitter=emitter,
         memory_store=store,
         memory_service=memory_service,
+        memory_router=memory_router,
         skill_registry=skill_registry,
         model_settings=request.modelSettings,
         bus=bus,
@@ -484,6 +486,7 @@ async def execute_run(
     memory_service: Optional[Any] = None,
     skill_registry: Optional[Any] = None,
     approvals: Optional[Any] = None,
+    memory_router: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     agent = resolve_agent(request)
@@ -496,6 +499,9 @@ async def execute_run(
         request.userId,
         request.modelSettings.provider,
         request.modelSettings.model,
+        session_id=request.sessionId,
+        profile_id=request.profileId,
+        project_id=request.projectId,
     )
     await emitter.emit("run.created", {"agentId": agent.id})
     store.update_run(request.runId, status="running", startedAt=started)
@@ -525,7 +531,11 @@ async def execute_run(
     # this one (the snapshot stays stable for the whole run). It is a separate,
     # clearly-labelled, non-authoritative block; its text is data, never
     # instructions. A profile failure must never block the run.
-    profile_block = await _profile_context(request, agent, memory_service, emitter)
+    profile_block, profile_snapshot_id = await _profile_context(request, agent, memory_service, emitter)
+
+    # A bounded, relevant-only skill manifest (never all skills). Discovery is a
+    # hint; it cannot enable, grant or run anything.
+    skill_manifest, skill_manifest_version = await _skill_manifest_context(request, skill_registry)
 
     # Deterministic explicit-intent handling. A clear "remember this" / "forget
     # this" / "correct this" must not depend on the model voluntarily calling the
@@ -540,10 +550,29 @@ async def execute_run(
         else await _apply_memory_intent(request, memory_service, emitter)
     )
 
+    # Prompt-cache plan: stable segments + a cache key computed from identity
+    # (versions + snapshot/manifest ids), never the user message. Recorded for
+    # observability; it changes nothing the model is allowed to do.
+    from .prompt_segments import build_prompt_plan  # noqa: PLC0415
+
+    allowed = effective_allowlist(agent, registry)
+    prompt_plan = build_prompt_plan(
+        system_prompt=agent.systemPrompt,
+        agent_id=agent.id,
+        tool_names=list(allowed) if allowed else list(registry.names()),
+        profile_block=profile_block,
+        profile_snapshot_id=profile_snapshot_id,
+        skill_manifest=skill_manifest,
+        skill_manifest_version=skill_manifest_version,
+        user_message=request.input.query,
+    )
+    await emitter.emit("prompt.plan", prompt_plan.to_dict())
+
     messages: list[BaseMessage] = [
         SystemMessage(content=agent.systemPrompt),
         *_history_messages(request),
         *([SystemMessage(content=profile_block)] if profile_block else []),
+        *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
         *([SystemMessage(content=memory_block)] if memory_block else []),
         HumanMessage(content=_user_message(request)),
     ]
@@ -553,6 +582,7 @@ async def execute_run(
             request, registry, data_bridge, store, emitter, bus, cancel_event,
             retrieval_cache, memory_service, skill_registry,
             _effect_authorizer(approvals, request.runId, emitter),
+            memory_router,
         )
         final_state = await app.ainvoke(
             {
@@ -748,8 +778,21 @@ async def _index_session(
     try:
         from .session_index import index_run  # noqa: PLC0415
 
-        result = index_run(store, request.runId, user_id=request.userId)
+        result = index_run(
+            store, request.runId, user_id=request.userId,
+            session_id=request.sessionId, profile_id=request.profileId,
+            project_id=request.projectId,
+        )
         await emitter.emit("session.indexed", {"runId": request.runId, "indexed": result.get("indexed", 0)})
+        # Keep the session's bounded summary fresh at natural boundaries. It is
+        # searchable/opt-in and never injected into every prompt automatically.
+        if request.sessionId and memory_service is not None:
+            try:
+                from .session_index import build_summary  # noqa: PLC0415
+
+                build_summary(store, request.sessionId)
+            except Exception:  # noqa: BLE001 - a summary is a projection, not truth
+                pass
     except Exception as exc:  # noqa: BLE001 - indexing must never break a run
         try:
             await emitter.emit("session.index_failed", {"error": str(exc)})
@@ -845,24 +888,25 @@ async def _profile_context(
     agent: AgentConfig,
     memory_service: Optional[Any],
     emitter: RunEmitter,
-) -> str:
-    """Build the stable, compact Persistent-context block for this run (or "").
+) -> tuple[str, Optional[str]]:
+    """Build the stable, compact Persistent-context block for this run.
 
-    Materialized once at run start; a skill sub-run is skipped (its prompt and
-    scope differ from chat). Never raises: a profile failure is diagnostics.
+    Returns `(block, snapshot_id)`. Materialized once at run start; a skill
+    sub-run is skipped (its prompt and scope differ from chat). Never raises: a
+    profile failure is diagnostics.
     """
     if memory_service is None:
-        return ""
+        return "", None
     # A skill child-run composes its own prompt; a persistent profile would be
     # noise there and is not the agent identity the user configured.
     if agent.id.startswith("skill:"):
-        return ""
+        return "", None
     try:
         settings = memory_service.policy.get_all()
     except Exception:  # noqa: BLE001
         settings = {}
     if not bool(settings.get("profile_enabled", True)):
-        return ""
+        return "", None
     try:
         snapshot = memory_service.build_profile(
             scope_id=request.userId,
@@ -872,7 +916,7 @@ async def _profile_context(
         )
     except Exception as exc:  # noqa: BLE001 - a profile must never break a run
         await emitter.emit("memory.profile_failed", {"error": str(exc)})
-        return ""
+        return "", None
     from .eclipse_memory.profile import render_prompt_block  # noqa: PLC0415
 
     block = render_prompt_block(snapshot)
@@ -886,7 +930,25 @@ async def _profile_context(
             "excluded": len(snapshot.excluded),
         },
     )
-    return block
+    return block, (snapshot.snapshot_id or None)
+
+
+async def _skill_manifest_context(
+    request: RunRequest,
+    skill_registry: Optional[Any],
+) -> tuple[str, Optional[str]]:
+    """A bounded, relevant-only skill manifest for this run (never all skills).
+
+    Progressive disclosure: only compact metadata for skills matching the turn
+    is injected as a hint; full instructions stay behind `skill_view`, which
+    cannot enable or run anything.
+    """
+    if skill_registry is None:
+        return "", None
+    from .prompt_segments import build_skill_manifest  # noqa: PLC0415
+
+    query = request.input.query or request.input.ticker or ""
+    return build_skill_manifest(skill_registry, query)
 
 
 async def _apply_memory_intent(

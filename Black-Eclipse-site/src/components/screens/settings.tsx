@@ -38,6 +38,10 @@ import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsSt
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
+import {
+  DEFAULT_GENERAL_PREFS, START_SCREEN_OPTIONS, loadGeneralPrefs, saveGeneralPrefs,
+  type GeneralPrefs,
+} from "@/lib/general-prefs";
 
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -61,7 +65,6 @@ interface NewsFeed {
 }
 
 interface AppPreferences {
-  theme: "dark" | "light";
   defaultMarket: string;
   refreshMs: number;
 }
@@ -257,8 +260,22 @@ export function Settings({
   // News
   const [feeds, setFeeds] = useState<NewsFeed[]>([]);
 
-  // Preferences
-  const [prefs, setPrefs] = useState<AppPreferences>({ theme: "dark", defaultMarket: "US", refreshMs: 15000 });
+  // Preferences (server-backed: default market + refresh interval)
+  const [prefs, setPrefs] = useState<AppPreferences>({ defaultMarket: "US", refreshMs: 15000 });
+
+  // General preferences (localStorage, presentation-layer): start screen and
+  // whether destructive local-data clears need confirmation.
+  const [general, setGeneral] = useState<GeneralPrefs>(DEFAULT_GENERAL_PREFS);
+  useEffect(() => {
+    setGeneral(loadGeneralPrefs());
+  }, []);
+  const updateGeneral = (patch: Partial<GeneralPrefs>) => {
+    setGeneral((g) => {
+      const next = { ...g, ...patch };
+      saveGeneralPrefs(next);
+      return next;
+    });
+  };
 
   // Display currency (stored locally, presentation-layer only)
   const [currency, setCurrency] = useState<string>("USD");
@@ -410,14 +427,15 @@ export function Settings({
     return () => clearTimeout(t);
   }, [toast]);
 
-  const clearStorage = (keys: string[]) => {
+  const clearStorage = (keys: string[], label: string) => {
+    // Confirmation is on by default (Settings › General). A mis-click here used
+    // to wipe chats/watchlist/portfolio instantly and irreversibly.
+    if (general.confirmDestructive && typeof window !== "undefined") {
+      const ok = window.confirm(`Clear ${label}? This only affects this browser and cannot be undone.`);
+      if (!ok) return;
+    }
     keys.forEach((k) => localStorage.removeItem(k));
     setToast({ kind: "ok", text: `Cleared ${keys.length} local data item${keys.length > 1 ? "s" : ""}.` });
-  };
-
-  const applyTheme = (theme: "dark" | "light") => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    updatePrefs({ theme });
   };
 
   // Test the current LLM config against the live endpoint. The in-progress
@@ -451,7 +469,7 @@ export function Settings({
     group: "Personalize" | "Intelligence" | "System";
     terms: string[];
   }[] = [
-    { id: "general", label: "General", desc: "Appearance & preferences", icon: Palette, group: "Personalize", terms: ["theme", "dark", "light", "market", "currency", "timezone", "refresh"] },
+    { id: "general", label: "General", desc: "Startup, market & display preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety"] },
     { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
@@ -677,30 +695,26 @@ export function Settings({
               <div className="animate-fade-in-up">
                 <SectionHeader
                   icon={Palette}
-                  title="Appearance & Preferences"
-                  description="Tailor the interface theme, default market, currency, timezone and how frequently live data refreshes."
+                  title="General"
+                  description="How the app opens and behaves — default market, live refresh, currency and timezone."
                 />
                 <Panel className="p-5 md:p-6 space-y-5">
-                  <Field label="Theme">
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["dark", "light"] as const).map((t) => (
+                  <Field label="Start screen" hint="What opens on launch. A shared link still goes to its own page.">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {START_SCREEN_OPTIONS.map((opt) => (
                         <button
-                          key={t}
-                          onClick={() => applyTheme(t)}
+                          key={opt.id}
+                          onClick={() => updateGeneral({ startScreen: opt.id })}
+                          title={opt.hint}
                           className={cn(
-                            "flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer capitalize",
-                            prefs.theme === t
+                            "flex flex-col items-start gap-0.5 px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer text-left",
+                            general.startScreen === opt.id
                               ? "bg-primary/10 text-primary border-primary/40 shadow-sm shadow-primary/10"
                               : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border"
                           )}
                         >
-                          <span
-                            className={cn(
-                              "w-3 h-3 rounded-full border-2",
-                              prefs.theme === t ? "border-primary bg-primary" : "border-muted-foreground/50"
-                            )}
-                          />
-                          {t}
+                          <span>{opt.label}</span>
+                          <span className="text-[10px] font-normal opacity-70">{opt.hint}</span>
                         </button>
                       ))}
                     </div>
@@ -772,19 +786,39 @@ export function Settings({
                     </Select>
                   </Field>
                 </Panel>
+
+                <Panel className="mt-4 p-5 md:p-6 space-y-5">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
+                    <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
+                    <span>Behavior & Safety</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <Label className="text-xs text-muted-foreground font-medium">Confirm before clearing data</Label>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                        Ask first before wiping local chats, watchlist or portfolio from the Data &amp; Storage tab.
+                      </p>
+                    </div>
+                    <Toggle
+                      checked={general.confirmDestructive}
+                      onChange={(v) => updateGeneral({ confirmDestructive: v })}
+                    />
+                  </div>
+                </Panel>
+
                 <div className="mt-4 flex justify-end">
                   <Button
                     variant="outline"
                     size="sm"
                     className="cursor-pointer rounded-xl"
                     onClick={() => {
-                      const next: AppPreferences = { theme: "dark", defaultMarket: "US", refreshMs: 15000 };
-                      document.documentElement.classList.toggle("dark", true);
+                      const next: AppPreferences = { defaultMarket: "US", refreshMs: 15000 };
                       setDisplayCurrency("USD");
                       setCurrency("USD");
                       setDisplayTimeZone("UTC");
                       setTimeZone("UTC");
                       setPrefs(next);
+                      updateGeneral(DEFAULT_GENERAL_PREFS);
                       void persist({ preferences: next });
                     }}
                   >
@@ -1138,16 +1172,16 @@ export function Settings({
                 />
                 <Panel className="p-5 md:p-6">
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["chats_guest"])}>
+                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["chats_guest"], "all chats")}>
                       <Trash2 className="w-4 h-4 mr-1" /> Clear Chats
                     </Button>
-                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["watchlist_guest"])}>
+                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["watchlist_guest"], "your watchlist")}>
                       <Trash2 className="w-4 h-4 mr-1" /> Clear Watchlist
                     </Button>
-                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["portfolio_tx_guest", "portfolio_alerts_guest"])}>
+                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl" onClick={() => clearStorage(["portfolio_tx_guest", "portfolio_alerts_guest"], "your portfolio")}>
                       <Trash2 className="w-4 h-4 mr-1" /> Clear Portfolio
                     </Button>
-                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl text-rose-400 hover:text-rose-300 hover:border-rose-500/40 hover:bg-rose-500/10" onClick={() => clearStorage(["chats_guest", "watchlist_guest", "portfolio_tx_guest", "portfolio_alerts_guest"])}>
+                    <Button variant="outline" size="sm" className="cursor-pointer justify-start rounded-xl text-rose-400 hover:text-rose-300 hover:border-rose-500/40 hover:bg-rose-500/10" onClick={() => clearStorage(["chats_guest", "watchlist_guest", "portfolio_tx_guest", "portfolio_alerts_guest"], "all local data")}>
                       <RotateCcw className="w-4 h-4 mr-1" /> Reset All Local Data
                     </Button>
                   </div>

@@ -10,12 +10,18 @@ import type { EvaluationStatus, SkillRisk, SkillStatus } from "@/lib/harness/ski
 
 const STATUS_STYLES: Record<SkillStatus, string> = {
   draft: "border-slate-400/30 bg-slate-400/10 text-slate-300",
+  evaluating: "border-sky-400/30 bg-sky-400/10 text-sky-300",
   testing: "border-sky-400/30 bg-sky-400/10 text-sky-300",
+  canary: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
   review: "border-amber-400/30 bg-amber-400/10 text-amber-300",
   validated: "border-violet-400/30 bg-violet-400/10 text-violet-300",
+  approved: "border-violet-400/30 bg-violet-400/10 text-violet-300",
   enabled: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+  active: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
   disabled: "border-border/40 bg-accent/40 text-muted-foreground",
   deprecated: "border-orange-400/30 bg-orange-400/10 text-orange-300",
+  superseded: "border-orange-400/30 bg-orange-400/10 text-orange-300",
+  rolled_back: "border-rose-400/30 bg-rose-400/10 text-rose-300",
   rejected: "border-rose-400/30 bg-rose-400/10 text-rose-300",
 };
 

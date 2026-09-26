@@ -693,3 +693,52 @@ registry,runtime,evaluation}.py`, `eclipse_memory/{retrieval,service,store}.py`,
 `python/harness/{graph,schemas}.py`, `eclipse_memory/eval/`, `src/lib/harness/
 errors.ts`. ADR-H45â€¦H47 in `docs/harness/decisions.md`.
 
+
+## ADR-035 — Autonomous-but-governed learning: provider layer, structured skill patches, hybrid namespaces, prompt segments (2026)
+**Decision:** Add four capabilities without relaxing a safety invariant. External
+memory is a dedicated `MemoryProvider` layer over the existing MCP boundary —
+external results are `provenance=external_provider`/`verified=false`, fenced,
+native-first routed, never promoted; external writes require an explicit user
+request AND operator approval, and automatic external writes are absent by
+construction. Self-improving skills are structured JSON-pointer patches over an
+allowed-field set that always create a NEW immutable `SkillVersion`; a stale base
+version is rejected, activation requires a passing evaluation, canary is limited
+to safe non-mutating skills, and rollback (manual or automatic on a regression)
+is atomic and preserves both versions. Memory retrieval uses logical namespaces
+plus a bounded hybrid score whose semantic term can only nudge an already-
+authorized memory. The prompt is split into immutable segments with an
+identity-only `prompt_cache_key`, and skills are injected as a bounded relevant-
+only manifest.
+**Why:** The product must be autonomous in discovering, proposing, testing,
+versioning, activating, monitoring and rolling back improvements — but never
+autonomous in silently changing truth, permissions, financial-retrieval rules or
+irreversible behavior. Each capability therefore ends at a reviewable, versioned,
+reversible or clearly-labelled boundary.
+**Impact:** new `python/harness/memory_providers/`, `python/harness/prompt_segments.py`,
+`python/harness/skills/{patches,versioning}.py`, `python/harness/eclipse_memory/hybrid.py`;
+`memory_tools.py`, `service.py`, `graph.py`, `main.py`, `agents.py`,
+`eclipse_memory/{policy,schema,store}.py`, `skills/{manifest,registry,evaluation}.py`;
+migration 13; routes `/memory-providers/*` and `/skills/{id}/version-history|patch/**`;
+TS skill/memory clients + a patch-version UI panel. ADR-H52…H55 in
+`docs/harness/decisions.md`.
+
+## ADR-036 — Long-lived sessions, named profiles and reversible file editing (2026)
+**Decision:** Add a durable `ChatSession` (metadata + a bounded deterministic
+summary) with a run-belongs-to-session / session-belongs-to-profile link and a
+ranked, filtered, bounded session search — history is context, never current
+evidence, and a summary is never auto-injected. Add named profiles as a metadata
+registry over `.black-eclipse/profiles/` with READ-ONLY inheritance and
+request-scoped isolation. Make the Markdown projection editable only through a
+targeted, atomic, versioned API (expectedVersion guard, temp+fsync+rename,
+structured revision history + rollback + diff); SQLite stays canonical.
+**Why:** Users need long-lived sessions and named profiles for real isolation,
+and hand-editing a projection must not be able to lose a concurrent edit, leave a
+partial file, or lack an audit trail — without replacing SQLite or adding
+infrastructure.
+**Impact:** `persistence.py` (ChatSession + scope columns), `session_index.py`
+(summary), `eclipse_memory/profiles.py`, `schemas.py` (`RunRequest` ids),
+`main.py` (`/sessions*`, `/profiles*`, `/summary`, search filters), `graph.py`
+(session/profile wiring), `src/lib/harness/{memory-files,run-service,
+eclipse-memory-{client,browser,types},python-client}.ts`, new `/api/sessions/**`,
+`/api/profiles/**`, `/api/eclipse-memory/files/{edit,history}`, and the Memory
+Control Room tabs. ADR-H56…H58 in `docs/harness/decisions.md`.

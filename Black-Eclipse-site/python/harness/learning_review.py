@@ -48,6 +48,22 @@ REVIEW_MAX_ATTEMPTS = 2  # one retry
 MODEL_TOKEN_BUDGET = 800
 _MODEL_INPUT_CHARS = 6000
 
+# Idle-aware scheduling: keep expensive reviews off the foreground. A review
+# queued while the user is active waits for this idle window; a
+# critical/manual review bypasses it.
+IDLE_DELAY_S = 3.0
+
+# Priority ordering (higher wins). `critical` (correction/security) is chosen
+# first, then a failed active skill, then a repeated successful workflow, then a
+# normal completed run, then profile consolidation.
+PRIORITY_LEVELS = {
+    "low": 0,
+    "normal": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+}
+
 # The categories a review may return. A model may not invent a new one.
 OUTCOME_CATEGORIES = frozenset(
     {
@@ -55,6 +71,7 @@ OUTCOME_CATEGORIES = frozenset(
         "memory_suggestion",
         "correction_candidate",
         "skill_candidate",
+        "skill_patch",
         "mistake_recovery",
         "no_learning",
     }
@@ -93,7 +110,7 @@ def _bounded(result: dict[str, Any]) -> dict[str, Any]:
         safe_payload = {
             k: (v[:400] if isinstance(v, str) else v)
             for k, v in payload.items()
-            if k in ("content", "memoryType", "scope", "reason", "category", "recurrence", "limitations", "evidenceRunId")
+            if k in ("content", "memoryType", "scope", "reason", "category", "recurrence", "limitations", "evidenceRunId", "skill", "baseVersion")
         }
         trimmed.append({
             "category": outcome.get("category"),
@@ -111,6 +128,60 @@ def _bounded(result: dict[str, Any]) -> dict[str, Any]:
         "tokenBudget": result.get("tokenBudget"),
         "gateApplied": True,
         "noLearning": not any(o.get("created") for o in trimmed),
+    }
+
+
+def _skill_patch_proposal(service: Any, run_store: Any, run_id: str) -> Optional[dict[str, Any]]:
+    """Flag a structured skill patch opportunity for a FAILED enabled skill.
+
+    The deterministic review does NOT invent skill content. It records that a
+    reusable skill failed in this run and returns the inert patch template
+    (skill, baseVersion, evidenceRuns, regressionCases) so an operator/model can
+    author the operations. It never creates a version, never activates anything,
+    and never mutates the active skill. A missing skill or store returns None.
+    """
+    store = getattr(service, "store", None)
+    registry = getattr(service, "skill_registry", None)
+    if store is None:
+        return None
+    try:
+        executions = run_store.list_tool_executions(run_id) or []
+    except Exception:  # noqa: BLE001
+        return None
+    failed_skill: Optional[str] = None
+    for execution in executions:
+        if execution.get("ok"):
+            continue
+        args = execution.get("args") or {}
+        # The controlled skill sub-run records the skill id in its args.
+        candidate = args.get("name") or args.get("skill_id") or args.get("skillId")
+        if execution.get("name") == "skill_invoke" and candidate:
+            failed_skill = str(candidate)
+            break
+    if not failed_skill:
+        return None
+    try:
+        skill = store.get_skill(failed_skill)
+    except Exception:  # noqa: BLE001
+        skill = None
+    if not skill or skill.get("status") not in ("enabled", "active"):
+        return None
+    base_version = skill.get("latestVersion")
+    if not base_version:
+        return None
+    return {
+        "category": "skill_patch",
+        "created": False,
+        "inert": True,
+        "reason": (
+            "an enabled skill failed in this run; a structured patch may be "
+            "warranted — author operations, evaluate, then canary/activate"
+        ),
+        "payload": {
+            "skill": failed_skill,
+            "baseVersion": base_version,
+            "evidenceRunId": run_id,
+        },
     }
 
 
@@ -177,6 +248,13 @@ def _deterministic_outcomes(service: Any, run_store: Any, run_id: str) -> list[d
             "reason": "an inert reusable-procedure candidate was created (recurrence-gated)",
             "payload": {"category": "skill", "evidenceRunId": run_id},
         })
+
+    # 1b) A structured skill patch may be PROPOSED for an enabled skill that the
+    #     run failed against. It is inert (a draft version) and an operator must
+    #     evaluate + activate it; the active version is never touched here.
+    patch_proposal = _skill_patch_proposal(service, run_store, run_id)
+    if patch_proposal:
+        outcomes.append(patch_proposal)
 
     # 2) Durable-memory proposal from the run's captured memory outcome. This
     #    only inspects what the run's own gate already surfaced; it re-runs the
@@ -267,8 +345,38 @@ def _model_outcomes(service: Any, run: dict[str, Any], model_settings: Any) -> l
     return outcomes
 
 
+class _QueuedReview:
+    """One queued review with scheduling metadata."""
+
+    __slots__ = ("run_id", "priority", "session_id", "profile_id", "mode", "model", "manual")
+
+    def __init__(
+        self, run_id: str, *, priority: str = "normal", session_id: Optional[str] = None,
+        profile_id: Optional[str] = None, mode: str = "automatic_selective",
+        model: bool = False, manual: bool = False,
+    ) -> None:
+        self.run_id = run_id
+        self.priority = priority if priority in PRIORITY_LEVELS else "normal"
+        self.session_id = session_id
+        self.profile_id = profile_id
+        self.mode = mode
+        self.model = model
+        self.manual = manual
+
+
 class LearningReviewQueue:
-    """A bounded in-process review queue with coalescing and shutdown safety."""
+    """A bounded in-process review queue with priority, idle deferral, coalescing
+    and shutdown safety.
+
+    Scheduling improves on a plain FIFO queue:
+
+      * priorities are chosen highest-first (`critical` → `low`);
+      * multiple reviews for the same session coalesce (the newest snapshot wins,
+        obsolete ones are discarded);
+      * while the user is active, a normal review waits for a short idle window;
+        a `critical` or manual review bypasses the wait;
+      * one review can never kill a worker.
+    """
 
     def __init__(
         self,
@@ -277,16 +385,22 @@ class LearningReviewQueue:
         *,
         max_concurrent: int = MAX_CONCURRENT_REVIEWS,
         timeout_s: float = REVIEW_TIMEOUT_S,
+        idle_delay_s: float = IDLE_DELAY_S,
     ) -> None:
         self.service = service
         self.run_store = run_store
         self.max_concurrent = max(1, int(max_concurrent))
         self.timeout_s = float(timeout_s)
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        self.idle_delay_s = float(idle_delay_s)
+        self._heap: list[tuple[int, int, _QueuedReview]] = []
+        self._counter = 0
+        self._wake = asyncio.Event()
         self._workers: list[asyncio.Task[Any]] = []
-        self._pending: set[str] = set()
+        self._pending: dict[str, _QueuedReview] = {}
+        self._by_session: dict[str, str] = {}
         self._running: set[str] = set()
         self._stopping = False
+        self._active_until = 0.0  # monotonic time user activity is expected until
         self._lock: Optional[asyncio.Lock] = None
 
     def _get_lock(self) -> asyncio.Lock:
@@ -303,6 +417,7 @@ class LearningReviewQueue:
 
     async def stop(self) -> None:
         self._stopping = True
+        self._wake.set()
         for task in self._workers:
             task.cancel()
         for task in self._workers:
@@ -311,46 +426,113 @@ class LearningReviewQueue:
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         self._workers = []
-        # Drain queued (unstarted) work.
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        self._heap.clear()
+        self._pending.clear()
+        self._by_session.clear()
 
-    async def enqueue(self, run_id: str) -> bool:
-        """Queue a review for `run_id`, coalescing duplicates. Returns True if added."""
+    def mark_user_active(self) -> None:
+        """Record foreground activity so normal reviews defer to a short idle."""
+        self._active_until = asyncio.get_event_loop().time() + self.idle_delay_s
+        self._wake.set()
+
+    def _idle_ready(self) -> bool:
+        try:
+            return asyncio.get_event_loop().time() >= self._active_until
+        except RuntimeError:
+            return True
+
+    async def enqueue(
+        self, run_id: str, *, priority: str = "normal",
+        session_id: Optional[str] = None, profile_id: Optional[str] = None,
+        model: bool = False, manual: bool = False,
+    ) -> bool:
+        """Queue a review, coalescing duplicates. Returns True if added.
+
+        A review for the same session replaces the older queued snapshot (the
+        obsolete one is discarded), so a burst of runs for one session does not
+        produce N stale reviews.
+        """
         async with self._get_lock():
             if run_id in self._pending or run_id in self._running:
                 return False
-            self._pending.add(run_id)
-        await self._queue.put(run_id)
+            review = _QueuedReview(
+                run_id, priority=priority, session_id=session_id,
+                profile_id=profile_id, model=model, manual=manual,
+            )
+            if session_id:
+                previous = self._by_session.get(session_id)
+                if previous and previous != run_id:
+                    # Coalesce: drop the older queued snapshot for this session.
+                    self._pending.pop(previous, None)
+                    self._rebuild_heap()
+            self._pending[run_id] = review
+            if session_id:
+                self._by_session[session_id] = run_id
+            self._counter += 1
+            # heapq is a min-heap; negate priority so the highest wins.
+            self._heap.append((-PRIORITY_LEVELS[review.priority], self._counter, review))
+            import heapq
+
+            heapq.heapify(self._heap)
+        self._wake.set()
         return True
+
+    def _rebuild_heap(self) -> None:
+        self._heap = [item for item in self._heap if item[2].run_id in self._pending]
+
+    async def _next_review(self) -> Optional[_QueuedReview]:
+        while not self._stopping:
+            import heapq
+
+            if self._heap:
+                _, _, review = heapq.heappop(self._heap)
+                if review.run_id not in self._pending:
+                    continue  # coalesced away
+                # Idle-aware: a normal review waits; critical/manual bypasses.
+                if not review.manual and PRIORITY_LEVELS[review.priority] < PRIORITY_LEVELS["critical"]:
+                    if not self._idle_ready():
+                        # Put it back and wait for the idle timer / new work.
+                        heapq.heappush(self._heap, (-PRIORITY_LEVELS[review.priority], self._counter, review))
+                        self._wake.clear()
+                        try:
+                            await asyncio.wait_for(self._wake.wait(), timeout=self.idle_delay_s)
+                        except asyncio.TimeoutError:
+                            pass
+                        continue
+                return review
+            self._wake.clear()
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+        return None
 
     async def _worker(self, index: int) -> None:
         while not self._stopping:
-            try:
-                run_id = await self._queue.get()
-            except asyncio.CancelledError:
+            review = await self._next_review()
+            if review is None:
                 return
-            self._pending.discard(run_id)
-            self._running.add(run_id)
+            self._pending.pop(review.run_id, None)
+            if review.session_id:
+                self._by_session.pop(review.session_id, None)
+            self._running.add(review.run_id)
             try:
-                await self._process(run_id)
+                await self._process(review)
             except asyncio.CancelledError:
-                self._running.discard(run_id)
+                self._running.discard(review.run_id)
                 return
             except Exception:  # noqa: BLE001 - worker must never die on one run
                 pass
             finally:
-                self._running.discard(run_id)
-                self._queue.task_done()
+                self._running.discard(review.run_id)
 
-    async def _process(self, run_id: str) -> None:
+    async def _process(self, review: _QueuedReview) -> None:
+        run_id = review.run_id
         # Persist a queued row so the queue is observable even mid-flight.
         record = self.run_store.save_learning_review({
             "runId": run_id, "status": "queued", "mode": "deterministic",
-            "createdAt": now_iso(),
+            "priority": review.priority, "sessionId": review.session_id,
+            "profileId": review.profile_id, "createdAt": now_iso(),
         })
         review_id = record["id"]
         self.run_store.update_learning_review(review_id, status="running", startedAt=now_iso())
@@ -361,7 +543,10 @@ class LearningReviewQueue:
         for attempt in range(1, REVIEW_MAX_ATTEMPTS + 1):
             try:
                 result = await asyncio.wait_for(
-                    asyncio.to_thread(review_run, self.service, self.run_store, run_id),
+                    asyncio.to_thread(
+                        review_run, self.service, self.run_store, run_id,
+                        model=review.model, model_settings=run.get("_model_settings"),
+                    ),
                     timeout=self.timeout_s,
                 )
                 result["reviewId"] = review_id
@@ -386,13 +571,25 @@ class LearningReviewQueue:
 
     def health(self) -> dict[str, Any]:
         base = self.run_store.learning_review_health()
+        idle = True
+        try:
+            now = asyncio.get_running_loop().time()
+            idle = now >= self._active_until
+        except RuntimeError:
+            idle = True
         return {
             **base,
             "queue": {
-                "queued": self._queue.qsize(),
+                "queued": len(self._pending),
                 "running": len(self._running),
                 "maxConcurrent": self.max_concurrent,
                 "timeoutMs": int(self.timeout_s * 1000),
+                "idleDelayMs": int(self.idle_delay_s * 1000),
+                "idle": idle,
+                "priorities": {
+                    review.priority: sum(1 for r in self._pending.values() if r.priority == review.priority)
+                    for review in list(self._pending.values())
+                },
             },
         }
 

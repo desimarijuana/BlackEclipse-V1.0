@@ -8,12 +8,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
-  FlaskConical, History, Info, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
+  FlaskConical, GitBranch, History, Info, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
   Trash2, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { SkillDetail as SkillDetailType } from "@/lib/harness/skills-types";
+import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";
+import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/skills-browser";
 import { EvalBadge, formatDuration, formatWhen, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
 
 function Collapsible({
@@ -277,6 +278,11 @@ export function SkillDetailPanel({
         <HistoryList versions={skill.versions} onRollback={(version) => onLifecycle(skill.id, "rollback", version)} isOperator={isOperator} />
       </Collapsible>
       <div className="mt-3">
+        <Collapsible title="Patch versions (self-improvement)" icon={GitBranch}>
+          <PatchVersionPanel skillId={skill.id} isOperator={isOperator} />
+        </Collapsible>
+      </div>
+      <div className="mt-3">
         <Collapsible title={`Evaluation history (${skill.evaluations.length})`} icon={FlaskConical}>
           <EvaluationsList evaluations={skill.evaluations} />
         </Collapsible>
@@ -291,6 +297,113 @@ export function SkillDetailPanel({
           <ReviewsList reviews={skill.reviews} />
         </Collapsible>
       </div>
+    </div>
+  );
+}
+
+const PATCH_ACTIONS = [
+  { action: "evaluate" as const, label: "Evaluate" },
+  { action: "activate" as const, label: "Activate" },
+  { action: "promote" as const, label: "Promote" },
+  { action: "auto-rollback-check" as const, label: "Rollback check" },
+];
+
+function PatchVersionPanel({ skillId, isOperator }: { skillId: string; isOperator: boolean }) {
+  const [versions, setVersions] = useState<SkillVersionHistoryEntry[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getSkillVersionHistory(skillId)
+      .then((data) => { if (active) setVersions(data.versions ?? []); })
+      .catch(() => { if (active) setVersions([]); });
+    return () => { active = false; };
+  }, [skillId]);
+
+  const run = async (version: string, action: typeof PATCH_ACTIONS[number]["action"]) => {
+    setBusy(`${version}:${action}`);
+    setMessage(null);
+    try {
+      const result = await skillVersionAction(skillId, version, action);
+      setMessage(result.success === false ? `Error: ${result.error ?? action} failed` : `${action} OK`);
+      const refreshed = await getSkillVersionHistory(skillId);
+      setVersions(refreshed.versions ?? []);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "action failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const patched = versions.filter((v) => v.patch || v.canaryState || v.status === "rolled_back");
+  if (!patched.length) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        No self-improvement patch versions. Background reviews may propose one after a failed skill run.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {message && <p className="text-[11px] text-foreground">{message}</p>}
+      {patched.map((v) => {
+        const eligibleActions = v.status === "canary"
+          ? PATCH_ACTIONS.filter((a) => a.action === "promote" || a.action === "auto-rollback-check")
+          : v.status === "rolled_back" || v.status === "active" || v.status === "enabled"
+            ? []
+            : PATCH_ACTIONS;
+        return (
+        <div key={v.version} className="rounded-xl border border-border/20 glass-card-subtle p-3">
+          <div className="flex items-center gap-2 flex-wrap text-[11px]">
+            <span className="font-mono font-semibold text-foreground">{v.version}</span>
+            <StatusBadge status={v.status} />
+            <EvalBadge status={v.evaluationStatus ?? "not_evaluated"} />
+            {v.isActive && <span className="rounded-full border border-emerald-400/40 px-2 py-0.5 text-[9px] uppercase tracking-wide text-emerald-300">active</span>}
+            {v.canaryState && <span className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] uppercase tracking-wide text-cyan-300">canary: {v.canaryState}</span>}
+            {v.baseVersion && <span className="text-muted-foreground">from {v.baseVersion}</span>}
+            {v.patchAuthor && <span className="text-muted-foreground">author: {v.patchAuthor}</span>}
+            {v.activatedAt && <span className="text-emerald-300">activated {formatWhen(v.activatedAt)}</span>}
+            {v.rolledBackAt && <span className="text-rose-300">rolled back {formatWhen(v.rolledBackAt)}</span>}
+          </div>
+          {v.patchSummary && <p className="mt-1 text-[11px] text-muted-foreground">{v.patchSummary}</p>}
+          {v.patch?.operations?.length ? (
+            <div className="mt-2 rounded-lg border border-border/20 bg-background/30 p-2 font-mono text-[10px]">
+              {v.patch.operations.map((op, i) => (
+                <p key={i} className={cn(op.op === "add" ? "text-emerald-300" : op.op === "remove" ? "text-rose-300" : "text-sky-300")}>
+                  {op.op === "add" ? "+ " : op.op === "remove" ? "- " : "~ "}{op.path}
+                  {op.value !== undefined ? ` = ${JSON.stringify(op.value)}` : ""}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {(v.patch?.evidenceRuns?.length || v.patch?.regressionCases?.length) ? (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {(v.patch?.evidenceRuns ?? []).map((run) => (
+                <span key={run} className="rounded-md border border-border/30 bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">evidence {run.slice(0, 12)}</span>
+              ))}
+              {(v.patch?.regressionCases ?? []).map((rc) => (
+                <span key={rc} className="rounded-md border border-border/30 bg-accent/20 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">regression {rc.slice(0, 18)}</span>
+              ))}
+            </div>
+          ) : null}
+          {isOperator && eligibleActions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {eligibleActions.map((a) => (
+                <button
+                  key={a.action}
+                  onClick={() => run(v.version, a.action)}
+                  disabled={busy !== null}
+                  className="rounded-lg border border-border/30 px-2 py-0.5 text-[10px] hover:bg-accent/30 disabled:opacity-40 cursor-pointer disabled:cursor-default"
+                >
+                  {busy === `${v.version}:${a.action}` ? "…" : a.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        );
+      })}
     </div>
   );
 }

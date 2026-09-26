@@ -18,6 +18,10 @@ export interface StartRunOptions {
   input: RunInput;
   agentId?: string;
   userId?: string;
+  // M3/M4 request-scoped isolation identity (optional; the runtime defaults them).
+  sessionId?: string;
+  profileId?: string;
+  projectId?: string;
   runId?: string;
 }
 
@@ -140,6 +144,11 @@ export async function startRun(
     agentId: agent.id,
     modelSettings,
     userId: options.userId,
+    // Request-scoped isolation identity (M3/M4). Absent = default profile and a
+    // runtime-derived session; the runtime resolves and enforces the scope.
+    sessionId: options.sessionId,
+    profileId: options.profileId,
+    projectId: options.projectId,
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

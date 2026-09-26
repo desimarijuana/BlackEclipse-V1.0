@@ -3,6 +3,8 @@ import {
   parseMarkdownEntryList,
   renderMemoryMd,
   renderProfileMd,
+  renderProjectMemoryMd,
+  renderSkillsMd,
   renderUserMd,
   toExportDocument,
 } from "./memory-files";
@@ -54,13 +56,14 @@ describe("memory-files markdown projection", () => {
     const text = [
       "# User Profile",
       "- User prefers concise answers",
-      "  <!-- eclipse:id=mem_123;type=preference;scope=user -->",
+      "  <!-- eclipse:id=mem_123;type=preference;scope=user;version=2026-01-01T00:00:00Z -->",
       "- A line without a marker",
     ].join("\n");
-    const { entries, ignored } = parseMarkdownEntryList("USER.md", text);
+    const { entries, ignored } = parseMarkdownEntryList("USER_PROFILE.md", text);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toEqual({
-      id: "mem_123", memoryType: "preference", scope: "user", content: "User prefers concise answers",
+      id: "mem_123", memoryType: "preference", scope: "user",
+      version: "2026-01-01T00:00:00Z", content: "User prefers concise answers",
     });
     expect(ignored).toHaveLength(1);
   });
@@ -74,10 +77,19 @@ describe("memory-files markdown projection", () => {
 
   it("toExportDocument marks imported source", () => {
     const doc = toExportDocument({
-      entries: [{ id: "m1", memoryType: "semantic", scope: "general", content: "x" }],
+      entries: [{ id: "m1", memoryType: "semantic", scope: "general", version: null, content: "x" }],
       ignored: [],
     });
     expect(doc.memories[0]).toMatchObject({ content: "x", source: "imported", memoryType: "semantic" });
+  });
+
+  it("renders PROJECT_MEMORY.md and a read-only SKILLS.md index", () => {
+    const memories = [memory({ id: "m2", memoryType: "procedural", content: "Always use pnpm" })];
+    const text = renderProjectMemoryMd(memories);
+    expect(text).toContain("Always use pnpm");
+    const skills = renderSkillsMd([{ id: "research.planning", name: "Research Planning", status: "enabled", version: "1.0.0" }]);
+    expect(skills).toContain("research.planning");
+    expect(skills).toContain("read-only");
   });
 
   it("renderProfileMd includes the generated snapshot", () => {

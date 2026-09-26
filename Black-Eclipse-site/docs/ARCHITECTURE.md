@@ -93,7 +93,11 @@ Sidebar nav items and command-palette rows are rendered as real `<a>` anchors
 whose `href` is `destinationToHref(destination)`, so **Ctrl/Cmd-click,
 middle-click and "open in new tab"** work everywhere a page or instrument is
 listed; plain left-clicks stay in-page. The screener's symbol pivot builds its
-new-tab URL through the same helper (`/?tab=chart&symbol=…`).
+new-tab URL through the same helper (`/?tab=chart&symbol=…`). When the URL has
+no explicit destination, the boot tab comes from the **start-screen** preference
+(`src/lib/general-prefs.ts`, edited in Settings › General): a fixed tab, or
+`history` which restores the last visited tab recorded in localStorage. An
+explicit deep link always wins over the preference.
 
 ## Layer 1 — Screens & components
 
@@ -143,7 +147,12 @@ Two mechanisms:
       **optional derived tokens** (`secondary`, `muted`, `mutedForeground`,
       `accentSurface`); when a user pins one it wins, otherwise
       `deriveThemeColors()` mixes it from the core colors (single source of truth
-      for `themeCssVars`). `themeFromBrandColor()` is the white-label entry point:
+      for `themeCssVars`). The `EclipseTheme` also carries a dedicated
+      **`sidebar`** surface (`tint`/`opacity`/`blur`), emitted as
+      `--sidebar-rgb/-opacity/-blur`; `.sidebar-root` consumes these so the
+      navigation rail keeps its own dark-charcoal frost independent of the page
+      and card glass (edited via the **Sidebar** card in Customization › Theme).
+      `themeFromBrandColor()` is the white-label entry point:
       it derives a coordinated primary/accent/bullish palette from a single brand
       color (ServiceNow-style), with bearish overridable. **Glass mode** is driven
       by `--glass-blur/-opacity/-tint` tokens that all `.glass-*` recipes consume;

@@ -386,3 +386,107 @@ export interface LearningReviewHealth {
   latest: LearningReviewRecord | null;
   queue: { queued: number; running: number; maxConcurrent: number; timeoutMs: number };
 }
+
+// ── Named sessions + profiles (M3/M4) ───────────────────────────────────────
+
+export interface ChatSessionRecord {
+  id: string;
+  profileId: string | null;
+  userId: string | null;
+  title: string | null;
+  status: string;
+  summary: Record<string, unknown> | null;
+  sourceSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastActivityAt: string | null;
+  archivedAt: string | null;
+}
+
+export interface MemoryProfileRecord {
+  id: string;
+  name: string;
+  directory: string;
+  memoryNamespace: string;
+  sessionNamespace: string;
+  skillNamespace: string;
+  providerNamespace: string;
+  promptProfile: string;
+  retentionDays: number;
+  settings: Record<string, unknown>;
+  inherits: string | null;
+  inheritsReadOnly: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+// ── Memory providers (M8) ───────────────────────────────────────────────────
+
+export interface MemoryProviderCapabilities {
+  search: boolean;
+  write: boolean;
+  delete: boolean;
+  export: boolean;
+  readOnly: boolean;
+}
+
+export interface MemoryProviderHealthState {
+  ok: boolean;
+  state: string;
+  detail: string | null;
+  latencyMs: number | null;
+  version: string | null;
+}
+
+export interface MemoryProviderInfo {
+  name: string;
+  version: string | null;
+  isNative: boolean;
+  capabilities: MemoryProviderCapabilities;
+  health: MemoryProviderHealthState;
+}
+
+export interface MemoryProviderStatus {
+  success: boolean;
+  externalEnabled: boolean;
+  providerCount: number;
+  nativeCount: number;
+  externalCount: number;
+  available: string[];
+  providers: MemoryProviderInfo[];
+  note: string;
+}
+
+export interface MemoryProviderResult {
+  recordId: string;
+  content: string;
+  scope: string;
+  scopeId: string | null;
+  memoryType: string;
+  provider: string;
+  provenance: string;
+  verified: boolean;
+  confidence: number | null;
+  retrievedAt: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface MemoryProviderSearchResponse {
+  success: boolean;
+  native: {
+    provider: string;
+    results: MemoryProviderResult[];
+    degraded: boolean;
+    detail: string | null;
+  };
+  external: Array<{
+    provider: string;
+    response: {
+      provider: string;
+      results: MemoryProviderResult[];
+      degraded: boolean;
+      detail: string | null;
+    };
+  }>;
+  decisions: Array<Record<string, unknown>>;
+}

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clientIsOperator, listMemories, memoryHealth, memoryLifecycle, memoryProfile,
-  memoryRetention, memorySemanticStatus, rebuildProfile, restoreMemory,
+  memoryProviderSearch, memoryProviderStatus, memoryRetention,
+  memorySemanticStatus, rebuildProfile, restoreMemory,
   sessionSearch, sessionSearchHealth,
+  listChatSessions, listProfiles, forkChatSession,
 } from "./eclipse-memory-browser";
 
 // The browser client must stay client-safe (fetch only) and must surface API
@@ -149,5 +151,65 @@ describe("eclipse-memory browser client", () => {
     const health = await sessionSearchHealth();
     expect(health.fts5).toBe(true);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/session-search/health");
+  });
+
+  it("memoryProviderStatus fetches the provider status route", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true, externalEnabled: false, providerCount: 1, nativeCount: 1,
+        externalCount: 0, available: ["native"], providers: [], note: "",
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const status = await memoryProviderStatus();
+    expect(status.nativeCount).toBe(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/memory-providers/status");
+  });
+
+  it("memoryProviderSearch posts the query with the external flag", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, native: { provider: "native", results: [], degraded: false, detail: null }, external: [], decisions: [] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await memoryProviderSearch({ query: "reporting currency", allowExternal: true, limit: 4 });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/memory-providers/search");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.query).toBe("reporting currency");
+    expect(body.allowExternal).toBe(true);
+  });
+
+  it("listChatSessions fetches the sessions route", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true, status: 200, json: async () => ({ sessions: [{ id: "s1" }] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const sessions = await listChatSessions({ limit: 5 });
+    expect(sessions).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/sessions?");
+  });
+
+  it("forkChatSession posts to the fork route", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true, status: 200, json: async () => ({ session: { id: "s2" } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await forkChatSession("s1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/sessions/s1/fork");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+  });
+
+  it("listProfiles fetches the profiles route", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true, status: 200, json: async () => ({ profiles: [{ id: "work" }] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const profiles = await listProfiles();
+    expect(profiles[0].id).toBe("work");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/profiles");
   });
 });

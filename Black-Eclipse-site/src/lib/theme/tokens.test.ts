@@ -5,6 +5,7 @@ import {
   THEME_PRESETS,
   buildFaviconDataUrl,
   deriveThemeColors,
+  hexToRgb,
   normalizeHex,
   normalizeTheme,
   pageBackgroundImage,
@@ -171,6 +172,48 @@ describe('glass, shadow and background', () => {
     expect(pageBackgroundImage('solid', '#7aff78')).toBe('none');
     expect(pageBackgroundImage('gradient', '#7aff78')).toContain('radial-gradient');
     expect(pageBackgroundImage('grid', '#7aff78')).toContain('linear-gradient');
+  });
+});
+
+describe('sidebar surface', () => {
+  it('defaults to a grey, distinct-from-black rail', () => {
+    const t = normalizeTheme({});
+    expect(t.sidebar).toEqual(DEFAULT_ECLIPSE_THEME.sidebar);
+    expect(t.sidebar.tint).not.toBe(t.colors.background);
+  });
+
+  it('emits dedicated sidebar tokens', () => {
+    const vars = themeCssVars(DEFAULT_ECLIPSE_THEME);
+    expect(vars['--sidebar-rgb']).toBe('26 26 28');
+    expect(vars['--sidebar-opacity']).toBe('0.9');
+    expect(vars['--sidebar-blur']).toBe('20px');
+    expect(vars['--sidebar']).toBe('#1a1a1c');
+    expect(STRUCTURAL_THEME_VARS.has('--sidebar-rgb')).toBe(true);
+  });
+
+  it('clamps sidebar values and collapses blur when glass is off', () => {
+    const t = normalizeTheme({ sidebar: { tint: 'nope', opacity: 5, blur: 999 } });
+    expect(t.sidebar.tint).toBe(DEFAULT_ECLIPSE_THEME.sidebar.tint);
+    expect(t.sidebar.opacity).toBe(1);
+    expect(t.sidebar.blur).toBe(48);
+    const off = themeCssVars(normalizeTheme({ glass: { enabled: false } }));
+    expect(off['--sidebar-blur']).toBe('0px');
+    expect(off['--sidebar-opacity']).toBe('0.96');
+  });
+
+  it('keeps a per-preset sidebar when a preset is normalized', () => {
+    const black = THEME_PRESETS.find((p) => p.id === 'eclipse')!.theme;
+    expect(normalizeTheme(black).sidebar).toEqual(DEFAULT_ECLIPSE_THEME.sidebar);
+  });
+
+  it('ships a blue-tinted sidebar on the blue themes', () => {
+    for (const id of ['ocean', 'blueprint', 'crystal', 'midnight']) {
+      const theme = THEME_PRESETS.find((p) => p.id === id)!.theme;
+      const { r, b } = hexToRgb(theme.sidebar.tint);
+      expect(b).toBeGreaterThan(r);
+      expect(theme.sidebar.tint).not.toBe(DEFAULT_ECLIPSE_THEME.sidebar.tint);
+      expect(normalizeTheme(theme).sidebar).toEqual(theme.sidebar);
+    }
   });
 });
 

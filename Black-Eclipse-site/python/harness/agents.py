@@ -55,6 +55,11 @@ ECLIPSE_AGENT = AgentConfig(
         # sessions. Historical content is context, never current evidence.
         "session_search",
         "session_open",
+        # Memory providers (M8): native-first search plus an explicitly separate
+        # external search whose results are labelled unverified context.
+        "memory_search_native",
+        "memory_search_external",
+        "memory_provider_status",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is

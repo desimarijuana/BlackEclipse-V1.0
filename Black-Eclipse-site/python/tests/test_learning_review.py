@@ -265,3 +265,67 @@ def test_model_rejects_financial_and_secret_content(stores, monkeypatch):
     )
     # The gate must refuse the financial fact and the secret.
     assert all(not o["created"] for o in result["outcomes"])
+
+
+# -- M1 scheduling: priority, coalescing, idle deferral ----------------------
+
+
+def test_queue_priority_orders_highest_first(stores, monkeypatch):
+    memory, run_store = stores
+    for i in range(3):
+        _run(run_store, f"run_{i}", f"message {i}")
+    order: list[str] = []
+
+    def track(service, store, run_id, *args, **kwargs):
+        order.append(run_id)
+        return {"runId": run_id, "mode": "deterministic", "outcomes": []}
+
+    monkeypatch.setattr("harness.learning_review.review_run", track)
+
+    async def scenario():
+        queue = LearningReviewQueue(memory, run_store, max_concurrent=1, idle_delay_s=0.0)
+        await queue.start()
+        await queue.enqueue("run_0", priority="low")
+        await queue.enqueue("run_1", priority="normal")
+        await queue.enqueue("run_2", priority="high")
+        await asyncio.sleep(0.6)
+        await queue.stop()
+
+    asyncio.run(scenario())
+    # High priority is processed before normal before low.
+    assert order[0] == "run_2"
+
+
+def test_queue_coalesces_by_session(stores, monkeypatch):
+    memory, run_store = stores
+    _run(run_store, "run_1", "one")
+    _run(run_store, "run_2", "two")
+
+    async def scenario():
+        queue = LearningReviewQueue(memory, run_store, max_concurrent=1, idle_delay_s=0.0)
+        # Enqueue two reviews for the SAME session; do not start workers yet so
+        # both are still pending when the second arrives.
+        await queue.enqueue("run_1", session_id="sess-1")
+        await queue.enqueue("run_2", session_id="sess-1")
+        return queue
+
+    queue = asyncio.run(scenario())
+    # The older session snapshot was coalesced away.
+    assert queue._pending.get("run_1") is None
+    assert queue._pending.get("run_2") is not None
+
+
+def test_queue_idle_deferral(stores, monkeypatch):
+    memory, run_store = stores
+    _run(run_store, "run_1", "hello")
+
+    async def scenario():
+        queue = LearningReviewQueue(memory, run_store, max_concurrent=1, idle_delay_s=0.3)
+        queue.mark_user_active()
+        assert queue.health()["queue"]["idle"] is False
+        # A critical review bypasses the idle delay.
+        await queue.enqueue("run_1", priority="critical")
+        assert queue._pending["run_1"].priority == "critical"
+        return queue
+
+    asyncio.run(scenario())

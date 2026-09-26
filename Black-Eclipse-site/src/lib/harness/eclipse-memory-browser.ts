@@ -3,6 +3,7 @@
 // Client-safe: fetch only. Operator actions are re-checked server-side.
 
 import type {
+  ChatSessionRecord,
   CorrectionRecord,
   EclipseMemoryHealth,
   LearningReviewHealth,
@@ -10,6 +11,7 @@ import type {
   MemoryDatabaseHealth,
   MemoryDetail,
   MemoryExportDocument,
+  MemoryProfileRecord,
   MemoryLifecycleResponse,
   MemoryOverview,
   MemoryProfileResponse,
@@ -17,7 +19,10 @@ import type {
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
   MemorySemanticStatus,
+  MemoryProviderSearchResponse,
+  MemoryProviderStatus,
   MistakeRecord,
+  SessionSearchHit,
   SessionOpenResult,
   SessionSearchHealth,
   SessionSearchResult,
@@ -116,6 +121,24 @@ export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
   return api<MemorySemanticStatus>("/api/eclipse-memory/semantic-status");
 }
 
+// ── Memory providers (M8) ───────────────────────────────────────────────────
+
+export async function memoryProviderStatus(): Promise<MemoryProviderStatus> {
+  return api<MemoryProviderStatus>("/api/memory-providers/status");
+}
+
+export async function memoryProviderSearch(params: {
+  query: string;
+  scopeId?: string;
+  limit?: number;
+  allowExternal?: boolean;
+}): Promise<MemoryProviderSearchResponse> {
+  return api<MemoryProviderSearchResponse>("/api/memory-providers/search", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 export async function memoryProfile(scopeId?: string): Promise<MemoryProfileResponse> {
   const params = new URLSearchParams();
   if (scopeId) params.set("scopeId", scopeId);
@@ -141,6 +164,13 @@ export async function sessionSearch(params: {
   scopeId?: string;
   scope?: string;
   runId?: string;
+  sessionId?: string;
+  profileId?: string;
+  role?: string;
+  kind?: string;
+  market?: string;
+  skillId?: string;
+  memoryAction?: string;
   dateFrom?: string;
   dateTo?: string;
   limit?: number;
@@ -150,10 +180,78 @@ export async function sessionSearch(params: {
   if (params.scopeId) qs.set("scopeId", params.scopeId);
   if (params.scope) qs.set("scope", params.scope);
   if (params.runId) qs.set("runId", params.runId);
+  if (params.sessionId) qs.set("sessionId", params.sessionId);
+  if (params.profileId) qs.set("profileId", params.profileId);
+  if (params.role) qs.set("role", params.role);
+  if (params.kind) qs.set("kind", params.kind);
+  if (params.market) qs.set("market", params.market);
+  if (params.skillId) qs.set("skillId", params.skillId);
+  if (params.memoryAction) qs.set("memoryAction", params.memoryAction);
   if (params.dateFrom) qs.set("dateFrom", params.dateFrom);
   if (params.dateTo) qs.set("dateTo", params.dateTo);
   if (params.limit) qs.set("limit", String(params.limit));
   return api<SessionSearchResult>(`/api/session-search?${qs.toString()}`);
+}
+
+// ── Named sessions + profiles (M3/M4) ───────────────────────────────────────
+
+export async function listChatSessions(params: { profileId?: string; userId?: string; status?: string; limit?: number } = {}): Promise<ChatSessionRecord[]> {
+  const qs = new URLSearchParams();
+  if (params.profileId) qs.set("profileId", params.profileId);
+  if (params.userId) qs.set("userId", params.userId);
+  if (params.status) qs.set("status", params.status);
+  if (params.limit) qs.set("limit", String(params.limit));
+  const body = await api<{ sessions: ChatSessionRecord[] }>(`/api/sessions?${qs.toString()}`);
+  return body.sessions ?? [];
+}
+
+export async function getChatSession(sessionId: string): Promise<{ session: ChatSessionRecord; runs: string[] }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function createChatSession(payload: { profileId?: string; userId?: string; title?: string }): Promise<{ session: ChatSessionRecord }> {
+  return api("/api/sessions", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function updateChatSession(sessionId: string, patch: Record<string, unknown>): Promise<{ session: ChatSessionRecord }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export async function forkChatSession(sessionId: string): Promise<{ session: ChatSessionRecord }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/fork`, { method: "POST", body: JSON.stringify({}) });
+}
+
+export async function deleteChatSession(sessionId: string, hard = false) {
+  return api<{ success: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}?hard=${hard}`, { method: "DELETE" });
+}
+
+export async function exportChatSession(sessionId: string): Promise<{ session: ChatSessionRecord; messages: SessionSearchHit[] }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/export`);
+}
+
+export async function getSessionSummary(sessionId: string): Promise<{ success: boolean; summary: Record<string, unknown> }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/summary`);
+}
+
+export async function listProfiles(): Promise<MemoryProfileRecord[]> {
+  const body = await api<{ profiles: MemoryProfileRecord[] }>("/api/profiles");
+  return body.profiles ?? [];
+}
+
+export async function createProfile(payload: { id: string; name?: string; inherits?: string; retentionDays?: number }): Promise<{ profile: MemoryProfileRecord }> {
+  return api("/api/profiles", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function getProfile(profileId: string): Promise<{ profile: MemoryProfileRecord; inherited: string[] }> {
+  return api(`/api/profiles/${encodeURIComponent(profileId)}`);
+}
+
+export async function updateProfile(profileId: string, patch: Record<string, unknown>): Promise<{ profile: MemoryProfileRecord }> {
+  return api(`/api/profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export async function deleteProfile(profileId: string) {
+  return api<{ success: boolean }>(`/api/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
 }
 
 export async function sessionOpen(runId: string): Promise<SessionOpenResult> {
@@ -235,6 +333,49 @@ export async function restoreMemoryFiles(backupId?: string) {
   return api<{ success: boolean; restored: boolean; from: string | null }>(
     "/api/eclipse-memory/files/restore",
     { method: "POST", body: JSON.stringify({ backupId }) }
+  );
+}
+
+// ── File edit + history (M6) ────────────────────────────────────────────────
+
+export type FileEditOperation = "add" | "replace" | "merge" | "split" | "reorder" | "consolidate";
+
+export async function editMemoryFile(payload: {
+  operation: FileEditOperation;
+  file: string;
+  memoryId?: string;
+  expectedVersion?: string;
+  content?: string;
+}) {
+  return api<{ ok: boolean; error?: string; entries?: Array<unknown> }>(
+    "/api/eclipse-memory/files/edit",
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+export interface FileRevision {
+  revision: string;
+  at: string;
+  actor: string;
+  reason: string;
+  affectedIds: string[];
+  parentRevision: string | null;
+}
+
+export async function listFileHistory(file: string, revision?: string): Promise<{
+  success: boolean;
+  revisions: FileRevision[];
+  diff: Array<{ type: "add" | "remove" | "same"; line: string }> | null;
+}> {
+  const qs = new URLSearchParams({ file });
+  if (revision) qs.set("revision", revision);
+  return api(`/api/eclipse-memory/files/history?${qs.toString()}`);
+}
+
+export async function rollbackMemoryFile(file: string, revision: string) {
+  return api<{ success: boolean; restored: boolean; from: string | null }>(
+    "/api/eclipse-memory/files/history",
+    { method: "POST", body: JSON.stringify({ file, revision }) }
   );
 }
 

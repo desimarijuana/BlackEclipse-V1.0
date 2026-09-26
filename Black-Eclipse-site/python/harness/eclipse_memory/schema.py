@@ -651,6 +651,35 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 13 — self-improving skill patch/version metadata (Milestone 2).
+# Adds the columns that make a skill version a reviewable, diffable patch rather
+# than an opaque whole-manifest replacement:
+#   baseVersion   — the version this patch was authored against (conflict check);
+#   patchSummary  — a bounded human-readable summary of what changed;
+#   reviewId      — the learning review that produced it (when applicable);
+#   patchAuthor   — user | background_review | operator;
+#   activatedAt   — when the version became active;
+#   rolledBackAt  — when it was reverted (auto or manual);
+#   canaryState   — NULL when not a canary, else 'canary'/'promoted'/'rolled_back';
+#   patch         — the bounded structured patch JSON (operations + evidence).
+# All additive; existing rows read NULL ("not recorded").
+MIGRATIONS.append(
+    (
+        13,
+        [
+            "ALTER TABLE SkillVersion ADD COLUMN baseVersion TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN patchSummary TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN reviewId TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN patchAuthor TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN activatedAt TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN rolledBackAt TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN canaryState TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN patch TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_skillver_base ON SkillVersion(skillId, baseVersion);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

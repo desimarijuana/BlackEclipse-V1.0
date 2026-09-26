@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity, AlertCircle, Brain, Database, Loader2, Lock, Plus, RefreshCcw,
+  Activity, AlertCircle, Brain, Database, FileText, Loader2, Lock, Plug, Plus, RefreshCcw,
   Search, Settings2, ShieldCheck, Trash2, Wrench, X,
 } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
@@ -26,9 +26,15 @@ import {
   listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
   memoryProfile, rebuildProfile,
   sessionSearch, sessionSearchHealth, sessionOpen, sessionDelete,
+  listChatSessions, getChatSession, updateChatSession, forkChatSession, deleteChatSession, exportChatSession, getSessionSummary,
+  listProfiles, createProfile, deleteProfile,
+  memoryProviderStatus, memoryProviderSearch,
   learningReviewHealth, listLearningReviews, runLearningReview, decideLearningReview,
   getMemoryFiles, regenerateMemoryFiles, previewMarkdownImport, importMarkdown, restoreMemoryFiles,
+  editMemoryFile, listFileHistory, rollbackMemoryFile, type FileEditOperation, type FileRevision,
 } from "@/lib/harness/eclipse-memory-browser";
+import { listSkills } from "@/lib/harness/skills-browser";
+import type { SkillSummary } from "@/lib/harness/skills-types";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
   MemoryExportDocument, MemoryLifecycleView,
@@ -36,11 +42,12 @@ import type {
   MemoryProfileResponse,
   MemoryRetentionStatus, MemorySemanticStatus,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
-  SessionSearchHealth, SessionSearchHit,
+  SessionSearchHealth, SessionSearchHit, SessionOpenResult,
+  ChatSessionRecord, MemoryProfileRecord, MemoryProviderStatus,
   LearningReviewHealth, LearningReviewRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "profile" | "history" | "reviews" | "lifecycle" | "suggestions" | "activity" | "policies" | "health";
+type Tab = "overview" | "memories" | "profile" | "profiles" | "history" | "sessions" | "reviews" | "lifecycle" | "suggestions" | "activity" | "providers" | "files" | "skills" | "policies" | "health";
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -77,28 +84,34 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       <TabBar
         items={[
           { id: "overview", label: "Overview", icon: Brain },
-          { id: "memories", label: "Memories", icon: Database },
+          { id: "memories", label: "Memory", icon: Database },
+          { id: "sessions", label: "Sessions", icon: Search },
+          { id: "reviews", label: "Learning", icon: Activity },
           { id: "profile", label: "Profile", icon: Lock },
-          { id: "history", label: "History", icon: Search },
-          { id: "reviews", label: "Reviews", icon: Activity },
-          { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
-          { id: "suggestions", label: "Suggestions", icon: Plus },
-          { id: "activity", label: "Activity", icon: Activity },
+          { id: "profiles", label: "Profiles", icon: ShieldCheck },
+          { id: "providers", label: "Providers", icon: Plug },
+          { id: "files", label: "Files", icon: FileText },
+          { id: "skills", label: "Skills", icon: Wrench },
           { id: "policies", label: "Policies", icon: Settings2 },
-          { id: "health", label: "Health", icon: ShieldCheck },
+          { id: "health", label: "Diagnostics", icon: ShieldCheck },
         ]}
         activeId={tab}
         onChange={(id) => setTab(id as Tab)}
         variant="subtle"
       />
-      {tab === "overview" && <Overview />}
+      {tab === "overview" && <Overview onNavigate={setTab} />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
       {tab === "profile" && <Profile isOperator={isOperator} />}
+      {tab === "profiles" && <Profiles isOperator={isOperator} />}
       {tab === "history" && <History />}
+      {tab === "sessions" && <Sessions isOperator={isOperator} />}
       {tab === "reviews" && <Reviews isOperator={isOperator} />}
       {tab === "lifecycle" && <Lifecycle isOperator={isOperator} />}
       {tab === "suggestions" && <Suggestions isOperator={isOperator} />}
       {tab === "activity" && <ActivityView />}
+      {tab === "providers" && <Providers />}
+      {tab === "files" && <FilesTab isOperator={isOperator} />}
+      {tab === "skills" && <SkillsTab />}
       {tab === "policies" && <Policies isOperator={isOperator} />}
       {tab === "health" && <Health isOperator={isOperator} />}
     </div>
@@ -708,16 +721,23 @@ function History() {
   );
 }
 
-function Overview() {
+function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
   const [data, setData] = useState<MemoryOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<MemoryProviderStatus | null>(null);
+  const [sessions, setSessions] = useState<ChatSessionRecord[]>([]);
+  const [reviews, setReviews] = useState<LearningReviewRecord[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try { setData(await memoryOverview()); }
     catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
+    // Default-view extras — each is best-effort so one failure cannot blank the page.
+    memoryProviderStatus().then(setProvider).catch(() => setProvider(null));
+    listChatSessions({ limit: 5 }).then(setSessions).catch(() => setSessions([]));
+    listLearningReviews(undefined, 5).then(setReviews).catch(() => setReviews([]));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -725,22 +745,25 @@ function Overview() {
   if (error) return <ErrorBox message={error} />;
   if (!data) return null;
 
+  const pendingReviews = reviews.filter((r) => r.status === "queued" || r.status === "running");
+  const rollbackAvailable = sessions.some((s) => s.sourceSessionId);
+
   const tiles = [
     { label: "Memories", value: data.memories.total, sub: `${Object.keys(data.memories.byType).length} types` },
     { label: "Active", value: data.memories.byStatus.active ?? 0, sub: "usable now" },
-    { label: "Proposed", value: data.memories.byStatus.proposed ?? 0, sub: "awaiting review" },
-    { label: "Skills", value: data.skills.installed, sub: "installed" },
-    { label: "Learning candidates", value: data.candidates, sub: "in queue" },
-    { label: "Corrections", value: data.corrections, sub: "recorded" },
-    { label: "Mistakes", value: data.mistakes, sub: "captured" },
-    { label: "Retrievals", value: data.retrievals, sub: "audited" },
+    { label: "Active skills", value: data.skills.installed, sub: "installed" },
+    { label: "Pending reviews", value: pendingReviews.length, sub: "learning queue" },
+    { label: "Recent sessions", value: sessions.length, sub: "last active" },
+    { label: "Providers", value: provider?.available?.length ?? 0, sub: `of ${provider?.providerCount ?? 0} available` },
+    { label: "Learning changes", value: data.candidates, sub: "candidates in queue" },
+    { label: "Rollback availability", value: rollbackAvailable ? "yes" : "—", sub: rollbackAvailable ? "forked sessions" : "none" },
   ];
 
   return (
     <div className="animate-fade-in-up">
       <Header
         title="Eclipse Memory"
-        hint="Dedicated persistence for agent memory, skills, learning and audit. Real counts only — nothing is fabricated."
+        hint="Dedicated persistence for agent memory, sessions, skills, learning and providers. Real counts only — nothing is fabricated."
       />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tiles.map((tile) => (
@@ -779,6 +802,563 @@ function Overview() {
       <Button variant="outline" size="sm" className="mt-6 rounded-xl cursor-pointer" onClick={load}>
         <RefreshCcw size={13} className="mr-1" /> Refresh
       </Button>
+    </div>
+  );
+}
+
+// ── Sessions (named, with lifecycle + export/fork) ──────────────────────────
+
+function Sessions({ isOperator }: { isOperator: boolean }) {
+  const [sessions, setSessions] = useState<ChatSessionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SessionSearchHit[]>([]);
+  const [detail, setDetail] = useState<{ session: ChatSessionRecord; runs: string[]; summary: Record<string, unknown> | null; messages: SessionSearchHit[] } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setSessions(await listChatSessions({ limit: 100 })); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const notify = (message: string) => { setToast(message); setTimeout(() => setToast(null), 4000); };
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    try { await fn(); notify(message); await load(); }
+    catch (err) { notify(err instanceof Error ? err.message : "action failed"); }
+  };
+
+  const search = async () => {
+    if (!query.trim()) return;
+    try { setResults((await sessionSearch({ q: query, limit: 20 })).results); }
+    catch (err) { notify(err instanceof Error ? err.message : "search failed"); }
+  };
+
+  const openDetail = async (session: ChatSessionRecord) => {
+    try {
+      const [full, summary, exported] = await Promise.all([
+        getChatSession(session.id),
+        getSessionSummary(session.id).catch(() => ({ summary: null })),
+        exportChatSession(session.id).catch(() => ({ messages: [] as SessionSearchHit[] })),
+      ]);
+      setDetail({
+        session: full.session,
+        runs: full.runs,
+        summary: (summary.summary as Record<string, unknown>) ?? full.session.summary,
+        messages: exported.messages ?? [],
+      });
+    } catch (err) { notify(err instanceof Error ? err.message : "open failed"); }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Sessions" hint="Long-lived named sessions. A run belongs to one session; a session belongs to one profile. Historical content is context, never current financial evidence." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      <div className="mb-3 flex gap-2">
+        <Input value={query} onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+          placeholder="Search across all sessions…" className="rounded-xl bg-background/60" />
+        <Button size="sm" className="rounded-xl cursor-pointer" onClick={search}>Search</Button>
+      </div>
+      {results.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{results.length} result(s)</p>
+            <button className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer" onClick={() => setResults([])}>Clear</button>
+          </div>
+          <div className="space-y-1.5">
+            {results.map((hit) => (
+              <p key={hit.messageId} className="text-[11px] text-foreground/90">
+                <span className="text-muted-foreground">[{hit.role}/{hit.kind}]</span> {hit.snippet}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : (
+        <div className="space-y-2">
+          {sessions.length === 0 && <p className="text-[11px] text-muted-foreground">No sessions recorded yet.</p>}
+          {sessions.map((session) => (
+            <div key={session.id} className="rounded-2xl border border-white/10 glass-card p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <button className="min-w-0 text-left cursor-pointer" onClick={() => void openDetail(session)}>
+                  <p className="truncate text-[13px] font-medium text-foreground hover:text-primary">{session.title || session.id}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {session.status} · profile {session.profileId ?? "default"} · {session.lastActivityAt?.slice(0, 16) ?? session.createdAt.slice(0, 16)}
+                    {session.sourceSessionId ? ` · forked from ${session.sourceSessionId.slice(0, 12)}…` : ""}
+                  </p>
+                </button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => void openDetail(session)}>Open</Button>
+                  {isOperator && (
+                    <>
+                      <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"
+                        onClick={() => {
+                          const title = window.prompt("Rename session", session.title ?? "");
+                          if (title !== null) void act(() => updateChatSession(session.id, { title }), "Renamed");
+                        }}>Rename</Button>
+                      <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"
+                        onClick={() => void act(() => updateChatSession(session.id, { status: session.status === "archived" ? "active" : "archived", archivedAt: session.status === "archived" ? null : new Date().toISOString() }), "Updated")}>
+                        {session.status === "archived" ? "Restore" : "Archive"}
+                      </Button>
+                      <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"
+                        onClick={() => void act(() => forkChatSession(session.id), "Forked")}>Fork</Button>
+                      <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"
+                        onClick={async () => {
+                          try {
+                            const body = await exportChatSession(session.id);
+                            const blob = new Blob([JSON.stringify(body, null, 2)], { type: "application/json" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url; a.download = `${session.id}.json`; a.click();
+                            URL.revokeObjectURL(url);
+                          } catch (err) { notify(err instanceof Error ? err.message : "export failed"); }
+                        }}>Export</Button>
+                      <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300"
+                        onClick={() => void act(() => deleteChatSession(session.id, true), "Deleted")}>Delete</Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setDetail(null)}>
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/10 glass-card-strong p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-foreground">{detail.session.title || detail.session.id}</p>
+              <button onClick={() => setDetail(null)} className="cursor-pointer text-muted-foreground hover:text-foreground"><X size={16} /></button>
+            </div>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              {detail.runs.length} run(s) · {detail.messages.length} indexed message(s) · profile {detail.session.profileId ?? "default"}
+            </p>
+
+            {detail.summary && (
+              <div className="mt-3 rounded-xl border border-border/20 bg-background/30 p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Summary</p>
+                {detail.summary.objective ? <p className="mt-1 text-[11px] text-foreground/90">Objective: {String(detail.summary.objective)}</p> : null}
+                {Array.isArray(detail.summary.nextActions) && detail.summary.nextActions.length > 0 && (
+                  <p className="mt-1 text-[11px] text-foreground/90">Next: {(detail.summary.nextActions as string[]).join("; ")}</p>
+                )}
+                {Array.isArray(detail.summary.instruments) && detail.summary.instruments.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {(detail.summary.instruments as string[]).map((t) => (
+                      <span key={t} className="rounded-md border border-border/30 bg-accent/30 px-1.5 py-0.5 font-mono text-[9px] text-foreground">{t}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-3 space-y-1.5">
+              {detail.messages.slice(0, 60).map((m) => (
+                <div key={m.messageId} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{m.role}/{m.kind} · {m.createdAt?.slice(0, 16)}</p>
+                  <p className="mt-1 text-[11px] text-foreground/90 whitespace-pre-wrap">{m.content ?? m.snippet}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Profiles (named + isolation + inheritance) ──────────────────────────────
+
+function Profiles({ isOperator }: { isOperator: boolean }) {
+  const [profiles, setProfiles] = useState<MemoryProfileRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [newId, setNewId] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setProfiles(await listProfiles()); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 4000); };
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Profiles" hint="Named profiles scope memory, sessions, skills and providers. A profile may read an inherited parent READ-ONLY; cross-profile memory never leaks." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      {isOperator && (
+        <div className="mb-3 flex gap-2">
+          <Input value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="new profile id (e.g. research)" className="rounded-xl bg-background/60" />
+          <Button size="sm" className="rounded-xl cursor-pointer" onClick={async () => {
+            if (!newId.trim()) return;
+            try { await createProfile({ id: newId.trim() }); setNewId(""); notify("Profile created"); await load(); }
+            catch (err) { notify(err instanceof Error ? err.message : "create failed"); }
+          }}>Create</Button>
+        </div>
+      )}
+      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : (
+        <div className="space-y-2">
+          {profiles.map((profile) => (
+            <div key={profile.id} className="rounded-2xl border border-white/10 glass-card p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium text-foreground">{profile.name} <span className="font-mono text-[11px] text-muted-foreground">({profile.id})</span></p>
+                  <p className="text-[10px] text-muted-foreground">
+                    memory ns {profile.memoryNamespace} · retention {profile.retentionDays}d
+                    {profile.inherits ? ` · inherits ${profile.inherits} (read-only)` : ""}
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground/70">{profile.directory}</p>
+                </div>
+                {isOperator && profile.id !== "default" && (
+                  <Button size="sm" variant="outline" className="shrink-0 rounded-xl cursor-pointer text-rose-300"
+                    onClick={async () => {
+                      try { await deleteProfile(profile.id); notify("Profile deleted"); await load(); }
+                      catch (err) { notify(err instanceof Error ? err.message : "delete failed"); }
+                    }}>Delete</Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Providers (memory-provider health + fenced external search) ─────────────
+
+function Providers() {
+  const [status, setStatus] = useState<MemoryProviderStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [external, setExternal] = useState(false);
+  const [results, setResults] = useState<Array<{ provider: string; content: string; verified: boolean }>>([]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setStatus(await memoryProviderStatus()); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const search = async () => {
+    if (!query.trim()) return;
+    try {
+      const body = await memoryProviderSearch({ query, allowExternal: external, limit: 10 });
+      const rows = [
+        ...body.native.results.map((r) => ({ provider: r.provider, content: r.content, verified: r.verified })),
+        ...body.external.flatMap((entry) => entry.response.results.map((r) => ({ provider: r.provider, content: r.content, verified: r.verified }))),
+      ];
+      setResults(rows);
+    } catch (err) { setError(err instanceof Error ? err.message : "search failed"); }
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} />;
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Memory Providers" hint="Native memory is authoritative. External providers are UNVERIFIED CONTEXT — labelled, fenced, never promoted, and never able to answer a current financial question." />
+      <div className="mb-3 flex gap-2">
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+          placeholder="Search memory providers…" className="rounded-xl bg-background/60" />
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={external} onChange={(e) => setExternal(e.target.checked)} /> external
+        </label>
+        <Button size="sm" className="rounded-xl cursor-pointer" onClick={search}>Search</Button>
+      </div>
+      {status && (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          {status.providers.map((p) => {
+            const caps = p.capabilities;
+            const capList = [
+              ["search", caps.search], ["write", caps.write], ["delete", caps.delete],
+              ["export", caps.export], ["read-only", caps.readOnly],
+            ] as Array<[string, boolean]>;
+            return (
+              <div key={p.name} className="rounded-2xl border border-white/10 glass-card p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={cn("text-[12px] font-medium", p.health.ok ? "text-emerald-300" : "text-amber-300")}>{p.name}</span>
+                  <span className={cn("rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-wide",
+                    p.isNative ? "border-primary/40 text-primary" : "border-border/40 text-muted-foreground")}>
+                    {p.isNative ? "native" : "external"}
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {p.health.state}
+                  {p.health.latencyMs != null ? ` · ${p.health.latencyMs}ms` : ""}
+                  {p.health.version ? ` · v${p.health.version}` : ""}
+                </p>
+                {p.health.detail && <p className="mt-0.5 text-[10px] text-muted-foreground/80">{p.health.detail}</p>}
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {capList.map(([label, on]) => (
+                    <span key={label} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]",
+                      on ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-border/30 text-muted-foreground/60")}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="space-y-2">
+        {results.map((r, i) => (
+          <div key={`${r.provider}-${i}`} className={cn("rounded-2xl border glass-card p-3", r.verified ? "border-emerald-400/20" : "border-amber-400/20")}>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {r.provider} · {r.verified ? "verified" : "unverified context"}
+            </p>
+            <p className="mt-1 text-[11px] text-foreground/90">{r.content}</p>
+          </div>
+        ))}
+      </div>
+      {!status?.externalEnabled && (
+        <p className="mt-3 text-[10px] text-amber-300/90">
+          External search is disabled by policy. Enable it in Policies to search configured MCP memory providers; results stay labelled and are never promoted to native memory.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Files (Markdown projection + edit history) ──────────────────────────────
+
+// Client-safe parser for the visible entry markers (the server owns the
+// authoritative parse; this only renders the preview). Matches memory-files.ts.
+function parseClientEntries(text: string): Array<{ id: string | null; version: string | null; content: string }> {
+  const marker = /<!--\s*eclipse:id=([^;\s]+);type=([^;\s]+);scope=([^;\s]+)(?:;version=([^;\s]+))?\s*-->/i;
+  const lines = text.split(/\r?\n/);
+  const entries: Array<{ id: string | null; version: string | null; content: string }> = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^\s*-\s+(.*\S)\s*$/.exec(lines[i]);
+    if (!m) continue;
+    const content = m[1];
+    if (!content || content === "_None._" || content.startsWith("#")) continue;
+    const found = marker.exec(lines[i + 1] ?? "");
+    if (!found) continue;
+    entries.push({ id: found[1], version: found[4] ?? null, content });
+  }
+  return entries;
+}
+
+function FilesTab({ isOperator }: { isOperator: boolean }) {
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ entries: number; ignored: number } | null>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [revisions, setRevisions] = useState<FileRevision[]>([]);
+  const [diff, setDiff] = useState<Array<{ type: "add" | "remove" | "same"; line: string }> | null>(null);
+  const [editing, setEditing] = useState<{ memoryId: string; expectedVersion: string; content: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { const body = await getMemoryFiles(); setFiles(body.files ?? {}); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 4000); };
+
+  const openHistory = async (file: string, revision?: string) => {
+    setActiveFile(file); setDiff(null);
+    try {
+      const body = await listFileHistory(file, revision);
+      setRevisions(body.revisions ?? []);
+      if (body.diff) setDiff(body.diff);
+    } catch (err) { notify(err instanceof Error ? err.message : "history failed"); }
+  };
+
+  const applyEdit = async (op: FileEditOperation, memoryId?: string, content?: string, expectedVersion?: string) => {
+    if (!activeFile) return;
+    try {
+      const result = await editMemoryFile({ operation: op, file: activeFile, memoryId, content, expectedVersion });
+      if (!result.ok) { notify(`Edit refused: ${result.error}`); return; }
+      notify(`${op} applied — import to persist`);
+      await load(); await openHistory(activeFile);
+    } catch (err) { notify(err instanceof Error ? err.message : "edit failed"); }
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} />;
+
+  const fileNames = Object.keys(files);
+  const current = activeFile ? files[activeFile] ?? "" : "";
+  const parsed = activeFile ? parseClientEntries(current) : [];
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Memory Files" hint="A human-readable Markdown projection of structured memory. SQLite stays canonical; edits are atomic, versioned and reversible, then imported through the gated pipeline." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      {isOperator && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={async () => {
+            try { const r = await regenerateMemoryFiles(); notify(`Wrote ${r.files.length} file(s)`); await load(); }
+            catch (err) { notify(err instanceof Error ? err.message : "regenerate failed"); }
+          }}>Regenerate (atomic + backup)</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={async () => {
+            try { const p = await previewMarkdownImport(); setPreview({ entries: p.entries.length, ignored: p.ignored.length }); notify(`Preview: ${p.entries.length} entr(ies)`); }
+            catch (err) { notify(err instanceof Error ? err.message : "preview failed"); }
+          }}>Preview import</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={async () => {
+            try { const r = await importMarkdown(false); notify(`Imported ${r.imported}, skipped ${r.skipped}`); await load(); }
+            catch (err) { notify(err instanceof Error ? err.message : "import failed"); }
+          }}>Apply import</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={async () => {
+            try { await restoreMemoryFiles(); notify("Restored previous files"); await load(); }
+            catch (err) { notify(err instanceof Error ? err.message : "restore failed"); }
+          }}>Restore backup</Button>
+        </div>
+      )}
+      {preview && <p className="mb-3 text-[11px] text-muted-foreground">Preview: {preview.entries} importable entr(ies), {preview.ignored} ignored.</p>}
+
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        {/* File content */}
+        <div className="space-y-3">
+          {fileNames.map((name) => (
+            <div key={name} className={cn("rounded-2xl border glass-card p-3", activeFile === name ? "border-primary/40" : "border-white/10")}>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="font-mono text-[11px] font-semibold text-foreground">{name}</p>
+                <button onClick={() => void openHistory(name)} className="text-[10px] text-primary hover:underline cursor-pointer">History &amp; edit</button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[10px] text-muted-foreground">{files[name]}</pre>
+            </div>
+          ))}
+        </div>
+
+        {/* Detail / history / edit */}
+        <div className="space-y-3">
+          {!activeFile && (
+            <div className="rounded-2xl border border-white/10 glass-card-subtle p-4 text-center">
+              <FileText size={20} className="mx-auto text-muted-foreground/60" />
+              <p className="mt-2 text-[11px] text-muted-foreground">Select “History &amp; edit” on a file to review revisions, diff a change and edit an entry.</p>
+            </div>
+          )}
+          {activeFile && (
+            <div className="rounded-2xl border border-white/10 glass-card p-3.5">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Entries · {activeFile}</p>
+              <div className="mt-2 max-h-60 space-y-1.5 overflow-auto">
+                {parsed.length === 0 && <p className="text-[11px] text-muted-foreground">No marked entries.</p>}
+                {parsed.map((entry, i) => (
+                  <div key={`${entry.id}-${i}`} className="rounded-xl border border-border/20 bg-background/30 p-2">
+                    <p className="text-[11px] text-foreground/90">{entry.content}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="font-mono text-[9px] text-muted-foreground">{entry.id ?? "(new)"} · {entry.version ?? "no version"}</span>
+                      {isOperator && entry.id && (
+                        <div className="flex gap-1.5">
+                          <button className="text-[10px] text-primary hover:underline cursor-pointer"
+                            onClick={() => { setEditing({ memoryId: entry.id!, expectedVersion: entry.version ?? "", content: entry.content }); }}>Edit</button>
+                          <button className="text-[10px] text-rose-300 hover:underline cursor-pointer"
+                            onClick={() => void applyEdit("replace", entry.id!, entry.content + " ", entry.version ?? undefined)}>Touch</button>
+                        </div>
+                      )}
+                    </div>                  </div>
+                ))}
+              </div>
+
+              {editing && (
+                <div className="mt-3 rounded-xl border border-border/20 bg-background/30 p-2.5">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Edit {editing.memoryId} (v {editing.expectedVersion || "—"})</p>
+                  <textarea value={editing.content} onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+                    className="mt-2 w-full rounded-lg border border-border/30 bg-background/60 p-2 text-[11px] text-foreground" rows={3} />
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" className="rounded-xl cursor-pointer"
+                      onClick={async () => { await applyEdit("replace", editing.memoryId, editing.content, editing.expectedVersion); setEditing(null); }}>
+                      Save (stale-safe)
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => setEditing(null)}>Cancel</Button>
+                  </div>
+                  <p className="mt-1 text-[9px] text-muted-foreground">Rejected if the entry changed since it was loaded (expectedVersion guard).</p>
+                </div>
+              )}
+
+              <div className="mt-3 border-t border-border/20 pt-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Revision history ({revisions.length})</p>
+                  {isOperator && revisions.length > 0 && (
+                    <button className="text-[10px] text-primary hover:underline cursor-pointer"
+                      onClick={async () => {
+                        try { await rollbackMemoryFile(activeFile, revisions[revisions.length - 1].revision); notify("Rolled back"); await load(); await openHistory(activeFile); }
+                        catch (err) { notify(err instanceof Error ? err.message : "rollback failed"); }
+                      }}>Roll back latest</button>
+                  )}
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  {revisions.length === 0 && <p className="text-[11px] text-muted-foreground">No revisions recorded.</p>}
+                  {revisions.map((rev) => (
+                    <button key={rev.revision} onClick={() => void openHistory(activeFile, rev.revision)}
+                      className="block w-full rounded-lg border border-border/20 bg-background/20 px-2 py-1 text-left text-[10px] hover:bg-accent/20 cursor-pointer">
+                      <span className="text-foreground/90">{rev.reason}</span>
+                      <span className="text-muted-foreground"> · {rev.actor} · {rev.at.slice(0, 16)}</span>
+                    </button>
+                  ))}
+                </div>
+                {diff && (
+                  <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-border/20 bg-background/30 p-2 font-mono text-[10px]">
+                    {diff.map((line, i) => (
+                      <p key={i} className={cn(line.type === "add" ? "text-emerald-300" : line.type === "remove" ? "text-rose-300" : "text-muted-foreground")}>
+                        {line.type === "add" ? "+ " : line.type === "remove" ? "- " : "  "}{line.line}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Skills (read-only index; full lifecycle lives in the Skills Control Room) ─
+
+function SkillsTab() {
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listSkills()
+      .then((body) => setSkills(body.skills ?? []))
+      .catch((err) => setError(err instanceof Error ? err.message : "failed"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} />;
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Skills" hint="The installed skill index. Versioned patches, evaluation, canary and rollback live in the Skills Control Room." />
+      {skills.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">No skills installed.</p>
+      ) : (
+        <div className="space-y-2">
+          {skills.map((skill) => (
+            <div key={skill.id} className="rounded-2xl border border-white/10 glass-card p-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[12px] font-medium text-foreground">{skill.name}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{skill.id}</span>
+                <span className="rounded-full border border-border/40 px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{skill.status}</span>
+                {skill.version && <span className="text-[10px] text-muted-foreground">v{skill.version}</span>}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">{skill.description}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

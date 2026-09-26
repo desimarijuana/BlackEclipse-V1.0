@@ -133,15 +133,32 @@ class SkillRegistry:
             manifest = loaded.manifest
             existing = self.store.get_skill(manifest.id)
             status = existing["status"] if existing and loaded.authored else manifest.status
+            # A version created by a structured patch may be NEWER than the
+            # catalog/UserSkill source manifest. The store's own SkillVersion rows
+            # are authoritative for the active version, so a reload never walks
+            # the skill back to an older folder/row version.
+            active_manifest, active_version = self._active_manifest(manifest, existing)
             self.store.upsert_skill(
                 skill_id=manifest.id,
-                name=manifest.name,
-                description=manifest.description,
-                category=manifest.category,
-                latest_version=manifest.version,
+                name=active_manifest.name,
+                description=active_manifest.description,
+                category=active_manifest.category,
+                latest_version=active_version,
                 status=status,
-                tags=manifest.tags,
+                tags=active_manifest.tags,
             )
+            # Register the active (possibly patched) manifest in memory so
+            # discovery/evaluation see the authoritative version.
+            if active_version != manifest.version and active_manifest is not manifest:
+                loaded = LoadedSkill(
+                    manifest=active_manifest,
+                    folder=loaded.folder,
+                    instructions_path=loaded.instructions_path,
+                    instructions_text=loaded.instructions_text,
+                    authored=loaded.authored,
+                )
+                self._skills[manifest.id] = loaded
+                manifest = active_manifest
             try:
                 self.store.save_version(
                     manifest.model_dump(), manifest.version_identity(_safe_instructions(loaded)),
@@ -181,6 +198,34 @@ class SkillRegistry:
 
     # ── User authoring ──────────────────────────────────────────────────────
 
+    def _active_manifest(
+        self, source_manifest: "SkillManifest", existing: Optional[dict[str, Any]],
+    ) -> tuple["SkillManifest", str]:
+        """Resolve the authoritative active manifest for a skill.
+
+        A structured patch (Milestone 2) creates a newer `SkillVersion` row while
+        the catalog/UserSkill source still names the older version. The store's
+        `latestVersion` (advanced by activation/rollback) is authoritative, so a
+        reload must NOT walk the skill back to the source version. Falls back to
+        the source manifest when the stored version cannot be loaded.
+        """
+        if not existing:
+            return source_manifest, source_manifest.version
+        latest = existing.get("latestVersion")
+        if not latest or latest == source_manifest.version:
+            return source_manifest, source_manifest.version
+        stored = None
+        try:
+            stored = self.store.get_version(source_manifest.id, latest)
+        except Exception:  # noqa: BLE001
+            stored = None
+        if not stored:
+            return source_manifest, source_manifest.version
+        try:
+            patched = SkillManifest(**stored["manifest"])
+        except Exception:  # noqa: BLE001 - an invalid stored patch falls back safely
+            return source_manifest, source_manifest.version
+        return patched, latest
     def create_user_skill(
         self,
         *,

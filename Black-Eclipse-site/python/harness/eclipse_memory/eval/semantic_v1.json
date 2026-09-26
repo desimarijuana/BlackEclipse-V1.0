@@ -202,6 +202,36 @@
       "expectStatus": "none",
       "requiresReview": false,
       "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-typo-paraphrase-conflict",
+      "kind": "paraphrase-conflict",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefur reports delivered as Excle", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "report-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-profile-mismatch",
+      "kind": "different-scope",
+      "existing": {"content": "I prefer reports delivered as PDF", "subject": "report-format", "memoryType": "preference", "scope": "user", "scopeId": "work-profile", "authority": "explicit"},
+      "new": {"content": "I prefer reports delivered as Excel", "memoryType": "preference", "scope": "user", "scopeId": "personal-profile", "subject": "report-format", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "active",
+      "requiresReview": false,
+      "supersessionAllowed": false
+    },
+    {
+      "caseId": "sem-temporal-replacement",
+      "kind": "replacement",
+      "existing": {"content": "My base currency is USD", "subject": "base-currency", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Switch my base currency to PKR going forward", "memoryType": "preference", "scope": "user", "scopeId": "u1", "subject": "base-currency", "authority": "explicit"},
+      "expectStored": true,
+      "expectStatus": "proposed",
+      "requiresReview": true,
+      "supersessionAllowed": false
     }
   ]
 }

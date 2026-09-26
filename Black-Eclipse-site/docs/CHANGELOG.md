@@ -8,6 +8,123 @@ last-verified: 2026-09-15
 
 ## 2026-09-26
 
+- **Memory Control Room + Skills patch panel UI polish (frosted-glass pass).**
+  Brought the new M3/M4/M6/M8/M10 surfaces onto the shared frosted-glass system
+  and added the missing interactions: the **Files** tab now has a side-by-side
+  entry preview, a stale-safe inline **entry editor** (`expectedVersion` guard),
+  a **revision history** list with one-click rollback and a colour-coded
+  **diff**; the **Sessions** tab has a session **detail modal** (bounded summary
+  with objectives/next-actions/instrument chips + the indexed transcript) and an
+  explicit **Open** action; the **Providers** tab renders per-provider cards with
+  health/latency/version and capability chips (native vs external), and states
+  honestly when external search is policy-disabled; the Skill **patch version**
+  panel gained an `EvalBadge`, active/canary chips, a colour-coded operation
+  diff, evidence/regression chips, and action gating (canary → promote/rollback
+  only; active/rolled-back → none). All new surfaces use `.glass-card` /
+  `.glass-card-strong` / `.glass-card-subtle` (no raw `backdrop-blur`). Client
+  file parsing is a small client-safe parser (the server keeps the authoritative
+  one) so the screen never imports `node:fs`. Checks: Python **1067 passed**;
+  `npx tsc --noEmit` clean; Vitest **1777 passed**.
+  docs updated: CHANGELOG.md
+
+- **Long-lived sessions, named profiles, file editing and the simplified Memory
+  Control Room (spec milestones M3, M4, M6, M10).** Additive; no store merged,
+  no dependency added, and isolation/safety invariants preserved.
+  **M3 — named sessions.** New `ChatSession` table in `agent-memory.db`
+  (id/profileId/userId/title/status/summary/sourceSessionId/createdAt/updatedAt/
+  lastActivityAt/archivedAt); `HarnessRun` and `SessionMessage` gained
+  `sessionId`/`profileId`/`projectId` (+ SessionMessage `market`/`skillId`/
+  `memoryAction`). `RunRequest` gained `sessionId`/`profileId`/`projectId`; the
+  front door forwards them. Session lifecycle: create/list/get/update
+  (rename/pause/archive/restore)/fork/export/delete (archive default, hard
+  clears only the search index, never the run trace). Session search ranking is
+  now the documented hybrid (exact phrase > BM25 > decision/correction/
+  skill-failure/memory-action > recency > prose) with filters for
+  role/kind/session/profile/market/skill/memory-action. A bounded deterministic
+  session summary (objective/decisions/unresolved/corrections/skills/memories/
+  instruments/next actions) is built at run completion, persisted, and exposed —
+  searchable but never auto-injected.
+  **M4 — named profiles.** New `eclipse_memory/profiles.py`: a `ProfileRegistry`
+  over `.black-eclipse/profiles/PROFILES.json` with per-namespace
+  (memory/session/skill/provider), prompt profile, retention and settings, plus a
+  directory projection (`PROFILE.json`, `sessions/`, `skills/`, `history/`,
+  `exports/`). Explicit READ-ONLY inheritance (personal → project) with cycle and
+  parent-delete guards. Cross-profile memory isolation is enforced on read.
+  Routes `/profiles*`; TS client + a Profiles tab.
+  **M6 — safe file editing.** `memory-files.ts` now writes `USER_PROFILE.md` /
+  `MEMORY.md` / `PROJECT_MEMORY.md` / `SKILLS.md` (+ PROFILE/README), embeds a
+  `version` in the stable entry marker, writes atomically (temp + fsync +
+  rename) and backs up before a regenerate. New targeted-edit API with an
+  `expectedVersion` stale-edit rejection and add/replace/merge/split/reorder/
+  consolidate; new structured revision history (before/after/actor/sourceRun/
+  reviewId/reason/affectedIds/parentRevision/timestamp) under
+  `.black-eclipse/memory/.history/` with rollback and a bounded diff. Routes
+  `/files/edit` and `/files/history` (GET history/diff, POST rollback).
+  **M10 — Memory Control Room simplification.** Tabs are now Overview · Memory ·
+  Sessions · Learning · Profile · Profiles · Providers · Files · Skills ·
+  Policies · Diagnostics; Overview surfaces current profile, recent learning
+  changes, pending reviews, active skills, recent sessions, provider health and
+  rollback availability. Sessions/Providers/Files/Skills/Profiles tabs added.
+  Tests: `test_sessions_profiles.py` (14), `test_sessions_profiles_api.py` (4),
+  `memory-files-edit.test.ts` (8), plus browser-client additions. Checks: Python
+  **1067 passed**; `npx tsc --noEmit` clean; Vitest **1777 passed**.
+  docs updated: harness/architecture.md, harness/decisions.md (ADR-H56–H58),
+  docs/DECISIONS.md (ADR-036), skills/ARCHITECT.md (ADR-035), NAVIGATION.md,
+  harness/phase-3-memory-progress.md, CHANGELOG.md
+
+- **Autonomous learning, memory-provider, skill-patch and prompt-cache upgrades
+  (spec milestones M2, M7, M8, M9 + M1 scheduling).** All additive; no store
+  merged, no dependency added, the Python harness stays authoritative, and no
+  safety invariant was relaxed (the shared decision gate still governs every
+  durable write; no skill is ever auto-activated; external results are never
+  promoted to native).
+  **M8 — first-class memory providers.** New package
+  `python/harness/memory_providers/` (`protocol.py` = `MemoryProvider` contract +
+  typed request/response with `provenance=external_provider`/`verified=false`
+  defaults; `native.py` = the Eclipse-Memory provider; `mcp.py` = an MCP server
+  as a read-only-first provider with L2 explicit-write gating and NO automatic
+  writes; `registry.py`; `routing.py` = native-first routing that fences external
+  results and never promotes them; `diagnostics.py` = bounded, secret-free
+  provider health). Three new read-only tools `memory_search_native`,
+  `memory_search_external`, `memory_provider_status`; policy keys
+  `external_memory_search_enabled` (default off), `external_memory_write_enabled`,
+  `external_memory_native_sufficiency`; routes `/memory-providers/status|search`
+  + TS proxies/browser client.
+  **M9 — prompt-cache segments.** New `python/harness/prompt_segments.py`: the
+  prompt is split into immutable segments with content hash/version/source/token
+  estimate, a stable `prompt_cache_key` composed only from identity (agent/
+  policy/tool-schema versions + profile snapshot/skill manifest/session-summary
+  ids — never the user message), selective bounded skill-manifest injection, and
+  a `prompt.plan` observability event.
+  **M2 — versioned self-improving skills.** New
+  `python/harness/skills/patches.py` (JSON-pointer `replace|add|remove` patch
+  parse/validate/apply; forbidden identity/permission/tool/risk fields; never-
+  canary classification) and `skills/versioning.py` (propose → evaluate →
+  canary → activate, atomic rollback preserving both versions, automatic
+  rollback triggers). Migration 13 adds `baseVersion/patchSummary/reviewId/
+  patchAuthor/activatedAt/rolledBackAt/canaryState/patch` to `SkillVersion`;
+  new statuses `evaluating/canary/approved/active/superseded/rolled_back`; a
+  stale-base patch is rejected. Routes `/skills/{id}/version-history`,
+  `/skills/{id}/patch[/{version}/{evaluate|activate|promote|auto-rollback-check}]`
+  + TS proxies and a patch-version UI panel.
+  **M1 — idle-aware review scheduling.** `LearningReviewQueue` now supports
+  priority ordering (critical→low), per-session coalescing, idle deferral while
+  the user is active, and richer health; `LearningReview` gains
+  `sessionId/profileId/priority/scheduling`. A `skill_patch` review outcome
+  records a patch opportunity for a failed enabled skill (inert — no version is
+  created).
+  **M7 — hybrid ranking namespaces.** New `eclipse_memory/hybrid.py`: logical
+  namespaces (preference/project_fact/correction/workflow/skill/session_summary),
+  a bounded BM25 component, and a bounded hybrid score whose semantic term can
+  only nudge an already-authorized memory. New labeled semantic cases (typo,
+  profile-mismatch, temporal replacement).
+  Tests: `test_memory_providers.py` (15), `test_prompt_segments.py` (12),
+  `test_skill_patches.py` (13), `test_memory_hybrid.py` (7), plus scheduling
+  tests and browser-client additions. Checks: Python **1050 passed**;
+  `npx tsc --noEmit` clean; Vitest **1765 passed**.
+  docs updated: harness/architecture.md, harness/decisions.md (ADR-H52–H55),
+  skills/ARCHITECT.md, NAVIGATION.md, CHANGELOG.md
+
 - **Memory Expansion — five Hermes-inspired capabilities on the existing
   architecture (M1 profile, M2 full-session recall, M3 automatic learning
   review, M4 file projection).** No store was merged, no dependency added, and

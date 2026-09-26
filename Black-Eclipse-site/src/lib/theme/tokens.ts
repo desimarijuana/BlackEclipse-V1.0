@@ -24,6 +24,20 @@ export interface ThemeGlass {
   tint: string;
 }
 
+/**
+ * Dedicated sidebar surface controls (Settings › Customization › Sidebar).
+ * The sidebar reads its own tokens so it can stay a soft grey while the page
+ * and cards remain black — independent of the global glass tint.
+ */
+export interface ThemeSidebar {
+  /** Sidebar tint color. */
+  tint: string;
+  /** Tint opacity (0–1). Higher hides the blur behind a solid fill. */
+  opacity: number;
+  /** Backdrop blur radius in px. */
+  blur: number;
+}
+
 export interface ThemeColors {
   /** Brand / interactive accent (buttons, highlights, chart line 1). */
   primary: string;
@@ -86,6 +100,8 @@ export interface EclipseTheme {
   logoScale: number;
   /** Frosted-glass surface controls. */
   glass: ThemeGlass;
+  /** Dedicated sidebar surface controls. */
+  sidebar: ThemeSidebar;
   /** Surface drop-shadow weight. */
   shadow: ThemeShadow;
   /** Page background treatment. */
@@ -119,6 +135,9 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   fontScale: 1,
   logoScale: 1,
   glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' },
+  // Sidebar ships a dark charcoal a touch lighter than the black page/cards —
+  // just enough to read as separate chrome, not a flat grey slab.
+  sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 },
   shadow: 'soft',
   background: 'solid',
   glow: true,
@@ -183,6 +202,15 @@ export const GLASS_PRESETS: { id: string; label: string; hint: string; glass: Th
   { id: 'solid', label: 'Solid', hint: 'No blur — flat surfaces', glass: { enabled: false, blur: 18, opacity: 0.95, tint: '#0f0f0f' } },
 ];
 
+/** Ready-made sidebar surface presets users can apply and then fine-tune. */
+export const SIDEBAR_PRESETS: { id: string; label: string; hint: string; sidebar: ThemeSidebar }[] = [
+  { id: 'charcoal', label: 'Charcoal', hint: 'Dark grey with a hint of black (default)', sidebar: { tint: '#1a1a1c', opacity: 0.9, blur: 20 } },
+  { id: 'slate', label: 'Slate', hint: 'Cool blue-charcoal lift', sidebar: { tint: '#1e2228', opacity: 0.88, blur: 22 } },
+  { id: 'smoke', label: 'Smoke', hint: 'Warm neutral charcoal', sidebar: { tint: '#1d1c1b', opacity: 0.9, blur: 18 } },
+  { id: 'crystal', label: 'Crystal', hint: 'Translucent frost, heavy blur', sidebar: { tint: '#26262c', opacity: 0.55, blur: 34 } },
+  { id: 'black', label: 'Black', hint: 'Match the black page', sidebar: { tint: '#0c0c0e', opacity: 0.9, blur: 18 } },
+];
+
 // ── Presets ──────────────────────────────────────────────────────────────────
 
 export interface ThemePreset {
@@ -222,11 +250,13 @@ export const BRAND_GENERATOR_SURFACE = '#0f0f0f';
 export const THEME_PRESETS: ThemePreset[] = [
   { id: 'eclipse', label: 'Eclipse', description: 'The default green-on-black terminal.', theme: DEFAULT_ECLIPSE_THEME },
   preset('midnight', 'Midnight', 'Cool indigo accent on deep navy.',
-    { primary: '#818cf8', accent: '#6366f1', background: '#05060f', surface: '#0d1020', border: '#26304a', text: '#e6e8f2', bullish: '#818cf8', bearish: '#fb7185' }),
+    { primary: '#818cf8', accent: '#6366f1', background: '#05060f', surface: '#0d1020', border: '#26304a', text: '#e6e8f2', bullish: '#818cf8', bearish: '#fb7185' },
+    { sidebar: { tint: '#10142a', opacity: 0.9, blur: 20 } }),
   preset('matrix', 'Matrix', 'Phosphor-green terminal, minimal red.',
     { primary: '#00ff41', accent: '#22c55e', background: '#000400', surface: '#05130a', border: '#12351f', text: '#d7ffe4', bullish: '#00ff41', bearish: '#ff3b3b' }),
   preset('ocean', 'Ocean', 'Cold cyan brand with a coral bearish shift.',
-    { primary: '#38bdf8', accent: '#22d3ee', background: '#02090f', surface: '#0a1622', border: '#1d3247', text: '#e2f3fb', bullish: '#38bdf8', bearish: '#fb7185' }),
+    { primary: '#38bdf8', accent: '#22d3ee', background: '#02090f', surface: '#0a1622', border: '#1d3247', text: '#e2f3fb', bullish: '#38bdf8', bearish: '#fb7185' },
+    { sidebar: { tint: '#0b1a2a', opacity: 0.9, blur: 20 } }),
   preset('solar', 'Solar', 'Warm amber brand on charcoal.',
     { primary: '#fbbf24', accent: '#f59e0b', background: '#0c0803', surface: '#17110a', border: '#3a2c14', text: '#fdf4e3', bullish: '#fbbf24', bearish: '#ff5c5c' }),
   preset('crimson', 'Crimson', 'Rose-forward brand for a warmer terminal.',
@@ -236,10 +266,10 @@ export const THEME_PRESETS: ThemePreset[] = [
     { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0f0f0f' }, shadow: 'none' }),
   preset('crystal', 'Crystal', 'Bright, high-blur glass over a soft gradient.',
     { primary: '#60a5fa', accent: '#93c5fd', background: '#05070f', surface: '#0b1020', border: '#243047', text: '#eaf1ff', bullish: '#60a5fa', bearish: '#fb7185' },
-    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic' }),
+    { glass: { enabled: true, blur: 34, opacity: 0.30, tint: '#0a0e1a' }, background: 'gradient', shadow: 'dramatic', sidebar: { tint: '#101a2e', opacity: 0.8, blur: 26 } }),
   preset('blueprint', 'Blueprint', 'Technical grid, tight radius and flat surfaces.',
     { primary: '#38bdf8', accent: '#0ea5e9', background: '#03070d', surface: '#0a1119', border: '#183042', text: '#e0f2fe', bullish: '#38bdf8', bearish: '#f87171' },
-    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25 }),
+    { glass: { enabled: false, blur: 0, opacity: 0.95, tint: '#0a1119' }, background: 'grid', shadow: 'none', radius: 0.25, sidebar: { tint: '#0a1826', opacity: 0.94, blur: 0 } }),
   preset('smoked', 'Smoked', 'Opaque dark glass with heavy depth.',
     { primary: '#f59e0b', accent: '#fbbf24', background: '#0a0805', surface: '#141009', border: '#3a2c14', text: '#fdf4e3', bullish: '#f59e0b', bearish: '#ef4444' },
     { glass: { enabled: true, blur: 12, opacity: 0.82, tint: '#0a0805' }, shadow: 'dramatic' }),
@@ -380,6 +410,18 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
       : d.glass.opacity,
     tint: color(glassRaw.tint, d.glass.tint),
   };
+  const sidebarRaw = value.sidebar && typeof value.sidebar === 'object' && !Array.isArray(value.sidebar)
+    ? (value.sidebar as Record<string, unknown>)
+    : {};
+  const sidebar: ThemeSidebar = {
+    tint: color(sidebarRaw.tint, d.sidebar.tint),
+    opacity: typeof sidebarRaw.opacity === 'number' && Number.isFinite(sidebarRaw.opacity)
+      ? Math.min(1, Math.max(0, sidebarRaw.opacity))
+      : d.sidebar.opacity,
+    blur: typeof sidebarRaw.blur === 'number' && Number.isFinite(sidebarRaw.blur)
+      ? Math.min(48, Math.max(0, sidebarRaw.blur))
+      : d.sidebar.blur,
+  };
   const shadow: ThemeShadow =
     value.shadow === 'none' || value.shadow === 'medium' || value.shadow === 'dramatic' || value.shadow === 'soft'
       ? value.shadow
@@ -418,6 +460,7 @@ export function normalizeTheme(raw: unknown): EclipseTheme {
     fontScale: fontScaleNum,
     logoScale: logoScaleNum,
     glass,
+    sidebar,
     shadow,
     background,
     glow: value.glow !== false,
@@ -501,6 +544,7 @@ export const STRUCTURAL_THEME_VARS: ReadonlySet<string> = new Set([
   '--font-scale', '--logo-scale',
   '--glass-blur', '--glass-opacity', '--glass-shadow', '--glass-enabled',
   '--glass-tint-light', '--page-bg-image', '--page-bg-size',
+  '--sidebar-rgb', '--sidebar-opacity', '--sidebar-blur',
 ]);
 // NOTE: `--glass-tint` is deliberately a COLOR token (scoped to `html.dark`), so
 // a custom dark tint never leaks into light mode — light keeps the shipped white
@@ -529,6 +573,12 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
   const glassOpacity = glass.enabled ? glass.opacity : 0.95;
   const glassBlur = glass.enabled ? glass.blur : 0;
   const glassTint = hexToRgbTriplet(glass.tint);
+
+  // Sidebar surface: its own tint/blur so the rail can read grey while the page
+  // stays black. When glass is disabled the sidebar becomes solid too.
+  const sb = n.sidebar;
+  const sidebarOpacity = glass.enabled ? sb.opacity : 0.96;
+  const sidebarBlur = glass.enabled ? sb.blur : 0;
 
   // Surface shadow tiers. `none` keeps a hairline box for edge definition.
   const SHADOW: Record<ThemeShadow, string> = {
@@ -567,10 +617,13 @@ export function themeCssVars(theme: EclipseTheme): Record<string, string> {
     '--accent-foreground': text,
     '--border': border,
     '--input': border,
-    '--sidebar': surface,
+    '--sidebar': sb.tint,
     '--sidebar-foreground': text,
     '--sidebar-accent': secondary,
     '--sidebar-border': border,
+    '--sidebar-rgb': hexToRgbTriplet(sb.tint),
+    '--sidebar-opacity': `${sidebarOpacity}`,
+    '--sidebar-blur': `${sidebarBlur}px`,
 
     // Text
     '--foreground': text,

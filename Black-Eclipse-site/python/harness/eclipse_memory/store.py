@@ -612,7 +612,19 @@ class EclipseMemoryStore:
             )
         self._db.commit()
 
-    def save_version(self, manifest: dict[str, Any], content_hash: str, *, instructions: Optional[str] = None) -> None:
+    def save_version(
+        self,
+        manifest: dict[str, Any],
+        content_hash: str,
+        *,
+        instructions: Optional[str] = None,
+        base_version: Optional[str] = None,
+        patch_summary: Optional[str] = None,
+        review_id: Optional[str] = None,
+        patch_author: Optional[str] = None,
+        canary_state: Optional[str] = None,
+        patch: Optional[dict[str, Any]] = None,
+    ) -> None:
         skill_id = manifest["id"]
         version = manifest["version"]
         existing = self._db.execute(
@@ -628,8 +640,9 @@ class EclipseMemoryStore:
             """INSERT INTO SkillVersion
                (id, skillId, version, manifest, contentHash, status, evaluationStatus, riskLevel,
                 instructionsLocation, instructions, author, origin, sourceRunId, originCandidateId,
-                limitations, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                limitations, createdAt, updatedAt,
+                baseVersion, patchSummary, reviewId, patchAuthor, canaryState, patch)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 vid, skill_id, version, json.dumps(manifest), content_hash,
                 manifest.get("status", "draft"), manifest.get("evaluationStatus", "not_evaluated"),
@@ -637,6 +650,8 @@ class EclipseMemoryStore:
                 instructions, manifest.get("author"), manifest.get("origin", "builtin"),
                 manifest.get("sourceRunId"), manifest.get("originCandidateId"),
                 manifest.get("knownLimitations"), now, now,
+                base_version, patch_summary, review_id, patch_author, canary_state,
+                json.dumps(patch) if patch is not None else None,
             ),
         )
         for dep in manifest.get("requiredSkills", []) or []:
@@ -706,6 +721,29 @@ class EclipseMemoryStore:
 
     def set_latest_version(self, skill_id: str, version: str) -> None:
         self._db.execute("UPDATE Skill SET latestVersion=?, updatedAt=? WHERE id=?", (version, now_iso(), skill_id))
+        self._db.commit()
+
+    def set_version_activation(
+        self, skill_id: str, version: str, *, activated: bool,
+    ) -> None:
+        """Stamp `activatedAt`/`rolledBackAt` on a version (Milestone 2)."""
+        if activated:
+            self._db.execute(
+                "UPDATE SkillVersion SET activatedAt=?, rolledBackAt=NULL, canaryState=NULL WHERE skillId=? AND version=?",
+                (now_iso(), skill_id, version),
+            )
+        else:
+            self._db.execute(
+                "UPDATE SkillVersion SET rolledBackAt=?, activatedAt=NULL WHERE skillId=? AND version=?",
+                (now_iso(), skill_id, version),
+            )
+        self._db.commit()
+
+    def set_canary_state(self, skill_id: str, version: str, canary_state: Optional[str]) -> None:
+        self._db.execute(
+            "UPDATE SkillVersion SET canaryState=?, updatedAt=? WHERE skillId=? AND version=?",
+            (canary_state, now_iso(), skill_id, version),
+        )
         self._db.commit()
 
     def create_execution(
@@ -987,6 +1025,11 @@ class EclipseMemoryStore:
     def _version_row(self, row: sqlite3.Row) -> dict[str, Any]:
         record = dict(row)
         record["manifest"] = json.loads(record["manifest"])
+        if record.get("patch"):
+            try:
+                record["patch"] = json.loads(record["patch"])
+            except (TypeError, ValueError):
+                record["patch"] = None
         return record
 
     @staticmethod

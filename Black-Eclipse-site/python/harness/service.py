@@ -114,6 +114,27 @@ class AgenticService:
 
         self.learning_review = LearningReviewQueue(self.memory, self.store)
 
+        # Memory providers (M8): the native provider plus a candidate provider per
+        # configured MCP server. Discovery is not activation — the router only
+        # reaches an external provider when policy enables it AND the caller
+        # explicitly allows it AND the server is connected.
+        from .memory_providers import build_memory_router
+
+        self.memory_router = build_memory_router(self.memory, mcp_manager=self.mcp)
+
+    def refresh_memory_router(self) -> None:
+        """Rebuild the provider router after an MCP config change."""
+        from .memory_providers import build_memory_router
+
+        external = False
+        try:
+            external = bool(self.memory.policy.get("external_memory_search_enabled"))
+        except Exception:  # noqa: BLE001
+            external = False
+        self.memory_router = build_memory_router(
+            self.memory, mcp_manager=self.mcp, external_enabled=external
+        )
+
     def _secret_resolver(self, bridge: DataBridge):
         """Bind an async vault-secret resolver to a run's data bridge.
 
@@ -195,6 +216,10 @@ class AgenticService:
         configs, diagnostics = load_mcp_configs()
         self.mcp.load_diagnostics = diagnostics
         self.mcp_registered_tools = await self.mcp.reload(configs)
+        # Rebuild the provider router so newly configured/removed MCP servers are
+        # (or are no longer) candidate memory providers. Discovery is not
+        # activation: the router still requires explicit policy + call opt-in.
+        self.refresh_memory_router()
         return self.mcp.summary()
 
     async def confirm_mcp_catalog(self, server_id: str) -> dict[str, Any]:
@@ -236,6 +261,11 @@ class AgenticService:
 
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        # Foreground activity: defer expensive background reviews to a short idle.
+        try:
+            self.learning_review.mark_user_active()
+        except Exception:  # noqa: BLE001 - scheduling hint only
+            pass
         # The retrieval layer is built lazily by the retrieval tools from the
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
@@ -243,7 +273,7 @@ class AgenticService:
             request, self.registry, bridge, self.store, self.bus,
             retrieval_cache=self.retrieval_cache,
             memory_service=self.memory, skill_registry=self.skill_registry,
-            approvals=self.approvals,
+            approvals=self.approvals, memory_router=self.memory_router,
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -253,7 +283,15 @@ class AgenticService:
         if status not in ("completed", "failed"):
             return
         try:
-            await self.learning_review.enqueue(run_id)
+            run = self.store.get_run(run_id) or {}
+            # Deterministic priority: a failed run is a stronger signal than a
+            # completed one. Explicit corrections would be `critical`.
+            priority = "medium" if status == "failed" else "normal"
+            await self.learning_review.enqueue(
+                run_id, priority=priority,
+                session_id=run.get("chatId") or run.get("sessionId"),
+                profile_id=run.get("userId"),
+            )
         except Exception:  # noqa: BLE001 - scheduling must never affect the run
             log.warning("learning review scheduling failed", exc_info=True)
 
@@ -285,7 +323,7 @@ class AgenticService:
                     request, self.registry, bridge, self.store, self.bus,
                     retrieval_cache=self.retrieval_cache,
                     memory_service=self.memory, skill_registry=self.skill_registry,
-                    approvals=self.approvals,
+                    approvals=self.approvals, memory_router=self.memory_router,
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

@@ -45,8 +45,7 @@ CREATE TABLE IF NOT EXISTS HarnessRun (
   updatedAt   TEXT NOT NULL,
   startedAt   TEXT,
   finishedAt  TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_harness_run_status  ON HarnessRun(status);
+);CREATE INDEX IF NOT EXISTS idx_harness_run_status  ON HarnessRun(status);
 CREATE INDEX IF NOT EXISTS idx_harness_run_user    ON HarnessRun(userId);
 CREATE INDEX IF NOT EXISTS idx_harness_run_created ON HarnessRun(createdAt);
 
@@ -186,6 +185,29 @@ CREATE INDEX IF NOT EXISTS idx_session_msg_run ON SessionMessage(runId, ordinal)
 CREATE INDEX IF NOT EXISTS idx_session_msg_created ON SessionMessage(createdAt);
 CREATE INDEX IF NOT EXISTS idx_session_msg_user ON SessionMessage(userId);
 
+-- Long-lived named sessions (M3). A run belongs to a session; a session belongs
+-- to one profile/user. The session is metadata + a bounded summary; the full
+-- trace stays in HarnessRun/HarnessEvent. `summary` is a bounded, searchable
+-- JSON blob (objective/decisions/unresolved/corrections/skills/memories/files/
+-- next actions) — never injected into every prompt.
+CREATE TABLE IF NOT EXISTS ChatSession (
+  id             TEXT PRIMARY KEY,
+  profileId      TEXT,
+  userId         TEXT,
+  title          TEXT,
+  status         TEXT NOT NULL DEFAULT 'active',
+  summary        TEXT,
+  sourceSessionId TEXT,
+  createdAt      TEXT NOT NULL,
+  updatedAt      TEXT NOT NULL,
+  lastActivityAt TEXT,
+  archivedAt     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chat_session_profile ON ChatSession(profileId);
+CREATE INDEX IF NOT EXISTS idx_chat_session_user ON ChatSession(userId);
+CREATE INDEX IF NOT EXISTS idx_chat_session_status ON ChatSession(status, updatedAt);
+CREATE INDEX IF NOT EXISTS idx_chat_session_activity ON ChatSession(lastActivityAt);
+
 -- Learning review audit (Phase 3-M Memory Expansion, M3). One row per bounded
 -- post-run review attempt: status, mode, model, input digest and a BOUNDED
 -- result JSON. The review itself never writes durable memory or activates a
@@ -256,6 +278,29 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # memory intent for this run (saved/forgotten/corrected/refused) plus
         # learning eligibility. Additive and NULL for older rows.
         ("memory", "TEXT"),
+        # M3/M4: a run belongs to a session, profile and project. Additive and
+        # NULL for older rows, so existing clients stay compatible.
+        ("sessionId", "TEXT"),
+        ("profileId", "TEXT"),
+        ("projectId", "TEXT"),
+    ],
+    # Learning-review scheduling metadata (M1/M3). Priority ordering, the
+    # coalescing session key, the profile scope and the review mode are additive
+    # columns so an older database opens cleanly (NULL = not recorded).
+    "LearningReview": [
+        ("sessionId", "TEXT"),
+        ("profileId", "TEXT"),
+        ("priority", "TEXT NOT NULL DEFAULT 'normal'"),
+        ("scheduling", "TEXT"),
+    ],
+    # Session-search index scope + filter columns (M3). Additive; NULL = unknown.
+    "SessionMessage": [
+        ("sessionId", "TEXT"),
+        ("profileId", "TEXT"),
+        ("projectId", "TEXT"),
+        ("market", "TEXT"),
+        ("skillId", "TEXT"),
+        ("memoryAction", "TEXT"),
     ],
 }
 
@@ -289,27 +334,42 @@ class AgentMemoryStore:
         user_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        *,
+        session_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> None:
         now = now_iso()
         self._db.execute(
             """INSERT INTO HarnessRun
                (id, agentId, userId, status, input, modelSteps, toolCalls, toolErrors,
-                provider, model, createdAt, updatedAt)
-               VALUES (?, ?, ?, 'created', ?, 0, 0, 0, ?, ?, ?, ?)""",
-            (run_id, agent_id, user_id, json.dumps(input_data), provider, model, now, now),
+                provider, model, createdAt, updatedAt, sessionId, profileId, projectId)
+               VALUES (?, ?, ?, 'created', ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)""",
+            (run_id, agent_id, user_id, json.dumps(input_data), provider, model, now, now,
+             session_id, profile_id, project_id),
         )
         self._db.commit()
+        # A run belongs to a session; create one lazily when the caller did not.
+        if session_id and self.get_chat_session(session_id) is None:
+            self.create_chat_session(
+                session_id, profile_id=profile_id, user_id=user_id,
+                title=(input_data or {}).get("query", "")[:80] or None,
+            )
+        if session_id:
+            self.touch_chat_session(session_id)
 
     def update_run(self, run_id: str, **patch: Any) -> None:
         allowed = {
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
+            "sessionId", "profileId", "projectId",
         }
         sets, params = [], []
-        for key, value in patch.items():
+        for key in patch:
             if key not in allowed:
                 continue
+            value = patch[key]
             sets.append(f"{key} = ?")
             if key in ("error", "research", "memory") and value is not None:
                 params.append(json.dumps(value))
@@ -322,6 +382,117 @@ class AgentMemoryStore:
         params.append(run_id)
         self._db.execute(f"UPDATE HarnessRun SET {', '.join(sets)} WHERE id = ?", params)
         self._db.commit()
+
+    # ── Chat sessions (M3) ──────────────────────────────────────────────────
+    def create_chat_session(
+        self, session_id: str, *, profile_id: Optional[str] = None,
+        user_id: Optional[str] = None, title: Optional[str] = None,
+        status: str = "active", summary: Optional[dict[str, Any]] = None,
+        source_session_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        now = now_iso()
+        self._db.execute(
+            """INSERT INTO ChatSession
+               (id, profileId, userId, title, status, summary, sourceSessionId,
+                createdAt, updatedAt, lastActivityAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO NOTHING""",
+            (session_id, profile_id, user_id, title, status,
+             json.dumps(summary) if summary is not None else None,
+             source_session_id, now, now, now),
+        )
+        self._db.commit()
+        return self.get_chat_session(session_id) or {}
+
+    def get_chat_session(self, session_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM ChatSession WHERE id=?", (session_id,)).fetchone()
+        return _chat_session_row(row) if row else None
+
+    def list_chat_sessions(
+        self, *, profile_id: Optional[str] = None, user_id: Optional[str] = None,
+        status: Optional[str] = None, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if profile_id is not None:
+            where.append("profileId = ?"); params.append(profile_id)
+        if user_id is not None:
+            where.append("userId = ?"); params.append(user_id)
+        if status is not None:
+            where.append("status = ?"); params.append(status)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        limit = max(1, min(int(limit), 200))
+        rows = self._db.execute(
+            f"SELECT * FROM ChatSession{clause} ORDER BY COALESCE(lastActivityAt, updatedAt) DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+        return [_chat_session_row(r) for r in rows]
+
+    def update_chat_session(self, session_id: str, **patch: Any) -> Optional[dict[str, Any]]:
+        allowed = {"title", "status", "summary", "archivedAt", "lastActivityAt", "profileId", "userId"}
+        sets: list[str] = []
+        params: list[Any] = []
+        for key in patch:
+            if key not in allowed:
+                continue
+            value = patch[key]
+            sets.append(f"{key} = ?")
+            params.append(json.dumps(value) if key == "summary" and value is not None else value)
+        if not sets:
+            return self.get_chat_session(session_id)
+        sets.append("updatedAt = ?")
+        params.append(now_iso())
+        params.append(session_id)
+        self._db.execute(f"UPDATE ChatSession SET {', '.join(sets)} WHERE id=?", params)
+        self._db.commit()
+        return self.get_chat_session(session_id)
+
+    def touch_chat_session(self, session_id: str) -> None:
+        self._db.execute(
+            "UPDATE ChatSession SET lastActivityAt=?, updatedAt=? WHERE id=?",
+            (now_iso(), now_iso(), session_id),
+        )
+        self._db.commit()
+
+    def delete_chat_session(self, session_id: str, *, hard: bool = False) -> dict[str, Any]:
+        """Archive (default) or remove a session. Archive is the safe default so
+        history is never silently destroyed; a hard delete also clears its
+        search-index messages but never the run traces."""
+        session = self.get_chat_session(session_id)
+        if session is None:
+            return {"deleted": False, "reason": "not found"}
+        run_ids = [
+            r["id"] for r in self._db.execute(
+                "SELECT id FROM HarnessRun WHERE sessionId=?", (session_id,)
+            ).fetchall()
+        ]
+        if hard:
+            self._db.execute("DELETE FROM ChatSession WHERE id=?", (session_id,))
+            for run_id in run_ids:
+                self.delete_session_messages(run_id)
+            self._db.commit()
+            return {"deleted": True, "hard": True, "runs": len(run_ids)}
+        self.update_chat_session(session_id, status="archived", archivedAt=now_iso())
+        return {"deleted": False, "archived": True}
+
+    def fork_chat_session(self, session_id: str, new_session_id: str) -> Optional[dict[str, Any]]:
+        """Fork a session: a new session links to the source; the source is
+        untouched. Run history is not copied (the source link retains it)."""
+        source = self.get_chat_session(session_id)
+        if source is None:
+            return None
+        return self.create_chat_session(
+            new_session_id, profile_id=source.get("profileId"), user_id=source.get("userId"),
+            title=(source.get("title") or "") + " (fork)",
+            summary=source.get("summary"), source_session_id=session_id,
+        )
+
+    def session_runs(self, session_id: str) -> list[str]:
+        return [
+            r["id"] for r in self._db.execute(
+                "SELECT id FROM HarnessRun WHERE sessionId=? ORDER BY createdAt ASC", (session_id,)
+            ).fetchall()
+        ]
 
     def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
         row = self._db.execute("SELECT * FROM HarnessRun WHERE id = ?", (run_id,)).fetchone()
@@ -598,6 +769,12 @@ class AgentMemoryStore:
         ordinal: int = 0,
         created_at: Optional[str] = None,
         message_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        market: Optional[str] = None,
+        skill_id: Optional[str] = None,
+        memory_action: Optional[str] = None,
     ) -> Optional[str]:
         """Insert one bounded, searchable session message (idempotent per run+ordinal).
 
@@ -617,9 +794,11 @@ class AgentMemoryStore:
         )
         self._db.execute(
             """INSERT INTO SessionMessage
-               (id, runId, userId, role, kind, content, createdAt, ordinal)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (msg_id, run_id, user_id, role, kind, content[:8000], now, ordinal),
+               (id, runId, userId, role, kind, content, createdAt, ordinal,
+                sessionId, profileId, projectId, market, skillId, memoryAction)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (msg_id, run_id, user_id, role, kind, content[:8000], now, ordinal,
+             session_id, profile_id, project_id, market, skill_id, memory_action),
         )
         if self._ensure_fts_index():
             try:
@@ -679,13 +858,25 @@ class AgentMemoryStore:
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         run_id: Optional[str] = None,
+        role: Optional[str] = None,
+        session_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        market: Optional[str] = None,
+        skill_id: Optional[str] = None,
+        memory_action: Optional[str] = None,
+        kind: Optional[str] = None,
         limit: int = 10,
     ) -> dict[str, Any]:
         """Full-text search over indexed session messages.
 
-        Uses FTS5 for ranking when available; otherwise falls back to a
+        Uses FTS5 for BM25 ranking when available; otherwise falls back to a
         deterministic LIKE scan. Reports `engine` honestly so a caller can tell
         which path ran. Never returns unbounded snippets.
+
+        Ranking is the documented hybrid: an exact-phrase hit wins, then BM25,
+        then a decision/correction/skill-failure/memory-action boost, then
+        recency, then assistant prose. The boosts are deterministic and small so
+        they refine — never replace — a real text match.
         """
         query = (query or "").strip()
         limit = max(1, min(int(limit), 50))
@@ -700,11 +891,47 @@ class AgentMemoryStore:
             where.append("m.userId = ?"); params.append(user_id)
         if run_id:
             where.append("m.runId = ?"); params.append(run_id)
+        if session_id:
+            where.append("m.sessionId = ?"); params.append(session_id)
+        if profile_id:
+            where.append("m.profileId = ?"); params.append(profile_id)
+        if role:
+            where.append("m.role = ?"); params.append(role)
+        if kind:
+            where.append("m.kind = ?"); params.append(kind)
+        if market:
+            where.append("m.market = ?"); params.append(market)
+        if skill_id:
+            where.append("m.skillId = ?"); params.append(skill_id)
+        if memory_action:
+            where.append("m.memoryAction = ?"); params.append(memory_action)
         if date_from:
             where.append("m.createdAt >= ?"); params.append(date_from)
         if date_to:
             where.append("m.createdAt <= ?"); params.append(date_to)
         filter_clause = (" AND " + " AND ".join(where)) if where else ""
+
+        phrase = " ".join(tokens)
+
+        def _hybrid_key(hit: dict[str, Any]) -> tuple:
+            # Lower sorts first. Exact phrase beats everything; then the BM25
+            # score (negated so a better score is smaller); then a deterministic
+            # decision/correction/skill-failure/memory-action boost; then recency;
+            # assistant prose ranks below a user/decision match at equal score.
+            content = (hit.get("content") or hit.get("snippet") or "").lower()
+            phrase_hit = 0 if phrase and phrase in content else 1
+            bm25 = hit.get("score")
+            bm25_key = bm25 if bm25 is not None else 0.0
+            kind_boost = 0
+            low_kind = (hit.get("kind") or "").lower()
+            low_role = (hit.get("role") or "").lower()
+            if low_kind in ("decision", "correction", "skill_failure", "memory_action"):
+                kind_boost = 0
+            elif low_role == "user":
+                kind_boost = 1
+            else:
+                kind_boost = 2
+            return (phrase_hit, bm25_key, kind_boost, hit.get("createdAt") or "")
 
         results: list[dict[str, Any]] = []
         engine = "like"
@@ -720,10 +947,12 @@ class AgentMemoryStore:
                     f"WHERE SessionMessageFts MATCH ?{filter_clause} "
                     "ORDER BY score LIMIT ?"
                 )
-                rows = self._db.execute(sql, [fts_query, *params, limit + 1]).fetchall()
+                rows = self._db.execute(sql, [fts_query, *params, max(limit * 4, 50)]).fetchall()
                 engine = "fts5"
-                results = [_session_result(r, score=-float(r["score"])) for r in rows[:limit]]
-                has_more = len(rows) > limit
+                hits = [_session_result(r, score=-float(r["score"])) for r in rows]
+                hits.sort(key=_hybrid_key)
+                results = hits[:limit]
+                has_more = len(hits) > limit
                 return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
             except Exception:  # noqa: BLE001 - fall through to the LIKE scan
                 results = []
@@ -734,10 +963,12 @@ class AgentMemoryStore:
                 "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt"
                 f" FROM SessionMessage m WHERE {like}{filter_clause}"
                 " ORDER BY m.createdAt DESC LIMIT ?",
-                [*(f"%{t}%" for t in tokens), *params, limit + 1],
+                [*(f"%{t}%" for t in tokens), *params, max(limit * 4, 50)],
             ).fetchall()
-            results = [_session_result(r, score=None) for r in rows[:limit]]
-            has_more = len(rows) > limit
+            hits = [_session_result(r, score=None) for r in rows]
+            hits.sort(key=_hybrid_key)
+            results = hits[:limit]
+            has_more = len(hits) > limit
         return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
 
     def open_session(
@@ -1096,6 +1327,9 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "model": row["model"],
         "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
         "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
+        "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
+        "profileId": row["profileId"] if _has_column(row, "profileId") else None,
+        "projectId": row["projectId"] if _has_column(row, "projectId") else None,
         "createdAt": row["createdAt"],
         "updatedAt": row["updatedAt"],
         "startedAt": row["startedAt"],
@@ -1129,6 +1363,16 @@ def _session_result(row: sqlite3.Row, *, score: Optional[float], full: bool = Fa
         "createdAt": row["createdAt"],
         "score": score,
     }
+
+
+def _chat_session_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("summary"):
+        try:
+            record["summary"] = json.loads(record["summary"])
+        except (TypeError, ValueError):
+            record["summary"] = None
+    return record
 
 
 def _learning_review_row(row: sqlite3.Row) -> dict[str, Any]:

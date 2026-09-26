@@ -69,6 +69,10 @@ class ToolContext:
     # Eclipse-Memory service (memory + skills). Attached per run so the memory
     # and skill tools can reach it without a global.
     memory_service: Any = None
+    # The memory-provider router (native + external providers). Attached per run
+    # so `memory_search_native`/`memory_search_external`/`memory_provider_status`
+    # can route without a global. None = provider tools report unavailable.
+    memory_router: Any = None
     # The skill registry, for progressive discovery (skill_list / skill_view).
     skill_registry: Any = None
     # Accessor for JDdS-backed data; wired to the TS bridge by the service.

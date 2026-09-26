@@ -28,12 +28,18 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 SkillStatus = Literal[
     "draft",       # authored, not yet tested
+    "evaluating",  # a candidate patch is under evaluation
     "testing",     # under test / evaluation
+    "canary",      # evaluated; routed a fraction of eligible runs (non-mutating only)
     "review",      # evaluation done, awaiting human approval
     "validated",   # passed mandated checks, not yet enabled
+    "approved",    # alias of validated: passed checks, awaiting activation
     "enabled",     # approved and active
+    "active",      # alias of enabled: the currently authoritative version
     "disabled",    # installed but inert (operator choice)
     "deprecated",  # superseded; retained for history, not selectable
+    "superseded",  # replaced by a newer active version; retained for history
+    "rolled_back", # automatically or manually reverted; retained for history
     "rejected",    # reviewed and refused
 ]
 
@@ -53,11 +59,13 @@ ExecutionMode = Literal["interactive", "workflow", "scheduled", "agent", "evalua
 
 # Statuses that may be executed. `validated` is executable only in
 # non-interactive modes (a validated-but-not-enabled skill is a candidate for
-# evaluation/scheduled use, never for a live user turn).
-EXECUTABLE_STATUSES: frozenset[str] = frozenset({"enabled", "validated", "testing"})
+# evaluation/scheduled use, never for a live user turn). `canary` is executable
+# ONLY when the canary router selects it for a run (see skills/patches.py).
+EXECUTABLE_STATUSES: frozenset[str] = frozenset({"enabled", "active", "validated", "testing", "canary"})
 # Statuses that are never executable in any mode.
 NON_EXECUTABLE_STATUSES: frozenset[str] = frozenset(
-    {"draft", "review", "disabled", "deprecated", "rejected"}
+    {"draft", "evaluating", "review", "approved", "disabled", "deprecated",
+     "superseded", "rolled_back", "rejected"}
 )
 
 # The permission vocabulary. Phase 3 grants only the safe subset (see
@@ -301,7 +309,7 @@ class SkillManifest(BaseModel):
 
     @property
     def is_active(self) -> bool:
-        return self.status == "enabled"
+        return self.status in ("enabled", "active")
 
     def discovery_metadata(self) -> dict[str, Any]:
         """The compact, cacheable metadata used for discovery — never the

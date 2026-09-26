@@ -81,6 +81,15 @@ class EclipseMemoryService:
     def __init__(self, store: Optional[EclipseMemoryStore] = None) -> None:
         self.store = store or EclipseMemoryStore()
         self.policy = PolicyStore(self.store)
+        # Named profiles (M4): a metadata registry + directory projection. It
+        # owns no memory content; it only scopes which profile a query belongs to.
+        from .profiles import ProfileRegistry  # noqa: PLC0415
+
+        self.profiles = ProfileRegistry()
+        try:
+            self.profiles.ensure_default()
+        except Exception:  # noqa: BLE001 - a projection failure must not block boot
+            pass
 
     # ── Write pipeline ──────────────────────────────────────────────────────
 

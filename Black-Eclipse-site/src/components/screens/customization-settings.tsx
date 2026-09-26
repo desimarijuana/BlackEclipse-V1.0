@@ -22,7 +22,7 @@ import {
   Accessibility, Languages, RotateCcw, Palette, Image as ImageIcon,
   Type, SlidersHorizontal, Sparkles, Check, Sun, AlertTriangle,
   Wand2, Activity, Layers, Square, Plus, Trash2, Pencil, Download, Upload,
-  Eye, EyeOff, Save, Maximize2, X,
+  Eye, EyeOff, Save, Maximize2, X, PanelLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,10 +33,10 @@ import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/
 import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 import {
   BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
-  SHADOW_OPTIONS, THEME_PRESETS, UI_FONT_OPTIONS,
+  SHADOW_OPTIONS, SIDEBAR_PRESETS, THEME_PRESETS, UI_FONT_OPTIONS,
   clearChartPalettePreview, deriveThemeColors, isValidHex, normalizeHex, normalizeTheme,
   syncChartPaletteFromTheme, themeFromBrandColor,
-  useThemeStore, type EclipseTheme, type ThemeColors, type ThemeGlass,
+  useThemeStore, type EclipseTheme, type ThemeColors, type ThemeGlass, type ThemeSidebar,
   chartPaletteFromTheme,
 } from "@/lib/theme";
 import { useChartPaletteStore } from "@/lib/chart-palette-store";
@@ -431,6 +431,8 @@ export function CustomizationSettingsPanel() {
   };
   const patchGlass = (p: Partial<ThemeGlass>) =>
     setDraft((d) => normalizeTheme({ ...d, glass: { ...d.glass, ...p } }));
+  const patchSidebar = (p: Partial<ThemeSidebar>) =>
+    setDraft((d) => normalizeTheme({ ...d, sidebar: { ...d.sidebar, ...p } }));
 
   const applyDraft = () => {
     applyPreset(draft);
@@ -537,6 +539,11 @@ export function CustomizationSettingsPanel() {
     draft.glass.blur === g.blur &&
     draft.glass.opacity === g.opacity &&
     draft.glass.tint === g.tint;
+
+  const sidebarMatches = (s: ThemeSidebar) =>
+    draft.sidebar.tint === s.tint &&
+    draft.sidebar.opacity === s.opacity &&
+    draft.sidebar.blur === s.blur;
 
   const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
     { id: "theme", label: "Theme", icon: Palette },
@@ -1230,6 +1237,67 @@ export function CustomizationSettingsPanel() {
                 Glass &amp; Surfaces
               </button>{" "}
               tab.
+            </p>
+          </Card>
+
+          {/* Sidebar surface */}
+          <Card icon={PanelLeft} title="Sidebar">
+            <p className="text-[10px] text-muted-foreground -mt-2">
+              The navigation rail has its own surface, independent of the page and
+              cards — so it can stay a soft grey instead of matching the black page.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {SIDEBAR_PRESETS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => patchSidebar(s.sidebar)}
+                  aria-pressed={sidebarMatches(s.sidebar)}
+                  title={s.hint}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-xl border p-3 text-left transition-all cursor-pointer",
+                    sidebarMatches(s.sidebar)
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border/20 glass-card-subtle hover:border-border/40",
+                  )}
+                >
+                  <span
+                    className="h-8 w-full rounded-lg border border-white/10"
+                    style={{ backgroundColor: `rgb(${rgbTriplet(s.sidebar.tint)} / ${s.sidebar.opacity})` }}
+                    aria-hidden
+                  />
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    {s.label}
+                    {sidebarMatches(s.sidebar) && <Check className="w-3 h-3 text-primary" />}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <ColorField
+              label="Sidebar tint"
+              hint="Base color of the navigation rail"
+              value={draft.sidebar.tint}
+              onChange={(hex) => patchSidebar({ tint: hex })}
+            />
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Slider
+                label="Sidebar opacity"
+                value={draft.sidebar.opacity}
+                min={0.1} max={1} step={0.01}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => patchSidebar({ opacity: v })}
+              />
+              <Slider
+                label="Sidebar blur"
+                value={draft.sidebar.blur}
+                min={0} max={48} step={1}
+                format={(v) => `${v}px`}
+                disabled={!draft.glass.enabled}
+                onChange={(v) => patchSidebar({ blur: v })}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Blur follows the global <strong>Frosted glass</strong> switch above.
             </p>
           </Card>
 

@@ -4,10 +4,12 @@
 // second durable store. SQLite remains the source of truth; these files are
 // generated from it and imported back through the normal (gated) write pipeline.
 //
-//   USER.md     preferences & communication style
-//   MEMORY.md   project / environment / workflow / agent notes
-//   PROFILE.md  the generated compact prompt profile
-//   README.md   synchronization + safety instructions
+//   USER_PROFILE.md    preferences & communication style
+//   MEMORY.md          durable agent/environment facts
+//   PROJECT_MEMORY.md  project conventions
+//   SKILLS.md          human-readable skill index
+//   PROFILE.md         the generated compact prompt profile
+//   README.md          synchronization + safety instructions
 //
 // Synchronization is explicit export/import — never filesystem watching.
 
@@ -15,11 +17,22 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { MemoryExportDocument, MemoryProfileResponse, MemoryRecord } from "./eclipse-memory-types";
 
-const FILES = ["USER.md", "MEMORY.md", "PROFILE.md", "README.md"] as const;
+const FILES = ["USER_PROFILE.md", "MEMORY.md", "PROJECT_MEMORY.md", "SKILLS.md", "PROFILE.md", "README.md"] as const;
 export type MemoryFileName = (typeof FILES)[number];
 
+// Legacy names from the earlier projection; still read so an existing install
+// migrates cleanly on the next regenerate.
+const LEGACY_FILES: Record<string, MemoryFileName> = {
+  "USER.md": "USER_PROFILE.md",
+  "MEMORY.md": "MEMORY.md",
+  "PROFILE.md": "PROFILE.md",
+  "README.md": "README.md",
+};
+
 const PREFERENCE_TYPES = new Set(["preference", "constraint"]);
-const ID_MARKER = /<!--\s*eclipse:id=([^;\s]+);type=([^;\s]+);scope=([^\s]+)\s*-->/i;
+// Stable entry marker. `version` (the memory's version/updated stamp) is included
+// so a stale targeted edit can be rejected before it is applied.
+const ID_MARKER = /<!--\s*eclipse:id=([^;\s]+);type=([^;\s]+);scope=([^;\s]+)(?:;version=([^;\s]+))?\s*-->/i;
 
 export function memoryFilesRoot(): string {
   const override = process.env.BLACK_ECLIPSE_MEMORY_ROOT;
@@ -50,7 +63,8 @@ function renderSection(title: string, entries: MemoryRecord[]): string[] {
   }
   for (const memory of entries) {
     lines.push(`- ${bullet(memory.content)}`);
-    lines.push(`  <!-- eclipse:id=${memory.id};type=${memory.memoryType};scope=${memory.scope}${memory.scopeId ? `:${memory.scopeId}` : ""} -->`);
+    const version = memory.updatedAt ?? memory.createdAt ?? "";
+    lines.push(`  <!-- eclipse:id=${memory.id};type=${memory.memoryType};scope=${memory.scope}${memory.scopeId ? `:${memory.scopeId}` : ""}${version ? `;version=${version}` : ""} -->`);
   }
   lines.push("");
   return lines;
@@ -68,6 +82,40 @@ export function renderUserMd(memories: MemoryRecord[]): string {
     "",
     ...renderSection("Preferences", user),
   ].join("\n");
+}
+
+export function renderProjectMemoryMd(memories: MemoryRecord[]): string {
+  const project = memories.filter(
+    (m) => m.status === "active" && !PREFERENCE_TYPES.has(m.memoryType) && m.scope !== "user"
+  );
+  return [
+    "# Project Memory",
+    "",
+    "Project conventions and workflow/environment notes. Generated from",
+    "Eclipse-Memory.",
+    "",
+    ...renderSection("Conventions", project),
+  ].join("\n");
+}
+
+export function renderSkillsMd(skills: Array<{ id: string; name: string; status: string; version?: string }>): string {
+  const lines = [
+    "# Skills (human-readable index)",
+    "",
+    "A read-only index of installed skills. Skills are NOT editable from these",
+    "files — use the Skills Control Room. Machine-readable definitions live in",
+    "`python/harness/skills/library/` and `eclipse-memory.db`.",
+    "",
+  ];
+  if (skills.length === 0) {
+    lines.push("_None._", "");
+  } else {
+    for (const skill of skills) {
+      lines.push(`- ${skill.name} (\`${skill.id}\`${skill.version ? ` v${skill.version}` : ""}) — ${skill.status}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 export function renderMemoryMd(memories: MemoryRecord[]): string {
@@ -112,8 +160,10 @@ export function renderReadme(): string {
     "(`eclipse-memory.db`). They are for reading, versioning and review — SQLite",
     "remains the source of truth.",
     "",
-    "- `USER.md` — preferences and communication style.",
-    "- `MEMORY.md` — project, environment, workflow and agent notes.",
+    "- `USER_PROFILE.md` — preferences and communication style.",
+    "- `MEMORY.md` — durable agent/environment facts.",
+    "- `PROJECT_MEMORY.md` — project conventions.",
+    "- `SKILLS.md` — a read-only human-readable skill index.",
     "- `PROFILE.md` — the generated compact prompt profile (regenerated).",
     "- `README.md` — this file.",
     "",
@@ -144,30 +194,54 @@ export interface MemoryFilesSnapshot {
   backupDir: string | null;
 }
 
-/** Pure render of all four files (no filesystem write). */
+/** Pure render of all files (no filesystem write). */
 export function renderMemoryFiles(
   memories: MemoryRecord[],
-  profile: MemoryProfileResponse
+  profile: MemoryProfileResponse,
+  skills: Array<{ id: string; name: string; status: string; version?: string }> = []
 ): Record<string, string> {
   return {
-    "USER.md": renderUserMd(memories),
+    "USER_PROFILE.md": renderUserMd(memories),
     "MEMORY.md": renderMemoryMd(memories),
+    "PROJECT_MEMORY.md": renderProjectMemoryMd(memories),
+    "SKILLS.md": renderSkillsMd(skills),
     "PROFILE.md": renderProfileMd(profile),
     "README.md": renderReadme(),
   };
 }
 
+/**
+ * Atomic write: write to a sibling temp file, fsync, then rename over the
+ * target. A crash mid-write leaves the original intact. Never a partial file.
+ */
+export async function atomicWriteFile(target: string, content: string): Promise<void> {
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.${Date.now()}.tmp`);
+  const handle = await fs.open(tmp, "w");
+  try {
+    await handle.writeFile(content, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await fs.rename(tmp, target);
+}
+
 export async function regenerateMemoryFiles(
   memories: MemoryRecord[],
-  profile: MemoryProfileResponse
+  profile: MemoryProfileResponse,
+  skills: Array<{ id: string; name: string; status: string; version?: string }> = []
 ): Promise<MemoryFilesSnapshot> {
   const root = memoryFilesRoot();
   await fs.mkdir(root, { recursive: true });
-  const files = renderMemoryFiles(memories, profile);
+  // Backup the CURRENT state before overwriting, so a regenerate is reversible.
+  const backupDir = await backupMemoryFiles();
+  const files = renderMemoryFiles(memories, profile, skills);
   for (const [name, content] of Object.entries(files)) {
-    await fs.writeFile(resolveFile(name as MemoryFileName), content, "utf8");
+    await atomicWriteFile(resolveFile(name as MemoryFileName), content);
   }
-  return { root, files, backupDir: null };
+  return { root, files, backupDir };
 }
 
 /** Copy the current files to a timestamped backup dir before an import. */
@@ -215,6 +289,7 @@ export interface ParsedFileEntry {
   id: string | null;
   memoryType: string;
   scope: string;
+  version: string | null;
   content: string;
 }
 
@@ -243,17 +318,248 @@ export function parseMarkdownEntryList(file: string, text: string): { entries: P
       id: marker[1],
       memoryType: marker[2],
       scope: marker[3].split(":")[0],
+      version: marker[4] ?? null,
       content,
     });
   }
   return { entries, ignored };
 }
 
-/** Read USER.md + MEMORY.md and produce an importable export document (dry-run friendly). */
+// ── Targeted edits, history and rollback (M6) ───────────────────────────────
+
+export type FileEditOperation =
+  | "add"
+  | "replace"
+  | "archive"
+  | "restore"
+  | "merge"
+  | "split"
+  | "reorder"
+  | "consolidate";
+
+export interface FileEditRequest {
+  operation: FileEditOperation;
+  file: MemoryFileName;
+  memoryId?: string;
+  expectedVersion?: string;
+  content?: string;
+}
+
+export interface FileEditResult {
+  ok: boolean;
+  error?: string;
+  file?: MemoryFileName;
+  /** The parsed entries the caller should route through the gated import pipeline. */
+  entries?: ParsedFileEntry[];
+}
+
+export interface HistoryRevision {
+  revision: string;
+  at: string;
+  actor: string;
+  sourceRun: string | null;
+  reviewId: string | null;
+  reason: string;
+  affectedIds: string[];
+  parentRevision: string | null;
+  before: string | null;
+  after: string;
+}
+
+function historyRoot(): string {
+  const override = process.env.BLACK_ECLIPSE_MEMORY_HISTORY_ROOT;
+  if (override) return path.resolve(override);
+  return path.join(memoryFilesRoot(), ".history");
+}
+
+/** Record one revision (before/after + actor + reason) with a parent link. */
+export async function recordRevision(input: {
+  file: MemoryFileName;
+  before: string | null;
+  after: string;
+  actor: string;
+  reason: string;
+  affectedIds: string[];
+  sourceRun?: string | null;
+  reviewId?: string | null;
+}): Promise<HistoryRevision> {
+  const root = historyRoot();
+  await fs.mkdir(root, { recursive: true });
+  const previous = await listRevisions(input.file);
+  const parentRevision = previous.length ? previous[previous.length - 1].revision : null;
+  const at = new Date().toISOString();
+  const revision = `rev_${at.replace(/[:.]/g, "-")}_${Math.random().toString(36).slice(2, 8)}`;
+  const record: HistoryRevision = {
+    revision,
+    at,
+    actor: input.actor,
+    sourceRun: input.sourceRun ?? null,
+    reviewId: input.reviewId ?? null,
+    reason: input.reason,
+    affectedIds: input.affectedIds,
+    parentRevision,
+    before: input.before,
+    after: input.after,
+  };
+  await atomicWriteFile(path.join(root, `${input.file}.${revision}.json`), JSON.stringify(record, null, 2));
+  return record;
+}
+
+export async function listRevisions(file: MemoryFileName): Promise<HistoryRevision[]> {
+  const root = historyRoot();
+  const entries = await fs.readdir(root).catch(() => [] as string[]);
+  const revisions: HistoryRevision[] = [];
+  for (const name of entries) {
+    if (!name.startsWith(`${file}.`) || !name.endsWith(".json")) continue;
+    const raw = await fs.readFile(path.join(root, name), "utf8").catch(() => null);
+    if (raw === null) continue;
+    try {
+      revisions.push(JSON.parse(raw) as HistoryRevision);
+    } catch {
+      // A malformed revision is skipped, never fabricated.
+    }
+  }
+  revisions.sort((a, b) => (a.at < b.at ? -1 : 1));
+  return revisions;
+}
+
+/**
+ * Apply a targeted edit to the Markdown projection.
+ *
+ * This parses the file, validates the requested operation (including the
+ * `expectedVersion` precondition for a stale-edit rejection), records a backup
+ * revision, writes atomically, and returns the resulting entries so the existing
+ * GATED import pipeline applies them to structured memory. The file is never the
+ * source of truth.
+ */
+export async function applyFileEdit(request: FileEditRequest, actor = "operator"): Promise<FileEditResult> {
+  if (!FILES.includes(request.file)) return { ok: false, error: "unknown file" };
+  const target = resolveFile(request.file);
+  const before = await fs.readFile(target, "utf8").catch(() => null);
+  const parsed = before === null ? { entries: [], ignored: [] } : parseMarkdownEntryList(request.file, before);
+  const entries = [...parsed.entries];
+  const index = request.memoryId ? entries.findIndex((e) => e.id === request.memoryId) : -1;
+
+  const needsTarget = request.operation !== "add" && request.operation !== "consolidate";
+  if (needsTarget && index < 0) {
+    return { ok: false, error: `memory id ${request.memoryId ?? "(none)"} not found in ${request.file}` };
+  }
+  if (needsTarget && request.expectedVersion && entries[index].version !== request.expectedVersion) {
+    return {
+      ok: false,
+      error: `stale edit: expected version ${request.expectedVersion}, found ${entries[index].version ?? "none"}`,
+    };
+  }
+
+  const content = (request.content ?? "").trim();
+  switch (request.operation) {
+    case "add":
+      if (!content) return { ok: false, error: "add requires content" };
+      entries.push({ id: null, memoryType: "semantic", scope: "general", version: null, content });
+      break;
+    case "replace":
+      if (!content) return { ok: false, error: "replace requires content" };
+      entries[index] = { ...entries[index], content };
+      break;
+    case "archive":
+    case "restore":
+      // The projection is regenerated from structured memory; archive/restore are
+      // applied through the memory API, not the file. Report that honestly.
+      return { ok: false, error: `${request.operation} is a structured-memory action; use the Memory API` };
+    case "merge": {
+      const other = request.content ? entries.findIndex((e) => e.id === request.content) : -1;
+      if (other < 0) return { ok: false, error: "merge requires a second memory id in `content`" };
+      entries[index] = { ...entries[index], content: `${entries[index].content} ${entries[other].content}`.trim() };
+      entries.splice(other, 1);
+      break;
+    }
+    case "split": {
+      if (!content) return { ok: false, error: "split requires the second half in `content`" };
+      entries[index] = { ...entries[index], content: entries[index].content.replace(content, "").trim() };
+      entries.push({ ...entries[index], id: null, content });
+      break;
+    }
+    case "reorder": {
+      const to = Number(request.content);
+      if (!Number.isInteger(to) || to < 0 || to >= entries.length) return { ok: false, error: "reorder requires a valid index in `content`" };
+      const [moved] = entries.splice(index, 1);
+      entries.splice(to, 0, moved);
+      break;
+    }
+    case "consolidate": {
+      const seen = new Map<string, ParsedFileEntry>();
+      const consolidated: ParsedFileEntry[] = [];
+      for (const entry of entries) {
+        const key = entry.content.toLowerCase().replace(/\s+/g, " ").trim();
+        if (seen.has(key)) continue;
+        seen.set(key, entry);
+        consolidated.push(entry);
+      }
+      entries.length = 0;
+      entries.push(...consolidated);
+      break;
+    }
+    default:
+      return { ok: false, error: `unsupported operation ${request.operation}` };
+  }
+
+  const after = renderEditedList(request.file, before, entries);
+  await fs.mkdir(memoryFilesRoot(), { recursive: true });
+  await atomicWriteFile(target, after);
+  await recordRevision({
+    file: request.file, before, after, actor, reason: `file edit: ${request.operation}`,
+    affectedIds: request.memoryId ? [request.memoryId] : [],
+  });
+  return { ok: true, file: request.file, entries };
+}
+
+function renderEditedList(file: MemoryFileName, before: string | null, entries: ParsedFileEntry[]): string {
+  const header = before ? before.split(/\r?\n(?=- |## )/)[0].trimEnd() : `# ${file}`;
+  const lines = [header, ""];
+  for (const entry of entries) {
+    lines.push(`- ${bullet(entry.content)}`);
+    const version = entry.version ? `;version=${entry.version}` : "";
+    lines.push(`  <!-- eclipse:id=${entry.id ?? ""};type=${entry.memoryType};scope=${entry.scope}${version} -->`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+/** Roll one file back to a named revision's `before` state (atomic). */
+export async function rollbackFile(file: MemoryFileName, revision: string): Promise<{ restored: boolean; from: string | null }> {
+  const revisions = await listRevisions(file);
+  const target = revisions.find((r) => r.revision === revision);
+  if (!target || target.before === null) return { restored: false, from: null };
+  const current = await fs.readFile(resolveFile(file), "utf8").catch(() => null);
+  await atomicWriteFile(resolveFile(file), target.before);
+  await recordRevision({
+    file, before: current, after: target.before, actor: "operator",
+    reason: `rollback to ${revision}`, affectedIds: target.affectedIds,
+  });
+  return { restored: true, from: revision };
+}
+
+/** A unified-style diff of two text states (bounded, line-based). */
+export function diffText(before: string, after: string): Array<{ type: "add" | "remove" | "same"; line: string }> {
+  const a = before.split(/\r?\n/);
+  const b = after.split(/\r?\n/);
+  const out: Array<{ type: "add" | "remove" | "same"; line: string }> = [];
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i += 1) {
+    if (a[i] === b[i]) out.push({ type: "same", line: a[i] ?? "" });
+    else {
+      if (a[i] !== undefined) out.push({ type: "remove", line: a[i] });
+      if (b[i] !== undefined) out.push({ type: "add", line: b[i] });
+    }
+  }
+  return out;
+}
+
+/** Read the memory files and produce an importable export document (dry-run friendly). */
 export async function previewMemoryImport(): Promise<ParsedMemoryFiles> {
   const entries: ParsedFileEntry[] = [];
   const ignored: ParsedMemoryFiles["ignored"] = [];
-  for (const name of ["USER.md", "MEMORY.md"] as MemoryFileName[]) {
+  for (const name of ["USER_PROFILE.md", "MEMORY.md", "PROJECT_MEMORY.md"] as MemoryFileName[]) {
     const text = await fs.readFile(resolveFile(name), "utf8").catch(() => null);
     if (text === null) {
       ignored.push({ file: name, reason: "file not found" });
