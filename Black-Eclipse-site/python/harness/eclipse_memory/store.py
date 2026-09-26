@@ -1126,6 +1126,57 @@ class EclipseMemoryStore:
         record["ok"] = bool(record.get("ok"))
         return record
 
+    # ── Profile snapshots (reproducible compact-profile metadata) ────────────
+
+    def save_profile_snapshot(
+        self,
+        *,
+        version: int,
+        selected_ids: list[str],
+        char_count: int = 0,
+        token_estimate: int = 0,
+        scope_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        excluded_count: int = 0,
+        created_at: Optional[str] = None,
+    ) -> str:
+        """Persist the metadata of one materialized profile. Content is NOT
+        copied — the selected ids remain the source of truth. Best-effort."""
+        snapshot_id = new_id("prof")
+        self._db.execute(
+            """INSERT INTO MemoryProfileSnapshot
+               (id, version, selectedIds, charCount, tokenEstimate, scopeId,
+                runId, excludedCount, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                snapshot_id, int(version), json.dumps(list(selected_ids)),
+                int(char_count), int(token_estimate), scope_id, run_id,
+                int(excluded_count), created_at or now_iso(),
+            ),
+        )
+        self._db.commit()
+        return snapshot_id
+
+    def latest_profile_snapshot(self) -> Optional[dict[str, Any]]:
+        try:
+            row = self._db.execute(
+                "SELECT * FROM MemoryProfileSnapshot ORDER BY createdAt DESC LIMIT 1"
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - a pre-migration db reads as unknown
+            return None
+        return _profile_row(row) if row else None
+
+    def list_profile_snapshots(self, limit: int = 20) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        try:
+            rows = self._db.execute(
+                "SELECT * FROM MemoryProfileSnapshot ORDER BY createdAt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        except Exception:  # noqa: BLE001
+            return []
+        return [_profile_row(r) for r in rows]
+
     def close(self) -> None:
         self.db.close()
 
@@ -1148,6 +1199,16 @@ def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
             record["structuredData"] = json.loads(record["structuredData"])
         except (TypeError, ValueError):
             pass
+    return record
+
+
+def _profile_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("selectedIds"):
+        try:
+            record["selectedIds"] = json.loads(record["selectedIds"])
+        except (TypeError, ValueError):
+            record["selectedIds"] = []
     return record
 
 

@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-25
+last-verified: 2026-09-26
 ---
 
 # Harness Architecture
@@ -62,7 +62,10 @@ Two boundaries, both deliberate:
 | `mcp/` | the **MCP integration** (Phase 5A–5C): typed stdio server/effect contract + threat boundary (`config.py`), namespacing/schema validation (`naming.py`), local stdio client over the MCP SDK (`client.py`), and the `ToolRegistry` adapter + lifecycle (`manager.py`). Only selected read-only tools activate. |
 | `skills/` | the **Skill System** (Phase 3): manifests, registry, permissions, execution, learning, evaluation, lifecycle + the shipped skill library |
 | `eclipse_memory/` | the **Eclipse-Memory** subsystem (Phase 3-M + memory-maturity): dedicated `eclipse-memory.db` for memory, retrieval, corrections, mistakes + the skill/learning tables. `config.py` resolves a **repo-rooted** path (cwd-independent, `ECLIPSE_MEMORY_DB_PATH` override) and reconciles legacy cwd-based stores non-destructively; `intent.py` deterministically classifies explicit save/forget/correct/skill intent; `decision.py` is the **one shared write gate** (`save`/`suggest`/`history_only`/`ignore`) every memory/suggestion/correction/learning write passes through; `policy.py` holds the single learning-mode keys (`memory_mode`, `skill_learning_mode`) with the legacy booleans *derived*, not stored, plus the local privacy keys (`memory_enabled`, `retention_days`, per-category `capture_policy`/`recall_policy`, `memory_in_diagnostics`, `semantic_indexing_enabled`); `conflicts.py` is the authority-aware deterministic contradiction/replacement detector (subject identity/aliases + normalized tokens + reviewed concept axes + polarity/negation + explicit replacement + temporary-instruction exclusion); `normalize.py` holds the synonym/stemming/typo normalization, the `CONCEPT_AXES` polarity model and temporary-instruction detection; `semantic.py` is the optional local, bounded, fail-safe semantic *candidate* layer (default `char-ngram`, no network/model; can only propose a review, never supersede); `transfer.py` is export/import/backup/health/reset; `skill_quality.py` derives skill usefulness metrics from real executions. Retention sweeps run automatically at runtime startup (`main._lifespan` → `AgenticService.run_startup_maintenance` → `EclipseMemoryService.run_retention_maintenance`) and are observable via `MemoryMaintenance` (migration 11); semantic conflict detection is off by default and reports its active mode via `EclipseMemoryService.semantic_status()` |
-| `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke` tools — a `memory` write is a *proposal* re-authorized against the user turn by `eclipse_memory/decision.py` |
+| `memory_tools.py` | the agent-facing `memory`, `skill_list`, `skill_view`, `skill_invoke`, `session_search`, `session_open` tools — a `memory` write is a *proposal* re-authorized against the user turn by `eclipse_memory/decision.py`; the session tools are read-only historical recall |
+| `profile.py` (in `eclipse_memory/`) | the compact prompt profile — a deterministic, bounded projection over active memory injected once at run start (`MemoryProfileSnapshot`, migration 12) |
+| `session_index.py` | builds the bounded, redacted `SessionMessage` search index of a completed run (never a second copy of the trace) |
+| `learning_review.py` | the bounded in-process post-run learning-review queue (deterministic + optional inert model proposal; never enables a skill) |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
@@ -484,11 +487,12 @@ The Python runtime owns **`agent-memory.db`** (SQLite via stdlib `sqlite3`),
 distinct from JDdS (`jdds.db`) and from the Eclipse-Memory control database
 (`eclipse-memory.db`). `agent-memory.db` tables: `HarnessRun`, `HarnessEvent`,
 `HarnessToolExecution`, `RetrievalRecord`, `ResearchReceipt`,
-`LearningRecurrence`/`LearningRecurrenceRun`, plus the legacy `AgentMemory`/
-`AgentSkill` tables (superseded by Eclipse-Memory; retained for backward
-compatibility, no longer the memory/skill source of truth). Durable memory + the
-skill lifecycle live in `eclipse-memory.db` (see the `skills/` and
-`eclipse_memory/` rows above).
+`LearningRecurrence`/`LearningRecurrenceRun`, `SessionMessage`(+`SessionMessageFts`),
+`LearningReview`, plus the legacy `AgentMemory`/`AgentSkill` tables (superseded by
+Eclipse-Memory; retained for backward compatibility, no longer the memory/skill
+source of truth). Durable memory + the skill lifecycle live in
+`eclipse-memory.db` (see the `skills/` and `eclipse_memory/` rows above).
+`MemoryProfileSnapshot` (migration 12) lives in `eclipse-memory.db`.
 DDL is idempotent, and `_migrate()` adds post-release columns
 (e.g. the token columns) to an existing database on open — no manual migration
 step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;

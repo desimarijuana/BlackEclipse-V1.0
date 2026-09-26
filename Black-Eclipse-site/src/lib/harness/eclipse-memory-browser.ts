@@ -5,16 +5,22 @@
 import type {
   CorrectionRecord,
   EclipseMemoryHealth,
+  LearningReviewHealth,
+  LearningReviewRecord,
   MemoryDatabaseHealth,
   MemoryDetail,
   MemoryExportDocument,
   MemoryLifecycleResponse,
   MemoryOverview,
+  MemoryProfileResponse,
   MemoryRecord,
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
   MemorySemanticStatus,
   MistakeRecord,
+  SessionOpenResult,
+  SessionSearchHealth,
+  SessionSearchResult,
 } from "./eclipse-memory-types";
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -108,6 +114,128 @@ export async function memoryRetention(): Promise<MemoryRetentionStatus> {
 
 export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
   return api<MemorySemanticStatus>("/api/eclipse-memory/semantic-status");
+}
+
+export async function memoryProfile(scopeId?: string): Promise<MemoryProfileResponse> {
+  const params = new URLSearchParams();
+  if (scopeId) params.set("scopeId", scopeId);
+  const qs = params.toString();
+  return api<MemoryProfileResponse>(`/api/eclipse-memory/profile${qs ? `?${qs}` : ""}`);
+}
+
+export async function rebuildProfile(scopeId?: string): Promise<MemoryProfileResponse & { rebuilt: boolean }> {
+  return api(`/api/eclipse-memory/profile/rebuild`, {
+    method: "POST",
+    body: JSON.stringify({ scopeId }),
+  });
+}
+
+// ── Session history search (M2) ─────────────────────────────────────────────
+
+export async function sessionSearchHealth(): Promise<SessionSearchHealth> {
+  return api<SessionSearchHealth>("/api/session-search/health");
+}
+
+export async function sessionSearch(params: {
+  q: string;
+  scopeId?: string;
+  scope?: string;
+  runId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}): Promise<SessionSearchResult> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  if (params.scopeId) qs.set("scopeId", params.scopeId);
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.runId) qs.set("runId", params.runId);
+  if (params.dateFrom) qs.set("dateFrom", params.dateFrom);
+  if (params.dateTo) qs.set("dateTo", params.dateTo);
+  if (params.limit) qs.set("limit", String(params.limit));
+  return api<SessionSearchResult>(`/api/session-search?${qs.toString()}`);
+}
+
+export async function sessionOpen(runId: string): Promise<SessionOpenResult> {
+  return api<SessionOpenResult>(`/api/session-search/${encodeURIComponent(runId)}`);
+}
+
+export async function sessionDelete(runId: string) {
+  return api<{ success: boolean; removed: number }>(
+    `/api/session-search/delete/${encodeURIComponent(runId)}`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+// ── Learning review (M3) ────────────────────────────────────────────────────
+
+export async function learningReviewHealth(): Promise<LearningReviewHealth> {
+  return api<LearningReviewHealth>("/api/learning-review/health");
+}
+
+export async function listLearningReviews(status?: string, limit = 50): Promise<LearningReviewRecord[]> {
+  const qs = new URLSearchParams();
+  if (status) qs.set("status", status);
+  qs.set("limit", String(limit));
+  const body = await api<{ reviews: LearningReviewRecord[] }>(`/api/learning-review?${qs.toString()}`);
+  return body.reviews ?? [];
+}
+
+export async function runLearningReview(runId: string, model = false) {
+  return api<{ success: boolean; review: LearningReviewRecord }>("/api/learning-review/run", {
+    method: "POST",
+    body: JSON.stringify({ runId, model }),
+  });
+}
+
+export async function decideLearningReview(reviewId: string, outcomeIndex: number, action: "accept" | "reject") {
+  return api<{ success: boolean; action: string }>("/api/learning-review/decide", {
+    method: "POST",
+    body: JSON.stringify({ reviewId, outcomeIndex, action }),
+  });
+}
+
+// ── Markdown file projection (M4) ───────────────────────────────────────────
+
+export interface MemoryFiles {
+  root: string;
+  files: Record<string, string>;
+}
+
+export interface MarkdownImportPreview {
+  success: boolean;
+  preview: boolean;
+  entries: Array<{ id: string | null; memoryType: string; scope: string; content: string }>;
+  ignored: Array<{ file: string; reason: string }>;
+}
+
+export async function getMemoryFiles(): Promise<MemoryFiles> {
+  return api<MemoryFiles>("/api/eclipse-memory/files");
+}
+
+export async function regenerateMemoryFiles() {
+  return api<{ success: boolean; root: string; backupDir: string | null; files: string[] }>(
+    "/api/eclipse-memory/files/regenerate",
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+export async function previewMarkdownImport(): Promise<MarkdownImportPreview> {
+  return api<MarkdownImportPreview>("/api/eclipse-memory/import/markdown");
+}
+
+export async function importMarkdown(dryRun = false) {
+  return api<{ success: boolean; imported: number; skipped: number; rejected: Array<{ index: number; reason: string }>; backupDir: string | null; ignored: Array<{ file: string; reason: string }> }>(
+    "/api/eclipse-memory/import/markdown",
+    { method: "POST", body: JSON.stringify({ dryRun }) }
+  );
+}
+
+export async function restoreMemoryFiles(backupId?: string) {
+  return api<{ success: boolean; restored: boolean; from: string | null }>(
+    "/api/eclipse-memory/files/restore",
+    { method: "POST", body: JSON.stringify({ backupId }) }
+  );
 }
 
 export async function rebuildSemanticIndex(): Promise<{

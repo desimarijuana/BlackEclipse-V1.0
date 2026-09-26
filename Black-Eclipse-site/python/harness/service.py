@@ -107,6 +107,12 @@ class AgenticService:
         # Effectful-tool approvals (5G): persisted in the runtime's own DB and
         # consulted by every run's effect authorizer.
         self.approvals = ApprovalStore(self.store)
+        # Automatic learning review (M3): a lightweight in-process queue that
+        # reviews completed runs after the fact. It creates ONLY inert records /
+        # suggestions and never enables a skill. Started/stopped with the runtime.
+        from .learning_review import LearningReviewQueue
+
+        self.learning_review = LearningReviewQueue(self.memory, self.store)
 
     def _secret_resolver(self, bridge: DataBridge):
         """Bind an async vault-secret resolver to a run's data bridge.
@@ -165,6 +171,19 @@ class AgenticService:
             log.warning("startup memory maintenance failed", exc_info=True)
             return {"ok": False, "error": "maintenance failed"}
 
+    async def start_learning_review(self) -> None:
+        """Start the bounded learning-review queue workers (idempotent)."""
+        try:
+            await self.learning_review.start()
+        except Exception:  # noqa: BLE001 - review is optional and must not block boot
+            log.warning("learning review queue failed to start", exc_info=True)
+
+    async def stop_learning_review(self) -> None:
+        try:
+            await self.learning_review.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("learning review shutdown failed", exc_info=True)
+
     async def reload_mcp(self) -> dict[str, Any]:
         """Apply a persisted MCP config change without a runtime restart.
 
@@ -220,12 +239,23 @@ class AgenticService:
         # The retrieval layer is built lazily by the retrieval tools from the
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
-        return await execute_run(
+        result = await execute_run(
             request, self.registry, bridge, self.store, self.bus,
             retrieval_cache=self.retrieval_cache,
             memory_service=self.memory, skill_registry=self.skill_registry,
             approvals=self.approvals,
         )
+        await self._schedule_review(request.runId, result.status)
+        return result
+
+    async def _schedule_review(self, run_id: str, status: str) -> None:
+        """Queue a bounded post-run learning review (never blocks the response)."""
+        if status not in ("completed", "failed"):
+            return
+        try:
+            await self.learning_review.enqueue(run_id)
+        except Exception:  # noqa: BLE001 - scheduling must never affect the run
+            log.warning("learning review scheduling failed", exc_info=True)
 
     async def run_skill(self, request: Any) -> Any:
         """Execute a skill through the existing runtime.
@@ -251,12 +281,13 @@ class AgenticService:
 
         async def _task() -> None:
             try:
-                await execute_run(
+                result = await execute_run(
                     request, self.registry, bridge, self.store, self.bus,
                     retrieval_cache=self.retrieval_cache,
                     memory_service=self.memory, skill_registry=self.skill_registry,
                     approvals=self.approvals,
                 )
+                await self._schedule_review(request.runId, result.status)
             finally:
                 # Signal live SSE consumers that the run is over, whatever the
                 # terminal status, so their streams close promptly.

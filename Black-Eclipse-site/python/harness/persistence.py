@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -163,6 +164,48 @@ CREATE TABLE IF NOT EXISTS LearningRecurrenceRun (
   at        TEXT NOT NULL,
   PRIMARY KEY (runId, signature)
 );
+
+-- Full-session historical recall (Phase 3-M Memory Expansion, M2). One
+-- normalized, searchable row per meaningful message: the user turn, the
+-- assistant's final answer, bounded tool/retrieval summaries, corrections,
+-- memory actions and skill-learning outcomes. The FULL run trace stays in
+-- HarnessRun/HarnessEvent — this is a bounded *search index*, not a second copy
+-- of everything. Secrets/credentials/raw provider payloads are never indexed.
+CREATE TABLE IF NOT EXISTS SessionMessage (
+  id        TEXT PRIMARY KEY,
+  runId     TEXT NOT NULL,
+  userId    TEXT,
+  role      TEXT NOT NULL,
+  kind      TEXT NOT NULL DEFAULT 'message',
+  content   TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  ordinal   INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (runId) REFERENCES HarnessRun(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_session_msg_run ON SessionMessage(runId, ordinal);
+CREATE INDEX IF NOT EXISTS idx_session_msg_created ON SessionMessage(createdAt);
+CREATE INDEX IF NOT EXISTS idx_session_msg_user ON SessionMessage(userId);
+
+-- Learning review audit (Phase 3-M Memory Expansion, M3). One row per bounded
+-- post-run review attempt: status, mode, model, input digest and a BOUNDED
+-- result JSON. The review itself never writes durable memory or activates a
+-- skill — it proposes outcomes that pass through the shared decision gate.
+CREATE TABLE IF NOT EXISTS LearningReview (
+  id          TEXT PRIMARY KEY,
+  runId       TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  mode        TEXT NOT NULL DEFAULT 'deterministic',
+  startedAt   TEXT,
+  finishedAt  TEXT,
+  model       TEXT,
+  inputDigest TEXT,
+  result      TEXT,
+  error       TEXT,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  createdAt   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_review_run ON LearningReview(runId);
+CREATE INDEX IF NOT EXISTS idx_learning_review_status ON LearningReview(status, createdAt);
 """
 
 DB_FILENAME = "agent-memory.db"
@@ -525,6 +568,297 @@ class AgentMemoryStore:
         except Exception:  # noqa: BLE001 - pruning must never block a write
             pass
 
+    # ── Session history search (M2) ─────────────────────────────────────────
+    def fts5_available(self) -> bool:
+        """Whether the SQLite runtime supports FTS5 virtual tables.
+
+        Historical search must never claim success when it cannot run: callers
+        check this and report "historical search unavailable" honestly.
+        """
+        cached = getattr(self, "_fts5_available", None)
+        if cached is not None:
+            return cached
+        try:
+            self._db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS _fts_probe USING fts5(x)")
+            self._db.execute("DROP TABLE IF EXISTS _fts_probe")
+            self._db.commit()
+            self._fts5_available = True
+        except Exception:  # noqa: BLE001 - absence is a supported outcome
+            self._fts5_available = False
+        return self._fts5_available
+
+    def index_session_message(
+        self,
+        *,
+        run_id: str,
+        role: str,
+        content: str,
+        user_id: Optional[str] = None,
+        kind: str = "message",
+        ordinal: int = 0,
+        created_at: Optional[str] = None,
+        message_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Insert one bounded, searchable session message (idempotent per run+ordinal).
+
+        Content is redacted + truncated by the caller/indexing helper; this store
+        persists it and keeps the FTS5 index in sync when available.
+        """
+        content = (content or "").strip()
+        if not content or not run_id:
+            return None
+        msg_id = message_id or new_id("msg")
+        now = created_at or now_iso()
+        # One row per (runId, ordinal): reindexing a run replaces rather than
+        # duplicates. DELETE then INSERT keeps the FTS index consistent.
+        self._db.execute(
+            "DELETE FROM SessionMessage WHERE runId=? AND ordinal=?",
+            (run_id, ordinal),
+        )
+        self._db.execute(
+            """INSERT INTO SessionMessage
+               (id, runId, userId, role, kind, content, createdAt, ordinal)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (msg_id, run_id, user_id, role, kind, content[:8000], now, ordinal),
+        )
+        if self._ensure_fts_index():
+            try:
+                self._db.execute("DELETE FROM SessionMessageFts WHERE messageId=?", (msg_id,))
+                self._db.execute(
+                    "INSERT INTO SessionMessageFts (messageId, runId, role, content) VALUES (?, ?, ?, ?)",
+                    (msg_id, run_id, role, content[:8000]),
+                )
+            except Exception:  # noqa: BLE001 - the FTS mirror is best-effort
+                pass
+        self._db.commit()
+        return msg_id
+
+    def delete_session_messages(self, run_id: str) -> int:
+        """Remove all indexed messages for a run (privacy/delete control). The
+        full run trace in HarnessRun/HarnessEvent is untouched by this."""
+        rows = self._db.execute(
+            "SELECT id FROM SessionMessage WHERE runId=?", (run_id,)
+        ).fetchall()
+        if not rows:
+            return 0
+        ids = [r["id"] for r in rows]
+        self._db.execute("DELETE FROM SessionMessage WHERE runId=?", (run_id,))
+        if self.fts5_available():
+            try:
+                self._db.executemany(
+                    "DELETE FROM SessionMessageFts WHERE messageId=?", [(i,) for i in ids]
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        self._db.commit()
+        return len(ids)
+
+    def session_message_count(self) -> int:
+        row = self._db.execute("SELECT COUNT(*) AS c FROM SessionMessage").fetchone()
+        return int(row["c"]) if row else 0
+
+    def _ensure_fts_index(self) -> bool:
+        """Create the FTS5 mirror if the runtime supports it. Returns availability."""
+        if not self.fts5_available():
+            return False
+        try:
+            self._db.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS SessionMessageFts USING fts5("
+                "messageId UNINDEXED, runId UNINDEXED, role UNINDEXED, content)"
+            )
+            self._db.commit()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def search_session_messages(
+        self,
+        query: str,
+        *,
+        user_id: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        run_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Full-text search over indexed session messages.
+
+        Uses FTS5 for ranking when available; otherwise falls back to a
+        deterministic LIKE scan. Reports `engine` honestly so a caller can tell
+        which path ran. Never returns unbounded snippets.
+        """
+        query = (query or "").strip()
+        limit = max(1, min(int(limit), 50))
+        if not query:
+            return {"available": True, "engine": "none", "results": [], "hasMore": False}
+        # Sanitize the FTS query: keep word tokens only, join with AND so a
+        # quote/operator cannot produce a syntax error or a wildcard scan.
+        tokens = re.findall(r"[A-Za-z0-9]+", query)[:12]
+        where = []
+        params: list[Any] = []
+        if user_id:
+            where.append("m.userId = ?"); params.append(user_id)
+        if run_id:
+            where.append("m.runId = ?"); params.append(run_id)
+        if date_from:
+            where.append("m.createdAt >= ?"); params.append(date_from)
+        if date_to:
+            where.append("m.createdAt <= ?"); params.append(date_to)
+        filter_clause = (" AND " + " AND ".join(where)) if where else ""
+
+        results: list[dict[str, Any]] = []
+        engine = "like"
+        has_more = False
+        if tokens and self._ensure_fts_index():
+            try:
+                fts_query = " AND ".join(tokens)
+                sql = (
+                    "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt,"
+                    " snippet(SessionMessageFts, 3, '', '', '…', 12) AS snip,"
+                    " bm25(SessionMessageFts) AS score "
+                    "FROM SessionMessageFts f JOIN SessionMessage m ON m.id = f.messageId "
+                    f"WHERE SessionMessageFts MATCH ?{filter_clause} "
+                    "ORDER BY score LIMIT ?"
+                )
+                rows = self._db.execute(sql, [fts_query, *params, limit + 1]).fetchall()
+                engine = "fts5"
+                results = [_session_result(r, score=-float(r["score"])) for r in rows[:limit]]
+                has_more = len(rows) > limit
+                return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
+            except Exception:  # noqa: BLE001 - fall through to the LIKE scan
+                results = []
+        # LIKE fallback (deterministic, bounded).
+        if tokens:
+            like = " AND ".join(["m.content LIKE ?"] * len(tokens))
+            rows = self._db.execute(
+                "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt"
+                f" FROM SessionMessage m WHERE {like}{filter_clause}"
+                " ORDER BY m.createdAt DESC LIMIT ?",
+                [*(f"%{t}%" for t in tokens), *params, limit + 1],
+            ).fetchall()
+            results = [_session_result(r, score=None) for r in rows[:limit]]
+            has_more = len(rows) > limit
+        return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
+
+    def open_session(
+        self,
+        run_id: str,
+        *,
+        message_id: Optional[str] = None,
+        before: int = 3,
+        after: int = 3,
+    ) -> dict[str, Any]:
+        """Return a bounded window of a run's indexed messages.
+
+        `message_id` anchors the window; otherwise the whole (bounded) run is
+        returned from the start.
+        """
+        rows = self._db.execute(
+            "SELECT id, runId, userId, role, kind, content, createdAt, ordinal"
+            " FROM SessionMessage WHERE runId=? ORDER BY ordinal ASC",
+            (run_id,),
+        ).fetchall()
+        if not rows:
+            return {"runId": run_id, "messages": [], "truncated": False}
+        before = max(0, min(int(before), 20))
+        after = max(0, min(int(after), 20))
+        anchor = 0
+        if message_id:
+            for index, row in enumerate(rows):
+                if row["id"] == message_id:
+                    anchor = index
+                    break
+        start = max(0, anchor - before)
+        end = min(len(rows), anchor + after + 1)
+        window = rows[start:end]
+        return {
+            "runId": run_id,
+            "messages": [_session_result(r, score=None, full=True) for r in window],
+            "truncated": start > 0 or end < len(rows),
+        }
+
+    # ── Learning review audit (M3) ──────────────────────────────────────────
+    def save_learning_review(self, review: dict[str, Any]) -> dict[str, Any]:
+        review_id = review.get("id") or new_id("lrev")
+        self._db.execute(
+            """INSERT OR REPLACE INTO LearningReview
+               (id, runId, status, mode, startedAt, finishedAt, model, inputDigest,
+                result, error, attempts, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                review_id, review["runId"], review.get("status", "queued"),
+                review.get("mode", "deterministic"), review.get("startedAt"),
+                review.get("finishedAt"), review.get("model"), review.get("inputDigest"),
+                json.dumps(review.get("result")) if review.get("result") is not None else None,
+                review.get("error"), int(review.get("attempts") or 0),
+                review.get("createdAt") or now_iso(),
+            ),
+        )
+        self._db.commit()
+        return self.get_learning_review(review_id) or {"id": review_id}
+
+    def update_learning_review(self, review_id: str, **patch: Any) -> Optional[dict[str, Any]]:
+        allowed = {
+            "status", "startedAt", "finishedAt", "model", "inputDigest",
+            "result", "error", "attempts",
+        }
+        sets, params = [], []
+        for key, value in patch.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key} = ?")
+            params.append(json.dumps(value) if key == "result" and value is not None else value)
+        if not sets:
+            return self.get_learning_review(review_id)
+        params.append(review_id)
+        self._db.execute(f"UPDATE LearningReview SET {', '.join(sets)} WHERE id=?", params)
+        self._db.commit()
+        return self.get_learning_review(review_id)
+
+    def get_learning_review(self, review_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM LearningReview WHERE id=?", (review_id,)).fetchone()
+        return _learning_review_row(row) if row else None
+
+    def latest_learning_review(self, run_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+        if run_id:
+            row = self._db.execute(
+                "SELECT * FROM LearningReview WHERE runId=? ORDER BY createdAt DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        else:
+            row = self._db.execute(
+                "SELECT * FROM LearningReview ORDER BY createdAt DESC LIMIT 1"
+            ).fetchone()
+        return _learning_review_row(row) if row else None
+
+    def list_learning_reviews(self, *, status: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        if status:
+            rows = self._db.execute(
+                "SELECT * FROM LearningReview WHERE status=? ORDER BY createdAt DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM LearningReview ORDER BY createdAt DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [_learning_review_row(r) for r in rows]
+
+    def learning_review_health(self) -> dict[str, Any]:
+        counts: dict[str, int] = {}
+        try:
+            rows = self._db.execute(
+                "SELECT status, COUNT(*) AS c FROM LearningReview GROUP BY status"
+            ).fetchall()
+            counts = {r["status"]: int(r["c"]) for r in rows}
+        except Exception:  # noqa: BLE001 - health must never raise
+            counts = {}
+        return {
+            "total": sum(counts.values()),
+            "byStatus": counts,
+            "latest": self.latest_learning_review(),
+        }
+
     # ── Durable retrieval records (D1) ──────────────────────────────────────
     def save_retrieval(
         self,
@@ -774,6 +1108,37 @@ def _has_column(row: sqlite3.Row, name: str) -> bool:
         return name in row.keys()
     except Exception:  # noqa: BLE001
         return False
+
+
+def _session_result(row: sqlite3.Row, *, score: Optional[float], full: bool = False) -> dict[str, Any]:
+    """A bounded session-search hit. Snippets are always length-capped."""
+    keys = row.keys()
+    content = row["content"] or ""
+    snippet = row["snip"] if "snip" in keys and row["snip"] is not None else content
+    snippet = re.sub(r"\s+", " ", snippet).strip()
+    if not full and len(snippet) > 320:
+        snippet = snippet[:319].rstrip() + "…"
+    return {
+        "messageId": row["id"],
+        "runId": row["runId"],
+        "userId": row["userId"] if "userId" in keys else None,
+        "role": row["role"],
+        "kind": row["kind"] if "kind" in keys else "message",
+        "snippet": snippet,
+        "content": content if full else None,
+        "createdAt": row["createdAt"],
+        "score": score,
+    }
+
+
+def _learning_review_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("result"):
+        try:
+            record["result"] = json.loads(record["result"])
+        except (TypeError, ValueError):
+            pass
+    return record
 
 
 __all__ = ["AgentMemoryStore", "SCHEMA", "DB_FILENAME", "default_db_path", "now_iso", "new_id"]

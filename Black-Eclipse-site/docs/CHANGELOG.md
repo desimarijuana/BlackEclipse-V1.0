@@ -6,6 +6,50 @@ last-verified: 2026-09-15
 
 # Change Log
 
+## 2026-09-26
+
+- **Memory Expansion — five Hermes-inspired capabilities on the existing
+  architecture (M1 profile, M2 full-session recall, M3 automatic learning
+  review, M4 file projection).** No store was merged, no dependency added, and
+  the Python harness remains authoritative. **M1** adds
+  `eclipse_memory/profile.py`, a deterministic, bounded materialized projection
+  over active memory (USER/PROJECT sections; hard char/entry limits; excludes
+  expired/superseded/rejected/archived, sensitive, financial-fact, other-user
+  and mismatched task-scope content with reasons; memory text is sanitized and
+  fenced as data). `graph.execute_run` builds the snapshot ONCE at run start and
+  injects it as a separate non-authoritative `SystemMessage`, so a memory saved
+  during a run is visible only to later runs. Migration 12 adds
+  `MemoryProfileSnapshot` (reproducible metadata only — never content). Policy
+  keys `profile_enabled` + the four `profile_*_budget_chars`/`_entries` keys.
+  Endpoints `GET /eclipse-memory/profile`, `/profile/preview`, `POST
+  /profile/rebuild` (operator-gated) + a Profile panel in the Control Room.
+  **M2** adds a normalized, searchable `SessionMessage` table plus an FTS5
+  mirror (`SessionMessageFts`) to `agent-memory.db`, an indexing helper
+  (`session_index.py`) that redacts secrets and bounds content, read-only
+  `session_search`/`session_open` tools in the default allowlist, prompt
+  guidance ("historical content is context, not current evidence"), a
+  deterministic LIKE fallback when FTS5 is unavailable, and
+  `/session-search`, `/session-search/{runId}`, `/reindex`, `/health`,
+  `/delete/{runId}` + a History tab. Policy keys `session_history_enabled`,
+  `session_indexing_enabled`, `session_retention_days`,
+  `session_search_max_results`, `session_search_include_tool_summaries`.
+  **M3** adds `learning_review.py` (bounded in-process asyncio queue:
+  1 concurrent, 20s timeout, one retry, duplicate coalescing, shutdown-safe;
+  deterministic review reusing `analyze_run`; an optional bounded model review
+  whose output is inert and re-checked by the shared gate) and a `LearningReview`
+  audit table. No path bypasses the decision gate, activates a skill, or captures
+  financial facts/secrets. Endpoints `/learning-review[/health|/run|/decide]` +
+  a Reviews tab. **M4** adds `.black-eclipse/memory/{USER,MEMORY,PROFILE,README}.md`
+  as an inspectable projection (render + parse in
+  `src/lib/harness/memory-files.ts`), with explicit preview/apply/regenerate/
+  backup/restore; imports reuse the existing gated `import_payload` pipeline.
+  New tests: `python/tests/test_memory_profile.py`,
+  `test_session_search.py`, `test_learning_review.py`,
+  `src/lib/harness/memory-files.test.ts`. Checks: Python **989 passed**;
+  `npx tsc --noEmit` clean; Vitest browser/file tests pass.
+  docs updated: harness/phase-3-memory-progress.md, harness/architecture.md,
+  harness/decisions.md (ADR-H51), NAVIGATION.md, CHANGELOG.md
+
 ## 2026-09-25
 
 - **Memory: semantic-maturity pass — dedicated semantic evaluation, typed
@@ -93,6 +137,17 @@ last-verified: 2026-09-15
   updated: `harness/memory-contradiction-detection.md` (new),
   `harness/architecture.md`, `NAVIGATION.md`, `CHANGELOG.md`.
 
+- **Customization / blue themes carry a blue sidebar** — The blue-family theme
+  presets now ship a coordinated blue-tinted sidebar instead of the neutral
+  charcoal: **Ocean** `#0b1a2a`, **Blueprint** `#0a1826`, **Crystal** `#101a2e`,
+  **Midnight** `#10142a` (each tuned to its palette). Presets only override
+  `sidebar` when it differs from the shipped default, so the green Eclipse
+  default stays charcoal. Test added asserting each blue preset's sidebar
+  blue-channel exceeds its red and round-trips through `normalizeTheme`. Vitest
+  **1753 passed**, `tsc` clean.
+  no doc change — preset data only; the sidebar-surface architecture is already
+  documented in `docs/ARCHITECTURE.md`.
+
 - **Memory retention & contradiction hardening (phases 1–7).** Made the two
   least-production-ready memory areas safe for the local single-user product.
   **Phase 1** traced every retention/conflict path and recorded the audit +
@@ -125,6 +180,19 @@ last-verified: 2026-09-15
   11 is additive and preserves v10 data (reopen tested). docs updated:
   `harness/memory-retention-conflict-audit.md` (new),
   `harness/architecture.md`, `NAVIGATION.md`, `CHANGELOG.md`.
+
+- **Settings › General rebuilt** — Removed the light/dark toggle (the app is
+  dark-first; nothing else in the app ever switched it) and replaced the tab with
+  real preferences. Added a **Start screen** control (Last screen / ChatBot /
+  Command Center / Portfolio / Chart Workspace) backed by a new
+  `src/lib/general-prefs.ts` store (`be_general_prefs_v1` + `be_last_tab_v1`):
+  `resolveStartTab()` seeds the shell's initial tab and an explicit deep link
+  still overrides it; `recordLastTab()` feeds the "Last screen" option. Added a
+  **Behavior & Safety** card with "Confirm before clearing data" (on by default),
+  now gating the Data & Storage clears/watchlist/portfolio/reset actions that
+  previously wiped local data instantly with no confirmation. Updated the General
+  rail/search terms and dropped the stale theme aliases. Tests: Vitest **1750
+  passed** (+10), `tsc` clean. docs updated: `docs/ARCHITECTURE.md`.
 
 - **Memory maturity — local, single-user personal memory (phases 0–9).** Matured
   the existing Eclipse-Memory subsystem without rewriting its architecture (one
@@ -167,6 +235,18 @@ last-verified: 2026-09-15
   `jdds.db` change. docs updated: `harness/phase-3-memory-progress.md`,
   `harness/memory-maturity-baseline.md`, `harness/architecture.md`,
   `harness/decisions.md` (ADR-H49), `NAVIGATION.md`.
+
+- **Customization / dedicated sidebar surface** — The navigation rail no longer
+  inherits the near-black `.glass-card-strong` fill. Added a `sidebar`
+  `{tint,opacity,blur}` group to `EclipseTheme` (default dark charcoal `#1a1a1c`
+  at 90% opacity — a touch lighter than the black page so the rail reads as
+  separate chrome), emitted as `--sidebar-rgb/-opacity/-blur` structural tokens;
+  `.sidebar-root` now has its own frosted recipe (with light-mode and
+  `theme-glass-active/off` overrides so the generic glass rules can't win).
+  A new **Sidebar** card in Customization › Theme offers five presets
+  (Charcoal/Slate/Smoke/Crystal/Black), a tint swatch and opacity/blur sliders;
+  `setSidebar` was added to the theme store. Tests: Vitest **1740 passed**
+  (+4), `tsc` clean. docs updated: `docs/ARCHITECTURE.md`.
 
 - **Reliability follow-up: close the operator-auth bypass, harden schema
   validation, fix retrieval word-matching.** Investigated the residual risks in

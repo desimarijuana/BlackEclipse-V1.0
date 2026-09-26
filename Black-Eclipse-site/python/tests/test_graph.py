@@ -231,7 +231,10 @@ async def test_completes_with_plain_answer(store, monkeypatch):
     assert result.status == "completed"
     assert result.output == "AAPL trades at 237.42."
     events = [e["type"] for e in store.list_events("run_test")]
-    assert events == ["run.created", "run.started", "model.requested", "model.completed", "run.completed"]
+    assert events == [
+        "run.created", "run.started", "model.requested", "model.completed",
+        "run.completed", "session.indexed",
+    ]
 
 
 @pytest.mark.asyncio

@@ -625,6 +625,32 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 12 — compact prompt-profile snapshot metadata. The profile itself is
+# a projection over active MemoryRecord rows (no content is copied here): this
+# table records WHAT was selected for one run and how large it was, so a profile
+# is reproducible/auditable without storing the memory content twice. Additive.
+MIGRATIONS.append(
+    (
+        12,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MemoryProfileSnapshot (
+              id             TEXT PRIMARY KEY,
+              version        INTEGER NOT NULL,
+              selectedIds    TEXT NOT NULL,
+              charCount      INTEGER NOT NULL DEFAULT 0,
+              tokenEstimate  INTEGER NOT NULL DEFAULT 0,
+              scopeId        TEXT,
+              runId          TEXT,
+              excludedCount  INTEGER NOT NULL DEFAULT 0,
+              createdAt      TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_profile_created ON MemoryProfileSnapshot(createdAt);",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

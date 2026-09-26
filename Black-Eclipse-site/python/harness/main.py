@@ -73,12 +73,18 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # and best-effort — a failure is a diagnostic, never a boot blocker.
         service.run_startup_maintenance()
         await service.start_mcp()
+        # The bounded learning-review queue: reviews completed runs in the
+        # background. It only creates inert records/suggestions and never enables
+        # a skill. A failure is a diagnostic, never a boot blocker.
+        await service.start_learning_review()
     try:
         yield
     finally:
         _lifespan_refs -= 1
         if _lifespan_refs == 0:
-            # Terminate MCP server subprocesses cleanly so none leak across restarts.
+            # Cancel queued reviews and terminate MCP subprocesses cleanly so none
+            # leak across restarts.
+            await service.stop_learning_review()
             await service.stop_mcp()
 
 
@@ -963,9 +969,247 @@ def list_memory_events(limit: int = 100) -> dict[str, Any]:
     }
 
 
+# ── Compact prompt profile (always-available personalization) ────────────────
+
+
+@app.get("/eclipse-memory/profile")
+def memory_profile(scopeId: Optional[str] = None) -> dict[str, Any]:
+    """The current compact profile (read-only materialization, not persisted).
+
+    Returns the selected memories, the excluded memories + reasons, the
+    character/token estimate and the rendered prompt block.
+    """
+    if not _memory_available():
+        raise HTTPException(status_code=503, detail="memory is unavailable (database unreadable or corrupt)")
+    snapshot = service.memory.build_profile(scope_id=scopeId, persist=False)
+    from .eclipse_memory.profile import preview_payload
+
+    payload = preview_payload(snapshot)
+    payload["history"] = service.memory.profile_history(limit=10)
+    return payload
+
+
+@app.get("/eclipse-memory/profile/preview")
+def memory_profile_preview(scopeId: Optional[str] = None) -> dict[str, Any]:
+    """A pure preview of what the next run would inject (never persisted)."""
+    if not _memory_available():
+        raise HTTPException(status_code=503, detail="memory is unavailable (database unreadable or corrupt)")
+    return service.memory.profile_preview(scope_id=scopeId)
+
+
+@app.post("/eclipse-memory/profile/rebuild")
+def memory_profile_rebuild(
+    payload: dict[str, Any] | None = None, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Materialize and PERSIST a fresh profile snapshot (operator action).
+
+    Rebuilds the projection from current active memory and records the
+    reproducible snapshot metadata. It never writes or alters a memory record.
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="profile rebuild requires an authorized operator")
+    snapshot = service.memory.build_profile(
+        scope_id=payload.get("scopeId"), persist=True
+    )
+    from .eclipse_memory.profile import preview_payload
+
+    return {**preview_payload(snapshot), "rebuilt": True}
+
+
+# ── Session history search (full-session historical recall) ─────────────────
+
+
+@app.get("/session-search/health")
+def session_search_health() -> dict[str, Any]:
+    """Index health + whether FTS5 is available. Never claims success falsely."""
+    store = service.store
+    return {
+        "success": True,
+        "fts5": store.fts5_available(),
+        "indexed": store.session_message_count(),
+        "retentionDays": service.memory.policy.get("session_retention_days"),
+        "historyEnabled": service.memory.policy.get("session_history_enabled"),
+        "indexingEnabled": service.memory.policy.get("session_indexing_enabled"),
+    }
+
+
+@app.get("/session-search")
+def session_search(
+    q: str,
+    scopeId: Optional[str] = None,
+    scope: Optional[str] = None,
+    runId: Optional[str] = None,
+    dateFrom: Optional[str] = None,
+    dateTo: Optional[str] = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Search indexed session history. Historical content is context, not
+    current financial evidence."""
+    if not service.memory.policy.get("session_history_enabled"):
+        raise HTTPException(status_code=403, detail="session history is disabled by policy")
+    result = service.store.search_session_messages(
+        q,
+        user_id=None if scope == "global" else scopeId,
+        run_id=runId,
+        date_from=dateFrom,
+        date_to=dateTo,
+        limit=limit,
+    )
+    return {"success": True, **result}
+
+
+@app.get("/session-search/{run_id}")
+def session_open(run_id: str) -> dict[str, Any]:
+    """Open a bounded window of one indexed run's messages."""
+    if not service.memory.policy.get("session_history_enabled"):
+        raise HTTPException(status_code=403, detail="session history is disabled by policy")
+    return {"success": True, **service.store.open_session(run_id)}
+
+
+@app.post("/session-search/reindex")
+def session_reindex(
+    payload: dict[str, Any] | None = None, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Reindex one run or all runs into the session search index (operator)."""
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="reindex requires an authorized operator")
+    from .session_index import index_run
+
+    if payload.get("runId"):
+        return {"success": True, **index_run(service.store, str(payload["runId"]))}
+    indexed = 0
+    runs = service.store.list_runs(limit=int(payload.get("limit", 200)))
+    for run in runs:
+        result = index_run(service.store, run["id"], user_id=run.get("userId"))
+        indexed += int(result.get("indexed") or 0)
+    return {"success": True, "runs": len(runs), "indexed": indexed}
+
+
+@app.post("/session-search/delete/{run_id}")
+def session_delete(
+    run_id: str, payload: dict[str, Any] | None = None, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Remove a run's indexed messages (privacy/delete control). The full run
+    trace in agent-memory is untouched."""
+    if not bool((payload or {}).get("operator")):
+        raise HTTPException(status_code=403, detail="session delete requires an authorized operator")
+    removed = service.store.delete_session_messages(run_id)
+    return {"success": True, "runId": run_id, "removed": removed}
+
+
+# ── Learning review (automatic, bounded, inert outcomes) ────────────────────
+
+
+@app.get("/learning-review/health")
+def learning_review_health() -> dict[str, Any]:
+    """Queue + audit health. Nothing here enables a skill or writes memory."""
+    return {"success": True, **service.learning_review.health()}
+
+
+@app.get("/learning-review")
+def list_learning_reviews(status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
+    return {
+        "success": True,
+        "reviews": service.store.list_learning_reviews(status=status, limit=limit),
+    }
+
+
+@app.get("/learning-review/{review_id}")
+def get_learning_review(review_id: str) -> dict[str, Any]:
+    review = service.store.get_learning_review(review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="review not found")
+    return {"success": True, "review": review}
+
+
+@app.post("/learning-review/run")
+def run_learning_review(
+    payload: dict[str, Any] | None = None, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Run a review for ONE run synchronously (operator-triggered).
+
+    Deterministic by default; `model: true` adds the optional bounded model
+    review. Outcomes are inert — durable writes still pass the decision gate and
+    an operator decides in the UI.
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="review requires an authorized operator")
+    run_id = str(payload.get("runId") or "").strip()
+    if not run_id:
+        raise HTTPException(status_code=400, detail="runId is required")
+    from .learning_review import review_run
+
+    model_settings = None
+    if bool(payload.get("model")):
+        # Reuse the run's own model settings — no second adapter.
+        run = service.store.get_run(run_id) or {}
+        try:
+            from .schemas import ModelSettings  # noqa: PLC0415
+
+            model_settings = ModelSettings(
+                provider=run.get("provider") or "openai",
+                model=run.get("model") or "gpt-4o-mini",
+            )
+        except Exception:  # noqa: BLE001 - fall back to deterministic only
+            model_settings = None
+    result = review_run(service.memory, service.store, run_id, model=model_settings is not None, model_settings=model_settings)
+    record = service.store.save_learning_review({
+        "runId": run_id, "status": "completed", "mode": result["mode"],
+        "result": result, "createdAt": now_iso(),
+    })
+    result["reviewId"] = record["id"]
+    service.store.update_learning_review(record["id"], result=result)
+    return {"success": True, "review": service.store.get_learning_review(record["id"])}
+
+
+@app.post("/learning-review/decide")
+def decide_learning_review(
+    payload: dict[str, Any] | None = None, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Accept or reject one review outcome (operator only).
+
+    Accepting a durable-memory outcome writes through the ONE decision gate with
+    `run_analysis` provenance — no background path can bypass it. Accepting a
+    skill outcome remains inert (it is still never enabled automatically).
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="review decision requires an authorized operator")
+    review_id = str(payload.get("reviewId") or "").strip()
+    action = str(payload.get("action") or "").strip()
+    if action not in ("accept", "reject"):
+        raise HTTPException(status_code=400, detail="action must be accept or reject")
+    review = service.store.get_learning_review(review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="review not found")
+    result = review.get("result") or {}
+    outcomes = result.get("outcomes") or []
+    index = int(payload.get("outcomeIndex") or 0)
+    if index < 0 or index >= len(outcomes):
+        raise HTTPException(status_code=400, detail="outcomeIndex out of range")
+    outcome = outcomes[index]
+    outcome["decided"] = action
+    if action == "accept" and outcome.get("category") in ("durable_memory_proposal", "memory_suggestion"):
+        content = (outcome.get("payload") or {}).get("content")
+        if content:
+            from .eclipse_memory.decision import authorize_proposal
+
+            decision = authorize_proposal(
+                content=content, provenance="run_analysis",
+                memory_type=(outcome.get("payload") or {}).get("memoryType", "semantic"),
+                settings=service.memory.policy.get_all(),
+                user_id=payload.get("userId"),
+            )
+            outcome = service.memory.commit_decision(decision, user_id=payload.get("userId"))
+            outcome["category"] = "durable_memory_proposal"
+    service.store.update_learning_review(review_id, result={**result, "outcomes": outcomes})
+    return {"success": True, "action": action, "outcome": outcome}
+
+
 # ── Export / import / backup / health / reset (local operator control) ───────
-
-
 @app.get("/eclipse-memory/export")
 def export_memory(include_inactive: bool = True) -> dict[str, Any]:
     """A readable, versioned JSON export of the memory domain (read-only)."""

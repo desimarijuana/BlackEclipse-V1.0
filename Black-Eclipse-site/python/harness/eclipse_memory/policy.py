@@ -68,6 +68,17 @@ DEFAULTS: dict[str, Any] = {
     "context_budget_chars": 4000,
     # Max memories injected per retrieval.
     "retrieval_limit": 8,
+    # ── Compact prompt profile (always-available personalization) ───────────
+    # Whether a compact user/project profile is injected into every run.
+    "profile_enabled": True,
+    # Per-section and total character budgets for the injected profile, the
+    # maximum number of entries and the maximum single-entry length. These are
+    # hard-bounded (see BOUNDS) so a profile can never flood the context window.
+    "profile_user_budget_chars": 1375,
+    "profile_project_budget_chars": 2200,
+    "profile_total_budget_chars": 3600,
+    "profile_max_entries": 20,
+    "profile_max_entry_chars": 500,
     # Hard storage budget: max ACTIVE memories retained (0 = unlimited). When the
     # budget is reached a new save fails truthfully ("memory is full") rather
     # than silently evicting user memory; the user reviews/archives to free space.
@@ -133,6 +144,19 @@ DEFAULTS: dict[str, Any] = {
     # memory or widen the recalled set. Off by default; lexical ranking remains
     # the production default.
     "semantic_recall_tiebreak": False,
+    # ── Full-session historical recall (M2) ─────────────────────────────────
+    # Whether the agent may search prior Eclipse sessions at all.
+    "session_history_enabled": True,
+    # Whether completed runs are indexed into the bounded SessionMessage search
+    # index. When off, no new messages are indexed (existing index is untouched).
+    "session_indexing_enabled": True,
+    # Days an indexed session message is retained before the sweep removes it.
+    # 0 = keep indefinitely. This is separate from durable-memory retention.
+    "session_retention_days": 90,
+    # Maximum results one session search may return.
+    "session_search_max_results": 10,
+    # Whether bounded tool-result summaries are indexed/searchable.
+    "session_search_include_tool_summaries": True,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
@@ -140,6 +164,11 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "candidate_confidence_threshold": (0.0, 1.0),
     "context_budget_chars": (200, 20_000),
     "retrieval_limit": (1, 50),
+    "profile_user_budget_chars": (0, 4000),
+    "profile_project_budget_chars": (0, 6000),
+    "profile_total_budget_chars": (0, 8000),
+    "profile_max_entries": (0, 100),
+    "profile_max_entry_chars": (1, 2000),
     "max_memories": (0, 100_000),
     "retention_days": (0, 3650),
     "audit_retention_rows": (0, 100_000),
@@ -147,6 +176,8 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "semantic_conflict_max_candidates": (1, 50),
     "semantic_conflict_max_index": (1, 5000),
     "semantic_conflict_timeout_ms": (1, 5000),
+    "session_retention_days": (0, 3650),
+    "session_search_max_results": (1, 50),
 }
 
 # Keys that are safety-critical and may NOT be enabled by policy at all — the

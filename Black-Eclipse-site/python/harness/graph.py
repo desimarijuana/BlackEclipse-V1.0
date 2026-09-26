@@ -520,6 +520,13 @@ async def execute_run(
     # run (it is recorded in the retrieval audit instead).
     memory_block = await _memory_context(request, memory_service, emitter)
 
+    # The always-available compact profile is materialized ONCE here, at run
+    # start: a memory saved during this run is visible to LATER runs, never to
+    # this one (the snapshot stays stable for the whole run). It is a separate,
+    # clearly-labelled, non-authoritative block; its text is data, never
+    # instructions. A profile failure must never block the run.
+    profile_block = await _profile_context(request, agent, memory_service, emitter)
+
     # Deterministic explicit-intent handling. A clear "remember this" / "forget
     # this" / "correct this" must not depend on the model voluntarily calling the
     # `memory` tool. Detection runs before the model; a refused or
@@ -536,6 +543,7 @@ async def execute_run(
     messages: list[BaseMessage] = [
         SystemMessage(content=agent.systemPrompt),
         *_history_messages(request),
+        *([SystemMessage(content=profile_block)] if profile_block else []),
         *([SystemMessage(content=memory_block)] if memory_block else []),
         HumanMessage(content=_user_message(request)),
     ]
@@ -595,6 +603,10 @@ async def execute_run(
     memory_blob = _memory_blob(memory_outcome, eligibility, analysis)
     if memory_blob:
         store.update_run(request.runId, memory=memory_blob)
+    # Index the run's meaningful messages into the bounded session-history search
+    # index so later sessions can ask "what did we decide?". Best-effort; never
+    # affects this result.
+    await _index_session(request, store, memory_service, emitter)
     result = _result(request.runId, "completed", store, None, output)
     result.memory = memory_blob or None
     return result
@@ -714,6 +726,37 @@ async def _finish_research(
     return result
 
 
+async def _index_session(
+    request: RunRequest,
+    store: AgentMemoryStore,
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+) -> None:
+    """Index the completed run's messages for historical search (best-effort).
+
+    Policy-gated; redacted + bounded; never affects the run result. A skill
+    child-run is indexed too (its transcript is useful history).
+    """
+    try:
+        settings = memory_service.policy.get_all() if memory_service is not None else {}
+    except Exception:  # noqa: BLE001
+        settings = {}
+    if not bool(settings.get("session_indexing_enabled", True)):
+        return
+    if not bool(settings.get("session_history_enabled", True)):
+        return
+    try:
+        from .session_index import index_run  # noqa: PLC0415
+
+        result = index_run(store, request.runId, user_id=request.userId)
+        await emitter.emit("session.indexed", {"runId": request.runId, "indexed": result.get("indexed", 0)})
+    except Exception as exc:  # noqa: BLE001 - indexing must never break a run
+        try:
+            await emitter.emit("session.index_failed", {"error": str(exc)})
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def _post_run_analysis(
     run_id: str,
     store: AgentMemoryStore,
@@ -721,7 +764,6 @@ async def _post_run_analysis(
     skill_registry: Optional[Any],
 ) -> Optional[dict[str, Any]]:
     """Deterministic, policy-gated post-run analysis (mistakes + candidates).
-
     Never raises and never blocks the terminal result: analysis is diagnostics,
     not control flow. It can only create inert records — it cannot enable a
     skill or claim improvement. Returns a bounded summary for the run's memory
@@ -796,6 +838,55 @@ async def _memory_context(
         },
     )
     return result.context
+
+
+async def _profile_context(
+    request: RunRequest,
+    agent: AgentConfig,
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+) -> str:
+    """Build the stable, compact Persistent-context block for this run (or "").
+
+    Materialized once at run start; a skill sub-run is skipped (its prompt and
+    scope differ from chat). Never raises: a profile failure is diagnostics.
+    """
+    if memory_service is None:
+        return ""
+    # A skill child-run composes its own prompt; a persistent profile would be
+    # noise there and is not the agent identity the user configured.
+    if agent.id.startswith("skill:"):
+        return ""
+    try:
+        settings = memory_service.policy.get_all()
+    except Exception:  # noqa: BLE001
+        settings = {}
+    if not bool(settings.get("profile_enabled", True)):
+        return ""
+    try:
+        snapshot = memory_service.build_profile(
+            scope_id=request.userId,
+            run_scope=None,
+            run_id=request.runId,
+            persist=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - a profile must never break a run
+        await emitter.emit("memory.profile_failed", {"error": str(exc)})
+        return ""
+    from .eclipse_memory.profile import render_prompt_block  # noqa: PLC0415
+
+    block = render_prompt_block(snapshot)
+    await emitter.emit(
+        "memory.profile_built",
+        {
+            "snapshotId": snapshot.snapshot_id,
+            "entries": len(snapshot.entries),
+            "charCount": snapshot.char_count,
+            "tokenEstimate": snapshot.token_estimate,
+            "excluded": len(snapshot.excluded),
+        },
+    )
+    return block
 
 
 async def _apply_memory_intent(

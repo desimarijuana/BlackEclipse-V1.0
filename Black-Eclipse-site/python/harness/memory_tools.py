@@ -139,9 +139,79 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     return "\n".join(lines), {"count": len(memories), "memories": memories}
 
 
+# ── session_search / session_open (historical recall) ───────────────────────
+
+
+def _session_store(ctx: ToolContext) -> Any:
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        raise RuntimeError("session history is not available in this run")
+    return store
+
+
+async def session_search_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Read-only full-text search over prior Eclipse sessions.
+
+    Historical content is CONTEXT, not current financial evidence. These tools
+    never write and never return unbounded text.
+    """
+    store = _session_store(ctx)
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return "A search query is required.", {"available": True, "results": [], "hasMore": False}
+    limit = int(args.get("limit") or 0) or None
+    result = store.search_session_messages(
+        query,
+        user_id=ctx.user_id if args.get("scope") != "global" else None,
+        date_from=args.get("date_from"),
+        date_to=args.get("date_to"),
+        run_id=args.get("run_id"),
+        limit=limit or 10,
+    )
+    if not result.get("results"):
+        return (
+            "No matching prior session content found. Historical search is "
+            f"available (engine: {result.get('engine')}).",
+            {**result, "count": 0},
+        )
+    lines = [f"{len(result['results'])} matching prior message(s) (engine: {result.get('engine')}):"]
+    for hit in result["results"]:
+        score = f" score={hit['score']:.2f}" if hit.get("score") is not None else ""
+        lines.append(
+            f"  run={hit['runId']} msg={hit['messageId']} [{hit['role']}/{hit['kind']}]"
+            f" {hit['createdAt'][:10]}{score}: {hit['snippet']}"
+        )
+    if result.get("hasMore"):
+        lines.append("  (more results may exist — refine the query or raise limit)")
+    lines.append(
+        "Historical content is context, not current market evidence — re-retrieve "
+        "current facts with finance tools."
+    )
+    return "\n".join(lines), {**result, "count": len(result["results"])}
+
+
+async def session_open_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Bounded context expansion for one prior run (after session_search)."""
+    store = _session_store(ctx)
+    run_id = str(args.get("run_id") or "").strip()
+    if not run_id:
+        return "A run_id is required.", {"runId": None, "messages": []}
+    window = store.open_session(
+        run_id,
+        message_id=args.get("message_id"),
+        before=int(args.get("before", 3)),
+        after=int(args.get("after", 3)),
+    )
+    if not window.get("messages"):
+        return f"No indexed messages for run {run_id}.", window
+    lines = [f"Run {run_id} ({len(window['messages'])} message(s){', truncated' if window.get('truncated') else ''}):"]
+    for message in window["messages"]:
+        content = (message.get("content") or message.get("snippet") or "")[:1200]
+        lines.append(f"  [{message['role']}/{message['kind']}] {content}")
+    return "\n".join(lines), window
+
+
 # ── skill_list / skill_view ─────────────────────────────────────────────────
-
-
 async def skill_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     registry = getattr(ctx, "skill_registry", None)
     if registry is None:
@@ -382,6 +452,59 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             permission="read",
             risk="low",
             timeout_ms=240_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="session_search",
+            description=(
+                "Search PRIOR Eclipse sessions for what was discussed, decided, corrected "
+                "or discovered. Use this when the user asks 'what did we decide last week?', "
+                "'find the earlier run where…', 'what source did we use?'. Historical content "
+                "is CONTEXT, never current financial evidence — re-retrieve current facts with "
+                "finance tools. Returns bounded snippets; use session_open to expand one run."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Keywords to search for."},
+                    "scope": {"type": "string", "enum": ["user", "global"], "description": "Search my sessions (default) or all."},
+                    "date_from": {"type": "string", "description": "ISO date/time lower bound."},
+                    "date_to": {"type": "string", "description": "ISO date/time upper bound."},
+                    "run_id": {"type": "string", "description": "Restrict to one run id."},
+                    "limit": {"type": "integer", "description": "Max results (bounded)."},
+                },
+                "required": ["query"],
+            },
+            handler=session_search_handler,
+            permission="read",
+            risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="session_open",
+            description=(
+                "Open a bounded window of one prior session's indexed messages (after a "
+                "session_search). `run_id` is required; `message_id` anchors the window; "
+                "`before`/`after` bound how many surrounding messages are returned. "
+                "Historical content is context, not current market evidence."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "The run to open."},
+                    "message_id": {"type": "string", "description": "Optional anchor message."},
+                    "before": {"type": "integer", "description": "Messages before the anchor."},
+                    "after": {"type": "integer", "description": "Messages after the anchor."},
+                },
+                "required": ["run_id"],
+            },
+            handler=session_open_handler,
+            permission="read",
+            risk="low",
+            timeout_ms=10_000,
         )
     )
 

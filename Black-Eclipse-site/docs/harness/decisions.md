@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-09-25
+last-verified: 2026-09-26
 ---
 
 # Harness Decisions
@@ -1141,8 +1141,55 @@ remain vault-only. Automated end-to-end coverage
 (`python/tests/test_mcp_workflow.py`) proves import → native analysis → report →
 approved export → provenance, and that a changed payload needs a new approval.
 
-## ADR-H7 — Zero-config is preserved via automatic provisioning
-**Decision.** `postinstall` and `doctor.js` install the Python agent stack
+## ADR-H51 — Memory expansion: profile, session recall, learning review, file projection (all projection, no second store)
+
+**Decision.** Five capabilities were added to Eclipse-Memory without changing
+its architecture (one `eclipse-memory.db`, one `EclipseMemoryService`, one
+decision gate, one retrieval seam; `agent-memory.db` stays the run store):
+
+1. **Compact prompt profile** (`eclipse_memory/profile.py`) — a deterministic,
+   bounded *materialized projection over active memories*, built once at run
+   start into a labelled, non-authoritative `SystemMessage`. Hard limits
+   (user/project/total chars, entries, per-entry chars) are code constants; the
+   policy may only tighten. Excluded statuses/sensitive/financial/other-user/
+   mismatched-task content is excluded WITH a reason. Memory text is sanitized
+   and fenced as DATA. Only reproducibility metadata is persisted
+   (`MemoryProfileSnapshot`, migration 12) — never a second copy of the memory.
+2. **Full-session historical recall** — a normalized, redacted, bounded
+   `SessionMessage` search index (+ FTS5 mirror) in `agent-memory.db`, reached
+   through read-only `session_search`/`session_open` tools. History is context,
+   never current evidence; the prompt says so explicitly. FTS5 absence is
+   reported honestly (LIKE fallback), never faked.
+3. **Automatic learning review** (`harness/learning_review.py`) — a bounded
+   in-process asyncio queue that reviews completed runs after the response. The
+   deterministic path reuses `analyze_run`; an optional model review may propose,
+   but its output is inert and re-authorized by the shared gate. No skill is ever
+   activated; no durable write bypasses `authorize_proposal`; no secrets, market
+   facts, predictions or one-off details are captured; a single market/provider
+   failure is never generalized globally.
+4. **File projection** (`.black-eclipse/memory/{USER,MEMORY,PROFILE,README}.md`)
+   — an inspectable Markdown *view* with explicit export/import/backup/restore.
+   Imports reuse the existing gated `import_payload` pipeline; SQLite stays the
+   source of truth; there is no filesystem watching.
+5. **External-memory posture unchanged** — MCP/provider data remains external and
+   never Eclipse-verified; native memory remains separate from JDdS.
+
+**Why.** These are real product gaps (a run had no stable personalization
+snapshot, no way to ask "what did we decide last week?", and no safe automatic
+self-review). The brief required them WITHOUT replacing SQLite with Markdown,
+adding a third-party memory platform, or letting background learning activate
+skills. Modelling each as a *projection* / *bounded queue* over the existing
+structured store satisfies the capability while preserving the ONE gate and the
+safety floor.
+
+**Consequences.** New policy keys (`profile_*`, `session_*`) are validated and
+bounded. `graph.execute_run` now injects a persistent-context block and emits
+`session.indexed` on completion. The runtime gains a learning-review queue
+started/stopped by the FastAPI lifespan. `MemoryProfileSnapshot` (migration 12)
+is additive; `SessionMessage`/`SessionMessageFts`/`LearningReview` are new tables
+in `agent-memory.db`. No new dependency, no embeddings, no cloud service.
+
+## ADR-H7 — Zero-config is preserved via automatic provisioning**Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely
 unavailable, runs fail with a clear 503.
 

@@ -24,16 +24,23 @@ import {
   getPolicies, updatePolicies, clientIsOperator,
   exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
   listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
+  memoryProfile, rebuildProfile,
+  sessionSearch, sessionSearchHealth, sessionOpen, sessionDelete,
+  learningReviewHealth, listLearningReviews, runLearningReview, decideLearningReview,
+  getMemoryFiles, regenerateMemoryFiles, previewMarkdownImport, importMarkdown, restoreMemoryFiles,
 } from "@/lib/harness/eclipse-memory-browser";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
   MemoryExportDocument, MemoryLifecycleView,
   MemoryLifecycleResponse, MemoryOverview,
+  MemoryProfileResponse,
   MemoryRetentionStatus, MemorySemanticStatus,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
+  SessionSearchHealth, SessionSearchHit,
+  LearningReviewHealth, LearningReviewRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
-type Tab = "overview" | "memories" | "lifecycle" | "suggestions" | "activity" | "policies" | "health";
+type Tab = "overview" | "memories" | "profile" | "history" | "reviews" | "lifecycle" | "suggestions" | "activity" | "policies" | "health";
 
 const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
 const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
@@ -58,7 +65,9 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
     const map: Record<string, Tab> = {
       explorer: "memories", activity: "activity", health: "health",
       memories: "memories", overview: "overview", policies: "policies",
-      suggestions: "suggestions", lifecycle: "lifecycle",
+      suggestions: "suggestions", lifecycle: "lifecycle", profile: "profile",
+      history: "history", sessions: "history",
+      reviews: "reviews", learning: "reviews",
     };
     if (slug && map[slug]) setTab(map[slug]);
   });
@@ -69,6 +78,9 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
         items={[
           { id: "overview", label: "Overview", icon: Brain },
           { id: "memories", label: "Memories", icon: Database },
+          { id: "profile", label: "Profile", icon: Lock },
+          { id: "history", label: "History", icon: Search },
+          { id: "reviews", label: "Reviews", icon: Activity },
           { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
           { id: "suggestions", label: "Suggestions", icon: Plus },
           { id: "activity", label: "Activity", icon: Activity },
@@ -81,6 +93,9 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       />
       {tab === "overview" && <Overview />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
+      {tab === "profile" && <Profile isOperator={isOperator} />}
+      {tab === "history" && <History />}
+      {tab === "reviews" && <Reviews isOperator={isOperator} />}
       {tab === "lifecycle" && <Lifecycle isOperator={isOperator} />}
       {tab === "suggestions" && <Suggestions isOperator={isOperator} />}
       {tab === "activity" && <ActivityView />}
@@ -374,6 +389,324 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
+
+// ── Profile (always-available compact prompt context) ───────────────────────
+
+function Profile({ isOperator }: { isOperator: boolean }) {
+  const [data, setData] = useState<MemoryProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setData(await memoryProfile()); }
+    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const rebuild = async () => {
+    setBusy(true);
+    try { await rebuildProfile(); setToast("Profile snapshot rebuilt"); await load(); }
+    catch (err) { setToast(err instanceof Error ? err.message : "rebuild failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} />;
+  if (!data) return null;
+  const snap = data.snapshot;
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Persistent Profile" hint="A bounded, deterministic snapshot injected into every run as personalization context — never financial evidence and never an instruction channel. Memory saved during a run appears in later runs only." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+
+      <div className="rounded-2xl border border-white/10 glass-card p-4">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-muted-foreground">
+          <span>{snap.selectedIds.length} selected</span>
+          <span>{snap.charCount} chars</span>
+          <span>~{snap.tokenEstimate} tokens</span>
+          <span>{snap.excluded.length} excluded</span>
+          <span>schema v{snap.memoryVersion}</span>
+          {snap.snapshotId && <span>snapshot {snap.snapshotId.slice(0, 18)}…</span>}
+        </div>
+        <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <ProfileSection title="User profile" entries={snap.userEntries} budget={snap.limits.userChars} />
+          <ProfileSection title="Project context" entries={snap.projectEntries} budget={snap.limits.projectChars} />
+        </div>
+      </div>
+
+      {snap.excluded.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+          <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Excluded ({snap.excluded.length})</p>
+          <ul className="space-y-0.5 max-h-48 overflow-auto">
+            {snap.excluded.slice(0, 40).map((item, i) => (
+              <li key={`${item.id}-${i}`} className="text-[10px] text-muted-foreground">
+                {item.id ? `${item.id.slice(0, 16)}…` : "entry"} — {item.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+        <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Prompt preview</p>
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-border/20 bg-background/40 p-3 text-[10px] text-foreground/80">
+          {data.prompt || "(empty — no eligible memory yet)"}
+        </pre>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={load}>
+          <RefreshCcw size={13} className="mr-1" /> Refresh
+        </Button>
+        <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy} onClick={rebuild}>
+          Rebuild snapshot
+        </Button>
+      </div>
+      {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — rebuilding requires operator authorization.</p>}
+    </div>
+  );
+}
+
+function ProfileSection({ title, entries, budget }: { title: string; entries: MemoryProfileResponse["snapshot"]["userEntries"]; budget?: number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 glass-card-subtle p-3">
+      <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2">
+        {title} <span className="font-normal normal-case tracking-normal">({entries.length}{budget ? ` · ≤${budget} chars` : ""})</span>
+      </p>
+      {entries.length === 0 ? <Muted>None selected.</Muted> : (
+        <ul className="space-y-1.5">
+          {entries.map((entry) => (
+            <li key={entry.id} className="text-[11px] text-foreground/90">
+              <span className="text-foreground/95">{entry.content}</span>
+              <span className="ml-1 text-[9px] text-muted-foreground">
+                [{entry.memoryType} · {entry.provenance} · {Math.round(entry.confidence * 100)}%]
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── Reviews (automatic learning review queue) ───────────────────────────────
+
+function Reviews({ isOperator }: { isOperator: boolean }) {
+  const [health, setHealth] = useState<LearningReviewHealth | null>(null);
+  const [reviews, setReviews] = useState<LearningReviewRecord[]>([]);
+  const [runId, setRunId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [h, list] = await Promise.all([learningReviewHealth(), listLearningReviews(undefined, 30)]);
+      setHealth(h); setReviews(list);
+    } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true);
+    try { await fn(); setToast(message); await load(); }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Automatic Learning Review" hint="A bounded, safe post-run review proposes inert outcomes only. Nothing here enables a skill automatically, and every durable write passes the shared decision gate." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      {error && <ErrorBox message={error} />}
+
+      {health && (
+        <div className="rounded-2xl border border-white/10 glass-card p-4">
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
+            <span>{health.total} review(s)</span>
+            <span>queued: {health.queue.queued}</span>
+            <span>running: {health.queue.running}</span>
+            <span>max concurrent: {health.queue.maxConcurrent}</span>
+            <span>timeout: {health.queue.timeoutMs}ms</span>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+        <p className="text-[11px] font-semibold text-foreground">Run a review for a completed run</p>
+        <div className="mt-2 flex gap-2">
+          <Input value={runId} onChange={(e) => setRunId(e.target.value)} placeholder="run id…" className="rounded-xl bg-background/60" />
+          <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy || !runId.trim()}
+            onClick={() => act(() => runLearningReview(runId.trim()), "Review complete")}>Deterministic</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy || !runId.trim()}
+            onClick={() => act(() => runLearningReview(runId.trim(), true), "Review complete (model)")}>+ Model</Button>
+        </div>
+        <p className="mt-2 text-[10px] text-muted-foreground">The model variant adds an optional bounded review; its output is inert and re-checked by the gate.</p>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {reviews.length === 0 ? (
+          <EmptyBox title="No reviews yet" hint="Completed runs are reviewed automatically after they finish." />
+        ) : reviews.map((review) => (
+          <div key={review.id} className="rounded-2xl border border-white/10 glass-card p-3.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                review.status === "completed" ? "border-emerald-400/30 text-emerald-300" :
+                review.status === "failed" ? "border-rose-400/30 text-rose-300" : "border-border/40 text-muted-foreground")}>
+                {review.status}
+              </span>
+              <span className="text-[9px] text-muted-foreground">{review.mode}</span>
+              <span className="text-[9px] text-muted-foreground/70">run {review.runId.slice(0, 16)}…</span>
+              <span className="text-[9px] text-muted-foreground">{review.createdAt.slice(0, 19)}</span>
+              {review.model && <span className="text-[9px] text-muted-foreground">model: {review.model}</span>}
+            </div>
+            {review.error && <p className="mt-1 text-[10px] text-rose-300">{review.error}</p>}
+            {review.result?.outcomes?.length ? (
+              <ul className="mt-2 space-y-1">
+                {review.result.outcomes.map((outcome, index) => (
+                  <li key={index} className="flex items-start justify-between gap-2 rounded-xl border border-border/20 bg-background/30 p-2">
+                    <div className="min-w-0">
+                      <span className="rounded-full border border-border/40 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{outcome.category}</span>
+                      <span className="ml-2 text-[10px] text-muted-foreground">{outcome.inert ? "inert" : "active"}{outcome.created ? " · created" : ""}</span>
+                      {outcome.reason && <p className="mt-0.5 text-[10px] text-foreground/80">{outcome.reason}</p>}
+                    </div>
+                    {isOperator && (outcome.category === "durable_memory_proposal" || outcome.category === "memory_suggestion") && (
+                      <div className="flex shrink-0 gap-1">
+                        <Button size="sm" className="rounded-lg h-6 px-2 text-[10px] cursor-pointer" disabled={busy}
+                          onClick={() => act(() => decideLearningReview(review.id, index, "accept"), "Outcome accepted")}>Accept</Button>
+                        <Button size="sm" variant="outline" className="rounded-lg h-6 px-2 text-[10px] cursor-pointer" disabled={busy}
+                          onClick={() => act(() => decideLearningReview(review.id, index, "reject"), "Outcome rejected")}>Reject</Button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[10px] text-muted-foreground">No outcomes recorded.</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — running or deciding a review requires operator authorization.</p>}
+    </div>
+  );
+}
+
+// ── History (full-session search) ───────────────────────────────────────────
+
+function History() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SessionSearchHit[]>([]);
+  const [health, setHealth] = useState<SessionSearchHealth | null>(null);
+  const [engine, setEngine] = useState<string>("");
+  const [hasMore, setHasMore] = useState(false);
+  const [open, setOpen] = useState<{ runId: string; messages: SessionSearchHit[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    sessionSearchHealth().then(setHealth).catch(() => setHealth(null));
+  }, []);
+
+  const run = async () => {
+    if (!query.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await sessionSearch({ q: query, limit: 20 });
+      setResults(result.results); setEngine(result.engine); setHasMore(result.hasMore);
+    } catch (err) { setError(err instanceof Error ? err.message : "search failed"); }
+    finally { setBusy(false); }
+  };
+
+  const openRun = async (runId: string) => {
+    try {
+      const window = await sessionOpen(runId);
+      setOpen({ runId, messages: window.messages });
+    } catch (err) { setToast(err instanceof Error ? err.message : "open failed"); setTimeout(() => setToast(null), 4000); }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      <Header title="Session History" hint="Search what was discussed, decided, corrected or discovered in prior sessions. Historical content is CONTEXT — never current market evidence; re-retrieve current facts separately." />
+      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+      <div className="rounded-2xl border border-white/10 glass-card p-4">
+        <div className="flex gap-2">
+          <Input value={query} onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
+            placeholder="Search prior sessions…" className="rounded-xl bg-background/60" />
+          <Button size="sm" className="rounded-xl cursor-pointer" disabled={busy} onClick={run}>Search</Button>
+        </div>
+        {health && (
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {health.indexed} message(s) indexed · FTS5: {health.fts5 ? "available" : "unavailable"} ·
+            indexing: {health.indexingEnabled ? "on" : "off"} · retention {health.retentionDays}d
+          </p>
+        )}
+      </div>
+
+      {error && <ErrorBox message={error} />}
+
+      {engine && (
+        <p className="mt-3 text-[10px] text-muted-foreground">
+          {results.length} result(s) via {engine}{hasMore ? " · more available" : ""}
+        </p>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {results.map((hit) => (
+          <div key={hit.messageId} className="rounded-2xl border border-white/10 glass-card p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="rounded-full border border-border/40 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{hit.role}/{hit.kind}</span>
+                  <span className="text-[9px] text-muted-foreground">{hit.createdAt.slice(0, 10)}</span>
+                  <span className="text-[9px] text-muted-foreground/70">run {hit.runId.slice(0, 14)}…</span>
+                </div>
+                <p className="mt-1 text-[12px] text-foreground/90">{hit.snippet}</p>
+              </div>
+              <div className="flex shrink-0 gap-1.5">
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => openRun(hit.runId)}>Open</Button>
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300"
+                  onClick={async () => {
+                    try { await sessionDelete(hit.runId); setToast(`Removed index for ${hit.runId.slice(0, 12)}…`); setTimeout(() => setToast(null), 4000); }
+                    catch (err) { setToast(err instanceof Error ? err.message : "delete failed"); setTimeout(() => setToast(null), 4000); }
+                  }}>Forget</Button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setOpen(null)}>
+          <div className="max-h-[80vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/10 glass-card-strong p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-foreground">Run {open.runId}</p>
+              <button onClick={() => setOpen(null)} className="cursor-pointer text-muted-foreground hover:text-foreground"><X size={16} /></button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {open.messages.map((m) => (
+                <div key={m.messageId} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{m.role}/{m.kind} · {m.createdAt}</p>
+                  <p className="mt-1 text-[11px] text-foreground/90 whitespace-pre-wrap">{m.content ?? m.snippet}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[10px] text-amber-300/90">Historical results are context only. They can never answer a current price/fundamental question — retrieve fresh data for that.</p>
+    </div>
+  );
+}
 
 function Overview() {
   const [data, setData] = useState<MemoryOverview | null>(null);
@@ -1044,6 +1377,7 @@ function Health({ isOperator }: { isOperator: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [filePreview, setFilePreview] = useState<Record<string, string> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1102,6 +1436,55 @@ function Health({ isOperator }: { isOperator: boolean }) {
           <Meta label="Tables" value={String(health.tables ?? "—")} />
           {health.counts && Object.entries(health.counts).map(([k, v]) => <Meta key={k} label={k} value={String(v)} />)}
         </dl>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
+        <p className="text-[11px] font-semibold text-foreground">Markdown files</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">An inspectable projection under <code>.black-eclipse/memory/</code> (USER.md, MEMORY.md, PROFILE.md, README.md). SQLite stays the source of truth; export/import is explicit and every imported entry passes the normal safety gate.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const result = await getMemoryFiles();
+                setFilePreview(result.files);
+                setToast(`Files generated (${result.root})`);
+              } catch (err) { setToast(err instanceof Error ? err.message : "generation failed"); }
+              finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+            }}>Preview files</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act(() => regenerateMemoryFiles(), "Files regenerated (backup taken)")}>
+            Regenerate files
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const preview = await previewMarkdownImport();
+                setFilePreview({ "IMPORT PREVIEW": `${preview.entries.length} entries, ${preview.ignored.length} ignored\n\n` + preview.entries.map((e) => `- [${e.memoryType}/${e.scope}] ${e.content}`).join("\n") });
+                setToast("Import preview loaded");
+              } catch (err) { setToast(err instanceof Error ? err.message : "preview failed"); }
+              finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+            }}>Preview import</Button>
+          <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act(() => importMarkdown(), "Imported from Markdown (backup taken)")}>
+            Apply import
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act(() => restoreMemoryFiles(), "Restored previous files")}>
+            Restore previous
+          </Button>
+        </div>
+        {filePreview && (
+          <div className="mt-3 space-y-2">
+            {Object.entries(filePreview).map(([name, content]) => (
+              <details key={name} className="rounded-xl border border-border/20 bg-background/30 p-2">
+                <summary className="cursor-pointer text-[11px] font-semibold text-foreground">{name}</summary>
+                <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap text-[10px] text-foreground/80">{content}</pre>
+              </details>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">

@@ -1,7 +1,7 @@
 ---
 title: Navigation — Where Things Live
 status: Current
-last-verified: 2026-09-25
+last-verified: 2026-09-26
 ---
 
 # Navigation — Where Things Live
@@ -68,7 +68,11 @@ Black-Eclipse-site/
 | Change the optional local semantic backend / candidate types | `python/harness/eclipse_memory/semantic.py` (`SemanticBackend`, `CharNgramBackend`, optional `LocalEmbeddingBackend`, `backend_health`, `classify_candidate`, `strongest_actionable`, `find_candidates` bounds); policy `semantic_conflict_backend`; service `_semantic_conflict_candidate`/`semantic_status`; route `/eclipse-memory/semantic-status` + `/eclipse-memory/semantic/rebuild` |
 | Change memory value-substitution / confirmation safety | `python/harness/eclipse_memory/conflicts.py` (`_value_changed`, `_distinctive`, `REASON_VALUE_CHANGED`, confirmation branch), `normalize.py` (synonym groups, numeric tokens); tests `test_memory_semantic_eval.py`, `test_memory_contradiction_expanded.py` |
 | Change skill execution observability (validation result, tool usage, pinned version) | `python/harness/eclipse_memory/schema.py` (migration 9: `SkillExecution.outputValidated`/`metrics`), `store.py` (`finish_execution`, `_execution_row`), `skills/runtime.py` (persists them), `src/lib/harness/skills-types.ts` (`SkillExecutionRecord`), `src/components/screens/skills/execution-activity.tsx` |
-| Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
+| Work on Eclipse-Memory (memory DB, retrieval, corrections, mistakes) | `python/harness/eclipse_memory/` (`config.py`, `schema.py`, `db.py`, `store.py`, `service.py`, `retrieval.py`, `profile.py`); tools `python/harness/memory_tools.py`; architecture + audit: `docs/harness/phase-3-memory-progress.md` |
+| Work on the compact prompt profile (always-available personalization) | `python/harness/eclipse_memory/profile.py` (`build_profile`, `render_prompt_block`, bounds), service `profile_preview`/`profile_history`, injection in `python/harness/graph.py` (`_profile_context`), migration 12 `MemoryProfileSnapshot`, routes `src/app/api/eclipse-memory/profile*`, UI Profile tab |
+| Work on full-session historical recall | `python/harness/session_index.py` (redact + index a run), `python/harness/persistence.py` (`SessionMessage`, `SessionMessageFts`, `search_session_messages`, `open_session`, `fts5_available`), tools in `python/harness/memory_tools.py`, routes `src/app/api/session-search/**`, UI History tab, prompt "Prior sessions" |
+| Work on automatic learning review | `python/harness/learning_review.py` (`LearningReviewQueue`, `review_run`), `python/harness/persistence.py` (`LearningReview`), queue wired in `python/harness/service.py` + `main._lifespan`, routes `/learning-review*` + `src/app/api/learning-review/**`, UI Reviews tab |
+| Work on the file-based memory projection | `src/lib/harness/memory-files.ts` (render/parse/backup/restore), routes `src/app/api/eclipse-memory/files/**` + `/import/markdown`; projection root `.black-eclipse/memory/`; UI Health tab Markdown section |
 | Change the memory DB location / migrations | `python/harness/eclipse_memory/config.py` (`ECLIPSE_MEMORY_DB_PATH`, `repo_root`, `db_identity`, `legacy_candidate_paths`), `schema.py` (append a migration tuple), `db.py` (runner + `reconcile_legacy`) |
 | Change explicit memory-intent detection | `python/harness/eclipse_memory/intent.py` (`detect_memory_intent`) wired in `python/harness/graph.py` (`_apply_memory_intent`, `_learning_eligibility`); service apply in `eclipse_memory/service.py` (`apply_explicit_intent`) |
 | Change memory decision/authorization rules (save/suggest/history_only/ignore) | `python/harness/eclipse_memory/decision.py` (`decide_turn`, `authorize_proposal`); every write path routes through `EclipseMemoryService.decide_turn`/`commit_decision` |

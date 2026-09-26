@@ -263,3 +263,126 @@ export interface MistakeRecord {
   reusable: boolean;
   createdAt: string;
 }
+
+// ─── Compact prompt profile (Milestone 1) ───────────────────────────────────
+
+export interface MemoryProfileEntry {
+  id: string;
+  content: string;
+  scope: string;
+  section: "user" | "project";
+  memoryType: string;
+  confidence: number;
+  provenance: string;
+  lastConfirmedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface MemoryProfileSnapshot {
+  snapshotId: string;
+  generatedAt: string;
+  memoryVersion: number;
+  userEntries: MemoryProfileEntry[];
+  projectEntries: MemoryProfileEntry[];
+  selectedIds: string[];
+  excluded: Array<{ id: string | null; reason: string }>;
+  charCount: number;
+  tokenEstimate: number;
+  limits: Record<string, number>;
+  scopeId: string | null;
+}
+
+export interface MemoryProfileHistoryEntry {
+  id: string;
+  version: number;
+  selectedIds: string[];
+  charCount: number;
+  tokenEstimate: number;
+  scopeId: string | null;
+  runId: string | null;
+  excludedCount: number;
+  createdAt: string;
+}
+
+export interface MemoryProfileResponse {
+  success: boolean;
+  snapshot: MemoryProfileSnapshot;
+  prompt: string;
+  history?: { snapshots: MemoryProfileHistoryEntry[]; latest: MemoryProfileHistoryEntry | null };
+}
+
+// ─── Session history search (Milestone 2) ───────────────────────────────────
+
+export interface SessionSearchHit {
+  messageId: string;
+  runId: string;
+  userId: string | null;
+  role: string;
+  kind: string;
+  snippet: string;
+  content: string | null;
+  createdAt: string;
+  score: number | null;
+}
+
+export interface SessionSearchResult {
+  available: boolean;
+  engine: string;
+  results: SessionSearchHit[];
+  hasMore: boolean;
+}
+
+export interface SessionSearchHealth {
+  fts5: boolean;
+  indexed: number;
+  retentionDays: number;
+  historyEnabled: boolean;
+  indexingEnabled: boolean;
+}
+
+export interface SessionOpenResult {
+  runId: string;
+  messages: SessionSearchHit[];
+  truncated: boolean;
+}
+
+// ─── Learning review (Milestone 3) ──────────────────────────────────────────
+
+export interface LearningReviewResult {
+  reviewId?: string;
+  runId: string;
+  mode: string;
+  outcomes: Array<{
+    category: string;
+    created: boolean;
+    inert: boolean;
+    reason?: string;
+    payload?: Record<string, unknown>;
+  }>;
+  modelUsed?: boolean;
+  tokenBudget?: number;
+  gateApplied?: boolean;
+  noLearning?: boolean;
+}
+
+export interface LearningReviewRecord {
+  id: string;
+  runId: string;
+  status: string;
+  mode: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  model: string | null;
+  inputDigest: string | null;
+  result: LearningReviewResult | null;
+  error: string | null;
+  attempts: number;
+  createdAt: string;
+}
+
+export interface LearningReviewHealth {
+  total: number;
+  byStatus: Record<string, number>;
+  latest: LearningReviewRecord | null;
+  queue: { queued: number; running: number; maxConcurrent: number; timeoutMs: number };
+}

@@ -51,6 +51,10 @@ ECLIPSE_AGENT = AgentConfig(
         "skill_list",
         "skill_view",
         "skill_invoke",
+        # Full-session historical recall: read-only search/open over prior
+        # sessions. Historical content is context, never current evidence.
+        "session_search",
+        "session_open",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is

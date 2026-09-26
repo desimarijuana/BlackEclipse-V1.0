@@ -750,6 +750,53 @@ class EclipseMemoryService:
             semantic_tiebreak=bool(settings.get("semantic_recall_tiebreak")),
         )
 
+    # ── Compact prompt profile (materialized projection) ────────────────────
+
+    def build_profile(
+        self,
+        *,
+        scope_id: Optional[str] = None,
+        run_scope: Optional[str] = None,
+        run_id: Optional[str] = None,
+        persist: bool = False,
+    ) -> Any:
+        """Materialize the bounded compact profile over active memories.
+
+        A projection, not a second store: nothing is written except optional
+        reproducibility metadata. Never raises to the caller's run path.
+        """
+        from .profile import build_profile  # noqa: PLC0415
+
+        try:
+            settings = self.policy.get_all()
+        except Exception:  # noqa: BLE001 - a policy failure uses safe defaults
+            settings = {}
+        return build_profile(
+            self.store,
+            scope_id=scope_id,
+            run_scope=run_scope,
+            policy=settings,
+            persist=persist,
+            run_id=run_id,
+        )
+
+    def profile_preview(
+        self,
+        *,
+        scope_id: Optional[str] = None,
+        run_scope: Optional[str] = None,
+    ) -> dict[str, Any]:
+        from .profile import preview_payload  # noqa: PLC0415
+
+        snapshot = self.build_profile(scope_id=scope_id, run_scope=run_scope, persist=False)
+        return preview_payload(snapshot)
+
+    def profile_history(self, *, limit: int = 20) -> dict[str, Any]:
+        return {
+            "snapshots": self.store.list_profile_snapshots(limit=limit),
+            "latest": self.store.latest_profile_snapshot(),
+        }
+
     # ── Corrections / mistakes ──────────────────────────────────────────────
 
     def record_correction(

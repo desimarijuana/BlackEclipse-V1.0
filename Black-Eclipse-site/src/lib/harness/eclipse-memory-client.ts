@@ -10,16 +10,22 @@ import { redactSecrets } from "./errors";
 import type {
   CorrectionRecord,
   EclipseMemoryHealth,
+  LearningReviewHealth,
+  LearningReviewRecord,
   MemoryDatabaseHealth,
   MemoryDetail,
   MemoryExportDocument,
   MemoryLifecycleResponse,
   MemoryOverview,
   MemoryRecord,
+  MemoryProfileResponse,
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
   MemorySemanticStatus,
   MistakeRecord,
+  SessionOpenResult,
+  SessionSearchHealth,
+  SessionSearchResult,
 } from "./eclipse-memory-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -105,6 +111,95 @@ export async function memoryRetention(): Promise<MemoryRetentionStatus> {
 
 export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
   return request<MemorySemanticStatus>("/eclipse-memory/semantic-status", { method: "GET" });
+}
+
+export async function memoryProfile(scopeId?: string): Promise<MemoryProfileResponse> {
+  const params = new URLSearchParams();
+  if (scopeId) params.set("scopeId", scopeId);
+  const qs = params.toString();
+  return request<MemoryProfileResponse>(`/eclipse-memory/profile${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export async function rebuildProfile(operator: boolean, scopeId?: string): Promise<MemoryProfileResponse & { rebuilt: boolean }> {
+  return request(`/eclipse-memory/profile/rebuild`, {
+    method: "POST",
+    body: JSON.stringify({ operator, scopeId }),
+  });
+}
+
+// ── Session history search (M2) ─────────────────────────────────────────────
+
+export async function sessionSearchHealth(): Promise<SessionSearchHealth> {
+  return request<SessionSearchHealth>("/session-search/health", { method: "GET" });
+}
+
+export async function sessionSearch(params: {
+  q: string;
+  scopeId?: string;
+  scope?: string;
+  runId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}): Promise<SessionSearchResult> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  if (params.scopeId) qs.set("scopeId", params.scopeId);
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.runId) qs.set("runId", params.runId);
+  if (params.dateFrom) qs.set("dateFrom", params.dateFrom);
+  if (params.dateTo) qs.set("dateTo", params.dateTo);
+  if (params.limit) qs.set("limit", String(params.limit));
+  return request<SessionSearchResult>(`/session-search?${qs.toString()}`, { method: "GET" });
+}
+
+export async function sessionOpen(runId: string): Promise<SessionOpenResult> {
+  return request<SessionOpenResult>(`/session-search/${encodeURIComponent(runId)}`, { method: "GET" });
+}
+
+export async function sessionReindex(operator: boolean, runId?: string, limit?: number) {
+  return request<{ success: boolean; runs?: number; indexed: number }>("/session-search/reindex", {
+    method: "POST",
+    body: JSON.stringify({ operator, runId, limit }),
+  });
+}
+
+export async function sessionDelete(runId: string, operator: boolean) {
+  return request<{ success: boolean; removed: number }>(
+    `/session-search/delete/${encodeURIComponent(runId)}`,
+    { method: "POST", body: JSON.stringify({ operator }) }
+  );
+}
+
+// ── Learning review (M3) ────────────────────────────────────────────────────
+
+export async function learningReviewHealth(): Promise<LearningReviewHealth> {
+  return request<LearningReviewHealth>("/learning-review/health", { method: "GET" });
+}
+
+export async function listLearningReviews(status?: string, limit = 50): Promise<LearningReviewRecord[]> {
+  const qs = new URLSearchParams();
+  if (status) qs.set("status", status);
+  qs.set("limit", String(limit));
+  const body = await request<{ reviews: LearningReviewRecord[] }>(
+    `/learning-review?${qs.toString()}`,
+    { method: "GET" }
+  );
+  return body.reviews ?? [];
+}
+
+export async function runLearningReview(operator: boolean, runId: string, model = false) {
+  return request<{ success: boolean; review: LearningReviewRecord }>(
+    "/learning-review/run",
+    { method: "POST", body: JSON.stringify({ operator, runId, model }) }
+  );
+}
+
+export async function decideLearningReview(operator: boolean, reviewId: string, outcomeIndex: number, action: "accept" | "reject") {
+  return request<{ success: boolean; action: string; memory?: Record<string, unknown> }>(
+    "/learning-review/decide",
+    { method: "POST", body: JSON.stringify({ operator, reviewId, outcomeIndex, action }) }
+  );
 }
 
 export async function rebuildSemanticIndex(): Promise<{
