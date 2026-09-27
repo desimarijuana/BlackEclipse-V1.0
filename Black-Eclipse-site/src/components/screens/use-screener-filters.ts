@@ -5,6 +5,8 @@ import type {
 import {
   getRegionalFunds, getRegionalEtfs, getRegionalDividendStocks,
 } from '@/lib/screener/data';
+import { countryToMarketId } from '@/lib/markets';
+import { normalizeSector, normalizeIndustry } from '@/lib/screener/taxonomy';
 
 export interface ScreenerFilterState {
   apiStocks: StockItem[];
@@ -29,6 +31,9 @@ export interface ScreenerFilterState {
   userCountry: string;
   stockSortField: keyof StockItem;
   stockSortOrder: 'asc' | 'desc';
+  /** When true, /api/stocks already ordered the page by the active sort, so
+   *  the hook must not re-sort (re-sorting a page in isolation misleads). */
+  stocksServerSorted?: boolean;
   fundSearch: string;
   fundCategory: string;
   fundSortField: keyof FundItem;
@@ -74,6 +79,48 @@ function sortBy<T>(items: T[], field: keyof T, order: 'asc' | 'desc'): T[] {
   });
 }
 
+// Numeric accessor for fields whose DISPLAY value is a formatted string
+// ("1.2B", "N/A"). Sorting those with localeCompare puts "10.0B" before "2.0B".
+// Client-side fallback sorts (crypto supply/ATH, and any field the server cannot
+// ORDER BY) must use the raw numeric value instead.
+const NUMERIC_SORT_KEYS: Partial<Record<keyof StockItem, keyof StockItem>> = {
+  marketCap: 'marketCapRaw',
+  volume: 'volumeRaw',
+  circulatingSupply: 'circulatingSupplyRaw',
+  maxSupply: 'maxSupplyRaw',
+  ath: 'athChangePercent',
+  peRatio: 'peRatio',
+};
+
+function numericValue(item: StockItem, field: keyof StockItem): number | null {
+  const key = NUMERIC_SORT_KEYS[field] ?? field;
+  const raw = item[key];
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === 'string') {
+    const n = parseFloat(raw);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+/** Sort stocks by a column, numerically where the underlying value is numeric
+ *  even if the cell renders a formatted string. Nulls always sort last. */
+function sortStocks(items: StockItem[], field: keyof StockItem, order: 'asc' | 'desc'): StockItem[] {
+  // String-only columns (ticker/name/type/sector/…) keep alphabetical order.
+  const isTextColumn = ['symbol', 'name', 'securityType', 'assetClass', 'sector',
+    'industry', 'country', 'index', 'recommendation', 'exchange'].includes(field as string);
+  if (isTextColumn) return sortBy(items, field, order);
+  const dir = order === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const av = numericValue(a, field);
+    const bv = numericValue(b, field);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;   // nulls last regardless of order
+    if (bv == null) return -1;
+    return (av - bv) * dir;
+  });
+}
+
 /**
  * Pure filtering + sorting logic for the market screener.
  * Extracted from the (very large) MarketOverviewScreen component so it can be
@@ -96,9 +143,15 @@ export function useScreenerFilters(state: ScreenerFilterState) {
         item.symbol.toLowerCase().includes(stockSearch.toLowerCase()) ||
         item.name.toLowerCase().includes(stockSearch.toLowerCase());
       const matchesExchange = filterExchange === 'All' || item.exchange === filterExchange;
-      const matchesSector = filterSector === 'All' || item.sector === filterSector;
-      const matchesIndustry = filterIndustry === 'All' || item.industry === filterIndustry;
-      const matchesType = filterType === 'All' || (item.securityType || '').toLowerCase().includes(filterType.toLowerCase());
+      // Normalize both sides so synonym labels ("Financials" / "Financial
+      // Services") and nulls-as-"Unclassified" compare consistently.
+      const matchesSector = filterSector === 'All' || normalizeSector(item.sector) === normalizeSector(filterSector);
+      const matchesIndustry = filterIndustry === 'All' || normalizeIndustry(item.industry) === normalizeIndustry(filterIndustry);
+      // filterType may be a comma-joined multi-select ("Stock,REIT"). Match if
+      // the row's securityType contains ANY of the selected types.
+      const matchesType = filterType === 'All'
+        || filterType.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+             .some((t) => (item.securityType || '').toLowerCase().includes(t));
 
       if (screenerTab === 'crypto') {
         const capMil = parseCapStr(item.marketCap);
@@ -131,15 +184,14 @@ export function useScreenerFilters(state: ScreenerFilterState) {
 
       const matchesIndex = filterIndex === 'All' || item.index.includes(filterIndex);
 
-      const countryMap: Record<string, string> = {
-        USA: 'US', India: 'IN', Pakistan: 'PK', China: 'CN',
-        Taiwan: 'TW', Netherlands: 'NL', Switzerland: 'CH', All: 'All',
-      };
-      const targetUserCountry = countryMap[userCountry] || userCountry;
-      const targetFilterCountry = countryMap[filterCountry] || filterCountry;
-      const matchesCountry =
-        (filterCountry === 'All' || item.country === targetFilterCountry) &&
-        (userCountry === 'All' || item.country === targetUserCountry);
+      // Only the explicit Country filter narrows rows. The old code ALSO forced
+      // every row to match the selected market's country code, which hid the
+      // ~1,516 US-listed companies whose stored country is "United States"
+      // (rather than "US") and every foreign-domiciled cross-listing. The
+      // universe is already scoped to the market server-side; do not re-scope
+      // by domicile here. Normalize both sides so "United States" == "US".
+      const matchesCountry = filterCountry === 'All'
+        || countryToMarketId(item.country) === countryToMarketId(filterCountry);
 
       const capInMillions = parseCapStr(item.marketCap);
       let matchesMarketCap = true;
@@ -200,12 +252,15 @@ export function useScreenerFilters(state: ScreenerFilterState) {
         && matchesPrice && matchesChange && matchesVolume && matchesRec && matchesType;
     });
 
-    return sortBy(filtered, stockSortField, stockSortOrder);
+    // The server already ordered the page by the active key before paginating,
+    // so trust that order. Re-sorting just the visible page would make the
+    // header sort look correct while the data across pages is shuffled.
+    return state.stocksServerSorted ? filtered : sortStocks(filtered, stockSortField, stockSortOrder);
   }, [
     apiStocks, stockSearch, filterExchange, filterIndex, filterSector, filterIndustry,
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
     filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
-    screenerTab, userCountry, stockSortField, stockSortOrder,
+    screenerTab, userCountry, stockSortField, stockSortOrder, state.stocksServerSorted,
   ]);
 
   const filteredFunds = useMemo(() => {

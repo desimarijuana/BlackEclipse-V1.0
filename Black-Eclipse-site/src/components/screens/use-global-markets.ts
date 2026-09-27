@@ -104,6 +104,10 @@ export function useGlobalMarkets(active: boolean) {
 
   const [gmConfig, setGmConfig] = useState<GmConfig>(GM_DEFAULTS);
   const [gmConfigOpen, setGmConfigOpen] = useState(false);
+  // Free-text filter for the markets tab (matches market name/id/exchange/
+  // country). Previously the search box was wired to the stock search state,
+  // which nothing on this tab read — typing filtered nothing.
+  const [gmSearch, setGmSearch] = useState('');
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(GM_CONFIG_KEY);
@@ -344,6 +348,8 @@ export function useGlobalMarkets(active: boolean) {
     gmConfig,
     gmConfigOpen,
     setGmConfigOpen,
+    gmSearch,
+    setGmSearch,
     applyGmConfig,
     moveGmColumn,
     gmDragId,

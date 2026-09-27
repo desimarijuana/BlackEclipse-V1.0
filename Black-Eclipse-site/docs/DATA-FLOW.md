@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-09-18
+last-verified: 2026-09-27
 ---
 
 # Data Flow
@@ -241,8 +241,18 @@ read JDDS server-side and are keyed per scope/market.
 ### Path B: Direct fetch (full-page screens)
 
 Screens like the screener, news, journal, and economics call their API route and
-manage their own pagination/state. The screener filters and paginates
-**server-side** — never pull the whole universe client-side.
+manage their own pagination/state. The screener filters, **sorts**, and paginates
+**server-side** — never pull the whole universe client-side. `/api/stocks`
+accepts `sort`/`dir` and orders the full market before slicing, so a column-sort
+click must reset the client page cache and is not re-applied to the returned
+page. Independent `OR` filters (`type`, `search`) are ANDed together, and
+`Asset.country` is normalized through `countryToMarketId` and sector/industry
+through `src/lib/screener/taxonomy.ts` because JDDS was populated from multiple
+import sources: country is stored inconsistently ("US" vs "United States") and
+the same sector appears under synonym labels ("Financials" vs "Financial
+Services"). Sector/industry dropdown options are scoped to the active type filter
+(so ETF categories and the "Equity" asset class never leak into the Stocks
+dropdown), and a null classification is offered as "Unclassified".
 
 ## The staleness story (be precise about this)
 

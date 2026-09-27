@@ -31,6 +31,7 @@ import { StockCryptoTables } from './market-stock-tables';
 import { FundEtfTables } from './market-fund-etf-tables';
 import { TableLoading } from './market-loaders';
 import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
+import { marketDisplayName } from '@/lib/markets';
 import { resolveUserMarket, setUserMarket } from '@/lib/user-market';
 import { marketSentimentFromIndices } from '@/lib/aurora-sentiment';
 
@@ -458,31 +459,39 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   // market or filter context changes (see the reset effect below).
   const [pageCache, setPageCache] = useState<Record<number, StockItem[]>>({});
 
-  // Combined Sector/Industry selection: a single dropdown that sets either
-  // the sector or the industry filter depending on which list the value is in.
+  // Combined Sector/Industry selection: a single dropdown that sets either the
+  // sector or the industry filter. The option value is prefixed with the kind
+  // ("sector:…" / "industry:…") because real markets (e.g. PK) contain names
+  // that are BOTH a sector and an industry — an unprefixed value was ambiguous
+  // and always routed to sector.
   const handleSectorIndustryChange = (value: string) => {
     if (value === 'All') {
       setFilterSector('All');
       setFilterIndustry('All');
       return;
     }
-    if (filterOptions.sectors.includes(value)) {
-      setFilterSector(value);
+    const sep = value.indexOf(':');
+    const kind = value.slice(0, sep);
+    const name = value.slice(sep + 1);
+    if (kind === 'sector') {
+      setFilterSector(name);
       setFilterIndustry('All');
     } else {
-      setFilterIndustry(value);
+      setFilterIndustry(name);
       setFilterSector('All');
     }
   };
 
-  // The value shown in the combined dropdown: prefer sector if set, else industry.
-  const sectorIndustryValue = filterSector !== 'All' ? filterSector : filterIndustry !== 'All' ? filterIndustry : 'All';
+  // The value shown in the combined dropdown (matches the encoded option value).
+  const sectorIndustryValue = filterSector !== 'All'
+    ? `sector:${filterSector}`
+    : filterIndustry !== 'All' ? `industry:${filterIndustry}` : 'All';
 
   // Reset page + drop prefetch cache on country, limit, search, sector, or tab changes
   React.useEffect(() => {
     setCurrentPage(1);
     setPageCache({});
-  }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterCountry, screenerTab]);
+  }, [userCountry, limit, stockSearch, filterSector, filterIndustry, filterType, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterDividendYield, filterCountry, screenerTab, stockSortField, stockSortOrder]);
 
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const lastDashboardMarketRef = React.useRef<string | null>(null);
@@ -594,7 +603,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     if (filterPrice !== 'All') params.set('price', filterPrice);
     if (filterChange !== 'All') params.set('change', filterChange);
     if (filterVolume !== 'All') params.set('volume', filterVolume);
+    if (filterDividendYield !== 'All') params.set('dividend', filterDividendYield);
     if (stockSearch.trim()) params.set('search', stockSearch.trim());
+    // Order the whole universe server-side before paginating, so a header sort
+    // is correct across pages, not just within the visible slice.
+    params.set('sort', String(stockSortField));
+    params.set('dir', stockSortOrder);
 
     try {
       const res = await fetch(`/api/stocks?${params.toString()}`);
@@ -607,7 +621,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       console.error('Failed to load from JDBC, using demo:', err);
       return null;
     }
-  }, [getQueryCountry, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+  }, [getQueryCountry, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterDividendYield, stockSearch, stockSortField, stockSortOrder]);
 
   // Table load progress (ASCII loader): creeps toward 95% while work runs,
   // snaps to 100% on completion. "soft" starts keep an already-running bar.
@@ -707,7 +721,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     }, stockSearch ? 300 : 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, stockSearch]);
+  }, [userCountry, screenerTab, currentPage, limit, filterType, filterSector, filterIndustry, filterCountry, filterMarketCap, filterPE, filterPrice, filterChange, filterVolume, filterDividendYield, stockSearch, stockSortField, stockSortOrder]);
 
   // Automatic price backfill: whenever a region's screener is shown and its
   // prices are missing/stale (>15 min), pull live quotes for THE VISIBLE PAGE
@@ -769,6 +783,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     gmConfig,
     gmConfigOpen,
     setGmConfigOpen,
+    gmSearch,
+    setGmSearch,
     applyGmConfig,
     moveGmColumn,
     gmDragId,
@@ -804,7 +820,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [fundSortField, setFundSortField] = useState<keyof FundItem>('symbol');
   const [fundSortOrder, setFundSortOrder] = useState<'asc' | 'desc'>('asc');
   const [apiFunds, setApiFunds] = useState<FundItem[]>([]);
-  const [, setTotalFunds] = useState(0);
+  const [totalFunds, setTotalFunds] = useState(0);
+  const [fundPage, setFundPage] = useState(1);
+  const [fundLimit, setFundLimit] = useState(50);
+  // Full category list for the dropdown — kept separate from the (filtered,
+  // paginated) rows so choosing a category doesn't collapse the option list.
+  const [fundCategories, setFundCategories] = useState<string[]>([]);
 
   // ETF state
   const [etfSearch, setEtfSearch] = useState('');
@@ -812,18 +833,34 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
   const [etfSortField, setEtfSortField] = useState<keyof ETFItem>('symbol');
   const [etfSortOrder, setEtfSortOrder] = useState<'asc' | 'desc'>('asc');
   const [apiEtfs, setApiEtfs] = useState<ETFItem[]>([]);
-  const [, setTotalEtfs] = useState(0);
+  const [totalEtfs, setTotalEtfs] = useState(0);
+  const [etfPage, setEtfPage] = useState(1);
+  const [etfLimit, setEtfLimit] = useState(50);
+  const [etfCategories, setEtfCategories] = useState<string[]>([]);
 
-  // Fetch real ETF data from JDDS when the ETFs tab is active.
+  // Fetch real ETF data from JDDS when the ETFs tab is active. Paginated
+  // server-side (the API caps limit at 100) so the full universe is reachable
+  // instead of being silently truncated to the first page.
   React.useEffect(() => {
     if (screenerTab !== 'etfs') return;
     let cancelled = false;
     (async () => {
       setLoadingTab(true);
       try {
-        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'ETF', limit: '500' });
+        const params = new URLSearchParams({
+          country: userCountry === 'PK' ? 'PK' : 'US',
+          type: 'ETF',
+          page: String(etfPage),
+          limit: String(etfLimit),
+          sort: etfSortField === 'category' ? 'industry' : etfSortField,
+          dir: etfSortOrder,
+        });
         if (etfCategory !== 'All') params.set('industry', etfCategory);
         if (etfSearch.trim()) params.set('search', etfSearch.trim());
+        // ETF advanced filters share change/price state with the Stocks panel;
+        // push them server-side so pagination counts the full universe.
+        if (filterChange !== 'All') params.set('change', filterChange);
+        if (filterPrice !== 'All') params.set('price', filterPrice);
         const res = await fetch(`/api/stocks?${params.toString()}`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.stocks)) {
@@ -847,16 +884,42 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       }
     })();
     return () => { cancelled = true; };
-  }, [screenerTab, etfCategory, etfSearch, userCountry]);
+  }, [screenerTab, etfCategory, etfSearch, userCountry, etfPage, etfLimit, etfSortField, etfSortOrder, filterChange, filterPrice]);
 
-  // Fetch real Mutual Fund data from JDDS when the funds tab is active.
+  // ETF category options: fetched once (unfiltered, type=ETF) so the dropdown
+  // never collapses to just the selected category after a choice.
+  React.useEffect(() => {
+    if (screenerTab !== 'etfs') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'ETF', limit: '1' });
+        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const data = await res.json();
+        if (!cancelled && data?.filterOptions?.industries) {
+          setEtfCategories(data.filterOptions.industries as string[]);
+        }
+      } catch { /* non-fatal: dropdown falls back to the page's own categories */ }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, userCountry]);
+
+  // Fetch real Mutual Fund data from JDDS when the funds tab is active (paginated).
   React.useEffect(() => {
     if (screenerTab !== 'funds') return;
     let cancelled = false;
     (async () => {
       setLoadingTab(true);
       try {
-        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'Mutual Fund', limit: '500' });
+        const params = new URLSearchParams({
+          country: userCountry === 'PK' ? 'PK' : 'US',
+          type: 'Mutual Fund',
+          page: String(fundPage),
+          limit: String(fundLimit),
+          sort: fundSortField === 'category' ? 'industry' : fundSortField,
+          dir: fundSortOrder,
+        });
+        if (fundCategory !== 'All') params.set('industry', fundCategory);
         if (fundSearch.trim()) params.set('search', fundSearch.trim());
         const res = await fetch(`/api/stocks?${params.toString()}`);
         const data = await res.json();
@@ -867,9 +930,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             category: (s.industry as string) || 'General',
             nav: (s.price as number) || 0,
             changePercent: (s.changePercent as number) || 0,
-            ytdReturn: 0,
-            expenseRatio: 0,
-            rating: 0,
+            // Not sourced in JDDS yet → null renders N/A, not a fake 0.
+            ytdReturn: null,
+            expenseRatio: null,
+            rating: null,
             aum: (s.marketCap as string) || 'N/A',
           }));
           setApiFunds(mapped);
@@ -882,7 +946,28 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       }
     })();
     return () => { cancelled = true; };
-  }, [screenerTab, fundSearch, userCountry]);
+  }, [screenerTab, fundSearch, userCountry, fundCategory, fundPage, fundLimit, fundSortField, fundSortOrder]);
+
+  // Fund category options: fetched once (unfiltered).
+  React.useEffect(() => {
+    if (screenerTab !== 'funds') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ country: userCountry === 'PK' ? 'PK' : 'US', type: 'Mutual Fund', limit: '1' });
+        const res = await fetch(`/api/stocks?${params.toString()}`);
+        const data = await res.json();
+        if (!cancelled && data?.filterOptions?.industries) {
+          setFundCategories(data.filterOptions.industries as string[]);
+        }
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, [screenerTab, userCountry]);
+
+  // Reset to page 1 whenever an ETF/Fund filter or search changes.
+  React.useEffect(() => { setEtfPage(1); }, [etfCategory, etfSearch, userCountry, etfLimit]);
+  React.useEffect(() => { setFundPage(1); }, [fundCategory, fundSearch, userCountry, fundLimit]);
 
   // Forex & commodities live in ./use-market-tabs.ts (extracted to keep this
   // file small). Each hook owns its fetch, filter state, and filtered list.
@@ -907,6 +992,17 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     onAnalyzeTicker(ticker);
   };
 
+  // Fields /api/stocks can ORDER BY consistently with what the table DISPLAYS.
+  // `sector`/`industry`/`country` are excluded: the API normalizes their values
+  // on read (synonyms → canonical sector, "United States" → "US"), so a DB
+  // order by the raw column would interleave rows that render identically. Those
+  // fall back to client sorting over the returned page so the visible order
+  // matches the column. Everything else is ordered over the full universe.
+  const SERVER_SORTABLE_FIELDS = new Set([
+    'symbol', 'name', 'securityType',
+    'price', 'changePercent', 'marketCap', 'peRatio', 'volume', 'rank',
+  ]);
+
   // Filter & sort logic (extracted to a pure hook for testability + reuse)
   const {
     filteredStocks,
@@ -918,6 +1014,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
     filterCountry, filterMarketCap, filterPE, filterDividendYield, filterPrice,
     filterChange, filterVolume, filterRecommendation, filterMetricType, filterType,
     screenerTab, userCountry, stockSortField, stockSortOrder,
+    // /api/stocks ordered the page by the active sort (JDDS-backed tabs only);
+    // the hook must not re-sort the slice — but only when the sort field is one
+    // the DB actually ordered by.
+    stocksServerSorted: dataSource === 'jdds'
+      && (screenerTab === 'stocks' || screenerTab === 'crypto')
+      && SERVER_SORTABLE_FIELDS.has(String(stockSortField)),
     fundSearch, fundCategory, fundSortField, fundSortOrder,
     etfSearch, etfCategory, etfSortField, etfSortOrder,
     dividendSearch, dividendSortField, dividendSortOrder,
@@ -1724,12 +1826,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     <option value="All">All Sectors / Industries</option>
                     <optgroup label="Sectors">
                       {filterOptions.sectors.map((s) => (
-                        <option key={`s-${s}`} value={s}>{s}</option>
+                        <option key={`s-${s}`} value={`sector:${s}`}>{s}</option>
                       ))}
                     </optgroup>
                     <optgroup label="Industries">
                       {filterOptions.industries.map((ind) => (
-                        <option key={`i-${ind}`} value={ind}>{ind}</option>
+                        <option key={`i-${ind}`} value={`industry:${ind}`}>{ind}</option>
                       ))}
                     </optgroup>
                   </select>
@@ -1770,18 +1872,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                 >
                   <option value="All">All Categories</option>
-                  <option value="Layer 1">Layer 1</option>
-                  <option value="Layer 2">Layer 2</option>
-                  <option value="DeFi">DeFi</option>
-                  <option value="Meme Coins">Meme Coins</option>
-                  <option value="Gaming">Gaming</option>
-                  <option value="AI">AI / Data</option>
-                  <option value="DePIN">DePIN</option>
-                    <option value="Privacy">Privacy</option>
-                    <option value="Payment">Payment</option>
-                    <option value="Exchange Tokens">Exchange Tokens</option>
-                    <option value="Stablecoins">Stablecoins</option>
-                  </select>
+                  {filterOptions.sectors.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground w-3.5 h-3.5 pointer-events-none" />
                 </div>
                 {/* Metric Selector / Quick Filters */}
@@ -1834,7 +1928,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                 >
                   <option value="All">All Categories</option>
-                  {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
+                  {(etfCategories.length > 0
+                    ? etfCategories
+                    : Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort()
+                  ).map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
@@ -1874,7 +1971,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   className="w-full appearance-none bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-3.5 pr-9 py-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-all"
                 >
                   <option value="All">All Categories</option>
-                  {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
+                  {(fundCategories.length > 0
+                    ? fundCategories
+                    : Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort()
+                  ).map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
@@ -1919,8 +2019,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   ref={searchRef}
                   type="text"
                   placeholder="Search markets..."
-                  value={stockSearch}
-                  onChange={e => setStockSearch(e.target.value)}
+                  value={gmSearch}
+                  onChange={e => setGmSearch(e.target.value)}
                   className="w-full bg-background/60 border border-border/40 hover:border-primary/50 rounded-xl pl-10 pr-4 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/50 transition-all font-mono"
                 />
               </div>
@@ -2104,12 +2204,12 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     <option value="All">Any Sector / Industry</option>
                     <optgroup label="Sectors">
                       {filterOptions.sectors.map((s) => (
-                        <option key={`s-${s}`} value={s}>{s}</option>
+                        <option key={`s-${s}`} value={`sector:${s}`}>{s}</option>
                       ))}
                     </optgroup>
                     <optgroup label="Industries">
                       {filterOptions.industries.map((ind) => (
-                        <option key={`i-${ind}`} value={ind}>{ind}</option>
+                        <option key={`i-${ind}`} value={`industry:${ind}`}>{ind}</option>
                       ))}
                     </optgroup>
                   </select>
@@ -2141,7 +2241,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">Any Country</option>
                     {filterOptions.countries.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      // Value stays the canonical code (matches the Country
+                      // column); the label is the readable market name.
+                      <option key={c} value={c}>{marketDisplayName(c)}</option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
@@ -2197,6 +2299,38 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
               </div>
+
+              {/* Dividend Yield */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Dividend Yield</span>
+                <div className="relative">
+                  <select value={filterDividendYield} onChange={e => setFilterDividendYield(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Yield</option>
+                    <option value="None">No Dividend</option>
+                    <option value="Positive">Pays Dividend</option>
+                    <option value="Over2">Over 2%</option>
+                    <option value="Over5">Over 5%</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Volume */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">Volume</span>
+                <div className="relative">
+                  <select value={filterVolume} onChange={e => setFilterVolume(e.target.value)}
+                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
+                    <option value="All">Any Volume</option>
+                    <option value="Under1">Under 1M</option>
+                    <option value="1to10">1M – 10M</option>
+                    <option value="Over10">Over 10M</option>
+                    <option value="Over30">Over 30M</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2221,17 +2355,9 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <select value={filterSector} onChange={e => setFilterSector(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">All Categories</option>
-                    <option value="Layer 1">Layer 1</option>
-                    <option value="Layer 2">Layer 2</option>
-                    <option value="DeFi">DeFi</option>
-                    <option value="Meme Coins">Meme Coins</option>
-                    <option value="Gaming">Gaming</option>
-                    <option value="AI">AI / Data</option>
-                    <option value="DePIN">DePIN</option>
-                    <option value="Privacy">Privacy</option>
-                    <option value="Payment">Payment</option>
-                    <option value="Exchange Tokens">Exchange Tokens</option>
-                    <option value="Stablecoins">Stablecoins</option>
+                    {filterOptions.sectors.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
@@ -2290,7 +2416,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <select value={etfCategory} onChange={e => setEtfCategory(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">All Categories</option>
-                    {Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort().map((c) => (
+                    {(etfCategories.length > 0
+                      ? etfCategories
+                      : Array.from(new Set(apiEtfs.map((e) => e.category).filter(Boolean))).sort()
+                    ).map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -2352,7 +2481,10 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <select value={fundCategory} onChange={e => setFundCategory(e.target.value)}
                     className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
                     <option value="All">All Categories</option>
-                    {Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort().map((c) => (
+                    {(fundCategories.length > 0
+                      ? fundCategories
+                      : Array.from(new Set(apiFunds.map((f) => f.category).filter(Boolean))).sort()
+                    ).map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -2373,14 +2505,15 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
               </div>
-              <div className="flex flex-col gap-1.5">
+              {/* YTD return is not yet sourced into the fund adapter (rendered
+                  as N/A, not a fake 0), so this control is shown disabled rather
+                  than silently bound to the Change filter (a previous duplicate). */}
+              <div className="flex flex-col gap-1.5 opacity-50">
                 <span className="text-[9px] uppercase font-bold text-muted-foreground/80 tracking-widest font-mono">YTD Return</span>
                 <div className="relative">
-                  <select value={filterChange} onChange={e => setFilterChange(e.target.value)}
-                    className="w-full appearance-none bg-background/80 border border-border/50 hover:border-primary/40 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none transition-all cursor-pointer">
-                    <option value="All">Any Return</option>
-                    <option value="Positive">Positive</option>
-                    <option value="Negative">Negative</option>
+                  <select disabled value="All" title="YTD return is not available in JDDS for funds yet"
+                    className="w-full appearance-none bg-background/80 border border-border/50 text-foreground text-[11px] rounded-lg pl-2.5 pr-7 py-2 outline-none cursor-not-allowed">
+                    <option value="All">Not available</option>
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                 </div>
@@ -2480,6 +2613,8 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             gmConfig={gmConfig}
             gmConfigOpen={gmConfigOpen}
             setGmConfigOpen={setGmConfigOpen}
+            gmSearch={gmSearch}
+            setGmSearch={setGmSearch}
             applyGmConfig={applyGmConfig}
             moveGmColumn={moveGmColumn}
             gmSelectedRow={gmSelectedRow}
@@ -2552,11 +2687,21 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           etfSortOrder={etfSortOrder}
           toggleEtfSort={toggleEtfSort}
           filteredETFs={filteredETFs}
+          etfTotal={totalEtfs}
+          etfPage={etfPage}
+          etfLimit={etfLimit}
+          setEtfPage={setEtfPage}
+          setEtfLimit={setEtfLimit}
           apiFunds={apiFunds}
           fundSortField={fundSortField}
           fundSortOrder={fundSortOrder}
           toggleFundSort={toggleFundSort}
           filteredFunds={filteredFunds}
+          fundTotal={totalFunds}
+          fundPage={fundPage}
+          fundLimit={fundLimit}
+          setFundPage={setFundPage}
+          setFundLimit={setFundLimit}
           dividendSortField={dividendSortField}
           dividendSortOrder={dividendSortOrder}
           toggleDividendSort={toggleDividendSort}

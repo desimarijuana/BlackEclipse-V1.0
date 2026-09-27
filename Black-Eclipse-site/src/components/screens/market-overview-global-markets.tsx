@@ -24,6 +24,8 @@ interface GlobalMarketsOverviewProps {
   gmConfig: GmConfig;
   gmConfigOpen: boolean;
   setGmConfigOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  gmSearch: string;
+  setGmSearch: React.Dispatch<React.SetStateAction<string>>;
   applyGmConfig: (patch: Partial<GmConfig>) => void;
   moveGmColumn: (key: keyof GmConfig['columns'], dir: -1 | 1) => void;
   gmSelectedRow: { marketId: string; symbol: string } | null;
@@ -47,7 +49,7 @@ interface GlobalMarketsOverviewProps {
 
 export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
   const {
-    gmConfig, gmConfigOpen, setGmConfigOpen, applyGmConfig, moveGmColumn,
+    gmConfig, gmConfigOpen, setGmConfigOpen, gmSearch, setGmSearch, applyGmConfig, moveGmColumn,
     gmSelectedRow, setGmSelectedRow, gmDragId, gmDragWidth, gmFloatRef,
     beginGmDrag, globalOverview, loadingGlobalMarkets,
     sectionVisible, toggleSection, handleSymbolClick, handleMarketSelect,
@@ -74,9 +76,18 @@ export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
             }
             return list.slice(0, gmConfig.rows);
           };
-          const groups: OverviewGroup[] = gmConfig.countries
+          const q = gmSearch.trim().toLowerCase();
+          const matchesSearch = (g: OverviewGroup) =>
+            !q
+            || g.id.toLowerCase().includes(q)
+            || (g.name ?? '').toLowerCase().includes(q)
+            || g.country.toLowerCase().includes(q)
+            || g.exchange.toLowerCase().includes(q)
+            || g.stocks.some(s => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
+          const groups: OverviewGroup[] = (gmConfig.countries
             ? globalOverview.filter(g => gmConfig.countries!.includes(g.id))
-            : [...globalOverview];
+            : [...globalOverview]
+          ).filter(matchesSearch);
           // Default card order for the ordering buttons in the config panel
           // (countries in load order, then the special cards).
           const cardIdBaseOrder: string[] = [
@@ -116,7 +127,9 @@ export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
                   <Globe className="text-primary w-4 h-4 shrink-0" />
                   <span className="text-xs font-bold text-foreground uppercase tracking-wider font-mono">Global Markets Overview</span>
                   <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
-                    {groups.length} markets · top {gmConfig.rows} by market cap · local currency
+                    {groups.length} markets · top {gmConfig.rows} by{' '}
+                    {gmConfig.sortBy === 'change' ? 'change' : gmConfig.sortBy === 'price' ? 'price' : gmConfig.sortBy === 'name' ? 'name' : 'market cap'}
+                    {gmConfig.movers === 'gainers' ? ' (gainers)' : gmConfig.movers === 'losers' ? ' (losers)' : ''} · local currency
                   </span>
                 </span>
                 <button
@@ -389,11 +402,13 @@ export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
                     </div>
                   ))}
                 </div>
-              ) : groups.length === 0 ? (
+              ) : cardOrder.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground text-xs">
                   {globalOverview.length === 0
                     ? 'No priced markets yet - open a country screener and refresh prices to populate the overview.'
-                    : 'All countries hidden — click Customize above and select the markets you want to see.'}
+                    : gmSearch.trim()
+                      ? `No markets match “${gmSearch.trim()}”.`
+                      : 'All countries hidden — click Customize above and select the markets you want to see.'}
                 </div>
               ) : (
                 <div className={`relative grid ${gridClass} gap-3`}>
@@ -633,7 +648,7 @@ export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
                             </thead>
                             <tbody>
                               {rows.length === 0 ? (
-                                <tr><td colSpan={5} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>
+                                <tr><td colSpan={(gmConfig.columnOrder ?? GM_COLUMN_ORDER).filter((k) => col[k]).length || 5} className={`${rowPad} pl-3.5 pr-3.5 text-muted-foreground/60 italic`}>
                                   No {gmConfig.movers === 'all' ? '' : gmConfig.movers} in top {gmConfig.rows}
                                 </td></tr>
                               ) : rows.map((s, idx) => {

@@ -1387,7 +1387,10 @@ violation and should be corrected before it lands.
 **Rules that follow from this:**
 - A backend route may import from `src/lib/`, `src/hooks/`, `src/types/` — but
   **never** from `src/components/`. Pure logic that a route needs belongs in
-  `src/lib/` (this is why screener data/formatting moved to `src/lib/screener/`).
+  `src/lib/` (this is why screener data/formatting moved to `src/lib/screener/`,
+  and why sector/industry synonym normalization lives in
+  `src/lib/screener/taxonomy.ts` — shared by the route and the client filter so
+  the two never disagree).
 - A component may import from `src/lib/`, `src/hooks/`, `src/types/` and other
   components. Server-only code must never be reachable from a client component.
 - `src/hooks/` holds only React hooks; framework-free helpers live in `src/lib/`.

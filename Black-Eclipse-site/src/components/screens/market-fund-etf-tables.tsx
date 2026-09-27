@@ -25,12 +25,22 @@ interface FundEtfTablesProps {
   etfSortOrder: 'asc' | 'desc';
   toggleEtfSort: (field: keyof ETFItem) => void;
   filteredETFs: ETFItem[];
+  etfTotal: number;
+  etfPage: number;
+  etfLimit: number;
+  setEtfPage: React.Dispatch<React.SetStateAction<number>>;
+  setEtfLimit: React.Dispatch<React.SetStateAction<number>>;
   // Funds
   apiFunds: FundItem[];
   fundSortField: keyof FundItem;
   fundSortOrder: 'asc' | 'desc';
   toggleFundSort: (field: keyof FundItem) => void;
   filteredFunds: FundItem[];
+  fundTotal: number;
+  fundPage: number;
+  fundLimit: number;
+  setFundPage: React.Dispatch<React.SetStateAction<number>>;
+  setFundLimit: React.Dispatch<React.SetStateAction<number>>;
   // Dividends
   dividendSortField: keyof BlueChipItem;
   dividendSortOrder: 'asc' | 'desc';
@@ -43,10 +53,67 @@ export function FundEtfTables(props: FundEtfTablesProps) {
     screenerTab, sectionVisible, handleSymbolClick, onAnalyzeTicker, loadingTab,
     userCountry, priceWithCurrency,
     apiEtfs, etfSortField, etfSortOrder, toggleEtfSort, filteredETFs,
+    etfTotal, etfPage, etfLimit, setEtfPage, setEtfLimit,
     apiFunds, fundSortField, fundSortOrder, toggleFundSort, filteredFunds,
+    fundTotal, fundPage, fundLimit, setFundPage, setFundLimit,
     dividendSortField, dividendSortOrder, toggleDividendSort, filteredDividendStocks,
   } = props;
   const handleAction = onAnalyzeTicker;
+
+  // Shared pagination footer for the server-paginated ETF/Fund directories.
+  const pager = (
+    total: number, page: number, limit: number,
+    setPage: React.Dispatch<React.SetStateAction<number>>,
+    setLimitFn: React.Dispatch<React.SetStateAction<number>>,
+    noun: string,
+  ) => {
+    const pages = Math.max(1, Math.ceil(total / limit));
+    return (
+      <div className="flex items-center justify-between border-t border-border/10 pt-5 px-2 flex-wrap gap-4">
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground font-medium">
+          <div>
+            Showing <span className="font-semibold font-mono text-foreground">{total > 0 ? ((page - 1) * limit) + 1 : 0}</span> to{' '}
+            <span className="font-semibold font-mono text-foreground">{Math.min(page * limit, total)}</span> of{' '}
+            <span className="font-semibold font-mono text-foreground">{total}</span> {noun}
+          </div>
+          <div className="flex items-center gap-2 glass-card-subtle px-3 py-1.5 rounded-xl border border-border/30">
+            <span className="text-[10px] uppercase font-bold text-muted-foreground/80">Show:</span>
+            <select
+              value={limit}
+              onChange={(e) => setLimitFn(Number(e.target.value))}
+              className="bg-transparent text-[11px] font-bold text-foreground font-mono focus:outline-none cursor-pointer"
+            >
+              <option value={50} className="bg-card text-foreground">50</option>
+              <option value={100} className="bg-card text-foreground">100</option>
+            </select>
+          </div>
+        </div>
+        {total > limit && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline" size="sm"
+              onClick={() => setPage((p) => Math.max(p - 1, 1))}
+              disabled={page === 1}
+              className="px-3 py-1 text-[11px] font-semibold h-7 border-border bg-background/50 hover:bg-accent disabled:opacity-50"
+            >
+              Previous
+            </Button>
+            <div className="text-[11px] font-mono font-bold px-2.5 py-0.5 bg-accent/30 rounded-lg">
+              Page {page} of {pages}
+            </div>
+            <Button
+              variant="outline" size="sm"
+              onClick={() => setPage((p) => Math.min(p + 1, pages))}
+              disabled={page >= pages}
+              className="px-3 py-1 text-[11px] font-semibold h-7 border-border bg-background/50 hover:bg-accent disabled:opacity-50"
+            >
+              Next
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -136,6 +203,7 @@ export function FundEtfTables(props: FundEtfTablesProps) {
               </tbody>
             </table>
           </div>
+          {pager(etfTotal, etfPage, etfLimit, setEtfPage, setEtfLimit, 'ETFs')}
           </div>
         )}
 
@@ -211,19 +279,29 @@ export function FundEtfTables(props: FundEtfTablesProps) {
                         )}>
                           {isPositive ? '+' : ''}{fund.changePercent.toFixed(2)}%
                         </td>
-                        <td className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold hidden md:table-cell whitespace-nowrap">{fund.ytdReturn.toFixed(2)}%</td>
-                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden lg:table-cell whitespace-nowrap">{fund.expenseRatio}%</td>
+                        <td className="py-3 px-4 text-right font-mono hidden md:table-cell whitespace-nowrap">
+                          {fund.ytdReturn == null
+                            ? <span className="text-muted-foreground/60">N/A</span>
+                            : <span className="text-emerald-400 font-semibold">{fund.ytdReturn.toFixed(2)}%</span>}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden lg:table-cell whitespace-nowrap">
+                          {fund.expenseRatio == null ? 'N/A' : `${fund.expenseRatio}%`}
+                        </td>
                         <td className="py-3 px-4 hidden md:table-cell whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-0.5 text-amber-400">
-                            {Array.from({ length: 5 }).map((_, idx) => (
-                              <Star 
-                                key={idx} 
-                                size={11} 
-                                fill={idx < fund.rating ? 'currentColor' : 'none'}
-                                className={idx < fund.rating ? 'text-amber-400' : 'text-muted-foreground/30'}
-                              />
-                            ))}
-                          </div>
+                          {fund.rating == null ? (
+                            <div className="text-center text-[10px] text-muted-foreground/60 font-mono">N/A</div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-0.5 text-amber-400">
+                              {Array.from({ length: 5 }).map((_, idx) => (
+                                <Star 
+                                  key={idx} 
+                                  size={11} 
+                                  fill={idx < (fund.rating ?? 0) ? 'currentColor' : 'none'}
+                                  className={idx < (fund.rating ?? 0) ? 'text-amber-400' : 'text-muted-foreground/30'}
+                                />
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-foreground/75 hidden lg:table-cell whitespace-nowrap">{fund.aum}</td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
@@ -242,6 +320,7 @@ export function FundEtfTables(props: FundEtfTablesProps) {
               </tbody>
             </table>
           </div>
+          {pager(fundTotal, fundPage, fundLimit, setFundPage, setFundLimit, 'funds')}
           </div>
         )}
 

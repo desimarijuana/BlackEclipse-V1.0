@@ -8,6 +8,65 @@ last-verified: 2026-09-15
 
 ## 2026-09-27
 
+- **Market screener — filters, sorting and taxonomy corrected across the whole
+  universe.** A cluster of defects made the screens disagree with the data:
+  - **Country filter / column.** JDDS stores `Asset.country` inconsistently
+    ("US" vs "United States", plus foreign domiciles). `/api/stocks` normalizes
+    it through `countryToMarketId`, the country dropdown is deduped, and the
+    filter matches every raw form. The client hook no longer forces each row to
+    equal the selected market's domicile — that hidden constraint dropped ~1,516
+    US-listed names stored as "United States" and every cross-listing.
+  - **Header sorting spans the full universe.** `/api/stocks` honours
+    `sort`/`dir` (Asset + Price columns) so a header click orders the whole
+    market before pagination; the page cache resets on sort change and the hook
+    skips re-sorting a server-ordered slice. Nulls-last is applied only to
+    nullable columns (`price`/`changePct` are non-nullable).
+  - **Compounding OR filters.** `type` (multi-select) and `search` both wrote
+    `where.OR`, so the later silently discarded the other; they are now collected
+    into `where.AND`.
+  - **Change filter boundaries** now exclude exactly 0 from Positive/Negative.
+  - **Type multi-select** client matching splits the comma-joined value.
+  - **Missing / broken controls.** Added Dividend Yield + Volume to the Stocks
+    panel (server-side); the Funds "YTD Return" select was a duplicate bound to
+    Change and is now a disabled "Not available" control; crypto category options
+    come from JDDS sectors rather than a drifted hardcoded list.
+  - **Sector/industry taxonomy repaired.** New `src/lib/screener/taxonomy.ts`
+    collapses synonym labels across import sources ("Financials" → "Financial
+    Services", "Consumer Discretionary" → "Consumer Cyclical", "Layer 1 (L1)" →
+    "Layer 1", stablecoin sub-types → "Stablecoins"), applied on read, on filter
+    (DB predicate matches every raw synonym) and on the option list. Sector/
+    industry dropdown options are scoped to the active type filter (so ETF
+    categories and the "Equity" asset class never leak into the Stocks dropdown),
+    null classification is offered as "Unclassified" (matching the table cell,
+    previously "Other" — a real crypto sector), and the combined Sector/Industry
+    dropdown encodes its kind (`sector:` / `industry:`) because PK has names that
+    are both. Every dropdown option now yields rows.
+  docs updated: DATA-FLOW.md, ARCHITECTURE.md, CHANGELOG.md
+
+- **Market screener — second pass (audit follow-up).**
+  - **ATL distance used the ATH value.** `/api/stocks` mapped `atlChangePercent`
+    from `athChangePct`; now uses the distinct `atlChangePct` column.
+  - **Crypto supply/ATH columns sorted lexicographically** ("10.0B" < "2.0B").
+    The client fallback sort uses a numeric accessor keyed on the raw values
+    (`circulatingSupplyRaw`/`maxSupplyRaw`/`athChangePercent`), nulls-last.
+  - **Small-cap boundary mismatch** (`>= 0` server vs `> 0` client) inflated the
+    pagination total; the server now uses an exclusive lower bound.
+  - **ETF/Fund directory silently capped at 100 rows** (asked for 500, API caps
+    at 100, no footer). Both tabs are now genuinely server-paginated with a footer.
+  - **ETF/Fund category dropdown collapsed** to the selected category; the full
+    category list is fetched once and kept separate.
+  - **Funds rendered fabricated zeros.** `ytdReturn`/`expenseRatio`/`rating` are
+    now `null` and render `N/A` instead of `0.00%`/`0%`/zero stars (`FundItem`
+    allows null).
+  - **Markets-tab search box was dead** (bound to the unused stock search state);
+    `useGlobalMarkets` now owns `gmSearch` and filters market cards.
+  - **Country/Industry header sort** no longer uses the server (which ordered the
+    raw, unnormalized column) — it falls back to client sorting so the visible
+    order matches the displayed values.
+  - Minor: Global Markets empty-state keeps the visible Forex/Commodities cards;
+    `colSpan` and the "top N by …" caption reflect the active settings.
+  docs updated: DATA-FLOW.md, CHANGELOG.md
+
 - **Start commands fixed — `black eclipse` / `npm run up` no longer stall on a
   rebuild, and the doctor repairs in the right directory.** Two distinct bugs
   made the site *look* like it was not starting:

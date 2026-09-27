@@ -103,9 +103,11 @@ export interface FundItem {
   category: string;
   nav: number;
   changePercent: number;
-  ytdReturn: number;
-  expenseRatio: number;
-  rating: number;
+  // These metrics are not sourced for JDDS funds yet. `null` renders as N/A —
+  // never a fabricated 0, which would read as a real (bad) return/ratio/rating.
+  ytdReturn: number | null;
+  expenseRatio: number | null;
+  rating: number | null;
   aum: string;
 }
 
