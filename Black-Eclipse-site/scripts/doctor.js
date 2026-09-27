@@ -9,7 +9,11 @@ const root = path.join(__dirname, "..");
 let fixed = 0;
 
 function run(cmd, opts = {}) {
-  return spawnSync(cmd, { shell: true, stdio: "pipe", encoding: "utf8", ...opts });
+  // Always execute from the site root. `black eclipse` can be launched from any
+  // directory (the global npm link), so without an explicit cwd a repair such as
+  // `npm install` / `npx prisma generate` would run in the caller's folder and
+  // fail or write outside the project.
+  return spawnSync(cmd, { shell: true, cwd: root, stdio: "pipe", encoding: "utf8", ...opts });
 }
 
 function fix(label, cmd) {

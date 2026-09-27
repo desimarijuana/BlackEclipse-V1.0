@@ -144,6 +144,8 @@ function startServer(port) {
 
 /** Start `next dev` in the FOREGROUND. */
 function startDev(port) {
+  // `next.config.ts` routes dev output to `.next-dev` (via NODE_ENV) so a dev
+  // run never deletes the cached production build in `.next`.
   const child = spawn(process.execPath, [nextBin(), "dev", "-p", String(port)], {
     cwd: root,
     stdio: "inherit",

@@ -6,6 +6,26 @@ last-verified: 2026-09-15
 
 # Change Log
 
+## 2026-09-27
+
+- **Start commands fixed — `black eclipse` / `npm run up` no longer stall on a
+  rebuild, and the doctor repairs in the right directory.** Two distinct bugs
+  made the site *look* like it was not starting:
+  - **Dev wiped the cached production build.** `next dev` deletes
+    `.next/BUILD_ID` on start, which invalidated `scripts/lib/server.js`'s
+    `needsBuild()` hash — so the next `black eclipse` / `npm run up` silently ran
+    a full ~90s production build before serving (looked like a hang on the
+    "site did not start" report). `next.config.ts` now sets `distDir` from
+    `NODE_ENV` (dev → `.next-dev`, prod → `.next`, `NEXT_DIST_DIR` overrides), so
+    a dev run can never clobber the production build. `.next-dev/` is gitignored.
+  - **`doctor.js` ran its repairs with no cwd.** `root` was derived from
+    `__dirname` for the checks, but `fix()`/`run()` exec'd `npm install`,
+    `npx prisma generate`, pip installs, etc. in the caller's directory. Since
+    `black eclipse` can be launched from anywhere via the global npm link, a
+    repair triggered outside the site folder would fail or write in the wrong
+    place. `run()` now pins `cwd: root` (matching `db-guard.js`).
+  no doc change — start-script/config fix, no architecture or contract change.
+
 ## 2026-09-26
 
 - **Memory Control Room + Skills patch panel UI polish (frosted-glass pass).**
