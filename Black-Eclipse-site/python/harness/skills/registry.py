@@ -72,6 +72,11 @@ class SkillRegistry:
         self.store = store or SkillStore()
         self._skills: dict[str, LoadedSkill] = {}
         self._duplicates: list[str] = []
+        # Skill ids a higher tier legally shadowed (project/profile over bundled).
+        self._shadowed: list[str] = []
+        # Untrusted-project notices from the last load (names only). Surfaced
+        # to the UI/diagnostics; never a loaded skill.
+        self._project_notices: list[str] = []
 
     # ── Registration / loading ──────────────────────────────────────────────
 
@@ -92,26 +97,41 @@ class SkillRegistry:
             self.register(loaded)
         return errors
 
-    def load_all(self, root: Optional[str] = None) -> list[str]:
+    def load_all(
+        self,
+        root: Optional[str] = None,
+        *,
+        project_root: Optional[str] = None,
+        project_discovery: bool = True,
+    ) -> list[str]:
         """Load the library and persist each skill/version to the store.
 
         A version already present is skipped (immutability). This is the boot
         path; it is idempotent.
+
+        Precedence (deterministic, first-wins): **project > profile (user) >
+        bundled**. Project skills are registered ONLY for a trusted root; an
+        untrusted root contributes a notice, never a skill. A skill still runs
+        through the same permission/execution gate regardless of tier.
         """
-        loaded_all = load_catalog(root)
         self._skills = {}
         self._duplicates = []
+        self._shadowed = []
         errors: list[str] = []
-        for loaded in loaded_all:
-            self.register(loaded)
 
-        if self._duplicates:
-            for dup in self._duplicates:
-                errors.append(f"duplicate skill id {dup!r} — later definition ignored")
+        # 1. Project skills (highest precedence) — trusted roots only.
+        if project_root and project_discovery:
+            from .project_skills import discover_project_skills  # noqa: PLC0415
 
-        # Materialise user-authored skills (stored in eclipse-memory) into the
-        # SAME registry + Skill/SkillVersion tables, so they are discovered,
-        # validated and executed exactly like built-ins.
+            discovery = discover_project_skills(self.store, project_root)
+            for loaded in discovery.trusted_skills:
+                loaded.provenance = "project"
+                self.register(loaded)
+            self._project_notices = list(discovery.notices)
+        else:
+            self._project_notices = []
+
+        # 2. User-authored skills (profile tier).
         for user_skill in self.store.list_user_skills():
             try:
                 manifest = SkillManifest(**user_skill["manifest"])
@@ -124,7 +144,28 @@ class SkillRegistry:
                 instructions_path=None,
                 instructions_text=user_skill["instructions"],
                 authored=True,
+                provenance="profile",
             ))
+
+        # 3. Bundled library (lowest precedence). A higher tier (project/profile)
+        # legitimately shadows a bundled skill of the same id — that is expected
+        # precedence, not a duplicate-error. Track it separately.
+        for loaded in load_catalog(root):
+            existing = self._skills.get(loaded.manifest.id)
+            if existing is not None:
+                # Shadowing by a higher tier is expected precedence; a second
+                # bundled definition of the same id is a true duplicate error.
+                if existing.provenance in ("project", "profile"):
+                    self._shadowed.append(loaded.manifest.id)
+                else:
+                    self._duplicates.append(loaded.manifest.id)
+                continue
+            loaded.provenance = "bundled"
+            self.register(loaded)
+
+        if self._duplicates:
+            for dup in self._duplicates:
+                errors.append(f"duplicate skill id {dup!r} — later definition ignored")
 
         # Persist Skill + version rows for BOTH built-in and user skills. A user
         # skill's stored lifecycle status (set via enable/disable) is preserved:
@@ -132,7 +173,10 @@ class SkillRegistry:
         for loaded in self._skills.values():
             manifest = loaded.manifest
             existing = self.store.get_skill(manifest.id)
-            status = existing["status"] if existing and loaded.authored else manifest.status
+            # authored + project skills are lifecycle-managed by the store; a
+            # reload must not reset an operator's enable/disable decision.
+            managed = loaded.authored or loaded.provenance == "project"
+            status = existing["status"] if existing and managed else manifest.status
             # A version created by a structured patch may be NEWER than the
             # catalog/UserSkill source manifest. The store's own SkillVersion rows
             # are authoritative for the active version, so a reload never walks
@@ -156,6 +200,7 @@ class SkillRegistry:
                     instructions_path=loaded.instructions_path,
                     instructions_text=loaded.instructions_text,
                     authored=loaded.authored,
+                    provenance=loaded.provenance,
                 )
                 self._skills[manifest.id] = loaded
                 manifest = active_manifest
@@ -369,6 +414,18 @@ class SkillRegistry:
     def duplicate_ids(self) -> list[str]:
         return list(self._duplicates)
 
+    def shadowed_ids(self) -> list[str]:
+        """Bundled skill ids legally shadowed by a project/profile skill."""
+        return list(getattr(self, "_shadowed", []))
+
+    def project_notices(self) -> list[str]:
+        """Untrusted-project notices from the last load (names only, no prose)."""
+        return list(getattr(self, "_project_notices", []))
+
+    def provenance_of(self, skill_id: str) -> Optional[str]:
+        entry = self._skills.get(skill_id)
+        return entry.provenance if entry else None
+
     def resolve_version(self, skill_id: str, version: Optional[str] = None) -> Optional[str]:
         """Resolve the concrete version to use. An explicit version must exist;
         otherwise the skill's latest stored version is used."""
@@ -457,6 +514,7 @@ class SkillRegistry:
                 summary["latestVersion"] = record["latestVersion"]
             summary["versions"] = [v["version"] for v in self.store.list_versions(manifest.id)]
             summary["origin"] = manifest.origin
+            summary["provenance"] = entry.provenance
             out.append(summary)
         out.sort(key=lambda item: item["id"])
         return out

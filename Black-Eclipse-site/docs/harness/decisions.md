@@ -1336,6 +1336,89 @@ diffable, reversible edits while SQLite stays canonical.
 `/files/edit` and `/files/history`. Import still routes every entry through the
 existing gated pipeline.
 
+## ADR-H59 — Project-local skills are inert until an operator trusts the root
+
+**Decision.** A repository may carry skills under `.black-eclipse/skills/` or
+`.agents/skills/`. `python/harness/skills/project_skills.py` discovers them, but
+the registry loads a project's skills **only** after an explicit, revocable
+operator trust decision persisted in `ProjectSkillTrust` (migration 14). An
+untrusted root yields a names-only notice — its prose is never read. Trust is
+per absolute path. Precedence is deterministic: **project > profile > bundled**;
+a project skill may shadow a bundled skill of the same id (recorded as
+`shadowed`, not a duplicate error).
+
+**Why.** Skills are procedures the agent follows, so auto-loading them from any
+cloned repo is a prompt-injection/privilege risk. Trust makes the decision
+explicit and auditable while still letting project conventions travel with the
+code. Reusing the existing registry/permission/execution path (rather than a
+second skill system) keeps one source of truth and one default-deny gate.
+
+**Consequences.** A project skill cannot grant itself a permission, enable
+itself, or bypass evaluation — it runs through `runtime.execute_skill` with the
+same permission check and immutable-version identity as any other skill.
+Discovery can be disabled globally (`project_skill_discovery`). `untrust`
+immediately stops injection on the next load. Routes `/skills/project`,
+`/skills/project/trust`, `/skills/project/untrust`; UI Skills › Project Skills.
+
+## ADR-H60 — Skill bundles are references, never a way to enable or widen
+
+**Decision.** `python/harness/skills/bundles.py` groups existing skills under a
+stable id with optional instruction/constraints, persisted in `SkillBundle`
+(migration 15). `resolve_bundle` is deterministic and reports `missing` and
+`unavailable` members honestly. `RunRequest.bundleId` expands a bundle into the
+bounded skill manifest instead of keyword discovery, emitting
+`skill.bundle_resolved`. Members pass the same permission check when an actor is
+supplied.
+
+**Why.** A bundle is composability for recurring workflows; it must not become a
+back door. Treating it as a reference (not a copy) means a disabled skill stays
+disabled, a missing skill is reported, and the permission gate is untouched.
+
+**Consequences.** A bundle cannot enable a skill, grant a permission, or exceed
+the prompt budget (members are capped at 12, content at 1200 chars). Bundle ids
+are validated slugs; content is bounded on write as well as on read. Routes
+`/skill-bundles` (+`/{id}`); UI Skills › Bundles.
+
+## ADR-H61 — Guided learning authors an inert, sanitized draft from an explicit source
+
+**Decision.** `python/harness/skills/learn.py` turns an explicit user request
+(run / document / repository / repeated-workflow / correction) into a complete
+but inert skill draft via the existing `propose_draft` path. Content is
+sanitized (secrets, raw transcript lines and issue references are removed) and
+advisory-linted (dates, first-person narration) before the draft is built. The
+source is user-supplied and operator-gated; the draft stays
+`status: draft`/`not_evaluated` and can only activate through the existing
+evaluation + operator promotion controls.
+
+**Why.** Hermes' `/learn` is a great shortcut for capturing a reusable
+procedure, but an unguarded version would let raw logs, secrets or one-off
+incidents become active procedures. Sanitization + inertness + operator gating
+give the workflow without the risk.
+
+**Consequences.** One-off runs never auto-create an active skill; recurrence
+evidence stays on the candidate. A learning-origin manifest without a real run
+uses a stable synthetic `learn:<kind>:<slug>` source reference. Route
+`/learning/from-source`; UI Skills › Learn a Skill.
+
+## ADR-H62 — The learning journey is a derived read model, not a second source of truth
+
+**Decision.** `python/harness/learning_graph.py` projects a node/edge graph
+(memories, skills, versions, candidates, corrections, mistakes, promotions,
+sessions) from canonical rows on demand. It never writes, never stores a copy,
+and is bounded (≤400 nodes / ≤800 edges). Secrets are never exposed (labels are
+ids/type metadata), scope isolation filters the set, and inactive items appear
+with a status rather than being deleted.
+
+**Why.** Users need to understand *why* a skill or memory exists; Hermes'
+Learning Journey shows the value. Deriving the graph keeps the canonical store
+authoritative and avoids drift between a graph copy and reality.
+
+**Consequences.** Edge relations are a fixed vocabulary (`created_from`,
+`corrected_by`, `superseded_by`, `used_in`, `derived_from`, `promoted_from`,
+`evaluated_by`, `related_to`). Route `GET /learning/journey`; UI Skills ›
+Journey. Filters by kind/status/since; editing still goes through existing
+persistence/authorization paths.
+
 ## ADR-H7 — Zero-config is preserved via automatic provisioning**Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely
 unavailable, runs fail with a clear 503.

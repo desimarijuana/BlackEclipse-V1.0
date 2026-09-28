@@ -281,3 +281,39 @@ def test_fence_labels_provider():
 def test_build_memory_router_has_native(service):
     router = build_memory_router(service)
     assert router._registry.get("native") is not None
+
+# -- Phase 7 diagnostics + bounded test --------------------------------------
+
+
+def test_diagnostics_includes_capability_summary_and_privacy(service):
+    from harness.memory_providers.diagnostics import provider_diagnostics
+
+    registry = build_memory_router(service)._registry
+    report = asyncio.run(provider_diagnostics(registry))
+    native = next(p for p in report["providers"] if p["isNative"])
+    assert native["capabilitySummary"].startswith("native:")
+    assert "local" in native["dataLocation"]
+    assert native["verifiedByEclipse"] is True
+    assert report["privacyNote"]
+    assert "failed" in report
+
+
+def test_provider_test_is_non_destructive(service):
+    from harness.memory_providers.diagnostics import provider_test
+
+    service.write_memory(memory_type="preference", content="User prefers concise answers.", source="explicit_user")
+    registry = build_memory_router(service)._registry
+    before = len(service.store.list_memories(limit=100))
+    result = asyncio.run(provider_test(registry, "native"))
+    assert result["ok"] is True
+    assert result["externalVerified"] is False
+    assert len(service.store.list_memories(limit=100)) == before
+
+
+def test_provider_test_unknown_provider(service):
+    from harness.memory_providers.diagnostics import provider_test
+
+    registry = build_memory_router(service)._registry
+    result = asyncio.run(provider_test(registry, "does-not-exist"))
+    assert result["ok"] is False
+    assert result["state"] == "unknown"

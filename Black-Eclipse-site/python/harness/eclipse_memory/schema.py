@@ -680,6 +680,50 @@ MIGRATIONS.append(
     )
 )
 
+# Project-local skills (Phase 2 of the memory/skills evolution). A project root
+# may carry skills under `<root>/.black-eclipse/skills/` or `<root>/.agents/skills/`.
+# Because skills are procedures the agent follows, they are NEVER auto-loaded
+# from a repository: a root appears in the registry only after an operator
+# records an explicit trust decision here. Trust is per absolute root path and
+# revocable; the row is the audit of when/why it was trusted.
+MIGRATIONS.append(
+    (
+        14,
+        [
+            """CREATE TABLE IF NOT EXISTS ProjectSkillTrust (
+                path TEXT PRIMARY KEY,
+                trusted INTEGER NOT NULL DEFAULT 0,
+                trustedAt TEXT,
+                note TEXT
+            );""",
+        ],
+    )
+)
+
+# Skill bundles (Phase 3). A bundle groups several skills under one stable id
+# with optional instructions/constraints. It is a *reference*, not a copy: the
+# skills must already exist and remain subject to their own status/permission
+# gates. Exportable/reviewable because it is structured JSON. Provenance records
+# where the bundle came from (manual/profile/project/imported).
+MIGRATIONS.append(
+    (
+        15,
+        [
+            """CREATE TABLE IF NOT EXISTS SkillBundle (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                skills TEXT NOT NULL DEFAULT '[]',
+                instruction TEXT NOT NULL DEFAULT '',
+                constraints TEXT NOT NULL DEFAULT '',
+                provenance TEXT NOT NULL DEFAULT 'manual',
+                createdAt TEXT,
+                updatedAt TEXT
+            );""",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

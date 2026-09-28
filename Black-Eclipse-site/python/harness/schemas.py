@@ -131,6 +131,10 @@ class RunRequest(BaseModel):
     sessionId: Optional[str] = None  # noqa: N815
     profileId: Optional[str] = None  # noqa: N815
     projectId: Optional[str] = None  # noqa: N815
+    # Phase 3: an optional skill bundle to expand into the run's skill manifest.
+    # The bundle is a reference only — a member that is missing/disabled is
+    # reported and skipped, never enabled.
+    bundleId: Optional[str] = None  # noqa: N815
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

@@ -1220,6 +1220,97 @@ class EclipseMemoryStore:
             return []
         return [_profile_row(r) for r in rows]
 
+    # ── Skill bundles (Phase 3) ─────────────────────────────────────────────
+
+    def save_skill_bundle(self, bundle: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a skill bundle. The skills list is stored as JSON;
+        the bundle is a reference (the skills must already exist)."""
+        now = now_iso()
+        existing = self._db.execute(
+            "SELECT id, createdAt FROM SkillBundle WHERE id=?", (bundle["id"],)
+        ).fetchone()
+        created_at = existing["createdAt"] if existing else (bundle.get("createdAt") or now)
+        self._db.execute(
+            """INSERT INTO SkillBundle
+               (id, name, description, skills, instruction, constraints, provenance, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name, description=excluded.description, skills=excluded.skills,
+                 instruction=excluded.instruction, constraints=excluded.constraints,
+                 provenance=excluded.provenance, updatedAt=excluded.updatedAt""",
+            (
+                bundle["id"], bundle.get("name") or bundle["id"], bundle.get("description") or "",
+                json.dumps(list(bundle.get("skills") or [])[:12]),
+                (bundle.get("instruction") or "")[:800],
+                (bundle.get("constraints") or "")[:800], bundle.get("provenance") or "manual",
+                created_at, now,
+            ),
+        )
+        self._db.commit()
+        return self.get_skill_bundle(bundle["id"])  # type: ignore[return-value]
+
+    def get_skill_bundle(self, bundle_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute("SELECT * FROM SkillBundle WHERE id=?", (bundle_id,)).fetchone()
+        return _bundle_row(row) if row else None
+
+    def list_skill_bundles(self) -> list[dict[str, Any]]:
+        try:
+            rows = self._db.execute("SELECT * FROM SkillBundle ORDER BY id").fetchall()
+        except Exception:  # noqa: BLE001 - pre-migration db reads as empty
+            return []
+        return [_bundle_row(r) for r in rows]
+
+    def delete_skill_bundle(self, bundle_id: str) -> bool:
+        cursor = self._db.execute("DELETE FROM SkillBundle WHERE id=?", (bundle_id,))
+        self._db.commit()
+        return cursor.rowcount > 0
+
+    # ── Project-local skill trust (Phase 2) ─────────────────────────────────
+
+    def set_project_trust(
+        self, path: str, trusted: bool, *, note: Optional[str] = None,
+    ) -> None:
+        """Record an explicit trust decision for one project root path.
+
+        Trust is per absolute path and reversible; the row is the durable audit
+        of the decision. Never auto-created from a discovered repo.
+        """
+        self._db.execute(
+            """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(path) DO UPDATE SET
+                 trusted=excluded.trusted, trustedAt=excluded.trustedAt, note=excluded.note""",
+            (path, 1 if trusted else 0, now_iso() if trusted else None, note),
+        )
+        self._db.commit()
+
+    def get_project_trust(self, path: str) -> Optional[dict[str, Any]]:
+        try:
+            row = self._db.execute(
+                "SELECT * FROM ProjectSkillTrust WHERE path=?", (path,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - pre-migration db reads as untrusted
+            return None
+        if not row:
+            return None
+        record = dict(row)
+        record["trusted"] = bool(record.get("trusted"))
+        return record
+
+    def list_project_trust(self) -> list[dict[str, Any]]:
+        try:
+            rows = self._db.execute(
+                "SELECT * FROM ProjectSkillTrust ORDER BY path"
+            ).fetchall()
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for row in rows:
+            record = dict(row)
+            record["trusted"] = bool(record.get("trusted"))
+            out.append(record)
+        return out
+
     def close(self) -> None:
         self.db.close()
 
@@ -1242,6 +1333,16 @@ def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
             record["structuredData"] = json.loads(record["structuredData"])
         except (TypeError, ValueError):
             pass
+    return record
+
+
+def _bundle_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("skills"):
+        try:
+            record["skills"] = json.loads(record["skills"])
+        except (TypeError, ValueError):
+            record["skills"] = []
     return record
 
 

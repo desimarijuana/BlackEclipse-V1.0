@@ -90,7 +90,10 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - migration must not block boot
             log.warning("legacy skill import skipped", exc_info=True)
         self.skill_registry = SkillRegistry(self.skill_store)
-        self.skill_load_errors = self.skill_registry.load_all()
+        self.skill_load_errors = self.skill_registry.load_all(
+            project_root=self._project_root(),
+            project_discovery=self._project_discovery_enabled(),
+        )
         self.skill_registry.attach_tool_registry(self.registry)
         self.bus = EventBus()
         self._active: dict[str, asyncio.Task[Any]] = {}
@@ -121,6 +124,39 @@ class AgenticService:
         from .memory_providers import build_memory_router
 
         self.memory_router = build_memory_router(self.memory, mcp_manager=self.mcp)
+
+    def _project_root(self) -> Optional[str]:
+        """The project root whose local skills may apply, or None.
+
+        The runtime is spawned by the front door from the repo root, so the
+        default is the repo containing the harness. `BLACK_ECLIPSE_PROJECT_ROOT`
+        overrides it (tests / a workspace pointed at another checkout).
+        """
+        override = os.environ.get("BLACK_ECLIPSE_PROJECT_ROOT")
+        if override:
+            return os.path.abspath(override)
+        try:
+            from .eclipse_memory.config import repo_root  # noqa: PLC0415
+            return repo_root()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _project_discovery_enabled(self) -> bool:
+        try:
+            return bool(self.memory.policy.get("project_skill_discovery"))
+        except Exception:  # noqa: BLE001 - a policy read failure must fail closed
+            return False
+
+    def reload_project_skills(self) -> list[str]:
+        """Re-scan project skills after a trust/untrust decision (no restart).
+
+        Returns load errors; untrusted roots contribute notices, not skills.
+        """
+        self.skill_load_errors = self.skill_registry.load_all(
+            project_root=self._project_root(),
+            project_discovery=self._project_discovery_enabled(),
+        )
+        return self.skill_load_errors
 
     def refresh_memory_router(self) -> None:
         """Rebuild the provider router after an MCP config change."""

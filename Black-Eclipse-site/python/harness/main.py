@@ -577,7 +577,161 @@ def list_skills(status: Optional[str] = None) -> dict[str, Any]:
         "skills": registry.list_summaries(),
         "loadErrors": service.skill_load_errors,
         "duplicates": registry.duplicate_ids(),
+        "projectNotices": registry.project_notices(),
+        "shadowed": registry.shadowed_ids(),
     }
+
+
+# ── Project-local skills (trust model) ──────────────────────────────────────
+
+
+@app.get("/skills/project")
+def project_skill_status() -> dict[str, Any]:
+    """Discover project skills for the runtime's project root without loading
+    them. Untrusted roots yield names + a notice only; nothing is registered."""
+    from .skills.project_skills import discover_project_skills  # noqa: PLC0415
+
+    discovery = discover_project_skills(
+        service.skill_store,
+        service._project_root(),
+        project_discovery=service._project_discovery_enabled(),
+    )
+    return {
+        "success": True,
+        "projectDiscovery": service._project_discovery_enabled(),
+        "projectRoot": service._project_root(),
+        "discovery": discovery.to_dict(),
+        "trusted": service.skill_store.list_project_trust(),
+    }
+
+
+@app.post("/skills/project/trust")
+def trust_project_skill(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Trust a project root so its skills load. Operator-gated by transport or
+    token. A project skill is still permission/execution gated like any other."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.project_skills import (
+        canonical_root,  # noqa: PLC0415
+        root_content_hash,  # noqa: PLC0415
+        trust_root,  # noqa: PLC0415
+    )
+
+    payload = payload or {}
+    root = payload.get("path") or service._project_root()
+    if not root:
+        raise HTTPException(status_code=400, detail="a project path is required")
+    state = trust_root(service.skill_store, root, note=payload.get("note"))
+    service.reload_project_skills()
+    service.skill_store.append_event(
+        "skill.project_trusted", data={"path": canonical_root(root)},
+    )
+    return {
+        "success": True,
+        "root": state.to_dict(),
+        "contentHash": root_content_hash(root),
+    }
+
+
+# ── Skill bundles ───────────────────────────────────────────────────────────
+
+
+@app.get("/skill-bundles")
+def list_skill_bundles() -> dict[str, Any]:
+    bundles = service.skill_store.list_skill_bundles()
+    # Resolution is read-only and reports missing/disabled members honestly.
+    from .skills.bundles import resolve_bundle  # noqa: PLC0415
+
+    resolved = {
+        b["id"]: resolve_bundle(service.skill_store, service.skill_registry, b["id"]).to_dict()
+        for b in bundles
+    }
+    return {"success": True, "bundles": bundles, "resolved": resolved}
+
+
+@app.get("/skill-bundles/{bundle_id}")
+def get_skill_bundle(bundle_id: str) -> dict[str, Any]:
+    bundle = service.skill_store.get_skill_bundle(bundle_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    from .skills.bundles import resolve_bundle  # noqa: PLC0415
+
+    return {
+        "success": True,
+        "bundle": bundle,
+        "resolution": resolve_bundle(service.skill_store, service.skill_registry, bundle_id).to_dict(),
+    }
+
+
+@app.post("/skill-bundles")
+def create_skill_bundle(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Create/update a bundle. Operator-gated; a bundle is a reference and can
+    never enable a disabled skill or widen a permission."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.bundles import BundleError, SkillBundle  # noqa: PLC0415
+
+    payload = payload or {}
+    try:
+        bundle = SkillBundle(
+            id=str(payload.get("id") or ""),
+            name=str(payload.get("name") or ""),
+            description=str(payload.get("description") or ""),
+            skills=[str(s) for s in (payload.get("skills") or [])],
+            instruction=str(payload.get("instruction") or ""),
+            constraints=str(payload.get("constraints") or ""),
+            provenance=str(payload.get("provenance") or "manual"),
+        )
+    except BundleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    saved = service.skill_store.save_skill_bundle(bundle.to_dict())
+    service.skill_store.append_event("skill.bundle_saved", data={"bundleId": bundle.id})
+    return {"success": True, "bundle": saved}
+
+
+@app.delete("/skill-bundles/{bundle_id}")
+def delete_skill_bundle(
+    bundle_id: str,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    removed = service.skill_store.delete_skill_bundle(bundle_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+    service.skill_store.append_event("skill.bundle_deleted", data={"bundleId": bundle_id})
+    return {"success": True}
+
+
+@app.post("/skills/project/untrust")
+def untrust_project_skill(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Revoke project trust; its skills immediately stop being injected."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.project_skills import (
+        canonical_root,  # noqa: PLC0415
+        untrust_root,  # noqa: PLC0415
+    )
+
+    payload = payload or {}
+    root = payload.get("path") or service._project_root()
+    if not root:
+        raise HTTPException(status_code=400, detail="a project path is required")
+    state = untrust_root(service.skill_store, root)
+    service.reload_project_skills()
+    service.skill_store.append_event(
+        "skill.project_untrusted", data={"path": canonical_root(root)},
+    )
+    return {"success": True, "root": state.to_dict()}
 
 
 @app.get("/skills/{skill_id}")
@@ -600,6 +754,7 @@ def get_skill(skill_id: str) -> dict[str, Any]:
             "evaluations": registry.evaluation_history(skill_id),
             "reviews": registry.store.list_reviews(skill_id, 20),
             "events": registry.store.list_events(skill_id, 50),
+            "provenance": registry.provenance_of(skill_id),
         },
     }
 
@@ -854,6 +1009,20 @@ async def memory_provider_status() -> dict[str, Any]:
     registry.set_external_enabled(external_enabled)
     report = await provider_diagnostics(registry)
     return {"success": True, **report}
+
+
+@app.post("/memory-providers/test")
+async def memory_provider_test(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Bounded, non-destructive test of ONE provider (operator-gated).
+
+    Probes health + a capped search only; never writes/deletes/exports.
+    """
+    from .memory_providers.diagnostics import provider_test  # noqa: PLC0415
+
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="provider test requires an authorized operator")
+    name = str(payload.get("provider") or "native")
+    return {"success": True, **await provider_test(service.memory_router._registry, name)}
 
 
 @app.post("/memory-providers/search")
@@ -1776,6 +1945,70 @@ def skill_rollback_check(skill_id: str, version: str, payload: Optional[dict[str
     result = check_rollback_triggers(
         service.skill_registry, skill_id, version,
         actor=_actor(bool(body.get("operator"))), user_corrections=int(body.get("userCorrections") or 0),
+    )
+    return {"success": result.get("ok", False), **result}
+
+
+@app.get("/learning/journey")
+def learning_journey(
+    scope: Optional[str] = None,
+    scopeId: Optional[str] = None,  # noqa: N803
+    kind: Optional[str] = None,
+    status: Optional[str] = None,
+    since: Optional[str] = None,
+) -> dict[str, Any]:
+    """The learning journey / provenance graph — DERIVED, read-only.
+
+    Nodes and edges are projected from canonical rows; nothing is written and no
+    secrets or raw sensitive content are exposed. `scope`/`scopeId` filter by
+    scope isolation; `kind`/`status`/`since` are user filters.
+    """
+    from .learning_graph import build_learning_journey  # noqa: PLC0415
+
+    kinds = [k for k in (kind or "").split(",") if k] or None
+    statuses = [s for s in (status or "").split(",") if s] or None
+    return {
+        "success": True,
+        **build_learning_journey(
+            service.memory_store,
+            scope_id=scopeId,
+            kinds=kinds,
+            statuses=statuses,
+            since=since,
+        ),
+    }
+
+
+@app.post("/learning/from-source")
+def learn_from_source_endpoint(
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Guided `/learn`: turn a run/document/repo/repeated-workflow/correction into
+    a complete but INERT skill draft. Operator-gated; nothing is activated."""
+    from .skills.learn import LearnRequest, learn_from_source  # noqa: PLC0415
+
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="skill.create requires an authorized operator")
+    try:
+        request = LearnRequest(
+            source_kind=str(payload.get("sourceKind") or "run"),
+            title=str(payload.get("title") or ""),
+            objective=str(payload.get("objective") or ""),
+            procedure=[str(s) for s in (payload.get("procedure") or [])],
+            content=str(payload.get("content") or ""),
+            source_run_id=payload.get("sourceRunId"),
+            tools=[str(t) for t in (payload.get("tools") or [])],
+            category=str(payload.get("category") or "research"),
+            scope_note=str(payload.get("scopeNote") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = learn_from_source(
+        request, service.skill_store,
+        available_tools=list(service.registry.names()),
+        actor_is_operator=True,
     )
     return {"success": result.get("ok", False), **result}
 

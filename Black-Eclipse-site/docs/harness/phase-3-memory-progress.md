@@ -942,6 +942,97 @@ Four more spec milestones (M3/M4/M6/M10) were completed additively.
 passed**. New tests `test_sessions_profiles.py`, `test_sessions_profiles_api.py`,
 `memory-files-edit.test.ts`.
 
+## Memory & Skills Evolution (2026-09-28)
+
+Hermes-inspired improvements that preserve every existing safety control. Design
+and gap analysis: `docs/harness/memory-skills-evolution-plan.md`.
+
+- **Phase 0 — audit/design.** Target product model (facts vs session history vs
+  skills), module map, data-flow, non-negotiable contracts, new inert contracts,
+  deferred list. No duplicate memory engine; no TS agent runtime.
+- **Phase 1 — simpler mental model.** Control Room tabs renamed to user-facing
+  categories (Facts, Session History, Skills, Suggestions, Reviews, Health/Export);
+  a three-card legend; a per-fact origin badge (auto/explicit/imported/external/
+  suggested) derived only from existing fields; freshness/authority + competing-
+  memory callout in the fact detail. No persistence/retrieval/authorization change.
+- **Phase 2 — project-local skills (ADR-H59).** `python/harness/skills/project_skills.py`
+  discovers repo-local roots (`.black-eclipse/skills/`, `.agents/skills/`) but
+  loads them ONLY after an explicit operator trust decision persisted in
+  `ProjectSkillTrust` (migration 14). Untrusted roots show a names-only notice.
+  Precedence project > profile > bundled; a project skill may shadow a bundled id
+  (`shadowed`, not a duplicate error). Trust is per absolute path and revocable;
+  `untrust` stops injection on the next load. A project skill cannot grant a
+  permission, enable itself, or bypass evaluation — it runs through
+  `execute_skill` with the same default-deny gate. Global opt-out policy
+  `project_skill_discovery`. Routes `/skills/project[/trust|/untrust]`; UI
+  Skills › Project Skills; list/detail surface `provenance`.
+  Tests: `python/tests/test_project_skills.py` (9) incl. untrusted-is-inert,
+  precedence, untrust-stops-injection, blocked-permission can't-enable.
+
+- **Phase 3 — skill bundles (ADR-H60).** `python/harness/skills/bundles.py`
+  (`SkillBundle`, `resolve_bundle`) groups existing skills under a stable id with
+  optional instructions/constraints. Resolution is deterministic and reports
+  `missing`/`unavailable` members honestly; a bundle never enables a disabled
+  skill, widens a permission, or exceeds the bounded prompt manifest (members
+  pass the same permission check when an actor is supplied). Persisted in
+  `SkillBundle` (migration 15); `RunRequest.bundleId` expands the bundle instead
+  of keyword discovery and emits `skill.bundle_resolved`. Routes
+  `/skill-bundles` (+`/{id}`); UI Skills › Bundles. Tests
+  `python/tests/test_skill_bundles.py` (8).
+
+- **Phase 4 — guided `/learn` (ADR-H61).** `python/harness/skills/learn.py`
+  turns an explicit run/document/repository/repeated-workflow/correction request
+  into a complete but inert draft through `propose_draft`. Content is sanitized
+  (secrets, raw transcript lines, issue references removed) and advisory-linted
+  (dates, first-person narration) before drafting; the draft defaults to the safe
+  read-only permissions and existing tools, and stays `draft`/`not_evaluated`.
+  Operator-gated; one-off runs never auto-activate. Route `/learning/from-source`;
+  UI Skills › Learn a Skill. Tests `python/tests/test_guided_learning.py` (8).
+
+- **Phase 5 — semantic assistance (verified + latency metric).** The optional
+  semantic layer already exists and is deliberately OFF by default, gated by the
+  labeled evals (`eclipse_memory/eval/` and `eval/semantic.py`), which already
+  report recall/precision, false-candidate and false-conflict rates, scope
+  leakage, forbidden/no-match overreach and token-budget compliance. Added the
+  missing **latency** metric (`metrics.latencyMs.mean|max`) to the retrieval
+  report so a future semantic layer can be compared against the lexical
+  baseline. No behavior change: semantic candidates still cannot authorize
+  access, supersede, confirm or widen the recalled set; the deterministic gate
+  passes (recall 1.0, precision 0.727, leakage 0, forbidden 0).
+
+- **Phase 6 — learning journey / provenance graph (ADR-H62).**
+  `python/harness/learning_graph.py` projects a bounded node/edge graph from
+  canonical rows (memories, skills/versions, candidates, corrections, mistakes,
+  promotions, sessions) — derived only, never written. Secrets are never
+  exposed, scope isolation filters the set, inactive items stay as nodes with a
+  status, and edges use a fixed relation vocabulary. Route `GET
+  /learning/journey` with kind/status/since filters; UI Skills › Journey. Tests
+  `python/tests/test_learning_graph.py` (6).
+
+- **Phase 7 — provider diagnostics.** `memory_providers/diagnostics.py` now adds
+  a per-provider capability summary, a data-location warning (native local vs
+  external), a verified-by-Eclipse flag, and a freshness stamp; a process-wide
+  `privacyNote`; and a bounded, non-destructive `provider_test` (health + capped
+  search only — never writes/deletes/exports). Route
+  `POST /memory-providers/test` (operator-gated); the Providers tab shows the
+  summary, data location, a Test button, and the privacy note. Native-first
+  routing and external fencing are unchanged. Tests added to
+  `test_memory_providers.py` (3).
+
+- **Phase 8 — hardening + compat.** Export schema bumped to **v2** to carry
+  `bundles` and `projectTrust` (a v1 document still imports). New cross-cutting
+  test file `python/tests/test_evolution_hardening.py` (9): project
+  trust→untrust roundtrip, bundle never enables a disabled skill, generated-skill
+  secret sanitization + inertness, export/import roundtrip preserving
+  bundles/trust, v1 compat, archive reversibility, scope isolation, bundle
+  prompt-budget bounds. Operational notes (paths, trust model, config, provider
+  setup, backup/import/reset/migration, recovery) added to
+  `memory-skills-evolution-plan.md`.
+
+**Checks (Phases 1–8).** `npm run test`: Vitest **1790 passed**; Python **1110
+passed**; `npx tsc --noEmit` clean; retrieval eval gate PASS; semantic eval gate
+PASS.
+
 
 
 

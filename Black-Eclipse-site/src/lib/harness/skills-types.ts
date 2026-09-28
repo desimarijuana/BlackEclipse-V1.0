@@ -48,6 +48,124 @@ export interface SkillSummary {
   latestVersion?: string;
   versions?: string[];
   origin?: "builtin" | "author" | "learning";
+  /** Load tier, for provenance labelling. `project` = repository-local. */
+  provenance?: "bundled" | "profile" | "project" | "generated" | "external";
+}
+
+/** Project-local skill discovery + trust state (Phase 2). */
+export interface ProjectSkillRoot {
+  path: string;
+  trusted: boolean;
+  skillsDir: string;
+  skillIds: string[];
+  errors: string[];
+}
+
+export interface ProjectSkillDiscovery {
+  root: string | null;
+  trustedRoot: boolean;
+  roots: ProjectSkillRoot[];
+  trustedSkillIds: string[];
+  notices: string[];
+}
+
+export interface ProjectSkillTrustRecord {
+  path: string;
+  trusted: boolean;
+  trustedAt: string | null;
+  note: string | null;
+}
+
+/** Learning journey / provenance graph node (Phase 6). Derived, read-only. */
+export interface JourneyNode {
+  id: string;
+  kind:
+    | "memory" | "skill" | "skill_version" | "correction" | "mistake"
+    | "learning_candidate" | "evaluation" | "promotion" | "execution" | "session";
+  label: string;
+  status: string;
+  scope?: string | null;
+  createdAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface JourneyEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+export interface LearningJourney {
+  nodes: JourneyNode[];
+  edges: JourneyEdge[];
+  clusters: Array<{ kind: string; count: number }>;
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    byKind: Record<string, number>;
+    byRelation: Record<string, number>;
+    truncated: boolean;
+  };
+}
+
+/** Guided `/learn` request + result (Phase 4). Always produces an inert draft. */
+export interface LearnRequest {
+  sourceKind: "run" | "document" | "repository" | "repeated_workflow" | "correction";
+  title: string;
+  objective?: string;
+  procedure?: string[];
+  content?: string;
+  sourceRunId?: string;
+  tools?: string[];
+  category?: string;
+  scopeNote?: string;
+}
+
+export interface LearnDraftResult {
+  ok: boolean;
+  draft?: SkillDraft;
+  issues?: string[];
+  reusable?: boolean;
+  candidateId?: string;
+  sourceKind?: string;
+  sanitized?: string[];
+  lint?: string[];
+  error?: string;
+}
+
+/** A skill bundle: a named, ordered reference to existing skills (Phase 3). */
+export interface SkillBundle {
+  id: string;
+  name: string;
+  description: string;
+  skills: string[];
+  instruction: string;
+  constraints: string;
+  provenance: "manual" | "profile" | "project" | "imported";
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface SkillBundleResolution {
+  bundleId: string;
+  ok: boolean;
+  resolved: string[];
+  missing: string[];
+  unavailable: string[];
+  provenance: string;
+  chars: number;
+}
+
+export interface SkillBundleListResponse {
+  bundles: SkillBundle[];
+  resolved: Record<string, SkillBundleResolution>;
+}
+
+export interface ProjectSkillStatus {
+  projectDiscovery: boolean;
+  projectRoot: string | null;
+  discovery: ProjectSkillDiscovery;
+  trusted: ProjectSkillTrustRecord[];
 }
 
 export interface SkillValidationCheck {
@@ -263,6 +381,7 @@ export interface SkillDetail extends Omit<SkillSummary, "versions"> {
   evaluations: SkillEvaluationRecord[];
   reviews: SkillReviewRecord[];
   events: SkillEventRecord[];
+  provenance?: "bundled" | "profile" | "project" | "generated" | "external";
 }
 
 /** The workflow-ready execution request (mirrors the Python contract). */

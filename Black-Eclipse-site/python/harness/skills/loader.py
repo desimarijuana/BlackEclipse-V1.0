@@ -49,6 +49,9 @@ class LoadedSkill:
     # precedence over any file path.
     instructions_text: Optional[str] = None
     authored: bool = False
+    # Provenance tier for the UI/diagnostics: bundled | profile | project |
+    # generated | external. Derived at load time, never from untrusted prose.
+    provenance: str = "bundled"
 
     def load_cases(self) -> list[dict[str, Any]]:
         """Read deterministic evaluation cases (`tests/cases.json`).

@@ -28,7 +28,10 @@ from typing import Any, Optional
 from .db import now_iso
 
 EXPORT_SCHEMA = "black-eclipse-memory-export"
-EXPORT_VERSION = 1
+# v2 adds `bundles` (skill bundles) and `projectTrust` (project-local skill trust)
+# so a backup/restore or migration does not lose composability or trust
+# provenance. A v1 document still imports (the new sections are simply absent).
+EXPORT_VERSION = 2
 
 # Memory-domain tables that a reset may clear. Skills/learning are NOT memory and
 # are deliberately excluded, so a reset never destroys the skill library.
@@ -55,13 +58,30 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
             "structuredData": memory.get("structuredData"),
         })
     suggestions = store.list_suggestions(status=None, limit=100_000)
+    bundles = store.list_skill_bundles()
+    project_trust = store.list_project_trust()
     return {
         "schema": EXPORT_SCHEMA,
         "version": EXPORT_VERSION,
         "exportedAt": now_iso(),
         "sourceDatabase": os.path.basename(store.path or ""),
-        "counts": {"memories": len(exported), "suggestions": len(suggestions)},
+        "counts": {
+            "memories": len(exported), "suggestions": len(suggestions),
+            "bundles": len(bundles), "projectTrust": len(project_trust),
+        },
         "memories": exported,
+        "bundles": [
+            {
+                "id": b["id"], "name": b.get("name"), "description": b.get("description"),
+                "skills": b.get("skills"), "instruction": b.get("instruction"),
+                "constraints": b.get("constraints"), "provenance": b.get("provenance"),
+            }
+            for b in bundles
+        ],
+        "projectTrust": [
+            {"path": t["path"], "trusted": t.get("trusted"), "trustedAt": t.get("trustedAt"), "note": t.get("note")}
+            for t in project_trust
+        ],
         "suggestions": [
             {
                 "content": s["content"], "memoryType": s["memoryType"], "scope": s["scope"],
@@ -171,14 +191,55 @@ def import_payload(
         except Exception as exc:  # noqa: BLE001 - a bad record is reported, not fatal
             rejected.append({"index": index, "reason": str(exc)})
 
-    if not dry_run and imported:
+    # Bundles and project trust are control-plane references, not memory content.
+    # They are imported verbatim (they carry no secrets and are validated for
+    # shape); project trust is imported as data only — a restored trust record
+    # simply re-affirms a decision the operator already made on the source
+    # machine. Neither path can enable a skill.
+    imported_bundles = 0
+    imported_trust = 0
+    if not dry_run:
+        for bundle in payload.get("bundles") or []:
+            if not isinstance(bundle, dict) or not bundle.get("id"):
+                continue
+            try:
+                from ..skills.bundles import BundleError, SkillBundle  # noqa: PLC0415
+
+                parsed = SkillBundle(
+                    id=str(bundle["id"]), name=str(bundle.get("name") or ""),
+                    description=str(bundle.get("description") or ""),
+                    skills=[str(s) for s in (bundle.get("skills") or [])],
+                    instruction=str(bundle.get("instruction") or ""),
+                    constraints=str(bundle.get("constraints") or ""),
+                    provenance=str(bundle.get("provenance") or "imported"),
+                )
+                service.store.save_skill_bundle(parsed.to_dict())
+                imported_bundles += 1
+            except BundleError:
+                continue
+            except Exception:  # noqa: BLE001 - a bad bundle is skipped, never fatal
+                continue
+        for trust in payload.get("projectTrust") or []:
+            if not isinstance(trust, dict) or not trust.get("path"):
+                continue
+            try:
+                service.store.set_project_trust(
+                    str(trust["path"]), bool(trust.get("trusted")), note=trust.get("note"),
+                )
+                imported_trust += 1
+            except Exception:  # noqa: BLE001
+                continue
+
+    if not dry_run and (imported or imported_bundles or imported_trust):
         service.store.append_memory_event(
             "memory.imported", data={"imported": imported, "skipped": skipped,
-                                     "rejected": len(rejected), "source": source},
+                                     "rejected": len(rejected), "source": source,
+                                     "bundles": imported_bundles, "projectTrust": imported_trust},
         )
     return {
         "imported": imported, "skipped": skipped, "rejected": rejected,
         "dryRun": dry_run, "importedIds": imported_ids,
+        "importedBundles": imported_bundles, "importedProjectTrust": imported_trust,
     }
 
 

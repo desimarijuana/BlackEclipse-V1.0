@@ -169,6 +169,11 @@ DEFAULTS: dict[str, Any] = {
     "external_memory_write_enabled": False,
     # Native results below which the router may consider external providers.
     "external_memory_native_sufficiency": 3,
+    # ── Project-local skills (Phase 2) ──────────────────────────────────────
+    # Whether repository-carried skills may be discovered/loaded at all. When
+    # off, no project root is scanned and no notice is shown. Even when on, a
+    # project's skills load ONLY after an explicit operator trust decision.
+    "project_skill_discovery": True,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.

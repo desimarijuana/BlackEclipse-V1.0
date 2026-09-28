@@ -6,6 +6,125 @@ last-verified: 2026-09-15
 
 # Change Log
 
+## 2026-09-28
+
+- **Memory & Skills Evolution — final delivery report.** Added the before/after
+  architecture summary, memory-vs-session-history-vs-skills explanation, security
+  & trust model, retrieval and skill-learning evaluation reports, provider
+  behavior report, migration/rollback plan, remaining risks, and the
+  no-secrets/no-jdds.db/no-authorization-bypass confirmations to
+  `harness/memory-skills-evolution-plan.md`.
+  docs updated: harness/memory-skills-evolution-plan.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 8 (hardening + backup compat).** Bumped
+  the memory export schema to v2 to carry `bundles` and `projectTrust`, so a
+  backup/restore or migration no longer loses composability or skill-trust
+  provenance (v1 documents still import). Added cross-cutting regression tests
+  `python/tests/test_evolution_hardening.py` (9) covering project trust/untrust,
+  disabled-skill-in-bundle, generated-skill secret sanitization, inertness,
+  export/import roundtrip, v1 compat, archive reversibility, scope isolation and
+  bundle prompt-budget bounds. Added an Operations section (paths, trust model,
+  configuration, provider setup, backup/import/reset/migration, recovery) to the
+  evolution plan.
+  docs updated: harness/memory-skills-evolution-plan.md,
+  harness/phase-3-memory-progress.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 7 (provider diagnostics).** Enhanced
+  `memory_providers/diagnostics.py`: per-provider capability summary, data-
+  location warning (native local vs external), verified-by-Eclipse flag,
+  freshness stamp, a process-wide privacy note, and a bounded non-destructive
+  `provider_test` (health + capped search only). Route
+  `POST /memory-providers/test` (operator-gated); the Providers tab shows the
+  summary, data location, a Test button and the privacy note. Native-first
+  routing and external fencing unchanged. Tests: +3 in
+  `test_memory_providers.py`.
+  docs updated: CHANGELOG.md, harness/phase-3-memory-progress.md
+
+- **Memory & Skills Evolution — Phase 6 (learning journey).** Added
+  `python/harness/learning_graph.py`, a derived read-only provenance graph
+  projected from canonical rows (memories, skills/versions, candidates,
+  corrections, mistakes, promotions, sessions). It never writes or stores a
+  copy, is bounded (≤400 nodes / ≤800 edges), respects scope isolation, never
+  exposes secrets, and keeps inactive items as status-tagged nodes. Fixed edge
+  vocabulary. Route `GET /learning/journey` (kind/status/since filters); UI
+  Skills › Journey. Tests `test_learning_graph.py` (6).
+  docs updated: harness/decisions.md (ADR-H62), NAVIGATION.md,
+  phase-3-memory-progress.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 5 (semantic measurement).** The optional
+  semantic layer was verified to already satisfy the required safety/metadata
+  contract (candidate-only, off by default, gated by labeled evals with
+  recall/precision, false-candidate/-conflict rates, scope leakage, forbidden and
+  no-match overreach, budget compliance). Added the one missing reported metric —
+  **latency** (`metrics.latencyMs.mean|max`) — to the deterministic retrieval
+  eval, so a future semantic layer can be compared against the lexical baseline.
+  No behavior change; both eval gates pass.
+  docs updated: CHANGELOG.md, harness/phase-3-memory-progress.md
+
+- **Memory & Skills Evolution — Phase 4 (guided `/learn`).** Added
+  `python/harness/skills/learn.py`: an explicit run/document/repository/repeated-
+  workflow/correction request becomes a complete but **inert** skill draft
+  through the existing `propose_draft` path. Content is sanitized (secrets, raw
+  transcript lines, issue references removed) and advisory-linted (absolute
+  dates, first-person narration flagged) before the draft is built; the draft
+  defaults to the safe read-only permissions and existing tools and stays
+  `draft`/`not_evaluated`. Operator-gated; one-off runs never auto-activate.
+  Route `/learning/from-source`; UI Skills › Learn a Skill. Tests
+  `test_guided_learning.py` (8).
+  docs updated: harness/decisions.md (ADR-H61), NAVIGATION.md,
+  phase-3-memory-progress.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 3 (skill bundles).** Added composable
+  skill bundles (`python/harness/skills/bundles.py`; `SkillBundle` migration 15)
+  that group existing skills under a stable id with optional instructions/
+  constraints. A bundle is a reference: `resolve_bundle` is deterministic and
+  reports missing/unavailable members; it never enables a disabled skill, widens
+  a permission, or exceeds the bounded prompt manifest (≤12 skills, bounded
+  content on write and read). `RunRequest.bundleId` expands a bundle instead of
+  keyword discovery (emits `skill.bundle_resolved`). Routes `/skill-bundles`
+  (+`/{id}`); UI Skills › Bundles. Tests `test_skill_bundles.py` (8).
+  docs updated: harness/decisions.md (ADR-H60), NAVIGATION.md,
+  phase-3-memory-progress.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 2 (project-local skills).** Added
+  repository-carried skill roots under `.black-eclipse/skills/` and
+  `.agents/skills/`, discovered by `python/harness/skills/project_skills.py` but
+  **inert until an operator trusts the root** (`ProjectSkillTrust`, migration 14;
+  names-only notice for untrusted roots; contents never read). Precedence is
+  deterministic project > profile > bundled, with a project skill legally
+  shadowing a same-id bundled skill (recorded separately, not an error).
+  Trust/untrust is per absolute path and revocable; untrust stops injection on
+  the next load. A project skill cannot grant a permission, enable itself, or
+  bypass evaluation — it uses the existing `execute_skill` default-deny gate.
+  Global opt-out policy `project_skill_discovery`. Routes `/skills/project`,
+  `/skills/project/trust`, `/skills/project/untrust`; UI Skills › Project Skills;
+  provenance surfaced in list/detail. Tests `test_project_skills.py` (9).
+  docs updated: harness/decisions.md (ADR-H59), harness/architecture.md,
+  NAVIGATION.md, phase-3-memory-progress.md, CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 1 (simpler mental model).** Renamed the
+  Control Room tabs to user-facing categories — Facts, Session History, Skills,
+  Suggestions, Reviews, Health/Export — and promoted Suggestions to a top-level
+  tab. Added a three-card legend explaining what belongs in Facts vs Session
+  History vs Skills, an origin badge per fact (auto/explicit/imported/external/
+  suggested) derived only from existing authority/source/status fields, and
+  freshness/authority fields (last confirmed, expires) plus a competing-memory
+  callout in the fact detail. No persistence, retrieval, authorization or scope
+  behaviour changed; proposed items remain inert.
+  docs updated: CHANGELOG.md
+
+- **Memory & Skills Evolution — Phase 0 audit/design.** Wrote the design
+  authority for the Hermes-inspired memory/skill work: target product model
+  (always-available facts vs searchable session history vs task-specific
+  skills), a gap analysis (G1–G14) with every proposed feature mapped to an
+  owning module, the contracts that must not change, the new inert-by-default
+  contracts, a concise data-flow and module map, safety/scope invariants, and an
+  explicit deferred list. Confirmed the existing strengths (decision gate,
+  scope isolation, contradiction/expiry, deterministic retrieval + eval, inert
+  skill drafts, external-provider fences) are preserved; no second memory engine
+  or TS agent runtime is proposed.
+  docs updated: harness/memory-skills-evolution-plan.md (new), CHANGELOG.md
+
 ## 2026-09-27
 
 - **UI sounds: reliable playback, new default voice, chat message cue.** Two

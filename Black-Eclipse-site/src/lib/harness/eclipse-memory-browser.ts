@@ -21,6 +21,7 @@ import type {
   MemorySemanticStatus,
   MemoryProviderSearchResponse,
   MemoryProviderStatus,
+  MemoryProviderTestResult,
   MistakeRecord,
   SessionSearchHit,
   SessionOpenResult,
@@ -136,6 +137,13 @@ export async function memoryProviderSearch(params: {
   return api<MemoryProviderSearchResponse>("/api/memory-providers/search", {
     method: "POST",
     body: JSON.stringify(params),
+  });
+}
+
+export async function memoryProviderTest(provider: string): Promise<MemoryProviderTestResult> {
+  return api<MemoryProviderTestResult>("/api/memory-providers/test", {
+    method: "POST",
+    body: JSON.stringify({ provider }),
   });
 }
 

@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
+  AlertCircle, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ export function SkillLibrary({
   error,
   loadErrors,
   duplicates,
+  projectNotices = [],
   isOperator = false,
   onOpen,
   onRefresh,
@@ -42,6 +43,7 @@ export function SkillLibrary({
   error: string | null;
   loadErrors: string[];
   duplicates: string[];
+  projectNotices?: string[];
   isOperator?: boolean;
   onOpen: (id: string) => void;
   onRefresh: () => void;
@@ -103,6 +105,18 @@ export function SkillLibrary({
         </div>
       )}
 
+      {projectNotices.length > 0 && (
+        <div className="mb-5 rounded-xl border border-sky-400/30 bg-sky-400/10 p-3 text-[11px] text-sky-200">
+          <div className="flex items-center gap-2 font-semibold">
+            <ShieldAlert size={13} /> Project skills not loaded
+          </div>
+          <ul className="mt-1 list-disc list-inside space-y-0.5">
+            {projectNotices.map((message) => <li key={message}>{message}</li>)}
+          </ul>
+          <p className="mt-1 text-sky-200/70">Trust the project from the Project Skills tab to enable them.</p>
+        </div>
+      )}
+
       <div className="mb-5 flex flex-col gap-3">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -150,9 +164,17 @@ export function SkillLibrary({
                 <span className="rounded-md border border-border/30 bg-accent/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
                   v{skill.latestVersion ?? skill.version}
                 </span>
-                {skill.origin === "author" ? (
+                {skill.provenance === "project" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-300">
+                    <FolderGit2 size={9} /> Project
+                  </span>
+                ) : skill.provenance === "profile" || skill.origin === "author" ? (
                   <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
                     <User size={9} /> Yours
+                  </span>
+                ) : skill.provenance === "generated" || skill.origin === "learning" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-300">
+                    <Sparkles size={9} /> Generated
                   </span>
                 ) : null}
                 <RiskBadge risk={skill.riskLevel} />

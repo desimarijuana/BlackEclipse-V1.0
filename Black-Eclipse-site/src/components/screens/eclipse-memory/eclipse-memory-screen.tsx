@@ -7,8 +7,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity, AlertCircle, Brain, Database, FileText, Loader2, Lock, Plug, Plus, RefreshCcw,
-  Search, Settings2, ShieldCheck, Trash2, Wrench, X,
+  Activity, AlertCircle, Brain, Database, FileText, Lightbulb, Loader2, Lock, MessageSquare, Plug, Plus,
+  RefreshCcw, Search, Settings2, ShieldCheck, Trash2, Wrench, X,
 } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
@@ -28,7 +28,7 @@ import {
   sessionSearch, sessionSearchHealth, sessionOpen, sessionDelete,
   listChatSessions, getChatSession, updateChatSession, forkChatSession, deleteChatSession, exportChatSession, getSessionSummary,
   listProfiles, createProfile, deleteProfile,
-  memoryProviderStatus, memoryProviderSearch,
+  memoryProviderStatus, memoryProviderSearch, memoryProviderTest,
   learningReviewHealth, listLearningReviews, runLearningReview, decideLearningReview,
   getMemoryFiles, regenerateMemoryFiles, previewMarkdownImport, importMarkdown, restoreMemoryFiles,
   editMemoryFile, listFileHistory, rollbackMemoryFile, type FileEditOperation, type FileRevision,
@@ -84,16 +84,17 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       <TabBar
         items={[
           { id: "overview", label: "Overview", icon: Brain },
-          { id: "memories", label: "Memory", icon: Database },
-          { id: "sessions", label: "Sessions", icon: Search },
-          { id: "reviews", label: "Learning", icon: Activity },
+          { id: "memories", label: "Facts", icon: Database },
+          { id: "sessions", label: "Session History", icon: MessageSquare },
+          { id: "skills", label: "Skills", icon: Wrench },
+          { id: "suggestions", label: "Suggestions", icon: Lightbulb },
+          { id: "reviews", label: "Reviews", icon: Activity },
           { id: "profile", label: "Profile", icon: Lock },
           { id: "profiles", label: "Profiles", icon: ShieldCheck },
           { id: "providers", label: "Providers", icon: Plug },
           { id: "files", label: "Files", icon: FileText },
-          { id: "skills", label: "Skills", icon: Wrench },
           { id: "policies", label: "Policies", icon: Settings2 },
-          { id: "health", label: "Diagnostics", icon: ShieldCheck },
+          { id: "health", label: "Health/Export", icon: ShieldCheck },
         ]}
         activeId={tab}
         onChange={(id) => setTab(id as Tab)}
@@ -749,11 +750,11 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
   const rollbackAvailable = sessions.some((s) => s.sourceSessionId);
 
   const tiles = [
-    { label: "Memories", value: data.memories.total, sub: `${Object.keys(data.memories.byType).length} types` },
-    { label: "Active", value: data.memories.byStatus.active ?? 0, sub: "usable now" },
-    { label: "Active skills", value: data.skills.installed, sub: "installed" },
+    { label: "Facts", value: data.memories.total, sub: `${Object.keys(data.memories.byType).length} types` },
+    { label: "Active facts", value: data.memories.byStatus.active ?? 0, sub: "recallable now" },
+    { label: "Skills", value: data.skills.installed, sub: "installed" },
     { label: "Pending reviews", value: pendingReviews.length, sub: "learning queue" },
-    { label: "Recent sessions", value: sessions.length, sub: "last active" },
+    { label: "Recent sessions", value: sessions.length, sub: "session history" },
     { label: "Providers", value: provider?.available?.length ?? 0, sub: `of ${provider?.providerCount ?? 0} available` },
     { label: "Learning changes", value: data.candidates, sub: "candidates in queue" },
     { label: "Rollback availability", value: rollbackAvailable ? "yes" : "—", sub: rollbackAvailable ? "forked sessions" : "none" },
@@ -765,6 +766,7 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
         title="Eclipse Memory"
         hint="Dedicated persistence for agent memory, sessions, skills, learning and providers. Real counts only — nothing is fabricated."
       />
+      <MemoryModelLegend />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tiles.map((tile) => (
           <div key={tile.label} className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-4">
@@ -1042,6 +1044,8 @@ function Providers() {
   const [query, setQuery] = useState("");
   const [external, setExternal] = useState(false);
   const [results, setResults] = useState<Array<{ provider: string; content: string; verified: boolean }>>([]);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1050,6 +1054,15 @@ function Providers() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const test = async (name: string) => {
+    setTesting(name); setTestResult(null);
+    try {
+      const r = await memoryProviderTest(name);
+      setTestResult(`${name}: ${r.state}${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ""}${r.detail ? ` · ${r.detail}` : ""}${r.searchProbed ? ` · probe returned ${r.probeResultCount}` : ""}`);
+    } catch (err) { setTestResult(err instanceof Error ? err.message : "test failed"); }
+    finally { setTesting(null); setTimeout(() => setTestResult(null), 8000); }
+  };
 
   const search = async () => {
     if (!query.trim()) return;
@@ -1100,6 +1113,12 @@ function Providers() {
                   {p.health.version ? ` · v${p.health.version}` : ""}
                 </p>
                 {p.health.detail && <p className="mt-0.5 text-[10px] text-muted-foreground/80">{p.health.detail}</p>}
+                {p.capabilitySummary && <p className="mt-1 text-[10px] text-foreground/80">{p.capabilitySummary}</p>}
+                {p.dataLocation && (
+                  <p className={cn("mt-1 text-[10px]", p.isNative ? "text-emerald-300/80" : "text-amber-300/90")}>
+                    Data: {p.dataLocation}
+                  </p>
+                )}
                 <div className="mt-2 flex flex-wrap gap-1">
                   {capList.map(([label, on]) => (
                     <span key={label} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]",
@@ -1108,10 +1127,21 @@ function Providers() {
                     </span>
                   ))}
                 </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="rounded-lg cursor-pointer text-[10px] h-6 px-2" disabled={testing === p.name}
+                    onClick={() => void test(p.name)}>
+                    {testing === p.name ? <Loader2 size={10} className="animate-spin" /> : "Test"}
+                  </Button>
+                  {!p.isNative && <span className="text-[9px] text-muted-foreground">not Eclipse-verified</span>}
+                </div>
               </div>
             );
           })}
         </div>
+      )}
+      {testResult && <p className="mb-3 text-[11px] text-primary">{testResult}</p>}
+      {status?.privacyNote && (
+        <p className="mb-3 rounded-xl border border-white/10 glass-card-subtle p-2.5 text-[10px] text-muted-foreground">{status.privacyNote}</p>
       )}
       <div className="space-y-2">
         {results.map((r, i) => (
@@ -1423,8 +1453,8 @@ function Memories({ isOperator }: { isOperator: boolean }) {
     <div className="animate-fade-in-up">
       <div className="mb-5 flex items-start justify-between gap-4">
         <Header
-          title="Memory Explorer"
-          hint="Proposed memory is inert until reviewed. Archived and superseded memory are retained for audit, never deleted."
+          title="Facts"
+          hint="Durable, declarative facts recalled on relevant turns. A proposed fact is inert until you approve it; archived and superseded facts are retained for audit, never deleted. Task procedures belong in Skills; old conversations belong in Session History."
         />
         <Button size="sm" className="rounded-xl cursor-pointer shrink-0" disabled={!isOperator} onClick={() => setShowSave((v) => !v)}>
           {showSave ? <X size={13} className="mr-1" /> : <Plus size={13} className="mr-1" />}
@@ -1482,7 +1512,8 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <TypeBadge type={memory.memoryType} />
                     <StatusPill status={memory.status} />
-                    <span className="text-[9px] text-muted-foreground">{memory.scope}{memory.scopeId ? `:${memory.scopeId}` : ""}</span>
+                    <OriginBadge memory={memory} />
+                    <span className="text-[9px] text-muted-foreground">scope: {memory.scope}{memory.scopeId ? `:${memory.scopeId}` : ""}</span>
                     {memory.subject && <span className="text-[9px] text-primary">#{memory.subject}</span>}
                   </div>
                   <p className="mt-1.5 text-[12px] text-foreground leading-relaxed line-clamp-2">{memory.content}</p>
@@ -1504,6 +1535,7 @@ function Memories({ isOperator }: { isOperator: boolean }) {
             <div className="flex items-center gap-2 flex-wrap">
               <TypeBadge type={detail.memory.memoryType} />
               <StatusPill status={detail.memory.status} />
+              <OriginBadge memory={detail.memory} />
             </div>
             <p className="mt-3 text-[12px] text-foreground leading-relaxed">{detail.memory.content}</p>
             {detail.explanation && (
@@ -1511,6 +1543,21 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                 <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Why this memory exists</p>
                 <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.saveReason}</p>
                 <p className="mt-1 text-[11px] text-foreground/90">{detail.explanation.recallDisposition}</p>
+                {detail.explanation.statusReason && (
+                  <p className="mt-1 text-[11px] text-amber-300/90">
+                    Status: {detail.memory.status} — {detail.explanation.statusReason}
+                  </p>
+                )}
+                {detail.memory.expiresAt && detail.memory.status === "expired" && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Expired {detail.memory.expiresAt}: automatic memories retire after the retention window; explicit memories never expire silently.
+                  </p>
+                )}
+                {detail.memory.supersededBy && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Superseded by a later record ({detail.memory.supersededBy}) and excluded from recall; retained for audit.
+                  </p>
+                )}
               </div>
             )}
             <dl className="mt-4 text-[11px]">
@@ -1523,8 +1570,23 @@ function Memories({ isOperator }: { isOperator: boolean }) {
               <Meta label="Authority" value={detail.memory.authority ?? "explicit"} />
               <Meta label="Accesses" value={String(detail.memory.accessCount)} />
               <Meta label="Last used" value={detail.memory.lastUsedAt ?? "never"} />
+              <Meta label="Last confirmed" value={detail.memory.lastConfirmedAt ?? "—"} />
+              <Meta label="Expires" value={detail.memory.expiresAt ?? "never"} />
               <Meta label="Created" value={detail.memory.createdAt} />
             </dl>
+            {detail.explanation?.conflict && (
+              <div className="mt-3 rounded-2xl border border-amber-400/25 bg-amber-400/5 p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-amber-300">Competing memory</p>
+                <p className="mt-1 text-[11px] text-foreground/90">
+                  {detail.explanation.conflict.reason}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Detector: {detail.explanation.conflict.detector}
+                  {detail.explanation.conflict.similarity != null ? ` · similarity ${detail.explanation.conflict.similarity.toFixed(2)}` : ""}
+                  {detail.explanation.conflict.requiresConfirmation ? " · needs your review" : ""}
+                </p>
+              </div>
+            )}
 
             {detail.evidence.length > 0 && (
               <div className="mt-4">
@@ -2135,6 +2197,61 @@ function Health({ isOperator }: { isOperator: boolean }) {
 }
 
 // ── Shared atoms ────────────────────────────────────────────────────────────
+
+// ── The three things users must never confuse (Phase 1 mental model) ─────────
+
+function MemoryModelLegend() {
+  const items = [
+    { icon: Database, title: "Facts", body: "Small, durable, declarative facts recalled on relevant turns (identity, preferences, conventions, environment). Nothing is stored automatically unless you ask." },
+    { icon: MessageSquare, title: "Session History", body: "Past conversations and run traces. Never injected every turn — searched on demand (\"what did we decide last week?\")." },
+    { icon: Wrench, title: "Skills", body: "Reusable procedures loaded only when relevant. A proposal stays inert until evaluated and approved by an operator." },
+  ];
+  return (
+    <div className="mb-6 grid gap-2 md:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.title} className="rounded-2xl border border-white/10 dark:border-white/5 glass-card-subtle p-3">
+          <div className="flex items-center gap-2">
+            <item.icon size={13} className="text-primary shrink-0" />
+            <span className="text-[11px] font-semibold text-foreground">{item.title}</span>
+          </div>
+          <p className="mt-1 text-[10px] text-muted-foreground leading-relaxed">{item.body}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── How a memory came to exist (automatic / explicit / imported / external) ──
+
+type Origin = "automatic" | "explicit" | "imported" | "external" | "suggested";
+
+const ORIGIN_STYLES: Record<Origin, { label: string; className: string }> = {
+  automatic: { label: "auto", className: "border-violet-400/25 bg-violet-400/10 text-violet-300" },
+  explicit: { label: "explicit", className: "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" },
+  imported: { label: "imported", className: "border-sky-400/25 bg-sky-400/10 text-sky-300" },
+  external: { label: "external", className: "border-amber-400/25 bg-amber-400/10 text-amber-300" },
+  suggested: { label: "suggested", className: "border-sky-400/25 bg-sky-400/10 text-sky-300" },
+};
+
+/** Classify a memory's origin from its authority/source. Never invents a value. */
+function originOf(memory: Pick<MemoryRecord, "authority" | "source" | "status">): Origin {
+  if (memory.status === "proposed") return "suggested";
+  const source = (memory.source ?? "").toLowerCase();
+  if (source.includes("import")) return "imported";
+  if (source.includes("external")) return "external";
+  if ((memory.authority ?? "") === "automatic") return "automatic";
+  return "explicit";
+}
+
+function OriginBadge({ memory }: { memory: Pick<MemoryRecord, "authority" | "source" | "status"> }) {
+  const origin = originOf(memory);
+  const style = ORIGIN_STYLES[origin];
+  return (
+    <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide", style.className)}>
+      {style.label}
+    </span>
+  );
+}
 
 function Header({ title, hint }: { title: string; hint: string }) {
   return (

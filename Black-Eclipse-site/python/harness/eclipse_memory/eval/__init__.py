@@ -103,6 +103,7 @@ class CaseResult:
     selected: int
     selectedTopical: int = 0
     topicalHits: int = 0
+    durationMs: float = 0.0
 
     @property
     def precision(self) -> float:
@@ -130,6 +131,7 @@ class CaseResult:
             "precision": round(self.precision, 3), "recall": round(self.recall, 3),
             "usedChars": self.usedChars, "budgetChars": self.budgetChars,
             "selected": self.selected, "selectedTopical": self.selectedTopical,
+            "durationMs": round(self.durationMs, 3),
         }
 
 
@@ -216,6 +218,7 @@ def run_evaluation(path: Optional[str] = None) -> dict[str, Any]:
                 budgetChars=int(diagnostics.get("budgetChars", 0)),
                 selected=len(selected), selectedTopical=len(selected_topical),
                 topicalHits=len(topical_hit),
+                durationMs=float(diagnostics.get("durationMs", 0) or 0),
             ))
     finally:
         service.close()
@@ -263,6 +266,12 @@ def run_evaluation(path: Optional[str] = None) -> dict[str, Any]:
             # The lexical slice the retriever is designed to serve.
             "recallSupported": round(supported_hit / supported_expected, 3) if supported_expected else 1.0,
             "byKind": by_kind,
+            # Latency (deterministic path only — no network/model). Reported so a
+            # future semantic layer can be compared against the lexical baseline.
+            "latencyMs": {
+                "mean": round(sum(r.durationMs for r in results) / len(results), 3) if results else 0.0,
+                "max": round(max((r.durationMs for r in results), default=0.0), 3),
+            },
         },
         "budget": {
             "defaultBudgetChars": 4000,

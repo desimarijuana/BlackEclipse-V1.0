@@ -535,7 +535,9 @@ async def execute_run(
 
     # A bounded, relevant-only skill manifest (never all skills). Discovery is a
     # hint; it cannot enable, grant or run anything.
-    skill_manifest, skill_manifest_version = await _skill_manifest_context(request, skill_registry)
+    skill_manifest, skill_manifest_version = await _skill_manifest_context(
+        request, skill_registry, memory_service, emitter,
+    )
 
     # Deterministic explicit-intent handling. A clear "remember this" / "forget
     # this" / "correct this" must not depend on the model voluntarily calling the
@@ -936,15 +938,41 @@ async def _profile_context(
 async def _skill_manifest_context(
     request: RunRequest,
     skill_registry: Optional[Any],
+    memory_service: Optional[Any] = None,
+    emitter: Optional[RunEmitter] = None,
 ) -> tuple[str, Optional[str]]:
     """A bounded, relevant-only skill manifest for this run (never all skills).
 
     Progressive disclosure: only compact metadata for skills matching the turn
     is injected as a hint; full instructions stay behind `skill_view`, which
-    cannot enable or run anything.
+    cannot enable or run anything. When the request names a skill bundle, the
+    bundle is expanded deterministically instead (missing/disabled members are
+    reported, never enabled), and the resolution is recorded for observability.
     """
     if skill_registry is None:
         return "", None
+
+    if getattr(request, "bundleId", None) and memory_service is not None:
+        from .skills.bundles import resolve_bundle  # noqa: PLC0415
+
+        try:
+            resolution = resolve_bundle(
+                memory_service.store, skill_registry, request.bundleId,
+            )
+        except Exception:  # noqa: BLE001 - a bad bundle must not break the run
+            resolution = None
+        if resolution is not None:
+            if emitter is not None:
+                try:
+                    await emitter.emit("skill.bundle_resolved", resolution.to_dict())
+                except Exception:  # noqa: BLE001
+                    pass
+            from .prompt_segments import _hash  # noqa: PLC0415
+
+            if resolution.content:
+                return resolution.content, _hash(resolution.content)
+            return "", None
+
     from .prompt_segments import build_skill_manifest  # noqa: PLC0415
 
     query = request.input.query or request.input.ticker or ""

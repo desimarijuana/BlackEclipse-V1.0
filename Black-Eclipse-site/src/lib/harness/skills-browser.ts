@@ -7,7 +7,14 @@
 // `isOperatorRequest`); operator controls here are a presentation hint.
 
 import type {
+  LearnDraftResult,
+  LearnRequest,
   LearningCandidate,
+  LearningJourney,
+  ProjectSkillStatus,
+  SkillBundle,
+  SkillBundleListResponse,
+  SkillBundleResolution,
   SkillDetail,
   SkillEvaluationRecord,
   SkillExecutionRecord,
@@ -23,6 +30,7 @@ export interface SkillListResult {
   skills: SkillSummary[];
   loadErrors: string[];
   duplicates: string[];
+  projectNotices: string[];
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -41,8 +49,50 @@ export function clientIsOperator(): boolean {
 
 export async function listSkills(status?: string): Promise<SkillListResult> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const body = await api<{ skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[] }>(`/api/skills${query}`);
-  return { skills: body.skills ?? [], loadErrors: body.loadErrors ?? [], duplicates: body.duplicates ?? [] };
+  const body = await api<{ skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[]; projectNotices?: string[] }>(`/api/skills${query}`);
+  return {
+    skills: body.skills ?? [],
+    loadErrors: body.loadErrors ?? [],
+    duplicates: body.duplicates ?? [],
+    projectNotices: body.projectNotices ?? [],
+  };
+}
+
+export async function projectSkillStatus(): Promise<ProjectSkillStatus> {
+  return api<ProjectSkillStatus>(`/api/skills/project`);
+}
+
+export async function trustProjectSkill(path?: string, note?: string): Promise<void> {
+  await api(`/api/skills/project/trust`, { method: "POST", body: JSON.stringify({ path, note }) });
+}
+
+export async function untrustProjectSkill(path?: string): Promise<void> {
+  await api(`/api/skills/project/untrust`, { method: "POST", body: JSON.stringify({ path }) });
+}
+
+export async function learningJourney(params: { kind?: string; status?: string; since?: string } = {}): Promise<LearningJourney> {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v) as [string, string][]
+  ).toString();
+  return api<LearningJourney>(`/api/learning/journey${query ? `?${query}` : ""}`);
+}
+
+export async function learnFromSource(request: LearnRequest): Promise<LearnDraftResult> {
+  return api<LearnDraftResult>(`/api/learning/from-source`, { method: "POST", body: JSON.stringify(request) });
+}
+
+export async function listSkillBundles(): Promise<SkillBundleListResponse> {
+  const body = await api<{ bundles?: SkillBundle[]; resolved?: Record<string, SkillBundleResolution> }>(`/api/skill-bundles`);
+  return { bundles: body.bundles ?? [], resolved: body.resolved ?? {} };
+}
+
+export async function saveSkillBundle(bundle: Partial<SkillBundle> & { id: string }): Promise<SkillBundle> {
+  const body = await api<{ bundle: SkillBundle }>(`/api/skill-bundles`, { method: "POST", body: JSON.stringify(bundle) });
+  return body.bundle;
+}
+
+export async function deleteSkillBundle(bundleId: string): Promise<void> {
+  await api(`/api/skill-bundles/${encodeURIComponent(bundleId)}`, { method: "DELETE" });
 }
 
 export async function getSkill(skillId: string): Promise<SkillDetail | null> {

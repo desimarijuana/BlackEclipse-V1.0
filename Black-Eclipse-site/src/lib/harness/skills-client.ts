@@ -11,7 +11,14 @@ import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
 import { redactSecrets } from "./errors";
 import type {
+  LearnDraftResult,
+  LearnRequest,
   LearningCandidate,
+  LearningJourney,
+  ProjectSkillStatus,
+  SkillBundle,
+  SkillBundleListResponse,
+  SkillBundleResolution,
   SkillDetail,
   SkillEvaluationRecord,
   SkillExecutionRecord,
@@ -78,6 +85,58 @@ export async function listSkills(status?: string): Promise<SkillListResponse> {
     { method: "GET" }
   );
   return { skills: body.skills ?? [], loadErrors: body.loadErrors ?? [], duplicates: body.duplicates ?? [] };
+}
+
+export async function projectSkillStatus(): Promise<ProjectSkillStatus> {
+  return request<ProjectSkillStatus & { success: true }>("/skills/project", { method: "GET" });
+}
+
+export async function trustProjectSkill(path?: string, note?: string): Promise<void> {
+  await request(`/skills/project/trust`, {
+    method: "POST",
+    body: JSON.stringify({ path, note }),
+  });
+}
+
+export async function untrustProjectSkill(path?: string): Promise<void> {
+  await request(`/skills/project/untrust`, {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function learningJourney(params: { kind?: string; status?: string; since?: string } = {}): Promise<LearningJourney> {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v) as [string, string][]
+  ).toString();
+  return request<LearningJourney & { success: true }>(`/learning/journey${query ? `?${query}` : ""}`, { method: "GET" });
+}
+
+export async function learnFromSource(learnRequest: LearnRequest): Promise<LearnDraftResult> {
+  return request<LearnDraftResult>("/learning/from-source", {
+    method: "POST",
+    body: JSON.stringify({ ...learnRequest, operator: true }),
+  });
+}
+
+export async function listSkillBundles(): Promise<SkillBundleListResponse> {
+  const body = await request<{ bundles?: SkillBundle[]; resolved?: Record<string, SkillBundleResolution> }>(
+    "/skill-bundles",
+    { method: "GET" }
+  );
+  return { bundles: body.bundles ?? [], resolved: body.resolved ?? {} };
+}
+
+export async function saveSkillBundle(bundle: Partial<SkillBundle> & { id: string }): Promise<SkillBundle> {
+  const body = await request<{ bundle: SkillBundle }>("/skill-bundles", {
+    method: "POST",
+    body: JSON.stringify(bundle),
+  });
+  return body.bundle;
+}
+
+export async function deleteSkillBundle(bundleId: string): Promise<void> {
+  await request(`/skill-bundles/${encodeURIComponent(bundleId)}`, { method: "DELETE" });
 }
 
 export async function getSkill(skillId: string): Promise<SkillDetail | null> {

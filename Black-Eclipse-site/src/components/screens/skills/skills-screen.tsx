@@ -7,7 +7,7 @@
 // every mutating action is re-checked server-side.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, FlaskConical, Library, Lightbulb } from "lucide-react";
+import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import {
@@ -25,8 +25,12 @@ import { EvaluationCenter } from "./evaluation-center";
 import { ExecutionActivity, type ExecutionWithSkill } from "./execution-activity";
 import { DraftReview } from "./draft-review";
 import { SkillAuthorForm } from "./skill-author-form";
+import { ProjectSkills } from "./project-skills";
+import { SkillBundles } from "./skill-bundles";
+import { GuidedLearn } from "./guided-learn";
+import { LearningJourneyPanel } from "./learning-journey";
 
-type Tab = "library" | "learning" | "evaluation" | "activity";
+type Tab = "library" | "project" | "bundles" | "learn" | "learning" | "journey" | "evaluation" | "activity";
 
 export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("library");
@@ -34,11 +38,12 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   // matching sub-tab: skills.library/learning/evaluation/activity.
   useSubroute("skills", (req) => {
     const next = req.subroute.split(".")[1] as Tab | undefined;
-    if (next && ["library", "learning", "evaluation", "activity"].includes(next)) setTab(next);
+    if (next && ["library", "project", "bundles", "learn", "learning", "journey", "evaluation", "activity"].includes(next)) setTab(next);
   });
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [duplicates, setDuplicates] = useState<string[]>([]);
+  const [projectNotices, setProjectNotices] = useState<string[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -71,6 +76,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
       setSkills(data.skills);
       setLoadErrors(data.loadErrors);
       setDuplicates(data.duplicates);
+      setProjectNotices(data.projectNotices ?? []);
     } catch (err) {
       setListError(err instanceof Error ? err.message : "failed to load skills");
     } finally {
@@ -256,7 +262,11 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
 
   const tabs = useMemo(() => [
     { id: "library", label: "Skills Library", icon: Library },
+    { id: "project", label: "Project Skills", icon: FolderGit2 },
+    { id: "bundles", label: "Bundles", icon: Boxes },
+    { id: "learn", label: "Learn a Skill", icon: GraduationCap },
     { id: "learning", label: "Learning Queue", icon: Lightbulb, badge: candidates.length > 0 ? <Badge>{candidates.length}</Badge> : undefined },
+    { id: "journey", label: "Journey", icon: GitBranch },
     { id: "evaluation", label: "Evaluation Center", icon: FlaskConical },
     { id: "activity", label: "Execution Activity", icon: Activity },
   ], [candidates.length]);
@@ -306,12 +316,17 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
               error={listError}
               loadErrors={loadErrors}
               duplicates={duplicates}
+              projectNotices={projectNotices}
               isOperator={isOperator}
               onOpen={openSkill}
               onRefresh={loadSkills}
               onAdd={() => setAuthoring("new")}
             />
           )}
+          {tab === "project" && <ProjectSkills isOperator={isOperator} />}
+          {tab === "bundles" && <SkillBundles isOperator={isOperator} />}
+          {tab === "learn" && <GuidedLearn isOperator={isOperator} onOpenDraft={(id) => void openSkill(id)} />}
+          {tab === "journey" && <LearningJourneyPanel />}
           {tab === "learning" && (
             <LearningQueue
               candidates={candidates}

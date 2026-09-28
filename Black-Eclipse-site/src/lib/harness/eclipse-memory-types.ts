@@ -444,6 +444,10 @@ export interface MemoryProviderInfo {
   isNative: boolean;
   capabilities: MemoryProviderCapabilities;
   health: MemoryProviderHealthState;
+  capabilitySummary?: string;
+  dataLocation?: string;
+  verifiedByEclipse?: boolean;
+  checkedAt?: number;
 }
 
 export interface MemoryProviderStatus {
@@ -453,8 +457,20 @@ export interface MemoryProviderStatus {
   nativeCount: number;
   externalCount: number;
   available: string[];
+  failed?: string[];
   providers: MemoryProviderInfo[];
+  privacyNote?: string;
   note: string;
+}
+
+export interface MemoryProviderTestResult {
+  ok: boolean;
+  state: string;
+  detail: string | null;
+  latencyMs: number | null;
+  searchProbed: boolean;
+  probeResultCount: number;
+  externalVerified: boolean;
 }
 
 export interface MemoryProviderResult {
