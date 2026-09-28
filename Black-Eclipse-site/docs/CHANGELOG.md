@@ -8,6 +8,23 @@ last-verified: 2026-09-28
 
 ## 2026-09-28
 
+- **Engineering follow-up: lint, router split, frontend atoms, a11y.** (1) Fixed
+  `eslint.config.mjs` to ignore `.next-dev/**` — the dev build output was being
+  linted, producing all 400 reported "errors"; source now lints to **0 errors**,
+  and the CI lint step is blocking (was `continue-on-error`). (2) Extracted the
+  remaining front-door route groups from `python/harness/main.py` into
+  `routers/memory.py` (46), `routers/skills.py` (18), `routers/sessions.py` (23)
+  alongside `routers/mcp.py` (11); `main.py` shrank 2,604 → **919 lines** with no
+  path/behavior change (one internal monkeypatch target in
+  `test_memory_reliability.py` moved with it). (3) Extracted the Eclipse-Memory
+  presentational atoms into `eclipse-memory/memory-ui.tsx` (screen 2,598 → 2,444
+  lines). (4) Added a dependency-free a11y store test
+  (`src/lib/i18n/store.a11y.test.ts`). (5) Verified `jdds.db` remains unstaged and
+  uncommitted. Checks: Vitest **1808 passed** (145 files); Python **1315 passed**;
+  `tsc` clean; lint 0 errors; retrieval/semantic/contradiction/compaction gates
+  PASS. `jdds.db` untouched.
+  docs updated: CHANGELOG.md, NAVIGATION.md, harness/architecture.md
+
 - **Engineering hardening pass (CI, routing, honest errors, guards).** Seven
   focused items: (1) added a **CI workflow** (`.github/workflows/test.yml`) that
   runs `typecheck` + `test` (Vitest + Python) + the four eval gates, plus an

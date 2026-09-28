@@ -153,10 +153,12 @@ def test_api_retrieve_returns_503_when_memory_unavailable(monkeypatch):
         os.path.join(tempfile.mkdtemp(prefix="be-rel-em-"), "eclipse-memory.db"),
     )
     from harness import main as main_module
+    from harness.routers import memory as memory_router
 
     with TestClient(main_module.app) as client:
-        # Force the availability guard to report unavailable.
-        monkeypatch.setattr(main_module, "_memory_available", lambda: False)
+        # Force the availability guard to report unavailable. The route lives in
+        # `routers/memory.py`, so patch the name it actually calls.
+        monkeypatch.setattr(memory_router, "memory_available", lambda: False)
         res = client.post("/eclipse-memory/retrieve", json={"query": "x", "actorScope": "user"})
     assert res.status_code == 503
     assert "unavailable" in res.json()["detail"].lower()

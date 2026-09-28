@@ -74,8 +74,8 @@ Two boundaries, both deliberate:
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
-| `routers/` | self-contained route groups registered by `main.py` via `app.include_router(...)`, so the front door stays navigable. `mcp.py` owns the MCP catalog/approvals/presets/diagnostics routes; shared state comes from `deps.py` (never by importing `main`) |
-| `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …). Shared runtime state and operator authorization live in `deps.py`; self-contained route groups are extracted into `routers/` (currently `routers/mcp.py`) and registered via `app.include_router(...)`. The public surface stays `harness.main:app`. |
+| `routers/` | self-contained route groups registered by `main.py` via `app.include_router(...)`, so the front door stays navigable. `mcp.py` owns the MCP catalog/approvals/presets/diagnostics routes; `memory.py` owns all `/eclipse-memory/*` + `/memory-providers/*` routes; `sessions.py` owns sessions/profiles/session-history-search/learning-review; `skills.py` owns the skill lifecycle, project trust, bundles, authoring and learning routes. Shared state comes from `deps.py` (never by importing `main`) |
+| `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …). Shared runtime state and operator authorization live in `deps.py`; self-contained route groups are extracted into `routers/` and registered via `app.include_router(...)`. The public surface stays `harness.main:app`. |
 
 ### Agents and prompts are Python-authoritative
 
@@ -610,8 +610,8 @@ owner-only (0600 where the OS supports it); the API returns env KEY names only,
 and values are redacted from every diagnostic/event/result (see ADR-H40 for the
 vault-integration limitation and the planned secret-reference resolution).
 
-**Catalog selection (Phase 5E).** `python/harness/main.py` exposes the catalog
-over the runtime API — `GET /mcp/servers`, `POST /mcp/servers`,
+**Catalog selection (Phase 5E).** `python/harness/routers/mcp.py` (registered by
+`main.py`) exposes the catalog over the runtime API — `GET /mcp/servers`, `POST /mcp/servers`,
 `POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST /mcp/reload`,
 `POST /mcp/servers/{id}/confirm` — and the TS front door proxies them at
 `/api/harness/mcp/*` (`src/lib/harness/mcp-client.ts`,

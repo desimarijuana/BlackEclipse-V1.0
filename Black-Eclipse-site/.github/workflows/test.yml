@@ -63,12 +63,10 @@ jobs:
         working-directory: Black-Eclipse-site
         run: npm run typecheck
 
-      - name: Lint (non-blocking)
+      - name: Lint
         working-directory: Black-Eclipse-site
-        # The repo carries a backlog of pre-existing lint findings that are
-        # outside this suite's scope. Lint is reported for visibility but must
-        # not red the build; typecheck/tests/evals are the blocking gates.
-        continue-on-error: true
+        # 0 errors (warnings are allowed); the build output dirs are ignored by
+        # eslint.config.mjs so this is a real source check.
         run: npm run lint
 
       - name: Unit tests (Vitest + Python)

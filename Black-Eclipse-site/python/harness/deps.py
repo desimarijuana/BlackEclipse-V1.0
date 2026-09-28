@@ -181,10 +181,39 @@ def require_mcp_operator(request: Request) -> None:
     )
 
 
+# ── Shared route helpers ─────────────────────────────────────────────────────
+# Small helpers used by more than one route group, so a router can reach them
+# without importing `main` (which would be circular).
+
+
+def actor_for(operator: bool = False, actor_id: str = "local"):
+    """Resolve the Actor for a request. Operator proof is transport/token, so a
+    caller only sets `operator=True` after `require_operator` has passed."""
+    from .skills.permissions import Actor, OPERATOR_ACTOR
+
+    return OPERATOR_ACTOR if operator else Actor(id=actor_id)
+
+
+def memory_available() -> bool:
+    """True when the memory database is readable and not corrupt.
+
+    A corrupt database must fail HONESTLY ("memory unavailable") rather than
+    answer a recall/write with wrong data. Cheap enough for the mutation/read
+    paths that guard on it.
+    """
+    try:
+        store = service.memory_store
+        return bool(store.db.integrity_ok())
+    except Exception:  # noqa: BLE001 - unreadable memory is unavailable memory
+        return False
+
+
 __all__ = [
     "IDENTITY_BOUNDARY",
+    "actor_for",
     "deployment_exposure",
     "identity_boundary",
+    "memory_available",
     "require_mcp_operator",
     "require_operator",
     "service",

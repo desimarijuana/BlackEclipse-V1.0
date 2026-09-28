@@ -25,6 +25,10 @@ const eslintConfig = [
     ignores: [
       "node_modules/**",
       ".next/**",
+      // The dev build writes to `.next-dev` (separate from `.next`); it is
+      // machine-generated output and must be ignored or lint reports hundreds of
+      // errors in vendored Next.js runtime files.
+      ".next-dev/**",
       "out/**",
       "build/**",
       "next-env.d.ts",
