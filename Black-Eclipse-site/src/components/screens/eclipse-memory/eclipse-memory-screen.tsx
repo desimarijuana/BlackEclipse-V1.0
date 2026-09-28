@@ -24,6 +24,8 @@ import {
   getPolicies, updatePolicies, clientIsOperator,
   exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
   listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
+  memoryConflictReview, resolveMemoryConflict,
+  listCompaction, detectCompaction, acceptCompaction, rejectCompaction,
   memoryProfile, rebuildProfile,
   sessionSearch, sessionSearchHealth, sessionOpen, sessionDelete,
   listChatSessions, getChatSession, updateChatSession, forkChatSession, deleteChatSession, exportChatSession, getSessionSummary,
@@ -41,7 +43,7 @@ import type {
   MemoryLifecycleResponse, MemoryOverview,
   MemoryProfileResponse,
   MemoryRetentionStatus, MemorySemanticStatus,
-  MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord,
+  MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord, MemoryConflictReview, CompactionProposal,
   SessionSearchHealth, SessionSearchHit, SessionOpenResult,
   ChatSessionRecord, MemoryProfileRecord, MemoryProviderStatus,
   LearningReviewHealth, LearningReviewRecord,
@@ -88,7 +90,9 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
           { id: "sessions", label: "Session History", icon: MessageSquare },
           { id: "skills", label: "Skills", icon: Wrench },
           { id: "suggestions", label: "Suggestions", icon: Lightbulb },
+          { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
           { id: "reviews", label: "Reviews", icon: Activity },
+          { id: "activity", label: "Activity", icon: Activity },
           { id: "profile", label: "Profile", icon: Lock },
           { id: "profiles", label: "Profiles", icon: ShieldCheck },
           { id: "providers", label: "Providers", icon: Plug },
@@ -123,6 +127,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
 
 const LIFECYCLE_VIEWS: Array<{ id: MemoryLifecycleView; label: string; hint: string }> = [
   { id: "active", label: "Active", hint: "Usable and eligible for recall." },
+  { id: "stale", label: "Stale", hint: "Active but not confirmed/used in a long time — still recalled; review or renew." },
   { id: "never-used", label: "Never used", hint: "Active but never recalled — candidates for review." },
   { id: "frequently-recalled", label: "Frequently recalled", hint: "Recalled 3+ times — likely useful." },
   { id: "automatic", label: "Automatically learned", hint: "Learned from runs/conventions, not stated by the user." },
@@ -182,6 +187,9 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
               ? `Automatically learned memory expires after ${retention.retentionDays} day(s); explicit memory is never silently expired.`
               : "Automatic retention is off (0 days) — automatic memory never expires by policy. Explicit memory is never silently expired."}
           </p>
+          {retention.nextMaintenanceAction && (
+            <p className="mt-1 text-[10px] text-foreground/80">Next: {retention.nextMaintenanceAction}</p>
+          )}
           {retention.lastSweep ? (
             <p className={cn("mt-1 text-[10px]", retention.lastSweep.ok ? "text-muted-foreground" : "text-amber-400")}>
               Last sweep {retention.lastSweep.ranAt}: inspected {retention.lastSweep.inspected}, expired {retention.lastSweep.expired}, skipped {retention.lastSweep.skipped}
@@ -192,6 +200,8 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
           )}
         </div>
       )}
+
+      <CompactionPanel isOperator={isOperator} onChanged={() => void load(view)} />
 
       {semantic && (
         <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
@@ -396,6 +406,60 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
             </div>
             {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — changes require operator authorization.</p>}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Conservative compaction (near-duplicate proposals) ──────────────────────
+
+function CompactionPanel({ isOperator, onChanged }: { isOperator: boolean; onChanged: () => void }) {
+  const [proposals, setProposals] = useState<CompactionProposal[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try { setProposals(await listCompaction("proposed")); } catch { setProposals([]); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true); setToast(null);
+    try { await fn(); setToast(message); await load(); onChanged(); }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
+  };
+
+  return (
+    <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-foreground">Memory compaction</p>
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+          onClick={() => act(() => detectCompaction(), "Checked for near-duplicates")}>
+          Find duplicates
+        </Button>
+      </div>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        Near-duplicate facts in the same scope/subject can be merged. Nothing changes until you accept a
+        proposal; originals are superseded (retained) and the merge is reversible.
+      </p>
+      {toast && <p className="mt-1 text-[10px] text-primary">{toast}</p>}
+      {proposals.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {proposals.map((p) => (
+            <div key={p.id} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
+              <p className="text-[10px] text-muted-foreground">{p.scope}{p.scopeId ? `:${p.scopeId}` : ""} · {p.subject ?? "no subject"} · {p.memberIds.length} memories</p>
+              <p className="mt-1 text-[11px] text-foreground">{p.mergedContent}</p>
+              {p.rationale && <p className="mt-1 text-[10px] text-muted-foreground/80">{p.rationale}</p>}
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => acceptCompaction(p.id), "Merged")}>Accept merge</Button>
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => rejectCompaction(p.id), "Proposal dismissed")}>Dismiss</Button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1119,6 +1183,13 @@ function Providers() {
                     Data: {p.dataLocation}
                   </p>
                 )}
+                {p.reliability && p.reliability.state !== "closed" && (
+                  <p className="mt-1 text-[10px] text-amber-300/90">
+                    Reliability: {p.reliability.state}
+                    {p.reliability.lastFailureCategory ? ` (${p.reliability.lastFailureCategory})` : ""}
+                    {p.reliability.failureRate != null ? ` · failure rate ${(p.reliability.failureRate * 100).toFixed(0)}%` : ""}
+                  </p>
+                )}
                 <div className="mt-2 flex flex-wrap gap-1">
                   {capList.map(([label, on]) => (
                     <span key={label} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]",
@@ -1406,6 +1477,7 @@ function Memories({ isOperator }: { isOperator: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [showSave, setShowSave] = useState(false);
+  const [conflictId, setConflictId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ content: "", memoryType: "semantic", scope: "general", subject: "" });
 
   const load = useCallback(async () => {
@@ -1585,6 +1657,10 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                   {detail.explanation.conflict.similarity != null ? ` · similarity ${detail.explanation.conflict.similarity.toFixed(2)}` : ""}
                   {detail.explanation.conflict.requiresConfirmation ? " · needs your review" : ""}
                 </p>
+                <Button size="sm" variant="outline" className="mt-2 rounded-xl cursor-pointer"
+                  onClick={() => setConflictId(detail.memory.id)}>
+                  Review conflict
+                </Button>
               </div>
             )}
 
@@ -1636,6 +1712,133 @@ function Memories({ isOperator }: { isOperator: boolean }) {
           </div>
         </div>
       )}
+
+      {conflictId && (
+        <ConflictReview
+          memoryId={conflictId}
+          isOperator={isOperator}
+          onClose={() => setConflictId(null)}
+          onResolved={async (message) => {
+            setToast(message);
+            await load();
+            if (detail) await open(detail.memory.id);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Conflict review (side-by-side competing memories + safe actions) ────────
+
+function ConflictReview({
+  memoryId, isOperator, onClose, onResolved,
+}: {
+  memoryId: string;
+  isOperator: boolean;
+  onClose: () => void;
+  onResolved: (message: string) => void | Promise<void>;
+}) {
+  const [review, setReview] = useState<MemoryConflictReview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [mergeText, setMergeText] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    memoryConflictReview(memoryId).then((r) => { if (!cancelled) { setReview(r); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [memoryId]);
+
+  const act = async (action: string, targetId?: string, mergedContent?: string) => {
+    setBusy(true); setMessage(null);
+    try {
+      const result = await resolveMemoryConflict(memoryId, action, { targetId, mergedContent, reason: "resolved in conflict review" });
+      if (!result.ok) { setMessage(result.error ?? "action failed"); return; }
+      await onResolved(`Conflict ${action} recorded`);
+      onClose();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "action failed");
+    } finally { setBusy(false); }
+  };
+
+  const Row = ({ record, label }: { record: MemoryConflictReview["self"]; label: string }) => (
+    <div className="rounded-2xl border border-white/10 glass-card-subtle p-3">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[9px] font-bold uppercase tracking-wide text-primary">{label}</span>
+        <TypeBadge type={record.memoryType} />
+        <StatusPill status={record.status} />
+        <span className="text-[9px] text-muted-foreground">{record.authority}</span>
+      </div>
+      <p className="mt-1.5 text-[12px] text-foreground leading-relaxed">{record.content}</p>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        {record.scope}{record.scopeId ? `:${record.scopeId}` : ""} · {record.provenance ?? "—"} ·
+        conf {formatConfidence(record.confidence)} · confirmed {record.lastConfirmedAt ?? "—"} ·
+        used {record.accessCount ?? 0}×
+      </p>
+      {record.status === "active" && record.id !== memoryId && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button onClick={() => act("supersede", record.id)} disabled={!isOperator || busy}
+            className="rounded-lg border border-border/40 px-2 py-0.5 text-[10px] cursor-pointer disabled:opacity-50">Supersede</button>
+          <button onClick={() => act("dismiss", record.id)} disabled={!isOperator || busy}
+            className="rounded-lg border border-border/40 px-2 py-0.5 text-[10px] cursor-pointer text-rose-300 disabled:opacity-50">Dismiss</button>
+          <button onClick={() => act("confirm_both", record.id)} disabled={!isOperator || busy}
+            className="rounded-lg border border-border/40 px-2 py-0.5 text-[10px] cursor-pointer text-emerald-300 disabled:opacity-50">Confirm both</button>
+          <button onClick={() => { setMergeText(record.content); }} disabled={!isOperator || busy}
+            className="rounded-lg border border-border/40 px-2 py-0.5 text-[10px] cursor-pointer disabled:opacity-50">Merge…</button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-lg h-full glass-card-strong border-l border-white/10 overflow-y-auto p-5">
+        <button onClick={onClose} className="mb-3 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer">← Close</button>
+        <h3 className="font-serif text-sm font-semibold text-foreground">Conflict review</h3>
+        {loading ? <Spinner /> : !review ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">No conflict review available for this memory.</p>
+        ) : (
+          <>
+            <p className="mt-1 text-[11px] text-muted-foreground">{review.recommendation}</p>
+            {message && <p className="mt-2 text-[11px] text-rose-300">{message}</p>}
+            <div className="mt-3 space-y-2">
+              <Row record={review.self} label="This memory" />
+              {review.peers.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No competing record is linked.</p>
+              ) : review.peers.map((peer) => <Row key={peer.id} record={peer} label="Competing" />)}
+            </div>
+            {mergeText && (
+              <div className="mt-3 rounded-2xl border border-primary/20 glass-card p-3">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Merge into a new fact</p>
+                <textarea value={mergeText} onChange={(e) => setMergeText(e.target.value)} rows={3}
+                  className="mt-1 w-full rounded-xl border border-border/30 bg-background/60 px-3 py-2 text-[12px] outline-none focus:border-primary/40" />
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                    onClick={() => act("merge", review.peers.find((p) => p.status === "active")?.id ?? review.peers[0]?.id, mergeText)}>
+                    Create merged fact
+                  </Button>
+                  <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => setMergeText("")}>Cancel</Button>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                onClick={() => act("keep")}>Keep as-is</Button>
+              <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                onClick={() => act("defer")}>Defer review</Button>
+            </div>
+            <p className="mt-3 text-[10px] text-muted-foreground">
+              Every action is audited and reversible; no record is hard-deleted. Semantic
+              similarity never resolves a conflict automatically.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -2020,6 +2223,11 @@ function Health({ isOperator }: { isOperator: boolean }) {
   const [toast, setToast] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [filePreview, setFilePreview] = useState<Record<string, string> | null>(null);
+  const [pendingImport, setPendingImport] = useState<MemoryExportDocument | null>(null);
+  const [importPreview, setImportPreview] = useState<{
+    imported?: number; importable?: number; skipped?: number;
+    rejected?: unknown[]; checksumOk?: boolean | null;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -2154,20 +2362,55 @@ function Health({ isOperator }: { isOperator: boolean }) {
               if (!file) return;
               try {
                 const document = JSON.parse(await file.text()) as MemoryExportDocument;
-                const result = await act(() => importMemory(document), "Import complete");
-                if (result && typeof result === "object" && "rejected" in result) {
-                  const rejected = (result as { rejected: unknown[] }).rejected;
-                  if (rejected.length) setToast(`Import finished — ${rejected.length} record(s) rejected`);
-                }
+                setPendingImport(document);
+                setImportPreview(null);
               } catch (err) {
                 setToast(err instanceof Error ? err.message : "invalid file");
               }
             }}
           />
           <Button size="sm" variant="outline" className="rounded-xl cursor-pointer pointer-events-none" disabled={!isOperator || busy}>
-            Import JSON file…
+            Choose JSON file…
           </Button>
         </label>
+        {pendingImport && (
+          <div className="mt-3 rounded-xl border border-primary/20 glass-card-subtle p-2.5">
+            <p className="text-[10px] text-muted-foreground">Selected file — preview before applying (dry run validates and counts, writes nothing).</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                onClick={async () => {
+                  try {
+                    const report = await importMemory(pendingImport, true);
+                    setImportPreview(report);
+                  } catch (err) { setToast(err instanceof Error ? err.message : "preview failed"); }
+                }}>
+                Preview (dry run)
+              </Button>
+              <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                onClick={async () => {
+                  const result = await act(() => importMemory(pendingImport), "Import complete");
+                  if (result && typeof result === "object" && "rejected" in result) {
+                    const rejected = (result as { rejected: unknown[] }).rejected;
+                    if (rejected.length) setToast(`Import finished — ${rejected.length} record(s) rejected`);
+                  }
+                  setPendingImport(null); setImportPreview(null);
+                }}>
+                Apply import
+              </Button>
+              <Button size="sm" variant="ghost" className="rounded-xl cursor-pointer" onClick={() => { setPendingImport(null); setImportPreview(null); }}>
+                Cancel
+              </Button>
+            </div>
+            {importPreview && (
+              <p className="mt-2 text-[10px] text-foreground/80">
+                Would import {importPreview.importable ?? importPreview.imported ?? 0}
+                {(importPreview.skipped ?? 0) > 0 ? `, skip ${importPreview.skipped} duplicate(s)` : ""}
+                {(importPreview.rejected?.length ?? 0) > 0 ? `, reject ${importPreview.rejected?.length}` : ""}
+                {importPreview.checksumOk === false ? " · checksum mismatch" : importPreview.checksumOk ? " · checksum ok" : ""}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl border border-rose-400/20 glass-card p-4">

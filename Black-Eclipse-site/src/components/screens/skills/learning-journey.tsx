@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { learningJourney } from "@/lib/harness/skills-browser";
 import type { JourneyNode, LearningJourney } from "@/lib/harness/skills-types";
+import { formatWhen } from "./skill-ui";
 
 const KIND_STYLE: Record<string, string> = {
   memory: "border-violet-400/30 bg-violet-400/10 text-violet-300",
@@ -30,13 +31,26 @@ export function LearningJourneyPanel() {
   const [selected, setSelected] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  const load = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
+    setError(null);
     try { setGraph(await learningJourney(kindFilter ? { kind: kindFilter } : {})); }
     catch (err) { setError(err instanceof Error ? err.message : "failed to load"); }
-    finally { setLoading(false); }
+    finally { if (showSpinner) setLoading(false); }
   }, [kindFilter]);
   useEffect(() => { void load(); }, [load]);
+  // Freshness: when the tab/window regains focus, silently refresh so a mutation
+  // made elsewhere is reflected without a full app restart. The derived graph is
+  // cheap and bounded; no second store is introduced.
+  useEffect(() => {
+    const onFocus = () => { void load(false); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [load]);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, JourneyNode>();
@@ -64,8 +78,13 @@ export function LearningJourneyPanel() {
             How each skill and memory came to exist — created from, corrected by, superseded by, promoted from.
             Derived from canonical records; read-only, scope-isolated, and never a second source of truth.
           </p>
+          {graph.generatedAt && (
+            <p className="mt-1 text-[10px] text-muted-foreground/80">
+              Last updated {formatWhen(graph.generatedAt)} · refreshes when this tab regains focus
+            </p>
+          )}
         </div>
-        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" onClick={load}>
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" onClick={() => void load()}>
           <RefreshCcw size={13} className="mr-1" /> Refresh
         </Button>
       </div>

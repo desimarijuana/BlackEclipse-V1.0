@@ -81,7 +81,16 @@ def test_exclusions_expired_superseded_rejected_archived(service):
 
 
 def test_excludes_sensitive_content(service):
-    secret = _save(service, "The api key is sk-abcdefghijklmnop123456", scope="general")
+    # A NEW write of a credential value is refused at the persistence path
+    # (defense in depth). A PRE-EXISTING/legacy secret-shaped record must still be
+    # excluded from the profile, so seed it directly (bypassing the write guard)
+    # and assert the profile excludes it.
+    service.store.save_memory(
+        memory_type="semantic", content="The api key is sk-abcdefghijklmnop123456",
+        source="manual", scope="general", scope_id=None, subject=None,
+        confidence=0.6, importance=0.5, verification="unverified", authority="explicit",
+    )
+    secret = next(m for m in service.store.list_memories(limit=10) if "api key" in m["content"])
     snap = service.build_profile(scope_id="u1")
     assert secret["id"] not in {e.memory_id for e in snap.entries}
     reasons = {item["id"]: item["reason"] for item in snap.excluded}

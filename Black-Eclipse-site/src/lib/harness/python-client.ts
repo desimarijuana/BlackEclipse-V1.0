@@ -150,6 +150,21 @@ export async function getRunReceiptFromRuntime(
   }
 }
 
+/** Run-level memory/skill explanation (Phase 7). Derived, read-only, redacted. */
+export async function getRunExplanationFromRuntime(
+  runId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await request<Record<string, unknown>>(
+      `/runs/${encodeURIComponent(runId)}/explain`,
+      { method: "GET" }
+    );
+  } catch (err) {
+    if (err instanceof Error && /404/.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function cancelRunInRuntime(runId: string): Promise<boolean> {
   const body = await request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",

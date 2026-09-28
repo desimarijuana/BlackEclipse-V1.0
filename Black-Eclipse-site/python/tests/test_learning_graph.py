@@ -63,3 +63,18 @@ def test_status_filter(service):
     assert not any(n["id"] == m["id"] for n in active_only["nodes"])
     archived = build_learning_journey(service.store, scope_id="u1", statuses=["archived"])
     assert any(n["id"] == m["id"] for n in archived["nodes"])
+
+
+def test_journey_reports_freshness(service):
+    service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user", scope="user", scope_id="u1")
+    graph = build_learning_journey(service.store, scope_id="u1")
+    assert graph["generatedAt"]
+    assert graph["watermark"]
+    # The watermark is at least as old as the read time (ISO 8601 sortable).
+    assert graph["watermark"] <= graph["generatedAt"]
+
+
+def test_journey_freshness_empty_is_honest(service):
+    graph = build_learning_journey(service.store)
+    assert graph["generatedAt"]
+    assert graph["watermark"] == graph["generatedAt"]

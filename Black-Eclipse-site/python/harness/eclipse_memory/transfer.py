@@ -42,6 +42,21 @@ _MEMORY_TABLES = (
 )
 
 
+def _content_checksum(document: dict[str, Any]) -> str:
+    """A stable sha256 over the export's content sections (not the checksum
+    field itself), so a tampered/corrupted document is detectable on import."""
+    import hashlib  # noqa: PLC0415
+
+    payload = {
+        "memories": document.get("memories") or [],
+        "bundles": document.get("bundles") or [],
+        "projectTrust": document.get("projectTrust") or [],
+        "suggestions": document.get("suggestions") or [],
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
 def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, Any]:
     """A readable, versioned JSON export of the memory domain."""
     memories = store.list_memories(limit=100_000, include_inactive=include_inactive)
@@ -60,7 +75,7 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
     suggestions = store.list_suggestions(status=None, limit=100_000)
     bundles = store.list_skill_bundles()
     project_trust = store.list_project_trust()
-    return {
+    document: dict[str, Any] = {
         "schema": EXPORT_SCHEMA,
         "version": EXPORT_VERSION,
         "exportedAt": now_iso(),
@@ -75,6 +90,8 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
                 "id": b["id"], "name": b.get("name"), "description": b.get("description"),
                 "skills": b.get("skills"), "instruction": b.get("instruction"),
                 "constraints": b.get("constraints"), "provenance": b.get("provenance"),
+                "version": b.get("version"), "memberVersions": b.get("memberVersions"),
+                "locked": b.get("locked"),
             }
             for b in bundles
         ],
@@ -92,6 +109,8 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
             for s in suggestions
         ],
     }
+    document["checksum"] = _content_checksum(document)
+    return document
 
 
 def export_json(store: Any, *, include_inactive: bool = True) -> str:
@@ -110,14 +129,23 @@ def import_payload(
     *,
     source: str = "imported",
     dry_run: bool = False,
+    scope_filter: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    bundles_only: bool = False,
 ) -> dict[str, Any]:
     """Validate + import an export document through the normal write pipeline.
 
-    Returns a report: `{imported, skipped, rejected: [{reason}], dryRun}`.
-    Every accepted record is written by `EclipseMemoryService.write_memory` with
-    `source='imported'`, so privacy/type/scope/conflict rules and duplicate
-    detection all apply. Rejected records carry a reason; nothing is silently
-    dropped and nothing unsafe is written.
+    Returns a report: `{imported, skipped, rejected: [{reason}], dryRun,
+    checksumOk, validationErrors}`. Every accepted record is written by
+    `EclipseMemoryService.write_memory` with `source='imported'`, so
+    privacy/type/scope/conflict rules and duplicate detection all apply. Rejected
+    records carry a reason; nothing is silently dropped and nothing unsafe is
+    written.
+
+    A `checksum` carried by the document is verified before any write; a mismatch
+    raises (a tampered/corrupted file is never partially applied). `dry_run`
+    validates and counts without writing. `scope_filter`/`type_filter`/
+    `bundles_only` support a PARTIAL restore by category or scope.
     """
     if not isinstance(payload, dict):
         raise ValueError("import payload must be a JSON object")
@@ -126,9 +154,26 @@ def import_payload(
         raise ValueError(f"unrecognized export schema {schema!r}")
     if int(payload.get("version", 0)) > EXPORT_VERSION:
         raise ValueError("export was produced by a newer version; update before importing")
+    # Integrity: verify the content checksum BEFORE any write, so a corrupted or
+    # tampered document is never partially applied.
+    checksum_ok: Optional[bool] = None
+    if payload.get("checksum"):
+        expected = payload.get("checksum")
+        actual = _content_checksum({k: v for k, v in payload.items() if k != "checksum"})
+        checksum_ok = expected == actual
+        if not checksum_ok:
+            raise ValueError("import checksum mismatch — the document is corrupted or was modified")
     records = payload.get("memories")
     if not isinstance(records, list):
         raise ValueError("import payload is missing a 'memories' list")
+
+    # Partial restore: filter records by scope/type before writing.
+    if scope_filter:
+        records = [r for r in records if isinstance(r, dict) and str(r.get("scope")) == scope_filter]
+    if type_filter:
+        records = [r for r in records if isinstance(r, dict) and str(r.get("memoryType")) == type_filter]
+    if bundles_only:
+        records = []
 
     seen: set[str] = set()
     imported = 0
@@ -212,6 +257,9 @@ def import_payload(
                     instruction=str(bundle.get("instruction") or ""),
                     constraints=str(bundle.get("constraints") or ""),
                     provenance=str(bundle.get("provenance") or "imported"),
+                    version=str(bundle.get("version") or "1.0.0"),
+                    member_versions=dict(bundle.get("memberVersions") or {}),
+                    locked=bool(bundle.get("locked")),
                 )
                 service.store.save_skill_bundle(parsed.to_dict())
                 imported_bundles += 1
@@ -240,6 +288,9 @@ def import_payload(
         "imported": imported, "skipped": skipped, "rejected": rejected,
         "dryRun": dry_run, "importedIds": imported_ids,
         "importedBundles": imported_bundles, "importedProjectTrust": imported_trust,
+        "checksumOk": checksum_ok,
+        "filters": {"scope": scope_filter, "type": type_filter, "bundlesOnly": bundles_only},
+        "importable": imported,  # for dry-run previews
     }
 
 

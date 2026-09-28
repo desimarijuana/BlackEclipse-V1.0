@@ -874,12 +874,24 @@ async def _memory_context(
         await emitter.emit("memory.retrieval_failed", {"error": str(exc)})
         return ""
     diagnostics = result.diagnostics or {}
+    # Bounded run-level observability: record WHICH memories were injected and a
+    # bounded sample of exclusions with their reason (scope/status/expiry/
+    # relevance/budget/recall-policy). Derived from the retrieval diagnostics;
+    # never contains secrets beyond what the local operator may already view.
+    selected_ids = [m.get("id") for m in (result.memories or [])]
+    excluded = diagnostics.get("excluded") or []
+    selection_reasons = diagnostics.get("selectionReasons") or []
     await emitter.emit(
         "memory.retrieved",
         {
             "selected": diagnostics.get("selected", 0),
             "candidates": diagnostics.get("candidates", 0),
             "usedChars": diagnostics.get("usedChars", 0),
+            "budgetChars": diagnostics.get("budgetChars", 0),
+            "selectedIds": [i for i in selected_ids if i][:20],
+            "selectionReasons": list(selection_reasons)[:20],
+            "excludedCount": len(excluded),
+            "excluded": [dict(e) for e in excluded[:20]],
         },
     )
     return result.context

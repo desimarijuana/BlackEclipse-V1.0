@@ -19,6 +19,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+
+def _now_iso() -> str:
+    # Match the store's timestamp format so generatedAt/watermark compare
+    # lexicographically with canonical record timestamps.
+    from .eclipse_memory.db import now_iso  # noqa: PLC0415
+
+    return now_iso()
+
 MAX_NODES = 400
 MAX_EDGES = 800
 MAX_LABEL_CHARS = 120
@@ -256,10 +264,21 @@ def build_learning_journey(
     for edge in payload_edges:
         by_relation[edge["relation"]] = by_relation.get(edge["relation"], 0) + 1
 
+    # Freshness: the graph is derived on demand, so `generatedAt` is the read
+    # time. `watermark` is the newest source timestamp seen — a cheap token the
+    # UI can compare to decide whether a refetch is warranted (no second store).
+    generated_at = _now_iso()
+    watermark = generated_at
+    timestamps = [n.get("createdAt") for n in payload_nodes if n.get("createdAt")]
+    if timestamps:
+        watermark = max(timestamps)
+
     return {
         "nodes": payload_nodes,
         "edges": payload_edges,
         "clusters": [{"kind": k, "count": c} for k, c in sorted(by_kind.items(), key=lambda kv: -kv[1])],
+        "generatedAt": generated_at,
+        "watermark": watermark,
         "stats": {
             "nodeCount": len(payload_nodes),
             "edgeCount": len(payload_edges),

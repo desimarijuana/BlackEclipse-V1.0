@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
-  FlaskConical, GitBranch, History, Info, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
+  FlaskConical, GitBranch, History, Info, LineChart, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
   Trash2, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";
 import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/skills-browser";
 import { EvalBadge, formatDuration, formatWhen, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
+import { SkillQualityPanel } from "./skill-quality";
 
 function Collapsible({
   title, icon: Icon, defaultOpen = false, children, badge,
@@ -242,7 +243,28 @@ export function SkillDetailPanel({
 
         <Collapsible title="Contracts" icon={ScrollText} defaultOpen>
           <MetaRow label="Required tools">{skill.requiredTools.length ? skill.requiredTools.join(", ") : "none"}</MetaRow>
-          <MetaRow label="Required skills">{skill.requiredSkills.length ? skill.requiredSkills.map((d) => d.skillId).join(", ") : "none"}</MetaRow>
+          {skill.dependencyGraph && skill.dependencyGraph.edges.length > 0 ? (
+            <div className="py-1.5 border-b border-border/10">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1">Dependencies (resolved)</p>
+              <ul className="space-y-0.5">
+                {skill.dependencyGraph.edges.map((edge, i) => (
+                  <li key={`${edge.from}-${edge.to}-${i}`} className="flex items-center gap-2 text-[11px]">
+                    <span className={cn(
+                      "rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                      edge.status === "ok" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                        : edge.status === "optional" ? "border-border/40 text-muted-foreground"
+                        : "border-rose-400/30 bg-rose-400/10 text-rose-300"
+                    )}>{edge.status}</span>
+                    <span className="text-foreground">{edge.to}</span>
+                    {edge.resolvedVersion && <span className="text-muted-foreground">v{edge.resolvedVersion}</span>}
+                    {edge.constraint && <span className="text-muted-foreground">({edge.constraint})</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <MetaRow label="Required skills">{skill.requiredSkills.length ? skill.requiredSkills.map((d) => d.skillId).join(", ") : "none"}</MetaRow>
+          )}
           <MetaRow label="Permissions">{skill.permissions.length ? skill.permissions.join(", ") : "none"}</MetaRow>
           <MetaRow label="Limits">{`${skill.limits.maxSteps} steps · ${formatDuration(skill.limits.timeoutMs)} · ${skill.limits.maxToolCalls} tool calls`}</MetaRow>
           <MetaRow label="Origin">{skill.origin}{skill.sourceRunId ? ` · ${skill.sourceRunId}` : ""}</MetaRow>
@@ -251,6 +273,10 @@ export function SkillDetailPanel({
           {skill.deprecation && <MetaRow label="Deprecation">{skill.deprecation.reason}</MetaRow>}
         </Collapsible>
       </div>
+
+      <Collapsible title="Quality over time" icon={LineChart}>
+        <SkillQualityPanel skillId={skill.id} version={skill.latestVersion ?? skill.version} />
+      </Collapsible>
 
       {/* Instructions */}
       <Collapsible title="Instructions (SKILL.md)" icon={BookOpen}>

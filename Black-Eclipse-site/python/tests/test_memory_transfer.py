@@ -209,3 +209,66 @@ def test_reset_does_not_touch_unrelated_tables(service):
     reset_memory(service.store, confirm=True, backup_first=False)
     row = service.store._db.execute("SELECT COUNT(*) FROM UnrelatedAppData").fetchone()
     assert row[0] == 1
+
+
+# -- Hardening: checksum, dry-run, partial restore (Phase 12) ----------------
+
+
+def test_export_carries_checksum(service):
+    service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user")
+    from harness.eclipse_memory.transfer import export_payload
+
+    document = export_payload(service.store)
+    assert document.get("checksum")
+
+
+def test_tampered_import_is_refused(service):
+    from harness.eclipse_memory.transfer import export_payload, import_payload
+
+    service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user")
+    document = export_payload(service.store)
+    document["memories"][0]["content"] = "I prefer verbose answers"  # tamper
+    try:
+        import_payload(service, document)
+        assert False, "expected a checksum failure"
+    except ValueError as exc:
+        assert "checksum" in str(exc)
+
+
+def test_dry_run_writes_nothing(service):
+    from harness.eclipse_memory.transfer import export_payload, import_payload
+
+    service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user")
+    document = export_payload(service.store)
+    before = len(service.store.list_memories(limit=100))
+    report = import_payload(service, document, dry_run=True)
+    after = len(service.store.list_memories(limit=100))
+    assert before == after
+    assert report["dryRun"] is True
+    assert "importable" in report
+
+
+def test_partial_restore_by_scope(service, tmp_path):
+    from harness.eclipse_memory.store import EclipseMemoryStore
+    from harness.eclipse_memory.transfer import export_payload, import_payload
+
+    service.write_memory(memory_type="preference", content="user scoped fact", source="explicit_user", scope="user", scope_id="u1")
+    service.write_memory(memory_type="semantic", content="general fact", source="manual", scope="general")
+    document = export_payload(service.store)
+
+    from harness.eclipse_memory import EclipseMemoryService
+
+    other = EclipseMemoryService(EclipseMemoryStore(str(tmp_path / "other.db")))
+    report = import_payload(other, document, scope_filter="user")
+    assert report["filters"]["scope"] == "user"
+    assert report["imported"] >= 1
+    other.close()
+
+
+def test_checksum_ok_is_reported(service):
+    from harness.eclipse_memory.transfer import export_payload, import_payload
+
+    service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user")
+    document = export_payload(service.store)
+    report = import_payload(service, document, dry_run=True)
+    assert report["checksumOk"] is True

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   listSkillBundles, saveSkillBundle, deleteSkillBundle,
+  lockSkillBundle, unlockSkillBundle,
 } from "@/lib/harness/skills-browser";
 import type { SkillBundle, SkillBundleResolution } from "@/lib/harness/skills-types";
 
@@ -61,6 +62,13 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
       });
       setToast("Bundle saved"); setDraft(null); setSkillsText(""); await load();
     } catch (err) { setToast(err instanceof Error ? err.message : "save failed"); }
+    finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
+  };
+
+  const act = async (fn: () => Promise<unknown>, message: string) => {
+    setBusy(true);
+    try { await fn(); setToast(message); await load(); }
+    catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
     finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
   };
 
@@ -141,6 +149,9 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
                       <Boxes size={13} className="text-primary shrink-0" />
                       <span className="text-[12px] font-semibold text-foreground">{bundle.name || bundle.id}</span>
                       <span className="rounded-full border border-border/30 bg-accent/30 px-2 py-0.5 text-[9px] uppercase text-muted-foreground">{bundle.provenance}</span>
+                      <span className="rounded-md border border-border/30 bg-accent/30 px-1.5 py-0.5 text-[9px] text-muted-foreground">v{bundle.version}</span>
+                      {bundle.locked && <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-300">locked</span>}
+                      {r?.drifted && <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-300">drifted</span>}
                     </div>
                     {bundle.description && <p className="mt-1 text-[11px] text-muted-foreground">{bundle.description}</p>}
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -163,8 +174,22 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
                     <Trash2 size={12} />
                   </Button>
                 </div>
-                <button onClick={() => editBundle(bundle)} disabled={!isOperator}
-                  className="mt-2 text-[10px] text-primary hover:underline cursor-pointer disabled:text-muted-foreground">Edit</button>
+                {r?.drifted && (
+                  <p className="mt-2 text-[10px] text-amber-300/90">
+                    {r.incompatible?.join(" · ") || "A member changed since this bundle was locked."}
+                  </p>
+                )}
+                <div className="mt-2 flex items-center gap-3">
+                  <button onClick={() => editBundle(bundle)} disabled={!isOperator}
+                    className="text-[10px] text-primary hover:underline cursor-pointer disabled:text-muted-foreground">Edit</button>
+                  {bundle.locked ? (
+                    <button onClick={() => act(() => unlockSkillBundle(bundle.id), "Bundle unlocked")} disabled={!isOperator || busy}
+                      className="text-[10px] text-amber-300 hover:underline cursor-pointer disabled:text-muted-foreground">Unlock</button>
+                  ) : (
+                    <button onClick={() => act(() => lockSkillBundle(bundle.id), "Bundle locked to current member versions")} disabled={!isOperator || busy}
+                      className="text-[10px] text-emerald-300 hover:underline cursor-pointer disabled:text-muted-foreground">Lock</button>
+                  )}
+                </div>
               </div>
             );
           })}

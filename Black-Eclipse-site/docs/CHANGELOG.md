@@ -8,6 +8,183 @@ last-verified: 2026-09-15
 
 ## 2026-09-28
 
+- **Memory & Skills remaining gaps — Phase 16 (orphan/inconsistency cleanup).**
+  Fixed the stale `run_only` outcome docstring + downgrade comment (the outcome
+  set is `save/suggest/history_only/ignore`; the defensive branch is retained);
+  corrected the `explain_memory` `run_analysis` source mapping (that is a decision
+  *path*, not a stored source — mapped to `execution_lesson`); marked
+  `eclipse_memory/hybrid.py` explicitly **experimental/deferred** (it is not wired
+  into retrieval); fixed the stale `eclipse_memory/__init__.py` DB-path docstring;
+  and promoted Lifecycle + Activity to top-level tabs in the Memory screen (were
+  deep-link-only). No behavior/authorization change.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 15 (adversarial evaluation + floors).**
+  Added `python/tests/test_adversarial_evolution.py` (15): prompt injection in
+  project/generated/bundle content, trusted-skill drift, cross-project/scope
+  leakage, stale/contradictory facts, disabled-skill invocation via bundle,
+  bundle permission escalation, import tampering, secret persistence,
+  retention edge cases, low-sample quality claims, and a consolidated
+  safety-floor test (zero scope leakage / unauthorized writes / forbidden
+  retrieval / unapproved activation / permission escalation / secret
+  persistence). Hardening found and fixed: `write_memory` now ALSO refuses a
+  credential VALUE at the single persistence path (`looks_like_credential_value`)
+  — defense in depth beyond the decision gate — without over-blocking a benign
+  sentence that merely mentions "secret"/"token".
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 14 (skill dependency visibility).**
+  Added `SkillRegistry.dependency_graph` (version-rich nodes + per-edge status
+  ok/optional/missing/disabled/incompatible, resolved order, cycles) exposed on
+  `GET /skills/{id}`; a read-only `GET /skills/{id}/preflight` returns why a skill
+  would be unavailable before a run. Dependencies are never auto-enabled. TS
+  types + a resolved-dependency list in the skill detail. Tests +2 in
+  `test_skills_registry.py`.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 13 (cold-start onboarding).** Added
+  `python/harness/onboarding.py` (static, read-only explanation of Facts /
+  Session History / Skills / trust / retention) + `GET /onboarding` returning
+  bundled starter skills with visible `bundled` provenance. It writes NO durable
+  memory, enables nothing, and changes no policy. TS + UI "Start Here" tab.
+  Tests `python/tests/test_onboarding.py` (3).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 12 (import/export hardening).** Export
+  documents now carry a content `checksum` (verified before ANY import write — a
+  tampered/corrupted file is refused, never partially applied), bundle lifecycle
+  fields round-trip (version/memberVersions/locked), and import supports
+  `dry_run`, `scope_filter`/`type_filter`/`bundles_only` partial restore, and
+  reports `checksumOk`/`importable`. The Health tab now has a Choose-file →
+  Preview (dry run) → Apply flow. Tests +5 in `test_memory_transfer.py`.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 11 (freshness/retention UX).** Added a
+  **stale** lifecycle state (active but not confirmed/used in a long time — still
+  recalled) with a count + view; an expiry reason code
+  (`expiry: retention_period_elapsed`); a `nextMaintenanceAction` on
+  `retention_status`; and a non-destructive **retention preview**
+  (`GET /eclipse-memory/retention/preview`, `preview_retention`) showing what a
+  sweep would expire without sweeping. Durable-memory and session-retention keys
+  remain separate. Tests `python/tests/test_retention_freshness.py` (6).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 10 (provider reliability).** Added
+  `python/harness/memory_providers/reliability.py`: deterministic failure
+  classification (transient/permanent/unauthorized/unsupported/rate_limited/
+  unavailable), bounded retry (transient/rate-limited only, ≤2 attempts), an
+  in-memory circuit breaker (opens after 3 consecutive failures for a 30s
+  cooldown, then half-opens), and a bounded rolling latency/failure history with
+  last-success. Wired into `registry.search_external` (an open circuit SKIPS the
+  provider and reports it degraded — a failing provider cannot stall every run)
+  and surfaced in `diagnostics` + the Providers UI. Native memory is never
+  retried or held back. Tests `python/tests/test_provider_reliability.py` (16).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 9 (bundle lifecycle).** Bundles gained
+  a semver `version` identity, optional member-version lock, and drift detection:
+  `lock_bundle`/`unlock_bundle` pin the current resolved member versions, and
+  `resolve_bundle` reports `drifted`/`incompatible` when a member changes after a
+  lock — visible before execution. A bundle still never enables a disabled skill
+  or widens a permission. Schema migration 18 (`SkillBundle.version`,
+  `memberVersions`, `locked`); routes `POST/DELETE /skill-bundles/{id}/lock`;
+  TS + UI (version/locked/drifted badges, Lock/Unlock). Tests +5 in
+  `test_skill_bundles.py`.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 8 (journey freshness).** The learning
+  journey now returns `generatedAt` + a source `watermark`, and the UI shows a
+  "last updated" line and silently refreshes on tab/window refocus (the graph is
+  derived and bounded; no second store or persisted graph DB). Tests +2 in
+  `test_learning_graph.py`.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 7 (run observability).** The
+  `memory.retrieved` event now records which memory ids were injected, a bounded
+  sample of exclusions WITH their reason, and the budget used. Added
+  `python/harness/run_observability.py` (`explain_run`) which derives a bounded,
+  redacted run explanation from canonical retrieval/run events (injected facts,
+  exclusions by category scope/status/expiry/permissions/relevance/budget/trust/
+  drift, profile, prompt-plan segments, bundle resolution). Route
+  `GET /runs/{id}/explain` + Next proxy + `getRunExplanationFromRuntime` + a
+  collapsed "What influenced this run" panel in chat history. Derived read-only;
+  changes nothing at runtime and redacts secrets. Tests
+  `python/tests/test_run_observability.py` (6).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 6 (skill quality over time).** Extended
+  `eclipse_memory/skill_quality.py` with per-day execution trends, a recency-
+  weighted success rate, a 95% Wilson success interval, an explicit low-sample
+  warning (`sampleReliable`; `<20` executions), deterministic failure-cause
+  clustering (missing tool/invalid input/output validation/unsupported data/
+  timeout/permission denied/user correction/provider failure/tool budget), a
+  `version_quality_history` trend view, and same-evaluation-case comparison
+  (`compare_evaluation_cases`, `caseRegressions`). Fixed `save_evaluation` to
+  persist each case's `status` (it was dropped). Added the missing front-door
+  routes `/skills/{id}/quality`, `/promotion-evidence`, `/quality/compare` +
+  `/quality-history`, TS client/browser + Next proxies, and a Quality-over-time
+  panel in the skill detail. Tests `test_skill_quality_trends.py` (8).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 5 (conservative compaction).** Added
+  `python/harness/eclipse_memory/compaction.py`: deterministic near-duplicate
+  detection over ACTIVE memories (same scope+subject+type, canonical-token
+  overlap or subset) producing **inert** proposals. Acceptance creates one merged
+  memory and supersedes the originals (linked + retained); rejection changes
+  nothing; a lossy merge is refused by a preservation check; contradictions and
+  cross-scope records are never grouped. Persisted in `CompactionProposal`
+  (migration 17); routes `/eclipse-memory/compaction[/detect|/{id}/accept|/reject]`
+  (operator-gated) + TS client/browser + proxy routes + a Compaction panel in the
+  Lifecycle tab. Added a labeled preservation evaluation with absolute safety
+  floors (`eval/compaction.py`, gate PASS). Tests `test_memory_compaction.py` (12).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
+- **Memory & Skills remaining gaps — Phase 4 (conflict-resolution UX).** Added
+  `EclipseMemoryService.conflict_review` (side-by-side comparable records:
+  content/type/scope/authority/provenance/confidence/timestamps/expiry/access)
+  and `resolve_conflict` with safe, auditable, reversible actions — keep,
+  supersede, merge (new explicit fact, both superseded + linked), confirm-both,
+  dismiss, defer. Semantic similarity never resolves automatically. Routes
+  `GET /eclipse-memory/memories/{id}/conflict` and `POST .../resolve`
+  (operator-gated) + TS client/browser + proxy routes + a ConflictReview panel
+  in the Memory screen. Tests `python/tests/test_memory_conflict_review.py` (9).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 3 (skill content injection defense).**
+  Added `python/harness/skills/content_scan.py`: an ADVISORY scanner over skill,
+  project, bundle, and generated-draft prose. It detects instruction-override,
+  secret-reveal, approval-bypass, self-enable, disable-safety, system/role
+  impersonation, ignore-policy and exfiltration patterns, returning bounded
+  findings with reason + a bounded snippet. A quarantine-severity finding holds
+  back a **project/profile/generated/external** skill from the registry (bundled
+  source is human-reviewed and only warned); the finding is recorded as
+  `skill.content_quarantined`. Warnings cannot be suppressed by skill content. A
+  clean scan is explicitly NOT proof of safety — the permission/execution gate is
+  unchanged. Wired into registry `register`, `learn.build_learn_draft`, and
+  `authoring.scan_manifest_content`; surfaced via `/skills`, `/skills/{id}`.
+  Tests `python/tests/test_skill_content_scan.py` (16).
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md
+
+- **Memory & Skills remaining gaps — Phase 2 (trusted project skill drift).**
+  `ProjectSkillTrust` gained `trustedHash`/`revokedHash` (migration 16). Trust
+  now records the root's content identity — `root_content_hash` now covers the
+  manifest AND the instruction prose. When a trusted root's content changes, its
+  skills are **quarantined** (not loaded), a `skill.project_drift` event is
+  recorded, and the UI shows a Re-approve action; re-approving re-baselines the
+  hash (`skill.project_reapproved`). Untrust remains immediate and records the
+  revoked hash. Changed files: `python/harness/skills/project_skills.py`,
+  `skills/registry.py`, `eclipse_memory/{schema,store}.py`, `main.py`; TS
+  `skills-{types,client,browser}.ts`, `project-skills.tsx`, new
+  `/api/skills/project/approve` route. Tests +6 in `test_project_skills.py`.
+  docs updated: CHANGELOG.md, harness/memory-skills-evolution-plan.md,
+  NAVIGATION.md
+
 - **Memory & Skills Evolution — final delivery report.** Added the before/after
   architecture summary, memory-vs-session-history-vs-skills explanation, security
   & trust model, retrieval and skill-learning evaluation reports, provider

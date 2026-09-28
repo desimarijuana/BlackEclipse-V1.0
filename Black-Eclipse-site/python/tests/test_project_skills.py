@@ -169,3 +169,90 @@ def test_find_project_root_walks_to_git(project):
     nested = project / "a" / "b"
     nested.mkdir(parents=True)
     assert find_project_root(str(nested)) == os.path.abspath(str(project))
+
+
+# -- Drift detection (Phase 2, remaining-gaps plan) --------------------------
+
+
+def test_unchanged_trusted_project_stays_loaded(service, project):
+    from harness.skills.project_skills import trust_root
+
+    _write_skill(project, ".black-eclipse/skills", "proj.deploy")
+    trust_root(service.store, str(project))
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is not None
+    assert reg.project_drift() is False
+
+
+def test_instruction_change_quarantines_trusted_project(service, project):
+    from harness.skills.project_skills import trust_root
+
+    folder = _write_skill(project, ".black-eclipse/skills", "proj.deploy", instructions="Original procedure.")
+    trust_root(service.store, str(project))
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is not None
+
+    # Change the prose (a material behavior change) without re-approving.
+    (folder / "SKILL.md").write_text("Malicious new procedure.", encoding="utf-8")
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is None
+    assert reg.project_drift() is True
+    assert any("quarantined" in n for n in reg.project_notices())
+
+
+def test_manifest_change_quarantines_trusted_project(service, project):
+    from harness.skills.project_skills import trust_root
+
+    folder = _write_skill(project, ".black-eclipse/skills", "proj.deploy")
+    trust_root(service.store, str(project))
+    manifest_path = folder / "skill.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["description"] = "changed"
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is None
+    assert reg.project_drift() is True
+
+
+def test_reapprove_clears_drift(service, project):
+    from harness.skills.project_skills import trust_root
+
+    folder = _write_skill(project, ".black-eclipse/skills", "proj.deploy", instructions="v1")
+    trust_root(service.store, str(project))
+    (folder / "SKILL.md").write_text("v2", encoding="utf-8")
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.project_drift() is True
+
+    # Operator re-approves: re-baselines the hash.
+    trust_root(service.store, str(project))
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is not None
+    assert reg.project_drift() is False
+
+
+def test_untrust_after_drift_still_blocks(service, project):
+    from harness.skills.project_skills import trust_root, untrust_root
+
+    folder = _write_skill(project, ".black-eclipse/skills", "proj.deploy", instructions="v1")
+    trust_root(service.store, str(project))
+    (folder / "SKILL.md").write_text("v2", encoding="utf-8")
+    untrust_root(service.store, str(project))
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is None
+
+
+def test_drift_event_is_recorded(service, project):
+    from harness.skills.project_skills import trust_root
+
+    folder = _write_skill(project, ".black-eclipse/skills", "proj.deploy", instructions="v1")
+    trust_root(service.store, str(project))
+    (folder / "SKILL.md").write_text("v2", encoding="utf-8")
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    events = service.store.list_events(limit=50)
+    assert any(e["type"] == "skill.project_drift" for e in events)

@@ -49,13 +49,21 @@ MAX_PROJECT_SKILLS = 200
 
 @dataclass
 class ProjectSkillRoot:
-    """One discovered project root and the trust state of its skill directory."""
+    """One discovered project root and the trust state of its skill directory.
+
+    `drift` is True when the root is trusted but its content identity no longer
+    matches the hash recorded at trust time — the skills are quarantined (not
+    loaded) until an operator re-approves.
+    """
 
     path: str
     trusted: bool
     skills_dir: str
     skill_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    drift: bool = False
+    trusted_hash: Optional[str] = None
+    current_hash: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -64,6 +72,9 @@ class ProjectSkillRoot:
             "skillsDir": self.skills_dir,
             "skillIds": self.skill_ids,
             "errors": self.errors,
+            "drift": self.drift,
+            "trustedHash": self.trusted_hash,
+            "currentHash": self.current_hash,
         }
 
 
@@ -80,11 +91,13 @@ class ProjectDiscovery:
     roots: list[ProjectSkillRoot] = field(default_factory=list)
     trusted_skills: list[LoadedSkill] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
+    drift: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "root": self.root,
             "trustedRoot": self.trusted_root,
+            "drift": self.drift,
             "roots": [r.to_dict() for r in self.roots],
             "trustedSkillIds": [s.manifest.id for s in self.trusted_skills],
             "notices": self.notices,
@@ -137,16 +150,25 @@ def is_trusted(store: Any, root: str) -> bool:
 def trust_root(
     store: Any, root: str, *, note: Optional[str] = None,
 ) -> ProjectSkillRoot:
-    """Record explicit trust for a project root. Operator-gated at the API."""
+    """Record explicit trust for a project root, capturing its content identity.
+
+    The captured hash is the baseline a later change is compared against; an
+    approval after drift uses the same path so it re-baselines. Operator-gated at
+    the API.
+    """
     path = os.path.abspath(root)
-    store.set_project_trust(canonical_root(path), True, note=note)
+    store.set_project_trust(
+        canonical_root(path), True, note=note, content_hash=root_content_hash(path),
+    )
     return _scan_root(store, path)
 
 
 def untrust_root(store: Any, root: str) -> ProjectSkillRoot:
     """Revoke trust. Immediately stops project-skill injection on next load."""
     path = os.path.abspath(root)
-    store.set_project_trust(canonical_root(path), False)
+    store.set_project_trust(
+        canonical_root(path), False, content_hash=root_content_hash(path),
+    )
     return _scan_root(store, path)
 
 
@@ -184,7 +206,13 @@ def _load_project_skills(skills_dir: str) -> tuple[list[LoadedSkill], list[str],
 def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
     path = os.path.abspath(root)
     skills_dir = _skills_dir(path) or os.path.join(path, PROJECT_SKILL_SUBDIRS[0])
-    trusted = is_trusted(store, path)
+    record = None
+    if store is not None:
+        try:
+            record = store.get_project_trust(canonical_root(path))
+        except Exception:  # noqa: BLE001 - a trust lookup failure fails closed
+            record = None
+    trusted = bool(record and record.get("trusted"))
     if not trusted:
         # Never read skill contents for an untrusted root — names only, and even
         # the name listing is best-effort/skippable.
@@ -197,10 +225,36 @@ def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
                 ]
             except OSError:
                 ids = []
-        return ProjectSkillRoot(path=path, trusted=False, skills_dir=skills_dir, skill_ids=ids)
+        return ProjectSkillRoot(
+            path=path, trusted=False, skills_dir=skills_dir, skill_ids=ids,
+            current_hash=root_content_hash(path),
+        )
+
+    current_hash = root_content_hash(path)
+    trusted_hash = record.get("trustedHash") if record else None
+    # Drift: a trusted root whose content no longer matches the recorded
+    # identity is quarantined. A legacy trust row with no stored hash is treated
+    # as trusted (back-compat) but re-baselines on the next trust/approve.
+    drift = bool(trusted_hash) and trusted_hash != current_hash
+    if drift:
+        # Quarantine: report the skill names but load NOTHING until re-approved.
+        ids = sorted(
+            n for n in (os.listdir(skills_dir) if os.path.isdir(skills_dir) else [])
+            if os.path.isfile(os.path.join(skills_dir, n, "skill.json"))
+        )
+        return ProjectSkillRoot(
+            path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids,
+            drift=True, trusted_hash=trusted_hash, current_hash=current_hash,
+            errors=[
+                "project skills changed since trust was granted; they are "
+                "quarantined until the project is re-approved"
+            ],
+        )
+
     skills, ids, errors = _load_project_skills(skills_dir)
     return ProjectSkillRoot(
         path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids, errors=errors,
+        drift=False, trusted_hash=trusted_hash, current_hash=current_hash,
     )
 
 
@@ -222,6 +276,7 @@ def discover_project_skills(
         root=root_path,
         trusted_root=root_state.trusted,
         roots=[root_state],
+        drift=root_state.drift,
     )
     if not root_state.trusted:
         if root_state.skill_ids:
@@ -231,6 +286,14 @@ def discover_project_skills(
                 "Trust the project to enable them."
             )
         return discovery
+    if root_state.drift:
+        # Quarantined: a trusted root changed. Nothing is loaded; the operator
+        # must re-approve. This cannot be suppressed by the skill content.
+        discovery.notices.append(
+            f"project skills in {root_path} changed since trust was granted and "
+            "are quarantined — review and re-approve the project to enable them."
+        )
+        return discovery
     discovery.trusted_skills = [
         s for s in _load_project_skills(root_state.skills_dir)[0]
     ]
@@ -239,10 +302,25 @@ def discover_project_skills(
     return discovery
 
 
-def root_content_hash(root: str) -> Optional[str]:
-    """A content hash of every project skill manifest under a root.
+def drift_status(store: Any, root: str) -> dict[str, Any]:
+    """Bounded, content-free drift status for a project root (for the UI)."""
+    state = _scan_root(store, root)
+    return {
+        "path": state.path,
+        "trusted": state.trusted,
+        "drift": state.drift,
+        "trustedHash": state.trusted_hash,
+        "currentHash": state.current_hash,
+        "skillIds": state.skill_ids,
+    }
 
-    Used so a `git pull` that changes a project skill is observable. Returns
+
+def root_content_hash(root: str) -> Optional[str]:
+    """A content hash of every project skill under a root (manifest AND prose).
+
+    Covers `skill.json` **and** each declared instruction file (e.g. `SKILL.md`),
+    so a change to a skill's executable procedure is detectable, not just its
+    metadata. Used as the trust baseline and to detect post-trust drift. Returns
     None when the root has no skills directory.
     """
     skills_dir = _skills_dir(os.path.abspath(root))
@@ -250,16 +328,41 @@ def root_content_hash(root: str) -> Optional[str]:
         return None
     digest = hashlib.sha256()
     for name in sorted(os.listdir(skills_dir)):
-        manifest_path = os.path.join(skills_dir, name, "skill.json")
+        folder = os.path.join(skills_dir, name)
+        manifest_path = os.path.join(folder, "skill.json")
         if not os.path.isfile(manifest_path):
             continue
         try:
             with open(manifest_path, "rb") as handle:
-                digest.update(name.encode("utf-8"))
-                digest.update(b"\0")
-                digest.update(handle.read())
+                manifest_bytes = handle.read()
         except OSError:
             continue
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(manifest_bytes)
+        # Include the instruction file(s) so prose changes count as content drift.
+        try:
+            import json as _json  # noqa: PLC0415
+
+            declared = _json.loads(manifest_bytes).get("instructions")
+        except (ValueError, TypeError):
+            declared = None
+        candidates = [declared] if isinstance(declared, str) and declared else []
+        if not candidates:
+            for default in ("SKILL.md", "skill.md"):
+                if os.path.isfile(os.path.join(folder, default)):
+                    candidates.append(default)
+                    break
+        for rel in candidates:
+            instr_path = os.path.join(folder, rel)
+            if os.path.isfile(instr_path):
+                try:
+                    with open(instr_path, "rb") as handle:
+                        digest.update(rel.encode("utf-8"))
+                        digest.update(b"\0")
+                        digest.update(handle.read())
+                except OSError:
+                    pass
     return digest.hexdigest()[:16]
 
 
@@ -270,6 +373,7 @@ __all__ = [
     "ProjectSkillRoot",
     "canonical_root",
     "discover_project_skills",
+    "drift_status",
     "find_project_root",
     "is_trusted",
     "root_content_hash",

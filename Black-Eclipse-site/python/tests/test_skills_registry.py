@@ -325,3 +325,54 @@ def test_version_immutability(store):
     store.save_version(m.model_dump(), m.content_hash())
     with pytest.raises(ValueError):
         store.save_version(m.model_dump(), m.content_hash())
+
+
+# -- Dependency visibility / preflight (Phase 14) ----------------------------
+
+
+def test_dependency_graph_reports_versions_and_status(store, tmp_path):
+    import json as _json
+
+    root = tmp_path / "lib"
+
+    def write(skill_id, deps):
+        folder = root / skill_id.split(".")[-1]
+        folder.mkdir(parents=True)
+        (folder / "skill.json").write_text(_json.dumps({
+            "id": skill_id, "name": skill_id, "version": "1.0.0", "description": "d",
+            "category": "research", "status": "enabled", "permissions": ["data.read"],
+            "requiredSkills": deps,
+        }), encoding="utf-8")
+        (folder / "SKILL.md").write_text("x", encoding="utf-8")
+
+    write("research.child", ["research.parent"])
+    write("research.parent", [])
+    reg = SkillRegistry(store)
+    reg.load_all(root=str(root), project_discovery=False)
+
+    graph = reg.dependency_graph("research.child")
+    assert graph["ok"] is True
+    node_ids = {n["id"] for n in graph["nodes"]}
+    assert {"research.child", "research.parent"} <= node_ids
+    edge = next(e for e in graph["edges"] if e["to"] == "research.parent")
+    assert edge["status"] == "ok"
+    assert edge["resolvedVersion"] == "1.0.0"
+
+
+def test_dependency_graph_reports_missing(store, tmp_path):
+    import json as _json
+
+    root = tmp_path / "lib2"
+    folder = root / "child"
+    folder.mkdir(parents=True)
+    (folder / "skill.json").write_text(_json.dumps({
+        "id": "research.child2", "name": "c", "version": "1.0.0", "description": "d",
+        "category": "research", "status": "enabled",
+        "requiredSkills": ["research.absent"],
+    }), encoding="utf-8")
+    (folder / "SKILL.md").write_text("x", encoding="utf-8")
+    reg = SkillRegistry(store)
+    reg.load_all(root=str(root), project_discovery=False)
+    graph = reg.dependency_graph("research.child2")
+    assert graph["ok"] is False
+    assert any(e["status"] == "missing" for e in graph["edges"])

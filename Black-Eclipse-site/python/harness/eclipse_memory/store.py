@@ -155,7 +155,26 @@ class EclipseMemoryStore:
             ),
             "automatic": _count("SELECT COUNT(*) FROM MemoryRecord WHERE authority='automatic'"),
             "explicit": _count("SELECT COUNT(*) FROM MemoryRecord WHERE authority='explicit'"),
+            # Stale = active but its freshness anchor (lastConfirmedAt/lastUsedAt/
+            # createdAt) is older than `stale_days` while it is NOT yet expired.
+            # A display/retention signal only — stale records are still recalled.
+            "stale": self._count_stale(),
         }
+
+    def _count_stale(self, stale_days: int = 90) -> int:
+        """Count active records whose freshness anchor is older than the window."""
+        from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=stale_days)).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            row = self._db.execute(
+                "SELECT COUNT(*) FROM MemoryRecord WHERE status='active' "
+                "AND COALESCE(lastConfirmedAt, lastUsedAt, createdAt) < ?",
+                (cutoff,),
+            ).fetchone()
+            return int(row[0]) if row else 0
+        except Exception:  # noqa: BLE001 - a pre-migration db has no such column
+            return 0
 
     def list_lifecycle_memories(
         self,
@@ -185,6 +204,12 @@ class EclipseMemoryStore:
             where.append("status = 'active' AND accessCount >= 3")
         elif view == "automatic":
             where.append("authority = 'automatic'")
+        elif view == "stale":
+            from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%S")
+            where.append("status = 'active' AND COALESCE(lastConfirmedAt, lastUsedAt, createdAt) < ?")
+            params.append(cutoff)
         elif view == "conflicts":
             where.append("status = 'superseded'")
         else:
@@ -435,10 +460,16 @@ class EclipseMemoryStore:
         self._db.commit()
         return event_id
 
-    def list_retrievals(self, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self._db.execute(
-            "SELECT * FROM MemoryRetrievalEvent ORDER BY createdAt DESC LIMIT ?", (max(1, limit),)
-        ).fetchall()
+    def list_retrievals(self, limit: int = 50, run_id: Optional[str] = None) -> list[dict[str, Any]]:
+        if run_id:
+            rows = self._db.execute(
+                "SELECT * FROM MemoryRetrievalEvent WHERE runId=? ORDER BY createdAt DESC LIMIT ?",
+                (run_id, max(1, limit)),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM MemoryRetrievalEvent ORDER BY createdAt DESC LIMIT ?", (max(1, limit),)
+            ).fetchall()
         out = []
         for r in rows:
             record = dict(r)
@@ -810,13 +841,13 @@ class EclipseMemoryStore:
         for case in cases or []:
             self._db.execute(
                 """INSERT INTO SkillEvaluationCase
-                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, createdAt)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, status, createdAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (new_id("evalcase"), evaluation_id, skill_id, version, case["caseId"],
                  case.get("name", case["caseId"]), case.get("kind", "schema"),
                  json.dumps(case.get("input")) if case.get("input") is not None else None,
                  json.dumps(case.get("expected")) if case.get("expected") is not None else None,
-                 now_iso()),
+                 case.get("status"), now_iso()),
             )
         self._db.execute(
             "UPDATE SkillVersion SET evaluationStatus=?, updatedAt=? WHERE skillId=? AND version=?",
@@ -1232,17 +1263,23 @@ class EclipseMemoryStore:
         created_at = existing["createdAt"] if existing else (bundle.get("createdAt") or now)
         self._db.execute(
             """INSERT INTO SkillBundle
-               (id, name, description, skills, instruction, constraints, provenance, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (id, name, description, skills, instruction, constraints, provenance,
+                version, memberVersions, locked, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  name=excluded.name, description=excluded.description, skills=excluded.skills,
                  instruction=excluded.instruction, constraints=excluded.constraints,
-                 provenance=excluded.provenance, updatedAt=excluded.updatedAt""",
+                 provenance=excluded.provenance, version=excluded.version,
+                 memberVersions=excluded.memberVersions, locked=excluded.locked,
+                 updatedAt=excluded.updatedAt""",
             (
                 bundle["id"], bundle.get("name") or bundle["id"], bundle.get("description") or "",
                 json.dumps(list(bundle.get("skills") or [])[:12]),
                 (bundle.get("instruction") or "")[:800],
                 (bundle.get("constraints") or "")[:800], bundle.get("provenance") or "manual",
+                bundle.get("version") or "1.0.0",
+                json.dumps(bundle.get("memberVersions") or {}),
+                1 if bundle.get("locked") else 0,
                 created_at, now,
             ),
         )
@@ -1265,23 +1302,100 @@ class EclipseMemoryStore:
         self._db.commit()
         return cursor.rowcount > 0
 
+    # ── Compaction proposals (Phase 5) ──────────────────────────────────────
+
+    def save_compaction_proposal(self, proposal: dict[str, Any]) -> str:
+        proposal_id = proposal.get("id") or new_id("compact")
+        self._db.execute(
+            """INSERT INTO CompactionProposal
+               (id, memberIds, scope, scopeId, subject, mergedContent, rationale,
+                status, createdAt, decidedAt, resultingMemoryId)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                proposal_id, json.dumps(proposal.get("memberIds") or []),
+                proposal.get("scope") or "general", proposal.get("scopeId"),
+                proposal.get("subject"), proposal.get("mergedContent") or "",
+                proposal.get("rationale"),
+                proposal.get("status") or "proposed",
+                proposal.get("createdAt") or now_iso(),
+                proposal.get("decidedAt"), proposal.get("resultingMemoryId"),
+            ),
+        )
+        self._db.commit()
+        return proposal_id
+
+    def get_compaction_proposal(self, proposal_id: str) -> Optional[dict[str, Any]]:
+        try:
+            row = self._db.execute(
+                "SELECT * FROM CompactionProposal WHERE id=?", (proposal_id,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - pre-migration db reads as none
+            return None
+        if not row:
+            return None
+        return _compaction_row(row)
+
+    def list_compaction_proposals(
+        self, status: Optional[str] = None, limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        try:
+            if status:
+                rows = self._db.execute(
+                    "SELECT * FROM CompactionProposal WHERE status=? ORDER BY createdAt DESC LIMIT ?",
+                    (status, max(1, limit)),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    "SELECT * FROM CompactionProposal ORDER BY createdAt DESC LIMIT ?",
+                    (max(1, limit),),
+                ).fetchall()
+        except Exception:  # noqa: BLE001
+            return []
+        return [_compaction_row(r) for r in rows]
+
+    def decide_compaction_proposal(
+        self, proposal_id: str, *, status: str, resulting_memory_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        self._db.execute(
+            "UPDATE CompactionProposal SET status=?, decidedAt=?, resultingMemoryId=? WHERE id=?",
+            (status, now_iso(), resulting_memory_id, proposal_id),
+        )
+        self._db.commit()
+        return self.get_compaction_proposal(proposal_id)
+
     # ── Project-local skill trust (Phase 2) ─────────────────────────────────
 
     def set_project_trust(
         self, path: str, trusted: bool, *, note: Optional[str] = None,
+        content_hash: Optional[str] = None,
     ) -> None:
         """Record an explicit trust decision for one project root path.
 
         Trust is per absolute path and reversible; the row is the durable audit
-        of the decision. Never auto-created from a discovered repo.
+        of the decision. Never auto-created from a discovered repo. When
+        `content_hash` is supplied on trust/approval it is stored as the
+        `trustedHash` — the identity the root must still match to remain
+        un-quarantined. On revoke, the current hash is stored as `revokedHash` so
+        the change is auditable, and `trustedHash` is cleared.
         """
-        self._db.execute(
-            """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(path) DO UPDATE SET
-                 trusted=excluded.trusted, trustedAt=excluded.trustedAt, note=excluded.note""",
-            (path, 1 if trusted else 0, now_iso() if trusted else None, note),
-        )
+        if trusted:
+            self._db.execute(
+                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash)
+                   VALUES (?, 1, ?, ?, ?)
+                   ON CONFLICT(path) DO UPDATE SET
+                     trusted=1, trustedAt=excluded.trustedAt, note=excluded.note,
+                     trustedHash=excluded.trustedHash, revokedHash=NULL""",
+                (path, now_iso(), note, content_hash),
+            )
+        else:
+            self._db.execute(
+                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash, revokedHash)
+                   VALUES (?, 0, NULL, ?, NULL, ?)
+                   ON CONFLICT(path) DO UPDATE SET
+                     trusted=0, trustedAt=NULL, note=excluded.note,
+                     trustedHash=NULL, revokedHash=excluded.revokedHash""",
+                (path, note, content_hash),
+            )
         self._db.commit()
 
     def get_project_trust(self, path: str) -> Optional[dict[str, Any]]:
@@ -1336,6 +1450,16 @@ def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
     return record
 
 
+def _compaction_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("memberIds"):
+        try:
+            record["memberIds"] = json.loads(record["memberIds"])
+        except (TypeError, ValueError):
+            record["memberIds"] = []
+    return record
+
+
 def _bundle_row(row: sqlite3.Row) -> dict[str, Any]:
     record = dict(row)
     if record.get("skills"):
@@ -1343,6 +1467,14 @@ def _bundle_row(row: sqlite3.Row) -> dict[str, Any]:
             record["skills"] = json.loads(record["skills"])
         except (TypeError, ValueError):
             record["skills"] = []
+    if record.get("memberVersions"):
+        try:
+            record["memberVersions"] = json.loads(record["memberVersions"])
+        except (TypeError, ValueError):
+            record["memberVersions"] = {}
+    else:
+        record["memberVersions"] = {}
+    record["locked"] = bool(record.get("locked"))
     return record
 
 

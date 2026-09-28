@@ -68,7 +68,7 @@ export interface MemoryExplanation {
 
 export type MemoryLifecycleView =
   | "active" | "expired" | "superseded" | "rejected" | "archived"
-  | "never-used" | "frequently-recalled" | "automatic" | "conflicts";
+  | "never-used" | "frequently-recalled" | "automatic" | "stale" | "conflicts";
 
 export interface MemoryLifecycleOverview {
   counts: Record<string, number>;
@@ -102,6 +102,8 @@ export interface MemoryRetentionStatus {
   automaticExpiryEnabled: boolean;
   explicitMemoriesExempt: boolean;
   lastSweep: MemorySweepRecord | null;
+  nextMaintenanceAction?: string;
+  dueCount?: number;
 }
 
 export interface MemorySemanticBackendHealth {
@@ -143,6 +145,55 @@ export interface MemorySemanticStatus {
   controls?: MemorySemanticControls;
   backends?: MemorySemanticBackendHealth[];
   stats?: MemorySemanticStats;
+}
+
+/** A conservative near-duplicate compaction proposal (Phase 5). Inert. */
+export interface CompactionProposal {
+  id: string;
+  memberIds: string[];
+  scope: string;
+  scopeId: string | null;
+  subject: string | null;
+  mergedContent: string;
+  rationale: string | null;
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+  resultingMemoryId: string | null;
+  evidence?: Array<{ id: string; content: string; confidence: number | null }>;
+}
+
+/** A comparable record in a conflict review (Phase 4). */
+export interface ConflictComparable {
+  id: string;
+  content: string;
+  memoryType: string;
+  scope: string;
+  scopeId: string | null;
+  subject: string | null;
+  authority: string;
+  provenance: string | null;
+  confidence: number | null;
+  verification: string | null;
+  status: string;
+  createdAt: string | null;
+  lastConfirmedAt: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  accessCount: number | null;
+  supersededBy: string | null;
+}
+
+export interface MemoryConflictReview {
+  memoryId: string;
+  subject: string | null;
+  scope: string;
+  scopeId: string | null;
+  self: ConflictComparable;
+  peers: ConflictComparable[];
+  conflict: MemoryConflictDetail | null;
+  actions: string[];
+  recommendation: string;
 }
 
 export interface MemoryConflictDetail {
@@ -448,6 +499,7 @@ export interface MemoryProviderInfo {
   dataLocation?: string;
   verifiedByEclipse?: boolean;
   checkedAt?: number;
+  reliability?: MemoryProviderReliability;
 }
 
 export interface MemoryProviderStatus {
@@ -459,8 +511,23 @@ export interface MemoryProviderStatus {
   available: string[];
   failed?: string[];
   providers: MemoryProviderInfo[];
+  reliability?: MemoryProviderReliability[];
   privacyNote?: string;
   note: string;
+}
+
+export interface MemoryProviderReliability {
+  name: string;
+  state: "closed" | "open" | "half_open" | string;
+  totalCalls: number;
+  totalFailures: number;
+  failureRate: number | null;
+  consecutiveFailures: number;
+  lastSuccessAt: number | null;
+  lastFailureAt: number | null;
+  lastFailureCategory: string | null;
+  meanLatencyMs: number | null;
+  circuitOpenUntil?: number | null;
 }
 
 export interface MemoryProviderTestResult {

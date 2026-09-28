@@ -95,18 +95,56 @@ class MemoryProviderRegistry:
         """Explicit external-only search across allowed providers.
 
         Refuses unless the request explicitly allows external search; returns one
-        response per provider, each labelled and independently bounded.
+        response per provider, each labelled and independently bounded. A
+        provider whose circuit is open is SKIPPED (reported, not called), so a
+        repeatedly failing provider cannot stall every run. A transient failure
+        is retried a bounded number of times. Native memory is never affected.
         """
         if not request.allow_external or not self._external_enabled:
             return []
+        import time as _time  # noqa: PLC0415
+
+        from .reliability import (  # noqa: PLC0415
+            RETRY_BACKOFF_S,
+            classify_failure,
+            global_reliability,
+            is_retryable,
+        )
+
+        reliability = global_reliability()
         responses: list[MemorySearchResponse] = []
         for provider in self.external():
-            try:
-                responses.append(await provider.search(request))
-            except Exception as exc:  # noqa: BLE001 - never let one provider break search
+            record = reliability.record_for(provider.name)
+            if not record.allows_call():
                 responses.append(MemorySearchResponse(
-                    provider=provider.name, degraded=True, detail=str(exc)
+                    provider=provider.name, degraded=True,
+                    detail="provider temporarily skipped (circuit open after repeated failures)",
                 ))
+                continue
+            attempts = 0
+            last_error: Optional[str] = None
+            while attempts < 2:
+                attempts += 1
+                started = _time.monotonic()
+                try:
+                    response = await provider.search(request)
+                    record.record_success((_time.monotonic() - started) * 1000)
+                    responses.append(response)
+                    last_error = None
+                    break
+                except Exception as exc:  # noqa: BLE001 - never let one provider break search
+                    last_error = str(exc)
+                    category = classify_failure(exc)
+                    record.record_failure(category)
+                    if is_retryable(category) and attempts < 2:
+                        import asyncio  # noqa: PLC0415
+
+                        await asyncio.sleep(RETRY_BACKOFF_S)
+                        continue
+                    responses.append(MemorySearchResponse(
+                        provider=provider.name, degraded=True, detail=last_error,
+                    ))
+                    break
         return responses
 
 

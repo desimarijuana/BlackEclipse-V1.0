@@ -59,6 +59,13 @@ async def provider_diagnostics(registry: MemoryProviderRegistry) -> dict[str, An
     external = [p for p in providers if not p.get("isNative")]
     available = [p["name"] for p in providers if p.get("health", {}).get("ok")]
     failed = [p["name"] for p in providers if not p.get("health", {}).get("ok")]
+    # Attach bounded reliability (failure class, last-success, circuit state).
+    from .reliability import global_reliability  # noqa: PLC0415
+
+    reliability = {r["name"]: r for r in global_reliability().snapshot()}
+    for provider in providers:
+        info = reliability.get(provider.get("name"))
+        provider["reliability"] = info or {"state": "closed", "totalCalls": 0}
     return {
         "externalEnabled": registry.external_enabled,
         "providerCount": len(providers),
@@ -67,6 +74,7 @@ async def provider_diagnostics(registry: MemoryProviderRegistry) -> dict[str, An
         "available": available,
         "failed": failed,
         "providers": providers,
+        "reliability": list(reliability.values()),
         "privacyNote": _PRIVACY_NOTE,
         "note": (
             "Discovery does not activate a provider. External results are "

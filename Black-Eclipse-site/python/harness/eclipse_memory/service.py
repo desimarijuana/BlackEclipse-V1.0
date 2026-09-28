@@ -133,6 +133,14 @@ class EclipseMemoryService:
             raise MemoryWriteError("memory content must not be empty")
         if len(text_value) > MAX_CONTENT_CHARS:
             raise MemoryWriteError(f"memory content exceeds {MAX_CONTENT_CHARS} chars")
+        # 2b. Defense in depth: a secret-shaped value is refused at the single
+        # persistence path too, not only at the decision gate. The decision gate
+        # is the primary guard; this ensures a non-gated caller (e.g. an import or
+        # suggestion accept) cannot persist a credential.
+        from .decision import looks_like_credential_value  # noqa: PLC0415
+
+        if looks_like_credential_value(text_value):
+            raise MemoryWriteError("content contains a credential value and was not stored")
         # 3. Validate source (prevents filling memory with arbitrary text).
         if source not in VALID_SOURCES:
             raise MemoryWriteError(f"source {source!r} is not a permitted memory source")
@@ -625,7 +633,7 @@ class EclipseMemoryService:
             for row in rows:
                 updated = self.store.archive_memory(
                     row["id"], status="expired",
-                    reason="retention period elapsed (automatic memory)",
+                    reason="expiry: retention_period_elapsed (automatic memory)",
                 )
                 if updated:
                     expired.append(row["id"])
@@ -677,6 +685,31 @@ class EclipseMemoryService:
             return {"ok": False, "inspected": 0, "expired": 0, "skipped": 0,
                     "ids": [], "error": str(exc)}
 
+    def preview_retention(self) -> dict[str, Any]:
+        """Preview what a retention sweep would expire — WITHOUT sweeping.
+
+        Returns the count + ids of due automatic memories so an operator can see
+        the effect before it happens. Never writes. Explicit memories are exempt
+        and listed separately as unaffected.
+        """
+        now = _now()
+        try:
+            rows = self.store._db.execute(
+                "SELECT id FROM MemoryRecord WHERE status='active'"
+                " AND authority='automatic' AND expiresAt IS NOT NULL AND expiresAt <= ?",
+                (now,),
+            ).fetchall()
+            due_ids = [row["id"] for row in rows]
+        except Exception as exc:  # noqa: BLE001 - a preview failure is reported honestly
+            return {"ok": False, "due": 0, "ids": [], "error": str(exc)}
+        return {
+            "ok": True,
+            "due": len(due_ids),
+            "ids": due_ids,
+            "action": "expire due automatic memories (status -> expired; never deleted)",
+            "explicitExempt": True,
+        }
+
     def retention_status(self) -> dict[str, Any]:
         """The retention policy state + the last sweep outcome (no content)."""
         try:
@@ -684,11 +717,21 @@ class EclipseMemoryService:
         except Exception:  # noqa: BLE001
             retention_days = 0
         last = self.store.maintenance_status()
+        review = self.preview_retention()
+        # The next maintenance action: what a sweep would do now, stated plainly.
+        if retention_days <= 0:
+            next_action = "automatic retention is off — due automatic memories will not expire"
+        elif review.get("due"):
+            next_action = f"{review['due']} automatic memor(y/ies) are due to expire on the next sweep"
+        else:
+            next_action = "no automatic memory is due to expire"
         return {
             "retentionDays": retention_days,
             "automaticExpiryEnabled": retention_days > 0,
             "explicitMemoriesExempt": True,
             "lastSweep": last,
+            "nextMaintenanceAction": next_action,
+            "dueCount": review.get("due", 0),
         }
 
     def renew_memory(self, memory_id: str, *, days: Optional[int] = None) -> Optional[dict[str, Any]]:
@@ -1526,8 +1569,7 @@ class EclipseMemoryService:
             "explicit_user": "saved because the user explicitly requested it",
             "user_correction": "saved because the user corrected an earlier answer",
             "manual": "saved by the operator through the UI",
-            "execution_lesson": "learned automatically from a validated execution",
-            "run_analysis": "learned automatically from post-run analysis",
+            "execution_lesson": "learned automatically from a validated execution (incl. post-run analysis)",
             "system_decision": "saved because an architecture decision was recorded",
             "verified_source": "saved from a verified source",
             "skill_promotion": "saved from a validated promoted skill",
@@ -1580,6 +1622,210 @@ class EclipseMemoryService:
             "conflict": self._conflict_detail(memory_id, memory),
         }
 
+    def conflict_review(self, memory_id: str) -> Optional[dict[str, Any]]:
+        """A side-by-side competing-memory view for one memory id.
+
+        Resolves the competing records from stored audit events AND link history
+        (supersession/correction), then returns the FULL comparable fields for
+        each record the operator needs to make a decision. Never includes
+        secrets beyond what the local operator may already view; never decides
+        anything (semantic similarity never auto-replaces).
+        """
+        memory = self.store.get_memory(memory_id)
+        if memory is None:
+            return None
+        peer_ids: list[str] = []
+        detail = self._conflict_detail(memory_id, memory) or {}
+        for candidate in detail.get("candidateIds") or []:
+            if candidate and candidate != memory_id and candidate not in peer_ids:
+                peer_ids.append(candidate)
+        for link in self.store.list_links(memory_id):
+            other = link["toId"] if link["fromId"] == memory_id else link["fromId"]
+            if other and other != memory_id and other not in peer_ids:
+                peer_ids.append(other)
+        peers: list[dict[str, Any]] = []
+        for peer_id in peer_ids:
+            record = self.store.get_memory(peer_id)
+            if record is not None:
+                peers.append(self._comparable(record))
+        return {
+            "memoryId": memory_id,
+            "subject": memory.get("subject"),
+            "scope": memory.get("scope"),
+            "scopeId": memory.get("scopeId"),
+            "self": self._comparable(memory),
+            "peers": peers,
+            "conflict": detail,
+            "actions": [
+                "keep", "supersede", "merge", "confirm_both", "dismiss", "defer",
+            ],
+            "recommendation": self._recommend_resolution(memory, peers, detail),
+        }
+
+    def _comparable(self, memory: dict[str, Any]) -> dict[str, Any]:
+        """The fields a conflict-review view needs for one record."""
+        return {
+            "id": memory["id"],
+            "content": memory.get("content"),
+            "memoryType": memory.get("memoryType"),
+            "scope": memory.get("scope"),
+            "scopeId": memory.get("scopeId"),
+            "subject": memory.get("subject"),
+            "authority": memory.get("authority") or "explicit",
+            "provenance": memory.get("source"),
+            "confidence": memory.get("confidence"),
+            "verification": memory.get("verification"),
+            "status": memory.get("status"),
+            "createdAt": memory.get("createdAt"),
+            "lastConfirmedAt": memory.get("lastConfirmedAt"),
+            "lastUsedAt": memory.get("lastUsedAt"),
+            "expiresAt": memory.get("expiresAt"),
+            "accessCount": memory.get("accessCount"),
+            "supersededBy": memory.get("supersededBy"),
+        }
+
+    def _recommend_resolution(
+        self, memory: dict[str, Any], peers: list[dict[str, Any]], detail: dict[str, Any],
+    ) -> str:
+        """A human recommendation. Never an automatic decision."""
+        if not peers:
+            return "No competing records were found to resolve."
+        if memory.get("authority") == "explicit" and all(
+            p.get("authority") != "explicit" for p in peers
+        ):
+            return (
+                "This is an explicit memory; the competing record(s) are "
+                "automatic. Review the newer statement and supersede the "
+                "automatic record if it is now wrong."
+            )
+        if detail.get("reason"):
+            return (
+                "The detector flagged this as: "
+                f"{detail['reason']}. Compare the two records and keep the one "
+                "that is currently true; history is always retained."
+            )
+        return "Compare the records and keep the one that is currently true."
+
+    def resolve_conflict(
+        self, memory_id: str, action: str, *,
+        target_id: Optional[str] = None, merged_content: Optional[str] = None,
+        reason: Optional[str] = None, run_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Apply an operator conflict-resolution action. Every path is auditable
+        and reversible (history is retained, never hard-deleted).
+
+        Actions:
+          * `keep` — mark reviewed; change nothing.
+          * `supersede` — mark `target_id` superseded by `memory_id`.
+          * `merge` — create a NEW explicit memory from `merged_content` (or the
+            newer of the two) and supersede both; linked, reversible.
+          * `confirm_both` — confirm both when contextually compatible.
+          * `dismiss` — archive the competing target as rejected.
+          * `defer` — mark reviewed, leave state unchanged.
+        """
+        memory = self.store.get_memory(memory_id)
+        if memory is None:
+            return {"ok": False, "error": "memory not found"}
+        action = (action or "").strip().lower()
+        allowed = {"keep", "supersede", "merge", "confirm_both", "dismiss", "defer"}
+        if action not in allowed:
+            return {"ok": False, "error": f"unknown action {action!r}"}
+        target = self.store.get_memory(target_id) if target_id else None
+        if action in {"supersede", "dismiss", "merge"} and target is None:
+            return {"ok": False, "error": "target memory not found"}
+
+        try:
+            if action == "keep":
+                self.store.mark_reviewed(memory_id)
+                self.store.append_memory_event(
+                    "memory.conflict_kept", memory_id=memory_id,
+                    data={"reason": reason, "kept": memory_id},
+                )
+                return {"ok": True, "action": action, "kept": memory_id}
+
+            if action == "defer":
+                self.store.mark_reviewed(memory_id)
+                self.store.append_memory_event(
+                    "memory.conflict_deferred", memory_id=memory_id, data={"reason": reason},
+                )
+                return {"ok": True, "action": action}
+
+            if action == "confirm_both":
+                self.store.confirm_memory(memory_id)
+                if target is not None:
+                    self.store.confirm_memory(target_id)
+                self.store.add_link(memory_id, target_id or "", "compatible", note=reason)
+                self.store.append_memory_event(
+                    "memory.conflict_confirmed_both", memory_id=memory_id,
+                    data={"with": target_id, "reason": reason},
+                )
+                return {"ok": True, "action": action}
+
+            if action == "dismiss":
+                assert target is not None
+                self.store.archive_memory(
+                    target_id, status="rejected",
+                    reason=reason or f"dismissed in conflict review against {memory_id}",
+                )
+                self.store.append_memory_event(
+                    "memory.conflict_dismissed", memory_id=memory_id,
+                    data={"dismissed": target_id, "reason": reason},
+                )
+                return {"ok": True, "action": action, "dismissed": target_id}
+
+            if action == "supersede":
+                assert target is not None
+                self.store.supersede_memory(
+                    target_id, memory_id,
+                    reason=reason or f"superseded by {memory_id} during conflict review",
+                )
+                self.store.append_memory_event(
+                    "memory.conflict_resolved", memory_id=memory_id,
+                    data={"action": "supersede", "superseded": target_id, "reason": reason},
+                )
+                return {"ok": True, "action": action, "superseded": target_id}
+
+            if action == "merge":
+                assert target is not None
+                content = (merged_content or "").strip()
+                if not content:
+                    # Deterministically pick the newer statement; never fabricate.
+                    newer = memory if (memory.get("createdAt") or "") >= (target.get("createdAt") or "") else target
+                    content = str(newer.get("content") or "").strip()
+                if not content:
+                    return {"ok": False, "error": "merge requires content"}
+                merged = self.write_memory(
+                    memory_type=memory.get("memoryType") or "semantic",
+                    content=content,
+                    source="manual",
+                    scope=memory.get("scope") or "general",
+                    scope_id=memory.get("scopeId"),
+                    subject=memory.get("subject"),
+                    confidence=max(
+                        float(memory.get("confidence") or 0),
+                        float(target.get("confidence") or 0),
+                    ),
+                    source_run_id=run_id,
+                    # The merged record is the deliberate resolution of an
+                    # explicit conflict — it must not itself be auto-proposed by
+                    # the conflict pipeline. The operator chose this action.
+                    allow_duplicate=True,
+                )
+                self.store.supersede_memory(memory_id, merged["id"], reason="merged into a new fact")
+                self.store.supersede_memory(target_id, merged["id"], reason="merged into a new fact")
+                self.store.add_link(merged["id"], memory_id, "merged_from")
+                self.store.add_link(merged["id"], target_id, "merged_from")
+                self.store.append_memory_event(
+                    "memory.conflict_merged", memory_id=merged["id"],
+                    data={"merged": [memory_id, target_id], "reason": reason},
+                )
+                return {"ok": True, "action": action, "mergedInto": merged["id"]}
+        except MemoryWriteError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - a resolution failure is structured
+            return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": "unreachable"}
+
     def _conflict_detail(self, memory_id: str, memory: dict[str, Any]) -> Optional[dict[str, Any]]:
         """The most recent conflict/candidate audit metadata for a memory.
 
@@ -1615,6 +1861,102 @@ class EclipseMemoryService:
             ),
         }
 
+    def detect_compaction(self, *, persist: bool = True, limit: int = 50) -> list[dict[str, Any]]:
+        """Detect near-duplicate active memories and (optionally) persist INERT
+        proposals. Never merges or deletes — acceptance is a separate gated step.
+        """
+        from .compaction import detect_proposals  # noqa: PLC0415
+
+        try:
+            memories = self.store.list_memories(limit=1000)
+        except Exception:  # noqa: BLE001 - detection must never break a caller
+            return []
+        proposals = detect_proposals(memories, limit=limit)
+        out: list[dict[str, Any]] = []
+        for proposal in proposals:
+            payload = proposal.to_dict()
+            if persist:
+                existing = [
+                    p for p in self.store.list_compaction_proposals(status="proposed", limit=200)
+                    if sorted(p.get("memberIds") or []) == sorted(payload["memberIds"])
+                ]
+                if existing:
+                    payload["id"] = existing[0]["id"]
+                else:
+                    payload["id"] = self.store.save_compaction_proposal(payload)
+                    self.store.append_memory_event(
+                        "memory.compaction_proposed", data={"proposalId": payload["id"],
+                                                            "members": payload["memberIds"]},
+                    )
+            out.append(payload)
+        return out
+
+    def accept_compaction(
+        self, proposal_id: str, *, merged_content: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Accept a compaction proposal: create ONE merged memory and supersede
+        the originals (linked + retained). Operator-gated at the API. Refuses a
+        lossy merge that would drop member content."""
+        proposal = self.store.get_compaction_proposal(proposal_id)
+        if proposal is None:
+            return {"ok": False, "error": "proposal not found"}
+        if proposal.get("status") != "proposed":
+            return {"ok": False, "error": f"proposal is {proposal.get('status')}"}
+        member_ids = list(proposal.get("memberIds") or [])
+        members = [m for m in (self.store.get_memory(mid) for mid in member_ids) if m]
+        if len(members) < 2:
+            return {"ok": False, "error": "not enough surviving members to compact"}
+        # Scope safety: never compact across scopes.
+        scopes = {(m.get("scope"), m.get("scopeId")) for m in members}
+        if len(scopes) > 1:
+            return {"ok": False, "error": "refusing to compact across scopes"}
+        content = (merged_content or proposal.get("mergedContent") or "").strip()
+        if not content:
+            return {"ok": False, "error": "no merged content"}
+        from .compaction import preservation_report  # noqa: PLC0415
+
+        report = preservation_report(members, content)
+        if not report["preserved"]:
+            return {"ok": False, "error": "merge would lose content", "preservation": report}
+        try:
+            merged = self.write_memory(
+                memory_type=members[0].get("memoryType") or "semantic",
+                content=content,
+                source="manual",
+                scope=members[0].get("scope") or "general",
+                scope_id=members[0].get("scopeId"),
+                subject=members[0].get("subject"),
+                confidence=max(float(m.get("confidence") or 0) for m in members),
+                allow_duplicate=True,
+            )
+        except MemoryWriteError as exc:
+            return {"ok": False, "error": str(exc)}
+        for member in members:
+            self.store.supersede_memory(
+                member["id"], merged["id"],
+                reason=f"compacted into {merged['id']}",
+            )
+            self.store.add_link(merged["id"], member["id"], "compacted_from")
+        self.store.decide_compaction_proposal(
+            proposal_id, status="accepted", resulting_memory_id=merged["id"],
+        )
+        self.store.append_memory_event(
+            "memory.compaction_accepted",
+            data={"proposalId": proposal_id, "members": member_ids, "mergedInto": merged["id"]},
+        )
+        return {"ok": True, "mergedInto": merged["id"], "superseded": member_ids,
+                "preservation": report}
+
+    def reject_compaction(self, proposal_id: str) -> dict[str, Any]:
+        proposal = self.store.get_compaction_proposal(proposal_id)
+        if proposal is None:
+            return {"ok": False, "error": "proposal not found"}
+        self.store.decide_compaction_proposal(proposal_id, status="rejected")
+        self.store.append_memory_event(
+            "memory.compaction_rejected", data={"proposalId": proposal_id},
+        )
+        return {"ok": True}
+
     def lifecycle_overview(self) -> dict[str, Any]:
         """Counts + views for the Control Room. Content is local operator data."""
         counts = self.store.memory_lifecycle_counts()
@@ -1622,7 +1964,7 @@ class EclipseMemoryService:
             name: len(self.store.list_lifecycle_memories(name, limit=200))
             for name in (
                 "active", "expired", "superseded", "rejected", "archived",
-                "never-used", "frequently-recalled", "automatic", "conflicts",
+                "never-used", "frequently-recalled", "automatic", "stale", "conflicts",
             )
         }
         return {"counts": counts, "views": views, "budget": self.memory_budget()}

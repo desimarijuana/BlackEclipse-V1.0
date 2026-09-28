@@ -59,11 +59,15 @@ export interface ProjectSkillRoot {
   skillsDir: string;
   skillIds: string[];
   errors: string[];
+  drift?: boolean;
+  trustedHash?: string | null;
+  currentHash?: string | null;
 }
 
 export interface ProjectSkillDiscovery {
   root: string | null;
   trustedRoot: boolean;
+  drift?: boolean;
   roots: ProjectSkillRoot[];
   trustedSkillIds: string[];
   notices: string[];
@@ -74,6 +78,34 @@ export interface ProjectSkillTrustRecord {
   trusted: boolean;
   trustedAt: string | null;
   note: string | null;
+  trustedHash?: string | null;
+  revokedHash?: string | null;
+}
+
+export interface ProjectSkillDriftStatus {
+  path: string;
+  trusted: boolean;
+  drift: boolean;
+  trustedHash: string | null;
+  currentHash: string | null;
+  skillIds: string[];
+}
+
+/** Advisory content-scan finding (Phase 3). A clean scan is NOT proof of safety. */
+export interface SkillContentFinding {
+  category: string;
+  severity: "warn" | "quarantine" | string;
+  reason: string;
+  snippet: string;
+  location: string;
+}
+
+export interface SkillContentScan {
+  ok: boolean;
+  shouldQuarantine: boolean;
+  categories: string[];
+  findings: SkillContentFinding[];
+  note?: string;
 }
 
 /** Learning journey / provenance graph node (Phase 6). Derived, read-only. */
@@ -99,6 +131,8 @@ export interface LearningJourney {
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   clusters: Array<{ kind: string; count: number }>;
+  generatedAt?: string;
+  watermark?: string;
   stats: {
     nodeCount: number;
     edgeCount: number;
@@ -142,6 +176,9 @@ export interface SkillBundle {
   instruction: string;
   constraints: string;
   provenance: "manual" | "profile" | "project" | "imported";
+  version: string;
+  memberVersions: Record<string, string>;
+  locked: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -154,6 +191,12 @@ export interface SkillBundleResolution {
   unavailable: string[];
   provenance: string;
   chars: number;
+  version?: string;
+  locked?: boolean;
+  drifted?: boolean;
+  compatible?: boolean;
+  incompatible?: string[];
+  resolvedVersions?: Record<string, string>;
 }
 
 export interface SkillBundleListResponse {
@@ -165,6 +208,7 @@ export interface ProjectSkillStatus {
   projectDiscovery: boolean;
   projectRoot: string | null;
   discovery: ProjectSkillDiscovery;
+  drift?: ProjectSkillDriftStatus | null;
   trusted: ProjectSkillTrustRecord[];
 }
 
@@ -382,6 +426,8 @@ export interface SkillDetail extends Omit<SkillSummary, "versions"> {
   reviews: SkillReviewRecord[];
   events: SkillEventRecord[];
   provenance?: "bundled" | "profile" | "project" | "generated" | "external";
+  contentScan?: SkillContentScan | null;
+  dependencyGraph?: SkillDependencyGraph;
 }
 
 /** The workflow-ready execution request (mirrors the Python contract). */
@@ -413,8 +459,117 @@ export interface SkillExecutionResult {
   metrics: Record<string, unknown>;
 }
 
+/** Skill dependency graph / preflight (Phase 14). Read-only. */
+export interface SkillDependencyNode {
+  id: string;
+  version: string | null;
+  status: string;
+  executable: boolean;
+  missing: boolean;
+  requiredTools: string[];
+  permissions: string[];
+}
+
+export interface SkillDependencyEdge {
+  from: string;
+  to: string;
+  constraint: string | null;
+  optional: boolean;
+  resolvedVersion: string | null;
+  status: "ok" | "optional" | "missing" | "disabled" | "incompatible" | string;
+}
+
+export interface SkillDependencyGraph {
+  skillId: string;
+  ok: boolean;
+  nodes: SkillDependencyNode[];
+  edges: SkillDependencyEdge[];
+  order: Array<{ skillId: string; version: string | null }>;
+  errors: string[];
+  cycles: string[];
+  missing: string[];
+  disabled: string[];
+  versionMismatches: string[];
+}
+
+/** Cold-start onboarding content (Phase 13). Static, read-only. */
+export interface OnboardingStep {
+  id: string;
+  title: string;
+  body: string;
+}
+
+export interface OnboardingContent {
+  version: number;
+  steps: OnboardingStep[];
+  starterSkills: Array<{
+    id: string; name: string; description: string; category: string; provenance: string;
+  }>;
+  note: string;
+}
+
+/** Skill quality over time (Phase 6). Derived from real execution rows. */
+export interface SkillQualityMetrics {
+  skillId: string;
+  version: string | null;
+  executions: number;
+  completed: number;
+  failed: number;
+  successRate: number | null;
+  failureRate: number | null;
+  outputValidationRate: number | null;
+  invalidOutputCount: number;
+  toolBudgetFailureRate: number | null;
+  meanDurationMs: number | null;
+  meanToolCalls: number | null;
+  failureCauses: Record<string, number>;
+  sampleReliable: boolean;
+  successInterval: [number, number] | null;
+  sampleWarning: string | null;
+  trend: Array<{ day: string; total: number; completed: number; successRate: number | null }>;
+  timeWeightedSuccessRate: number | null;
+  usefulness: { score: number | null; reason: string };
+  deprecation: { recommend: boolean; reason: string };
+}
+
+export interface SkillQualityComparison {
+  skillId: string;
+  older: string;
+  newer: string;
+  before: SkillQualityMetrics;
+  after: SkillQualityMetrics;
+  caseComparison: {
+    sharedCases: string[];
+    addedCases: string[];
+    removedCases: string[];
+    caseRegressions: Array<{ caseId: string; before: string; after: string }>;
+    comparable: boolean;
+  };
+  regressions: string[];
+  regressed: boolean;
+  lowSampleVersions: string[];
+}
+
+export interface SkillPromotionEvidence {
+  skillId: string;
+  version: string;
+  evaluation: { status: string | null; summary: string | null; dimensions: unknown[] } | null;
+  executionMetrics: SkillQualityMetrics;
+  deprecation: { recommend: boolean; reason: string };
+  usefulness: { score: number | null; reason: string };
+  sample: { executions: number; reliable: boolean; warning: string | null; successInterval: [number, number] | null };
+  trend: SkillQualityMetrics["trend"];
+  failureCauses: Record<string, number>;
+  note: string;
+}
+
 export interface SkillListResponse {
   skills: SkillSummary[];
   loadErrors: string[];
   duplicates: string[];
+  projectNotices?: string[];
+  projectDrift?: boolean;
+  shadowed?: string[];
+  contentFindings?: Record<string, SkillContentScan>;
+  quarantined?: string[];
 }

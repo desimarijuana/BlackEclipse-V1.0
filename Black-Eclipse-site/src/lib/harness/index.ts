@@ -39,6 +39,7 @@ export {
   listRunsFromRuntime,
   getUsageSummaryFromRuntime,
   getEventsFromRuntime,
+  getRunExplanationFromRuntime,
   getRunReceiptFromRuntime,
   cancelRunInRuntime,
   HarnessRuntimeUnavailable,

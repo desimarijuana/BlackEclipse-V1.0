@@ -724,6 +724,62 @@ MIGRATIONS.append(
     )
 )
 
+# Project skill drift (Phase 2 of the remaining-gaps plan). Trust is recorded
+# against a content identity: `trustedHash` is the root's content hash at the
+# moment of trust/approval. If the root's content later changes, the trusted
+# skills are quarantined until an operator re-approves, so a `git pull` cannot
+# silently change what a trusted repo contributes. `revokedHash` records the
+# hash observed at the last untrust for audit.
+MIGRATIONS.append(
+    (
+        16,
+        [
+            "ALTER TABLE ProjectSkillTrust ADD COLUMN trustedHash TEXT;",
+            "ALTER TABLE ProjectSkillTrust ADD COLUMN revokedHash TEXT;",
+        ],
+    )
+)
+
+# Conservative memory compaction (Phase 5 of the remaining-gaps plan). A
+# proposal is an INERT, reviewable bundle of near-duplicate memories. Accepting
+# it creates one merged memory and supersedes the originals (linked, retained);
+# rejecting it changes nothing. Originals/provenance/evidence/timestamps are
+# preserved — nothing is ever hard-deleted.
+MIGRATIONS.append(
+    (
+        17,
+        [
+            """CREATE TABLE IF NOT EXISTS CompactionProposal (
+                id TEXT PRIMARY KEY,
+                memberIds TEXT NOT NULL DEFAULT '[]',
+                scope TEXT NOT NULL,
+                scopeId TEXT,
+                subject TEXT,
+                mergedContent TEXT NOT NULL,
+                rationale TEXT,
+                status TEXT NOT NULL DEFAULT 'proposed',
+                createdAt TEXT NOT NULL,
+                decidedAt TEXT,
+                resultingMemoryId TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_compaction_status ON CompactionProposal(status);",
+        ],
+    )
+)
+
+# Bundle lifecycle (Phase 9 of the remaining-gaps plan): a bundle gets a version
+# identity plus an optional reproducibility lock pinning exact member versions.
+MIGRATIONS.append(
+    (
+        18,
+        [
+            "ALTER TABLE SkillBundle ADD COLUMN version TEXT NOT NULL DEFAULT '1.0.0';",
+            "ALTER TABLE SkillBundle ADD COLUMN memberVersions TEXT NOT NULL DEFAULT '{}';",
+            "ALTER TABLE SkillBundle ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

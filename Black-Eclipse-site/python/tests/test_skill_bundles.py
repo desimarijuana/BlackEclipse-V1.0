@@ -107,3 +107,85 @@ def test_bundle_rejects_permission_denied_member(service, registry, tmp_path):
     resolution = resolve_bundle(service.store, registry, "p", actor=DEFAULT_ACTOR)
     assert resolution.ok is False
     assert "finance.heavy" in resolution.unavailable
+
+
+# -- Lifecycle: version identity, lock, drift (Phase 9) ----------------------
+
+
+def test_bundle_has_version_identity(service, registry):
+    service.store.save_skill_bundle({"id": "r", "skills": ["research.planning"], "version": "2.0.0"})
+    bundle = service.store.get_skill_bundle("r")
+    assert bundle["version"] == "2.0.0"
+
+
+def test_bundle_rejects_bad_version(service):
+    from harness.skills.bundles import BundleError, SkillBundle
+
+    try:
+        SkillBundle(id="r", skills=["research.planning"], version="not-semver")
+        assert False, "expected BundleError"
+    except BundleError:
+        pass
+
+
+def test_lock_and_detect_drift(service, registry, tmp_path):
+    from harness.skills.bundles import lock_bundle, resolve_bundle
+
+    service.store.save_skill_bundle({"id": "r", "skills": ["research.planning"]})
+    locked = lock_bundle(service.store, registry, "r")
+    assert locked["ok"] is True
+    assert locked["bundle"]["locked"] is True
+    locked_versions = locked["bundle"]["memberVersions"]
+    assert "research.planning" in locked_versions
+
+    # No drift immediately after locking.
+    resolution = resolve_bundle(service.store, registry, "r")
+    assert resolution.drifted is False
+    assert resolution.locked is True
+
+    # Simulate a member version change by resolving the SAME bundle against a
+    # registry that reports the member at a different version.
+    from harness.skills.manifest import SkillManifest
+    from harness.skills.bundles import _resolve
+
+    class _StubRegistry:
+        store = type("S", (), {"get_skill": staticmethod(lambda _id: None)})()
+
+        @staticmethod
+        def manifest(skill_id):
+            return SkillManifest(
+                id=skill_id, name="P", version="9.9.9", description="d",
+                category="research", status="enabled",
+            ) if skill_id == "research.planning" else None
+
+    bundle = SkillBundle(
+        id="r", skills=["research.planning"], version="1.0.0",
+        member_versions=locked_versions, locked=True,
+    )
+    resolution2 = _resolve(bundle, _StubRegistry(), actor=None)
+    assert resolution2.drifted is True
+    assert any("9.9.9" in item for item in resolution2.incompatible)
+
+
+def test_disabled_member_stays_disabled_under_lock(service, registry):
+    service.store.save_skill_bundle({"id": "mix", "skills": ["research.planning", "system.hidden"]})
+    from harness.skills.bundles import lock_bundle, resolve_bundle
+
+    lock_bundle(service.store, registry, "mix")
+    resolution = resolve_bundle(service.store, registry, "mix")
+    assert "system.hidden" not in resolution.resolved
+    assert "system.hidden" in resolution.unavailable
+
+
+def test_lock_never_widens_permissions(service, registry, tmp_path):
+    from harness.skills.bundles import lock_bundle
+
+    heavy = tmp_path / "special"
+    _write_skill(heavy, "finance.heavy", permissions=["portfolio.modify"])
+    registry.load_all(root=str(heavy), project_discovery=False)
+    service.store.save_skill_bundle({"id": "p2", "skills": ["finance.heavy"]})
+    lock_bundle(service.store, registry, "p2")
+    from harness.skills.permissions import DEFAULT_ACTOR
+
+    resolution = resolve_bundle(service.store, registry, "p2", actor=DEFAULT_ACTOR)
+    assert "finance.heavy" in resolution.unavailable

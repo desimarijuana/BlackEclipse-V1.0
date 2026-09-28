@@ -12,7 +12,7 @@ import { FolderGit2, Loader2, ShieldCheck, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  projectSkillStatus, trustProjectSkill, untrustProjectSkill,
+  projectSkillStatus,   trustProjectSkill, untrustProjectSkill, approveProjectSkill,
 } from "@/lib/harness/skills-browser";
 import type { ProjectSkillStatus } from "@/lib/harness/skills-types";
 
@@ -47,6 +47,7 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
   if (!status) return null;
 
   const root = status.discovery.root;
+  const drifted = Boolean(status.discovery.drift || status.drift?.drift);
 
   return (
     <div className="animate-fade-in-up">
@@ -79,13 +80,20 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                 <div className="min-w-0">
                   <p className="text-[12px] font-semibold text-foreground truncate">{root ?? "no project root"}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {status.discovery.trustedRoot ? "trusted" : "untrusted — contents not read"}
+                    {drifted
+                      ? "quarantined — content changed since trust"
+                      : status.discovery.trustedRoot ? "trusted" : "untrusted — contents not read"}
                     {status.discovery.trustedSkillIds.length > 0 ? ` · ${status.discovery.trustedSkillIds.length} skill(s) active` : ""}
                   </p>
                 </div>
               </div>
-              <div className="shrink-0">
-                {status.discovery.trustedRoot ? (
+              <div className="shrink-0 flex gap-2">
+                {drifted ? (
+                  <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                    onClick={() => act(() => approveProjectSkill(root ?? undefined, "re-approved after change"), "Project re-approved — skills reloaded")}>
+                    <ShieldCheck size={12} className="mr-1" /> Re-approve
+                  </Button>
+                ) : status.discovery.trustedRoot ? (
                   <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
                     onClick={() => act(() => untrustProjectSkill(root ?? undefined), "Project untrusted — its skills are no longer injected")}>
                     <ShieldOff size={12} className="mr-1" /> Untrust
@@ -98,6 +106,13 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                 )}
               </div>
             </div>
+
+            {drifted && (
+              <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-2.5 text-[10px] text-amber-200">
+                The content of this trusted project changed since it was approved. Its skills are
+                quarantined and not loaded. Review the change, then Re-approve to enable them, or Untrust.
+              </div>
+            )}
 
             {status.discovery.notices.map((n, i) => (
               <p key={i} className="mt-3 text-[11px] text-amber-300/90">{n}</p>

@@ -142,6 +142,26 @@ def looks_like_secret(text: str) -> bool:
     return _matches(text, _SECRET_PATTERNS)
 
 
+# A tighter guard for the persistence layer: matches an actual credential VALUE
+# (a key-shaped token or an assignment `name: value`), not merely the word
+# "secret"/"token". The broad `_SECRET_PATTERNS` remain the decision-gate guard;
+# this narrower set avoids refusing a benign sentence that mentions the word.
+_CREDENTIAL_VALUE_PATTERNS = (
+    r"\bsk-[A-Za-z0-9]{16,}",
+    r"\bgh[pousr]_[A-Za-z0-9]{20,}",
+    r"\bAKIA[0-9A-Z]{16}\b",
+    r"\b(api[ _-]?key|passphrase|password|bearer|private[ _-]?key|token)\b\s*[:=]\s*\S+",
+    r"\b\d{13,19}\b",  # card-like PAN
+)
+
+
+def looks_like_credential_value(text: str) -> bool:
+    """True when text contains an actual credential value — used as
+    defense-in-depth at the one persistence path, without over-blocking a
+    sentence that merely mentions the word 'secret'/'token'."""
+    return _matches(text, _CREDENTIAL_VALUE_PATTERNS)
+
+
 def looks_like_override(text: str) -> bool:
     return _matches(text, _OVERRIDE_PATTERNS)
 
@@ -170,7 +190,7 @@ def content_signature(content: str) -> str:
 class MemoryDecision:
     """The deterministic, authorized outcome for one proposed memory action."""
 
-    outcome: str  # save | suggest | run_only | ignore
+    outcome: str  # save | suggest | history_only | ignore
     action: Optional[str] = None  # save | forget | correct | skill | None
     reason: str = ""
     content: str = ""
@@ -481,7 +501,7 @@ def authorize_proposal(
     provenance, category, evidence, privacy rules and policy. A model-facing
     proposal can only ``save`` when the user turn itself carried explicit save
     intent (or for a clearly durable user preference the user just stated);
-    otherwise it is downgraded to ``suggest``, ``run_only`` or ``ignore``.
+    otherwise it is downgraded to ``suggest``, ``history_only`` or ``ignore``.
     """
     settings = settings or {}
     text_value = (content or "").strip()

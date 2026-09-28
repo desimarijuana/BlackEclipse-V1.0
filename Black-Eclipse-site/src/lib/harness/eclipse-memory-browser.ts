@@ -9,6 +9,8 @@ import type {
   LearningReviewHealth,
   LearningReviewRecord,
   MemoryDatabaseHealth,
+  CompactionProposal,
+  MemoryConflictReview,
   MemoryDetail,
   MemoryExportDocument,
   MemoryProfileRecord,
@@ -73,6 +75,46 @@ export async function getMemory(memoryId: string): Promise<MemoryDetail | null> 
   const body = (await res.json().catch(() => ({}))) as MemoryDetail & { error?: string };
   if (!res.ok) throw new Error(body.error ?? "memory lookup failed");
   return body.memory ? body : null;
+}
+
+export async function listCompaction(status?: string): Promise<CompactionProposal[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const body = await api<{ proposals: CompactionProposal[] }>(`/api/eclipse-memory/compaction${query}`);
+  return body.proposals ?? [];
+}
+
+export async function detectCompaction(): Promise<CompactionProposal[]> {
+  const body = await api<{ proposals: CompactionProposal[] }>(`/api/eclipse-memory/compaction/detect`, { method: "POST" });
+  return body.proposals ?? [];
+}
+
+export async function acceptCompaction(proposalId: string, mergedContent?: string): Promise<{ ok: boolean; error?: string; mergedInto?: string }> {
+  return api(`/api/eclipse-memory/compaction/${encodeURIComponent(proposalId)}/accept`, {
+    method: "POST", body: JSON.stringify({ mergedContent }),
+  });
+}
+
+export async function rejectCompaction(proposalId: string): Promise<{ ok: boolean }> {
+  return api(`/api/eclipse-memory/compaction/${encodeURIComponent(proposalId)}/reject`, { method: "POST" });
+}
+
+export async function memoryConflictReview(memoryId: string): Promise<MemoryConflictReview | null> {
+  const res = await fetch(`/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/conflict`);
+  if (res.status === 404) return null;
+  const body = (await res.json().catch(() => ({}))) as { review?: MemoryConflictReview; error?: string };
+  if (!res.ok) throw new Error(body.error ?? "conflict review failed");
+  return body.review ?? null;
+}
+
+export async function resolveMemoryConflict(
+  memoryId: string,
+  action: string,
+  opts: { targetId?: string; mergedContent?: string; reason?: string } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  return api(`/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ action, ...opts }),
+  });
 }
 
 export async function createMemory(payload: {
@@ -419,7 +461,11 @@ export async function exportMemory(): Promise<MemoryExportDocument> {
 export async function importMemory(
   document: MemoryExportDocument,
   dryRun = false
-): Promise<{ success: boolean; imported: number; skipped: number; rejected: Array<{ index: number; reason: string }>; dryRun: boolean }> {
+): Promise<{
+  success: boolean; imported: number; skipped: number;
+  rejected: Array<{ index: number; reason: string }>; dryRun: boolean;
+  importable?: number; checksumOk?: boolean | null;
+}> {
   return api("/api/eclipse-memory/import", {
     method: "POST",
     body: JSON.stringify({ document, dryRun }),

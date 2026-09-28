@@ -1,6 +1,6 @@
-// ─── Skill system front door (Phase 3) ──────────────────────────────────────
+﻿// â”€â”€â”€ Skill system front door (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Thin typed wrapper over the Python runtime's /skills, /learning and /evaluation
-// endpoints. It adds no skill logic — it resolves the model settings the runtime
+// endpoints. It adds no skill logic â€” it resolves the model settings the runtime
 // cannot (from the vault) and forwards. There is exactly one skill registry, in
 // Python.
 
@@ -15,11 +15,15 @@ import type {
   LearnRequest,
   LearningCandidate,
   LearningJourney,
+  OnboardingContent,
   ProjectSkillStatus,
   SkillBundle,
   SkillBundleListResponse,
   SkillBundleResolution,
   SkillDetail,
+  SkillPromotionEvidence,
+  SkillQualityComparison,
+  SkillQualityMetrics,
   SkillEvaluationRecord,
   SkillExecutionRecord,
   SkillExecutionRequest,
@@ -39,7 +43,7 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   }
   const { timeoutMs = 60_000, ...rest } = init;
   // The Python runtime authorizes operator mutations by transport (loopback) or
-  // by this secret — never by a body boolean. Forwarding it means the front
+  // by this secret â€” never by a body boolean. Forwarding it means the front
   // door's own authorization is what reaches Python, even if the runtime is
   // later bound to a non-loopback interface. The value is never logged.
   const operatorToken = runtimeCallbackToken();
@@ -64,14 +68,14 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
  * Whether this request is an authorized operator.
  *
  * Operator actions (create/evaluate/enable/disable/review) are gated exactly
- * like every other mutation in this repo: `checkMutationAllowed` — a same-origin
+ * like every other mutation in this repo: `checkMutationAllowed` â€” a same-origin
  * browser request OR a caller presenting the runtime secret OR a request to a
  * loopback host. This keeps the zero-config local install fully usable while a
  * public deployment still requires CRON_SECRET.
  *
  * The Python runtime re-enforces its own default-deny permission policy, so this
  * is defense in depth, not the only gate. Skill *instructions* are never a
- * boundary — the permission check runs in code on the composed AgentConfig.
+ * boundary â€” the permission check runs in code on the composed AgentConfig.
  */
 export function isOperatorRequest(request?: Request): boolean {
   if (!request) return false;
@@ -80,11 +84,20 @@ export function isOperatorRequest(request?: Request): boolean {
 
 export async function listSkills(status?: string): Promise<SkillListResponse> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const body = await request<{ skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[] }>(
+  const body = await request<SkillListResponse>(
     `/skills${query}`,
     { method: "GET" }
   );
-  return { skills: body.skills ?? [], loadErrors: body.loadErrors ?? [], duplicates: body.duplicates ?? [] };
+  return {
+    skills: body.skills ?? [],
+    loadErrors: body.loadErrors ?? [],
+    duplicates: body.duplicates ?? [],
+    projectNotices: body.projectNotices ?? [],
+    projectDrift: body.projectDrift ?? false,
+    shadowed: body.shadowed ?? [],
+    contentFindings: body.contentFindings ?? {},
+    quarantined: body.quarantined ?? [],
+  };
 }
 
 export async function projectSkillStatus(): Promise<ProjectSkillStatus> {
@@ -93,6 +106,13 @@ export async function projectSkillStatus(): Promise<ProjectSkillStatus> {
 
 export async function trustProjectSkill(path?: string, note?: string): Promise<void> {
   await request(`/skills/project/trust`, {
+    method: "POST",
+    body: JSON.stringify({ path, note }),
+  });
+}
+
+export async function approveProjectSkill(path?: string, note?: string): Promise<void> {
+  await request(`/skills/project/approve`, {
     method: "POST",
     body: JSON.stringify({ path, note }),
   });
@@ -112,11 +132,42 @@ export async function learningJourney(params: { kind?: string; status?: string; 
   return request<LearningJourney & { success: true }>(`/learning/journey${query ? `?${query}` : ""}`, { method: "GET" });
 }
 
+export async function getSkillQuality(skillId: string, version?: string): Promise<SkillQualityMetrics> {
+  const query = version ? `?version=${encodeURIComponent(version)}` : "";
+  return request<SkillQualityMetrics & { success: true }>(
+    `/skills/${encodeURIComponent(skillId)}/quality${query}`, { method: "GET" }
+  );
+}
+
+export async function getSkillPromotionEvidence(skillId: string, version: string): Promise<SkillPromotionEvidence> {
+  return request<SkillPromotionEvidence & { success: true }>(
+    `/skills/${encodeURIComponent(skillId)}/promotion-evidence?version=${encodeURIComponent(version)}`, { method: "GET" }
+  );
+}
+
+export async function compareSkillVersions(skillId: string, older: string, newer: string): Promise<SkillQualityComparison> {
+  const query = new URLSearchParams({ older, newer }).toString();
+  return request<SkillQualityComparison & { success: true }>(
+    `/skills/${encodeURIComponent(skillId)}/quality/compare?${query}`, { method: "GET" }
+  );
+}
+
 export async function learnFromSource(learnRequest: LearnRequest): Promise<LearnDraftResult> {
   return request<LearnDraftResult>("/learning/from-source", {
     method: "POST",
     body: JSON.stringify({ ...learnRequest, operator: true }),
   });
+}
+
+export async function getSkillPreflight(skillId: string): Promise<{
+  skillId: string; ok: boolean; reasons: string[];
+  validation: unknown; dependencyGraph: unknown;
+}> {
+  return request(`/skills/${encodeURIComponent(skillId)}/preflight`, { method: "GET" });
+}
+
+export async function getOnboarding(): Promise<OnboardingContent> {
+  return request<OnboardingContent & { success: true }>("/onboarding", { method: "GET" });
 }
 
 export async function listSkillBundles(): Promise<SkillBundleListResponse> {
@@ -133,6 +184,14 @@ export async function saveSkillBundle(bundle: Partial<SkillBundle> & { id: strin
     body: JSON.stringify(bundle),
   });
   return body.bundle;
+}
+
+export async function lockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return request(`/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "POST" });
+}
+
+export async function unlockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return request(`/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "DELETE" });
 }
 
 export async function deleteSkillBundle(bundleId: string): Promise<void> {
@@ -351,7 +410,7 @@ export async function rollbackSkill(skillId: string, operator: boolean, version:
   });
 }
 
-// ── Versioned skill patches (M2) ────────────────────────────────────────────
+// â”€â”€ Versioned skill patches (M2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getSkillVersionHistory(skillId: string): Promise<{ success: boolean; skillId: string; versions: SkillVersionHistoryEntry[] }> {
   return request(`/skills/${encodeURIComponent(skillId)}/version-history`, { method: "GET" });
@@ -461,3 +520,4 @@ export async function rejectDraft(skillId: string, operator: boolean, requestId:
     body: JSON.stringify({ operator, requestId, reason }),
   });
 }
+

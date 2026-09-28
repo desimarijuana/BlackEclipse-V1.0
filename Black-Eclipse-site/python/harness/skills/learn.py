@@ -122,6 +122,15 @@ def build_learn_draft(request: LearnRequest) -> dict[str, Any]:
         ]
         steps = candidate_steps[:12]
     lint = sorted(set(lint_skill_content(clean_seed) + sanitized))
+    # Advisory injection scan over the generated prose (objective + steps).
+    scan_blob = "\n".join([clean_seed, *steps])
+    scan_dict: Optional[dict[str, Any]] = None
+    try:
+        from .content_scan import scan_content  # noqa: PLC0415
+
+        scan_dict = scan_content(scan_blob, location="generated").to_dict()
+    except Exception:  # noqa: BLE001 - scanning must never break drafting
+        scan_dict = None
     return {
         "title": request.title,
         "category": request.category,
@@ -133,6 +142,7 @@ def build_learn_draft(request: LearnRequest) -> dict[str, Any]:
         "scopeNote": request.scope_note,
         "sanitized": sanitized,
         "lint": lint,
+        "contentScan": scan_dict,
     }
 
 
@@ -217,6 +227,7 @@ def learn_from_source(
         "sourceKind": built["sourceKind"],
         "sanitized": built["sanitized"],
         "lint": built["lint"],
+        "contentScan": built.get("contentScan"),
     }
 
 

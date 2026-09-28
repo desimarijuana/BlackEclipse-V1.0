@@ -13,6 +13,8 @@ import type {
   LearningReviewHealth,
   LearningReviewRecord,
   MemoryDatabaseHealth,
+  CompactionProposal,
+  MemoryConflictReview,
   MemoryDetail,
   MemoryExportDocument,
   MemoryLifecycleResponse,
@@ -98,6 +100,55 @@ export async function getMemory(memoryId: string): Promise<MemoryDetail | null> 
     if (err instanceof Error && /404/.test(err.message)) return null;
     throw err;
   }
+}
+
+export async function listCompaction(status?: string): Promise<CompactionProposal[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const body = await request<{ proposals: CompactionProposal[] }>(`/eclipse-memory/compaction${query}`, { method: "GET" });
+  return body.proposals ?? [];
+}
+
+export async function detectCompaction(): Promise<CompactionProposal[]> {
+  const body = await request<{ proposals: CompactionProposal[] }>("/eclipse-memory/compaction/detect", {
+    method: "POST", body: JSON.stringify({ operator: true }),
+  });
+  return body.proposals ?? [];
+}
+
+export async function acceptCompaction(proposalId: string, mergedContent?: string): Promise<{ ok: boolean; error?: string; mergedInto?: string }> {
+  return request(`/eclipse-memory/compaction/${encodeURIComponent(proposalId)}/accept`, {
+    method: "POST", body: JSON.stringify({ operator: true, mergedContent }),
+  });
+}
+
+export async function rejectCompaction(proposalId: string): Promise<{ ok: boolean }> {
+  return request(`/eclipse-memory/compaction/${encodeURIComponent(proposalId)}/reject`, {
+    method: "POST", body: JSON.stringify({ operator: true }),
+  });
+}
+
+export async function memoryConflictReview(memoryId: string): Promise<MemoryConflictReview | null> {
+  try {
+    const body = await request<{ review: MemoryConflictReview }>(
+      `/eclipse-memory/memories/${encodeURIComponent(memoryId)}/conflict`,
+      { method: "GET" }
+    );
+    return body.review;
+  } catch (err) {
+    if (err instanceof Error && /404/.test(err.message)) return null;
+    throw err;
+  }
+}
+
+export async function resolveMemoryConflict(
+  memoryId: string,
+  action: string,
+  opts: { targetId?: string; mergedContent?: string; reason?: string } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  return request<{ ok: boolean; error?: string }>(
+    `/eclipse-memory/memories/${encodeURIComponent(memoryId)}/resolve`,
+    { method: "POST", body: JSON.stringify({ action, operator: true, ...opts }) }
+  );
 }
 
 export async function memoryLifecycle(view?: string, scopeId?: string, limit = 100): Promise<MemoryLifecycleResponse> {

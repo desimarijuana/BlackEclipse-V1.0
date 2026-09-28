@@ -1,4 +1,4 @@
-// ─── Skill system browser client (Phase 3) ──────────────────────────────────
+﻿// â”€â”€â”€ Skill system browser client (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The UI talks to the Next.js API routes (`/api/skills/**`, `/api/learning/**`),
 // which proxy to the Python runtime. This module MUST stay client-safe: no
 // prisma, no child_process, no fs. Fetch only.
@@ -11,11 +11,16 @@ import type {
   LearnRequest,
   LearningCandidate,
   LearningJourney,
+  OnboardingContent,
   ProjectSkillStatus,
   SkillBundle,
   SkillBundleListResponse,
   SkillBundleResolution,
+  SkillContentScan,
   SkillDetail,
+  SkillPromotionEvidence,
+  SkillQualityComparison,
+  SkillQualityMetrics,
   SkillEvaluationRecord,
   SkillExecutionRecord,
   SkillExecutionRequest,
@@ -31,6 +36,10 @@ export interface SkillListResult {
   loadErrors: string[];
   duplicates: string[];
   projectNotices: string[];
+  projectDrift: boolean;
+  shadowed: string[];
+  contentFindings: Record<string, SkillContentScan>;
+  quarantined: string[];
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -49,12 +58,20 @@ export function clientIsOperator(): boolean {
 
 export async function listSkills(status?: string): Promise<SkillListResult> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const body = await api<{ skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[]; projectNotices?: string[] }>(`/api/skills${query}`);
+  const body = await api<{
+    skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[];
+    projectNotices?: string[]; projectDrift?: boolean; shadowed?: string[];
+    contentFindings?: Record<string, SkillContentScan>; quarantined?: string[];
+  }>(`/api/skills${query}`);
   return {
     skills: body.skills ?? [],
     loadErrors: body.loadErrors ?? [],
     duplicates: body.duplicates ?? [],
     projectNotices: body.projectNotices ?? [],
+    projectDrift: body.projectDrift ?? false,
+    shadowed: body.shadowed ?? [],
+    contentFindings: body.contentFindings ?? {},
+    quarantined: body.quarantined ?? [],
   };
 }
 
@@ -66,8 +83,26 @@ export async function trustProjectSkill(path?: string, note?: string): Promise<v
   await api(`/api/skills/project/trust`, { method: "POST", body: JSON.stringify({ path, note }) });
 }
 
+export async function approveProjectSkill(path?: string, note?: string): Promise<void> {
+  await api(`/api/skills/project/approve`, { method: "POST", body: JSON.stringify({ path, note }) });
+}
+
 export async function untrustProjectSkill(path?: string): Promise<void> {
   await api(`/api/skills/project/untrust`, { method: "POST", body: JSON.stringify({ path }) });
+}
+
+export async function getSkillQuality(skillId: string, version?: string): Promise<SkillQualityMetrics> {
+  const query = version ? `?version=${encodeURIComponent(version)}` : "";
+  return api<SkillQualityMetrics>(`/api/skills/${encodeURIComponent(skillId)}/quality${query}`);
+}
+
+export async function getSkillPromotionEvidence(skillId: string, version: string): Promise<SkillPromotionEvidence> {
+  return api<SkillPromotionEvidence>(`/api/skills/${encodeURIComponent(skillId)}/promotion-evidence?version=${encodeURIComponent(version)}`);
+}
+
+export async function compareSkillVersions(skillId: string, older: string, newer: string): Promise<SkillQualityComparison> {
+  const query = new URLSearchParams({ older, newer }).toString();
+  return api<SkillQualityComparison>(`/api/skills/${encodeURIComponent(skillId)}/quality/compare?${query}`);
 }
 
 export async function learningJourney(params: { kind?: string; status?: string; since?: string } = {}): Promise<LearningJourney> {
@@ -81,6 +116,17 @@ export async function learnFromSource(request: LearnRequest): Promise<LearnDraft
   return api<LearnDraftResult>(`/api/learning/from-source`, { method: "POST", body: JSON.stringify(request) });
 }
 
+export async function getSkillPreflight(skillId: string): Promise<{
+  skillId: string; ok: boolean; reasons: string[];
+  validation: unknown; dependencyGraph: unknown;
+}> {
+  return api(`/api/skills/${encodeURIComponent(skillId)}/preflight`);
+}
+
+export async function getOnboarding(): Promise<OnboardingContent> {
+  return api<OnboardingContent>(`/api/onboarding`);
+}
+
 export async function listSkillBundles(): Promise<SkillBundleListResponse> {
   const body = await api<{ bundles?: SkillBundle[]; resolved?: Record<string, SkillBundleResolution> }>(`/api/skill-bundles`);
   return { bundles: body.bundles ?? [], resolved: body.resolved ?? {} };
@@ -89,6 +135,14 @@ export async function listSkillBundles(): Promise<SkillBundleListResponse> {
 export async function saveSkillBundle(bundle: Partial<SkillBundle> & { id: string }): Promise<SkillBundle> {
   const body = await api<{ bundle: SkillBundle }>(`/api/skill-bundles`, { method: "POST", body: JSON.stringify(bundle) });
   return body.bundle;
+}
+
+export async function lockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return api(`/api/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "POST" });
+}
+
+export async function unlockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return api(`/api/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "DELETE" });
 }
 
 export async function deleteSkillBundle(bundleId: string): Promise<void> {
@@ -162,7 +216,7 @@ export async function setSkillLifecycle(skillId: string, action: "enable" | "dis
   );
 }
 
-// ── Versioned patches (M2) ──────────────────────────────────────────────────
+// â”€â”€ Versioned patches (M2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getSkillVersionHistory(skillId: string): Promise<{ success: boolean; skillId: string; versions: SkillVersionHistoryEntry[] }> {
   return api(`/api/skills/${encodeURIComponent(skillId)}/version-history`);
@@ -253,3 +307,4 @@ export async function rejectDraft(skillId: string, requestId: string, reason: st
     { method: "POST", body: JSON.stringify({ requestId, reason }) }
   );
 }
+

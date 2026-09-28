@@ -130,6 +130,22 @@ def build_user_manifest(
     return manifest
 
 
+def scan_manifest_content(manifest: SkillManifest, instructions: str) -> dict[str, Any]:
+    """Advisory content-injection scan of a user skill's description + prose.
+
+    Returns a bounded `ScanResult.to_dict()`. It NEVER blocks authoring (the
+    permission gate is authoritative); it exists so the UI can warn before the
+    skill is enabled. A clean scan is not proof of safety.
+    """
+    try:
+        from .content_scan import scan_content  # noqa: PLC0415
+
+        blob = f"{manifest.name}\n{manifest.description}\n{instructions or ''}"
+        return scan_content(blob, location="profile").to_dict()
+    except Exception:  # noqa: BLE001 - scanning must never break authoring
+        return {"ok": True, "findings": [], "shouldQuarantine": False, "categories": []}
+
+
 def validate_against_tools(manifest: SkillManifest, available_tools: list[str]) -> None:
     """Every required tool must exist in the runtime registry."""
     missing = [t for t in manifest.requiredTools if t not in set(available_tools)]
@@ -153,6 +169,7 @@ __all__ = [
     "SkillAuthoringError",
     "build_user_manifest",
     "next_version",
+    "scan_manifest_content",
     "suggest_skill_id",
     "validate_against_tools",
 ]

@@ -1,5 +1,11 @@
 """Hybrid memory ranking with separate namespaces (Milestone 7).
 
+**STATUS: experimental / deferred.** This module is NOT wired into the
+production retrieval path — `retrieval.retrieve_memories` uses its own
+deterministic `_score`. It exists as a reviewable candidate for a future hybrid
+ranker and is exercised by `python/tests/test_memory_hybrid.py` only. Do not
+infer that it influences recall.
+
 This module adds an EXPLICIT, deterministic hybrid score and a namespace model to
 memory retrieval. It does not authorize anything: it reorders only memories that
 already passed the authoritative scope/status/expiry/recall-policy filter, and a

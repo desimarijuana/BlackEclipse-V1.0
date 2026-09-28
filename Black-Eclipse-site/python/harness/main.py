@@ -504,6 +504,28 @@ def get_events(run_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/runs/{run_id}/explain")
+def explain_run_endpoint(run_id: str) -> dict[str, Any]:
+    """Why did the agent know/use (or not use) this? Derived, read-only, redacted.
+
+    Combines the run's retrieval event (injected + excluded-with-reason + budget)
+    with its prompt plan/profile/bundle events. Changes nothing at runtime.
+    """
+    from .run_observability import explain_run  # noqa: PLC0415
+
+    if not service.get_run(run_id):
+        raise HTTPException(status_code=404, detail="Run not found")
+    retrievals = service.memory_store.list_retrievals(limit=1, run_id=run_id)
+    return {
+        "success": True,
+        **explain_run(
+            run_id=run_id,
+            retrieval_event=retrievals[0] if retrievals else None,
+            events=service.list_events(run_id),
+        ),
+    }
+
+
 @app.get("/runs/{run_id}/stream")
 async def stream_run(run_id: str) -> StreamingResponse:
     """Server-Sent Events for one run: live status + token deltas.
@@ -578,11 +600,27 @@ def list_skills(status: Optional[str] = None) -> dict[str, Any]:
         "loadErrors": service.skill_load_errors,
         "duplicates": registry.duplicate_ids(),
         "projectNotices": registry.project_notices(),
+        "projectDrift": registry.project_drift(),
         "shadowed": registry.shadowed_ids(),
+        "contentFindings": registry.content_findings(),
+        "quarantined": registry.quarantined_ids(),
     }
 
 
 # ── Project-local skills (trust model) ──────────────────────────────────────
+
+
+@app.get("/onboarding")
+def onboarding() -> dict[str, Any]:
+    """Static, read-only first-run explanation + bundled starter skills."""
+    from .onboarding import onboarding_content  # noqa: PLC0415
+
+    registry = service.skill_registry
+    starter = [
+        s for s in registry.list_summaries()
+        if s.get("provenance") == "bundled"
+    ]
+    return {"success": True, **onboarding_content(starter_skills=starter)}
 
 
 @app.get("/skills/project")
@@ -596,12 +634,51 @@ def project_skill_status() -> dict[str, Any]:
         service._project_root(),
         project_discovery=service._project_discovery_enabled(),
     )
+    from .skills.project_skills import drift_status  # noqa: PLC0415
+
+    root = discovery.root
     return {
         "success": True,
         "projectDiscovery": service._project_discovery_enabled(),
         "projectRoot": service._project_root(),
         "discovery": discovery.to_dict(),
+        "drift": drift_status(service.skill_store, root) if root else None,
         "trusted": service.skill_store.list_project_trust(),
+    }
+
+
+@app.post("/skills/project/approve")
+def approve_project_skill(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Re-approve a quarantined (drifted) project root, re-baselining its hash.
+
+    Same gate as trust; recorded as a distinct `skill.project_reapproved` event
+    so the drift→review→approval chain is auditable. A project skill still runs
+    through the normal permission/execution gate.
+    """
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.project_skills import (  # noqa: PLC0415
+        canonical_root,
+        root_content_hash,
+        trust_root,
+    )
+
+    payload = payload or {}
+    root = payload.get("path") or service._project_root()
+    if not root:
+        raise HTTPException(status_code=400, detail="a project path is required")
+    state = trust_root(service.skill_store, root, note=payload.get("note") or "re-approved after change")
+    service.reload_project_skills()
+    service.skill_store.append_event(
+        "skill.project_reapproved", data={"path": canonical_root(root)},
+    )
+    return {
+        "success": True,
+        "root": state.to_dict(),
+        "contentHash": root_content_hash(root),
     }
 
 
@@ -687,12 +764,42 @@ def create_skill_bundle(
             instruction=str(payload.get("instruction") or ""),
             constraints=str(payload.get("constraints") or ""),
             provenance=str(payload.get("provenance") or "manual"),
+            version=str(payload.get("version") or "1.0.0"),
+            member_versions=dict(payload.get("memberVersions") or {}),
+            locked=bool(payload.get("locked")),
         )
     except BundleError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     saved = service.skill_store.save_skill_bundle(bundle.to_dict())
     service.skill_store.append_event("skill.bundle_saved", data={"bundleId": bundle.id})
     return {"success": True, "bundle": saved}
+
+
+@app.post("/skill-bundles/{bundle_id}/lock")
+def lock_skill_bundle(
+    bundle_id: str,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Pin the bundle's current resolved member versions (reproducible)."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.bundles import lock_bundle  # noqa: PLC0415
+
+    result = lock_bundle(service.skill_store, service.skill_registry, bundle_id)
+    return {"success": result.get("ok", False), **result}
+
+
+@app.post("/skill-bundles/{bundle_id}/unlock")
+def unlock_skill_bundle(
+    bundle_id: str,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.bundles import unlock_bundle  # noqa: PLC0415
+
+    result = unlock_bundle(service.skill_store, bundle_id)
+    return {"success": result.get("ok", False), **result}
 
 
 @app.delete("/skill-bundles/{bundle_id}")
@@ -755,7 +862,37 @@ def get_skill(skill_id: str) -> dict[str, Any]:
             "reviews": registry.store.list_reviews(skill_id, 20),
             "events": registry.store.list_events(skill_id, 50),
             "provenance": registry.provenance_of(skill_id),
+            "contentScan": registry.content_findings().get(skill_id),
+            "dependencyGraph": registry.dependency_graph(skill_id),
         },
+    }
+
+
+@app.get("/skills/{skill_id}/preflight")
+def skill_preflight(skill_id: str) -> dict[str, Any]:
+    """Execution preflight: dependency/tool/permission status before a run.
+
+    Read-only; explains exactly why a skill would be unavailable. Never enables
+    a dependency or widens a permission.
+    """
+    registry = service.skill_registry
+    if registry.manifest(skill_id) is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    graph = registry.dependency_graph(skill_id)
+    validation = registry.validate(skill_id)
+    reasons: list[str] = []
+    if not validation.get("ok"):
+        reasons.extend(validation.get("errors") or [])
+    for edge in graph.get("edges") or []:
+        if edge.get("status") not in ("ok", "optional"):
+            reasons.append(f"{edge['from']} -> {edge['to']}: {edge['status']}")
+    return {
+        "success": True,
+        "skillId": skill_id,
+        "ok": bool(validation.get("ok")) and bool(graph.get("ok")),
+        "reasons": reasons,
+        "validation": validation,
+        "dependencyGraph": graph,
     }
 
 
@@ -862,6 +999,89 @@ def explain_memory(memory_id: str) -> dict[str, Any]:
     return {"success": True, "explanation": explanation}
 
 
+@app.get("/eclipse-memory/memories/{memory_id}/conflict")
+def conflict_review(memory_id: str) -> dict[str, Any]:
+    """Side-by-side competing-memory view + safe resolution actions (read-only)."""
+    review = service.memory.conflict_review(memory_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"success": True, "review": review}
+
+
+@app.post("/eclipse-memory/memories/{memory_id}/resolve")
+def resolve_conflict(
+    memory_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Apply a conflict-resolution action. Operator-gated; reversible/audited."""
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="conflict resolution requires an authorized operator")
+    result = service.memory.resolve_conflict(
+        memory_id,
+        action=str(payload.get("action") or ""),
+        target_id=payload.get("targetId"),
+        merged_content=payload.get("mergedContent"),
+        reason=payload.get("reason"),
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "resolution failed")
+    return {"success": True, **result}
+
+
+@app.get("/eclipse-memory/compaction")
+def list_compaction(status: Optional[str] = None) -> dict[str, Any]:
+    """Inert near-duplicate compaction proposals (read-only)."""
+    return {
+        "success": True,
+        "proposals": service.memory_store.list_compaction_proposals(status, 200),
+    }
+
+
+@app.post("/eclipse-memory/compaction/detect")
+def detect_compaction(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Detect (and persist) inert compaction proposals. Operator-gated."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    proposals = service.memory.detect_compaction(persist=True)
+    return {"success": True, "proposals": proposals}
+
+
+@app.post("/eclipse-memory/compaction/{proposal_id}/accept")
+def accept_compaction(
+    proposal_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Accept a proposal: merge + supersede originals (retained). Operator-gated."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    payload = payload or {}
+    result = service.memory.accept_compaction(
+        proposal_id, merged_content=payload.get("mergedContent"),
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "compaction failed")
+    return {"success": True, **result}
+
+
+@app.post("/eclipse-memory/compaction/{proposal_id}/reject")
+def reject_compaction(
+    proposal_id: str,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    result = service.memory.reject_compaction(proposal_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "reject failed")
+    return {"success": True, **result}
+
+
 @app.post("/eclipse-memory/memories")
 def create_memory(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not bool(payload.get("operator")):
@@ -949,6 +1169,12 @@ def retention_sweep(_: bool = Depends(require_operator)) -> dict[str, Any]:
     inert (`expired`). Never deletes; explicit memories are exempt. Idempotent
     and observable (inspected/expired/skipped/ranAt)."""
     return {"success": True, **service.memory.expire_due_memories()}
+
+
+@app.get("/eclipse-memory/retention/preview")
+def retention_preview() -> dict[str, Any]:
+    """Preview what a retention sweep would expire, without sweeping."""
+    return {"success": True, **service.memory.preview_retention()}
 
 
 @app.get("/eclipse-memory/retention")
@@ -1598,6 +1824,9 @@ def import_memory(payload: dict[str, Any], _: bool = Depends(require_operator)) 
             service.memory, document,
             source=str(payload.get("source") or "imported"),
             dry_run=bool(payload.get("dryRun")),
+            scope_filter=payload.get("scopeFilter"),
+            type_filter=payload.get("typeFilter"),
+            bundles_only=bool(payload.get("bundlesOnly")),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2110,6 +2339,14 @@ def skill_quality_compare(skill_id: str, older: str, newer: str) -> dict[str, An
     from .eclipse_memory.skill_quality import compare_versions
 
     return {"success": True, **compare_versions(service.skill_store, skill_id, older, newer)}
+
+
+@app.get("/skills/{skill_id}/quality-history")
+def skill_quality_history(skill_id: str, limit: int = 20) -> dict[str, Any]:
+    """Per-version quality rows (trend view). Derived, read-only."""
+    from .eclipse_memory.skill_quality import version_quality_history
+
+    return {"success": True, "history": version_quality_history(service.skill_store, skill_id, limit=limit)}
 
 
 @app.post("/skill-drafts/{skill_id}/approve")

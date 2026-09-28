@@ -7,7 +7,7 @@
 // every mutating action is re-checked server-side.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb } from "lucide-react";
+import { Activity, Boxes, FlaskConical, FolderGit2, GitBranch, GraduationCap, Library, Lightbulb, Sparkles } from "lucide-react";
 import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import {
@@ -29,8 +29,9 @@ import { ProjectSkills } from "./project-skills";
 import { SkillBundles } from "./skill-bundles";
 import { GuidedLearn } from "./guided-learn";
 import { LearningJourneyPanel } from "./learning-journey";
+import { OnboardingPanel } from "./onboarding";
 
-type Tab = "library" | "project" | "bundles" | "learn" | "learning" | "journey" | "evaluation" | "activity";
+type Tab = "library" | "start" | "project" | "bundles" | "learn" | "learning" | "journey" | "evaluation" | "activity";
 
 export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("library");
@@ -38,7 +39,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   // matching sub-tab: skills.library/learning/evaluation/activity.
   useSubroute("skills", (req) => {
     const next = req.subroute.split(".")[1] as Tab | undefined;
-    if (next && ["library", "project", "bundles", "learn", "learning", "journey", "evaluation", "activity"].includes(next)) setTab(next);
+    if (next && ["library", "start", "project", "bundles", "learn", "learning", "journey", "evaluation", "activity"].includes(next)) setTab(next);
   });
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
@@ -262,6 +263,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
 
   const tabs = useMemo(() => [
     { id: "library", label: "Skills Library", icon: Library },
+    { id: "start", label: "Start Here", icon: Sparkles },
     { id: "project", label: "Project Skills", icon: FolderGit2 },
     { id: "bundles", label: "Bundles", icon: Boxes },
     { id: "learn", label: "Learn a Skill", icon: GraduationCap },
@@ -323,6 +325,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
               onAdd={() => setAuthoring("new")}
             />
           )}
+          {tab === "start" && <OnboardingPanel />}
           {tab === "project" && <ProjectSkills isOperator={isOperator} />}
           {tab === "bundles" && <SkillBundles isOperator={isOperator} />}
           {tab === "learn" && <GuidedLearn isOperator={isOperator} onOpenDraft={(id) => void openSkill(id)} />}

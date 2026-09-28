@@ -30,6 +30,8 @@ _BUNDLE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 BUNDLE_PROVENANCES = ("manual", "profile", "project", "imported")
 
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
 
 class BundleError(ValueError):
     """A bundle definition was rejected (bad id/empty skills/too many skills)."""
@@ -44,6 +46,11 @@ class SkillBundle:
     instruction: str = ""
     constraints: str = ""
     provenance: str = "manual"
+    # Version identity + optional reproducibility lock (Phase 9). A lock pins the
+    # exact resolved member versions so a later run reproduces the same set.
+    version: str = "1.0.0"
+    member_versions: dict[str, str] = field(default_factory=dict)
+    locked: bool = False
 
     def __post_init__(self) -> None:
         if not _BUNDLE_ID_RE.match(self.id or ""):
@@ -65,6 +72,13 @@ class SkillBundle:
             self.name = self.id
         self.instruction = (self.instruction or "")[:MAX_BUNDLE_INSTRUCTION_CHARS]
         self.constraints = (self.constraints or "")[:MAX_BUNDLE_CONSTRAINTS_CHARS]
+        if not _SEMVER_RE.match(self.version or ""):
+            raise BundleError("bundle version must be semver")
+        # Only keep lock entries for members the bundle actually names.
+        self.member_versions = {
+            str(k): str(v) for k, v in (self.member_versions or {}).items()
+            if str(k) in self.skills
+        }
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +89,9 @@ class SkillBundle:
             "instruction": self.instruction,
             "constraints": self.constraints,
             "provenance": self.provenance,
+            "version": self.version,
+            "memberVersions": self.member_versions,
+            "locked": self.locked,
         }
 
 
@@ -96,6 +113,12 @@ class BundleResolution:
     provenance: str = "manual"
     instruction: str = ""
     constraints: str = ""
+    # Phase 9 lifecycle.
+    version: str = "1.0.0"
+    locked: bool = False
+    drifted: bool = False
+    incompatible: list[str] = field(default_factory=list)
+    resolved_versions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +129,12 @@ class BundleResolution:
             "unavailable": self.unavailable,
             "provenance": self.provenance,
             "chars": len(self.content),
+            "version": self.version,
+            "locked": self.locked,
+            "drifted": self.drifted,
+            "compatible": not self.incompatible and not self.drifted and not self.missing,
+            "incompatible": self.incompatible,
+            "resolvedVersions": self.resolved_versions,
         }
 
 
@@ -135,8 +164,47 @@ def resolve_bundle(
         instruction=record.get("instruction") or "",
         constraints=record.get("constraints") or "",
         provenance=record.get("provenance") or "manual",
+        version=record.get("version") or "1.0.0",
+        member_versions=record.get("memberVersions") or {},
+        locked=bool(record.get("locked")),
     )
     return _resolve(bundle, registry, actor=actor)
+
+
+def lock_bundle(
+    store: Any, registry: Any, bundle_id: str,
+) -> dict[str, Any]:
+    """Pin the bundle's current resolved member versions (reproducible).
+
+    Records the exact version of each resolvable member and marks the bundle
+    locked. A later resolve reports `drifted` when a member's version differs
+    from the locked one. Never enables or widens anything.
+    """
+    record = store.get_skill_bundle(bundle_id)
+    if not record:
+        return {"ok": False, "error": "bundle not found"}
+    resolution = resolve_bundle(store, registry, bundle_id)
+    member_versions: dict[str, str] = {}
+    for skill_id in resolution.resolved:
+        manifest = registry.manifest(skill_id) if registry else None
+        if manifest is not None:
+            member_versions[skill_id] = manifest.version
+    saved = store.save_skill_bundle({
+        **record, "memberVersions": member_versions, "locked": True,
+    })
+    try:
+        store.append_event("skill.bundle_locked", data={"bundleId": bundle_id, "members": member_versions})
+    except Exception:  # noqa: BLE001 - audit is best-effort
+        pass
+    return {"ok": True, "bundle": saved}
+
+
+def unlock_bundle(store: Any, bundle_id: str) -> dict[str, Any]:
+    record = store.get_skill_bundle(bundle_id)
+    if not record:
+        return {"ok": False, "error": "bundle not found"}
+    saved = store.save_skill_bundle({**record, "locked": False})
+    return {"ok": True, "bundle": saved}
 
 
 def _resolve(bundle: SkillBundle, registry: Any, *, actor: Any) -> BundleResolution:
@@ -152,8 +220,11 @@ def _resolve(bundle: SkillBundle, registry: Any, *, actor: Any) -> BundleResolut
     resolved: list[str] = []
     missing: list[str] = []
     unavailable: list[str] = []
+    incompatible: list[str] = []
+    resolved_versions: dict[str, str] = {}
+    drifted = False
     lines = [
-        f"Skill bundle '{bundle.id}' ({bundle.provenance}) — discovery only; "
+        f"Skill bundle '{bundle.id}' v{bundle.version} ({bundle.provenance}) — discovery only; "
         "call skill_view for full instructions. It does not enable or run anything."
     ]
     if bundle.description:
@@ -179,8 +250,18 @@ def _resolve(bundle: SkillBundle, registry: Any, *, actor: Any) -> BundleResolut
                 unavailable.append(skill_id)
                 lines.append(f"- {skill_id} (permission denied for this actor)")
                 continue
+        # Lock/compatibility: a locked bundle reports a member whose version
+        # changed since it was locked. It is still loaded (a bundle never
+        # disables), but the drift is visible before execution.
+        locked_version = bundle.member_versions.get(skill_id)
+        if bundle.locked and locked_version and locked_version != manifest.version:
+            drifted = True
+            incompatible.append(f"{skill_id}: locked v{locked_version} -> v{manifest.version}")
+            lines.append(f"- {skill_id} (v{manifest.version} — DRIFTED from locked v{locked_version})")
+        else:
+            lines.append(f"- {skill_id} (v{manifest.version}): {manifest.description[:120]}")
         resolved.append(skill_id)
-        lines.append(f"- {skill_id} (v{manifest.version}): {manifest.description[:120]}")
+        resolved_versions[skill_id] = manifest.version
     content = "\n".join(lines)
     if len(content) > MAX_BUNDLE_MANIFEST_CHARS:
         content = content[: MAX_BUNDLE_MANIFEST_CHARS - 1].rstrip() + "…"
@@ -194,12 +275,19 @@ def _resolve(bundle: SkillBundle, registry: Any, *, actor: Any) -> BundleResolut
         provenance=bundle.provenance,
         instruction=bundle.instruction,
         constraints=bundle.constraints,
+        version=bundle.version,
+        locked=bundle.locked,
+        drifted=drifted,
+        incompatible=incompatible,
+        resolved_versions=resolved_versions,
     )
 
 
 __all__ = [
     "BUNDLE_PROVENANCES",
     "MAX_BUNDLE_SKILLS",
+    "lock_bundle",
+    "unlock_bundle",
     "BundleError",
     "BundleResolution",
     "SkillBundle",

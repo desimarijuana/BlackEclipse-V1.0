@@ -366,3 +366,102 @@ skill.
 - Safety and scope invariants documented.
 - Contracts that must not change are enumerated.
 - New contracts are named and inert-by-default.
+
+---
+
+# Remaining gaps — Phase 0 audit (2026-09-28)
+
+A second pass audited the implemented system against a 16-gap list. Audit
+findings (complete/partial/missing) and the owning module for each change:
+
+| # | Gap | State found | Owning module (change) |
+|---|---|---|---|
+| 1 | Identity/tenancy boundary | Doc-only; `userId`/`scopeId` are local labels | `memory-maturity-baseline.md` + this doc |
+| 2 | Trusted project skill drift | Missing (trust was a binary path flag; `root_content_hash` hashed manifest only, never persisted) | `skills/project_skills.py`, `skills/registry.py`, `eclipse_memory/{schema,store}.py`, `main.py`, UI |
+| 3 | Skill/project/bundle/draft injection defense | Missing (no scanner; `learn.py` sanitized secrets/dates only) | new `skills/content_scan.py`; wired in registry/learn/authoring |
+| 4 | Conflict-resolution UX | Partial (detail returns ids only; no side-by-side/actions) | `eclipse_memory/service.py`, UI |
+| 5 | Conservative compaction | Missing (no proposal table/eval) | `eclipse_memory/{service,store,schema}.py`, eval |
+| 6 | Skill quality over time | Partial (window aggregates; no trends/CI/failure causes; no UI) | `eclipse_memory/skill_quality.py`, routes, UI |
+| 7 | Prompt/run observability | Partial (`prompt.plan` hashes only; `memory.retrieved` drops exclusions; no run UI) | `graph.py`, `eclipse_memory/retrieval.py`, chat UI |
+| 8 | Learning journey freshness | Missing (`lastUpdated` absent; manual refresh only) | `learning_graph.py`, UI |
+| 9 | Bundle lifecycle | Partial (no version identity/constraints/lock/history) | `skills/bundles.py`, `eclipse_memory/{schema,store}.py`, UI |
+| 10 | Provider reliability | Partial (per-call timeout only; no retry taxonomy/circuit/history) | `memory_providers/*` |
+| 11 | Freshness/retention UX | Partial (`stale` not computed; no next-action; no sweep preview) | `eclipse_memory/{store,service}.py`, UI |
+| 12 | Import/export hardening | Partial (dry-run exists; no checksum/partial restore/atomicity; UI import skips dry-run) | `eclipse_memory/transfer.py`, UI |
+| 13 | Cold-start experience | Missing (only a dashboard persona picker) | new `harness/onboarding.py`, UI |
+| 14 | Skill dependency visibility | Partial (flat id list + validation error only) | `skills/registry.py`, UI |
+| 15 | Adversarial evaluation | Partial | `python/tests/test_adversarial_*.py`, eval floors |
+| 16 | Orphaned/inconsistent surfaces | `run_only` dead branch; `run_analysis` source; `hybrid.py` unwired; stale `__init__` path; deep-link-only tabs | `decision.py`, `service.py`, `hybrid.py`, `__init__.py`, UI |
+
+**Safety invariants held for every gap:** one decision gate; one memory store;
+one skill execution path; default-deny permissions; operator transport/token
+auth; scope isolation; inert proposals/drafts/bundles/trust; external results
+fenced and unverified. No new dependency, no second engine, no TypeScript agent
+runtime.
+
+**Contracts added this pass (all inert-by-default):**
+
+| Contract | File | Shape |
+|---|---|---|
+| Project content identity + drift | `skills/project_skills.py` | `root_content_hash` (manifest+prose), `drift_status`, quarantine on change |
+| Advisory content scan | `skills/content_scan.py` | `scan_content`/`scan_loaded_skill` → bounded findings; `should_quarantine` |
+| Compaction proposal | `eclipse_memory/compaction.py` | `detect_proposals`, `accept_proposal` (inert until accepted; reversible) |
+| Bundle version/lock | `skills/bundles.py` | `version`, member constraints, `lock` + resolved composition |
+| Provider reliability | `memory_providers/reliability.py` | failure classification + circuit breaker (in-memory, bounded) |
+| Onboarding | `harness/onboarding.py` | static explanatory content; never writes memory |
+
+## Phase 2 — trusted project skill drift (implemented)
+
+Trust records a content identity. `root_content_hash` now folds the manifest
+**and** the instruction file(s), so a prose change counts. On load, a trusted
+root whose hash differs from `trustedHash` is **quarantined**: no skills load, a
+`skill.project_drift` event is recorded, and `/skills` returns
+`projectDrift`. Re-approval (`POST /skills/project/approve`) re-baselines the
+hash and records `skill.project_reapproved`. Untrust is immediate and stores the
+revoked hash. Back-compat: a legacy trust row with no stored hash stays trusted
+and re-baselines on the next trust/approve.
+
+## Remaining-gaps phases — status (2026-09-28)
+
+All 15 implementation phases (2–16) are complete; each is recorded in
+`CHANGELOG.md` with its owning module and tests.
+
+| # | Phase | Owner | Status |
+|---|---|---|---|
+| 2 | Trusted project skill drift | `skills/project_skills.py`, `registry.py`, store | Done |
+| 3 | Content injection defense | `skills/content_scan.py` | Done |
+| 4 | Conflict-resolution UX | `eclipse_memory/service.py`, UI | Done |
+| 5 | Conservative compaction | `eclipse_memory/compaction.py`, eval | Done |
+| 6 | Skill quality over time | `eclipse_memory/skill_quality.py` | Done |
+| 7 | Run observability | `harness/run_observability.py` | Done |
+| 8 | Journey freshness | `harness/learning_graph.py`, UI | Done |
+| 9 | Bundle lifecycle | `skills/bundles.py`, store | Done |
+| 10 | Provider reliability | `memory_providers/reliability.py` | Done |
+| 11 | Freshness/retention UX | `eclipse_memory/{store,service}.py`, UI | Done |
+| 12 | Import/export hardening | `eclipse_memory/transfer.py`, UI | Done |
+| 13 | Cold-start onboarding | `harness/onboarding.py`, UI | Done |
+| 14 | Dependency visibility | `skills/registry.py`, UI | Done |
+| 15 | Adversarial eval + floors | `python/tests/test_adversarial_evolution.py` | Done |
+| 16 | Orphan cleanup | decision/service/hybrid/`__init__`/UI | Done |
+
+**Hardening found during implementation.** `write_memory` now refuses a
+credential VALUE at the single persistence path
+(`decision.looks_like_credential_value`) as defense-in-depth beyond the decision
+gate — closing a path where a non-gated caller (import/suggestion accept) could
+have persisted a secret. A benign sentence that merely mentions "secret"/"token"
+is not over-blocked.
+
+**Migrations added.** 16 (`ProjectSkillTrust.trustedHash/revokedHash`), 17
+(`CompactionProposal`), 18 (`SkillBundle.version/memberVersions/locked`). All
+additive/idempotent.
+
+## Phase 3 — content injection defense (implemented)
+
+`content_scan.py` is advisory and never authoritative. Categories:
+`override_instructions`, `reveal_secrets`, `bypass_approval`, `self_enable`,
+`disable_safety`, `impersonate_system`, `ignore_policy`, `exfiltration` (all
+quarantine-severity), plus warn-only shapes (role markers, prompt fences, hidden
+HTML, zero-width). Registry `register` quarantines a quarantine-severity finding
+for project/profile/generated/external tiers and only warns for bundled
+(human-reviewed) skills. Findings are surfaced on `/skills` and `/skills/{id}`.
+A clean scan is explicitly not proof of safety.

@@ -13,7 +13,8 @@ its own connection to `eclipse-memory.db`.
 
 Database resolution (see `config.py`):
     ECLIPSE_MEMORY_DB_PATH  → explicit path (test isolation uses this)
-    else <cwd>/eclipse-memory.db
+    else <repo root>/eclipse-memory.db  (the repo containing `python/`, NOT the
+         process working directory — so every launch resolves the same store).
 """
 
 from .config import default_db_path, db_filename, memory_db_path

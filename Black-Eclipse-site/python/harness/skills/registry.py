@@ -77,16 +77,51 @@ class SkillRegistry:
         # Untrusted-project notices from the last load (names only). Surfaced
         # to the UI/diagnostics; never a loaded skill.
         self._project_notices: list[str] = []
+        # True when a trusted project root's content changed (quarantined).
+        self._project_drift: bool = False
+        # Advisory content-scan findings by skill id, and skills held back for a
+        # quarantine-severity finding. Both are informational; the permission
+        # gate remains authoritative.
+        self._content_findings: dict[str, dict[str, Any]] = {}
+        self._quarantined: list[str] = []
 
     # ── Registration / loading ──────────────────────────────────────────────
 
     def register(self, loaded: LoadedSkill) -> None:
         """Register one skill. Duplicate ids are refused — first wins, and the
-        duplicate is recorded and surfaced (never silently dropped)."""
+        duplicate is recorded and surfaced (never silently dropped).
+
+        An advisory content scan runs here. A *bundled* skill that trips a
+        quarantine-severity rule is registered but warned (it is human-reviewed
+        source). A **project, profile, or generated** skill that trips one is
+        QUARANTINED — not registered — because untrusted tiers must not reach the
+        model with instruction-override prose. The permission/execution gate
+        remains authoritative regardless.
+        """
         skill_id = loaded.manifest.id
         if skill_id in self._skills:
             self._duplicates.append(skill_id)
             return
+        try:
+            from .content_scan import scan_loaded_skill  # noqa: PLC0415
+
+            scan = scan_loaded_skill(loaded)
+        except Exception:  # noqa: BLE001 - scanning must never break loading
+            scan = None
+        if scan is not None and scan.findings:
+            self._content_findings[skill_id] = scan.to_dict()
+            tier = getattr(loaded, "provenance", "bundled")
+            if scan.should_quarantine and tier in ("project", "profile", "generated", "external"):
+                self._quarantined.append(skill_id)
+                try:
+                    self.store.append_event(
+                        "skill.content_quarantined",
+                        skill_id=skill_id,
+                        data={"provenance": tier, "categories": scan.categories},
+                    )
+                except Exception:  # noqa: BLE001 - audit is best-effort
+                    pass
+                return
         self._skills[skill_id] = loaded
 
     def load_library(self, root: Optional[str] = None) -> list[str]:
@@ -117,6 +152,9 @@ class SkillRegistry:
         self._skills = {}
         self._duplicates = []
         self._shadowed = []
+        self._project_drift = False
+        self._content_findings = {}
+        self._quarantined = []
         errors: list[str] = []
 
         # 1. Project skills (highest precedence) — trusted roots only.
@@ -128,8 +166,19 @@ class SkillRegistry:
                 loaded.provenance = "project"
                 self.register(loaded)
             self._project_notices = list(discovery.notices)
+            # A trusted root whose content changed is quarantined; record the
+            # change event once per load so it is auditable. Nothing is loaded.
+            if discovery.drift:
+                self._project_drift = True
+                try:
+                    self.store.append_event(
+                        "skill.project_drift", data={"path": discovery.root},
+                    )
+                except Exception:  # noqa: BLE001 - audit is best-effort
+                    pass
         else:
             self._project_notices = []
+            self._project_drift = False
 
         # 2. User-authored skills (profile tier).
         for user_skill in self.store.list_user_skills():
@@ -422,6 +471,18 @@ class SkillRegistry:
         """Untrusted-project notices from the last load (names only, no prose)."""
         return list(getattr(self, "_project_notices", []))
 
+    def project_drift(self) -> bool:
+        """True when a trusted project root is quarantined for content drift."""
+        return bool(getattr(self, "_project_drift", False))
+
+    def content_findings(self) -> dict[str, dict[str, Any]]:
+        """Advisory content-scan findings by skill id (never proof of safety)."""
+        return dict(getattr(self, "_content_findings", {}))
+
+    def quarantined_ids(self) -> list[str]:
+        """Skill ids held back for a quarantine-severity content finding."""
+        return list(getattr(self, "_quarantined", []))
+
     def provenance_of(self, skill_id: str) -> Optional[str]:
         entry = self._skills.get(skill_id)
         return entry.provenance if entry else None
@@ -671,6 +732,87 @@ class SkillRegistry:
         for mismatch in result.version_mismatches:
             result.errors.append(f"version mismatch: {mismatch}")
         return result
+
+    def dependency_graph(self, skill_id: str, version: Optional[str] = None) -> dict[str, Any]:
+        """A structured, version-rich dependency view for the UI/preflight.
+
+        Every node carries its id, resolved version, and a per-dependency status
+        (ok/missing/disabled/version-mismatch/optional). Deterministic and
+        bounded. This is a READ model; it never enables a dependency.
+        """
+        manifest = self.manifest(skill_id)
+        if manifest is None:
+            return {"skillId": skill_id, "ok": False, "nodes": [], "edges": [], "errors": ["skill not installed"]}
+        nodes: dict[str, dict[str, Any]] = {}
+
+        def node_for(current_id: str) -> dict[str, Any]:
+            entry = self._skills.get(current_id)
+            record = self.store.get_skill(current_id)
+            stored_status = record["status"] if record else (entry.manifest.status if entry else "missing")
+            resolved = self.resolve_version(current_id, None)
+            node = {
+                "id": current_id,
+                "version": resolved or (entry.manifest.version if entry else None),
+                "status": stored_status if entry else "missing",
+                "executable": stored_status in EXECUTABLE_STATUSES if entry else False,
+                "missing": entry is None,
+                "requiredTools": list(entry.manifest.requiredTools) if entry else [],
+                "permissions": list(entry.manifest.permissions) if entry else [],
+            }
+            nodes[current_id] = node
+            return node
+
+        edges: list[dict[str, Any]] = []
+        visiting: set[str] = set()
+
+        def walk(current_id: str) -> None:
+            if current_id in visiting:
+                return  # a cycle is reported below via resolve_dependencies()
+            visiting.add(current_id)
+            node_for(current_id)
+            entry = self._skills.get(current_id)
+            if entry is None:
+                visiting.discard(current_id)
+                return
+            for dep in entry.manifest.requiredSkills:
+                dep_node = node_for(dep.skillId)
+                resolved = dep_node.get("version")
+                compatible = True
+                if dep.version and resolved and not version_satisfies(resolved, dep.version):
+                    compatible = False
+                if dep.optional:
+                    status = "optional"
+                elif dep_node.get("missing"):
+                    status = "missing"
+                elif not dep_node.get("executable"):
+                    status = "disabled"
+                elif not compatible:
+                    status = "incompatible"
+                else:
+                    status = "ok"
+                edges.append({
+                    "from": current_id, "to": dep.skillId,
+                    "constraint": dep.version, "optional": bool(dep.optional),
+                    "resolvedVersion": resolved, "status": status,
+                })
+                if not dep.optional:
+                    walk(dep.skillId)
+            visiting.discard(current_id)
+
+        walk(skill_id)
+        resolution = self.resolve_dependencies(skill_id, version)
+        return {
+            "skillId": skill_id,
+            "ok": resolution.ok,
+            "nodes": list(nodes.values()),
+            "edges": edges,
+            "order": [{"skillId": s, "version": v} for s, v in resolution.order],
+            "errors": resolution.errors,
+            "cycles": resolution.cycles,
+            "missing": resolution.missing,
+            "disabled": resolution.disabled,
+            "versionMismatches": resolution.version_mismatches,
+        }
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
