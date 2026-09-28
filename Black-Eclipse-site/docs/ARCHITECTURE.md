@@ -1341,35 +1341,42 @@ backdrop roots — see the
 Do not introduce raw `backdrop-blur-*` or flat fills for cards.
 
 **UI sounds.** Optional terminal-style audio feedback lives in
-`src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over Howler.js;
-`SoundProvider` (mounted once in `src/app/layout.tsx`) **preloads** the module on
-mount, then merely *arms playback* on the first pointer/key interaction and
-explicitly resumes `Howler.ctx` before each play. That ordering is deliberate:
-Howler registers its own AudioContext-unlock listeners during module init, so it
-must be present before the gesture or the context stays suspended and audio is
-silent. Every failure path is a silent no-op. The cue set is declared once in
-`config.ts` (`click`, `tick`, `toggle`, `success`, `error`, `notification`) with
+`src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over the **Web
+Audio API** (no Howler dependency): one `AudioContext` is created on mount and
+kept for the life of the page. `SoundProvider` (mounted once in
+`src/app/layout.tsx`) preloads/decodes the cue set on mount and *arms* playback
+on **every** pointer/key interaction and on every visibility/focus restore —
+not just the first gesture. `play()` resumes a suspended context itself and
+waits for the resume before starting the decoded buffer, so an async cue (a
+finished chat reply, a fired alert) is never silently dropped; a context that
+later drifts to `suspended` is resumed via `onstatechange`. This persistent,
+re-armed context is what fixes the old intermittent-silence behaviour. Every
+failure path is a silent no-op. The cue set is declared once in `config.ts`
+(`click`, `tick`, `toggle`, `success`, `error`, `notification`, `message`) with
 per-cue gain, throttle, and an `essential` flag. One delegated listener plays
 `toggle` for `role="switch"` / checkbox / radio and `click` for buttons, links
 and menu options. Anything can opt into a precise cue with
 `data-sound="tick|click|…"`; `sound.*()` or the `eclipse:sound` CustomEvent
-covers async outcomes (agent run finished, alert fired). Deliberately excluded:
-hover, typing, scrolling, chart movement and constantly updating market data.
+covers async outcomes — `sound.message()` fires when an assistant reply
+finishes in either chat surface. Deliberately excluded: hover, typing,
+scrolling, chart movement and constantly updating market data.
 
 Sound is **fully customizable** through a dedicated Settings › Sound tab
 (`src/components/screens/sound-settings.tsx`), not a nested card. It exposes
 master on/off + volume, a **mode** (`all` vs `essential`, where essential mutes
 confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
 upload. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
-`eclipse` (organic modal-synthesis ticks, the default), `mechanical`, `crisp`,
-`typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each providing
-all six cues. The manager resolves a cue's source per play: a user-uploaded
-`custom` data URL wins, otherwise the active pack asset; changing either
-rebuilds that Howl lazily and unloads the old one. All of it persists through
-the client zustand `useSoundStore` (`be_sounds_v2`; bumped from `_v1` when UI
-audio became opt-in, so existing installs drop the old always-on value). Sound is **opt-in**:
-defaults are OFF, 8% volume (a deliberately subtle tick), mode `all`, pack
-`eclipse`.
+`eclipse` (warm harmonic-synthesis ticks, the refreshed default), `mechanical`,
+`crisp`, `typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each
+providing all seven cues. The manager resolves a cue's source per play: a
+user-uploaded `custom` data URL wins, otherwise the active pack asset; the
+decoded buffer is cached by source URL, so a pack switch only re-fetches the
+sources that actually changed. All of it persists through
+the client zustand `useSoundStore` (`be_sounds_v3`; bumped from `_v2` when the
+engine moved to Web Audio and the cue set gained `message`, so the refreshed
+defaults apply exactly once for existing installs). Sound
+is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
+pack `eclipse`.
 
 ## Module boundaries (terminal · shared · backend · harness)
 

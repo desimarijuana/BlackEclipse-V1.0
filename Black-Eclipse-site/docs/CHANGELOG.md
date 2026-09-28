@@ -8,6 +8,28 @@ last-verified: 2026-09-15
 
 ## 2026-09-27
 
+- **UI sounds: reliable playback, new default voice, chat message cue.** Two
+  long-standing defects and one feature:
+  - *Intermittent silence fixed.* `sound-manager.ts` was a Howler singleton that
+    unlocked the `AudioContext` only on the **first** gesture and did a
+    fire-and-forget `ctx.resume()`; whenever the context later drifted to
+    `suspended` (tab hidden, OS audio-focus change, first-gesture race), cues
+    were silently dropped. Rewrote it on the raw **Web Audio API**: one
+    persistent context, armed on *every* pointer/key gesture and on
+    `visibilitychange`/`focus`, with `play()` awaiting `resume()` before
+    starting the buffer and an `onstatechange` re-arm. Decoded buffers are
+    cached by source URL. Dropped the `howler` + `@types/howler` dependencies.
+  - *New default voice.* The `eclipse` pack was re-synthesised as a warm,
+    harmonic, low-volume premium tick set; default master volume raised 8%→12%
+    so cues are clearly present. Added a dedicated `message` cue for an
+    incoming assistant reply and generated the missing per-pack
+    `message.wav` for the other eight packs. Storage key bumped `_v2`→`_v3` so
+    the refreshed cue set/pack applies for existing installs.
+  - *Chat reply sound.* Both chat surfaces now fire `sound.message()` when an
+    assistant turn **finishes** (streaming stays mute): `stock-chat.tsx`
+    (was `sound.success()`) and `chat-dock.tsx` (previously sounded nothing).
+  docs updated: CHANGELOG.md, ARCHITECTURE.md, NAVIGATION.md
+
 - **Market screener — filters, sorting and taxonomy corrected across the whole
   universe.** A cluster of defects made the screens disagree with the data:
   - **Country filter / column.** JDDS stores `Asset.country` inconsistently

@@ -586,7 +586,8 @@ function StockChatContent() {
     try {
       const finalTurn = await agentRun.start({ history, userText, chatId });
       setSessionRefreshKey((k) => k + 1);
-      if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.success();
+      // A finished reply is an incoming message, not a generic success.
+      if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
       else sound.tick();
     } catch (err) {
       // The hook records the error on the turn; ensure the message reflects it

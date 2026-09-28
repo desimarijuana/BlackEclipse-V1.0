@@ -3,8 +3,10 @@
 // ── Sound provider ──────────────────────────────────────────────────────────
 // Mounted once at the app root. Its only jobs are to:
 //   1. Hydrate the persisted sound preferences after mount.
-//   2. Unlock the audio context on the first real user gesture (pointer/key),
-//      satisfying browser autoplay restrictions.
+//   2. Keep the audio context armed: resume it on *every* user gesture and
+//      whenever the tab becomes visible again, satisfying browser autoplay
+//      restrictions. The old first-gesture-only unlock is why playback was
+//      intermittent — a context that later drifts to `suspended` stayed muted.
 //   3. Delegate a *narrow* set of semantic clicks to the right cue via a
 //      single capturing listener, so individual components stay untouched.
 //
@@ -13,6 +15,7 @@
 
 import { useEffect } from 'react';
 import { sound } from './sound-manager';
+import { isSoundName } from './config';
 import { useSoundStore } from './store';
 
 /** Elements that should stay silent. */
@@ -28,22 +31,30 @@ export function SoundProvider() {
   const hydrate = useSoundStore((s) => s.hydrate);
 
   // Hydrate persisted preferences (no-op on first render to keep SSR stable)
-  // and preload/decode the cue set. Preloading on mount is important: Howler
-  // registers its context-unlock listeners during module init, so it must be
-  // present before the first gesture for the AudioContext to actually resume.
+  // and preload/decode the cue set. The shared AudioContext is created here so
+  // it is ready before the first gesture; decoding does not need a gesture.
   useEffect(() => {
     hydrate();
     sound.preload();
   }, [hydrate]);
 
-  // Arm playback on the first pointer or key interaction.
+  // Keep the audio context armed. `unlock` is idempotent and cheap, so we run
+  // it on every interaction and on visibility restore rather than once — that
+  // is what makes a previously-suspended context audible again.
   useEffect(() => {
     const unlock = () => sound.unlock();
-    window.addEventListener('pointerdown', unlock, { once: true, capture: true });
-    window.addEventListener('keydown', unlock, { once: true, capture: true });
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sound.unlock();
+    };
+    window.addEventListener('pointerdown', unlock, { capture: true });
+    window.addEventListener('keydown', unlock, { capture: true });
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('pointerdown', unlock, { capture: true });
       window.removeEventListener('keydown', unlock, { capture: true });
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -67,7 +78,7 @@ export function SoundProvider() {
         const value = explicit.getAttribute('data-sound');
         if (value === 'off') return;
         if (isDisabled(explicit)) return;
-        if (value === 'click' || value === 'tick' || value === 'toggle' || value === 'success' || value === 'error' || value === 'notification') {
+        if (isSoundName(value)) {
           sound.play(value);
           return;
         }

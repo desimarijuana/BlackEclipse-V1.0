@@ -2,7 +2,7 @@
 // Client-only zustand store for the "UI Sounds" settings, persisted to
 // localStorage and hydrated after mount — mirroring the locale/a11y and
 // sidebar stores so SSR output stays stable. UI audio is **opt-in**: defaults
-// are OFF at 8% volume on the Eclipse pack.
+// are OFF at 12% volume on the Eclipse pack.
 //
 // Customization model:
 //   * One active voice `pack`.
@@ -11,9 +11,9 @@
 //   * Per-cue `custom` data-URL override (user-uploaded audio), which takes
 //     precedence over the pack asset. Kept small and stored in localStorage.
 //
-// Storage is versioned: the key was bumped to `_v2` when UI audio flipped from
-// on-by-default to opt-in, so installs carrying the old always-on value pick up
-// the new OFF/8% defaults exactly once.
+// Storage is versioned: the key is bumped to `_v3` so the refreshed cue set
+// (new Web Audio engine, the `message` cue, and the re-voiced default pack) is
+// not masked by a stored pack/cue configuration from the older engine.
 
 'use client';
 
@@ -26,9 +26,11 @@ import {
   type SoundPackId,
 } from './config';
 
-// v2: UI audio became opt-in (OFF/8%). Bumping the key retires the old
-// always-on stored value so the new defaults apply for existing installs.
-export const SOUND_STORAGE_KEY = 'be_sounds_v2';
+// v3: the cue set gained `message`, the engine moved to Web Audio, and the
+// `eclipse` pack was re-voiced. Bumping the key retires any prior stored
+// configuration (which could point at the old pack assets / missing cues) so
+// the refreshed defaults apply exactly once.
+export const SOUND_STORAGE_KEY = 'be_sounds_v3';
 
 /**
  * Sound modes:
@@ -65,10 +67,10 @@ function defaultCues(): Record<SoundName, SoundCueSettings> {
 }
 
 export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
-  // Off by default — UI audio is opt-in. When enabled it starts quiet (8%),
-  // within the 5–10% range that reads as a subtle terminal tick.
+  // Off by default — UI audio is opt-in. When enabled it starts quiet (12%),
+  // subtle but clearly present over a terminal-scale interaction.
   enabled: false,
-  volume: 0.08,
+  volume: 0.12,
   mode: 'all',
   pack: DEFAULT_PACK,
   cues: defaultCues(),

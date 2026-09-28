@@ -10,6 +10,7 @@
 //   success      — completed actions
 //   error        — failed actions
 //   notification — important system events / alerts
+//   message      — an incoming chat reply has finished
 
 export type SoundName =
   | 'click'
@@ -17,10 +18,11 @@ export type SoundName =
   | 'toggle'
   | 'success'
   | 'error'
-  | 'notification';
+  | 'notification'
+  | 'message';
 
 export const SOUND_NAMES: readonly SoundName[] = [
-  'click', 'tick', 'toggle', 'success', 'error', 'notification',
+  'click', 'tick', 'toggle', 'success', 'error', 'notification', 'message',
 ] as const;
 
 export interface SoundDefinition {
@@ -46,6 +48,7 @@ export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
   success: { label: 'Success', hint: 'Completed actions', volume: 1, throttleMs: 120, essential: false },
   error: { label: 'Error', hint: 'Failed actions', volume: 1, throttleMs: 120, essential: false },
   notification: { label: 'Notification', hint: 'Alerts and system events', volume: 1, throttleMs: 400, essential: false },
+  message: { label: 'Message', hint: 'An incoming chat reply has finished', volume: 1, throttleMs: 300, essential: false },
 };
 
 // ── Voice packs ─────────────────────────────────────────────────────────────

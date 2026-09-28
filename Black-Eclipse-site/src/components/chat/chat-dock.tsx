@@ -28,6 +28,7 @@ import {
   ArrowUp, Maximize2, Mic, Minimize2, Minus, Pause, Plus, Sparkles, SquarePen, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
@@ -374,7 +375,9 @@ export function ChatDock({
 
     setBusy(true);
     try {
-      await agentRun.start({ history, userText, chatId: sessionIdRef.current });
+      const finalTurn = await agentRun.start({ history, userText, chatId: sessionIdRef.current });
+      // A finished reply is an incoming message, not a generic success.
+      if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
     } catch {
       // The hook already recorded the error on the turn; the sink rendered it.
     } finally {
