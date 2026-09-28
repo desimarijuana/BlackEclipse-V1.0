@@ -30,6 +30,37 @@ last-verified: 2026-09-15
     (was `sound.success()`) and `chat-dock.tsx` (previously sounded nothing).
   docs updated: CHANGELOG.md, ARCHITECTURE.md, NAVIGATION.md
 
+- **Trading Calendar redesign (Journal › Calendar).** The month grid was a wall
+  of flat raw-colour boxes with a black weekend overlay and an inconsistent
+  header. Reworked onto the shared design system:
+  - New theme-aware `.cal-cell` / `.cal-chip` classes in `globals.css` — a
+    translucent tint + token-driven P&L colour (`--brand` / `--bearish`) with an
+    inset highlight and **no per-cell backdrop blur** (35 blurred cells is a
+    needless memory cost; the parent card already frosts the backdrop). Light
+    mode gets its own override; the weekend "dim" is now a translucent opacity,
+    not `bg-black/20`.
+  - `month-calendar.tsx` now renders full Mon–Sun **week rows** with a per-row
+    **weekly total column** (`W1…`, net R, trade count, tinted by sign), plus a
+    per-day "best trade" hint and a month-total in the footer. Date number +
+    day net R are on the top row with tabular numerals.
+  - `calendar.tsx` header gained the shared icon tile and a richer 4-up summary
+    strip: Trades, Win Rate (with progress bar), Net R (with a daily
+    net-R sparkline) and Net P&L — each with sub-stats.
+  - `month-calendar-card.tsx` (Overview embed) header restyled to match: icon
+    tile, stat pills tinted with the same cell tokens, consistent nav pill.
+  - Deleted `calendar-heatmap.tsx` — a 195-line component with no importer
+    (dead duplicate of the mini strip; its fixed tooltip also lacked the portal
+     fix). Updated the stale `intensity.ts` comment.
+  docs updated: CHANGELOG.md
+
+- **Trading Calendar — profit/loss tinted cells.** Day cells (and the weekly
+  column) are tinted by result again — green brand wash for a profitable day,
+  red bearish wash for a losing day, neutral for empty — but sitting on the
+  darker `.cal-shell` and keeping the plain `symbol · R` rows with no chip
+  background. Strengthened the `.cal-cell--pos` / `--neg` fill/border opacity so
+  the sign reads clearly against the darker shell.
+  no doc change — presentation-only, no architecture/contract/setup change.
+
 - **Market screener — filters, sorting and taxonomy corrected across the whole
   universe.** A cluster of defects made the screens disagree with the data:
   - **Country filter / column.** JDDS stores `Asset.country` inconsistently

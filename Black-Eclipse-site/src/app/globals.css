@@ -1121,6 +1121,61 @@ html:not(.dark) .glass-button-add {
     0 4px 16px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
+
+/* ── Trading-calendar shell + day cells ─────────────────────────────────
+ * The grid sits on a slightly darker shell so the uniform date cells read as
+ * tiles on a single surface. Cells are one neutral wash (no per-day fill —
+ * the sign is carried by the coloured net R / symbol R text), with NO per-cell
+ * backdrop blur (35 blurred cells is a needless memory cost; the parent card
+ * already frosts the backdrop). The `.cal-cell--pos` / `--neg` tints remain for
+ * the stat pills in the surrounding headers. Light mode gets its own override. */
+.cal-shell {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+html:not(.dark) .cal-shell {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+.cal-cell {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.cal-cell:hover { transform: translateY(-1px); }
+.cal-cell--pos {
+  background: rgb(var(--brand-rgb) / 0.14);
+  border-color: rgb(var(--brand-rgb) / 0.30);
+  box-shadow: inset 0 1px 0 rgb(var(--brand-rgb) / 0.10);
+}
+.cal-cell--pos:hover {
+  background: rgb(var(--brand-rgb) / 0.22);
+  border-color: rgb(var(--brand-rgb) / 0.50);
+}
+.cal-cell--neg {
+  background: rgb(var(--bearish-rgb) / 0.14);
+  border-color: rgb(var(--bearish-rgb) / 0.30);
+  box-shadow: inset 0 1px 0 rgb(var(--bearish-rgb) / 0.10);
+}
+.cal-cell--neg:hover {
+  background: rgb(var(--bearish-rgb) / 0.22);
+  border-color: rgb(var(--bearish-rgb) / 0.50);
+}
+.cal-cell--empty:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.13);
+}
+/* Weekend / out-of-month cells recede — a translucent dim, never a black
+ * overlay (which muddied light mode). */
+.cal-cell--muted { opacity: 0.5; }
+html:not(.dark) .cal-cell {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+html:not(.dark) .cal-cell--empty:hover { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.14); }
 html:not(.dark) .glass-button-add:hover {
   background: rgb(var(--brand-rgb) / 0.22);
 }

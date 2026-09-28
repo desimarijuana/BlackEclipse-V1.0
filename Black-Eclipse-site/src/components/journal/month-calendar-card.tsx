@@ -7,6 +7,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
 import { formatMonthLabel } from '@/lib/journal/dates';
 import type { TradeRecord } from '@/lib/journal/types';
@@ -76,28 +77,42 @@ export function MonthCalendarCard({ trades, onSelectDay }: MonthCalendarCardProp
     <div className="flex flex-col p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/10 pb-2.5">
         <div className="flex items-center gap-2 min-w-0">
-          <CalendarDays size={14} className="text-primary shrink-0" />
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10">
+            <CalendarDays size={13} className="text-primary" />
+          </span>
           <h3 className="font-serif text-sm font-semibold text-foreground truncate">Monthly Calendar</h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden font-mono text-[10px] text-muted-foreground/70 sm:inline">
-            {stats.count} trades · {stats.days} days ·{' '}
-            <span className={stats.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtR(stats.netR)}</span> ·{' '}
-            <span className={stats.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtMoney(stats.netPnl)}</span>
-          </span>
+          <div className="hidden items-center gap-2 sm:flex">
+            <span className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1 font-mono text-[10px] text-muted-foreground/80">
+              {stats.count} trades · {stats.days}d
+            </span>
+            <span className={cn(
+              'rounded-lg px-2 py-1 font-mono text-[10px] font-bold tabular-nums',
+              stats.netR >= 0 ? 'cal-cell--pos' : 'cal-cell--neg',
+            )}>
+              {fmtR(stats.netR)}
+            </span>
+            <span className={cn(
+              'rounded-lg px-2 py-1 font-mono text-[10px] font-bold tabular-nums',
+              stats.netPnl >= 0 ? 'cal-cell--pos' : 'cal-cell--neg',
+            )}>
+              {fmtMoney(stats.netPnl)}
+            </span>
+          </div>
           <div className="flex items-center gap-0.5 rounded-xl glass-card-subtle p-0.5">
             <button
               onClick={goPrev}
+              aria-label="Previous month"
               className="rounded-lg p-1 text-muted-foreground transition-all hover:bg-accent/40 hover:text-primary cursor-pointer"
-              title="Previous month"
             >
               <ChevronLeft size={13} />
             </button>
             <span className="min-w-[104px] text-center font-mono text-[10px] font-bold text-foreground">{monthLabel}</span>
             <button
               onClick={goNext}
+              aria-label="Next month"
               className="rounded-lg p-1 text-muted-foreground transition-all hover:bg-accent/40 hover:text-primary cursor-pointer"
-              title="Next month"
             >
               <ChevronRight size={13} />
             </button>

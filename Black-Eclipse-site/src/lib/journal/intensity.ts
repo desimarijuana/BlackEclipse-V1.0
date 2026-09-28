@@ -1,7 +1,7 @@
 // ── Journal calendar intensity ───────────────────────────────────────────────
-// Pure colour-intensity mapping for the calendar heatmaps. Kept out of the
+// Pure colour-intensity mapping for the calendar heatmap. Kept out of the
 // component files so it can be unit-tested without a JSX transform and reused by
-// both the mini strip and the full-year heatmap.
+// the mini contribution strip.
 
 export type IntensitySign = 'pos' | 'neg' | 'zero';
 
