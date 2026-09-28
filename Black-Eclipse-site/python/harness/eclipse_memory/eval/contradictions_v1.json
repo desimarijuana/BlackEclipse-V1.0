@@ -1,7 +1,7 @@
 {
   "name": "memory-contradictions",
-  "version": 1,
-  "description": "Human-labeled contradiction cases for the deterministic conflict detector. Each case states one existing active memory, one new statement, the new statement's authority, and the SAFE expected disposition. Kinds: direct-polarity, paraphrase-conflict, confirmation, unrelated, different-subject, different-scope, temporary, observation-vs-preference, replacement, ambiguous, authority. A missed conflict is safer than a false conflict, so unrelated/scope/subject cases expect 'none'.",
+  "version": 2,
+  "description": "Human-labeled contradiction cases for the deterministic conflict detector. Each case states one existing active memory, one new statement, the new statement's authority, and the SAFE expected disposition. Kinds: direct-polarity, paraphrase-conflict, confirmation, unrelated, different-subject, different-scope, temporary, observation-vs-preference, replacement, ambiguous, authority, numeric-value, negation, subject-alias, temporal. A missed conflict is safer than a false conflict, so unrelated/scope/subject cases expect 'none'.",
   "cases": [
     {
       "caseId": "direct-concise-detailed",
@@ -254,6 +254,87 @@
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "numeric-percent-change",
+      "kind": "numeric-value",
+      "existing": {"content": "Flag moves at 5 percent or more", "subject": "move-threshold", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Flag moves at 10 percent or more", "subject": "move-threshold", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "numeric-horizon-weeks",
+      "kind": "numeric-value",
+      "existing": {"content": "Review the portfolio every 2 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Review the portfolio every 4 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "numeric-replacement-now",
+      "kind": "numeric-value",
+      "existing": {"content": "Review the portfolio every 2 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Review the portfolio every 4 weeks from now on", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "supersede",
+      "expectSupersedesExisting": true
+    },
+    {
+      "caseId": "negation-explicit-flip",
+      "kind": "negation",
+      "existing": {"content": "Include a risk summary in reports", "subject": "risk-summary", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Do not include a risk summary in reports", "subject": "risk-summary", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "negation-double-negative-same",
+      "kind": "confirmation",
+      "existing": {"content": "Do not include a disclaimer", "subject": "disclaimer", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Never include a disclaimer", "subject": "disclaimer", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "confirm",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "subject-alias-theme-vs-color-scheme",
+      "kind": "subject-alias",
+      "existing": {"content": "I prefer a dark interface", "subject": "ui-theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer a light interface", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "subject-alias-no-alias-unrelated",
+      "kind": "unrelated",
+      "existing": {"content": "I prefer a dark interface", "subject": "ui-theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "I prefer short summaries", "subject": "summary-length", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "temporal-quarterly-vs-annual",
+      "kind": "temporal",
+      "existing": {"content": "Report on a quarterly basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Report on an annual basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "temporal-same-basis-confirm",
+      "kind": "confirmation",
+      "existing": {"content": "Report on a quarterly basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
+      "new": {"content": "Keep reporting quarterly", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "newAuthority": "explicit",
+      "expectDecision": "confirm",
+      "expectSupersedesExisting": false
     }
   ]
 }

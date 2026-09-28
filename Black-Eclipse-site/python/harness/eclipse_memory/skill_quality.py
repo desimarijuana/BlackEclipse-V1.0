@@ -30,12 +30,23 @@ _RELIABLE_SAMPLE = 20
 
 # Failure-cause buckets, derived deterministically from existing execution
 # fields (error code, warnings) — never model-guessed. Mirrors the vocabulary
-# used by the mistake detector where possible.
+# used by the mistake detector where possible. Covers the required categories:
+# missing tool, unavailable provider, permission denial, invalid input, invalid
+# output, timeout, unsupported data, user correction, tool failure, and stale or
+# missing evidence.
 FAILURE_CAUSES = (
     "missing_tool", "invalid_input", "output_validation", "unsupported_data",
     "timeout", "permission_denied", "user_correction", "provider_failure",
-    "tool_budget", "unknown",
+    "tool_failure", "missing_evidence", "tool_budget", "unknown",
 )
+
+# Evidence states — a single honest classification of how much a version's
+# execution record actually supports a claim about it.
+EVIDENCE_NONE = "no_evidence"
+EVIDENCE_INSUFFICIENT = "insufficient_evidence"
+EVIDENCE_MIXED = "mixed_evidence"
+EVIDENCE_RELIABLE = "reliable_success"
+EVIDENCE_DEGRADED = "degraded_quality"
 
 
 def _failure_cause(execution: dict[str, Any]) -> Optional[str]:
@@ -64,8 +75,16 @@ def _failure_cause(execution: dict[str, Any]) -> Optional[str]:
         return "unsupported_data"
     if "provider" in text or "source_unavailable" in text or "upstream" in text:
         return "provider_failure"
+    if "tool error" in text or "tool failed" in text or "tool failure" in text:
+        return "tool_failure"
+    if "stale" in text or "missing evidence" in text or "no evidence" in text:
+        return "missing_evidence"
     if "correction" in text:
         return "user_correction"
+    # A non-empty error with no matching signal from a tool path is a tool failure
+    # rather than an unknown bucket.
+    if code or execution.get("error"):
+        return "tool_failure"
     return "unknown"
 
 
@@ -98,6 +117,27 @@ def _daily_trend(executions: list[dict[str, Any]], days: int = 14) -> list[dict[
          "successRate": round(b["completed"] / b["total"], 3) if b["total"] else None}
         for day, b in sorted(buckets.items())
     ]
+    return series[-days:]
+
+
+def _failure_cause_trend(executions: list[dict[str, Any]], days: int = 14) -> list[dict[str, Any]]:
+    """Per-day failed-execution counts BY CAUSE (oldest first), bounded.
+
+    Derived only from stored fields. Lets a regression be attributed to a cause
+    (e.g. timeouts rising) rather than just a falling success rate.
+    """
+    buckets: dict[str, dict[str, int]] = {}
+    for execution in executions:
+        if execution.get("status") == "completed":
+            continue
+        created = str(execution.get("createdAt") or "")[:10]
+        if not created:
+            continue
+        cause = _failure_cause(execution) or "unknown"
+        bucket = buckets.setdefault(created, {})
+        bucket[cause] = bucket.get(cause, 0) + 1
+    series = [{"day": day, "causes": dict(sorted(causes.items()))}
+              for day, causes in sorted(buckets.items())]
     return series[-days:]
 
 
@@ -209,11 +249,58 @@ def skill_quality_metrics(
 
     # Trend + recency weighting.
     metrics["trend"] = _daily_trend(executions)
+    metrics["failureCauseTrend"] = _failure_cause_trend(executions)
     metrics["timeWeightedSuccessRate"] = _time_weighted_success(executions)
+
+    # A single honest evidence classification (no / insufficient / mixed /
+    # reliable / degraded), so a low sample is never read as proven.
+    metrics["evidenceState"] = _evidence_state(metrics)
 
     metrics["usefulness"] = _usefulness_score(metrics)
     metrics["deprecation"] = _deprecation_recommendation(metrics)
     return metrics
+
+
+def _evidence_state(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Classify how much the record supports a claim about a skill version.
+
+    Distinct states, deterministic:
+      * `no_evidence` — no executions at all;
+      * `insufficient_evidence` — some executions but below the reliable sample;
+      * `degraded_quality` — enough sample and clearly failing (failure >= 50% or
+        budget failures >= 40%, or a declining recency-weighted rate);
+      * `mixed_evidence` — enough sample but inconsistent (success interval wide
+        or success between the degraded and healthy bands);
+      * `reliable_success` — enough sample and consistently succeeding with a
+        narrow interval.
+    """
+    total = metrics.get("executions", 0)
+    if not total:
+        return {"state": EVIDENCE_NONE, "reason": "no executions recorded"}
+    if not metrics.get("sampleReliable"):
+        return {
+            "state": EVIDENCE_INSUFFICIENT,
+            "reason": f"only {total} execution(s); need >= {_RELIABLE_SAMPLE} for reliability",
+        }
+    failure = metrics.get("failureRate") or 0.0
+    budget = metrics.get("toolBudgetFailureRate") or 0.0
+    interval = metrics.get("successInterval")
+    low = interval[0] if interval else 0.0
+    tw = metrics.get("timeWeightedSuccessRate")
+    declining = tw is not None and (metrics.get("successRate") or 0) - tw >= 0.15
+    if failure >= 0.5 or budget >= 0.4 or declining:
+        reason = (
+            "declining recency-weighted success rate" if declining
+            else "failure rate at or above 50%" if failure >= 0.5
+            else "tool-budget failures at or above 40%"
+        )
+        return {"state": EVIDENCE_DEGRADED, "reason": reason}
+    if (metrics.get("successRate") or 0) >= 0.85 and low >= 0.6 and not declining:
+        return {"state": EVIDENCE_RELIABLE, "reason": "enough sample, consistently successful"}
+    return {
+        "state": EVIDENCE_MIXED,
+        "reason": f"success rate {metrics.get('successRate')} with a wide confidence interval",
+    }
 
 
 def _usefulness_score(metrics: dict[str, Any]) -> dict[str, Any]:
@@ -347,12 +434,35 @@ def promotion_evidence(store: Any, skill_id: str, version: str) -> dict[str, Any
 
     Combines the deterministic evaluation (if any) with the real execution metrics
     and an explicit statement that recommendation is advisory, never automatic.
+    Includes the SAME-CASE version comparison against the previous version so a
+    regression is visible BEFORE promotion, plus sample size and uncertainty.
     """
     evaluations = [
         e for e in store.list_evaluations(skill_id, limit=50) if e["version"] == version
     ]
     latest = evaluations[0] if evaluations else None
     metrics = skill_quality_metrics(store, skill_id, version=version)
+    # Regression evidence: compare against the immediately previous version on the
+    # SAME evaluation cases (never a cross-version aggregate guess).
+    prior_version = _previous_version(store, skill_id, version)
+    regression: Optional[dict[str, Any]] = None
+    if prior_version:
+        try:
+            regression = compare_versions(store, skill_id, prior_version, version)
+        except Exception:  # noqa: BLE001 - comparison must never break evidence
+            regression = None
+    warnings: list[str] = []
+    if regression and regression.get("regressed"):
+        warnings.append(
+            f"regression vs v{prior_version}: " + "; ".join(regression.get("regressions") or [])
+            + ("; same-case regressions: " + str(len(regression["caseComparison"]["caseRegressions"]))
+               if regression.get("caseComparison", {}).get("caseRegressions") else "")
+        )
+    if not metrics.get("sampleReliable"):
+        warnings.append(metrics.get("sampleWarning") or "insufficient sample")
+    evidence = metrics.get("evidenceState", {})
+    if evidence.get("state") in (EVIDENCE_DEGRADED, EVIDENCE_MIXED, EVIDENCE_INSUFFICIENT):
+        warnings.append(f"evidence {evidence.get('state')}: {evidence.get('reason')}")
     return {
         "skillId": skill_id,
         "version": version,
@@ -364,6 +474,7 @@ def promotion_evidence(store: Any, skill_id: str, version: str) -> dict[str, Any
         "executionMetrics": metrics,
         "deprecation": metrics["deprecation"],
         "usefulness": metrics["usefulness"],
+        "evidenceState": metrics.get("evidenceState"),
         "sample": {
             "executions": metrics.get("executions", 0),
             "reliable": metrics.get("sampleReliable", False),
@@ -372,9 +483,28 @@ def promotion_evidence(store: Any, skill_id: str, version: str) -> dict[str, Any
         },
         "trend": metrics.get("trend", []),
         "failureCauses": metrics.get("failureCauses", {}),
+        "failureCauseTrend": metrics.get("failureCauseTrend", []),
+        "regression": regression,
+        "warnings": warnings,
         "note": "Advisory evidence only. Promotion remains evaluation- and operator-gated; "
                 "this never enables or promotes a skill.",
     }
+
+
+def _previous_version(store: Any, skill_id: str, version: str) -> Optional[str]:
+    """The version immediately before `version` in the stored version order.
+
+    `store.list_versions` returns oldest-first, so the immediately prior version
+    is the preceding entry.
+    """
+    try:
+        versions = [v["version"] for v in store.list_versions(skill_id)]
+    except Exception:  # noqa: BLE001
+        return None
+    if version not in versions:
+        return None
+    index = versions.index(version)
+    return versions[index - 1] if index > 0 else None
 
 
 def version_quality_history(store: Any, skill_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -391,6 +521,11 @@ def version_quality_history(store: Any, skill_id: str, *, limit: int = 20) -> li
 
 
 __all__ = [
+    "EVIDENCE_DEGRADED",
+    "EVIDENCE_INSUFFICIENT",
+    "EVIDENCE_MIXED",
+    "EVIDENCE_NONE",
+    "EVIDENCE_RELIABLE",
     "FAILURE_CAUSES",
     "compare_evaluation_cases",
     "compare_versions",

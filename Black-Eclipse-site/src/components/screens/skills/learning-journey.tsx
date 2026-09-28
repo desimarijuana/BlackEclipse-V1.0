@@ -27,16 +27,17 @@ const KIND_STYLE: Record<string, string> = {
 export function LearningJourneyPanel() {
   const [graph, setGraph] = useState<LearningJourney | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState("");
 
   const load = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
+    if (showSpinner) setLoading(true); else setRefreshing(true);
     setError(null);
     try { setGraph(await learningJourney(kindFilter ? { kind: kindFilter } : {})); }
     catch (err) { setError(err instanceof Error ? err.message : "failed to load"); }
-    finally { if (showSpinner) setLoading(false); }
+    finally { if (showSpinner) setLoading(false); else setRefreshing(false); }
   }, [kindFilter]);
   useEffect(() => { void load(); }, [load]);
   // Freshness: when the tab/window regains focus, silently refresh so a mutation
@@ -80,12 +81,16 @@ export function LearningJourneyPanel() {
           </p>
           {graph.generatedAt && (
             <p className="mt-1 text-[10px] text-muted-foreground/80">
-              Last updated {formatWhen(graph.generatedAt)} · refreshes when this tab regains focus
+              Last updated {formatWhen(graph.generatedAt)}
+              {graph.watermark && graph.watermark !== graph.generatedAt && (
+                <> · newest record {formatWhen(graph.watermark)}</>
+              )}
+              {refreshing ? " · refreshing…" : " · refreshes on focus"}
             </p>
           )}
         </div>
-        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" onClick={() => void load()}>
-          <RefreshCcw size={13} className="mr-1" /> Refresh
+        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" disabled={refreshing} onClick={() => void load()}>
+          <RefreshCcw size={13} className={"mr-1" + (refreshing ? " animate-spin" : "")} /> Refresh
         </Button>
       </div>
 

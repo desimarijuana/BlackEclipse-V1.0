@@ -28,17 +28,23 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
-from .mcp.config import (
-    MCPServerConfig,
-    remove_mcp_config,
-    upsert_mcp_config,
+from .deps import (
+    IDENTITY_BOUNDARY,
+    _LOOPBACK_HOSTS,
+    _is_loopback,
+    _operator_secret_configured,
+    _valid_operator_token,
+    deployment_exposure,
+    identity_boundary,
+    require_operator,
+    service,
 )
 from .models import list_providers
 from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
+from .routers.mcp import router as mcp_router
 from .schemas import RunRequest, RunResult
-from .service import AgenticService
 from .skills.draft import propose_draft
 from .skills.evaluation import evaluate_skill
 from .skills.learning import capture_from_run
@@ -52,8 +58,6 @@ from .skills.permissions import Actor
 from .skills.runtime import SkillExecutionRequest
 
 logging.basicConfig(level=logging.INFO, format="[harness-py] %(levelname)s %(name)s: %(message)s")
-
-service = AgenticService()
 
 # The service is process-wide, but FastAPI may enter/exit the lifespan more than
 # once (nested test clients, reload). Reference-count so only the LAST exit tears
@@ -69,6 +73,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global _lifespan_refs
     _lifespan_refs += 1
     if _lifespan_refs == 1:
+        # Deployment guard: this app is single-user local with NO authentication
+        # or tenancy isolation. A non-loopback bind without an operator secret is
+        # flagged loudly so the configuration is never mistaken for multi-user
+        # secure. It does not block boot (a local dev bind is the normal case).
+        exposure = deployment_exposure()
+        if exposure.get("exposed"):
+            logging.getLogger("harness").warning("[harness-py] DEPLOYMENT WARNING: %s", exposure["warning"])
         # Retention: mark due AUTOMATIC memories expired on startup. Idempotent
         # and best-effort — a failure is a diagnostic, never a boot blocker.
         service.run_startup_maintenance()
@@ -89,6 +100,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_lifespan)
+
+# Route groups extracted into `harness/routers/`; registered here so the public
+# surface stays `harness.main:app` and paths are unchanged.
+app.include_router(mcp_router)
 
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier
@@ -142,6 +157,10 @@ def health() -> dict[str, Any]:
         # MCP (Phase 5): configured/connected server counts + registered tool
         # count. Never includes secret values or full server output.
         "mcp": service.mcp.summary(),
+        # Identity/tenancy boundary (Phase 1): an explicit, machine-readable
+        # statement that this is a single-user local app with no authentication
+        # and no tenancy isolation, plus the current exposure assessment.
+        "identity": identity_boundary(),
     }
 
 
@@ -150,202 +169,6 @@ def retrieval_metrics() -> dict[str, Any]:
     """Retrieval-layer performance counters (cache hits/misses, in-flight)."""
     return {"success": True, **service.retrieval_metrics()}
 
-
-# ── MCP server catalog (Phase 5E) ───────────────────────────────────────────
-# Add / test / enable / disable / remove local stdio MCP servers and select
-# their tools. Mutations require PROOF OF AUTHORIZATION, never a caller-supplied
-# JSON boolean: the request must originate from the loopback interface (the
-# Next.js front door / a local operator) OR present the runtime secret. A
-# directly reachable Python runtime therefore cannot be handed arbitrary
-# subprocess configuration by spoofing `operator: true`. Reads stay open and are
-# secret-free (env KEYS only).
-
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-
-
-def _is_loopback(request: Request) -> bool:
-    client = request.client
-    host = (client.host if client else "") or ""
-    return host in _LOOPBACK_HOSTS
-
-
-def _valid_operator_token(request: Request) -> bool:
-    """Validate the runtime secret WITHOUT ever logging or echoing it."""
-    import hmac
-    import os
-
-    secret = os.environ.get("CRON_SECRET")
-    if not secret or secret == "change-me-to-a-random-secret":
-        return False
-    provided = request.headers.get("x-harness-operator") or ""
-    auth = request.headers.get("authorization") or ""
-    bearer = auth[7:] if auth.startswith("Bearer ") else ""
-    for candidate in (provided, bearer):
-        if candidate and hmac.compare_digest(candidate, secret):
-            return True
-    return False
-
-
-def require_operator(request: Request) -> bool:
-    """FastAPI dependency: prove the caller MAY set the operator flag.
-
-    Proof is transport/token only — NEVER a caller-supplied JSON boolean:
-    the request must originate from the loopback interface (the Next.js front
-    door or a local operator) OR present the runtime secret in
-    `X-Harness-Operator` / a Bearer token.
-
-    A memory/skill mutation endpoint reads the body `operator` flag only AFTER
-    this dependency passes, so a directly reachable Python runtime cannot be
-    handed an operator decision by spoofing `{"operator": true}`; a remote
-    caller without the secret is refused before the body is considered.
-    """
-    if _is_loopback(request) or _valid_operator_token(request):
-        return True
-    raise HTTPException(
-        status_code=403,
-        detail="this operation requires an authorized operator (loopback or runtime secret)",
-    )
-
-
-def require_mcp_operator(request: Request) -> None:
-    """FastAPI dependency: authorize an MCP mutation by transport or token.
-
-    Loopback is trusted (zero-config local use keeps working). A remote caller
-    must present the runtime secret as `X-Harness-Operator` (or a Bearer token).
-    The body is never consulted, so `{"operator": true}` cannot authorize.
-    """
-    if _is_loopback(request) or _valid_operator_token(request):
-        return
-    raise HTTPException(
-        status_code=403,
-        detail="MCP configuration requires an authorized operator (loopback or runtime secret)",
-    )
-
-
-@app.get("/mcp/servers")
-def list_mcp_servers() -> dict[str, Any]:
-    """Configured servers + live status + discovered tools (secret-free)."""
-    return {"success": True, "servers": service.mcp.public_configs(), **service.mcp.summary()}
-
-
-class MCPServerUpsertRequest(BaseModel):
-    """Create/replace one server. The full config is validated by pydantic."""
-
-    server: MCPServerConfig
-    reload: bool = True
-    # The authoritative env key set (values are write-only and never echoed to
-    # the UI, so the client sends key names to add/remove while values persist).
-    envKeys: Optional[list[str]] = None  # noqa: N815
-
-
-@app.post("/mcp/servers")
-async def upsert_mcp_server(request: MCPServerUpsertRequest, _: None = Depends(require_mcp_operator)) -> JSONResponse:
-    upsert_mcp_config(request.server, env_keys=request.envKeys)
-    summary = await service.reload_mcp() if request.reload else service.mcp.summary()
-    return JSONResponse({"success": True, **summary})
-
-
-@app.delete("/mcp/servers/{server_id}")
-async def delete_mcp_server(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
-    removed = remove_mcp_config(server_id)
-    if not removed:
-        raise HTTPException(status_code=404, detail="Server not found")
-    summary = await service.reload_mcp()
-    return JSONResponse({"success": True, "removed": server_id, **summary})
-
-
-@app.post("/mcp/servers/test")
-async def test_mcp_server(payload: dict[str, Any], _: None = Depends(require_mcp_operator)) -> JSONResponse:
-    """Connect + discover a candidate config WITHOUT persisting or activating."""
-    raw = payload.get("server")
-    if not isinstance(raw, dict):
-        raise HTTPException(status_code=400, detail="server config is required")
-    try:
-        config = MCPServerConfig(**raw)
-    except Exception as exc:  # noqa: BLE001 - a bad config is a 400, not a crash
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    result = await service.mcp.test_server(config)
-    return JSONResponse({"success": result.get("state") == "connected", **result})
-
-
-@app.post("/mcp/reload")
-async def reload_mcp(_: None = Depends(require_mcp_operator)) -> JSONResponse:
-    summary = await service.reload_mcp()
-    return JSONResponse({"success": True, **summary})
-
-
-@app.post("/mcp/servers/{server_id}/confirm")
-async def confirm_mcp_catalog(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
-    """Record the operator's review of a server's current catalog digest.
-
-    The explicit act that lets an annotation-sourced read-only tool activate.
-    """
-    result = await service.confirm_mcp_catalog(server_id)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=str(result.get("reason") or "confirm failed"))
-    return JSONResponse(result)
-
-
-# ── Effectful-tool approvals (Phase 5G) ─────────────────────────────────────
-# A write/external_action MCP tool needs an operator decision bound to the exact
-# server/tool/arguments. These endpoints let the operator review and decide;
-# they hold no secret material — only identity + an argument digest.
-
-
-@app.get("/mcp/approvals")
-def list_mcp_approvals(status: Optional[str] = None) -> dict[str, Any]:
-    return {"success": True, "approvals": service.approvals.list(status)}
-
-
-@app.post("/mcp/approvals/{approval_id}/decide")
-async def decide_mcp_approval(
-    approval_id: str, payload: dict[str, Any], _: None = Depends(require_mcp_operator)
-) -> JSONResponse:
-    approve = bool(payload.get("approve"))
-    result = service.approvals.decide(
-        approval_id, approve=approve,
-        decided_by=str(payload.get("decidedBy") or "operator"),
-        reason=str(payload.get("reason") or ""),
-    )
-    if result is None:
-        raise HTTPException(status_code=404, detail="Approval not found")
-    return JSONResponse({"success": True, "approval": result})
-
-
-# ── Finance presets, workflows and setup diagnostics (product layer) ────────
-# These describe and inspect; they never activate a server or run a tool.
-
-
-@app.get("/mcp/integrations")
-def list_mcp_integrations() -> dict[str, Any]:
-    from .mcp.presets import list_integrations
-
-    return {"success": True, "integrations": list_integrations()}
-
-
-@app.get("/mcp/workflows")
-def list_mcp_workflows() -> dict[str, Any]:
-    from .mcp.presets import list_workflows
-
-    return {"success": True, "workflows": list_workflows()}
-
-
-@app.post("/mcp/diagnostics")
-def mcp_diagnostics(payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """Setup diagnostics for every configured server + the environment.
-
-    `knownSecrets` (secret NAMES only) lets the runtime report missing vault
-    references without ever seeing a value.
-    """
-    known = set()
-    if isinstance(payload, dict):
-        for name in payload.get("knownSecrets") or []:
-            if isinstance(name, str):
-                known.add(name)
-    resolved: dict[str, dict[str, bool]] = {}
-    for cfg in service.mcp._runtimes.values():  # noqa: SLF001 - read-only inspection
-        resolved[cfg.config.id] = {name: (name in known) for name in cfg.config.secret_ref_names()}
-    return {"success": True, **service.mcp.diagnostics(resolved)}
 
 
 class ResearchRunRequest(BaseModel):
@@ -601,6 +424,9 @@ def list_skills(status: Optional[str] = None) -> dict[str, Any]:
         "duplicates": registry.duplicate_ids(),
         "projectNotices": registry.project_notices(),
         "projectDrift": registry.project_drift(),
+        "projectChangedSkillIds": registry.project_changed_ids(),
+        "projectQuarantinedSkillIds": registry.project_quarantined_ids(),
+        "projectUnchangedSkillIds": registry.project_unchanged_ids(),
         "shadowed": registry.shadowed_ids(),
         "contentFindings": registry.content_findings(),
         "quarantined": registry.quarantined_ids(),
@@ -644,6 +470,31 @@ def project_skill_status() -> dict[str, Any]:
         "discovery": discovery.to_dict(),
         "drift": drift_status(service.skill_store, root) if root else None,
         "trusted": service.skill_store.list_project_trust(),
+        "changedSkills": _project_changed_review(root) if root else None,
+        "approvalHistory": service.skill_store.list_project_approvals(root) if root else [],
+    }
+
+
+def _project_changed_review(root: Optional[str]) -> Optional[dict[str, Any]]:
+    """Content-free changed-skill review (hashes + ids only) for a project root."""
+    if not root:
+        return None
+    from .skills.project_skills import changed_skill_review  # noqa: PLC0415
+
+    try:
+        return changed_skill_review(service.skill_store, root)
+    except Exception:  # noqa: BLE001 - a review failure must not break the status read
+        return None
+
+
+@app.get("/skills/project/history")
+def project_trust_history(path: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
+    """Append-only project trust/approval/revoke history (who/what/when/level)."""
+    root = path or service._project_root()
+    return {
+        "success": True,
+        "path": root,
+        "history": service.skill_store.list_project_approvals(root, limit=limit),
     }
 
 
@@ -670,15 +521,28 @@ def approve_project_skill(
     root = payload.get("path") or service._project_root()
     if not root:
         raise HTTPException(status_code=400, detail="a project path is required")
-    state = trust_root(service.skill_store, root, note=payload.get("note") or "re-approved after change")
+    # Re-approve re-baselines BOTH the root hash and every per-skill hash, which
+    # reactivates all quarantined skills. `skillIds` records which skills the
+    # operator was shown at approval (review audit), never an authorization.
+    requested = payload.get("skillIds")
+    skill_ids = [str(s) for s in requested] if isinstance(requested, list) else None
+    level = "skill" if skill_ids else "root"
+    state = trust_root(
+        service.skill_store, root,
+        note=payload.get("note") or "re-approved after change",
+        actor=payload.get("actor") or "operator",
+        skill_ids=skill_ids, level=level,
+    )
     service.reload_project_skills()
     service.skill_store.append_event(
-        "skill.project_reapproved", data={"path": canonical_root(root)},
+        "skill.project_reapproved",
+        data={"path": canonical_root(root), "skillIds": skill_ids, "level": level},
     )
     return {
         "success": True,
         "root": state.to_dict(),
         "contentHash": root_content_hash(root),
+        "level": level,
     }
 
 
@@ -701,10 +565,14 @@ def trust_project_skill(
     root = payload.get("path") or service._project_root()
     if not root:
         raise HTTPException(status_code=400, detail="a project path is required")
-    state = trust_root(service.skill_store, root, note=payload.get("note"))
+    state = trust_root(
+        service.skill_store, root, note=payload.get("note"),
+        actor=payload.get("actor") or "operator",
+    )
     service.reload_project_skills()
     service.skill_store.append_event(
-        "skill.project_trusted", data={"path": canonical_root(root)},
+        "skill.project_trusted",
+        data={"path": canonical_root(root), "skillIds": state.skill_ids},
     )
     return {
         "success": True,
@@ -802,6 +670,30 @@ def unlock_skill_bundle(
     return {"success": result.get("ok", False), **result}
 
 
+@app.get("/skill-bundles/{bundle_id}/update-preview")
+def bundle_update_preview_route(bundle_id: str) -> dict[str, Any]:
+    """What would change if the bundle were re-locked (read-only, no mutation)."""
+    from .skills.bundles import bundle_update_preview  # noqa: PLC0415
+
+    return {"success": True, **bundle_update_preview(
+        service.skill_store, service.skill_registry, bundle_id,
+    )}
+
+
+@app.post("/skill-bundles/{bundle_id}/rollback")
+def rollback_skill_bundle(
+    bundle_id: str,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Re-pin the bundle to its recorded lock (safe rollback)."""
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from .skills.bundles import rollback_bundle  # noqa: PLC0415
+
+    result = rollback_bundle(service.skill_store, service.skill_registry, bundle_id)
+    return {"success": result.get("ok", False), **result}
+
+
 @app.delete("/skill-bundles/{bundle_id}")
 def delete_skill_bundle(
     bundle_id: str,
@@ -833,7 +725,7 @@ def untrust_project_skill(
     root = payload.get("path") or service._project_root()
     if not root:
         raise HTTPException(status_code=400, detail="a project path is required")
-    state = untrust_root(service.skill_store, root)
+    state = untrust_root(service.skill_store, root, actor=payload.get("actor") or "operator")
     service.reload_project_skills()
     service.skill_store.append_event(
         "skill.project_untrusted", data={"path": canonical_root(root)},
@@ -2401,8 +2293,24 @@ def reject_draft(skill_id: str, payload: dict[str, Any], _: bool = Depends(requi
 
 
 def main(host: str = "127.0.0.1", port: int = 8765) -> None:
+    import os
+
     import uvicorn
 
+    # Deployment guard: a non-loopback bind without a configured operator secret
+    # would expose a single-user app that has no authentication and no tenancy
+    # isolation. Refuse unless the operator explicitly acknowledges the risk via
+    # BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1, so this is never presented as
+    # multi-user secure by accident.
+    if host not in _LOOPBACK_HOSTS and not _operator_secret_configured():
+        if os.environ.get("BLACK_ECLIPSE_ALLOW_INSECURE_BIND") != "1":
+            raise SystemExit(
+                f"refusing to bind {host!r}: this app is single-user local with NO "
+                "authentication or tenancy isolation and userId/scopeId are self-asserted "
+                "labels. Bind 127.0.0.1, set CRON_SECRET and place it behind an "
+                "authenticated single-operator boundary, or set "
+                "BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1 to acknowledge the risk."
+            )
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

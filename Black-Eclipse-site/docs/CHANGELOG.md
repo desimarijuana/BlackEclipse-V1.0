@@ -1,12 +1,65 @@
 ---
 title: Change Log
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-09-28
 ---
 
 # Change Log
 
 ## 2026-09-28
+
+- **Engineering hardening pass (CI, routing, honest errors, guards).** Seven
+  focused items: (1) added a **CI workflow** (`.github/workflows/test.yml`) that
+  runs `typecheck` + `test` (Vitest + Python) + the four eval gates, plus an
+  `npm run typecheck` script; (2) triaged the TODO/FIXME markers — the only
+  genuine one is a documented, deliberate deferral, left as-is; (3) added a
+  route-level test for the honest **503 runtime-unavailable** path and fixed a
+  real defect where `HarnessRuntimeUnavailable` was collapsed to `INTERNAL_ERROR`
+  (`errors.py` now preserves `RUNTIME_UNAVAILABLE`); (4) extracted shared state +
+  operator auth into `python/harness/deps.py` and the MCP routes into
+  `python/harness/routers/mcp.py` (registered via `app.include_router`), shrinking
+  `main.py` from 2604 → 1890 lines with no behavior/path change; (5) added a
+  retrieval-layer **adversarial eval** (`test_research_adversarial.py`: no
+  fabricated value, staleness surfaced, unresolvable conflict preserved, poisoning
+  cannot beat a primary, identity never crosses); (6) added an i18n dictionary
+  integrity test and a source-size budget guard; (7) full verification. Checks:
+  Vitest **1804 passed** (144 files); Python **1315 passed**; `tsc` clean;
+  retrieval/semantic/contradiction/compaction gates PASS. `jdds.db` untouched.
+  docs updated: CHANGELOG.md, NAVIGATION.md, harness/architecture.md
+
+- **Memory & Skills closure pass (verification only).** Read-only audit + full
+  suite re-run. One defect fixed: the `import_payload` docstring still described a
+  SQLite `SAVEPOINT` for atomicity while the implementation uses table
+  snapshot/restore (a SAVEPOINT cannot survive `write_memory`'s per-write COMMIT).
+  Corrected the docstring; no behavior change. All checks pass (Vitest 1795,
+  Python 1305, `tsc` clean, retrieval/semantic/contradiction/compaction gates
+  PASS). `jdds.db` untouched by this task.
+  docs updated: CHANGELOG.md, python/harness/eclipse_memory/transfer.py (docstring)
+
+- **Memory & Skills final hardening — all 11 phases (identity boundary → docs
+  reconciliation).** Audited the already-implemented evolution work and closed
+  only the remaining gaps: (1) identity/tenancy — documented + deployment-guarded
+  (non-loopback bind without operator secret refused/flagged; `0.0.0.0` no longer
+  a trusted local host); (2) per-skill project trust content identity + approval
+  history + selective quarantine; (3) expanded contradiction eval
+  (paraphrase/negation/numeric/subject-alias/temporal) with missed-conflict,
+  scope-leakage, forbidden-hit, precision metrics + honest semantic
+  interpretation; (4) skill-quality evidence states (no/insufficient/mixed/
+  reliable/degraded), failure-cause trends, regression inside promotion
+  evidence; (5) journey freshness (`watermark`, refresh state, execution nodes,
+  session placeholder nodes); (6) provider reliability (timeout budget,
+  `provider_failure` class, recovery-through-router, bounded event history,
+  last-success age); (7) import/export hardening (v3, conflict/duplicate preview,
+  atomic rollback, evaluation + audit preservation); (8) compaction preservation
+  eval (temporal/authority, evidence/chain/reversibility floors); (9) bundle
+  reproducibility (member content hashes, update preview, receipt, safe
+  rollback, lock history); (10) adversarial/long-running eval (overlapping
+  projects, provider poisoning/recovery, growth, repeated compaction, floors);
+  (11) documentation reconciliation (historical labels + Current status table).
+  Python **1305 passed**; Vitest **1795 passed**; `tsc` clean; contradiction and
+  compaction gates PASS. No second memory engine, no TS agent runtime, no
+  `jdds.db` change.
+  docs updated: CHANGELOG.md, NAVIGATION.md, harness/memory-skills-evolution-plan.md
 
 - **Memory & Skills remaining gaps — Phase 16 (orphan/inconsistency cleanup).**
   Fixed the stale `run_only` outcome docstring + downgrade comment (the outcome
@@ -4112,3 +4165,7 @@ proves the documentation obligation was considered rather than skipped.
 
 - **Agentic roadmap — detailed MCP Phase 5 plan** — Defined user-controlled MCP integration across stdio/remote transports, tool governance, auth, approvals, source freshness and provenance; clarified JDdS as a fallible source, not the mandatory authority.
   docs updated: `agentic-plan-implementaion.md`, `docs/harness/architecture.md`
+# 2026-09-28
+
+- **Memory/skills system review** — Compared Eclipse-Memory with Hermes Agent to identify improvements in retrieval, procedural learning, discoverability, and provider ergonomics; no implementation changes were made. no doc change — analysis-only review
+

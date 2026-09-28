@@ -62,6 +62,12 @@ export interface ProjectSkillRoot {
   drift?: boolean;
   trustedHash?: string | null;
   currentHash?: string | null;
+  // Per-skill identity (Phase 2 final hardening).
+  changedSkillIds?: string[];
+  quarantinedSkillIds?: string[];
+  unchangedSkillIds?: string[];
+  perSkillHashes?: Record<string, string>;
+  approvedHashes?: Record<string, string>;
 }
 
 export interface ProjectSkillDiscovery {
@@ -71,6 +77,9 @@ export interface ProjectSkillDiscovery {
   roots: ProjectSkillRoot[];
   trustedSkillIds: string[];
   notices: string[];
+  changedSkillIds?: string[];
+  quarantinedSkillIds?: string[];
+  unchangedSkillIds?: string[];
 }
 
 export interface ProjectSkillTrustRecord {
@@ -80,6 +89,7 @@ export interface ProjectSkillTrustRecord {
   note: string | null;
   trustedHash?: string | null;
   revokedHash?: string | null;
+  contentHashes?: Record<string, string>;
 }
 
 export interface ProjectSkillDriftStatus {
@@ -89,6 +99,43 @@ export interface ProjectSkillDriftStatus {
   trustedHash: string | null;
   currentHash: string | null;
   skillIds: string[];
+  changedSkillIds?: string[];
+  quarantinedSkillIds?: string[];
+  unchangedSkillIds?: string[];
+  perSkillHashes?: Record<string, string>;
+  approvedHashes?: Record<string, string>;
+}
+
+/** One skill's approval identity (hashes only — never content). */
+export interface ProjectSkillChange {
+  skillId: string;
+  status: "unchanged" | "changed" | "new" | "removed";
+  approvedHash: string | null;
+  currentHash: string | null;
+}
+
+export interface ProjectSkillChangeReview {
+  path: string;
+  trusted: boolean;
+  drift: boolean;
+  changedSkillIds: string[];
+  quarantinedSkillIds: string[];
+  unchangedSkillIds: string[];
+  changes: ProjectSkillChange[];
+}
+
+/** Append-only trust/approval audit row (who/what/when/level). */
+export interface ProjectTrustApproval {
+  id: string;
+  path: string;
+  action: string;
+  level: "root" | "skill" | string;
+  actor: string | null;
+  approvedHash: string | null;
+  contentHashes: Record<string, string>;
+  skillIds: string[];
+  note: string | null;
+  approvedAt: string;
 }
 
 /** Advisory content-scan finding (Phase 3). A clean scan is NOT proof of safety. */
@@ -178,6 +225,7 @@ export interface SkillBundle {
   provenance: "manual" | "profile" | "project" | "imported";
   version: string;
   memberVersions: Record<string, string>;
+  memberHashes?: Record<string, string>;
   locked: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -194,9 +242,39 @@ export interface SkillBundleResolution {
   version?: string;
   locked?: boolean;
   drifted?: boolean;
+  contentDrifted?: string[];
   compatible?: boolean;
   incompatible?: string[];
   resolvedVersions?: Record<string, string>;
+  lockedHashes?: Record<string, string>;
+  currentHashes?: Record<string, string>;
+  receipt?: {
+    bundleId: string;
+    bundleVersion: string;
+    locked: boolean;
+    members: Array<{
+      skillId: string;
+      version: string;
+      contentHash: string;
+      lockedVersion: string | null;
+      lockedHash?: string | null;
+    }>;
+  };
+}
+
+export interface BundleUpdatePreview {
+  ok: boolean;
+  bundleId: string;
+  locked: boolean;
+  wouldChange: boolean;
+  changes: Array<{
+    skillId: string;
+    change: "unchanged" | "added" | "version_changed" | "content_changed";
+    lockedVersion: string | null;
+    currentVersion: string | null;
+    lockedHash: string | null;
+    currentHash: string | null;
+  }>;
 }
 
 export interface SkillBundleListResponse {
@@ -210,6 +288,8 @@ export interface ProjectSkillStatus {
   discovery: ProjectSkillDiscovery;
   drift?: ProjectSkillDriftStatus | null;
   trusted: ProjectSkillTrustRecord[];
+  changedSkills?: ProjectSkillChangeReview | null;
+  approvalHistory?: ProjectTrustApproval[];
 }
 
 export interface SkillValidationCheck {

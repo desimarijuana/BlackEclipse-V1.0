@@ -1,5 +1,5 @@
 // ── Eclipse Theme — centralized design tokens ────────────────────────────────
-// The single source of truth for user customization (Settings › Customization).
+// The single source of truth for user customization (Settings › General).
 // A theme is a plain, serializable object; `themeCssVars()` turns it into CSS
 // custom properties applied to <html>, so every component that already reads
 // `--primary`, `--background`, `--font-mono`, `--radius`, … recolors itself

@@ -6,6 +6,7 @@
 
 export type HarnessErrorCode =
   | "INVALID_INPUT"
+  | "RUNTIME_UNAVAILABLE"
   | "PROVIDER_NOT_CONFIGURED"
   | "PROVIDER_ERROR"
   | "PROVIDER_TIMEOUT"
@@ -59,6 +60,13 @@ export class HarnessError extends Error {
 export function toHarnessErrorJson(err: unknown, fallbackCode: HarnessErrorCode = "INTERNAL_ERROR"): HarnessErrorJson {
   if (err instanceof HarnessError) return err.toJSON();
   if (err instanceof Error) {
+    // The runtime-unavailable error lives in `python-client` (which imports this
+    // module), so it is detected by its stable name/code rather than `instanceof`
+    // to avoid a circular import. It must keep its own code so the UI can render
+    // an honest "runtime unavailable" state instead of a generic error.
+    if (err.name === "HarnessRuntimeUnavailable" || (err as { code?: unknown }).code === "RUNTIME_UNAVAILABLE") {
+      return { code: "RUNTIME_UNAVAILABLE", message: redactSecrets(err.message || "Agent runtime unavailable") };
+    }
     if (err.name === "AbortError" || err.name === "TimeoutError") {
       return { code: "PROVIDER_TIMEOUT", message: redactSecrets(err.message || "Request timed out") };
     }

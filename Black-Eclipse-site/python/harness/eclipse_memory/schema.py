@@ -780,6 +780,62 @@ MIGRATIONS.append(
     )
 )
 
+# Per-skill project content identity (Phase 2 of the final-hardening pass). The
+# root-level `trustedHash` stays as the coarse identity; `contentHashes` records
+# the content hash of EACH skill at approval time so a change can be narrowed to
+# the affected skill(s) instead of quarantining the whole root. JSON object
+# `{skillId: hash}`; additive/idempotent, existing rows read NULL.
+MIGRATIONS.append(
+    (
+        19,
+        [
+            "ALTER TABLE ProjectSkillTrust ADD COLUMN contentHashes TEXT;",
+        ],
+    )
+)
+
+# Project trust approval history (Phase 2, final hardening). Append-only: every
+# trust / re-approval / untrust records WHO approved (actor label — there are no
+# accounts, so this is the operator transport identity, never a request body),
+# WHAT content hash(es) were approved, WHEN, WHICH skills, and whether the
+# approval was root-level or per-skill. This makes the drift→review→approval
+# chain auditable (the mutable ProjectSkillTrust row only holds current state).
+MIGRATIONS.append(
+    (
+        20,
+        [
+            """CREATE TABLE IF NOT EXISTS ProjectTrustApproval (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                action TEXT NOT NULL,
+                level TEXT NOT NULL DEFAULT 'root',
+                actor TEXT,
+                approvedHash TEXT,
+                contentHashes TEXT NOT NULL DEFAULT '{}',
+                skillIds TEXT NOT NULL DEFAULT '[]',
+                note TEXT,
+                approvedAt TEXT NOT NULL
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_trust_approval_path ON ProjectTrustApproval(path, approvedAt);",
+        ],
+    )
+)
+
+# Bundle reproducibility (Phase 9, final hardening): record each member's CONTENT
+# HASH alongside its version at lock time, so a locked bundle can be reconstructed
+# and an in-place content edit under the same version is detectable. `lockHistory`
+# is a bounded JSON list of prior locks so a bundle can be rolled back to an
+# earlier recorded lock. Additive; existing rows read NULL.
+MIGRATIONS.append(
+    (
+        21,
+        [
+            "ALTER TABLE SkillBundle ADD COLUMN memberHashes TEXT NOT NULL DEFAULT '{}';",
+            "ALTER TABLE SkillBundle ADD COLUMN lockHistory TEXT NOT NULL DEFAULT '[]';",
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

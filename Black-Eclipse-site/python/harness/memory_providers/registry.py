@@ -102,10 +102,12 @@ class MemoryProviderRegistry:
         """
         if not request.allow_external or not self._external_enabled:
             return []
+        import asyncio
         import time as _time  # noqa: PLC0415
 
         from .reliability import (  # noqa: PLC0415
             RETRY_BACKOFF_S,
+            SEARCH_TIMEOUT_S,
             classify_failure,
             global_reliability,
             is_retryable,
@@ -127,18 +129,32 @@ class MemoryProviderRegistry:
                 attempts += 1
                 started = _time.monotonic()
                 try:
-                    response = await provider.search(request)
+                    # A per-call timeout budget bounds the whole call, so a hung
+                    # provider cannot stall the run. A timeout is a transient
+                    # failure and is retried within the same bound.
+                    response = await asyncio.wait_for(
+                        provider.search(request), timeout=SEARCH_TIMEOUT_S,
+                    )
                     record.record_success((_time.monotonic() - started) * 1000)
                     responses.append(response)
                     last_error = None
+                    break
+                except asyncio.TimeoutError:
+                    last_error = f"timeout after {SEARCH_TIMEOUT_S:g}s"
+                    category = classify_failure(last_error)
+                    record.record_failure(category)
+                    if attempts < 2:
+                        await asyncio.sleep(RETRY_BACKOFF_S)
+                        continue
+                    responses.append(MemorySearchResponse(
+                        provider=provider.name, degraded=True, detail=last_error,
+                    ))
                     break
                 except Exception as exc:  # noqa: BLE001 - never let one provider break search
                     last_error = str(exc)
                     category = classify_failure(exc)
                     record.record_failure(category)
                     if is_retryable(category) and attempts < 2:
-                        import asyncio  # noqa: PLC0415
-
                         await asyncio.sleep(RETRY_BACKOFF_S)
                         continue
                     responses.append(MemorySearchResponse(

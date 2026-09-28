@@ -1037,3 +1037,47 @@ PASS.
 
 
 
+
+
+## Final hardening — identity, per-skill trust, evals, reproducibility (2026-09-28)
+
+A final audit closed the remaining gaps in the evolution work. Architecture and
+contracts were preserved: one decision gate, one memory store, one skill
+execution path, inert proposals/drafts/bundles/trust, operator transport/token
+auth, scope isolation, and external results fenced/unverified.
+
+- **Identity/tenancy boundary.** `main.identity_boundary()` / `deployment_exposure()`
+  report honestly that there is no authentication and no tenancy isolation;
+  `userId`/`scopeId` are self-asserted scope labels. `main()` refuses a
+  non-loopback bind without a configured operator secret unless
+  `BLACK_ECLIPSE_ALLOW_INSECURE_BIND=1`, and the front-door guard no longer treats
+  `0.0.0.0` as a trusted local host (`api-guard.deploymentExposure`, logged at boot).
+  Tests: `test_identity_tenancy_boundary.py`, `api-guard.test.ts`.
+- **Per-skill project trust.** `per_skill_hashes`/`changed_skill_review` record per-
+  skill content identity; drift quarantines only the changed skill(s); every
+  trust/approve/untrust appends to `ProjectTrustApproval` (who/what/when/level).
+  Routes `/skills/project/history`; UI shows changed-skill review + history.
+- **Contradiction eval.** Dataset v2 adds negation, numeric-value, subject-alias
+  and temporal cases; metrics add missedConflictRate, scopeLeakage, forbiddenHits,
+  conflictPrecision plus an interpretation of when semantic assistance helps.
+  Deterministic normalization hardened (negation folding; negation-aware polarity;
+  subject aliases) without enabling auto-replacement.
+- **Skill quality.** Five evidence states; failure-cause trends; regression
+  comparison included in promotion evidence with sample size + Wilson interval.
+- **Journey.** Execution nodes, placeholder session nodes (provenance edges no
+  longer dropped), `watermark` + refresh state in the UI.
+- **Providers.** Per-call timeout budget, `provider_failure` class, recovery
+  through the router, bounded event history, last-success age.
+- **Transfer.** Export v3 (evaluations + audit); conflict/duplicate preview;
+  atomic import with snapshot rollback; evaluation and audit preservation.
+- **Compaction eval.** Temporal/authority cases; evidence/chain/reversibility
+  floors.
+- **Bundles.** Member content hashes + lock history; `bundle_update_preview`,
+  reproducible receipt, `rollback_bundle`; lock is exportable.
+- **Adversarial.** Overlapping projects, cross-project trust leakage, provider
+  poisoning/recovery, long-running growth, repeated compaction, low-sample claims,
+  tampering, stale/superseded interaction, consolidated floors.
+
+Docs reconciled in `memory-skills-evolution-plan.md` (historical labels + Current
+status table). Checks: Python **1305 passed**, Vitest **1795 passed**, `tsc`
+clean, contradiction + compaction gates PASS. No `jdds.db` change.

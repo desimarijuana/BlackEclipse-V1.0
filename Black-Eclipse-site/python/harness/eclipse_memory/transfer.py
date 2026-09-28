@@ -30,8 +30,10 @@ from .db import now_iso
 EXPORT_SCHEMA = "black-eclipse-memory-export"
 # v2 adds `bundles` (skill bundles) and `projectTrust` (project-local skill trust)
 # so a backup/restore or migration does not lose composability or trust
-# provenance. A v1 document still imports (the new sections are simply absent).
-EXPORT_VERSION = 2
+# provenance. v3 adds `evaluations` and `audit` (memory events) so a restore
+# preserves skill evaluation history and the memory audit trail. A v1/v2 document
+# still imports (the new sections are simply absent).
+EXPORT_VERSION = 3
 
 # Memory-domain tables that a reset may clear. Skills/learning are NOT memory and
 # are deliberately excluded, so a reset never destroys the skill library.
@@ -52,6 +54,8 @@ def _content_checksum(document: dict[str, Any]) -> str:
         "bundles": document.get("bundles") or [],
         "projectTrust": document.get("projectTrust") or [],
         "suggestions": document.get("suggestions") or [],
+        "evaluations": document.get("evaluations") or [],
+        "audit": document.get("audit") or [],
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
@@ -75,6 +79,24 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
     suggestions = store.list_suggestions(status=None, limit=100_000)
     bundles = store.list_skill_bundles()
     project_trust = store.list_project_trust()
+    try:
+        evaluations = [
+            {"skillId": e.get("skillId"), "version": e.get("version"),
+             "status": e.get("status"), "evaluator": e.get("evaluator"),
+             "summary": e.get("summary"), "dimensions": e.get("dimensions") or [],
+             "createdAt": e.get("createdAt")}
+            for e in store.list_evaluations(limit=100_000)
+        ]
+    except Exception:  # noqa: BLE001 - an export without evaluations is still valid
+        evaluations = []
+    try:
+        audit = [
+            {"type": e.get("type"), "memoryId": e.get("memoryId"), "runId": e.get("runId"),
+             "data": e.get("data"), "createdAt": e.get("createdAt")}
+            for e in store.list_memory_events(limit=100_000)
+        ]
+    except Exception:  # noqa: BLE001
+        audit = []
     document: dict[str, Any] = {
         "schema": EXPORT_SCHEMA,
         "version": EXPORT_VERSION,
@@ -83,6 +105,7 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
         "counts": {
             "memories": len(exported), "suggestions": len(suggestions),
             "bundles": len(bundles), "projectTrust": len(project_trust),
+            "evaluations": len(evaluations), "audit": len(audit),
         },
         "memories": exported,
         "bundles": [
@@ -91,12 +114,15 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
                 "skills": b.get("skills"), "instruction": b.get("instruction"),
                 "constraints": b.get("constraints"), "provenance": b.get("provenance"),
                 "version": b.get("version"), "memberVersions": b.get("memberVersions"),
+                "memberHashes": b.get("memberHashes"), "lockHistory": b.get("lockHistory"),
                 "locked": b.get("locked"),
             }
             for b in bundles
         ],
         "projectTrust": [
-            {"path": t["path"], "trusted": t.get("trusted"), "trustedAt": t.get("trustedAt"), "note": t.get("note")}
+            {"path": t["path"], "trusted": t.get("trusted"), "trustedAt": t.get("trustedAt"),
+             "note": t.get("note"), "trustedHash": t.get("trustedHash"),
+             "contentHashes": t.get("contentHashes") or {}}
             for t in project_trust
         ],
         "suggestions": [
@@ -108,6 +134,8 @@ def export_payload(store: Any, *, include_inactive: bool = True) -> dict[str, An
             }
             for s in suggestions
         ],
+        "evaluations": evaluations,
+        "audit": audit,
     }
     document["checksum"] = _content_checksum(document)
     return document
@@ -132,11 +160,12 @@ def import_payload(
     scope_filter: Optional[str] = None,
     type_filter: Optional[str] = None,
     bundles_only: bool = False,
+    atomic: bool = True,
 ) -> dict[str, Any]:
     """Validate + import an export document through the normal write pipeline.
 
     Returns a report: `{imported, skipped, rejected: [{reason}], dryRun,
-    checksumOk, validationErrors}`. Every accepted record is written by
+    checksumOk, validationErrors, preview}`. Every accepted record is written by
     `EclipseMemoryService.write_memory` with `source='imported'`, so
     privacy/type/scope/conflict rules and duplicate detection all apply. Rejected
     records carry a reason; nothing is silently dropped and nothing unsafe is
@@ -144,8 +173,16 @@ def import_payload(
 
     A `checksum` carried by the document is verified before any write; a mismatch
     raises (a tampered/corrupted file is never partially applied). `dry_run`
-    validates and counts without writing. `scope_filter`/`type_filter`/
+    validates and counts without writing, and returns a `preview` of what would
+    change (new vs duplicate vs conflict). `scope_filter`/`type_filter`/
     `bundles_only` support a PARTIAL restore by category or scope.
+
+    Atomicity: with `atomic=True` (default) the import snapshots the tables it
+    can touch and restores them verbatim if an unexpected error occurs, so a
+    failed import leaves no partial state. (A SQLite SAVEPOINT cannot be used
+    because each `write_memory` COMMITs.) A per-record rejection is NOT an
+    unexpected error (it is a reported, deliberate skip) and does not roll back
+    the accepted records.
     """
     if not isinstance(payload, dict):
         raise ValueError("import payload must be a JSON object")
@@ -175,75 +212,157 @@ def import_payload(
     if bundles_only:
         records = []
 
+    # Preview: classify every record as new / duplicate / invalid BEFORE writing,
+    # so an operator can see exactly what an import would do.
+    preview: dict[str, Any] = {"new": 0, "duplicate": 0, "invalid": 0, "superseding": 0}
+    preview_items: list[dict[str, Any]] = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict) or not str(record.get("content") or "").strip():
+            preview["invalid"] += 1
+            preview_items.append({"index": index, "kind": "invalid"})
+            continue
+        existing = None
+        try:
+            signature = _signature(
+                str(record.get("memoryType") or "semantic"),
+                str(record.get("scope") or "general"),
+                record.get("scopeId"), record.get("subject"),
+                str(record["content"]).strip(),
+            )
+            existing = service._find_duplicate(signature)
+        except Exception:  # noqa: BLE001 - a preview must never fail the import
+            existing = None
+        if existing:
+            preview["duplicate"] += 1
+            preview_items.append({"index": index, "kind": "duplicate", "existingId": existing.get("id")})
+        else:
+            preview["new"] += 1
+            preview_items.append({"index": index, "kind": "new"})
+
+    if dry_run:
+        return {
+            "imported": preview["new"] + preview["duplicate"], "skipped": preview["duplicate"],
+            "rejected": [{"reason": "not applied (dry run)"}] if preview["invalid"] else [],
+            "dryRun": True, "importedIds": [],
+            "importedBundles": 0, "importedProjectTrust": 0,
+            "checksumOk": checksum_ok,
+            "filters": {"scope": scope_filter, "type": type_filter, "bundlesOnly": bundles_only},
+            "importable": preview["new"],
+            "preview": {**preview, "items": preview_items[:200]},
+        }
+
     seen: set[str] = set()
     imported = 0
     skipped = 0
     rejected: list[dict[str, Any]] = []
     imported_ids: list[str] = []
-
-    for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            rejected.append({"index": index, "reason": "record is not an object"})
-            continue
-        content = str(record.get("content") or "").strip()
-        if not content:
-            rejected.append({"index": index, "reason": "empty content"})
-            continue
-        memory_type = str(record.get("memoryType") or "semantic")
-        scope = str(record.get("scope") or "general")
-        scope_id = record.get("scopeId")
-        subject = record.get("subject")
-        signature = _signature(memory_type, scope, scope_id, subject, content)
-        # Duplicate within the file.
-        if signature in seen:
-            skipped += 1
-            continue
-        seen.add(signature)
-        # Duplicate of an existing active memory: skip (idempotent re-import).
-        if service._find_duplicate(signature):
-            skipped += 1
-            continue
-        if dry_run:
-            imported += 1
-            continue
-        try:
-            # Run the SAME shared decision gate as any other write, so privacy
-            # (secrets/credentials/dumps), financial-fact and content rules apply
-            # to an imported record exactly as to a normal one.
-            from .decision import authorize_proposal  # noqa: PLC0415
-
-            decision = authorize_proposal(
-                content=content, provenance="ui_save",
-                user_id=scope_id, memory_type=memory_type, scope=scope,
-                scope_id=scope_id, subject=subject,
-                confidence=float(record.get("confidence") or 0.6),
-                settings=service.policy.get_all(),
-            )
-            if decision.outcome != "save":
-                rejected.append({"index": index, "reason": decision.reason or "rejected by policy"})
-                continue
-            # The import provenance is a permitted source (see service.VALID_SOURCES).
-            memory = service.write_memory(
-                memory_type=memory_type, content=content, source=source,
-                scope=scope, scope_id=scope_id, subject=subject,
-                confidence=float(record.get("confidence") or 0.6),
-                importance=float(record.get("importance") or 0.5),
-                verification=str(record.get("verification") or "unverified"),
-                structured_data=record.get("structuredData"),
-            )
-            imported += 1
-            imported_ids.append(memory["id"])
-        except Exception as exc:  # noqa: BLE001 - a bad record is reported, not fatal
-            rejected.append({"index": index, "reason": str(exc)})
-
-    # Bundles and project trust are control-plane references, not memory content.
-    # They are imported verbatim (they carry no secrets and are validated for
-    # shape); project trust is imported as data only — a restored trust record
-    # simply re-affirms a decision the operator already made on the source
-    # machine. Neither path can enable a skill.
     imported_bundles = 0
     imported_trust = 0
-    if not dry_run:
+    imported_evaluations = 0
+    audit_restored = 0
+
+    db = getattr(getattr(service, "store", None), "_db", None)
+
+    # Atomicity: SQLite savepoints do not survive the per-write COMMIT inside
+    # `write_memory`, so a SAVEPOINT cannot make the import atomic here. Instead,
+    # snapshot the tables an import can touch and restore them verbatim if an
+    # UNEXPECTED error occurs, so a failed import leaves no partial state. A
+    # per-record rejection is a reported, deliberate skip, not a failure.
+    _IMPORT_TABLES = (
+        "MemoryRecord", "MemoryEvidence", "MemoryLink", "MemoryEvent",
+        "SkillBundle", "ProjectSkillTrust", "SkillEvaluation",
+        "SkillEvaluationCase", "SkillVersion",
+    )
+
+    def _snapshot() -> dict[str, tuple[list[str], list[tuple]]]:
+        snapshot: dict[str, tuple[list[str], list[tuple]]] = {}
+        if db is None:
+            return snapshot
+        existing = {
+            row[0] for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table in _IMPORT_TABLES:
+            if table not in existing:
+                continue
+            try:
+                rows = db.execute(f"SELECT * FROM {table}").fetchall()
+                columns = [d[0] for d in db.execute(f"SELECT * FROM {table} LIMIT 0").description]
+                # sqlite3.Row rows -> plain tuples for re-insert.
+                snapshot[table] = (columns, [tuple(r) for r in rows])
+            except Exception:  # noqa: BLE001 - a snapshot failure disables rollback
+                return {}
+        return snapshot
+
+    def _restore(snapshot: dict[str, tuple[list[str], list[tuple]]]) -> None:
+        if db is None or not snapshot:
+            return
+        for table, (columns, rows) in snapshot.items():
+            try:
+                db.execute(f"DELETE FROM {table}")
+                if rows:
+                    placeholders = ",".join("?" for _ in columns)
+                    col_sql = ",".join(columns)
+                    db.executemany(
+                        f"INSERT INTO {table} ({col_sql}) VALUES ({placeholders})", rows,
+                    )
+            except Exception:  # noqa: BLE001 - best-effort restore
+                continue
+        db.commit()
+
+    def _apply() -> None:
+        nonlocal imported, skipped, imported_bundles, imported_trust
+        nonlocal imported_evaluations, audit_restored
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                rejected.append({"index": index, "reason": "record is not an object"})
+                continue
+            content = str(record.get("content") or "").strip()
+            if not content:
+                rejected.append({"index": index, "reason": "empty content"})
+                continue
+            memory_type = str(record.get("memoryType") or "semantic")
+            scope = str(record.get("scope") or "general")
+            scope_id = record.get("scopeId")
+            subject = record.get("subject")
+            signature = _signature(memory_type, scope, scope_id, subject, content)
+            if signature in seen:
+                skipped += 1
+                continue
+            seen.add(signature)
+            if service._find_duplicate(signature):
+                skipped += 1
+                continue
+            try:
+                from .decision import authorize_proposal  # noqa: PLC0415
+
+                decision = authorize_proposal(
+                    content=content, provenance="ui_save",
+                    user_id=scope_id, memory_type=memory_type, scope=scope,
+                    scope_id=scope_id, subject=subject,
+                    confidence=float(record.get("confidence") or 0.6),
+                    settings=service.policy.get_all(),
+                )
+                if decision.outcome != "save":
+                    rejected.append({"index": index, "reason": decision.reason or "rejected by policy"})
+                    continue
+                memory = service.write_memory(
+                    memory_type=memory_type, content=content, source=source,
+                    scope=scope, scope_id=scope_id, subject=subject,
+                    confidence=float(record.get("confidence") or 0.6),
+                    importance=float(record.get("importance") or 0.5),
+                    verification=str(record.get("verification") or "unverified"),
+                    structured_data=record.get("structuredData"),
+                )
+                imported += 1
+                imported_ids.append(memory["id"])
+            except Exception as exc:  # noqa: BLE001 - a bad record is reported, not fatal
+                rejected.append({"index": index, "reason": str(exc)})
+
+        # Bundles and project trust are control-plane references, not memory
+        # content. They are imported verbatim (they carry no secrets and are
+        # validated for shape); project trust is imported as data only.
         for bundle in payload.get("bundles") or []:
             if not isinstance(bundle, dict) or not bundle.get("id"):
                 continue
@@ -259,6 +378,8 @@ def import_payload(
                     provenance=str(bundle.get("provenance") or "imported"),
                     version=str(bundle.get("version") or "1.0.0"),
                     member_versions=dict(bundle.get("memberVersions") or {}),
+                    member_hashes=dict(bundle.get("memberHashes") or {}),
+                    lock_history=list(bundle.get("lockHistory") or []),
                     locked=bool(bundle.get("locked")),
                 )
                 service.store.save_skill_bundle(parsed.to_dict())
@@ -273,24 +394,71 @@ def import_payload(
             try:
                 service.store.set_project_trust(
                     str(trust["path"]), bool(trust.get("trusted")), note=trust.get("note"),
+                    content_hash=trust.get("trustedHash"),
+                    content_hashes=trust.get("contentHashes") or {},
                 )
                 imported_trust += 1
             except Exception:  # noqa: BLE001
                 continue
 
-    if not dry_run and (imported or imported_bundles or imported_trust):
+        # Evaluation history is preserved so a restore keeps the promotion
+        # evidence that gated a version. Re-inserted idempotently per (skill,
+        # version, createdAt) is not attempted; evaluations are append-only rows.
+        for evaluation in payload.get("evaluations") or []:
+            if not isinstance(evaluation, dict) or not evaluation.get("skillId"):
+                continue
+            try:
+                service.store.save_evaluation(
+                    skill_id=str(evaluation["skillId"]),
+                    version=str(evaluation.get("version") or "1.0.0"),
+                    status=str(evaluation.get("status") or "unknown"),
+                    evaluator=str(evaluation.get("evaluator") or "imported"),
+                    summary=evaluation.get("summary"),
+                    dimensions=list(evaluation.get("dimensions") or []),
+                )
+                imported_evaluations += 1
+            except Exception:  # noqa: BLE001 - a bad evaluation is skipped
+                continue
+
+        # The memory audit trail is restored as events (evidence/provenance),
+        # not replayed as writes.
+        for event in payload.get("audit") or []:
+            if not isinstance(event, dict) or not event.get("type"):
+                continue
+            try:
+                service.store.append_memory_event(
+                    f"import.{event['type']}", memory_id=event.get("memoryId"),
+                    run_id=event.get("runId"), data=event.get("data"),
+                )
+                audit_restored += 1
+            except Exception:  # noqa: BLE001
+                continue
+
+    _snapshot_before = _snapshot() if atomic else {}
+    try:
+        _apply()
+    except Exception:
+        _restore(_snapshot_before)
+        raise
+
+    if imported or imported_bundles or imported_trust or imported_evaluations or audit_restored:
         service.store.append_memory_event(
-            "memory.imported", data={"imported": imported, "skipped": skipped,
-                                     "rejected": len(rejected), "source": source,
-                                     "bundles": imported_bundles, "projectTrust": imported_trust},
+            "memory.imported", data={
+                "imported": imported, "skipped": skipped,
+                "rejected": len(rejected), "source": source,
+                "bundles": imported_bundles, "projectTrust": imported_trust,
+                "evaluations": imported_evaluations, "audit": audit_restored,
+            },
         )
     return {
         "imported": imported, "skipped": skipped, "rejected": rejected,
-        "dryRun": dry_run, "importedIds": imported_ids,
+        "dryRun": False, "importedIds": imported_ids,
         "importedBundles": imported_bundles, "importedProjectTrust": imported_trust,
+        "importedEvaluations": imported_evaluations, "auditRestored": audit_restored,
         "checksumOk": checksum_ok,
         "filters": {"scope": scope_filter, "type": type_filter, "bundlesOnly": bundles_only},
-        "importable": imported,  # for dry-run previews
+        "importable": imported,
+        "preview": {**preview, "items": preview_items[:200]},
     }
 
 

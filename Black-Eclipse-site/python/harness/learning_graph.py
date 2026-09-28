@@ -248,7 +248,45 @@ def build_learning_journey(
         if promotion.get("skillId"):
             link(f"skill:{promotion['skillId']}", pid, "promoted_from")
 
+    # ── Skill executions (Phase 5 freshness: show activity since learning) ───
+    # Each execution is a derived node linked to the version it used and the
+    # session it belongs to. Bounded; never writes.
+    try:
+        executions = store.list_executions(limit=MAX_NODES)
+    except Exception:  # noqa: BLE001
+        executions = []
+    for execution in executions:
+        eid = f"execution:{execution.get('runId') or execution.get('id')}"
+        skill_id = execution.get("skillId")
+        version = execution.get("version")
+        add(GraphNode(
+            id=eid, kind="execution",
+            label=_label(f"{skill_id or 'skill'}@{version or '?'}"),
+            status=execution.get("status", "running"), createdAt=execution.get("createdAt"),
+            meta={
+                "skillId": skill_id, "version": version,
+                "outputValidated": execution.get("outputValidated"),
+            },
+        ))
+        if skill_id and version:
+            link(eid, f"skill:{skill_id}@{version}", "used_in")
+        if execution.get("parentRunId"):
+            link(eid, f"session:{execution['parentRunId']}", "created_from")
+
     # ── Resolve edges (both endpoints must exist) + filters ──────────────────
+    # A referenced session/run target that never got its own node would silently
+    # drop the provenance edge. Materialise a bounded placeholder session node for
+    # each referenced run so the chain stays visible (derived only; no content).
+    session_targets: list[str] = []
+    for source, target, _relation in pending_edges:
+        if target.startswith("session:") and target not in nodes:
+            session_targets.append(target)
+    for target in sorted(set(session_targets)):
+        if len(nodes) >= MAX_NODES:
+            break
+        add(GraphNode(id=target, kind="session", label=target.split(":", 1)[1][:MAX_LABEL_CHARS],
+                      status="referenced"))
+
     for source, target, relation in pending_edges:
         if len(edges) >= MAX_EDGES:
             break
@@ -287,7 +325,6 @@ def build_learning_journey(
             "truncated": len(nodes) >= MAX_NODES or len(edges) >= MAX_EDGES,
         },
     }
-
 
 __all__ = [
     "EDGE_RELATIONS",

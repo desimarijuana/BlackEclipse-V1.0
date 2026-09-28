@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
   let id: string;
   try {
-    id = await startChatRun(query, history, documents, runId);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

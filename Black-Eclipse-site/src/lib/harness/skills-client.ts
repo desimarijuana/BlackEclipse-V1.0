@@ -17,9 +17,11 @@ import type {
   LearningJourney,
   OnboardingContent,
   ProjectSkillStatus,
+  ProjectTrustApproval,
   SkillBundle,
   SkillBundleListResponse,
   SkillBundleResolution,
+  BundleUpdatePreview,
   SkillDetail,
   SkillPromotionEvidence,
   SkillQualityComparison,
@@ -111,10 +113,10 @@ export async function trustProjectSkill(path?: string, note?: string): Promise<v
   });
 }
 
-export async function approveProjectSkill(path?: string, note?: string): Promise<void> {
+export async function approveProjectSkill(path?: string, note?: string, skillIds?: string[]): Promise<void> {
   await request(`/skills/project/approve`, {
     method: "POST",
-    body: JSON.stringify({ path, note }),
+    body: JSON.stringify({ path, note, skillIds }),
   });
 }
 
@@ -123,6 +125,15 @@ export async function untrustProjectSkill(path?: string): Promise<void> {
     method: "POST",
     body: JSON.stringify({ path }),
   });
+}
+
+export async function projectTrustHistory(path?: string): Promise<ProjectTrustApproval[]> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  const body = await request<{ success: true; history: ProjectTrustApproval[] }>(
+    `/skills/project/history${query}`,
+    { method: "GET" }
+  );
+  return body.history ?? [];
 }
 
 export async function learningJourney(params: { kind?: string; status?: string; since?: string } = {}): Promise<LearningJourney> {
@@ -192,6 +203,14 @@ export async function lockSkillBundle(bundleId: string): Promise<{ ok: boolean }
 
 export async function unlockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
   return request(`/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "DELETE" });
+}
+
+export async function bundleUpdatePreview(bundleId: string): Promise<BundleUpdatePreview> {
+  return request(`/skill-bundles/${encodeURIComponent(bundleId)}/update-preview`, { method: "GET" });
+}
+
+export async function rollbackSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return request(`/skill-bundles/${encodeURIComponent(bundleId)}/rollback`, { method: "POST" });
 }
 
 export async function deleteSkillBundle(bundleId: string): Promise<void> {

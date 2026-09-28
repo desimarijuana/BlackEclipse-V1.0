@@ -52,8 +52,10 @@ class ProjectSkillRoot:
     """One discovered project root and the trust state of its skill directory.
 
     `drift` is True when the root is trusted but its content identity no longer
-    matches the hash recorded at trust time — the skills are quarantined (not
-    loaded) until an operator re-approves.
+    matches the hash recorded at trust time. With per-skill identity, only the
+    CHANGED skills are quarantined (`changed_skill_ids`); unchanged skills still
+    load. Without per-skill identity (a legacy root-level trust row) the whole
+    root is quarantined, preserving the previous behavior.
     """
 
     path: str
@@ -64,6 +66,12 @@ class ProjectSkillRoot:
     drift: bool = False
     trusted_hash: Optional[str] = None
     current_hash: Optional[str] = None
+    # Per-skill identity (Phase 2 final hardening).
+    changed_skill_ids: list[str] = field(default_factory=list)
+    quarantined_skill_ids: list[str] = field(default_factory=list)
+    unchanged_skill_ids: list[str] = field(default_factory=list)
+    per_skill_hashes: dict[str, str] = field(default_factory=dict)
+    approved_hashes: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +83,11 @@ class ProjectSkillRoot:
             "drift": self.drift,
             "trustedHash": self.trusted_hash,
             "currentHash": self.current_hash,
+            "changedSkillIds": self.changed_skill_ids,
+            "quarantinedSkillIds": self.quarantined_skill_ids,
+            "unchangedSkillIds": self.unchanged_skill_ids,
+            "perSkillHashes": self.per_skill_hashes,
+            "approvedHashes": self.approved_hashes,
         }
 
 
@@ -82,8 +95,9 @@ class ProjectSkillRoot:
 class ProjectDiscovery:
     """The result of scanning a project root for skills.
 
-    `trusted_skills` are loadable (the root is trusted); `notices` describe
-    untrusted roots (names only — contents are never read).
+    `trusted_skills` are loadable (the root is trusted and each skill is either
+    unchanged or re-approved); `notices` describe untrusted roots (names only —
+    contents are never read) and changed-skill quarantine.
     """
 
     root: Optional[str]
@@ -92,6 +106,11 @@ class ProjectDiscovery:
     trusted_skills: list[LoadedSkill] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     drift: bool = False
+    # Per-skill drift (Phase 2 final hardening): the changed skills held back and
+    # the unchanged skills still loaded.
+    changed_skill_ids: list[str] = field(default_factory=list)
+    quarantined_skill_ids: list[str] = field(default_factory=list)
+    unchanged_skill_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +119,9 @@ class ProjectDiscovery:
             "drift": self.drift,
             "roots": [r.to_dict() for r in self.roots],
             "trustedSkillIds": [s.manifest.id for s in self.trusted_skills],
+            "changedSkillIds": self.changed_skill_ids,
+            "quarantinedSkillIds": self.quarantined_skill_ids,
+            "unchangedSkillIds": self.unchanged_skill_ids,
             "notices": self.notices,
         }
 
@@ -148,27 +170,52 @@ def is_trusted(store: Any, root: str) -> bool:
 
 
 def trust_root(
-    store: Any, root: str, *, note: Optional[str] = None,
+    store: Any, root: str, *, note: Optional[str] = None, actor: Optional[str] = None,
+    skill_ids: Optional[list[str]] = None, level: str = "root",
 ) -> ProjectSkillRoot:
     """Record explicit trust for a project root, capturing its content identity.
 
     The captured hash is the baseline a later change is compared against; an
-    approval after drift uses the same path so it re-baselines. Operator-gated at
-    the API.
+    approval after drift uses the same path so it re-baselines. Both the
+    root-level hash and a per-skill hash map are stored so a later change can be
+    narrowed to the affected skill(s). Every decision is appended to the
+    approval history (`actor` is an operator transport label, never a body
+    identity). Operator-gated at the API.
+
+    `skill_ids`/`level` let a per-skill re-approval be recorded distinctly
+    (`level='skill'`), though re-approval always re-baselines the whole root so
+    the identity is consistent.
     """
     path = os.path.abspath(root)
+    hashes = per_skill_hashes(path)
     store.set_project_trust(
-        canonical_root(path), True, note=note, content_hash=root_content_hash(path),
+        canonical_root(path), True, note=note,
+        content_hash=root_content_hash(path), content_hashes=hashes,
     )
+    try:
+        store.record_project_approval(
+            canonical_root(path), "approve", level=level, actor=actor,
+            approved_hash=root_content_hash(path), content_hashes=hashes,
+            skill_ids=skill_ids or sorted(hashes.keys()), note=note,
+        )
+    except Exception:  # noqa: BLE001 - history is best-effort, never blocks trust
+        pass
     return _scan_root(store, path)
 
 
-def untrust_root(store: Any, root: str) -> ProjectSkillRoot:
+def untrust_root(store: Any, root: str, *, actor: Optional[str] = None) -> ProjectSkillRoot:
     """Revoke trust. Immediately stops project-skill injection on next load."""
     path = os.path.abspath(root)
     store.set_project_trust(
         canonical_root(path), False, content_hash=root_content_hash(path),
     )
+    try:
+        store.record_project_approval(
+            canonical_root(path), "untrust", level="root", actor=actor,
+            approved_hash=None, skill_ids=[],
+        )
+    except Exception:  # noqa: BLE001 - history is best-effort
+        pass
     return _scan_root(store, path)
 
 
@@ -203,6 +250,70 @@ def _load_project_skills(skills_dir: str) -> tuple[list[LoadedSkill], list[str],
     return skills, ids, errors
 
 
+def _skill_identity(folder: str) -> tuple[Optional[str], Optional[str]]:
+    """(skillId, contentHash) for one project skill folder, or (None, None).
+
+    The content hash covers `skill.json` **and** each declared instruction file
+    (e.g. `SKILL.md`), so a prose change counts as a content change. `skillId` is
+    read from the manifest so identity survives a folder rename.
+    """
+    manifest_path = os.path.join(folder, "skill.json")
+    if not os.path.isfile(manifest_path):
+        return None, None
+    try:
+        with open(manifest_path, "rb") as handle:
+            manifest_bytes = handle.read()
+    except OSError:
+        return None, None
+    try:
+        import json as _json  # noqa: PLC0415
+
+        declared = _json.loads(manifest_bytes).get("instructions")
+        skill_id = _json.loads(manifest_bytes).get("id")
+    except (ValueError, TypeError):
+        declared = None
+        skill_id = None
+    digest = hashlib.sha256()
+    digest.update(manifest_bytes)
+    candidates = [declared] if isinstance(declared, str) and declared else []
+    if not candidates:
+        for default in ("SKILL.md", "skill.md"):
+            if os.path.isfile(os.path.join(folder, default)):
+                candidates.append(default)
+                break
+    for rel in candidates:
+        instr_path = os.path.join(folder, rel)
+        if os.path.isfile(instr_path):
+            try:
+                with open(instr_path, "rb") as handle:
+                    digest.update(rel.encode("utf-8"))
+                    digest.update(b"\0")
+                    digest.update(handle.read())
+            except OSError:
+                pass
+    return (str(skill_id) if skill_id else None), digest.hexdigest()[:16]
+
+
+def per_skill_hashes(root: str) -> dict[str, str]:
+    """A `{skillId: contentHash}` map for every project skill under a root.
+
+    Bounded and content-derived (manifest + prose). Used as the per-skill trust
+    baseline so a later change can be attributed to the affected skill(s).
+    """
+    out: dict[str, str] = {}
+    skills_dir = _skills_dir(os.path.abspath(root))
+    if not skills_dir or not os.path.isdir(skills_dir):
+        return out
+    for name in sorted(os.listdir(skills_dir))[:MAX_PROJECT_SKILLS]:
+        folder = os.path.join(skills_dir, name)
+        if not os.path.isdir(folder):
+            continue
+        skill_id, content_hash = _skill_identity(folder)
+        if skill_id and content_hash:
+            out[skill_id] = content_hash
+    return out
+
+
 def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
     path = os.path.abspath(root)
     skills_dir = _skills_dir(path) or os.path.join(path, PROJECT_SKILL_SUBDIRS[0])
@@ -213,6 +324,7 @@ def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
         except Exception:  # noqa: BLE001 - a trust lookup failure fails closed
             record = None
     trusted = bool(record and record.get("trusted"))
+    current_hashes = per_skill_hashes(path)
     if not trusted:
         # Never read skill contents for an untrusted root — names only, and even
         # the name listing is best-effort/skippable.
@@ -228,33 +340,66 @@ def _scan_root(store: Any, root: str) -> ProjectSkillRoot:
         return ProjectSkillRoot(
             path=path, trusted=False, skills_dir=skills_dir, skill_ids=ids,
             current_hash=root_content_hash(path),
+            per_skill_hashes=current_hashes,
         )
 
     current_hash = root_content_hash(path)
     trusted_hash = record.get("trustedHash") if record else None
-    # Drift: a trusted root whose content no longer matches the recorded
-    # identity is quarantined. A legacy trust row with no stored hash is treated
-    # as trusted (back-compat) but re-baselines on the next trust/approve.
-    drift = bool(trusted_hash) and trusted_hash != current_hash
-    if drift:
-        # Quarantine: report the skill names but load NOTHING until re-approved.
-        ids = sorted(
-            n for n in (os.listdir(skills_dir) if os.path.isdir(skills_dir) else [])
-            if os.path.isfile(os.path.join(skills_dir, n, "skill.json"))
-        )
+    approved_hashes = {}
+    if record and isinstance(record.get("contentHashes"), dict):
+        approved_hashes = {str(k): str(v) for k, v in record["contentHashes"].items()}
+    root_drift = bool(trusted_hash) and trusted_hash != current_hash
+
+    if not approved_hashes:
+        # Legacy/root-level trust with no per-skill identity: quarantine the whole
+        # root when it changed (previous behavior, fail-closed).
+        if root_drift:
+            ids = sorted(
+                n for n in (os.listdir(skills_dir) if os.path.isdir(skills_dir) else [])
+                if os.path.isfile(os.path.join(skills_dir, n, "skill.json"))
+            )
+            return ProjectSkillRoot(
+                path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids,
+                drift=True, trusted_hash=trusted_hash, current_hash=current_hash,
+                quarantined_skill_ids=list(current_hashes.keys()) or ids,
+                per_skill_hashes=current_hashes,
+                errors=[
+                    "project skills changed since trust was granted; they are "
+                    "quarantined until the project is re-approved"
+                ],
+            )
+        skills, ids, errors = _load_project_skills(skills_dir)
         return ProjectSkillRoot(
-            path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids,
-            drift=True, trusted_hash=trusted_hash, current_hash=current_hash,
-            errors=[
-                "project skills changed since trust was granted; they are "
-                "quarantined until the project is re-approved"
-            ],
+            path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids, errors=errors,
+            drift=False, trusted_hash=trusted_hash, current_hash=current_hash,
+            per_skill_hashes=current_hashes,
         )
 
-    skills, ids, errors = _load_project_skills(skills_dir)
+    # Per-skill identity is present: quarantine only the changed/new skills.
+    changed: list[str] = []
+    unchanged: list[str] = []
+    for skill_id, content_hash in current_hashes.items():
+        approved = approved_hashes.get(skill_id)
+        if approved is not None and approved == content_hash:
+            unchanged.append(skill_id)
+        else:
+            # Newly added (no approved hash) OR changed: require re-approval.
+            changed.append(skill_id)
+    drift = bool(changed)
+    ids = sorted(current_hashes.keys())
     return ProjectSkillRoot(
-        path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids, errors=errors,
-        drift=False, trusted_hash=trusted_hash, current_hash=current_hash,
+        path=path, trusted=True, skills_dir=skills_dir, skill_ids=ids,
+        drift=drift, trusted_hash=trusted_hash, current_hash=current_hash,
+        changed_skill_ids=sorted(changed),
+        quarantined_skill_ids=sorted(changed),
+        unchanged_skill_ids=sorted(unchanged),
+        per_skill_hashes=current_hashes,
+        approved_hashes=approved_hashes,
+        errors=(
+            ["project skills changed since approval; changed skills are "
+             "quarantined until re-approved: " + ", ".join(sorted(changed))]
+            if changed else []
+        ),
     )
 
 
@@ -267,6 +412,9 @@ def discover_project_skills(
     When `project_discovery` is False the feature is off entirely: no scan, no
     notice (the global opt-out). An untrusted root yields a *notice only* —
     the skill list is reported but nothing is loaded.
+
+    With per-skill identity, a changed skill is quarantined on its own: unchanged
+    skills still load, and only the changed skill(s) require re-approval.
     """
     if not project_discovery or not root:
         return ProjectDiscovery(root=root)
@@ -277,6 +425,9 @@ def discover_project_skills(
         trusted_root=root_state.trusted,
         roots=[root_state],
         drift=root_state.drift,
+        changed_skill_ids=list(root_state.changed_skill_ids),
+        quarantined_skill_ids=list(root_state.quarantined_skill_ids),
+        unchanged_skill_ids=list(root_state.unchanged_skill_ids),
     )
     if not root_state.trusted:
         if root_state.skill_ids:
@@ -287,8 +438,22 @@ def discover_project_skills(
             )
         return discovery
     if root_state.drift:
-        # Quarantined: a trusted root changed. Nothing is loaded; the operator
-        # must re-approve. This cannot be suppressed by the skill content.
+        if root_state.quarantined_skill_ids and root_state.unchanged_skill_ids:
+            # Per-skill quarantine: load only the unchanged skills.
+            all_skills, _, errors = _load_project_skills(root_state.skills_dir)
+            changed = set(root_state.quarantined_skill_ids)
+            discovery.trusted_skills = [
+                s for s in all_skills if s.manifest.id not in changed
+            ]
+            discovery.notices.append(
+                "changed project skill(s) are quarantined and not loaded until "
+                "re-approved: " + ", ".join(root_state.quarantined_skill_ids)
+            )
+            for error in [*root_state.errors, *errors]:
+                if error not in discovery.notices:
+                    discovery.notices.append(error)
+            return discovery
+        # Legacy/root-level quarantine: nothing loads (fail closed).
         discovery.notices.append(
             f"project skills in {root_path} changed since trust was granted and "
             "are quarantined — review and re-approve the project to enable them."
@@ -302,6 +467,40 @@ def discover_project_skills(
     return discovery
 
 
+def changed_skill_review(store: Any, root: str) -> dict[str, Any]:
+    """A content-free review of what changed under a trusted root.
+
+    Reports, per skill: the approved hash, the current hash, and whether it
+    changed. The full content is never returned — only hashes and ids — so the
+    review is safe to surface broadly. Deterministic; never loads or executes
+    anything.
+    """
+    state = _scan_root(store, root)
+    changes: list[dict[str, Any]] = []
+    for skill_id, current in sorted(state.per_skill_hashes.items()):
+        approved = state.approved_hashes.get(skill_id)
+        status = "unchanged" if approved == current else ("new" if approved is None else "changed")
+        changes.append({
+            "skillId": skill_id, "status": status,
+            "approvedHash": approved, "currentHash": current,
+        })
+    # Skills present at approval but now missing.
+    for skill_id in sorted(set(state.approved_hashes) - set(state.per_skill_hashes)):
+        changes.append({
+            "skillId": skill_id, "status": "removed",
+            "approvedHash": state.approved_hashes[skill_id], "currentHash": None,
+        })
+    return {
+        "path": state.path,
+        "trusted": state.trusted,
+        "drift": state.drift,
+        "changedSkillIds": state.changed_skill_ids,
+        "quarantinedSkillIds": state.quarantined_skill_ids,
+        "unchangedSkillIds": state.unchanged_skill_ids,
+        "changes": changes,
+    }
+
+
 def drift_status(store: Any, root: str) -> dict[str, Any]:
     """Bounded, content-free drift status for a project root (for the UI)."""
     state = _scan_root(store, root)
@@ -312,6 +511,11 @@ def drift_status(store: Any, root: str) -> dict[str, Any]:
         "trustedHash": state.trusted_hash,
         "currentHash": state.current_hash,
         "skillIds": state.skill_ids,
+        "changedSkillIds": state.changed_skill_ids,
+        "quarantinedSkillIds": state.quarantined_skill_ids,
+        "unchangedSkillIds": state.unchanged_skill_ids,
+        "perSkillHashes": state.per_skill_hashes,
+        "approvedHashes": state.approved_hashes,
     }
 
 
@@ -372,10 +576,12 @@ __all__ = [
     "ProjectDiscovery",
     "ProjectSkillRoot",
     "canonical_root",
+    "changed_skill_review",
     "discover_project_skills",
     "drift_status",
     "find_project_root",
     "is_trusted",
+    "per_skill_hashes",
     "root_content_hash",
     "trust_root",
     "untrust_root",

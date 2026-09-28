@@ -1264,14 +1264,15 @@ class EclipseMemoryStore:
         self._db.execute(
             """INSERT INTO SkillBundle
                (id, name, description, skills, instruction, constraints, provenance,
-                version, memberVersions, locked, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                version, memberVersions, memberHashes, lockHistory, locked, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  name=excluded.name, description=excluded.description, skills=excluded.skills,
                  instruction=excluded.instruction, constraints=excluded.constraints,
                  provenance=excluded.provenance, version=excluded.version,
-                 memberVersions=excluded.memberVersions, locked=excluded.locked,
-                 updatedAt=excluded.updatedAt""",
+                 memberVersions=excluded.memberVersions, memberHashes=excluded.memberHashes,
+                 lockHistory=excluded.lockHistory,
+                 locked=excluded.locked, updatedAt=excluded.updatedAt""",
             (
                 bundle["id"], bundle.get("name") or bundle["id"], bundle.get("description") or "",
                 json.dumps(list(bundle.get("skills") or [])[:12]),
@@ -1279,6 +1280,8 @@ class EclipseMemoryStore:
                 (bundle.get("constraints") or "")[:800], bundle.get("provenance") or "manual",
                 bundle.get("version") or "1.0.0",
                 json.dumps(bundle.get("memberVersions") or {}),
+                json.dumps(bundle.get("memberHashes") or {}),
+                json.dumps(list(bundle.get("lockHistory") or [])[:10]),
                 1 if bundle.get("locked") else 0,
                 created_at, now,
             ),
@@ -1368,6 +1371,7 @@ class EclipseMemoryStore:
     def set_project_trust(
         self, path: str, trusted: bool, *, note: Optional[str] = None,
         content_hash: Optional[str] = None,
+        content_hashes: Optional[dict[str, str]] = None,
     ) -> None:
         """Record an explicit trust decision for one project root path.
 
@@ -1375,28 +1379,97 @@ class EclipseMemoryStore:
         of the decision. Never auto-created from a discovered repo. When
         `content_hash` is supplied on trust/approval it is stored as the
         `trustedHash` — the identity the root must still match to remain
-        un-quarantined. On revoke, the current hash is stored as `revokedHash` so
-        the change is auditable, and `trustedHash` is cleared.
+        un-quarantined. `content_hashes` optionally records the per-skill hash map
+        so a later change can be narrowed to the affected skill(s). On revoke, the
+        current hash is stored as `revokedHash` so the change is auditable, and
+        `trustedHash` is cleared.
         """
+        hashes_json = json.dumps(content_hashes or {}, sort_keys=True)
         if trusted:
             self._db.execute(
-                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash)
-                   VALUES (?, 1, ?, ?, ?)
+                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash, contentHashes)
+                   VALUES (?, 1, ?, ?, ?, ?)
                    ON CONFLICT(path) DO UPDATE SET
                      trusted=1, trustedAt=excluded.trustedAt, note=excluded.note,
-                     trustedHash=excluded.trustedHash, revokedHash=NULL""",
-                (path, now_iso(), note, content_hash),
+                     trustedHash=excluded.trustedHash, contentHashes=excluded.contentHashes,
+                     revokedHash=NULL""",
+                (path, now_iso(), note, content_hash, hashes_json),
             )
         else:
             self._db.execute(
-                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash, revokedHash)
-                   VALUES (?, 0, NULL, ?, NULL, ?)
+                """INSERT INTO ProjectSkillTrust (path, trusted, trustedAt, note, trustedHash, contentHashes, revokedHash)
+                   VALUES (?, 0, NULL, ?, NULL, ?, ?)
                    ON CONFLICT(path) DO UPDATE SET
                      trusted=0, trustedAt=NULL, note=excluded.note,
-                     trustedHash=NULL, revokedHash=excluded.revokedHash""",
-                (path, note, content_hash),
+                     trustedHash=NULL, contentHashes=excluded.contentHashes,
+                     revokedHash=excluded.revokedHash""",
+                (path, note, hashes_json, content_hash),
             )
         self._db.commit()
+
+    def record_project_approval(
+        self,
+        path: str,
+        action: str,
+        *,
+        level: str = "root",
+        actor: Optional[str] = None,
+        approved_hash: Optional[str] = None,
+        content_hashes: Optional[dict[str, str]] = None,
+        skill_ids: Optional[list[str]] = None,
+        note: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Append one trust/approval/revoke decision to the audit history.
+
+        Append-only: the mutable `ProjectSkillTrust` row carries current state,
+        while this table carries *who approved what, when, at which level, and
+        which skills*. `actor` is an operator transport label (there are no
+        accounts) — never a request-body identity.
+        """
+        import uuid  # noqa: PLC0415
+
+        record_id = f"ptapproval_{uuid.uuid4().hex[:16]}"
+        self._db.execute(
+            """INSERT INTO ProjectTrustApproval
+                 (id, path, action, level, actor, approvedHash, contentHashes, skillIds, note, approvedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record_id, path, action, level, actor, approved_hash,
+                json.dumps(content_hashes or {}, sort_keys=True),
+                json.dumps(sorted(skill_ids or [])),
+                note, now_iso(),
+            ),
+        )
+        self._db.commit()
+        return self.get_project_approval(record_id) or {}
+
+    def get_project_approval(self, record_id: str) -> Optional[dict[str, Any]]:
+        try:
+            row = self._db.execute(
+                "SELECT * FROM ProjectTrustApproval WHERE id=?", (record_id,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            return None
+        return _trust_approval_row(row) if row else None
+
+    def list_project_approvals(
+        self, path: Optional[str] = None, *, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Approval history, newest first (optionally one root). Never raises."""
+        try:
+            if path:
+                rows = self._db.execute(
+                    "SELECT * FROM ProjectTrustApproval WHERE path=? ORDER BY approvedAt DESC LIMIT ?",
+                    (path, max(1, limit)),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    "SELECT * FROM ProjectTrustApproval ORDER BY approvedAt DESC LIMIT ?",
+                    (max(1, limit),),
+                ).fetchall()
+        except Exception:  # noqa: BLE001 - pre-migration db has no history
+            return []
+        return [_trust_approval_row(r) for r in rows]
 
     def get_project_trust(self, path: str) -> Optional[dict[str, Any]]:
         try:
@@ -1409,6 +1482,11 @@ class EclipseMemoryStore:
             return None
         record = dict(row)
         record["trusted"] = bool(record.get("trusted"))
+        if record.get("contentHashes"):
+            try:
+                record["contentHashes"] = json.loads(record["contentHashes"])
+            except (TypeError, ValueError):
+                record["contentHashes"] = {}
         return record
 
     def list_project_trust(self) -> list[dict[str, Any]]:
@@ -1422,6 +1500,11 @@ class EclipseMemoryStore:
         for row in rows:
             record = dict(row)
             record["trusted"] = bool(record.get("trusted"))
+            if record.get("contentHashes"):
+                try:
+                    record["contentHashes"] = json.loads(record["contentHashes"])
+                except (TypeError, ValueError):
+                    record["contentHashes"] = {}
             out.append(record)
         return out
 
@@ -1474,6 +1557,20 @@ def _bundle_row(row: sqlite3.Row) -> dict[str, Any]:
             record["memberVersions"] = {}
     else:
         record["memberVersions"] = {}
+    if record.get("memberHashes"):
+        try:
+            record["memberHashes"] = json.loads(record["memberHashes"])
+        except (TypeError, ValueError):
+            record["memberHashes"] = {}
+    else:
+        record["memberHashes"] = {}
+    if record.get("lockHistory"):
+        try:
+            record["lockHistory"] = json.loads(record["lockHistory"])
+        except (TypeError, ValueError):
+            record["lockHistory"] = []
+    else:
+        record["lockHistory"] = []
     record["locked"] = bool(record.get("locked"))
     return record
 
@@ -1485,6 +1582,19 @@ def _profile_row(row: sqlite3.Row) -> dict[str, Any]:
             record["selectedIds"] = json.loads(record["selectedIds"])
         except (TypeError, ValueError):
             record["selectedIds"] = []
+    return record
+
+
+def _trust_approval_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    for key, default in (("contentHashes", {}), ("skillIds", [])):
+        if record.get(key):
+            try:
+                record[key] = json.loads(record[key])
+            except (TypeError, ValueError):
+                record[key] = default
+        else:
+            record[key] = default
     return record
 
 

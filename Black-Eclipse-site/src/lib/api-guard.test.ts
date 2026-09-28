@@ -8,6 +8,7 @@ vi.setSystemTime(FIXED_NOW);
 import {
   checkMutationAllowed,
   checkOutboundUrl,
+  deploymentExposure,
   rateLimit,
 } from "./api-guard";
 
@@ -57,6 +58,39 @@ describe("checkMutationAllowed", () => {
       headers: {},
     });
     expect(checkMutationAllowed(r).allowed).toBe(false);
+  });
+
+  it("does NOT treat the 0.0.0.0 wildcard as a trusted local host", () => {
+    const r = new Request("http://0.0.0.0:3000/api/refresh", { method: "POST", headers: {} });
+    expect(checkMutationAllowed(r).allowed).toBe(false);
+  });
+});
+
+describe("deploymentExposure", () => {
+  it("never claims multi-user safety", () => {
+    expect(deploymentExposure({ CRON_SECRET: "" }).multiUserSafe).toBe(false);
+    expect(deploymentExposure({ CRON_SECRET: "real-secret" }).multiUserSafe).toBe(false);
+  });
+
+  it("flags production without a real secret", () => {
+    const exposure = deploymentExposure({ NODE_ENV: "production", CRON_SECRET: "" });
+    expect(exposure.exposed).toBe(true);
+    expect(exposure.warning).toBeTruthy();
+  });
+
+  it("does not flag a configured secret", () => {
+    const exposure = deploymentExposure({ NODE_ENV: "production", CRON_SECRET: "s3cret" });
+    expect(exposure.exposed).toBe(false);
+    expect(exposure.operatorSecretConfigured).toBe(true);
+  });
+
+  it("ignores the placeholder secret", () => {
+    const exposure = deploymentExposure({
+      NODE_ENV: "production",
+      CRON_SECRET: "change-me-to-a-random-secret",
+    });
+    expect(exposure.operatorSecretConfigured).toBe(false);
+    expect(exposure.exposed).toBe(true);
   });
 });
 

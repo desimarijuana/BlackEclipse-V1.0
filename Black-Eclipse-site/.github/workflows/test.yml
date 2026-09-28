@@ -1,0 +1,85 @@
+name: Test Suite
+
+# The memory/skills program and the rest of the app rely on this suite as the
+# release gate. It runs the same checks AGENTS.md requires locally:
+#   - TypeScript typecheck
+#   - Vitest suite
+#   - Python harness test suite
+#   - the four evaluation gates (retrieval, semantic, contradiction, compaction)
+#
+# The Python agent stack is installed explicitly (rather than trusting the
+# postinstall hook) so a missing or misconfigured hook cannot silently skip the
+# Python half of the suite.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: typecheck · unit · python · evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: Black-Eclipse-site/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python agent stack
+        working-directory: Black-Eclipse-site
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r python/requirements.txt
+
+      - name: Install Node dependencies
+        working-directory: Black-Eclipse-site
+        # --ignore-scripts avoids the postinstall side effects (vendored-Python
+        # provisioning, prisma generate, global link); CI sets up each explicitly.
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        working-directory: Black-Eclipse-site
+        run: npx prisma generate
+
+      - name: Typecheck
+        working-directory: Black-Eclipse-site
+        run: npm run typecheck
+
+      - name: Lint (non-blocking)
+        working-directory: Black-Eclipse-site
+        # The repo carries a backlog of pre-existing lint findings that are
+        # outside this suite's scope. Lint is reported for visibility but must
+        # not red the build; typecheck/tests/evals are the blocking gates.
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Unit tests (Vitest + Python)
+        working-directory: Black-Eclipse-site
+        run: npm test
+
+      - name: Evaluation gates
+        working-directory: Black-Eclipse-site/python
+        # Each gate exits non-zero on a floor violation, so a regression fails CI.
+        run: |
+          python -m harness.eclipse_memory.eval
+          python -m harness.eclipse_memory.eval.semantic_cli
+          python -m harness.eclipse_memory.eval.contradictions_cli
+          python -c "import sys; from harness.eclipse_memory.eval.compaction import run_compaction_eval, check_compaction_thresholds; g=check_compaction_thresholds(run_compaction_eval()); print('compaction gate:', 'PASS' if g['passed'] else 'FAIL', g['failures']); sys.exit(0 if g['passed'] else 1)"

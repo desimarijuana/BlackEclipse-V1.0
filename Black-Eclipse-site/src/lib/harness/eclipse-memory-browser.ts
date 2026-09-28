@@ -465,6 +465,11 @@ export async function importMemory(
   success: boolean; imported: number; skipped: number;
   rejected: Array<{ index: number; reason: string }>; dryRun: boolean;
   importable?: number; checksumOk?: boolean | null;
+  importedEvaluations?: number; auditRestored?: number;
+  preview?: {
+    new: number; duplicate: number; invalid: number; superseding: number;
+    items: Array<{ index: number; kind: string; existingId?: string }>;
+  };
 }> {
   return api("/api/eclipse-memory/import", {
     method: "POST",

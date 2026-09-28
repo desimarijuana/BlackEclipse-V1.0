@@ -256,3 +256,115 @@ def test_drift_event_is_recorded(service, project):
     reg.load_all(project_root=str(project), project_discovery=True)
     events = service.store.list_events(limit=50)
     assert any(e["type"] == "skill.project_drift" for e in events)
+
+
+# -- Per-skill identity + selective quarantine (final hardening) -------------
+
+
+def test_changed_skill_quarantines_only_that_skill(service, project):
+    from harness.skills.project_skills import trust_root
+
+    stable = _write_skill(project, ".black-eclipse/skills", "proj.stable", instructions="unchanged")
+    changing = _write_skill(project, ".black-eclipse/skills", "proj.changing", instructions="v1")
+    trust_root(service.store, str(project))
+
+    (changing / "SKILL.md").write_text("v2 — malicious", encoding="utf-8")
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+
+    # The changed skill is quarantined; the unchanged one still loads.
+    assert reg.manifest("proj.changing") is None
+    assert reg.manifest("proj.stable") is not None
+    assert reg.project_drift() is True
+    assert reg.project_quarantined_ids() == ["proj.changing"]
+    assert reg.project_unchanged_ids() == ["proj.stable"]
+    assert "proj.changing" in reg.project_changed_ids()
+
+
+def test_reapprove_reactivates_changed_skill(service, project):
+    from harness.skills.project_skills import trust_root
+
+    _write_skill(project, ".black-eclipse/skills", "proj.stable", instructions="unchanged")
+    changing = _write_skill(project, ".black-eclipse/skills", "proj.changing", instructions="v1")
+    trust_root(service.store, str(project))
+    (changing / "SKILL.md").write_text("v2", encoding="utf-8")
+
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.changing") is None
+
+    trust_root(service.store, str(project), actor="operator")
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.changing") is not None
+    assert reg.project_drift() is False
+
+
+def test_changed_skill_review_reports_hashes_not_content(service, project):
+    from harness.skills.project_skills import changed_skill_review, trust_root
+
+    changing = _write_skill(project, ".black-eclipse/skills", "proj.deploy", instructions="secret-prose-v1")
+    trust_root(service.store, str(project))
+    (changing / "SKILL.md").write_text("secret-prose-v2", encoding="utf-8")
+
+    review = changed_skill_review(service.store, str(project))
+    assert review["drift"] is True
+    entry = next(c for c in review["changes"] if c["skillId"] == "proj.deploy")
+    assert entry["status"] == "changed"
+    assert entry["approvedHash"] and entry["currentHash"]
+    # Content is never returned — only hashes/ids.
+    assert "secret-prose" not in json.dumps(review)
+
+
+def test_new_skill_under_trusted_root_requires_approval(service, project):
+    from harness.skills.project_skills import trust_root
+
+    _write_skill(project, ".black-eclipse/skills", "proj.first", instructions="a")
+    trust_root(service.store, str(project))
+    _write_skill(project, ".black-eclipse/skills", "proj.added", instructions="b")
+
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.first") is not None
+    assert reg.manifest("proj.added") is None
+    assert "proj.added" in reg.project_quarantined_ids()
+
+
+def test_approval_history_records_who_what_when(service, project):
+    from harness.skills.project_skills import trust_root, untrust_root
+
+    _write_skill(project, ".black-eclipse/skills", "proj.deploy")
+    trust_root(service.store, str(project), actor="operator-a")
+    untrust_root(service.store, str(project), actor="operator-b")
+
+    history = service.store.list_project_approvals()
+    actions = [h["action"] for h in history]
+    assert "approve" in actions and "untrust" in actions
+    approve = next(h for h in history if h["action"] == "approve")
+    assert approve["actor"] == "operator-a"
+    assert approve["level"] == "root"
+    assert approve["approvedHash"]
+    assert "proj.deploy" in approve["skillIds"]
+    assert "proj.deploy" in approve["contentHashes"]
+    untrust = next(h for h in history if h["action"] == "untrust")
+    assert untrust["actor"] == "operator-b"
+
+
+def test_legacy_root_only_trust_quarantines_whole_root(service, project):
+    """A trust row without per-skill identity (pre-migration / legacy) keeps the
+    previous fail-closed whole-root behavior."""
+    from harness.skills.project_skills import canonical_root, root_content_hash
+
+    _write_skill(project, ".black-eclipse/skills", "proj.deploy")
+    # Simulate a legacy row: trustedHash set, no contentHashes.
+    service.store.set_project_trust(
+        canonical_root(str(project)), True,
+        content_hash=root_content_hash(str(project)), content_hashes=None,
+    )
+    # Change a skill without re-approving.
+    (project / ".black-eclipse" / "skills" / "deploy" / "SKILL.md").write_text("changed", encoding="utf-8")
+
+    reg = SkillRegistry(service.store)
+    reg.load_all(project_root=str(project), project_discovery=True)
+    assert reg.manifest("proj.deploy") is None
+    assert reg.project_drift() is True
+

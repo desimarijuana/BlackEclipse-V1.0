@@ -44,7 +44,7 @@ import type { ChartPalette } from "@/lib/chart-palette";
 import { AuroraSettingsPanel } from "./aurora-settings";
 import { ChartSettingsPanel } from "./chart-settings";
 
-type CustomTab = "theme" | "glass" | "aurora" | "charts" | "access";
+type CustomTab = "general" | "theme" | "glass" | "aurora" | "charts" | "access";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -349,7 +349,7 @@ function PreviewLauncher({
   );
 }
 
-export function CustomizationSettingsPanel() {
+export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.ReactNode } = {}) {
   const t = useT();
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
@@ -377,7 +377,7 @@ export function CustomizationSettingsPanel() {
   const setChartPreview = useChartPaletteStore((s) => s.setPreview);
   const setChartPalette = useChartPaletteStore((s) => s.setPalette);
 
-  const [tab, setTab] = useState<CustomTab>("theme");
+  const [tab, setTab] = useState<CustomTab>(generalTab ? "general" : "theme");
   const [draft, setDraft] = useState<EclipseTheme>(theme);
   // When a saved preset carried its own chart/heatmap palette, hold it here so
   // Apply restores that exact palette (including custom series colors) instead
@@ -546,6 +546,7 @@ export function CustomizationSettingsPanel() {
     draft.sidebar.blur === s.blur;
 
   const TABS: { id: CustomTab; label: string; icon: React.ElementType }[] = [
+    ...(generalTab ? [{ id: "general" as CustomTab, label: "General", icon: SlidersHorizontal }] : []),
     { id: "theme", label: "Theme", icon: Palette },
     { id: "glass", label: "Glass & Surfaces", icon: Layers },
     { id: "aurora", label: "Aurora", icon: Sparkles },
@@ -637,6 +638,9 @@ export function CustomizationSettingsPanel() {
           );
         })}
       </div>
+
+      {/* ══ General (startup, market, display + behavior) ══════════════ */}
+      {tab === "general" && generalTab}
 
       {/* ══ Glass & Surfaces ═══════════════════════════════════════════ */}
       {tab === "glass" && (

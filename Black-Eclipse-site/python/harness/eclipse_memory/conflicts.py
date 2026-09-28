@@ -96,11 +96,18 @@ _CONFIRM_OVERLAP = 0.6
 _RELATED_OVERLAP = 2
 
 # Generic preference/profile vocabulary. A token here never counts as a
-# "distinctive value" when deciding confirmation vs contradiction.
+# "distinctive value" when deciding confirmation vs contradiction. Negation and
+# frame/auxiliary words are included because they state POLARITY or framing, not
+# a value: "do not include a disclaimer" vs "never include a disclaimer" is the
+# same statement, and "report on a quarterly basis" vs "keep reporting
+# quarterly" differ only in frame. Content nouns ("report", "reports") are
+# deliberately NOT here — they carry the dimension (Excel-vs-PDF report format).
 _GENERIC_TERMS = frozenset(
     {"user", "preference", "prefer", "prefers", "preferred", "like", "likes",
      "want", "wants", "always", "never", "should", "would", "could", "please",
-     "answer", "style", "response", "format", "use", "using", "keep", "give"}
+     "answer", "style", "response", "format", "use", "using", "keep", "give",
+     "do", "does", "did", "not", "no", "dont", "doesnt", "isnt", "arent",
+     "reporting"}
 )
 
 
@@ -181,16 +188,37 @@ def opposing(text_a: str, text_b: str) -> bool:
     wording) and the reviewed concept axes in `normalize` (which fold synonyms,
     stemming and negation, so paraphrases like "keep it punchy" vs "full
     deep-dive" are recognised). Unknown wording fires neither.
+
+    The legacy include/exclude pair is negation-aware: "do not include X" and
+    "never include X" both state the negative pole and must NOT be read as
+    opposites, so that pair is skipped when BOTH texts carry a negation token.
+    The negation-aware concept axes still decide polarity correctly in that case
+    (and are consulted first).
     """
-    from .normalize import axes_contradict  # noqa: PLC0415
+    from .normalize import _NEGATION_TOKENS, axes_contradict  # noqa: PLC0415
 
     a, b = (text_a or "").lower(), (text_b or "").lower()
+    # The reviewed, negation-aware axes are authoritative when they speak.
+    if axes_contradict(a, b):
+        return True
+    both_negated = bool(_NEGATION_TOKENS & set(_raw_words(a))) and bool(
+        _NEGATION_TOKENS & set(_raw_words(b))
+    )
     for left, right in OPPOSING_PAIRS:
+        # The include/exclude pair is the one whose right arm carries the
+        # negative markers; it must not fire when both texts are negated.
+        is_include_exclude = "always" in left and "never" in right
+        if is_include_exclude and both_negated:
+            continue
         if re.search(left, a) and re.search(right, b):
             return True
         if re.search(right, a) and re.search(left, b):
             return True
-    return axes_contradict(a, b)
+    return False
+
+
+def _raw_words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", (text or "").lower().replace("'", "").replace("\u2019", "")))
 
 
 def _same_subject(subject: Optional[str], other_subject: Optional[str]) -> bool:

@@ -45,6 +45,10 @@ _SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
     ("answer", "answers", "response", "responses", "reply", "replies"),
     ("format", "formatting", "formatted", "style", "styling"),
     ("percent", "percentage", "pct"),
+    # Negation words fold to one canonical marker so "do not X" and "never X"
+    # are the SAME statement (not a value change), and negation-window polarity
+    # still sees a negation token. Only pure negation markers are folded.
+    ("not", "never", "no", "dont", "doesnt", "isnt", "arent", "cannot", "cant", "wont"),
 )
 
 # Build a token -> canonical lookup.
@@ -66,6 +70,13 @@ SUBJECT_ALIASES: dict[str, tuple[str, ...]] = {
     "expense-ratio": ("expense", "ratio", "fee", "cost"),
     "explanation-style": ("explain", "jargon", "technical", "plain", "language", "phrasing"),
     "price-moves": ("price", "move", "moves", "magnitude", "basis", "points"),
+    # Phase 3 alias expansion: common dimensions stated under an alternative key.
+    "theme": ("theme", "dark", "light", "appearance", "color", "interface", "scheme"),
+    "ui-theme": ("theme", "dark", "light", "appearance", "color", "interface", "scheme"),
+    "appearance": ("theme", "dark", "light", "appearance", "color", "interface", "scheme"),
+    "review-cadence": ("review", "cadence", "interval", "frequency", "periodic"),
+    "reporting-basis": ("report", "basis", "cadence", "period", "frequency"),
+    "move-threshold": ("move", "threshold", "percent", "pct", "flag"),
 }
 
 # Common plural/suffix folds (carefully BOUNDED). Only pluralization is applied

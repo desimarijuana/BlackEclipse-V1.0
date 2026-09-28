@@ -23,6 +23,9 @@ COMPACTION_THRESHOLDS: dict[str, Any] = {
     "crossScopeMerges": 0,
     "contradictoryMerges": 0,
     "lossyAcceptedMerges": 0,
+    "missingEvidence": 0,
+    "brokenChains": 0,
+    "irreversibleMerges": 0,
 }
 
 
@@ -44,6 +47,9 @@ class CaseOutcome:
     preserved: bool = True
     crossScope: bool = False
     contradictory: bool = False
+    evidence_shown: bool = True
+    chain_preserved: bool = True
+    reversible: bool = True
     error: Optional[str] = None
 
 
@@ -89,6 +95,33 @@ def _cases() -> list[CompactionCase]:
             ],
             expectGroup=True,
         ),
+        CompactionCase(
+            "temporal-same-fact-different-phrasing", "group",
+            [
+                {"content": "The fiscal year ends in June", "subject": "fiscal-year"},
+                {"content": "The fiscal year ends in June every year", "subject": "fiscal-year"},
+            ],
+            expectGroup=True,
+            note="same temporal fact, no value change → safe to merge",
+        ),
+        CompactionCase(
+            "temporal-value-change-not-merged", "no-group",
+            [
+                {"content": "Review the portfolio quarterly", "subject": "review-cadence"},
+                {"content": "Review the portfolio monthly", "subject": "review-cadence"},
+            ],
+            expectGroup=False,
+            note="a changed cadence is a value change, not a near-duplicate",
+        ),
+        CompactionCase(
+            "authority-preserved-on-merge", "group",
+            [
+                {"content": "I prefer concise answers in all responses", "subject": "style", "authority": "explicit"},
+                {"content": "I prefer concise answers", "subject": "style", "authority": "automatic"},
+            ],
+            expectGroup=True,
+            note="near-duplicate under two authorities: merge must keep the explicit authority",
+        ),
     ]
 
 
@@ -105,7 +138,11 @@ def run_compaction_eval() -> dict[str, Any]:
                 for memory in case.memories:
                     svc.write_memory(
                         memory_type="preference", content=memory["content"],
-                        source="explicit_user", scope="user",
+                        # The source determines authority (explicit_user ->
+                        # explicit; execution_lesson -> automatic).
+                        source="explicit_user" if memory.get("authority", "explicit") == "explicit"
+                        else "execution_lesson",
+                        scope="user",
                         scope_id=memory.get("scopeId", "u1"),
                         subject=memory.get("subject"), allow_duplicate=True,
                     )
@@ -136,16 +173,33 @@ def run_compaction_eval() -> dict[str, Any]:
                                     outcome.contradictory = True
                 if persisted:
                     first = persisted[0]
-                    report = preservation_report(
-                        [svc.store.get_memory(mid) for mid in first["memberIds"]],
-                        first["mergedContent"],
-                    )
+                    member_records = [svc.store.get_memory(mid) for mid in first["memberIds"]]
+                    report = preservation_report(member_records, first["mergedContent"])
                     outcome.preserved = report["preserved"]
-                    # Accept and verify the actual merge preserves everything.
+                    # The proposal must show the source records (evidence) it is
+                    # built from — a merge must be traceable to its originals.
+                    outcome.evidence_shown = bool(first.get("evidence")) and all(
+                        e.get("id") for e in first.get("evidence") or []
+                    )
+                    # Accept and verify the actual merge preserves everything and
+                    # creates an auditable, reversible supersession chain.
                     accepted = svc.accept_compaction(first["id"])
                     if accepted.get("ok"):
                         outcome.accepted = True
                         outcome.preserved = bool(accepted["preservation"]["preserved"])
+                        outcome.evidence_shown = outcome.evidence_shown and bool(accepted.get("mergedInto"))
+                        merged = svc.store.get_memory(accepted["mergedInto"]) if accepted.get("mergedInto") else None
+                        if merged:
+                            # Provenance: the merged record links back to originals.
+                            links = svc.store.list_links(merged["id"])
+                            outcome.chain_preserved = any(
+                                link.get("relation") == "compacted_from" for link in links
+                            )
+                            outcome.reversible = all(
+                                svc.store.get_memory(mid) is not None
+                                and svc.store.get_memory(mid).get("status") == "superseded"
+                                for mid in first["memberIds"]
+                            )
                 outcomes.append(outcome)
             finally:
                 svc.close()
@@ -156,17 +210,21 @@ def run_compaction_eval() -> dict[str, Any]:
         "crossScopeMerges": sum(1 for o in outcomes if o.crossScope),
         "contradictoryMerges": sum(1 for o in outcomes if o.contradictory),
         "lossyAcceptedMerges": sum(1 for o in outcomes if o.accepted and not o.preserved),
+        "missingEvidence": sum(1 for o in outcomes if o.accepted and not o.evidence_shown),
+        "brokenChains": sum(1 for o in outcomes if o.accepted and not o.chain_preserved),
+        "irreversibleMerges": sum(1 for o in outcomes if o.accepted and not o.reversible),
         "cases": len(outcomes),
         "groupRecall": _rate([o for o in outcomes if o.kind == "group"], lambda o: o.groups > 0),
         "noGroupPrecision": _rate([o for o in outcomes if o.kind == "no-group"], lambda o: o.groups == 0),
     }
     return {
         "datasetName": "compaction-preservation",
-        "version": 1,
+        "version": 2,
         "cases": [
             {"caseId": o.caseId, "kind": o.kind, "groups": o.groups, "accepted": o.accepted,
              "preserved": o.preserved, "crossScope": o.crossScope,
-             "contradictory": o.contradictory, "error": o.error}
+             "contradictory": o.contradictory, "evidence": o.evidence_shown,
+             "chain": o.chain_preserved, "reversible": o.reversible, "error": o.error}
             for o in outcomes
         ],
         "metrics": metrics,

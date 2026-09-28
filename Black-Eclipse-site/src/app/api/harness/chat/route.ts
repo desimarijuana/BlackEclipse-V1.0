@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await chatWithAgent(query, history, documents, runId);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

@@ -151,7 +151,7 @@ Two mechanisms:
       **`sidebar`** surface (`tint`/`opacity`/`blur`), emitted as
       `--sidebar-rgb/-opacity/-blur`; `.sidebar-root` consumes these so the
       navigation rail keeps its own dark-charcoal frost independent of the page
-      and card glass (edited via the **Sidebar** card in Customization › Theme).
+      and card glass (edited via the **Sidebar** card in General › Theme).
       `themeFromBrandColor()` is the white-label entry point:
       it derives a coordinated primary/accent/bullish palette from a single brand
       color (ServiceNow-style), with bearish overridable. **Glass mode** is driven
@@ -180,9 +180,12 @@ Two mechanisms:
       page-level `.app-page-bg` class carries the
       `gradient`/`grid` background treatment onto the app shell (the pattern would
       otherwise be hidden behind the shell's opaque `bg-background`). The Settings
-      panel is tabbed (**Theme · Glass & Surfaces · Aurora · Charts · Language &
-      Access**) and embeds the existing Aurora and Chart panels, so all appearance
-      controls live under Customization.
+      panel is tabbed (**General · Theme · Glass & Surfaces · Aurora · Charts ·
+      Language & Access**) and embeds the existing Aurora and Chart panels, so all
+      appearance controls live under the merged General section. The General tab is
+      supplied by the Settings shell (`general-settings.tsx`) and holds startup,
+      default market, refresh, currency, timezone and the destructive-clear
+      confirmation; the remaining tabs are the theme/customization surface.
       The `bridge.ts` helper derives the native chart palette from the theme: on
       explicit user edits it persists (`syncChartPaletteFromTheme`) and during
       preview it overlays without persisting (`previewChartPaletteFromTheme`),
@@ -807,7 +810,7 @@ scroll + ResizeObserver), so overflow is visible without a permanent shadow.
 
 **Sub-route routing (sub-pages).** A `Destination.subroute` is how the palette
 targets an internal view (`economics.calendar`, `journal.analytics`,
-`discovery.crypto`, `alerts.create`, `settings.customization`). The shell's `apply()`
+`discovery.crypto`, `alerts.create`, `settings.general`). The shell's `apply()`
 publishes it to `useCommandStore.requestSubroute(tab, subroute, focus)` — a
 *channel*, not a single slot, so two screens never steal each other's request.
 The owning screen consumes it with `useSubroute(tab, handler)`; both live in
@@ -1372,9 +1375,8 @@ providing all seven cues. The manager resolves a cue's source per play: a
 user-uploaded `custom` data URL wins, otherwise the active pack asset; the
 decoded buffer is cached by source URL, so a pack switch only re-fetches the
 sources that actually changed. All of it persists through
-the client zustand `useSoundStore` (`be_sounds_v3`; bumped from `_v2` when the
-engine moved to Web Audio and the cue set gained `message`, so the refreshed
-defaults apply exactly once for existing installs). Sound
+the client zustand `useSoundStore` (`be_sounds_v2`; bumped from `_v1` when UI
+audio became opt-in, so existing installs drop the old always-on value). Sound
 is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
 pack `eclipse`.
 

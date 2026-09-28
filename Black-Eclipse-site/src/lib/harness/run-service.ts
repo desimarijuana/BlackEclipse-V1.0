@@ -34,7 +34,8 @@ export async function chatWithAgent(
   query: string,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
   documents: Array<{ name: string; text: string }> = [],
-  runId?: string
+  runId?: string,
+  sessionId?: string,
 ): Promise<{
   output: string;
   runId: string;
@@ -46,6 +47,9 @@ export async function chatWithAgent(
     input: { query, history, documents: documents.length ? documents : undefined },
     agentId: "eclipse-agent",
     runId,
+    // The chat workspace id is the session id, so a chat turn belongs to a
+    // long-lived session and shows up in the Sessions tab (M3).
+    sessionId,
   });
 
   if ("status" in result && !("modelSteps" in result)) {
@@ -92,7 +96,8 @@ export async function startChatRun(
   query: string,
   history: Array<{ role: "user" | "assistant"; content: string }> = [],
   documents: Array<{ name: string; text: string }> = [],
-  runId?: string
+  runId?: string,
+  sessionId?: string,
 ): Promise<string> {
   const input = assertRunInput({
     query,
@@ -113,6 +118,7 @@ export async function startChatRun(
     input,
     agentId: agent.id,
     modelSettings,
+    sessionId,
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

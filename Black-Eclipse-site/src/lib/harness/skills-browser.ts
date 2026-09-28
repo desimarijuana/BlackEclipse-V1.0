@@ -13,9 +13,11 @@ import type {
   LearningJourney,
   OnboardingContent,
   ProjectSkillStatus,
+  ProjectTrustApproval,
   SkillBundle,
   SkillBundleListResponse,
   SkillBundleResolution,
+  BundleUpdatePreview,
   SkillContentScan,
   SkillDetail,
   SkillPromotionEvidence,
@@ -83,12 +85,20 @@ export async function trustProjectSkill(path?: string, note?: string): Promise<v
   await api(`/api/skills/project/trust`, { method: "POST", body: JSON.stringify({ path, note }) });
 }
 
-export async function approveProjectSkill(path?: string, note?: string): Promise<void> {
-  await api(`/api/skills/project/approve`, { method: "POST", body: JSON.stringify({ path, note }) });
+export async function approveProjectSkill(path?: string, note?: string, skillIds?: string[]): Promise<void> {
+  await api(`/api/skills/project/approve`, { method: "POST", body: JSON.stringify({ path, note, skillIds }) });
 }
 
 export async function untrustProjectSkill(path?: string): Promise<void> {
   await api(`/api/skills/project/untrust`, { method: "POST", body: JSON.stringify({ path }) });
+}
+
+export async function projectTrustHistory(path?: string): Promise<ProjectTrustApproval[]> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  const body = await api<{ success: true; history: ProjectTrustApproval[] }>(
+    `/api/skills/project/history${query}`
+  );
+  return body.history ?? [];
 }
 
 export async function getSkillQuality(skillId: string, version?: string): Promise<SkillQualityMetrics> {
@@ -143,6 +153,14 @@ export async function lockSkillBundle(bundleId: string): Promise<{ ok: boolean }
 
 export async function unlockSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
   return api(`/api/skill-bundles/${encodeURIComponent(bundleId)}/lock`, { method: "DELETE" });
+}
+
+export async function bundleUpdatePreview(bundleId: string): Promise<BundleUpdatePreview> {
+  return api(`/api/skill-bundles/${encodeURIComponent(bundleId)}/update-preview`);
+}
+
+export async function rollbackSkillBundle(bundleId: string): Promise<{ ok: boolean }> {
+  return api(`/api/skill-bundles/${encodeURIComponent(bundleId)}/rollback`, { method: "POST" });
 }
 
 export async function deleteSkillBundle(bundleId: string): Promise<void> {

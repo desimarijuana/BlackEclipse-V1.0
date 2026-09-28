@@ -14,7 +14,11 @@
 // This keeps the out-of-the-box dev experience frictionless while making a
 // public deployment safe with a single env var.
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"]);
+// `0.0.0.0` is deliberately NOT trusted here: it is a wildcard bind address,
+// not a loopback host, and treating a request whose Host is `0.0.0.0` as local
+// would let a non-loopback deployment skip the secret requirement. Only true
+// loopback hosts are local.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 function requestHost(request: Request): string {
   try {
@@ -246,4 +250,45 @@ export function guardExpensiveMutation(
     };
   }
   return null;
+}
+
+// ─── Identity / tenancy deployment guard ────────────────────────────────
+// BlackEclipse is a single-user local app: there is NO authentication and NO
+// tenancy isolation. `userId`/`scopeId` are caller-supplied scope labels, not
+// identities. This guard never claims multi-user safety; it only reports the
+// current exposure so a public deployment (or a missing secret) is visible in
+// the logs rather than silently mistaken for secure.
+
+export interface DeploymentExposure {
+  /** True when this process does not appear to be loopback-only. */
+  exposed: boolean;
+  /** Whether a real (non-placeholder) CRON_SECRET is configured. */
+  operatorSecretConfigured: boolean;
+  /** Always false — multi-user safety is never claimed. */
+  multiUserSafe: false;
+  /** Human-readable warning to log, when exposed. */
+  warning?: string;
+}
+
+export function deploymentExposure(env: Record<string, string | undefined> = process.env): DeploymentExposure {
+  const secret = env.CRON_SECRET;
+  const operatorSecretConfigured = Boolean(secret) && secret !== "change-me-to-a-random-secret";
+  // A server that is not explicitly bound loopback and has no secret to require
+  // programmatic callers to present is exposed.
+  const bindHost = (env.HOST ?? "").trim().toLowerCase();
+  const nonLoopbackBind = Boolean(bindHost) && !["localhost", "127.0.0.1", "::1", "[::1]"].includes(bindHost);
+  const exposed = !operatorSecretConfigured && (nonLoopbackBind || env.NODE_ENV === "production");
+  const warning = exposed
+    ? "No CRON_SECRET configured. This app is single-user local and has NO authentication or tenancy isolation (userId/scopeId are self-asserted labels). Do not expose it publicly; set CRON_SECRET and/or run it behind an authenticated, single-operator boundary."
+    : undefined;
+  return { exposed, operatorSecretConfigured, multiUserSafe: false, warning };
+}
+
+/** Log the exposure assessment once at boot (never throws). */
+export function warnOnDeploymentExposure(env: Record<string, string | undefined> = process.env): DeploymentExposure {
+  const exposure = deploymentExposure(env);
+  if (exposure.exposed && exposure.warning) {
+    console.warn(`[guard] DEPLOYMENT WARNING: ${exposure.warning}`);
+  }
+  return exposure;
 }

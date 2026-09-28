@@ -79,6 +79,11 @@ class SkillRegistry:
         self._project_notices: list[str] = []
         # True when a trusted project root's content changed (quarantined).
         self._project_drift: bool = False
+        # Per-skill project drift detail (Phase 2 final hardening): the changed
+        # skills held back and the unchanged skills still loaded.
+        self._project_changed_ids: list[str] = []
+        self._project_quarantined_ids: list[str] = []
+        self._project_unchanged_ids: list[str] = []
         # Advisory content-scan findings by skill id, and skills held back for a
         # quarantine-severity finding. Both are informational; the permission
         # gate remains authoritative.
@@ -153,6 +158,9 @@ class SkillRegistry:
         self._duplicates = []
         self._shadowed = []
         self._project_drift = False
+        self._project_changed_ids = []
+        self._project_quarantined_ids = []
+        self._project_unchanged_ids = []
         self._content_findings = {}
         self._quarantined = []
         errors: list[str] = []
@@ -166,19 +174,30 @@ class SkillRegistry:
                 loaded.provenance = "project"
                 self.register(loaded)
             self._project_notices = list(discovery.notices)
-            # A trusted root whose content changed is quarantined; record the
-            # change event once per load so it is auditable. Nothing is loaded.
+            # A trusted root whose content changed: only the changed skills are
+            # quarantined (per-skill identity); unchanged skills remain loaded.
+            self._project_changed_ids = list(discovery.changed_skill_ids)
+            self._project_quarantined_ids = list(discovery.quarantined_skill_ids)
+            self._project_unchanged_ids = list(discovery.unchanged_skill_ids)
             if discovery.drift:
                 self._project_drift = True
                 try:
                     self.store.append_event(
-                        "skill.project_drift", data={"path": discovery.root},
+                        "skill.project_drift",
+                        data={
+                            "path": discovery.root,
+                            "changedSkillIds": discovery.changed_skill_ids,
+                            "quarantinedSkillIds": discovery.quarantined_skill_ids,
+                        },
                     )
                 except Exception:  # noqa: BLE001 - audit is best-effort
                     pass
         else:
             self._project_notices = []
             self._project_drift = False
+            self._project_changed_ids = []
+            self._project_quarantined_ids = []
+            self._project_unchanged_ids = []
 
         # 2. User-authored skills (profile tier).
         for user_skill in self.store.list_user_skills():
@@ -474,6 +493,18 @@ class SkillRegistry:
     def project_drift(self) -> bool:
         """True when a trusted project root is quarantined for content drift."""
         return bool(getattr(self, "_project_drift", False))
+
+    def project_changed_ids(self) -> list[str]:
+        """Project skills whose content changed since approval (quarantined)."""
+        return list(getattr(self, "_project_changed_ids", []))
+
+    def project_quarantined_ids(self) -> list[str]:
+        """Project skills held back pending re-approval (subset of changed)."""
+        return list(getattr(self, "_project_quarantined_ids", []))
+
+    def project_unchanged_ids(self) -> list[str]:
+        """Project skills whose content still matches the approved hash."""
+        return list(getattr(self, "_project_unchanged_ids", []))
 
     def content_findings(self) -> dict[str, dict[str, Any]]:
         """Advisory content-scan findings by skill id (never proof of safety)."""

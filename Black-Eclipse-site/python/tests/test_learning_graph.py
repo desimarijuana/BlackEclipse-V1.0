@@ -78,3 +78,54 @@ def test_journey_freshness_empty_is_honest(service):
     graph = build_learning_journey(service.store)
     assert graph["generatedAt"]
     assert graph["watermark"] == graph["generatedAt"]
+
+
+def test_watermark_advances_after_a_new_mutation(service):
+    first = build_learning_journey(service.store)
+    service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    second = build_learning_journey(service.store, scope_id="u1")
+    # The read time advances, and the watermark reflects the new canonical row.
+    assert second["generatedAt"] >= first["generatedAt"]
+    assert second["watermark"] >= first["watermark"]
+
+
+def test_skill_executions_are_projected(service):
+    service.store.upsert_skill(
+        skill_id="test.skill", name="T", description="t", category="research",
+        latest_version="1.0.0", status="enabled", tags=[],
+    )
+    service.store.save_version(
+        {"id": "test.skill", "name": "T", "version": "1.0.0", "description": "t",
+         "category": "research", "status": "enabled", "permissions": [], "requiredTools": []},
+        "hash-1", instructions=None,
+    )
+    eid = service.store.create_execution(
+        run_id="r1", skill_id="test.skill", version="1.0.0", manifest_hash="h",
+        parent_run_id=None, execution_mode="interactive", actor="local", input_data={},
+    )
+    service.store.finish_execution(
+        eid, status="completed", output="x", output_validated=True, error=None, duration_ms=10,
+    )
+    graph = build_learning_journey(service.store)
+    exec_nodes = [n for n in graph["nodes"] if n["kind"] == "execution"]
+    assert exec_nodes
+    assert any(e["relation"] == "used_in" for e in graph["edges"])
+
+
+def test_referenced_session_gets_a_placeholder_node(service):
+    # A correction referencing a run must not drop its provenance edge.
+    m = service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    service.store.save_correction({
+        "memoryId": m["id"], "runId": "run-xyz", "correction": "corrected",
+        "wrong": "w", "scope": "user",
+    })
+    graph = build_learning_journey(service.store, scope_id="u1")
+    session_ids = {n["id"] for n in graph["nodes"] if n["kind"] == "session"}
+    assert "session:run-xyz" in session_ids
+    assert any(e["relation"] == "created_from" for e in graph["edges"])

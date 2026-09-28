@@ -73,7 +73,9 @@ Two boundaries, both deliberate:
 | `events.py` | per-run event emitter + live bus |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
-| `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …) |
+| `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
+| `routers/` | self-contained route groups registered by `main.py` via `app.include_router(...)`, so the front door stays navigable. `mcp.py` owns the MCP catalog/approvals/presets/diagnostics routes; shared state comes from `deps.py` (never by importing `main`) |
+| `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …). Shared runtime state and operator authorization live in `deps.py`; self-contained route groups are extracted into `routers/` (currently `routers/mcp.py`) and registered via `app.include_router(...)`. The public surface stays `harness.main:app`. |
 
 ### Agents and prompts are Python-authoritative
 

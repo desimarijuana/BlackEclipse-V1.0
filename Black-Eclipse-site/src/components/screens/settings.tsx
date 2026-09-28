@@ -15,7 +15,7 @@ import {
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
   ChevronRight, Cpu, Server,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
-  Loader2, Search, AlertCircle, SlidersHorizontal, Volume2, BarChart3,
+  Loader2, Search, AlertCircle, Volume2, BarChart3,
   GitBranch, Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,21 +25,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
-import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
-import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { AnalyticsSettingsPanel } from "./analytics-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
+import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
 import {
-  DEFAULT_GENERAL_PREFS, START_SCREEN_OPTIONS, loadGeneralPrefs, saveGeneralPrefs,
+  DEFAULT_GENERAL_PREFS, loadGeneralPrefs,
   type GeneralPrefs,
 } from "@/lib/general-prefs";
 
@@ -95,19 +94,10 @@ interface MarketInfo {
   pricedCount: number;
 }
 
-const ALL_MARKETS = [
-  { id: "US", label: "United States" },
-  { id: "PK", label: "Pakistan" },
-  { id: "IN", label: "India" },
-  { id: "CRYPTO", label: "Crypto" },
-];
-
-const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
-
 // The Settings information architecture. Sections are named for WHAT the user
 // is configuring, never for how the backend is implemented:
-//   general        — appearance, market, currency, timezone, refresh
-//   aurora         — the glow palette (visual, kept next to General)
+//   general        — startup + behavior, plus the full theme/customization tabs
+//   sound          — UI audio feedback
 //   ai             — every LLM: providers, keys, base URLs, model, test
 //   investor-eye   — every financial/data provider, grouped by purpose
 //   market         — supported markets, exchanges, JDDS data
@@ -117,14 +107,27 @@ const REFRESH_OPTIONS = [10000, 15000, 30000, 60000];
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "customization" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "customization", "sound", "ai", "investor-eye", "economics", "market", "news",
+  "general", "sound", "ai", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system",
 ] as const;
+
+/**
+ * Legacy section ids still arriving from saved subroutes / deep links. The
+ * standalone `customization` section was folded into `general`; route its old
+ * id to the merged section rather than rendering an empty pane.
+ */
+const LEGACY_SECTION_ALIASES: Record<string, SectionId> = { customization: "general" };
+
+function resolveSection(raw: string | undefined): SectionId {
+  if (!raw) return "general";
+  if (raw in LEGACY_SECTION_ALIASES) return LEGACY_SECTION_ALIASES[raw];
+  return (SETTINGS_SECTIONS as readonly string[]).includes(raw) ? (raw as SectionId) : "general";
+}
 const PROVIDER_LABELS: Record<LLMProviderName, string> = {
   auto: "Auto (env)",
   openai: "OpenAI-compatible endpoint",
@@ -247,7 +250,7 @@ export function Settings({
   const [saving, setSaving] = useState(false);
   // Transient result toast shown in the footer status area.
   const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [section, setSection] = useState<SectionId>(initialSection ?? "general");
+  const [section, setSection] = useState<SectionId>(resolveSection(initialSection));
   const [query, setQuery] = useState("");
 
   // LLM
@@ -264,40 +267,13 @@ export function Settings({
   const [prefs, setPrefs] = useState<AppPreferences>({ defaultMarket: "US", refreshMs: 15000 });
 
   // General preferences (localStorage, presentation-layer): start screen and
-  // whether destructive local-data clears need confirmation.
+  // whether destructive local-data clears need confirmation. The merged General
+  // tab owns the start screen control; this shell only needs `confirmDestructive`
+  // to gate the Data & Storage clears, so it reads (never writes) the prefs.
   const [general, setGeneral] = useState<GeneralPrefs>(DEFAULT_GENERAL_PREFS);
   useEffect(() => {
     setGeneral(loadGeneralPrefs());
   }, []);
-  const updateGeneral = (patch: Partial<GeneralPrefs>) => {
-    setGeneral((g) => {
-      const next = { ...g, ...patch };
-      saveGeneralPrefs(next);
-      return next;
-    });
-  };
-
-  // Display currency (stored locally, presentation-layer only)
-  const [currency, setCurrency] = useState<string>("USD");
-  useEffect(() => {
-    setCurrency(getDisplayCurrency());
-  }, []);
-  const applyCurrency = (code: string | null) => {
-    if (!code) return;
-    setCurrency(code);
-    setDisplayCurrency(code);
-  };
-
-  // Display timezone (stored locally; every formatted time prints its zone).
-  const [timeZone, setTimeZone] = useState<string>("UTC");
-  useEffect(() => {
-    setTimeZone(getDisplayTimeZone());
-  }, []);
-  const applyTimeZone = (tz: string | null) => {
-    if (!tz || !isValidTimeZone(tz)) return;
-    setTimeZone(tz);
-    setDisplayTimeZone(tz);
-  };
 
   // Market data (loaded from JDDS)
   const [markets, setMarkets] = useState<MarketInfo[]>([]);
@@ -469,8 +445,7 @@ export function Settings({
     group: "Personalize" | "Intelligence" | "System";
     terms: string[];
   }[] = [
-    { id: "general", label: "General", desc: "Startup, market & display preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety"] },
-    { id: "customization", label: "Customization", desc: "Theme, branding, charts & fonts", icon: SlidersHorizontal, group: "Personalize", terms: ["theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
+    { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
@@ -696,146 +671,18 @@ export function Settings({
                 <SectionHeader
                   icon={Palette}
                   title="General"
-                  description="How the app opens and behaves — default market, live refresh, currency and timezone."
+                  description="How the app opens and behaves, plus centralized theming — branding, typography, colors, radius, density and motion. Theme changes apply live across the whole app through shared design tokens."
                 />
-                <Panel className="p-5 md:p-6 space-y-5">
-                  <Field label="Start screen" hint="What opens on launch. A shared link still goes to its own page.">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {START_SCREEN_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.id}
-                          onClick={() => updateGeneral({ startScreen: opt.id })}
-                          title={opt.hint}
-                          className={cn(
-                            "flex flex-col items-start gap-0.5 px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer text-left",
-                            general.startScreen === opt.id
-                              ? "bg-primary/10 text-primary border-primary/40 shadow-sm shadow-primary/10"
-                              : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border"
-                          )}
-                        >
-                          <span>{opt.label}</span>
-                          <span className="text-[10px] font-normal opacity-70">{opt.hint}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Default Market">
-                      <Select value={prefs.defaultMarket} onValueChange={(v) => updatePrefs({ defaultMarket: v ?? "US" })}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {markets.length > 0
-                            ? markets.map((m) => (
-                                <SelectItem key={m.id} value={m.id}>{m.country}</SelectItem>
-                              ))
-                            : ALL_MARKETS.map((m) => (
-                                <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
-                              ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Live Refresh" hint="How often dashboards re-fetch prices.">
-                      <Select value={String(prefs.refreshMs)} onValueChange={(v) => updatePrefs({ refreshMs: Number(v) })}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REFRESH_OPTIONS.map((ms) => (
-                            <SelectItem key={ms} value={String(ms)}>
-                              {ms / 1000}s
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                  <Field label="Display Currency" hint="All portfolio totals, charts and analytics show in this currency. Individual asset prices keep their native market currency.">
-                    <Select value={currency} onValueChange={applyCurrency}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DISPLAY_CURRENCIES.map((c) => (
-                          <SelectItem key={c.code} value={c.code}>
-                            {c.code} — {c.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field
-                    label="Display Timezone"
-                    hint="Timestamps across the app (including Investor Eye event times) render in this zone. The zone is always printed with the time."
-                  >
-                    <Select value={timeZone} onValueChange={applyTimeZone}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={browserTimeZone()}>
-                          Device timezone — {browserTimeZone()}
-                        </SelectItem>
-                        {DISPLAY_TIMEZONES.filter((t) => t.id !== browserTimeZone()).map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.label} — {t.id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </Panel>
-
-                <Panel className="mt-4 p-5 md:p-6 space-y-5">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground/80">
-                    <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
-                    <span>Behavior & Safety</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <Label className="text-xs text-muted-foreground font-medium">Confirm before clearing data</Label>
-                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                        Ask first before wiping local chats, watchlist or portfolio from the Data &amp; Storage tab.
-                      </p>
-                    </div>
-                    <Toggle
-                      checked={general.confirmDestructive}
-                      onChange={(v) => updateGeneral({ confirmDestructive: v })}
+                <CustomizationSettingsPanel
+                  generalTab={
+                    <GeneralSettingsPanel
+                      markets={markets}
+                      prefs={prefs}
+                      onPrefsChange={updatePrefs}
+                      onGeneralChange={setGeneral}
                     />
-                  </div>
-                </Panel>
-
-                <div className="mt-4 flex justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="cursor-pointer rounded-xl"
-                    onClick={() => {
-                      const next: AppPreferences = { defaultMarket: "US", refreshMs: 15000 };
-                      setDisplayCurrency("USD");
-                      setCurrency("USD");
-                      setDisplayTimeZone("UTC");
-                      setTimeZone("UTC");
-                      setPrefs(next);
-                      updateGeneral(DEFAULT_GENERAL_PREFS);
-                      void persist({ preferences: next });
-                    }}
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to defaults
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {section === "customization" && (
-              <div className="animate-fade-in-up">
-                <SectionHeader
-                  icon={SlidersHorizontal}
-                  title="Customization"
-                  description="Centralized theming — branding (name, logo, favicon), typography, colors, radius, density and motion. Changes apply live across the whole app through shared design tokens, and persist on this device."
+                  }
                 />
-                <CustomizationSettingsPanel />
               </div>
             )}
 

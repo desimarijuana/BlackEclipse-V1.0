@@ -5,6 +5,15 @@
 export async function register() {
   console.log("[startup] instrumentation register() running");
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Deployment guard: this app is single-user local with no authentication or
+    // tenancy isolation. Log the exposure assessment at boot so a public bind or
+    // a missing CRON_SECRET is visible rather than silently mistaken as secure.
+    try {
+      const { warnOnDeploymentExposure } = await import("@/lib/api-guard");
+      warnOnDeploymentExposure();
+    } catch (err) {
+      console.error("[startup] deployment exposure check failed:", err);
+    }
     // Expose whether a real LLM provider is configured so the client registry
     // (which cannot read server env from a bundled build) can pick the right
     // provider without shipping server code to the browser.

@@ -17,7 +17,10 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const path = typeof body.path === "string" ? body.path : undefined;
     const note = typeof body.note === "string" ? body.note : undefined;
-    await approveProjectSkill(path, note);
+    const skillIds = Array.isArray(body.skillIds)
+      ? body.skillIds.filter((s): s is string => typeof s === "string")
+      : undefined;
+    await approveProjectSkill(path, note, skillIds);
     return NextResponse.json({ success: true });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

@@ -61,7 +61,12 @@ skill provenance labels surfaced to users (project/profile/bundled/external/
 generated); a user-visible learning journey/provenance graph; a simplified
 Facts/Session-History/Skills UI vocabulary.
 
-## Gap analysis against the target model
+## Gap analysis against the target model — HISTORICAL (pre-implementation)
+
+> **Historical finding.** The "Current state" column below describes the system
+> *before* the evolution phases and is retained for history. It is not the
+> current state — see **Current status** at the end of the remaining-gaps
+> section.
 
 | # | Target-model expectation | Current state | Gap | Owning module (change) |
 |---|---|---|---|---|
@@ -168,7 +173,11 @@ USER TURN
 - Semantic similarity never authorizes access and never supersedes/confirms.
 - External provider results retain provenance and are never Eclipse-verified.
 
-## Module-map note: duplicate concepts / dead code found
+## Module-map note: duplicate concepts / dead code found — HISTORICAL
+
+> **Historical finding (all resolved in Phase 16).** Retained for history; the
+> current code has fixed items 1–4 and promoted the deep-link-only tabs to
+> top-level tabs (item 5).
 
 Surfaced by the audit; none block the work, all are candidates for Phase 8:
 
@@ -188,11 +197,14 @@ Surfaced by the audit; none block the work, all are candidates for Phase 8:
 - A second skill execution engine or a TypeScript skill runtime.
 - Autonomous background **writes** (the review queue may propose only; it never
   writes or activates).
-- Auto-compaction of near-duplicate facts (Phase 8 candidate; needs a labeled
-  preservation test first).
 - Skill marketplace/hub install from arbitrary URLs (out of scope; no network
   dependency added).
 - Multi-user auth/tenancy (documented boundary only; not built).
+
+> **Superseded:** "Auto-compaction of near-duplicate facts" was listed here as
+> deferred in an earlier revision. It is now implemented (conservative,
+> inert-until-accepted proposals with a labeled preservation eval — see the
+> Compaction rows below) and is no longer deferred.
 
 ## Operations (phases 2–8)
 
@@ -331,7 +343,11 @@ data location, freshness and a bounded Test action.
 - Rollback for a skill patch is atomic (prior version re-enabled) and audited;
   archive/restore is reversible for memory. No path hard-deletes history.
 
-### 8. Remaining risks
+### 8. Remaining risks — HISTORICAL (Phases 1–8)
+
+> Retained for history. The final-hardening pass (2026-09-28) tightened several
+> of these; the authoritative current list is **Current status → Remaining
+> risks** at the end of this file.
 
 1. `userId`/`scopeId` are not strong identities — multi-user deployment needs an
    authn layer (documented, not built).
@@ -369,7 +385,12 @@ skill.
 
 ---
 
-# Remaining gaps — Phase 0 audit (2026-09-28)
+# Remaining gaps — Phase 0 audit (2026-09-28) — HISTORICAL
+
+> **Historical finding.** "State found" describes the state *before* the 15
+> implementation phases that follow. Every gap listed here was subsequently
+> closed; the final-hardening pass (2026-09-28) then hardened each area further.
+> See **Current status** at the end of this file.
 
 A second pass audited the implemented system against a 16-gap list. Audit
 findings (complete/partial/missing) and the owning module for each change:
@@ -465,3 +486,68 @@ HTML, zero-width). Registry `register` quarantines a quarantine-severity finding
 for project/profile/generated/external tiers and only warns for bundled
 (human-reviewed) skills. Findings are surfaced on `/skills` and `/skills/{id}`.
 A clean scan is explicitly not proof of safety.
+
+
+---
+
+# Current status (2026-09-28, final hardening pass)
+
+This is the authoritative, current-state summary. Earlier gap tables and
+"remaining risks" sections are labeled HISTORICAL above and describe the state
+*before* implementation; this section describes the state *after* the remaining-
+gaps phases and the final-hardening pass.
+
+## Completed work
+
+| Area | State | Owning modules |
+|---|---|---|
+| Conflict UX (competing memories) | Complete: side-by-side review + resolution actions; uncertain conflicts prefer a visible review over a silent replacement | `eclipse_memory/service.py` (`conflict_review`, `resolve_conflict`), UI |
+| Compaction | Complete: conservative near-duplicate proposals, inert until accepted; labeled preservation eval (cross-scope, contradictory, temporal, authority; evidence/chain/reversibility floors) | `eclipse_memory/compaction.py`, `eval/compaction.py`, UI Lifecycle tab |
+| Run observability | Complete: `memory.retrieved` enrichment + `/runs/{id}/explain` + chat panel | `harness/run_observability.py`, `graph.py`, UI |
+| Provider reliability | Complete: failure taxonomy (incl. `provider_failure`), bounded retry + per-call timeout budget, circuit breaker with recovery, bounded per-provider history, freshness/last-success | `memory_providers/reliability.py`, `registry.py`, `diagnostics.py` |
+| Bundle lifecycle | Complete: version identity, lock (versions + content hashes), update preview, member drift (version + content), reproducible receipt, safe rollback; lock exportable | `skills/bundles.py`, store |
+| Onboarding / cold start | Complete: static, read-only first-run explanation; never writes memory | `harness/onboarding.py`, UI |
+| Adversarial evaluation | Complete: prompt injection, drift, cross-scope/project leakage, provider poisoning/recovery, malicious imports/drafts, long-running growth, repeated compaction, low-sample claims, tampering, stale/superseded interaction | `python/tests/test_adversarial_evolution*.py` |
+| Orphan/inconsistency cleanup | Complete: stale docstrings, `run_analysis` mapping, `hybrid.py` marked experimental, deep-link tabs promoted | `decision.py`, `service.py`, `hybrid.py`, `__init__.py`, UI |
+| Identity/tenancy boundary | Complete (documented + guarded): `userId`/`scopeId` are self-asserted scope labels, never identities; no authentication/tenancy isolation claimed; a non-loopback bind without an operator secret is refused by `main()` (unless explicitly acknowledged) and flagged at startup; `0.0.0.0` is no longer a trusted local host | `main.py` (`identity_boundary`, `deployment_exposure`), `api-guard.ts` (`deploymentExposure`), docs |
+| Per-skill project trust | Complete: per-skill content identity + approval history (who/what/when/level); drift quarantines only the changed skill(s), unchanged skills keep working; explicit re-approval; UI changed-skill review + history | `skills/project_skills.py`, `registry.py`, store, UI |
+| Contradiction evaluation | Complete: paraphrase/negation/numeric-value/subject-alias/temporal cases; recall, missed-conflict, false-conflict, confirmation, scope-leakage, forbidden-hit, precision metrics; honest interpretation of when semantic assistance helps | `eclipse_memory/eval/contradictions.py` + dataset |
+| Skill quality | Complete: sample-size warnings, Wilson confidence interval, time-weighted rate, failure-cause trends, same-case version comparison, regression warning inside promotion evidence, five evidence states | `eclipse_memory/skill_quality.py` |
+| Journey freshness | Complete: derived read model with `generatedAt`/`watermark`, focus refresh + refresh state, skill-execution nodes, placeholder session nodes for provenance edges | `harness/learning_graph.py`, UI |
+| Import/export hardening | Complete: checksum, conflict/duplicate preview, partial restore by scope/category, atomic import with rollback, schema negotiation (v1/v2/v3), evaluation + audit preservation | `eclipse_memory/transfer.py`, UI |
+
+## Remaining risks
+
+1. **Identity/tenancy is a documented boundary, not a built authentication
+   system.** `userId`/`scopeId` remain self-asserted scope labels. A network or
+   multi-user deployment must add a real authentication seam; the runtime now
+   *refuses* an insecure non-loopback bind and flags exposure, but it does not
+   provide accounts.
+2. **Contradiction detection is lexical.** An unlisted paraphrase with no shared
+   token and no reviewed concept axis can be missed; a missed conflict is
+   preferred over an unsafe replacement. The eval reports this honestly.
+3. **Semantic retrieval is measured but not enabled.** Its measured benefit stays
+   below the threshold that would justify enabling it by default; semantic
+   candidates can never authorize access or supersede/confirm.
+4. **Provider reliability state is in-memory and per-process.** Circuit/latency
+   history resets on restart; it is deliberately not persisted.
+5. **Bundle locks are exportable but not a content-addressed store.** A locked
+   bundle records member versions + content hashes; reconstructing a member's
+   exact prior content requires that version still to be present.
+
+## Intentionally deferred
+
+- Embedding-based retrieval enabled by default (labeled eval shows no need).
+- Hosted/cloud memory providers; multi-tenant identity.
+- A second skill execution engine or a TypeScript skill runtime.
+- Autonomous background **writes** (the review queue proposes only).
+- Skill marketplace/hub install from arbitrary URLs.
+- Multi-user auth/tenancy (documented boundary + deployment guards only).
+
+## Future architecture
+
+- A pluggable authentication seam that resolves `scopeId` from a real identity,
+  leaving the local single-user label model intact when no seam is configured.
+- Optional persistent provider reliability history (only if a real need appears).
+- A content-addressed skill-version store to reconstruct a locked bundle's exact
+  member content across version removal.

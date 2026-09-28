@@ -115,7 +115,7 @@ def test_export_import_roundtrip_preserves_bundles_and_trust(service, tmp_path):
     service.write_memory(memory_type="preference", content="I prefer concise answers", source="explicit_user")
 
     document = export_payload(service.store)
-    assert document["version"] == 2
+    assert document["version"] >= 2
     assert len(document["bundles"]) == 1
     assert len(document["projectTrust"]) == 1
 
