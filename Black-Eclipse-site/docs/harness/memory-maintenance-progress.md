@@ -148,6 +148,14 @@ interpreter with `PYTHONPATH=python`; the `python` shim is not on PATH.
   (default off; injectable model; inert/bounded/fail-closed).
 - **P1.4** `python/tests/test_migration_matrix.py` (full reopen matrix) + hygiene.
 
+### Phase 2 — measurement honesty ✅
+
+- **P2.1** operator ground-truth conflict labels (`label_conflict`, route, UI
+  wiring) → real precision in the usage report (proxy kept as secondary).
+- **P2.2** usage report half-window trend + `smallSample` flag; UI surfacing.
+- **P2.3** skill usage trend (active/dormant/never) + content-free near-duplicate
+  skill detector.
+
 ## Checks (after all milestones)
 
 | Check | Result |

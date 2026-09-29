@@ -341,6 +341,8 @@ export interface SkillMaintenanceItem {
   stale: boolean;
   archiveEligible: boolean;
   pinnedExempt: boolean;
+  recentRuns?: number;
+  trend?: string;
   reasons: string[];
   recommendedAction?: string;
 }
@@ -358,6 +360,7 @@ export interface SkillMaintenanceReport {
     pinnedExempt: number;
   };
   recommendations: SkillMaintenanceItem[];
+  nearDuplicates?: Array<{ normalized: string; skillIds: string[] }>;
   lastRun: {
     operation: string;
     ranAt: string;

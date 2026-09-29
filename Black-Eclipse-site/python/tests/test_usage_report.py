@@ -112,6 +112,51 @@ def test_conflict_resolution_counts(service):
     assert report["conflicts"]["pending"] >= 1
 
 
+def test_ground_truth_labels_produce_real_precision(service):
+    memory = service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    assert service.label_conflict(memory["id"], "true_conflict")["ok"] is True
+    other = service.write_memory(
+        memory_type="preference", content="I prefer detailed answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    service.label_conflict(other["id"], "false_positive")
+    report = service.usage_report(window_days=30)
+    assert report["conflicts"]["labeled"] == 2
+    assert report["conflicts"]["labeledTrue"] == 1
+    assert report["conflicts"]["labeledFalsePositive"] == 1
+    assert report["conflicts"]["precision"] == 0.5
+    assert report["smallSample"] is True
+
+
+def test_relabel_takes_latest_judgement(service):
+    memory = service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    service.label_conflict(memory["id"], "false_positive")
+    service.label_conflict(memory["id"], "true_conflict")
+    report = service.usage_report(window_days=30)
+    assert report["conflicts"]["labeled"] == 1
+    assert report["conflicts"]["precision"] == 1.0
+
+
+def test_rejects_unknown_label(service):
+    memory = service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    assert service.label_conflict(memory["id"], "maybe")["ok"] is False
+
+
+def test_report_contains_trend_and_small_sample_flag(service):
+    report = service.usage_report(window_days=30)
+    assert "trend" in report
+    assert report["smallSample"] is True
+
+
 def test_retired_semantic_policy_rows_are_cleaned_on_open():
     """Migration 24 removes dead semantic keys; a pre-change db still opens and
     keeps its real memory rows."""

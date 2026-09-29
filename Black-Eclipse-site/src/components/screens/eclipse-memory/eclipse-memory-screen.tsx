@@ -272,9 +272,20 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
                 Conflicts: {usage.conflicts.raised} raised · {usage.conflicts.accepted} accepted ·{" "}
                 {usage.conflicts.dismissed} dismissed · {usage.conflicts.pending} pending
                 {usage.conflicts.falsePositiveRate != null
-                  ? ` · ${Math.round(usage.conflicts.falsePositiveRate * 100)}% dismissed (false-positive proxy)`
+                  ? ` · ${Math.round(usage.conflicts.falsePositiveRate * 100)}% dismissed (proxy)`
                   : ""}
               </p>
+              <p className="mt-1 text-[10px] text-foreground/80">
+                Ground truth (operator-labelled): {usage.conflicts.labeled} labelled
+                {usage.conflicts.precision != null
+                  ? ` · precision ${Math.round(usage.conflicts.precision * 100)}% (${usage.conflicts.labeledTrue} true / ${usage.conflicts.labeledFalsePositive} false)`
+                  : " · no labels yet — precision unknown, not perfect"}
+              </p>
+              {usage.smallSample && (
+                <p className="mt-1 text-[10px] text-amber-300/90">
+                  Sample is small — treat these numbers as directional, not reliable.
+                </p>
+              )}
               {usage.likelyMissedConflicts.count > 0 && (
                 <p className="mt-1 text-[10px] text-amber-300/90">
                   {usage.likelyMissedConflicts.count} subject(s) have more than one active same-type

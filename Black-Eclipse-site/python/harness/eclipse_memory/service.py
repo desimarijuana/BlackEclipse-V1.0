@@ -1619,6 +1619,30 @@ class EclipseMemoryService:
             return {"ok": False, "error": str(exc)}
         return {"ok": False, "error": "unreachable"}
 
+    # ── Ground-truth conflict labels (Measurement honesty, Phase 2) ─────────
+
+    def label_conflict(
+        self, memory_id: str, label: str, *, reason: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Record the OPERATOR's ground-truth judgement of a raised conflict.
+
+        `label` is `"true_conflict"` or `"false_positive"`. This is the honest
+        signal the synthetic eval cannot provide. It is append-only (a bounded
+        `MemoryEvent`), never mutates the memories, and is idempotent in effect
+        (the most recent label for a memory wins when the usage report reads it).
+        """
+        normalized = (label or "").strip().lower()
+        if normalized not in ("true_conflict", "false_positive"):
+            return {"ok": False, "error": f"unknown label {label!r}"}
+        memory = self.store.get_memory(memory_id)
+        if memory is None:
+            return {"ok": False, "error": "memory not found"}
+        self.store.append_memory_event(
+            "memory.conflict_labeled", memory_id=memory_id,
+            data={"label": normalized, "reason": reason},
+        )
+        return {"ok": True, "memoryId": memory_id, "label": normalized}
+
     def _conflict_detail(self, memory_id: str, memory: dict[str, Any]) -> Optional[dict[str, Any]]:
         """The most recent conflict/candidate audit metadata for a memory.
 

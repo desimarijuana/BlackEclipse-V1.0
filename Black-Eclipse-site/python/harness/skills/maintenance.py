@@ -58,6 +58,11 @@ _SUCCESS_STATUSES = frozenset({"succeeded", "completed", "ok", "success"})
 
 OPERATION = "skill_maintenance"
 
+# The recent-usage trend window: executions inside this many days count as
+# "recent" usage, so a skill that is old AND unused reads differently from one
+# that is old but actively used.
+_TREND_WINDOW_DAYS = 30.0
+
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -99,10 +104,12 @@ def _first(*values: Optional[str]) -> Optional[datetime]:
 
 
 def _usage_index(store: Any) -> dict[tuple[str, str], dict[str, Any]]:
-    """(skillId, version) -> {lastUsed, everRun, runs, successes} from real rows.
+    """(skillId, version) -> {lastUsed, everRun, runs, successes, recentRuns} from rows.
 
     Reads `SkillExecution` directly (bounded) — the same table the operator sees
     in the execution activity view. No new tracking table is introduced.
+    `recentRuns` counts executions in the last `_TREND_WINDOW_DAYS` days so a
+    usage TREND (not just last-use age) is available.
     """
     index: dict[tuple[str, str], dict[str, Any]] = {}
     try:
@@ -114,12 +121,16 @@ def _usage_index(store: Any) -> dict[tuple[str, str], dict[str, Any]]:
     for row in rows:
         key = (row["skillId"], row["version"])
         entry = index.setdefault(
-            key, {"lastUsed": None, "everRun": True, "runs": 0, "successes": 0}
+            key, {"lastUsed": None, "everRun": True, "runs": 0, "successes": 0, "recentRuns": 0}
         )
         entry["runs"] += 1
+        when = _parse_iso(row["finishedAt"]) or _parse_iso(row["createdAt"])
+        if when is not None:
+            age = _days_since(when)
+            if age is not None and age <= _TREND_WINDOW_DAYS:
+                entry["recentRuns"] += 1
         if str(row["status"] or "").lower() in _SUCCESS_STATUSES:
             entry["successes"] += 1
-            when = _parse_iso(row["finishedAt"]) or _parse_iso(row["createdAt"])
             if when is not None and (entry["lastUsed"] is None or when > entry["lastUsed"]):
                 entry["lastUsed"] = when
     return index
@@ -180,8 +191,22 @@ def _version_assessment(
         "stale": stale,
         "archiveEligible": archive_eligible,
         "pinnedExempt": pinned and (stale or archive_eligible),
+        "recentRuns": int(usage.get("recentRuns") or 0),
+        "trend": _usage_trend(usage),
         "reasons": reasons,
     }
+
+
+def _usage_trend(usage: dict[str, Any]) -> str:
+    """A coarse, honest usage direction from a single window.
+
+    `active` when the skill ran recently, `dormant` when it has run before but
+    not recently, `never` when it has never run. Deliberately not a fitted slope:
+    with few executions a direction would be noise.
+    """
+    if not usage.get("everRun"):
+        return "never"
+    return "active" if int(usage.get("recentRuns") or 0) > 0 else "dormant"
 
 
 def assess_skills(store: Any, policy: dict[str, Any]) -> list[dict[str, Any]]:
@@ -238,6 +263,35 @@ def _archive_version(store: Any, registry: Any, skill_id: str, version: str, act
     return {"ok": True, "skillId": skill_id, "version": version, "status": _ARCHIVED_STATUS}
 
 
+def _near_duplicate_skills(store: Any, limit: int = 20) -> list[dict[str, Any]]:
+    """Bounded, content-free detector of near-duplicate skill ids.
+
+    A skill id that differs from another only by separator/case/trailing version
+    (`finance.reporting` vs `finance_reporting`) is a strong retirement/merge
+    signal: one is likely a stale duplicate. Returns id groups only — never
+    instructions or manifest content.
+    """
+    try:
+        rows = store._db.execute("SELECT id, latestVersion FROM Skill ORDER BY id").fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    def norm(skill_id: str) -> str:
+        import re
+
+        return re.sub(r"[^a-z0-9]", "", (skill_id or "").lower())
+
+    buckets: dict[str, list[str]] = {}
+    for row in rows:
+        buckets.setdefault(norm(row["id"]), []).append(row["id"])
+    groups = [
+        {"normalized": key, "skillIds": ids}
+        for key, ids in buckets.items()
+        if len(ids) > 1
+    ]
+    groups.sort(key=lambda g: (-len(g["skillIds"]), g["normalized"]))
+    return groups[:limit]
+
+
 def maintenance_report(store: Any, policy: dict[str, Any]) -> dict[str, Any]:
     """A read-only maintenance report: stale skills, reasons, recommended action.
 
@@ -280,6 +334,7 @@ def maintenance_report(store: Any, policy: dict[str, Any]) -> dict[str, Any]:
             "pinnedExempt": len(pinned_exempt),
         },
         "recommendations": recommendations,
+        "nearDuplicates": _near_duplicate_skills(store),
         "lastRun": store.skill_maintenance_status(OPERATION),
     }
 

@@ -245,3 +245,27 @@ def test_scope_isolation_across_skills(store):
     assessments = {a["skillId"]: a for a in assess_skills(store, _policy())}
     assert assessments["a.stale"]["stale"] is True
     assert assessments["b.fresh"]["stale"] is False
+
+
+def test_usage_trend_and_recent_runs(store):
+    _seed(store, "active.one", created_days_ago=200)
+    _execution(store, "active.one", "1.0.0", finished_days_ago=1)
+    _seed(store, "dormant.one", created_days_ago=200)
+    _execution(store, "dormant.one", "1.0.0", finished_days_ago=150)
+
+    assessments = {a["skillId"]: a for a in assess_skills(store, _policy())}
+    assert assessments["active.one"]["trend"] == "active"
+    assert assessments["active.one"]["recentRuns"] == 1
+    assert assessments["dormant.one"]["trend"] == "dormant"
+    assert assessments["dormant.one"]["recentRuns"] == 0
+
+
+def test_near_duplicate_skills_reported_content_free(store):
+    _seed(store, "finance.reporting", created_days_ago=1)
+    _seed(store, "finance_reporting", created_days_ago=1)
+    report = maintenance_report(store, _policy())
+    groups = report["nearDuplicates"]
+    assert len(groups) == 1
+    assert set(groups[0]["skillIds"]) == {"finance.reporting", "finance_reporting"}
+    # No content/manifest leaked.
+    assert "content" not in str(groups)

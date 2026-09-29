@@ -164,6 +164,15 @@ export async function memoryUsageReport(windowDays = 30): Promise<MemoryUsageRep
   return api<MemoryUsageReport>(`/api/eclipse-memory/usage-report?windowDays=${windowDays}`);
 }
 
+export async function labelConflict(
+  memoryId: string, label: "true_conflict" | "false_positive", reason?: string,
+): Promise<{ success: boolean }> {
+  return api(`/api/eclipse-memory/memories/${encodeURIComponent(memoryId)}/conflict-label`, {
+    method: "POST",
+    body: JSON.stringify({ operator: true, label, reason }),
+  });
+}
+
 // ── Memory providers (M8) ───────────────────────────────────────────────────
 
 export async function memoryProviderStatus(): Promise<MemoryProviderStatus> {

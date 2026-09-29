@@ -8,6 +8,18 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Limitations Phase 2 (measurement honesty).** (P2.1) Operator ground-truth
+  conflict labels: `POST /eclipse-memory/memories/{id}/conflict-label`
+  (`true_conflict` | `false_positive`), append-only as a bounded `MemoryEvent`;
+  `service.label_conflict`. The usage report now reports REAL precision from these
+  labels (latest judgement wins), with the dismissed-rate proxy kept as a
+  clearly-labelled secondary signal. (P2.2) The usage report adds a half-window
+  trend and a `smallSample` honesty flag; UI shows ground-truth precision and the
+  small-sample warning. (P2.3) Skill maintenance adds a usage trend
+  (active/dormant/never from a recent-execution window) and a content-free
+  near-duplicate skill-id detector; surfaced in the Maintenance tab. Tests:
+  `test_usage_report.py`, `test_skill_maintenance.py` extended.
+  docs updated: `docs/CHANGELOG.md`, `docs/harness/memory-maintenance-progress.md`.
 - **Limitations Phase 1 (correctness/clarity).** (1) Added a distinct, restorable
   `archived` skill lifecycle status (`manifest.SkillStatus`, TS `SkillStatus`,
   registry `set_status`, UI badge/filter); maintenance retirement now persists as

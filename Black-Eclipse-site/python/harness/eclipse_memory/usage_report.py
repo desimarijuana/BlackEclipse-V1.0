@@ -135,6 +135,69 @@ def _pending_conflicts(store: Any) -> int:
         return 0
 
 
+def _ground_truth_labels(store: Any, since: str) -> dict[str, int]:
+    """Count operator ground-truth conflict labels (true vs false positive).
+
+    Append-only events; the label is a bounded, content-free operator judgement.
+    A memory may be relabelled; the latest label wins, so we take the LAST event
+    per memory id within the window.
+    """
+    try:
+        rows = store._db.execute(
+            "SELECT memoryId, data, at FROM MemoryEvent "
+            "WHERE type='memory.conflict_labeled' AND at >= ? ORDER BY at ASC",
+            (since,),
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return {"true_conflict": 0, "false_positive": 0}
+    latest: dict[str, str] = {}
+    for row in rows:
+        try:
+            import json as _json
+
+            data = _json.loads(row["data"]) if row["data"] else {}
+        except (TypeError, ValueError):
+            data = {}
+        label = str(data.get("label") or "")
+        if label in ("true_conflict", "false_positive"):
+            latest[str(row["memoryId"])] = label
+    return {
+        "true_conflict": sum(1 for v in latest.values() if v == "true_conflict"),
+        "false_positive": sum(1 for v in latest.values() if v == "false_positive"),
+    }
+
+
+def _windowed_counts(store: Any, days: int) -> dict[str, Any]:
+    """Split the window in half and report the delta for the key counters.
+
+    Honest trend: small sample sizes are labelled, never smoothed into a
+    misleading direction.
+    """
+    try:
+        mid_days = max(1, days // 2)
+    except Exception:  # noqa: BLE001
+        mid_days = 1
+    recent_since = _window_start(mid_days)
+    older_since = _window_start(days)
+    recent = _counts_by_type(store, recent_since)
+    older_all = _counts_by_type(store, older_since)
+    # older half = full window minus recent half.
+    older = {k: max(0, older_all.get(k, 0) - recent.get(k, 0)) for k in older_all}
+
+    def _writes(c: dict[str, int]) -> int:
+        return _sum_types(c, _SAVE_EVENTS) + _sum_types(c, _SUGGEST_EVENTS) + \
+            _sum_types(c, _HISTORY_ONLY_EVENTS) + _sum_types(c, _IGNORE_EVENTS)
+
+    return {
+        "recentHalfDays": mid_days,
+        "olderHalfDays": days - mid_days,
+        "decisionsRecent": _writes(recent),
+        "decisionsOlder": _writes(older),
+        "conflictsRaisedRecent": _sum_types(recent, _CONFLICT_RAISED),
+        "conflictsRaisedOlder": _sum_types(older, _CONFLICT_RAISED),
+    }
+
+
 def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
     """The bounded, read-only real-usage report. Never raises, writes nothing."""
     try:
@@ -161,6 +224,16 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
     false_positive_rate = round(dismissed / raised, 3) if raised else None
 
     missed = _likely_missed_conflicts(store)
+    labels = _ground_truth_labels(store, since)
+    labeled_total = labels["true_conflict"] + labels["false_positive"]
+    # REAL precision from operator ground truth, when any labels exist. This
+    # replaces the dismissed-rate proxy as the primary number; the proxy is kept
+    # as a secondary, clearly-labelled signal.
+    real_precision = (
+        round(labels["true_conflict"] / labeled_total, 3)
+        if labeled_total else None
+    )
+    trend = _windowed_counts(store, days)
 
     insufficient = total_decisions == 0 and raised == 0
 
@@ -168,6 +241,7 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
         "windowDays": days,
         "since": since,
         "insufficientData": insufficient,
+        "smallSample": raised < 20 or labeled_total < 10,
         "note": (
             "Numbers are small early on; a synthetic set proves the detector "
             "implements its rules, not that the rules match reality. Real-usage "
@@ -188,7 +262,13 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
             "pending": pending,
             "falsePositiveRate": false_positive_rate,
             "resolutionRate": round(resolved / raised, 3) if raised else None,
+            # Ground truth (operator-labelled), the honest primary signal.
+            "labeled": labeled_total,
+            "labeledTrue": labels["true_conflict"],
+            "labeledFalsePositive": labels["false_positive"],
+            "precision": real_precision,
         },
+        "trend": trend,
         "likelyMissedConflicts": {
             "count": missed["count"],
             "groups": missed["groups"],

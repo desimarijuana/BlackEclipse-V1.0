@@ -128,7 +128,20 @@ export interface MemoryUsageReport {
     pending: number;
     falsePositiveRate: number | null;
     resolutionRate: number | null;
+    labeled: number;
+    labeledTrue: number;
+    labeledFalsePositive: number;
+    precision: number | null;
   };
+  trend?: {
+    recentHalfDays: number;
+    olderHalfDays: number;
+    decisionsRecent: number;
+    decisionsOlder: number;
+    conflictsRaisedRecent: number;
+    conflictsRaisedOlder: number;
+  };
+  smallSample?: boolean;
   likelyMissedConflicts: {
     count: number;
     groups: Array<{

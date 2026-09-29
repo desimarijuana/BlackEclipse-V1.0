@@ -153,6 +153,28 @@ def resolve_conflict(
     return {"success": True, **result}
 
 
+@router.post("/eclipse-memory/memories/{memory_id}/conflict-label")
+def label_conflict(
+    memory_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Record the operator's ground-truth judgement of a raised conflict.
+
+    `label` is `true_conflict` or `false_positive`. Append-only; feeds the
+    real-usage report's precision/recall. Operator-gated; never mutates records.
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(status_code=403, detail="conflict labelling requires an authorized operator")
+    result = service.memory.label_conflict(
+        memory_id, str(payload.get("label") or ""), reason=payload.get("reason"),
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "labelling failed")
+    return {"success": True, **result}
+
+
 @router.get("/eclipse-memory/compaction")
 def list_compaction(status: Optional[str] = None) -> dict[str, Any]:
     """Inert near-duplicate compaction proposals (read-only)."""
