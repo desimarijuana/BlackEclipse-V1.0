@@ -1472,3 +1472,48 @@ path emits `memory.history_bounded` (counts/estimates only) so a trimmed turn is
 never silent; the `RunResult.context` blob is additive and absent for old rows.
 A token-aware summarization ladder remains explicitly out of scope, gated on this
 event data.
+
+## ADR-H65 - Memory recall is surfaced as a content-free activity line, not a run-result field
+
+**Decision.** `memory.retrieved` (already emitted by `_memory_context` with a
+bounded payload) is mapped in `src/lib/agent/events.ts` to one activity item with
+a new distinct `kind: 'recall'` (icon `Brain`), mirroring the `history_bounded`
+mapping: counts and character budget only, `selected <= 0` emits nothing, and
+`selectedIds`/`excluded`/memory text never reach the UI. No run-result contract
+field is added.
+
+**Why.** Trimming was visible but recall was not — the last observability
+asymmetry, even though the runtime already told the UI everything needed. A
+run-result `recall` blob would have no reader; the activity passthrough is the
+one mechanism that already renders this class of fact, so a second one would be
+redundant. Keeping the line content-free preserves the same privacy posture as
+the dropped-context seam.
+
+**Consequences.** A recalled-memory turn shows one `recall` line beside the
+`bounded`/`retrieval` lines; the expandable detail is the existing name-only
+panel, so no new detail variant exists. Memory content remains out of the UI
+(asserted by test). A future richer recall surface can read the same event data
+without a contract change.
+
+## ADR-H66 - An unknown context window is operator-declarable, and ModelSettings accepts the camelCase wire shape
+
+**Decision.** `ModelSettings` gains an optional bounded `context_window`
+(camelCase `contextWindow`, 1..10,000,000). The budget resolver prefers an
+explicit override, then the declared value, then the catalog resolver; blank
+stays unknown (conservative ceiling, `windowKnown: false`). Separately,
+`ModelSettings` now generates camelCase aliases (`to_camel`) with
+`populate_by_name=True`.
+
+**Why.** The catalog cannot know a local server's, a router's or a custom
+endpoint's window, so those runs were permanently stuck at the conservative
+ceiling even when the operator knew the limit. A declaration is real input,
+never a guess. The alias fix addresses a pre-existing bug: the TS front door
+sends `baseUrl`/`apiKey` but the model declared `base_url`/`api_key`, so
+pydantic silently dropped both and the runtime used the catalog default base
+URL with no credential.
+
+**Consequences.** Settings > AI / LLM shows the resolved window and offers a
+numeric field only when it is unknown; an emptied field sends `null`, which
+`setLLMConfig` treats as an explicit clear. Both wire shapes are accepted, so
+existing TS callers and snake_case test constructors both work. `jdds.db`
+untouched.

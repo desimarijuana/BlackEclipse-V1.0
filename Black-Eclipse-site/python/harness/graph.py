@@ -282,7 +282,11 @@ def build_graph(
             if classify_context_overflow(exc):
                 provider = request.modelSettings.provider
                 model_name = request.modelSettings.model
-                window = resolve_context_window(provider, model_name)
+                # Prefer the operator-declared window when the catalog cannot know
+                # it, so the error message states the real window.
+                window = getattr(request.modelSettings, "context_window", None)
+                if window is None:
+                    window = resolve_context_window(provider, model_name)
                 code, message = context_overflow_error(provider, model_name, window)
                 await emitter.emit(
                     "context.overflow",
@@ -1044,7 +1048,13 @@ def _history_budget(
 
     overrides = overrides or {}
     reserved = int(overrides.get("reserved_output_tokens", DEFAULT_RESERVED_OUTPUT_TOKENS))
+    # Window precedence: an explicit override (test seam) wins, else the
+    # operator-declared `ModelSettings.contextWindow` (used when the catalog
+    # cannot know the window), else compute_history_budget falls back to the
+    # catalog resolver. A declared value is a real declaration, not a guess.
     window_override = overrides.get("window")
+    if window_override is None:
+        window_override = getattr(request.modelSettings, "context_window", None)
     if overrides.get("tighter") and not tighter:
         tighter = True
     tool_schemas = ""

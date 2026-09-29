@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.alias_generators import to_camel
 
 RunStatus = Literal["created", "running", "completed", "failed", "cancelled"]
 HarnessErrorCode = Literal[
@@ -82,13 +83,26 @@ class ModelSettings(BaseModel):
 
     Credentials arrive here because the Python service cannot read the JDdS
     settings vault. They are never persisted or logged by this service.
+
+    The TS front door sends camelCase (`baseUrl`/`apiKey`), so aliases are
+    generated with `to_camel` AND `populate_by_name` keeps the snake_case
+    constructor used by tests/internal callers working. Without this the
+    camelCase fields were silently dropped by pydantic and the runtime fell back
+    to the catalog default base URL with no key.
     """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     provider: str
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     model: str
     temperature: Optional[float] = None
+    # Optional operator-declared context window (tokens) for this run. Used ONLY
+    # when the catalog cannot resolve one (a local server, a router, a custom
+    # endpoint). Never fabricated: absent/None leaves the window unknown and the
+    # conservative ceiling applies. Additive, so old callers are unaffected.
+    context_window: Optional[int] = Field(default=None, ge=1, le=10_000_000)
 
 
 class AgentConfig(BaseModel):

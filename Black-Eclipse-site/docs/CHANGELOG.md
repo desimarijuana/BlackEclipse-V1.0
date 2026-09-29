@@ -8,6 +8,82 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Chat "What influenced this run" panel redesign.** The run-explanation
+  disclosure now spans the full transcript width, uses a magnifying-glass icon,
+  and presents memory observability in plain language: stat tiles for memories
+  used vs. filtered out, exclusions grouped by category with friendly reason
+  text (`friendlyReason`), a memory-budget progress bar, and a compact
+  "also shaping the prompt" section. Pure presentation over the existing
+  `/api/harness/runs/[id]/explain` contract — no data-shape change.
+  `src/components/chat/run-explanation-panel.tsx`. Checks: `tsc` clean.
+  no doc change — UI presentation only, contract unchanged.
+
+- **Operator-declared context windows + ModelSettings wire-contract fix.** Closes
+  the "unknown window" limitation: `ModelSettings.context_window` (camelCase
+  `contextWindow`, bounded 1…10M) carries an optional operator declaration used
+  only when the catalog cannot resolve a window; the budget resolver prefers
+  override → declared → catalog, and blank stays unknown (conservative ceiling,
+  `windowKnown: false`). Settings › AI / LLM shows the resolved window and, when
+  unknown, a numeric "Context window (optional)" field; an emptied field sends
+  `null` and clears a prior declaration (`setLLMConfig` treats `null` as an
+  explicit clear because JSON drops `undefined`). **Also fixed a pre-existing wire
+  bug found tracing this channel:** `ModelSettings` declared `base_url`/`api_key`
+  but the TS front door sends camelCase `baseUrl`/`apiKey`, so pydantic silently
+  dropped both and the runtime fell back to the catalog default base URL with no
+  key; `ModelSettings` now uses `to_camel` aliases + `populate_by_name` so both
+  shapes work. Tests: new `python/tests/test_model_settings_contract.py` (5),
+  `test_context_budget.py` (+2 declared-window), `run-service.test.ts` (+2
+  contextWindow passthrough). Checks: `tsc` clean; vitest 1837 pass; pytest 1437
+  pass; both eval gates PASS and unchanged. docs updated: `docs/CHANGELOG.md`,
+  `docs/harness/context-budget-progress.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H66), `docs/DECISIONS.md`.
+- **Close out the context-budget work.** (1) `docs/harness/context-budget-progress.md`
+  status set to `Complete` after re-confirming all six milestones and re-running
+  the Milestone 0 reproduction on this checkout. (2) Stale totals corrected to
+  the **measured** values: vitest 148 files / 1831 tests, pytest 1430 (context
+  suites 38: window 6, budget 8, repro 4, overflow 16, history_bounded 4). (3)
+  `memory.retrieved` is now surfaced — mapped in `src/lib/agent/events.ts` to one
+  activity item with a new distinct `kind: 'recall'` and a `Brain` icon
+  (`src/components/chat/activity-item.tsx`, union in `response-model.ts`);
+  `selected <= 0`/absent emits nothing; label/summary are counts and character
+  budget only (no ids, excluded text or memory content); the line is expandable
+  through the existing name-only detail rule, so no new variant and no run-result
+  field (ADR-H65, mirrored into `docs/DECISIONS.md`). (4) The model picker is
+  recorded as adjacent scope beyond the six milestones. (5) The deliberate
+  omissions are confirmed documented. Tests: `src/lib/agent/events.test.ts` +4
+  mirror cases. Checks: `tsc` clean; `vitest` 1835 pass (+4); `pytest` 1430
+  pass; both eval gates PASS and unchanged. docs updated: `docs/CHANGELOG.md`,
+  `docs/harness/context-budget-progress.md`, `docs/harness/decisions.md`,
+  `docs/DECISIONS.md`, `docs/NAVIGATION.md`.
+- **Add the context-budget close-out OpenCode prompt.** New
+  `docs/harness/context-budget-closeout-opencode-prompt.md`. The six milestones of
+  `context-budget-opencode-prompt.md` are implemented, committed (`df12d975`) and
+  independently re-verified: `tsc` clean, `vitest` 148 files / 1831 tests,
+  `pytest` 1430, both eval gates PASS and unchanged, and the Milestone 0
+  reproduction **does** confirm all three defects (a 4096-token window rejects a
+  18734-token request as a generic `PROVIDER_ERROR` with no `history_bounded`
+  event, and a large-window model silently loses 20 of 40 turns). This prompt
+  closes the four remaining loose ends rather than adding scope: (1) the progress
+  doc still declares `status: In Progress` while every milestone is done — set it
+  to Complete, but only after re-confirming that is true; (2) the same doc carries
+  stale check figures (`147 files / 1828`, `1429 passed`) against the measured
+  `148 / 1831`, `1430` — replace with freshly measured totals; (3) `memory.retrieved`
+  is emitted by `_memory_context` with a real bounded payload but is never
+  surfaced, so recall happens invisibly while trimming is visible — add the
+  mirror activity mapping, a distinct `recall` kind, an icon, content-free
+  count-only copy, and the `selected: 0 → null` no-op case, following the existing
+  `memory.history_bounded` pattern rather than a second mechanism; (4) reconcile
+  the scope delta — the commit bundled a model picker (`PROVIDER_MODELS` →
+  `GET /api/harness/models` → `model-catalog.ts` → Settings › AI datalist) that no
+  milestone requested and which accounts for the test-count movement — verify it,
+  document it as adjacent scope, and give it a NAVIGATION entry. Also confirms the
+  deliberate omissions (no compaction engine, unknown windows stay unknown,
+  conservative floors, first-call-only recovery, approximate estimator) are each
+  documented. docs updated: `docs/harness/context-budget-closeout-opencode-prompt.md`
+  (new), `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+- **No code, contract, schema or runtime behavior changed by this entry.** The
+  prompt is a plan; the state it describes was measured directly on this checkout.
+  `jdds.db` untouched.
 - **Model picker in Settings › AI / LLM.** The Model field was a bare free-text
   input, so there was no way to *see* which models a provider offers. The Python
   catalog now declares a known-model list per provider (`PROVIDER_MODELS` in

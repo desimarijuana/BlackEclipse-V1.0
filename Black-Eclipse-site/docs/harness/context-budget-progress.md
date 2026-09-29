@@ -1,6 +1,6 @@
 ---
 title: Context Budget & Honest Overflow — Progress
-status: In Progress
+status: Complete
 last-verified: 2026-09-29
 ---
 
@@ -96,7 +96,7 @@ The estimator is the **existing** `eclipse_memory.profile.estimate_tokens`
 (~4 chars/token), documented as an approximation; the budget keeps a 10% safety
 margin because of that.
 
-Tests: `python/tests/test_context_window.py` (5) — all pass.
+Tests: `python/tests/test_context_window.py` (6) — all pass.
 
 ## Milestone 2 — Measured, model-aware budgeting
 
@@ -199,12 +199,13 @@ Before/after on the Milestone 0 fixture:
 | Large window, 40 turns | 20 kept / 20 dropped | 40 kept / 0 dropped |
 | Known window overflow-prone run | 40 000-char history sent whole | measured trim + `memory.history_bounded` |
 
-Checks (from `Black-Eclipse-site/`):
+Checks, re-measured on this checkout during close-out (from `Black-Eclipse-site/`):
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run` — **147 files, 1828 tests passed**.
-- `pytest python/tests -q` — **1429 passed**, including 37 new tests across the
-  context suites (`test_context_window.py` 5, `test_context_budget.py` 8,
+- `npx vitest run` — **148 files, 1835 tests passed** (1831 before the recall
+  surface's +4 tests).
+- `pytest python/tests -q` — **1430 passed**, including 38 tests across the
+  context suites (`test_context_window.py` 6, `test_context_budget.py` 8,
   `test_context_budget_repro.py` 4, `test_context_overflow.py` 16,
   `test_history_bounded.py` 4).
 - `harness.eclipse_memory.eval` — **threshold gate PASS**, recallSupported 1.0,
@@ -213,16 +214,107 @@ Checks (from `Black-Eclipse-site/`):
   contradictionPrecision 0.906, leakage 0 (unchanged).
 - `jdds.db` untouched (pre-existing working-tree modification, not by this work).
 
+Earlier revisions of this log carried stale totals (`147 files / 1828`,
+`1429 passed`, 37 context tests); they were corrected here to the measured
+values. The movement is accounted for by the adjacent-scope model picker (its
+one Python test and one TS suite), the Milestone 5 contract test already in the
+tree, and the close-out's four recall-surface tests.
+
 Docs: `docs/harness/context-budget-progress.md` (this file);
-`docs/harness/decisions.md` ADR-H63 / ADR-H64; `docs/NAVIGATION.md` row already
-present; `docs/CHANGELOG.md` entry.
+`docs/harness/decisions.md` ADR-H63 / ADR-H64 (and ADR-H65 for the recall
+surface); `docs/NAVIGATION.md` row updated; `docs/CHANGELOG.md` entry.
+
+## Close-out (2026-09-29)
+
+Functional work shipped in commit `df12d975`; this section records the close-out
+of the remaining loose ends, all verified by re-measurement on this checkout.
+
+### Memory recall is now visible (the last observability asymmetry)
+
+Trimming was visible (`memory.history_bounded` → a `bounded` line) while recall
+happened invisibly, even though `_memory_context` in `graph.py` already emitted
+`memory.retrieved` with a real bounded payload (`selected`, `candidates`,
+`usedChars`, `budgetChars`, `selectedIds`, `selectionReasons`, `excludedCount`,
+`excluded`). The mirror is now closed:
+
+- `src/lib/agent/events.ts` maps `memory.retrieved` to one activity item, using
+  the **same shape** as the `bounded` branch, but with a new distinct
+  `kind: 'recall'`. `selected <= 0` or an absent/malformed `selected` returns
+  `null` (the established no-op pattern) — a run that recalled nothing emits no
+  line.
+- `src/lib/agent/response-model.ts` adds `'recall'` to the `kind` union.
+- `src/components/chat/activity-item.tsx` renders it with a `Brain` icon (an
+  existing `lucide-react` icon reading "remembered/recalled"; no dependency).
+- Copy is counts/estimates only: label `Recalled N memories from long-term
+  memory` (singular for one), summary `N chars recalled`. `selectedIds`,
+  `excluded` and memory text never reach the UI — asserted by test.
+- **Expandable decision:** the line is expandable through the *existing* detail
+  rule (`Boolean(item.name)`, unchanged) and the expanded panel shows only the
+  operation name (`memory.retrieved`) — no memory content. This keeps the three
+  context kinds (`bounded`, `recall`, `retrieval`) consistent and avoids a new
+  detail variant; the expanded payload is content-free by construction.
+- **No run-result contract change:** the activity line carries the user-facing
+  fact, and no UI consumer reads a recall blob. Adding a `RunResult.recall` field
+  nobody reads would be dead weight, so it was deliberately skipped.
+
+Tests: `src/lib/agent/events.test.ts` gains four mirrored cases — a populated
+payload maps to exactly one `recall` item (kind + counts + no content), the
+singular form, `selected: 0`/absent → `null`, and a malformed payload → `null`
+(never throws). Decision recorded as ADR-H65.
+
+### Model picker — adjacent scope (beyond the six milestones)
+
+Commit `df12d975` also delivered a **model picker** that no milestone in
+`context-budget-opencode-prompt.md` requested. It is legitimate adjacent scope and
+is recorded here rather than retro-fitted into a milestone it was not part of:
+
+- `python/harness/models.py` — `PROVIDER_MODELS` (declared known-model ids per
+  provider) exposed additively by `list_providers()` as `models` + `modelWindows`
+  (each declared model → its real `resolve_context_window` value).
+- `src/app/api/harness/models/route.ts` — proxies the runtime catalog.
+- `src/lib/agent/model-catalog.ts` — `useModelCatalog` / `modelsForProvider`
+  fetch it once; degrades to an empty map when the runtime is unavailable.
+- `src/components/screens/settings.tsx` — the Model field is a `<datalist>` of
+  the declared ids **and still accepts a free-text custom id** (never an
+  allowlist), with a context-window hint drawn from the real
+  `modelWindows`/`contextWindow` (never a hardcoded string).
+
+It is the reason the test totals moved (one Python test in
+`test_context_window.py`, one TS suite `model-catalog.test.ts`). NAVIGATION row
+at line ~217 covers it.
+
+### Operator-declared context windows (closes the "unknown window" limitation)
+
+An unknown catalog window is now **declarable** by the operator, so a local
+server, a router or a custom endpoint is no longer stuck at the conservative
+ceiling when the operator *knows* the model's limit:
+
+- `ModelSettings.context_window` (camelCase `contextWindow`) is an optional,
+  bounded (1 … 10M) integer carried per run. The budget resolver in
+  `graph._history_budget` prefers an explicit override, then the declared value,
+  then the catalog resolver — a declaration is real input, never a guess.
+- Settings › AI / LLM shows the resolved window when the catalog knows it, and a
+  numeric **"Context window (optional)"** field when it does not. An empty field
+  sends `null`, which *clears* a prior declaration (JSON `undefined` would be
+  dropped, silently keeping the old value) — handled in `setLLMConfig`.
+- Absent/blank stays unknown: the runtime emits `windowKnown: false` and keeps
+  the conservative ceiling, exactly as before.
+
+**Also fixed (pre-existing wire bug found while tracing this channel):**
+`ModelSettings` declared `base_url`/`api_key`, but the TS front door sends
+camelCase `baseUrl`/`apiKey`, so pydantic **silently dropped** both — the runtime
+fell back to the catalog default base URL with **no API key**. `ModelSettings`
+now generates camel aliases (`to_camel`) with `populate_by_name=True`, so both
+the camelCase wire payload and the snake_case constructor work. Regression tests:
+`python/tests/test_model_settings_contract.py`.
 
 ### Known limitations
 
-- **Unknown windows stay unknown:** `ollama`, `lmstudio`, `openrouter`,
-  `together`. `fireworks`, and `custom` have no provider-level window (only a
-  known model entry). For these the bound is today's conservative ceiling and
-  every surface reports "unknown", never a guess.
+- **Unknown windows stay unknown unless declared:** `ollama`, `lmstudio`,
+  `openrouter`, `together`, `fireworks`, and `custom` have no provider-level
+  window (only a known model entry for some). For these the bound is the
+  conservative ceiling and every surface reports "unknown", **unless the operator
+  declares a window in Settings › AI / LLM** (above). It is never a guess.
 - **Conservative floors:** `groq` (8 192) and `mistral` (32 000) are floors; a
   model not in `MODEL_CONTEXT_WINDOWS` gets the floor, which under-uses a larger
   model's window. This is deliberately safe.
@@ -233,5 +325,13 @@ present; `docs/CHANGELOG.md` entry.
   deliberate, documented trade-off.
 - **Not built (by design):** no summarization/compaction engine, no tokenizer
   dependency, no second estimator. The `context.overflow` / `context.retry` /
-  `memory.history_bounded` data is what a future compaction ladder would build on.
+  `memory.history_bounded` / `memory.retrieved` data is exactly what a future
+  compaction ladder would build on.
+
+### Checks after the declared-window work (re-measured)
+
+- `npx tsc --noEmit` — clean.
+- `npx vitest run` — **148 files, 1837 tests passed** (+2 run-service cases).
+- `pytest python/tests -q` — **1437 passed** (+7: 5 contract + 2 budget).
+- Both eval gates PASS and unchanged; `jdds.db` untouched.
 

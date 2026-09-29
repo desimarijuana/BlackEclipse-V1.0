@@ -64,6 +64,13 @@ export interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /**
+   * Optional operator-declared context window (tokens) for the selected model.
+   * Used ONLY when the runtime catalog cannot resolve one (a local server, a
+   * router, a custom endpoint). Empty/undefined leaves the window unknown and
+   * the conservative ceiling applies — it is never fabricated.
+   */
+  contextWindow?: number;
 }
 
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
@@ -126,7 +133,9 @@ export async function getLLMConfig(): Promise<LLMConfig> {
   return { ...cfg, apiKey };
 }
 
-export async function setLLMConfig(config: Partial<LLMConfig>): Promise<LLMConfig> {
+export async function setLLMConfig(
+  config: Partial<LLMConfig> & { contextWindow?: number | null },
+): Promise<LLMConfig> {
   // Merge over the RAW config so persisting never folds a vault key into the
   // plaintext row; only values the caller actually sends change.
   const next = await readLLMConfigRaw();
@@ -134,6 +143,9 @@ export async function setLLMConfig(config: Partial<LLMConfig>): Promise<LLMConfi
     ...next,
     ...config,
   };
+  // An explicit `null` clears the declared window (a plain `undefined` cannot —
+  // JSON.stringify drops it, so the merge would silently keep the old value).
+  if (config.contextWindow === null) delete merged.contextWindow;
   // A remote provider needs a key; a local one does not.
   if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
     throw new Error("An API key is required for a remote LLM provider");

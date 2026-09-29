@@ -765,3 +765,23 @@ properly structured" symptom.
 future floating surface. The frosted-glass hard rules (see the
 `black-eclipse-ui` skill) still require the tint to stay <= ~0.55 alpha and the
 portal to escape transformed/animated ancestors.
+
+## ADR-H65 - Memory recall surfaced as a content-free activity line
+
+Canonical text: docs/harness/decisions.md ADR-H65. memory.retrieved maps to
+one activity item (kind: 'recall', Brain icon) in src/lib/agent/events.ts, with
+counts and character budget only; selected <= 0 or an absent/malformed selected
+emits nothing; memory ids, excluded records and memory text never reach the UI.
+No run-result field is added - the existing activity passthrough is the single
+mechanism for this class of fact, and the line stays content-free (the same
+privacy posture as the dropped-context seam).
+
+## ADR-H66 - Unknown context windows are operator-declarable; ModelSettings accepts camelCase
+
+Canonical text: docs/harness/decisions.md ADR-H66. ModelSettings gains an
+optional bounded context_window (camelCase contextWindow); the budget resolver
+prefers override then declared then catalog; blank stays unknown. ModelSettings
+also generates camelCase aliases (to_camel + populate_by_name) - fixing a
+pre-existing bug where the TS front door's baseUrl/apiKey were silently dropped
+by pydantic. Settings > AI / LLM offers a numeric window field only when the
+catalog cannot resolve one; an emptied field clears the declaration.

@@ -104,6 +104,35 @@ def test_under_bound_history_is_byte_identical():
     assert [m.content for m in baseline] == [m.content for m in bounded]
 
 
+def _empty_registry() -> ToolRegistry:
+    return ToolRegistry()
+
+
+def test_declared_model_settings_window_overrides_unknown_catalog():
+    # An unknown-window provider (ollama) becomes known when the operator declares
+    # a window on ModelSettings; the bound is then measured, not the ceiling.
+    from harness.schemas import ModelSettings
+
+    req = _request(_turns(40, 100))
+    req.modelSettings = ModelSettings(provider="ollama", model="llama3.1", context_window=32_000)
+    budget = graph_module._history_budget(req, None, _empty_registry(), "sys", "", "", "", "")
+    assert budget.effective is True
+    assert budget.window == 32_000
+    kept, dropped = graph_module._bounded_history(req, budget)
+    assert len(kept) == 40
+    assert dropped == []
+
+
+def test_no_declared_window_keeps_unknown_provider_inert():
+    from harness.schemas import ModelSettings
+
+    req = _request(_turns(40, 100))
+    req.modelSettings = ModelSettings(provider="ollama", model="llama3.1")
+    budget = graph_module._history_budget(req, None, _empty_registry(), "sys", "", "", "", "")
+    assert budget.effective is False
+    assert budget.window is None
+
+
 def test_tool_schema_text_is_deterministic():
     schemas = [
         {"name": "b", "description": "z", "parameters": {}},

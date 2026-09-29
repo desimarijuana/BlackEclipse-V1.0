@@ -26,7 +26,15 @@ export interface RunRequestPayload {
   };
   /** Authoritative agent id; Python resolves the config + prompt from it. */
   agentId: string;
-  modelSettings: { provider: string; baseUrl?: string; apiKey?: string; model: string; temperature?: number };
+  modelSettings: {
+    provider: string;
+    baseUrl?: string;
+    apiKey?: string;
+    model: string;
+    temperature?: number;
+    /** Optional operator-declared context window; absent = unknown. */
+    contextWindow?: number;
+  };
   userId?: string;
   // M3/M4 request-scoped isolation identity (optional).
   sessionId?: string;

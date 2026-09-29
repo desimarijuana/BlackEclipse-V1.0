@@ -207,6 +207,65 @@ describe('normalizeHarnessEvent', () => {
     ).toBeNull();
   });
 
+  it('surfaces memory recall as one recall activity line (counts only)', () => {
+    const e = normalizeHarnessEvent('memory.retrieved', {
+      type: 'memory.retrieved',
+      data: {
+        selected: 3,
+        candidates: 12,
+        usedChars: 2400,
+        budgetChars: 4000,
+        // The full payload the runtime sends — none of this may reach the line.
+        selectedIds: ['mem_secret_1', 'mem_secret_2'],
+        excluded: [{ id: 'mem_no', reason: 'scope mismatch' }],
+        selectionReasons: [{ id: 'mem_secret_1', reason: 'topic match' }],
+      },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: { id: 'memory_recalled', kind: 'recall', status: 'completed' },
+    });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.label).toBe('Recalled 3 memories from long-term memory');
+      expect(e.item.summary).toBe('2,400 chars recalled');
+      // Never memory content, ids or excluded text.
+      const surface = `${e.item.label} ${e.item.summary ?? ''}`;
+      expect(surface).not.toContain('mem_secret');
+      expect(surface).not.toContain('scope mismatch');
+    }
+  });
+
+  it('uses the singular form for a single recalled memory', () => {
+    const e = normalizeHarnessEvent('memory.retrieved', {
+      type: 'memory.retrieved',
+      data: { selected: 1, usedChars: 90 },
+    });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.label).toBe('Recalled 1 memory from long-term memory');
+    } else {
+      throw new Error('expected an activity_start');
+    }
+  });
+
+  it('emits nothing when no memory was recalled', () => {
+    expect(
+      normalizeHarnessEvent('memory.retrieved', {
+        type: 'memory.retrieved',
+        data: { selected: 0, usedChars: 0 },
+      }),
+    ).toBeNull();
+    expect(normalizeHarnessEvent('memory.retrieved', { type: 'memory.retrieved', data: {} })).toBeNull();
+  });
+
+  it('returns null (never throws) for a malformed memory.retrieved payload', () => {
+    expect(
+      normalizeHarnessEvent('memory.retrieved', {
+        type: 'memory.retrieved',
+        data: { selected: 'lots', usedChars: null },
+      }),
+    ).toBeNull();
+  });
+
   it('maps a CONTEXT_OVERFLOW run.failed with its specific message', () => {
     const e = normalizeHarnessEvent('run.failed', {
       type: 'run.failed',

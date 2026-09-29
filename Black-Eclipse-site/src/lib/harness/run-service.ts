@@ -82,6 +82,9 @@ async function resolveModelSettings() {
     baseUrl: cfg.baseUrl,
     apiKey: cfg.apiKey,
     model: cfg.model,
+    // Pass the operator-declared window through only when set; the runtime treats
+    // absent as "unknown" and falls back to its catalog + conservative ceiling.
+    ...(cfg.contextWindow ? { contextWindow: cfg.contextWindow } : {}),
   };
 }
 

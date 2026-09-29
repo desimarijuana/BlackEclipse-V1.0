@@ -55,6 +55,12 @@ interface LLMConfig {
   model: string;
   /** Server reports whether a key is stored; the raw key is never sent back. */
   hasApiKey?: boolean;
+  /**
+   * Optional operator-declared context window (tokens). Used only when the
+   * runtime catalog cannot resolve one; `null`/undefined means "unknown" and
+   * clears any prior declaration.
+   */
+  contextWindow?: number | null;
 }
 
 interface NewsFeed {
@@ -257,6 +263,7 @@ export function Settings({
   // LLM
   const [llm, setLlm] = useState<LLMConfig>({
     provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
+    contextWindow: undefined,
   });
   const [testingLlm, setTestingLlm] = useState(false);
   const [llmTest, setLlmTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
@@ -834,6 +841,36 @@ export function Settings({
                       </Select>
                     </Field>
                   </div>
+
+                  {/* The runtime catalog cannot know a local server's / router's /
+                      custom endpoint's window. When it is unknown, let the operator
+                      DECLARE it (tokens) — a real declaration, not a guess. Leaving
+                      it blank keeps the conservative ceiling. When the catalog knows
+                      it, the resolved value is shown read-only. */}
+                  {!activeWindowKnown && (
+                    <Field
+                      label="Context window (optional)"
+                      hint="Token limit for this model. Leave blank if unknown — the runtime then uses a safe conservative bound."
+                    >
+                      <Input
+                        type="number"
+                        min={1}
+                        value={llm.contextWindow ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          const parsed = raw ? Number(raw) : undefined;
+                          updateLlm({
+                            contextWindow:
+                              parsed && Number.isFinite(parsed) && parsed > 0
+                                ? Math.floor(parsed)
+                                : null,
+                          });
+                        }}
+                        placeholder="e.g. 8192"
+                        className="font-mono"
+                      />
+                    </Field>
+                  )}
 
                   <Field label="Base URL" hint="Any OpenAI-compatible endpoint.">
                     <div className="relative">

@@ -20,7 +20,7 @@ export type ResponseStatus =
 export interface ActivityItem {
   /** Stable id — the tool's `toolCallId` when the runtime provides one. */
   id: string;
-  kind: 'tool' | 'retrieval' | 'bounded';
+  kind: 'tool' | 'retrieval' | 'bounded' | 'recall';
   /** Raw operation name, e.g. `market_get_quote`. Kept for developer detail. */
   name: string;
   /** Human-readable label, e.g. "Retrieving market quote". Safe to display. */

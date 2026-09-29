@@ -120,6 +120,26 @@ export function normalizeHarnessEvent(
     };
   }
 
+  // Memory recall: the runtime injected selected long-term memories into this
+  // turn. Surface it as one plain activity line — counts and character budget
+  // only, never memory content, ids or excluded text. Mirrors `history_bounded`.
+  if (event === 'memory.retrieved') {
+    const selected = num(payload.selected) ?? 0;
+    if (selected <= 0) return null;
+    const usedChars = num(payload.usedChars);
+    return {
+      kind: 'activity_start',
+      item: {
+        id: 'memory_recalled',
+        kind: 'recall',
+        name: 'memory.retrieved',
+        label: `Recalled ${selected} memor${selected === 1 ? 'y' : 'ies'} from long-term memory`,
+        status: 'completed',
+        summary: usedChars != null ? `${usedChars.toLocaleString()} chars recalled` : undefined,
+      },
+    };
+  }
+
   if (event === 'tool.completed' || event === 'tool.failed') {
     const name = str(payload.name) ?? 'tool';
     const failed = event === 'tool.failed';

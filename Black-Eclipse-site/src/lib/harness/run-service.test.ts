@@ -105,4 +105,23 @@ describe("startRun", () => {
     await expect(startRun({ input: { query: "  " } })).rejects.toThrow(HarnessError);
     expect(runViaRuntime).not.toHaveBeenCalled();
   });
+
+  it("forwards an operator-declared context window to the runtime", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "ollama",
+      baseUrl: "http://localhost:11434/v1",
+      apiKey: "",
+      model: "llama3.1",
+      contextWindow: 8192,
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_w", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect(runViaRuntime.mock.calls[0][0].modelSettings.contextWindow).toBe(8192);
+  });
+
+  it("omits the context window when the operator did not declare one", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_n", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    expect("contextWindow" in runViaRuntime.mock.calls[0][0].modelSettings).toBe(false);
+  });
 });

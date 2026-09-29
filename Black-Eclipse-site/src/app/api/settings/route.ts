@@ -19,6 +19,9 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     baseUrl: llm.baseUrl,
     model: llm.model,
     hasApiKey: Boolean(llm.apiKey),
+    // The declared context window is not a secret; it round-trips so the UI can
+    // show/edit it. Absent = unknown.
+    contextWindow: llm.contextWindow,
   };
 }
 
@@ -61,6 +64,9 @@ export async function POST(request: Request) {
     if (body.llm) {
       const incoming = { ...body.llm };
       if (!incoming.apiKey) delete incoming.apiKey; // keep stored key
+      // An empty context-window field means "unknown" and must CLEAR any prior
+      // declaration (setLLMConfig treats null as an explicit clear), not silently
+      // keep it.
       await setLLMConfig(incoming);
     }
     if (Array.isArray(body.newsFeeds)) {
