@@ -8,6 +8,35 @@ last-verified: 2026-09-28
 
 ## 2026-09-28
 
+- **Command Center fullscreen: move the Exit control into the top bar.** The
+  fullscreen overlay's Exit button floated at bottom-right over the board; it
+  now sits in the TopBar row (top, trailing edge, next to the app chrome) and
+  no longer overlaps widget content. Placement/style-only fix; no doc change —
+  presentation change, no architecture/contract/setup impact.
+
+## 2026-09-28
+
+- **Eclipse Memory: fix overlapping overlays + structural pass.** (1) The
+  Memory Control Room's six hand-rolled drawers/modals were rendered inline
+  inside the screen root, which lives under the shell's `glass-card`
+  (`backdrop-filter`) container — a containing block/backdrop root — so
+  `position: fixed` was scoped to it and the surfaces clipped, sat under the
+  header and overlapped the floating chat dock; they also used `z-50`, *below*
+  the dock (`z-[90]`). Added one shared primitive
+  (`eclipse-memory/memory-overlay.tsx`: `MemoryDrawer` + `MemoryModal`) portaled
+  to `document.body`, with Escape/backdrop close, body scroll lock, a sticky
+  header and consistent width tiers; migrated all six overlays to it.
+  (2) Established the app z-index tiers (fullscreen 80–86 < dock 90 <
+  drawers/dialogs 100 < toasts 110) and moved the Skills toast to `z-[110]`.
+  (3) Responsive/structure pass: Lifecycle now shows the counts grid first and
+  pairs retention + contradiction detection side-by-side instead of stacking
+  full-width blocks ahead of the list; Files uses a `minmax(0,…)` grid so it no
+  longer overflows on narrow widths. New ADR-037. Checks: `tsc` clean; Vitest
+  **1808 passed**; Python **1315 passed**; lint 0 errors. `jdds.db` untouched.
+  docs updated: DECISIONS.md (ADR-037)
+
+## 2026-09-28
+
 - **Memory & Skills: consistent, properly-centred loading states.** Loading
   placeholders were inconsistent — some sat left-aligned, some top-anchored, at
   differing heights, and `SkillQuality`/`Onboarding` rendered an inline spinner

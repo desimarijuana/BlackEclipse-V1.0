@@ -185,18 +185,22 @@ export function DashboardScreen() {
         {/* The REAL app TopBar — price ribbon + global ⌘K search. No custom
             bar; fullscreen keeps the live market chrome the app already has. */}
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-          <TopBar activeTab="dashboard" />
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <TopBar activeTab="dashboard" />
+            </div>
+            {/* Exit lives in the top bar row, aligned with the app chrome,
+                instead of floating over the bottom of the board. */}
+            <button
+              onClick={toggleFullscreen}
+              className="glass-button mr-3 inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer md:mr-6"
+              title="Exit fullscreen (Esc)"
+            >
+              <Minimize2 size={13} /> Exit
+            </button>
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">{workspaceEl}</div>
         </div>
-        {/* Floating exit — bottom-right so it never overlaps the TopBar's
-            price ribbon / search. No bar stealing board space. */}
-        <button
-          onClick={toggleFullscreen}
-          className="glass-button fixed bottom-4 right-4 z-[85] inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
-          title="Exit fullscreen (Esc)"
-        >
-          <Minimize2 size={13} /> Exit
-        </button>
         {/* The app-wide ChatDock (mounted once in StockChat) portals to <body>
             at z-[90], above this z-[80] overlay, so fullscreen needs no copy. */}
         {showOnboarding && (
