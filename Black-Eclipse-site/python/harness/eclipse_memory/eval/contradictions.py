@@ -3,8 +3,7 @@
 This is the measurement seam for the conflict detector. `contradictions_v1.json`
 is a human-labeled set of (existing memory, new statement, authority) tuples with
 the SAFE expected disposition. `run_contradiction_evaluation()` runs the REAL
-`eclipse_memory.conflicts.detect_conflict` for each case (and, when enabled, the
-optional semantic candidate layer) and reports:
+`eclipse_memory.conflicts.detect_conflict` for each case and reports:
 
   * contradiction recall (conflicts the detector caught);
   * false-conflict rate (unrelated memory it wrongly tried to change);
@@ -43,7 +42,7 @@ _NO_CONFLICT_KINDS = frozenset(
     {"unrelated", "different-subject", "different-scope", "temporary", "observation-vs-preference"}
 )
 
-# Release thresholds for the contradiction gate. Safety is absolute: semantic
+# Release thresholds for the contradiction gate. Safety is absolute: lexical
 # handling must never introduce a false conflict, a scope leak, or an
 # unauthorized/automatic-over-explicit supersede. Recall/confirmation are floors.
 # `CONTRADICTION_THRESHOLDS` are MINIMUMS (0 means "must be exactly 0").
@@ -272,12 +271,12 @@ def _interpretation(
         "noConflictCases": len(no_conflict_cases),
         "lexicalMisses": lexical_misses,
         "deepMisses": deep_misses,
-        "semanticUsefulFor": (
-            "lexical misses with a shared token/axis (candidate generation for review)"
-        ),
-        "semanticNotUsefulFor": (
-            "deep misses with no shared signal — semantic similarity here risks a "
-            "false conflict and must never auto-supersede or auto-confirm"
+        "honestConclusion": (
+            "A perfect score on this self-authored set proves the detector "
+            "implements its rules, not that the rules match reality. Real usage is "
+            "the evidence: see GET /eclipse-memory/usage-report. The optional "
+            "semantic candidate layer was removed on the evidence that deterministic "
+            "normalization closed the measured gap."
         ),
     }
 
@@ -339,11 +338,13 @@ def format_contradiction_report(report: dict[str, Any]) -> str:
         lines += [
             "",
             "  interpretation:",
-            f"    lexical misses (semantic candidate generation could help): "
+            f"    lexical misses (missed conflicts with a shared signal): "
             f"{interpretation.get('lexicalMisses')}",
-            f"    deep misses (semantic must NOT auto-resolve): "
+            f"    deep misses (no shared signal): "
             f"{interpretation.get('deepMisses')}",
         ]
+        if interpretation.get("honestConclusion"):
+            lines.append(f"    note: {interpretation['honestConclusion']}")
     return "\n".join(lines)
 
 

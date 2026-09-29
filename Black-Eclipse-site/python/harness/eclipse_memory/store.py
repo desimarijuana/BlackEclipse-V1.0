@@ -777,6 +777,73 @@ class EclipseMemoryStore:
         )
         self._db.commit()
 
+    # ── Skill maintenance: pin flag + ledger (Milestone 1) ──────────────────
+
+    def set_version_pinned(self, skill_id: str, version: str, pinned: bool) -> bool:
+        """Set/clear a version's pin. Pinning is orthogonal to `status`.
+
+        Returns False when the version does not exist (nothing changed). A pinned
+        version is exempt from every AUTOMATIC maintenance transition; an
+        operator lifecycle action (enable/disable/deprecate) still applies.
+        """
+        cursor = self._db.execute(
+            "UPDATE SkillVersion SET pinned=?, updatedAt=? WHERE skillId=? AND version=?",
+            (1 if pinned else 0, now_iso(), skill_id, version),
+        )
+        self._db.commit()
+        return cursor.rowcount > 0
+
+    def is_version_pinned(self, skill_id: str, version: str) -> bool:
+        row = self._db.execute(
+            "SELECT pinned FROM SkillVersion WHERE skillId=? AND version=?",
+            (skill_id, version),
+        ).fetchone()
+        return bool(row["pinned"]) if row else False
+
+    def list_pinned_versions(self) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM SkillVersion WHERE pinned=1 ORDER BY skillId, version"
+        ).fetchall()
+        return [self._version_row(r) for r in rows]
+
+    def record_skill_maintenance(
+        self, operation: str, *, ok: bool, inspected: int = 0, stale: int = 0,
+        archived: int = 0, pinned_exempt: int = 0, changed: int = 0,
+        skipped: int = 0, error: Optional[str] = None,
+    ) -> None:
+        """Persist a skill-maintenance outcome (best-effort; never raises)."""
+        try:
+            self._db.execute(
+                """INSERT INTO SkillMaintenance
+                   (operation, ranAt, ok, inspected, stale, archived, pinnedExempt,
+                    changed, skipped, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(operation) DO UPDATE SET
+                     ranAt=excluded.ranAt, ok=excluded.ok, inspected=excluded.inspected,
+                     stale=excluded.stale, archived=excluded.archived,
+                     pinnedExempt=excluded.pinnedExempt, changed=excluded.changed,
+                     skipped=excluded.skipped, error=excluded.error""",
+                (operation, now_iso(), 1 if ok else 0, int(inspected), int(stale),
+                 int(archived), int(pinned_exempt), int(changed), int(skipped), error),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - bookkeeping is best-effort
+            pass
+
+    def skill_maintenance_status(self, operation: str = "skill_maintenance") -> Optional[dict[str, Any]]:
+        """The last recorded skill-maintenance outcome, or None when never run."""
+        try:
+            row = self._db.execute(
+                "SELECT * FROM SkillMaintenance WHERE operation=?", (operation,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - a pre-migration db reads as unknown
+            return None
+        if not row:
+            return None
+        record = dict(row)
+        record["ok"] = bool(record.get("ok"))
+        return record
+
     def create_execution(
         self, *, run_id: str, skill_id: str, version: str, manifest_hash: Optional[str],
         parent_run_id: Optional[str], execution_mode: str, actor: str, input_data: dict[str, Any],

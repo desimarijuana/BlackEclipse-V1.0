@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clientIsOperator, listMemories, memoryHealth, memoryLifecycle, memoryProfile,
   memoryProviderSearch, memoryProviderStatus, memoryRetention,
-  memorySemanticStatus, rebuildProfile, restoreMemory,
+  rebuildProfile, restoreMemory,
   sessionSearch, sessionSearchHealth,
   listChatSessions, listProfiles, forkChatSession,
 } from "./eclipse-memory-browser";
@@ -90,18 +90,6 @@ describe("eclipse-memory browser client", () => {
     const status = await memoryRetention();
     expect(status.automaticExpiryEnabled).toBe(true);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/eclipse-memory/retention");
-  });
-
-  it("memorySemanticStatus fetches the semantic-status route", async () => {
-    const fetchMock = vi.fn(async (_url: string) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ mode: "lexical", lexicalActive: true, semanticEnabled: false, semanticAvailable: true, backend: "char-ngram", detectorVersion: "semantic-v1", reason: "disabled" }),
-    }));
-    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
-    const status = await memorySemanticStatus();
-    expect(status.mode).toBe("lexical");
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/eclipse-memory/semantic-status");
   });
 
   it("memoryProfile passes a scopeId query", async () => {

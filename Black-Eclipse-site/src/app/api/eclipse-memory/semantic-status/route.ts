@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
-import { memorySemanticStatus } from "@/lib/harness/eclipse-memory-client";
-import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/eclipse-memory/semantic-status — active conflict mode + fallback state.
+// GET /api/eclipse-memory/semantic-status — RETIRED tombstone.
+// The optional semantic candidate layer was removed on the evidence that it
+// added no measurable recall at a safe threshold (deterministic normalization
+// closed the gap). Kept so an old client gets a truthful answer, not a 404.
 export async function GET() {
-  try {
-    const body = await memorySemanticStatus();
-    return NextResponse.json(body);
-  } catch (err) {
-    const unavailable = err instanceof HarnessRuntimeUnavailable;
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "semantic status failed" },
-      { status: unavailable ? 503 : 500 }
-    );
-  }
+  return NextResponse.json({
+    success: true,
+    retired: true,
+    mode: "lexical",
+    lexicalActive: true,
+    semanticEnabled: false,
+    semanticAvailable: false,
+    reason:
+      "the semantic candidate layer was removed; deterministic lexical detection is authoritative",
+    doc: "docs/harness/memory-contradiction-detection.md",
+  });
 }

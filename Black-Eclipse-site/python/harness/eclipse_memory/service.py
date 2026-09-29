@@ -1,18 +1,18 @@
-"""Eclipse-Memory service — the controlled write/retrieve pipelines.
+"""Eclipse-Memory service â€” the controlled write/retrieve pipelines.
 
 Nothing writes memory directly through the store; it goes through this service,
 which implements the pipeline the brief requires:
 
     Candidate Observation
-      → Classify memory type
-      → Normalize/validate content
-      → Check scope
-      → Check duplication
-      → Attach evidence (optional)
-      → Determine confidence
-      → Apply retention (expiry)
-      → Persist
-      → Emit memory event
+      â†’ Classify memory type
+      â†’ Normalize/validate content
+      â†’ Check scope
+      â†’ Check duplication
+      â†’ Attach evidence (optional)
+      â†’ Determine confidence
+      â†’ Apply retention (expiry)
+      â†’ Persist
+      â†’ Emit memory event
 
 Memory is not saved just because a model produced a sentence. Callers must
 state an explicit source (an explicit user request, a correction, a validated
@@ -53,7 +53,7 @@ class MemoryFullError(MemoryWriteError):
 # database cannot fill up with every conversational sentence.
 VALID_SOURCES = frozenset(
     {
-        "explicit_user",      # "remember that …"
+        "explicit_user",      # "remember that â€¦"
         "user_correction",    # the user corrected Eclipse
         "execution_lesson",   # a validated reusable lesson from a run
         "system_decision",    # an explicitly recorded architecture decision
@@ -91,7 +91,7 @@ class EclipseMemoryService:
         except Exception:  # noqa: BLE001 - a projection failure must not block boot
             pass
 
-    # ── Write pipeline ──────────────────────────────────────────────────────
+    # â”€â”€ Write pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def write_memory(
         self,
@@ -122,7 +122,7 @@ class EclipseMemoryService:
         except Exception:  # noqa: BLE001 - a policy read failure fails closed on the controls below
             settings = {}
         if settings.get("memory_enabled") is False:
-            raise MemoryWriteError("memory is disabled by policy — no memory is stored")
+            raise MemoryWriteError("memory is disabled by policy â€” no memory is stored")
         from .policy import category_policy  # noqa: PLC0415
 
         if source != "user_correction" and category_policy(settings, "capture_policy", memory_type) == "deny":
@@ -158,7 +158,7 @@ class EclipseMemoryService:
                 # "last confirmed" meaningful and prevents a re-save from counting
                 # against the storage budget. An automatic memory's retention is
                 # refreshed too, so a re-affirmed fact does not expire on its old
-                # clock. A non-active record is NEVER revived by a duplicate write —
+                # clock. A non-active record is NEVER revived by a duplicate write â€”
                 # unless the new statement carries explicit replacement intent
                 # ("prefer X now"), which falls through so the user can deliberately
                 # re-assert a reversed preference as a fresh active truth.
@@ -173,7 +173,7 @@ class EclipseMemoryService:
 
                 if not is_replacement_intent(text_value):
                     # An inert duplicate without replacement intent is returned
-                    # unchanged — never revived, never duplicated.
+                    # unchanged â€” never revived, never duplicated.
                     self.store.append_memory_event(
                         "memory.duplicate_inert_skipped", memory_id=existing["id"],
                         run_id=source_run_id, data={"signature": signature},
@@ -195,7 +195,6 @@ class EclipseMemoryService:
         superseded_ids: list[str] = []
         write_status = "active"
         write_reason: Optional[str] = None
-        detector_meta: Optional[dict[str, Any]] = None
         authority = _derive_authority(source)
         if not allow_duplicate and source != "user_correction" and memory_type != "correction":
             assessment = self._assess_conflict(
@@ -221,28 +220,10 @@ class EclipseMemoryService:
                 )
                 if write_status == "proposed":
                     write_reason = f"conflict: {assessment.reason}"
-            elif assessment.decision == "none":
-                # The lexical detector found no conflict. The optional local
-                # semantic layer may only surface a *candidate* for review — it
-                # can never supersede or activate. A strong candidate makes the
-                # new record inert (`proposed`) with an explanatory reason so the
-                # user can confirm; a weak/none leaves the write active.
-                semantic = self._semantic_conflict_candidate(
-                    memory_type=memory_type, scope=scope, scope_id=scope_id,
-                    subject=subject, content=text_value,
-                )
-                if semantic is not None:
-                    write_status = "proposed"
-                    candidate_type = semantic.get("candidateType", "conflict_candidate")
-                    write_reason = (
-                        "possible contradiction detected (semantic "
-                        f"{candidate_type.replace('_candidate', '')} candidate)"
-                    )
-                    detector_meta = semantic
 
         # 5c. Storage budget. A duplicate return above does not consume budget;
         # a genuinely new record must fit. The budget is never enforced by
-        # auto-deleting user memory — the write fails truthfully instead. A
+        # auto-deleting user memory â€” the write fails truthfully instead. A
         # correction is exempt: it supersedes an existing record right after, so
         # it does not grow the retained set, and blocking an explicit correction
         # would be worse than a temporarily over-full count.
@@ -272,15 +253,6 @@ class EclipseMemoryService:
             )
         if superseded_ids:
             memory = self.store.get_memory(memory["id"]) or memory
-        # 5d. Audit the detector metadata when a semantic candidate produced a
-        # review outcome. Only ids/score/detector are recorded — never raw
-        # embeddings or sensitive diagnostic payloads.
-        if detector_meta is not None:
-            self.store.append_memory_event(
-                "memory.semantic_candidate", memory_id=memory["id"], run_id=source_run_id,
-                data={"decision": "proposed", "authority": authority,
-                      "requiresConfirmation": True, **detector_meta},
-            )
         # 6. Evidence.
         if evidence:
             self.store.add_evidence(
@@ -304,13 +276,13 @@ class EclipseMemoryService:
         source: str = "execution_lesson",
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """An automatic candidate — inert until reviewed. Uses status
+        """An automatic candidate â€” inert until reviewed. Uses status
         `proposed` so retrieval excludes it by default."""
         kwargs.setdefault("verification", "unverified")
         memory = self.write_memory(memory_type=memory_type, content=content, source=source, **kwargs)
         # A proposed memory is inert until reviewed: flip a freshly created row
         # to `proposed` so retrieval excludes it. (A duplicate return keeps its
-        # existing status — never silently un-approve an active memory.)
+        # existing status â€” never silently un-approve an active memory.)
         if memory.get("status") == "active":
             memory = self.store.update_memory(memory["id"], status="proposed") or memory
         return memory
@@ -340,7 +312,7 @@ class EclipseMemoryService:
         Searching inactive records too is what stops a duplicate write from
         silently re-asserting an expired/superseded/archived/rejected fact as a
         new active truth: the inert record is returned unchanged (never revived
-        by duplicate handling — an explicit restore is the only way back).
+        by duplicate handling â€” an explicit restore is the only way back).
         """
         for memory in self.store.list_memories(limit=500, include_inactive=True):
             if _content_signature(
@@ -367,7 +339,7 @@ class EclipseMemoryService:
             self.store.append_memory_event("memory.confirmed", memory_id=existing["id"])
         return updated or existing
 
-    # ── Contradiction / replacement ─────────────────────────────────────────
+    # â”€â”€ Contradiction / replacement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _assess_conflict(
         self, *, memory_type: str, scope: str, scope_id: Optional[str],
@@ -395,7 +367,7 @@ class EclipseMemoryService:
     ) -> tuple[list[str], str]:
         """Decide the disposition of a detected conflict.
 
-        Returns `(superseded_ids, new_status)`. Authority MATTERS here — it is
+        Returns `(superseded_ids, new_status)`. Authority MATTERS here â€” it is
         what distinguishes "explicit overrides automatic" from "ambiguous".
 
           * ``supersede`` (explicit replacement, or explicit over automatic): the
@@ -422,112 +394,6 @@ class EclipseMemoryService:
         )
         return [], "proposed"
 
-    def _semantic_conflict_candidate(
-        self, *, memory_type: str, scope: str, scope_id: Optional[str],
-        subject: Optional[str], content: str,
-    ) -> Optional[dict[str, Any]]:
-        """Find an ACTIONABLE semantic contradiction candidate, or None.
-
-        SAFETY: the candidate layer is local, optional and bounded. It can ONLY
-        return a review suggestion - never a supersede. The caller stores the new
-        record inert (`proposed`). Scope/status/type/dimension/authority filtering
-        is applied HERE, before similarity, so similarity can never widen access.
-
-        Only `conflict_candidate` / `replacement_candidate` may lead to a review:
-        a `confirmation_candidate` is diagnostic-only (similarity must never
-        confirm or activate memory) and `unrelated_candidate` is inert. Any
-        failure (disabled, unavailable, timeout, bad setting) returns None,
-        leaving lexical-only behavior intact.
-        """
-        try:
-            settings = self.policy.get_all()
-            if not settings.get("semantic_conflict_enabled"):
-                return None
-            from . import semantic  # noqa: PLC0415
-
-            # Stage 1 — deterministic filtering (the authoritative set).
-            try:
-                pool = self.store.list_memories(
-                    memory_type=memory_type, scope=scope, scope_id=scope_id,
-                    limit=500, include_inactive=False,
-                )
-            except Exception:  # noqa: BLE001 - filtering failure means lexical-only
-                return None
-            from .conflicts import same_dimension  # noqa: PLC0415
-
-            same = [
-                m for m in pool
-                if m.get("status") == "active"
-                and same_dimension(subject, m.get("subject"))
-            ]
-            if not same:
-                return None
-
-            # Stage 2 — bounded local similarity among the authorized candidates.
-            backend_name = str(settings.get("semantic_conflict_backend") or "char-ngram")
-            result = semantic.find_candidates(
-                content=content, same_dimension=same, settings=settings,
-                backend_name=backend_name,
-            )
-            if not result.available or not result.candidates:
-                return None
-
-            # Stage 3 — record bounded diagnostics for ALL candidates (no raw
-            # text/vectors), then act only on the strongest actionable one.
-            self._record_semantic_diagnostics(result, settings)
-            best = semantic.strongest_actionable(result)
-            if best is None:
-                # Only confirmation/unrelated candidates: inert, diagnostic-only.
-                return None
-            return {
-                "candidateType": best.kind,
-                "detector": result.detector,
-                "detectorVersion": semantic.DETECTOR_VERSION,
-                "similarity": best.score,
-                "candidateIds": [c.memoryId for c in result.candidates
-                                 if c.kind in semantic.ACTIONABLE_KINDS],
-                "requiresConfirmation": True,
-                "reason": best.reason or (
-                    "local semantic similarity suggests this may restate or "
-                    "contradict an existing memory"
-                ),
-            }
-        except Exception:  # noqa: BLE001 - the semantic layer must never break a write
-            return None
-
-    def _record_semantic_diagnostics(self, result: Any, settings: dict[str, Any]) -> None:
-        """Persist bounded candidate metadata for operator diagnostics.
-
-        Records detector, version, candidate ids, per-candidate kind and score,
-        and counts. NEVER records raw memory text or any embedding. Respects
-        `semantic_conflict_diagnostics`.
-        """
-        if not settings.get("semantic_conflict_diagnostics", True):
-            return
-        try:
-            candidates = [
-                {"memoryId": c.memoryId, "kind": c.kind, "score": round(c.score, 3)}
-                for c in result.candidates
-            ]
-            actionable = [
-                c for c in result.candidates
-                if c.kind in ("conflict_candidate", "replacement_candidate")
-            ]
-            self.store.append_memory_event(
-                "memory.semantic_diagnostics",
-                data={
-                    "detector": result.detector,
-                    "candidateCount": len(candidates),
-                    "candidates": candidates,
-                    "actionableCount": len(actionable),
-                    "timedOut": result.timedOut,
-                    "truncated": result.truncated,
-                    "unavailable": False,
-                },
-            )
-        except Exception:  # noqa: BLE001 - diagnostics must never break a write
-            pass
-
     def _active_memory_count(self) -> int:
         try:
             row = self.store._db.execute(
@@ -542,7 +408,7 @@ class EclipseMemoryService:
 
         The budget counts ACTIVE memories; inert history (archived/superseded/
         proposed) does not consume it. User memory is never auto-deleted to make
-        room — the caller must surface the honest full state.
+        room â€” the caller must surface the honest full state.
         """
         try:
             limit = int(self.policy.get("max_memories") or 0)
@@ -557,7 +423,7 @@ class EclipseMemoryService:
             )
             raise MemoryFullError(
                 f"memory is full ({active}/{limit} active). Archive or review memories "
-                "to free space — existing memory is never deleted automatically.",
+                "to free space â€” existing memory is never deleted automatically.",
                 limit=limit, active=active,
             )
 
@@ -576,7 +442,7 @@ class EclipseMemoryService:
             "remaining": None if limit <= 0 else max(0, limit - active),
         }
 
-    # ── Retention / lifecycle ───────────────────────────────────────────────
+    # â”€â”€ Retention / lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _retention_expiry(self) -> Optional[str]:
         """The `expiresAt` for a newly written AUTOMATIC memory, from
@@ -612,7 +478,7 @@ class EclipseMemoryService:
         """Mark due AUTOMATIC memories `expired` (never delete). Idempotent.
 
         Retention is a review threshold, not deletion: a due record becomes inert
-        and reviewable. EXPLICIT memories are exempt — retention never silently
+        and reviewable. EXPLICIT memories are exempt â€” retention never silently
         expires something the user stated.
 
         The result is observable (requirement: inspected/expired/skipped/reason)
@@ -686,7 +552,7 @@ class EclipseMemoryService:
                     "ids": [], "error": str(exc)}
 
     def preview_retention(self) -> dict[str, Any]:
-        """Preview what a retention sweep would expire — WITHOUT sweeping.
+        """Preview what a retention sweep would expire â€” WITHOUT sweeping.
 
         Returns the count + ids of due automatic memories so an operator can see
         the effect before it happens. Never writes. Explicit memories are exempt
@@ -720,7 +586,7 @@ class EclipseMemoryService:
         review = self.preview_retention()
         # The next maintenance action: what a sweep would do now, stated plainly.
         if retention_days <= 0:
-            next_action = "automatic retention is off — due automatic memories will not expire"
+            next_action = "automatic retention is off â€” due automatic memories will not expire"
         elif review.get("due"):
             next_action = f"{review['due']} automatic memor(y/ies) are due to expire on the next sweep"
         else:
@@ -761,7 +627,7 @@ class EclipseMemoryService:
             )
         return updated
 
-    # ── Retrieval pipeline ──────────────────────────────────────────────────
+    # â”€â”€ Retrieval pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def retrieve(
         self,
@@ -778,7 +644,7 @@ class EclipseMemoryService:
         include_proposed: Optional[bool] = None,
     ) -> RetrievalResult:
         # Policy supplies the defaults; an explicit caller value still wins.
-        # A policy read failure must not crash retrieval — fall back to safe
+        # A policy read failure must not crash retrieval â€” fall back to safe
         # defaults and let the retrieval path report its own diagnostics.
         try:
             settings = self.policy.get_all()
@@ -799,10 +665,9 @@ class EclipseMemoryService:
             include_proposed=include_proposed if include_proposed is not None
             else settings["include_proposed_in_retrieval"],
             recall_denied_types=denied or None,
-            semantic_tiebreak=bool(settings.get("semantic_recall_tiebreak")),
         )
 
-    # ── Compact prompt profile (materialized projection) ────────────────────
+    # â”€â”€ Compact prompt profile (materialized projection) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def build_profile(
         self,
@@ -849,7 +714,7 @@ class EclipseMemoryService:
             "latest": self.store.latest_profile_snapshot(),
         }
 
-    # ── Corrections / mistakes ──────────────────────────────────────────────
+    # â”€â”€ Corrections / mistakes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def record_correction(
         self,
@@ -875,7 +740,7 @@ class EclipseMemoryService:
         })
         memory = self.write_memory(
             memory_type="correction",
-            content=f"Correction — {subject or 'general'}: {wrong} → {correction}",
+            content=f"Correction â€” {subject or 'general'}: {wrong} â†’ {correction}",
             source="user_correction", scope=scope, subject=subject, source_run_id=run_id,
             confidence=0.9 if provided_by == "user" else 0.7,
             importance=0.8, verification="verified" if provided_by == "user" else "unverified",
@@ -893,7 +758,7 @@ class EclipseMemoryService:
     def record_mistake(self, mistake: dict[str, Any]) -> str:
         return self.store.save_mistake(mistake)
 
-    # ── Explicit user intent (deterministic post-run path) ──────────────────
+    # â”€â”€ Explicit user intent (deterministic post-run path) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def decide_turn(
         self,
@@ -912,7 +777,7 @@ class EclipseMemoryService:
         in prior conversation history (computed by the caller from
         `RunRequest.input.history`). It is combined with a **persisted**,
         bounded recurrence ledger (signature-only; no raw text) so a convention
-        repeated across sessions — beyond the bounded chat-history window — is
+        repeated across sessions â€” beyond the bounded chat-history window â€” is
         still recognized.
         """
         from .decision import content_signature, decide_turn as _decide  # noqa: PLC0415
@@ -992,13 +857,13 @@ class EclipseMemoryService:
         return self.store.get_suggestion(suggestion_id) or {"id": suggestion_id}
 
     def accept_suggestion(self, suggestion_id: str, *, user_id: Optional[str] = None) -> dict[str, Any]:
-        """Accept a suggestion → write one scoped memory, mark it accepted.
+        """Accept a suggestion â†’ write one scoped memory, mark it accepted.
 
         Cross-user isolation: a suggestion carrying a `scopeId` may only be
         accepted by that same user. When both the suggestion's owner and the
         acting `user_id` are present and differ, the request is refused rather
         than writing another user's preference into the wrong scope. (When
-        `user_id` is omitted — the single-user/operator path — the suggestion's
+        `user_id` is omitted â€” the single-user/operator path â€” the suggestion's
         own scopeId is used and no mismatch can arise.)
         """
         from .decision import authorize_proposal  # noqa: PLC0415
@@ -1073,15 +938,15 @@ class EclipseMemoryService:
 
         `intent` is a `MemoryIntent` (or its dict). Persistence always goes
         through `write_memory` (type/scope/dedupe/evidence/audit). A refused or
-        confirmation-pending intent NEVER writes — it is returned as an honest
+        confirmation-pending intent NEVER writes â€” it is returned as an honest
         outcome for the caller to surface.
 
         Outcomes:
-          * save   → `{action: "saved", memory: {...}, requiresConfirmation: False}`
-          * correct→ supersedes the prior memory (never hard-deletes) + writes a
+          * save   â†’ `{action: "saved", memory: {...}, requiresConfirmation: False}`
+          * correctâ†’ supersedes the prior memory (never hard-deletes) + writes a
                      correction memory
-          * forget → archives the matching memory(ies) (never hard-deletes)
-          * refused/confirm → `{action: "refused"|"needs_confirmation", ...}`
+          * forget â†’ archives the matching memory(ies) (never hard-deletes)
+          * refused/confirm â†’ `{action: "refused"|"needs_confirmation", ...}`
         """
         from .intent import MemoryIntent
 
@@ -1140,7 +1005,7 @@ class EclipseMemoryService:
                     "ok": False, "action": "needs_review", "memory": memory,
                     "reason": (
                         "This conflicts with an existing memory and was NOT saved as "
-                        "active truth — it needs review or clarification."
+                        "active truth â€” it needs review or clarification."
                     ),
                 }
             self.store.append_memory_event(
@@ -1293,7 +1158,7 @@ class EclipseMemoryService:
         )
         return {"ok": True, "action": "forgotten", "archived": [target["id"]]}
 
-    # ── Post-run analysis (policy-gated, deterministic, never auto-enables) ──
+    # â”€â”€ Post-run analysis (policy-gated, deterministic, never auto-enables) â”€â”€
 
     def analyze_run(
         self,
@@ -1305,7 +1170,7 @@ class EclipseMemoryService:
         """Analyze a finished run per the current policy.
 
         Under `skill_learning_mode != off`, learning candidates are created for
-        qualifying experiences (still inert — promotion is separate). An
+        qualifying experiences (still inert â€” promotion is separate). An
         eligible run is not, by itself, enough: implicit procedure candidates
         require recurrence evidence (enforced in `skills.learning.analyze_run`).
         Mistake detection always runs (it is cheap, deterministic and auditable).
@@ -1361,7 +1226,7 @@ class EclipseMemoryService:
         result["candidatesSkipped"] = skipped
         return result
 
-    # ── One-time import from the legacy agent-memory.db skill tables ────────
+    # â”€â”€ One-time import from the legacy agent-memory.db skill tables â”€â”€â”€â”€â”€â”€â”€â”€
 
     def import_legacy_skills(self, legacy_path: str) -> dict[str, Any]:
         """Copy Phase-3 `Skill*`/`LearningCandidate` rows from the old
@@ -1450,114 +1315,42 @@ class EclipseMemoryService:
         self.store.append_event("eclipse_memory.legacy_import", data={"counts": counts})
         return {"imported": True, "counts": counts}
 
-    # ── Lifecycle ───────────────────────────────────────────────────────────
+    # â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def health(self) -> dict[str, Any]:
         return {
             **self.store.health(),
             "memoryBudget": self.memory_budget(),
             "retention": self.retention_status(),
-            "semanticConflict": self.semantic_status(),
-        }
-
-    def semantic_status(self) -> dict[str, Any]:
-        """The active conflict-detection mode + semantic fallback state.
-
-        `mode` is one of `lexical` (semantic off/unavailable — the safe default),
-        `lexical+semantic` (enabled and a local backend is available), or
-        `lexical+semantic-unavailable` (enabled but the backend could not load —
-        behavior is lexical-only). Never exposes an embedding or model path.
-        """
-        from . import semantic  # noqa: PLC0415
-
-        try:
-            settings = self.policy.get_all()
-        except Exception:  # noqa: BLE001 - a policy read failure is lexical-only
-            settings = {}
-        enabled = bool(settings.get("semantic_conflict_enabled"))
-        backend_name = str(settings.get("semantic_conflict_backend") or "char-ngram")
-        backend = semantic.backend_status(backend_name)
-        if not enabled:
-            mode = "lexical"
-            reason = "semantic conflict detection is disabled"
-        elif backend["available"]:
-            mode = "lexical+semantic"
-            reason = "local semantic candidates enabled"
-        else:
-            mode = "lexical+semantic-unavailable"
-            reason = "semantic enabled but no local backend is available; lexical-only"
-        stats = self._semantic_stats()
-        return {
-            "mode": mode,
-            "lexicalActive": True,
-            "semanticEnabled": enabled,
-            "semanticAvailable": backend["available"],
-            "backend": backend["backend"],
-            "backendRequested": backend_name,
-            "detectorVersion": semantic.DETECTOR_VERSION,
-            "reason": reason,
-            # Controls (bounded; reported so the operator can see them).
-            "controls": {
-                "enabled": enabled,
-                "backend": backend_name,
-                "threshold": settings.get("semantic_conflict_threshold"),
-                "candidateLimit": settings.get("semantic_conflict_max_candidates"),
-                "indexLimit": settings.get("semantic_conflict_max_index"),
-                "timeoutMs": settings.get("semantic_conflict_timeout_ms"),
-                "diagnostics": settings.get("semantic_conflict_diagnostics", True),
-            },
-            "backends": semantic.backend_health(),
-            # Counters derived from bounded audit events (no content).
-            "stats": stats,
-        }
-
-    def _semantic_stats(self) -> dict[str, Any]:
-        """Bounded counters from semantic audit events. No content is exposed."""
-        try:
-            events = self.store.list_memory_events(limit=1000)
-        except Exception:  # noqa: BLE001 - stats must never fail health
-            return {"available": False}
-        proposed = 0
-        diagnostic_cases = 0
-        candidates = 0
-        actionable = 0
-        accepted = 0
-        dismissed = 0
-        replacements = 0
-        for event in events:
-            etype = event.get("type")
-            data = event.get("data") or {}
-            if etype == "memory.semantic_candidate":
-                proposed += 1
-                if data.get("candidateType") == "replacement_candidate":
-                    replacements += 1
-            elif etype == "memory.semantic_diagnostics":
-                diagnostic_cases += 1
-                candidates += int(data.get("candidateCount") or 0)
-                actionable += int(data.get("actionableCount") or 0)
-            elif etype == "memory.conflict_confirmed":
-                accepted += 1
-            elif etype == "memory.conflict_needs_review":
-                dismissed += 1
-        return {
-            "available": True,
-            "proposedBySemantics": proposed,
-            "semanticCandidateOccurrences": candidates,
-            "actionableCandidates": actionable,
-            "diagnosticRuns": diagnostic_cases,
-            "confirmedAfterReview": accepted,
-            "keptExistingOrDismissed": dismissed,
-            "replacementProposals": replacements,
         }
 
     def migration_status(self) -> dict[str, Any]:
         return self.store.migration_status()
 
-    # ── Explainability ──────────────────────────────────────────────────────
+    def usage_report(self, *, window_days: int = 30) -> dict[str, Any]:
+        """A bounded, READ-ONLY real-usage report (Milestone 7).
+
+        Derived from actual persisted rows, content-free where possible. Counts
+        durable-write outcomes, real conflict resolutions (and the implied false
+        positive rate), and likely-missed conflicts for human review. Never
+        writes; never raises. Complements the synthetic labeled evals, which can
+        only prove the detector implements its rules.
+        """
+        from .usage_report import build_usage_report  # noqa: PLC0415
+
+        try:
+            return build_usage_report(self.store, window_days=window_days)
+        except Exception as exc:  # noqa: BLE001 - a report must never raise
+            return {
+                "windowDays": window_days, "insufficientData": True,
+                "error": str(exc), "readOnly": True,
+            }
+
+    # â”€â”€ Explainability â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def explain_memory(self, memory_id: str) -> Optional[dict[str, Any]]:
         """A concise, non-sensitive explanation of why a memory exists and its
-        current lifecycle state. Never includes secrets — only the stored content
+        current lifecycle state. Never includes secrets â€” only the stored content
         the operator is already entitled to view locally."""
         memory = self.store.get_memory(memory_id)
         if memory is None:
@@ -1585,7 +1378,7 @@ class EclipseMemoryService:
             else:
                 recall_reason = "active and eligible for recall"
         elif status == "proposed":
-            recall_reason = "inert suggestion/conflict — awaiting review; excluded from recall"
+            recall_reason = "inert suggestion/conflict â€” awaiting review; excluded from recall"
         elif status == "superseded":
             recall_reason = f"excluded from recall because it was superseded by {memory.get('supersededBy') or 'a later memory'}"
         elif status == "expired":
@@ -1715,13 +1508,13 @@ class EclipseMemoryService:
         and reversible (history is retained, never hard-deleted).
 
         Actions:
-          * `keep` — mark reviewed; change nothing.
-          * `supersede` — mark `target_id` superseded by `memory_id`.
-          * `merge` — create a NEW explicit memory from `merged_content` (or the
+          * `keep` â€” mark reviewed; change nothing.
+          * `supersede` â€” mark `target_id` superseded by `memory_id`.
+          * `merge` â€” create a NEW explicit memory from `merged_content` (or the
             newer of the two) and supersede both; linked, reversible.
-          * `confirm_both` — confirm both when contextually compatible.
-          * `dismiss` — archive the competing target as rejected.
-          * `defer` — mark reviewed, leave state unchanged.
+          * `confirm_both` â€” confirm both when contextually compatible.
+          * `dismiss` â€” archive the competing target as rejected.
+          * `defer` â€” mark reviewed, leave state unchanged.
         """
         memory = self.store.get_memory(memory_id)
         if memory is None:
@@ -1807,7 +1600,7 @@ class EclipseMemoryService:
                     ),
                     source_run_id=run_id,
                     # The merged record is the deliberate resolution of an
-                    # explicit conflict — it must not itself be auto-proposed by
+                    # explicit conflict â€” it must not itself be auto-proposed by
                     # the conflict pipeline. The operator chose this action.
                     allow_duplicate=True,
                 )
@@ -1838,7 +1631,7 @@ class EclipseMemoryService:
                 if e.get("memoryId") == memory_id
                 and e.get("type") in (
                     "memory.conflict_needs_review", "memory.conflict_superseded",
-                    "memory.conflict_confirmed", "memory.semantic_candidate",
+                    "memory.conflict_confirmed",
                 )
             ]
         except Exception:  # noqa: BLE001 - explanation must never fail
@@ -1863,7 +1656,7 @@ class EclipseMemoryService:
 
     def detect_compaction(self, *, persist: bool = True, limit: int = 50) -> list[dict[str, Any]]:
         """Detect near-duplicate active memories and (optionally) persist INERT
-        proposals. Never merges or deletes — acceptance is a separate gated step.
+        proposals. Never merges or deletes â€” acceptance is a separate gated step.
         """
         from .compaction import detect_proposals  # noqa: PLC0415
 
@@ -1976,7 +1769,7 @@ class EclipseMemoryService:
 def _decision_to_intent(decision: Any) -> Any:
     """Adapt an authorized `MemoryDecision` to the `MemoryIntent` shape that
     `apply_explicit_intent` consumes. The decision has already passed the gate,
-    so this is a lossless structural mapping — never a second authorization."""
+    so this is a lossless structural mapping â€” never a second authorization."""
     from .intent import MemoryIntent
 
     return MemoryIntent(

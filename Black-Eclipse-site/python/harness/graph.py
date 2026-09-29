@@ -123,6 +123,62 @@ def effective_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[
     return allowed
 
 
+# Tools whose surface is gated by a policy key. A tool is dropped from the
+# advertised schema AND the run's allowlist when its store is off, so the model
+# is never told about a tool it cannot use.
+def surface_disabled_tools(settings: Optional[dict[str, Any]]) -> set[str]:
+    """Tool names whose surface is disabled by the resolved policy."""
+    settings = settings or {}
+    disabled: set[str] = set()
+    memory_on = bool(settings.get("memory_enabled", True))
+    if not memory_on:
+        # The whole memory/skill surface is off (except skill_list/view, which are
+        # read-only discovery the prompt still offers; the store is the memory DB
+        # but skills are a separate concern — only the memory WRITE tool and the
+        # memory-dependent search tools are dropped).
+        disabled.update({"memory", "memory_search_native", "memory_search_external"})
+    if not bool(settings.get("session_history_enabled", True)):
+        disabled.update({"session_search", "session_open"})
+    if not bool(settings.get("external_memory_search_enabled", False)):
+        disabled.add("memory_search_external")
+    return disabled
+
+
+def resolve_surface(
+    agent: AgentConfig,
+    registry: ToolRegistry,
+    settings: Optional[dict[str, Any]],
+) -> tuple[Optional[set[str]], str]:
+    """Resolve `(allowlist, system_prompt)` for ONE run from policy.
+
+    Computed where the run's settings are read (never at import time), so a
+    policy change takes effect on the next run and the system-prompt head stays
+    byte-stable within a run. A disabled store's tool is dropped from BOTH the
+    allowlist and the prompt guidance.
+
+    `allowlist` is `None` only when the agent has no allowlist AND nothing is
+    disabled (the unrestricted case is passed through unchanged).
+    """
+    from .prompts import filter_system_prompt  # noqa: PLC0415
+
+    settings = settings or {}
+    disabled = surface_disabled_tools(settings)
+    allowed = effective_allowlist(agent, registry)
+    if allowed is None:
+        if disabled:
+            allowed = {name for name in registry.names() if name not in disabled}
+        else:
+            allowed = None
+    else:
+        allowed = {name for name in allowed if name not in disabled}
+    prompt = filter_system_prompt(
+        agent.systemPrompt,
+        memory_enabled=bool(settings.get("memory_enabled", True)),
+        session_history_enabled=bool(settings.get("session_history_enabled", True)),
+    )
+    return allowed, prompt
+
+
 def build_graph(
     request: RunRequest,
     registry: ToolRegistry,
@@ -136,6 +192,7 @@ def build_graph(
     skill_registry: Optional[Any] = None,
     effect_authorizer: Optional[Any] = None,
     memory_router: Optional[Any] = None,
+    allowed: Optional[set[str]] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -146,7 +203,11 @@ def build_graph(
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
     max_tool_calls: Optional[int] = agent.maxToolCalls
-    allowed = effective_allowlist(agent, registry)
+    # `allowed` is the policy-resolved surface from `execute_run` (a disabled
+    # store's tool already removed). Fall back to the raw allowlist for direct
+    # callers/tests that build a graph without resolving the surface.
+    if allowed is None:
+        allowed = effective_allowlist(agent, registry)
 
     model = build_chat_model(request.modelSettings)
     lc_tools = registry.langchain_tools(allowed)
@@ -557,9 +618,19 @@ async def execute_run(
     # observability; it changes nothing the model is allowed to do.
     from .prompt_segments import build_prompt_plan  # noqa: PLC0415
 
-    allowed = effective_allowlist(agent, registry)
+    # Surface honesty (Milestone 4): resolve the tool surface AND the system
+    # prompt FROM POLICY per run — never at import or __init__ time. A disabled
+    # store drops its tool from the bound schema and its guidance from the
+    # prompt. The resolved prompt is byte-stable for the whole run; a policy
+    # change takes effect on the NEXT run.
+    try:
+        surface_settings = memory_service.policy.get_all() if memory_service is not None else {}
+    except Exception:  # noqa: BLE001 - a policy read failure falls back to the full surface
+        surface_settings = {}
+    allowed, system_prompt = resolve_surface(agent, registry, surface_settings)
+
     prompt_plan = build_prompt_plan(
-        system_prompt=agent.systemPrompt,
+        system_prompt=system_prompt,
         agent_id=agent.id,
         tool_names=list(allowed) if allowed else list(registry.names()),
         profile_block=profile_block,
@@ -570,12 +641,22 @@ async def execute_run(
     )
     await emitter.emit("prompt.plan", prompt_plan.to_dict())
 
+    # The dropped-context extraction seam: turns the history bound removes are
+    # read deterministically and surfaced as an INERT, clearly-labelled block in
+    # the same per-run SystemMessage slot the other per-run blocks use. When the
+    # history is under the bound, `dropped` is empty and the message list is
+    # byte-identical to the previous behaviour (no block, no change).
+    history_messages, dropped_block = await _dropped_context_block(
+        request, memory_service, emitter,
+    )
+
     messages: list[BaseMessage] = [
-        SystemMessage(content=agent.systemPrompt),
-        *_history_messages(request),
+        SystemMessage(content=system_prompt),
+        *history_messages,
         *([SystemMessage(content=profile_block)] if profile_block else []),
         *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
         *([SystemMessage(content=memory_block)] if memory_block else []),
+        *([SystemMessage(content=dropped_block)] if dropped_block else []),
         HumanMessage(content=_user_message(request)),
     ]
 
@@ -585,6 +666,7 @@ async def execute_run(
             retrieval_cache, memory_service, skill_registry,
             _effect_authorizer(approvals, request.runId, emitter),
             memory_router,
+            allowed=allowed,
         )
         final_state = await app.ainvoke(
             {
@@ -831,22 +913,97 @@ MAX_HISTORY_TURNS = 20
 MAX_HISTORY_CHARS = 40_000
 
 
-def _history_messages(request: RunRequest) -> list[BaseMessage]:
-    """Prior conversation turns, oldest first, bounded so a long chat cannot
-    blow the context window. Keeps the MOST RECENT turns when trimming."""
+def _bounded_history(request: RunRequest) -> tuple[list[Any], list[Any]]:
+    """Return `(kept, dropped)` turns under the history bound.
+
+    `kept` is the oldest-first list actually prompted; `dropped` is the prefix
+    the bound removed. A history under the bound drops nothing — `dropped` is
+    empty and the caller must behave exactly as before.
+    """
     history = request.input.history or []
     if not history:
-        return []
-    trimmed = history[-MAX_HISTORY_TURNS:]
+        return [], []
+    trimmed = list(history[-MAX_HISTORY_TURNS:])
+    dropped = list(history[: max(0, len(history) - MAX_HISTORY_TURNS)])
     # Also cap total characters, dropping oldest turns first.
     total = sum(len(t.content) for t in trimmed)
     while trimmed and total > MAX_HISTORY_CHARS:
         total -= len(trimmed[0].content)
+        dropped.append(trimmed[0])
         trimmed = trimmed[1:]
+    return trimmed, dropped
+
+
+def _history_messages(request: RunRequest) -> list[BaseMessage]:
+    """Prior conversation turns, oldest first, bounded so a long chat cannot
+    blow the context window. Keeps the MOST RECENT turns when trimming."""
+    trimmed, _dropped = _bounded_history(request)
     return [
         HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
         for t in trimmed
     ]
+
+
+async def _dropped_context_block(
+    request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter,
+) -> tuple[list[BaseMessage], str]:
+    """The bounded history messages plus an inert dropped-context block ("").
+
+    When the history is under the bound nothing is dropped, so no block is
+    produced and the message list is byte-identical to the pre-change behaviour.
+    Extraction is deterministic-first and produces INERT candidates only. It is
+    fail-closed: if extraction cannot complete, NO block is emitted (never a
+    lossy summary) and an honest event is recorded. Extraction never blocks or
+    fails the run.
+    """
+    kept, dropped = _bounded_history(request)
+    messages = [
+        HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
+        for t in kept
+    ]
+    if not dropped:
+        return messages, ""
+    try:
+        from .eclipse_memory.dropped_context import (  # noqa: PLC0415
+            DroppedTurn,
+            extract_dropped_context,
+            render_dropped_context_block,
+        )
+
+        settings: dict[str, Any] = {}
+        if memory_service is not None:
+            try:
+                settings = memory_service.policy.get_all()
+            except Exception:  # noqa: BLE001 - policy read failure is not fatal
+                settings = {}
+        result = extract_dropped_context(
+            [DroppedTurn(role=t.role, content=t.content) for t in dropped],
+            settings=settings, user_id=request.userId,
+        )
+        block = render_dropped_context_block(result)
+        try:
+            await emitter.emit(
+                "memory.dropped_context_extracted",
+                {
+                    "droppedTurns": len(dropped),
+                    "scanned": result.scanned,
+                    "candidates": len(result.items),
+                    "emitted": bool(block),
+                    "ok": result.ok,
+                    "reason": result.reason or None,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return messages, block
+    except Exception as exc:  # noqa: BLE001 - extraction must never break a run
+        try:
+            await emitter.emit("memory.dropped_context_failed", {"error": str(exc), "droppedTurns": len(dropped)})
+        except Exception:  # noqa: BLE001
+            pass
+        # Fail closed: emit no block at all, carry on.
+        return messages, ""
+
 
 
 async def _memory_context(
@@ -859,6 +1016,12 @@ async def _memory_context(
     leak into another's run, and it is budgeted so it cannot flood the context.
     """
     if memory_service is None:
+        return ""
+    # Trivial turns skip retrieval too (no stale context attaches to a one-word
+    # reply). The gate is pure and writes nothing.
+    from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
+
+    if is_trivial_turn(request.input.query):
         return ""
     try:
         result = memory_service.retrieve(
@@ -1012,6 +1175,18 @@ async def _apply_memory_intent(
     blob, or None when there is nothing user-visible.
     """
     if memory_service is None:
+        return None
+    # Trivial-prompt gate (Milestone 5): a bare greeting/acknowledgement, a slash
+    # command or empty input skips the memory decision entirely. An explicit
+    # remember/forget/correct is never trivial, so the always-on intent path still
+    # runs. Nothing is written and the reply is unaffected.
+    from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
+
+    if is_trivial_turn(request.input.query):
+        try:
+            await emitter.emit("memory.trivial_skipped", {"runId": request.runId})
+        except Exception:  # noqa: BLE001
+            pass
         return None
     recurring = _is_recurring_statement(request)
     try:

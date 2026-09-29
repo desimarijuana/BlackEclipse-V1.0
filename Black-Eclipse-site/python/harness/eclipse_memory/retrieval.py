@@ -213,7 +213,6 @@ def retrieve_memories(
     run_id: Optional[str] = None,
     include_proposed: bool = False,
     recall_denied_types: Optional[set[str]] = None,
-    semantic_tiebreak: bool = False,
 ) -> RetrievalResult:
     """Retrieve a bounded, ranked, provenance-carrying memory context.
 
@@ -224,11 +223,6 @@ def retrieve_memories(
     `recall_denied_types` is the operator's per-category recall policy (Phase 6).
     It can only TIGHTEN recall — it is applied after the authoritative
     scope/status/privacy filter, never instead of it.
-
-    `semantic_tiebreak` (Phase 5, optional) may reorder ONLY candidates that
-    already passed the authoritative scope/status/expiry/recall-policy filter and
-    already carried a lexical relevance signal. It can never surface a memory the
-    lexical pipeline excluded, and it never changes the eligible SET.
     """
     started = time.monotonic()
     diagnostics = RetrievalDiagnostics(query=query, candidates=0, selected=0, budgetChars=budget_chars)
@@ -320,15 +314,6 @@ def retrieve_memories(
             ranked.append((score, memory, reasons, has_signal))
         ranked.sort(key=lambda item: (-item[0], item[1]["id"]))
 
-        # ── Optional semantic tie-break (Phase 5) ───────────────────────────
-        # Reorders only memories that ALREADY carry a lexical relevance signal
-        # among themselves, using bounded local similarity to the query. It never
-        # adds, removes, or re-authorizes a candidate: the eligible set is fixed
-        # above (scope/status/expiry/policy), and a memory without a lexical
-        # signal is untouched. Failures are silent (lexical order preserved).
-        if semantic_tiebreak and terms:
-            ranked = _semantic_reorder(ranked, query, diagnostics)
-
         # ── Relevance gate ──────────────────────────────────────────────────
         # When the query has real terms, a TOPICAL memory with no
         # keyword/subject signal is NOT recalled merely because its
@@ -384,58 +369,6 @@ def retrieve_memories(
 
     result.diagnostics = diagnostics.to_dict()
     return result
-
-
-def _semantic_reorder(
-    ranked: list[tuple[float, dict[str, Any], list[str], bool]],
-    query: str,
-    diagnostics: RetrievalDiagnostics,
-) -> list[tuple[float, dict[str, Any], list[str], bool]]:
-    """Optionally reorder signal-carrying memories by local semantic similarity.
-
-    SAFETY: this only permutes items that already carry a lexical relevance
-    signal (`has_signal`), preserving the lexical leader so a strong exact match
-    is never demoted. Memories without a signal are left in place. Scope/status/
-    expiry filtering already ran; this cannot widen the recalled set. Any failure
-    leaves the lexical ordering untouched.
-    """
-    try:
-        from . import semantic  # noqa: PLC0415
-
-        backend = semantic.get_backend("auto")
-        if not backend.available():
-            return ranked
-        signal_idx = [i for i, item in enumerate(ranked) if item[3]]
-        if len(signal_idx) < 2:
-            return ranked
-        scored = []
-        for i in signal_idx:
-            _score_v, memory, reasons, _sig = ranked[i]
-            sim = backend.similarity(query, memory.get("content") or "")
-            if not (0.0 <= sim <= 1.0) or sim != sim:
-                sim = 0.0
-            scored.append((sim, i, memory, reasons))
-        # Keep the top lexical item pinned; reorder the rest by similarity.
-        pinned = signal_idx[0]
-        reorder = sorted(
-            [s for s in scored if s[1] != pinned],
-            key=lambda s: (-s[0], s[1]),
-        )
-        ordered_indices = [pinned] + [s[1] for s in reorder]
-        others = [i for i in range(len(ranked)) if i not in signal_idx]
-        new_ranked: list[tuple[float, dict[str, Any], list[str], bool]] = []
-        for i in ordered_indices:
-            new_ranked.append(ranked[i])
-            diagnostics.reasons.append(
-                f"{ranked[i][1]['id']}: semantic tie-break applied"
-            )
-        # Non-signal items keep their lexical order after the signaled ones; they
-        # are still subject to the relevance gate below.
-        for i in others:
-            new_ranked.append(ranked[i])
-        return new_ranked
-    except Exception:  # noqa: BLE001 - a tie-break failure preserves lexical order
-        return ranked
 
 
 def _highest_authority_only(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:

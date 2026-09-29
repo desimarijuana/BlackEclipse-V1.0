@@ -6,6 +6,99 @@ last-verified: 2026-09-28
 
 # Change Log
 
+## 2026-09-29
+
+- **Memory & skills maintenance hardening — all seven milestones implemented.**
+  (1) New `python/harness/skills/maintenance.py`: deterministic staleness/usage/
+  retirement derived from existing `SkillExecution`/version rows, report-only by
+  default, pinned versions exempt from every automatic transition, archive-never-
+  delete via the existing `deprecated` lifecycle state, `SkillMaintenance` ledger,
+  run through the existing startup lifespan (no new daemon). Migration 22 adds
+  `SkillVersion.pinned`; migration 23 adds the ledger; policy keys
+  `skill_maintenance_enabled`/`skill_stale_after_days`/`skill_archive_after_days`/
+  `skill_maintenance_auto_archive`; routes `GET /skills/maintenance`,
+  `POST /skills/maintenance/run`, `POST /skills/{id}/pin`; Skills → Maintenance
+  tab. Fixed a pre-existing registry bug where `resolve_dependencies` treated a
+  skill's own stored status as a dependency (a disabled skill could never be
+  re-enabled). (2) New `python/harness/eclipse_memory/dropped_context.py` +
+  `graph._dropped_context_block`: deterministic-first, inert, bounded, fail-closed
+  extraction from the turns the history bound drops; a sub-bound history is
+  byte-identical to before. (3) `src/lib/harness/memory-files.ts` now refuses to
+  write an unreadable file, refuses externally-drifted content (snapshotting the
+  raw bytes to a timestamped `.bak`), strips a leading UTF-8 BOM, decodes strictly
+  and refuses a consolidation batch that would empty a non-empty entry file.
+  (4) `prompts.filter_system_prompt` + `graph.resolve_surface` resolve the tool
+  surface and system prompt FROM POLICY per run; a disabled store drops its tool
+  and guidance. (5) New `eclipse_memory/is_trivial.py` gates bare greetings, slash
+  commands and empty input out of the memory decision/retrieval path, never an
+  explicit remember/forget/correct. (6) The optional semantic candidate layer was
+  DELETED on its own recorded evidence: `eclipse_memory/semantic.py`, the semantic
+  eval + CLI + fixture, the seven `semantic_conflict_*` and `semantic_recall_tiebreak`
+  policy keys, the service candidate plumbing + `semantic_status`, the retrieval
+  tie-break, the TS types/client/browser/UI controls and the rebuild route. The
+  deterministic lexical path and the labeled contradiction eval remain; the
+  semantic safety cases were repurposed as lexical regression cases in
+  `contradictions_v1.json` (v3, 49 cases). `semantic-status` and `semantic/rebuild`
+  remain as honest tombstones. (7) New `eclipse_memory/usage_report.py` +
+  `GET /eclipse-memory/usage-report` + Memory Lifecycle "Real usage" panel: a
+  bounded, read-only, content-free real-usage report (durable-write outcomes,
+  conflict resolutions + dismissed-rate false-positive proxy, likely-missed
+  conflicts) to replace reliance on perfect synthetic scores.
+  docs updated: `docs/harness/memory-contradiction-detection.md`,
+  `docs/harness/memory-maintenance-progress.md` (new), `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`. `jdds.db` untouched.
+- **Add the Eclipse-Memory & skills maintenance hardening OpenCode prompt.**
+  New `docs/harness/memory-maintenance-opencode-prompt.md` — an implementation
+  prompt in the same format as the Phase-4 prompts, scoped to the gaps found by
+  an external read of the memory/skill system against a second agent's memory
+  design. Seven milestones: (1) skill staleness/usage/retirement maintenance with
+  pinned-skills exemption, archive-never-delete and a report-only default, run
+  through the existing startup lifespan with no new daemon; (2) a
+  pre-compression extraction seam that is deterministic-first, inert-output-only
+  and fail-closed (keeps the uncompressed transcript); (3) file-projection
+  data-loss guards (refuse-to-write-unreadable, external-drift detection with
+  `.bak`, BOM stripping, no batch that empties a non-empty store); (4) surface
+  honesty so a disabled memory/session/external store drops its tool and its
+  prompt guidance instead of advertising a tool the model cannot use; (5) a
+  trivial-prompt gate that skips the decision path for greetings and slash
+  commands while leaving the explicit remember/forget/correct path intact;
+  (6) deletion of the semantic candidate layer on the evidence its own docs
+  record, keeping the deterministic path and repurposing its safety cases as
+  lexical regression cases; (7) a real-usage measurement report to replace the
+  perfect scores the self-authored labeled sets report. Each milestone names the
+  owning module, the exact finding it is grounded in, and the tests it requires.
+  docs updated: `docs/harness/memory-maintenance-opencode-prompt.md` (new),
+  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`
+- **No code, contract, schema or runtime behavior changed by this entry.** The
+  prompt is a plan; every finding in it is tagged as verified-by-reading and
+  carries an instruction to re-confirm against the current tree before acting.
+  `jdds.db` untouched.
+- **Amend the maintenance prompt with four verified findings and sharpen three
+  milestones.** Amended in place (no second prompt file — `NAVIGATION.md` already
+  points at this one). Added findings: (A8) prompt caching is **not** at risk from
+  this work — `graph.py` rebuilds `profile_block`/`skill_manifest`/`memory_block`
+  as per-run SystemMessages and `prompt_cache_key` is identity-only, so there is no
+  byte-stable cross-run prefix; (A9) **no skill pin flag exists** on `SkillVersion`,
+  so Milestone 1's pin mechanism is *add*, not *reuse*, and needs an additive
+  migration; (A10) the user's full prior conversation arrives every turn from
+  `stock-chat.tsx`, so turns dropped at the history bound are recoverable
+  client-side. Sharpened: (A2/M2) the pre-compression seam is **already located** —
+  `graph.py:_history_messages` with `MAX_HISTORY_TURNS = 20` /
+  `MAX_HISTORY_CHARS = 40 000` — replacing the earlier "it may be inside a
+  dependency, document the limitation" escape hatch with a seam table, a
+  caching-settled section, and the rule that the summary rides the existing per-run
+  SystemMessage slot and must not touch the system-prompt head; (M2) fail-closed
+  restated as "never emit a lossy summary" (the turn bound is pre-existing
+  behaviour and is not reverted) plus a requirement that a sub-bound history render
+  byte-identically to today; (M1) the pin flag is per-version state, orthogonal to
+  `status`, with a reopen-survival test; (M4) exact call sites
+  (`service.py` ~line 79, `ECLIPSE_AGENT.tools`, `prompts.py`) and a per-run — never
+  import-time — policy resolution requirement, following the existing
+  `session_history_enabled` read in `graph.py`. docs updated:
+  `docs/harness/memory-maintenance-opencode-prompt.md`, `docs/CHANGELOG.md`
+- **No code, contract, schema or runtime behavior changed by the amendment
+  either** — it is still a plan document. `jdds.db` untouched.
+
 ## 2026-09-28
 
 - **Eclipse Memory: cut per-request runtime-probe and serial-fetch overhead.**

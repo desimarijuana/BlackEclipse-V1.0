@@ -106,49 +106,43 @@ export interface MemoryRetentionStatus {
   dueCount?: number;
 }
 
-export interface MemorySemanticBackendHealth {
-  backend: string;
-  version: string;
-  available: boolean;
+/** Real-usage measurement (Milestone 7). Read-only; content-free. */
+export interface MemoryUsageReport {
+  success?: boolean;
+  windowDays: number;
+  since?: string;
+  insufficientData: boolean;
+  note?: string;
+  durableWrites: {
+    saved: number;
+    suggested: number;
+    historyOnly: number;
+    ignored: number;
+    totalDecisions: number;
+    explicitRequestRate: number | null;
+  };
+  conflicts: {
+    raised: number;
+    accepted: number;
+    dismissed: number;
+    pending: number;
+    falsePositiveRate: number | null;
+    resolutionRate: number | null;
+  };
+  likelyMissedConflicts: {
+    count: number;
+    groups: Array<{
+      subject: string;
+      memoryType: string;
+      scope: string;
+      count: number;
+      memoryIds: string[];
+    }>;
+  };
+  readOnly: boolean;
 }
 
-export interface MemorySemanticControls {
-  enabled: boolean;
-  backend: string;
-  threshold: number | null;
-  candidateLimit: number | null;
-  indexLimit: number | null;
-  timeoutMs: number | null;
-  diagnostics: boolean;
-}
-
-export interface MemorySemanticStats {
-  available: boolean;
-  proposedBySemantics?: number;
-  semanticCandidateOccurrences?: number;
-  actionableCandidates?: number;
-  diagnosticRuns?: number;
-  confirmedAfterReview?: number;
-  keptExistingOrDismissed?: number;
-  replacementProposals?: number;
-}
-
-export interface MemorySemanticStatus {
-  mode: "lexical" | "lexical+semantic" | "lexical+semantic-unavailable" | string;
-  lexicalActive: boolean;
-  semanticEnabled: boolean;
-  semanticAvailable: boolean;
-  backend: string;
-  backendRequested?: string;
-  detectorVersion: string;
-  reason: string;
-  controls?: MemorySemanticControls;
-  backends?: MemorySemanticBackendHealth[];
-  stats?: MemorySemanticStats;
-}
-
-/** A conservative near-duplicate compaction proposal (Phase 5). Inert. */
-export interface CompactionProposal {
+/** A conservative near-duplicate compaction proposal (Phase 5). Inert. */export interface CompactionProposal {
   id: string;
   memberIds: string[];
   scope: string;
@@ -262,7 +256,6 @@ export interface EclipseMemoryHealth {
   upToDate?: boolean;
   memoryBudget?: { limit: number; active: number; unlimited: boolean; full: boolean; remaining: number | null };
   retention?: MemoryRetentionStatus;
-  semanticConflict?: MemorySemanticStatus;
   error?: string;
 }
 

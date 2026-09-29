@@ -836,6 +836,84 @@ MIGRATIONS.append(
     )
 )
 
+# Skill maintenance: a per-VERSION pin flag (Milestone 1). Pinning is orthogonal
+# to the lifecycle state machine — a pinned skill is exempt from EVERY automatic
+# maintenance transition (staleness/archive) but can still be enabled/disabled by
+# an operator. It is per-version state, so it survives a reopen and is not reset by
+# a reload. Additive/idempotent; existing rows read NULL → not pinned.
+MIGRATIONS.append(
+    (
+        22,
+        [
+            "ALTER TABLE SkillVersion ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+        ],
+    )
+)
+
+# Skill-maintenance ledger (Milestone 1). Mirrors the MemoryMaintenance pattern
+# (one observable row per operation) but is a SEPARATE table keyed by operation
+# name so a skill maintenance pass never overwrites the retention sweep's state.
+# Additive/idempotent.
+MIGRATIONS.append(
+    (
+        23,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS SkillMaintenance (
+              operation     TEXT PRIMARY KEY,
+              ranAt         TEXT NOT NULL,
+              ok            INTEGER NOT NULL DEFAULT 1,
+              inspected     INTEGER NOT NULL DEFAULT 0,
+              stale         INTEGER NOT NULL DEFAULT 0,
+              archived      INTEGER NOT NULL DEFAULT 0,
+              pinnedExempt  INTEGER NOT NULL DEFAULT 0,
+              changed       INTEGER NOT NULL DEFAULT 0,
+              skipped       INTEGER NOT NULL DEFAULT 0,
+              error         TEXT
+            );
+            """,
+        ],
+    )
+)
+
+# Retire the semantic candidate layer's policy overrides (Milestone 6). The layer
+# and its `semantic_conflict_*` / `semantic_recall_tiebreak` keys were removed, so
+# any stored override for those keys is dead. Delete them (they can no longer be
+# set or read), recording the removal in the same migration-audit table the
+# earlier legacy-key resets used, so the cleanup is observable. Additive and
+# idempotent: a pre-change database still opens with no data loss.
+MIGRATIONS.append(
+    (
+        24,
+        [
+            """
+            INSERT INTO MemoryPolicyMigration (key, previousValue, reason, resetAt)
+              SELECT key, value,
+                     'semantic candidate layer removed; key retired',
+                     strftime('%Y-%m-%dT%H:%M:%SZ','now')
+              FROM MemoryPolicy
+              WHERE key IN (
+                'semantic_conflict_enabled',
+                'semantic_conflict_threshold', 'semantic_conflict_backend',
+                'semantic_conflict_max_candidates', 'semantic_conflict_max_index',
+                'semantic_conflict_timeout_ms', 'semantic_conflict_diagnostics',
+                'semantic_recall_tiebreak'
+              );
+            """,
+            """
+            DELETE FROM MemoryPolicy
+              WHERE key IN (
+                'semantic_conflict_enabled',
+                'semantic_conflict_threshold', 'semantic_conflict_backend',
+                'semantic_conflict_max_candidates', 'semantic_conflict_max_index',
+                'semantic_conflict_timeout_ms', 'semantic_conflict_diagnostics',
+                'semantic_recall_tiebreak'
+              );
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

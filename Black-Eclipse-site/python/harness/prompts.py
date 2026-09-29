@@ -155,4 +155,64 @@ Your memory is durable but narrow: save only facts that apply across sessions an
 """
 
 
-__all__ = ["ECLIPSE_AGENT_SYSTEM_PROMPT"]
+__all__ = ["ECLIPSE_AGENT_SYSTEM_PROMPT", "filter_system_prompt"]
+
+
+# ── Surface honesty (Milestone 4) ───────────────────────────────────────────
+#
+# The system prompt advertises capabilities. When a store is disabled by policy
+# the model must NOT be told about a tool it cannot use, so the guidance blocks
+# for that surface are removed from the per-run prompt. This is a pure string
+# transform over the base prompt; the base constant is untouched and remains the
+# byte-stable source. Resolution happens PER RUN (in graph.py, where settings are
+# read) — never at import time, which would freeze the first policy read.
+
+# Guidance paragraphs dedicated to a surface, identified by a stable marker
+# substring. A paragraph is dropped when its surface is off.
+_MEMORY_BLOCK_MARKER = "Eclipse-Memory is available through the `memory` tool."
+_PRIOR_SESSIONS_MARKER = "## Prior sessions (historical recall)"
+_MEMORY_SELF_IMPROVEMENT_MARKER = "## Memory & self-improvement"
+
+# The tool-listing sentence that names the memory/skill tools.
+_TOOLS_LIST_SENTENCE = (
+    "the financial retrieval tools (market quotes and history, fundamentals, "
+    "macro series, news and web research, source retrieval, coverage), and "
+    "`memory`, `skill_list`, `skill_view`."
+)
+_TOOLS_LIST_SENTENCE_NO_MEMORY = (
+    "the financial retrieval tools (market quotes and history, fundamentals, "
+    "macro series, news and web research, source retrieval, coverage), and "
+    "`skill_list`, `skill_view`."
+)
+
+
+def filter_system_prompt(
+    prompt: str,
+    *,
+    memory_enabled: bool = True,
+    session_history_enabled: bool = True,
+) -> str:
+    """Drop guidance for disabled surfaces from a system prompt.
+
+    Pure and deterministic. `memory_enabled=False` removes the `memory` tool
+    guidance, the prior-sessions (session_search) guidance and the memory
+    self-improvement section. `session_history_enabled=False` removes the
+    prior-sessions guidance only. The result is byte-stable for fixed inputs, so
+    it can be computed once per run and reused for the whole run.
+    """
+    if memory_enabled and session_history_enabled:
+        return prompt
+    paragraphs = prompt.split("\n\n")
+    kept: list[str] = []
+    for paragraph in paragraphs:
+        if not memory_enabled and _MEMORY_BLOCK_MARKER in paragraph:
+            continue
+        if not memory_enabled and _MEMORY_SELF_IMPROVEMENT_MARKER in paragraph:
+            continue
+        if not (memory_enabled and session_history_enabled) and _PRIOR_SESSIONS_MARKER in paragraph:
+            continue
+        kept.append(paragraph)
+    result = "\n\n".join(kept)
+    if not memory_enabled:
+        result = result.replace(_TOOLS_LIST_SENTENCE, _TOOLS_LIST_SENTENCE_NO_MEMORY)
+    return result

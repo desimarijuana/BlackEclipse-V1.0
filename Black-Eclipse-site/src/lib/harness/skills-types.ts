@@ -320,6 +320,70 @@ export interface SkillVersionRecord {
   createdAt: string;
   origin: string;
   author: string | null;
+  pinned?: boolean;
+}
+
+// ── Skill maintenance: staleness / usage / retirement (Milestone 1) ─────────
+
+export interface SkillMaintenanceItem {
+  skillId: string;
+  version: string;
+  status: string;
+  pinned: boolean;
+  enabled: boolean;
+  everRun: boolean;
+  runs: number;
+  successes: number;
+  lastUsedAt: string | null;
+  anchorAt: string | null;
+  ageDays: number | null;
+  stale: boolean;
+  archiveEligible: boolean;
+  pinnedExempt: boolean;
+  reasons: string[];
+  recommendedAction?: string;
+}
+
+export interface SkillMaintenanceReport {
+  success?: boolean;
+  enabled: boolean;
+  autoArchive: boolean;
+  reportOnly: boolean;
+  thresholds: { staleAfterDays: number | null; archiveAfterDays: number | null };
+  counts: {
+    versions: number;
+    stale: number;
+    archiveEligible: number;
+    pinnedExempt: number;
+  };
+  recommendations: SkillMaintenanceItem[];
+  lastRun: {
+    operation: string;
+    ranAt: string;
+    ok: boolean;
+    inspected: number;
+    stale: number;
+    archived: number;
+    pinnedExempt: number;
+    changed: number;
+    skipped: number;
+    error: string | null;
+  } | null;
+}
+
+export interface SkillMaintenanceRunResult {
+  success?: boolean;
+  ok: boolean;
+  enabled: boolean;
+  autoArchive: boolean;
+  reportOnly: boolean;
+  inspected: number;
+  stale: number;
+  archiveEligible: number;
+  pinnedExempt: number;
+  archived: Array<{ skillId: string; version: string; ageDays: number | null }>;
+  skipped: number;
+  error?: string;
 }
 
 // ── Versioned patches (M2) ──────────────────────────────────────────────────

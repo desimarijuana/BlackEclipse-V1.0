@@ -267,7 +267,7 @@ def run_evaluation(path: Optional[str] = None) -> dict[str, Any]:
             "recallSupported": round(supported_hit / supported_expected, 3) if supported_expected else 1.0,
             "byKind": by_kind,
             # Latency (deterministic path only — no network/model). Reported so a
-            # future semantic layer can be compared against the lexical baseline.
+            # regression in the lexical baseline is visible.
             "latencyMs": {
                 "mean": round(sum(r.durationMs for r in results) / len(results), 3) if results else 0.0,
                 "max": round(max((r.durationMs for r in results), default=0.0), 3),

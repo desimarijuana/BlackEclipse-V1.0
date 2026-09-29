@@ -34,6 +34,8 @@ import type {
   SkillPatchOperation,
   SkillSummary,
   SkillVersionHistoryEntry,
+  SkillMaintenanceReport,
+  SkillMaintenanceRunResult,
 } from "./skills-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -179,6 +181,26 @@ export async function getSkillPreflight(skillId: string): Promise<{
 
 export async function getOnboarding(): Promise<OnboardingContent> {
   return request<OnboardingContent & { success: true }>("/onboarding", { method: "GET" });
+}
+
+export async function getSkillMaintenance(): Promise<SkillMaintenanceReport> {
+  return request<SkillMaintenanceReport & { success: true }>("/skills/maintenance", { method: "GET" });
+}
+
+export async function runSkillMaintenance(): Promise<SkillMaintenanceRunResult> {
+  return request<SkillMaintenanceRunResult & { success: true }>("/skills/maintenance/run", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function pinSkillVersion(
+  skillId: string, version: string | undefined, pinned: boolean,
+): Promise<{ success: true; pinned: boolean }> {
+  return request(`/skills/${encodeURIComponent(skillId)}/pin`, {
+    method: "POST",
+    body: JSON.stringify({ version, pinned }),
+  });
 }
 
 export async function listSkillBundles(): Promise<SkillBundleListResponse> {

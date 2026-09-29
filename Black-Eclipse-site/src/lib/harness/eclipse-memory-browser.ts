@@ -20,10 +20,10 @@ import type {
   MemoryRecord,
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
-  MemorySemanticStatus,
   MemoryProviderSearchResponse,
   MemoryProviderStatus,
   MemoryProviderTestResult,
+  MemoryUsageReport,
   MistakeRecord,
   SessionSearchHit,
   SessionOpenResult,
@@ -160,8 +160,8 @@ export async function memoryRetention(): Promise<MemoryRetentionStatus> {
   return api<MemoryRetentionStatus>("/api/eclipse-memory/retention");
 }
 
-export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
-  return api<MemorySemanticStatus>("/api/eclipse-memory/semantic-status");
+export async function memoryUsageReport(windowDays = 30): Promise<MemoryUsageReport> {
+  return api<MemoryUsageReport>(`/api/eclipse-memory/usage-report?windowDays=${windowDays}`);
 }
 
 // ── Memory providers (M8) ───────────────────────────────────────────────────
@@ -427,17 +427,6 @@ export async function rollbackMemoryFile(file: string, revision: string) {
     "/api/eclipse-memory/files/history",
     { method: "POST", body: JSON.stringify({ file, revision }) }
   );
-}
-
-export async function rebuildSemanticIndex(): Promise<{
-  success: boolean;
-  rebuilt: boolean;
-  persistentIndex: boolean;
-  reason: string;
-  backend: string;
-  available: boolean;
-}> {
-  return api("/api/eclipse-memory/semantic/rebuild", { method: "POST", body: JSON.stringify({}) });
 }
 
 export async function restoreMemory(memoryId: string) {

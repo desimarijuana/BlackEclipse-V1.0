@@ -1,13 +1,26 @@
 {
   "name": "memory-contradictions",
-  "version": 2,
-  "description": "Human-labeled contradiction cases for the deterministic conflict detector. Each case states one existing active memory, one new statement, the new statement's authority, and the SAFE expected disposition. Kinds: direct-polarity, paraphrase-conflict, confirmation, unrelated, different-subject, different-scope, temporary, observation-vs-preference, replacement, ambiguous, authority, numeric-value, negation, subject-alias, temporal. A missed conflict is safer than a false conflict, so unrelated/scope/subject cases expect 'none'.",
+  "version": 3,
+  "description": "Human-labeled contradiction cases for the deterministic conflict detector. Each case states one existing active memory, one new statement, the new statement's authority, and the SAFE expected disposition. Kinds: direct-polarity, paraphrase-conflict, confirmation, unrelated, different-subject, different-scope, temporary, observation-vs-preference, replacement, ambiguous, authority, numeric-value, negation, subject-alias, temporal. A missed conflict is safer than a false conflict, so unrelated/scope/subject cases expect 'none'. v3 repurposes the retired semantic layer's value-substitution and paraphrase safety cases as LEXICAL regression cases (kind numeric-value/paraphrase-conflict): they guard the previously-shipped bug where a changed value was silently confirmed. The optional semantic candidate layer was removed on the evidence that deterministic normalization closed the measured gap.",
   "cases": [
     {
       "caseId": "direct-concise-detailed",
       "kind": "direct-polarity",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -15,8 +28,21 @@
     {
       "caseId": "direct-include-never",
       "kind": "direct-polarity",
-      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Never include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Always include sources",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Never include sources",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -24,8 +50,21 @@
     {
       "caseId": "direct-auto-vs-auto",
       "kind": "direct-polarity",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
-      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "automatic"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "automatic",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -33,8 +72,21 @@
     {
       "caseId": "para-punchy",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "Keep it punchy", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Give me the full deep-dive every time", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Keep it punchy",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Give me the full deep-dive every time",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -42,8 +94,21 @@
     {
       "caseId": "para-fluff",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "I don't want any fluff", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Some elaboration is welcome", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I don't want any fluff",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Some elaboration is welcome",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -51,8 +116,21 @@
     {
       "caseId": "para-skip-sources",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "Always give me the sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Please skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Always give me the sources",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Please skip the citations",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -60,8 +138,21 @@
     {
       "caseId": "para-unrounded",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "Prefer numbers rounded", "subject": "number-format", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Show me the exact unrounded figures", "subject": "number-format", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Prefer numbers rounded",
+        "subject": "number-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Show me the exact unrounded figures",
+        "subject": "number-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -69,8 +160,21 @@
     {
       "caseId": "para-negation-intro",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "Don't include any preamble", "subject": "answer-style", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "A short intro is fine", "subject": "answer-style", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Don't include any preamble",
+        "subject": "answer-style",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "A short intro is fine",
+        "subject": "answer-style",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -78,8 +182,21 @@
     {
       "caseId": "para-theme-light",
       "kind": "paraphrase-conflict",
-      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "A bright light theme suits me better", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer dark mode",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "A bright light theme suits me better",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -87,8 +204,21 @@
     {
       "caseId": "confirm-identical",
       "kind": "confirmation",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "confirm",
       "expectSupersedesExisting": false
@@ -96,8 +226,21 @@
     {
       "caseId": "confirm-paraphrase",
       "kind": "confirmation",
-      "existing": {"content": "I like short answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Keep responses brief", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I like short answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Keep responses brief",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "confirm",
       "expectSupersedesExisting": false
@@ -105,8 +248,21 @@
     {
       "caseId": "confirm-paraphrase-citations",
       "kind": "confirmation",
-      "existing": {"content": "I prefer concise answers with source links", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Keep answers brief and cite sources", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers with source links",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Keep answers brief and cite sources",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "confirm",
       "expectSupersedesExisting": false
@@ -114,8 +270,21 @@
     {
       "caseId": "unrelated-theme-answer",
       "kind": "unrelated",
-      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer dark mode",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -123,8 +292,21 @@
     {
       "caseId": "unrelated-generic-overlap",
       "kind": "unrelated",
-      "existing": {"content": "I prefer conservative options", "subject": "risk-profile", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer simple answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer conservative options",
+        "subject": "risk-profile",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer simple answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -132,8 +314,21 @@
     {
       "caseId": "unrelated-shared-word",
       "kind": "unrelated",
-      "existing": {"content": "I like dark candlestick charts", "subject": "charts", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I like dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I like dark candlestick charts",
+        "subject": "charts",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I like dark mode",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -141,8 +336,21 @@
     {
       "caseId": "different-subject-no-conflict",
       "kind": "different-subject",
-      "existing": {"content": "I prefer candlestick charts", "subject": "charts", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer candlestick charts",
+        "subject": "charts",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -150,8 +358,21 @@
     {
       "caseId": "different-scope-no-conflict",
       "kind": "different-scope",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u2", "authority": "explicit"},
-      "new": {"content": "I prefer detailed answers now", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u2",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer detailed answers now",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -159,8 +380,21 @@
     {
       "caseId": "scope-user-vs-general",
       "kind": "different-scope",
-      "existing": {"content": "Report figures in the local currency", "subject": "currency", "memoryType": "constraint", "scope": "general", "scopeId": null, "authority": "explicit"},
-      "new": {"content": "Report figures in USD instead", "subject": "currency", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Report figures in the local currency",
+        "subject": "currency",
+        "memoryType": "constraint",
+        "scope": "general",
+        "scopeId": null,
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Report figures in USD instead",
+        "subject": "currency",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -168,8 +402,21 @@
     {
       "caseId": "temporary-for-this-task",
       "kind": "temporary",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "For this task, give me detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "For this task, give me detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -177,8 +424,21 @@
     {
       "caseId": "temporary-just-this-once",
       "kind": "temporary",
-      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Just this once, skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Always include sources",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Just this once, skip the citations",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -186,8 +446,21 @@
     {
       "caseId": "observation-vs-preference",
       "kind": "observation-vs-preference",
-      "existing": {"content": "The user has asked for concise answers twice", "subject": "answer-style", "memoryType": "observation", "scope": "user", "scopeId": "u1", "authority": "automatic"},
-      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "The user has asked for concise answers twice",
+        "subject": "answer-style",
+        "memoryType": "observation",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "automatic"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -195,8 +468,21 @@
     {
       "caseId": "replacement-now",
       "kind": "replacement",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer detailed answers now", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer detailed answers now",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -204,8 +490,21 @@
     {
       "caseId": "replacement-from-now-on",
       "kind": "replacement",
-      "existing": {"content": "Always include sources", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "From now on, skip the citations", "subject": "sources", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Always include sources",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "From now on, skip the citations",
+        "subject": "sources",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -213,8 +512,21 @@
     {
       "caseId": "replacement-changed-mind",
       "kind": "replacement",
-      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I changed my mind, use the light theme instead", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer dark mode",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I changed my mind, use the light theme instead",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -222,8 +534,21 @@
     {
       "caseId": "ambiguous-paraphrase",
       "kind": "ambiguous",
-      "existing": {"content": "I prefer dark mode", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Bright light themes look better to me", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer dark mode",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Bright light themes look better to me",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -231,8 +556,21 @@
     {
       "caseId": "authority-explicit-over-automatic",
       "kind": "authority",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
-      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "automatic"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -240,8 +578,21 @@
     {
       "caseId": "authority-automatic-vs-explicit",
       "kind": "authority",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer detailed answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "automatic",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -249,8 +600,21 @@
     {
       "caseId": "authority-automatic-replacement-by-explicit-para",
       "kind": "authority",
-      "existing": {"content": "I prefer concise answers", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "automatic"},
-      "new": {"content": "I want thorough write-ups from now on", "subject": "answer-style", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "automatic"
+      },
+      "new": {
+        "content": "I want thorough write-ups from now on",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -258,8 +622,21 @@
     {
       "caseId": "numeric-percent-change",
       "kind": "numeric-value",
-      "existing": {"content": "Flag moves at 5 percent or more", "subject": "move-threshold", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Flag moves at 10 percent or more", "subject": "move-threshold", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Flag moves at 5 percent or more",
+        "subject": "move-threshold",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Flag moves at 10 percent or more",
+        "subject": "move-threshold",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -267,8 +644,21 @@
     {
       "caseId": "numeric-horizon-weeks",
       "kind": "numeric-value",
-      "existing": {"content": "Review the portfolio every 2 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Review the portfolio every 4 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Review the portfolio every 2 weeks",
+        "subject": "review-cadence",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Review the portfolio every 4 weeks",
+        "subject": "review-cadence",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -276,8 +666,21 @@
     {
       "caseId": "numeric-replacement-now",
       "kind": "numeric-value",
-      "existing": {"content": "Review the portfolio every 2 weeks", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Review the portfolio every 4 weeks from now on", "subject": "review-cadence", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Review the portfolio every 2 weeks",
+        "subject": "review-cadence",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Review the portfolio every 4 weeks from now on",
+        "subject": "review-cadence",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "supersede",
       "expectSupersedesExisting": true
@@ -285,8 +688,21 @@
     {
       "caseId": "negation-explicit-flip",
       "kind": "negation",
-      "existing": {"content": "Include a risk summary in reports", "subject": "risk-summary", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Do not include a risk summary in reports", "subject": "risk-summary", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Include a risk summary in reports",
+        "subject": "risk-summary",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Do not include a risk summary in reports",
+        "subject": "risk-summary",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -294,8 +710,21 @@
     {
       "caseId": "negation-double-negative-same",
       "kind": "confirmation",
-      "existing": {"content": "Do not include a disclaimer", "subject": "disclaimer", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Never include a disclaimer", "subject": "disclaimer", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Do not include a disclaimer",
+        "subject": "disclaimer",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Never include a disclaimer",
+        "subject": "disclaimer",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "confirm",
       "expectSupersedesExisting": false
@@ -303,8 +732,21 @@
     {
       "caseId": "subject-alias-theme-vs-color-scheme",
       "kind": "subject-alias",
-      "existing": {"content": "I prefer a dark interface", "subject": "ui-theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer a light interface", "subject": "theme", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer a dark interface",
+        "subject": "ui-theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer a light interface",
+        "subject": "theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -312,8 +754,21 @@
     {
       "caseId": "subject-alias-no-alias-unrelated",
       "kind": "unrelated",
-      "existing": {"content": "I prefer a dark interface", "subject": "ui-theme", "memoryType": "preference", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "I prefer short summaries", "subject": "summary-length", "memoryType": "preference", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "I prefer a dark interface",
+        "subject": "ui-theme",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer short summaries",
+        "subject": "summary-length",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "none",
       "expectSupersedesExisting": false
@@ -321,8 +776,21 @@
     {
       "caseId": "temporal-quarterly-vs-annual",
       "kind": "temporal",
-      "existing": {"content": "Report on a quarterly basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Report on an annual basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Report on a quarterly basis",
+        "subject": "reporting-basis",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Report on an annual basis",
+        "subject": "reporting-basis",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "propose",
       "expectSupersedesExisting": false
@@ -330,10 +798,285 @@
     {
       "caseId": "temporal-same-basis-confirm",
       "kind": "confirmation",
-      "existing": {"content": "Report on a quarterly basis", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1", "authority": "explicit"},
-      "new": {"content": "Keep reporting quarterly", "subject": "reporting-basis", "memoryType": "constraint", "scope": "user", "scopeId": "u1"},
+      "existing": {
+        "content": "Report on a quarterly basis",
+        "subject": "reporting-basis",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Keep reporting quarterly",
+        "subject": "reporting-basis",
+        "memoryType": "constraint",
+        "scope": "user",
+        "scopeId": "u1"
+      },
       "newAuthority": "explicit",
       "expectDecision": "confirm",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-report-pdf-excel",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "I prefer reports delivered as PDF",
+        "subject": "report-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer reports delivered as Excel",
+        "subject": "report-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-alert-email-sms",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Notify me about fills by email",
+        "subject": "alert-channel",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Notify me about fills by SMS",
+        "subject": "alert-channel",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-rebalance-cadence",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Rebalance my portfolio quarterly",
+        "subject": "rebalance-cadence",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Rebalance my portfolio monthly",
+        "subject": "rebalance-cadence",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-sizing-drawdown-var",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Size positions by drawdown",
+        "subject": "sizing-method",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Size positions by value at risk",
+        "subject": "sizing-method",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-chart-bg-white-black",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "I want charts on a white background",
+        "subject": "chart-bg",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I want charts on a black background",
+        "subject": "chart-bg",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-chart-scale-log-linear",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Use a log scale on price charts",
+        "subject": "chart-scale",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Use a linear scale on price charts",
+        "subject": "chart-scale",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-notes-bullet-paragraph",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Format my notes as bullet points",
+        "subject": "note-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Format my notes as paragraphs",
+        "subject": "note-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-time-24-12",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Show times in 24-hour format",
+        "subject": "time-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Show times in 12-hour AM/PM",
+        "subject": "time-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-indirect-negation",
+      "kind": "paraphrase-conflict",
+      "existing": {
+        "content": "I prefer concise answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "I prefer detailed answers",
+        "subject": "answer-style",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-typo-value-conflict",
+      "kind": "numeric-value",
+      "existing": {
+        "content": "Report in USD",
+        "subject": "reporting-currency",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Report in PKR",
+        "subject": "reporting-currency",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "propose",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-different-scope-no-conflict",
+      "kind": "different-scope",
+      "existing": {
+        "content": "Always use PDF",
+        "subject": "report-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u1",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "Always use Excel",
+        "subject": "report-format",
+        "memoryType": "preference",
+        "scope": "user",
+        "scopeId": "u2"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "none",
+      "expectSupersedesExisting": false
+    },
+    {
+      "caseId": "lex-unrelated-high-overlap",
+      "kind": "unrelated",
+      "existing": {
+        "content": "The benchmark rate history matters",
+        "subject": "benchmark",
+        "memoryType": "semantic",
+        "scope": "general",
+        "authority": "explicit"
+      },
+      "new": {
+        "content": "The benchmark is a nice weather day",
+        "subject": "weather",
+        "memoryType": "semantic",
+        "scope": "general"
+      },
+      "newAuthority": "explicit",
+      "expectDecision": "none",
       "expectSupersedesExisting": false
     }
   ]

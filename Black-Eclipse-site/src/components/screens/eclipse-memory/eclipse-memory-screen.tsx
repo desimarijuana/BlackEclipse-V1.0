@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
 import {
   memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
   archiveMemory, reviewMemory, restoreMemory, renewMemory, memoryLifecycle, memoryRetention,
-  memorySemanticStatus, listCorrections,
-  rebuildSemanticIndex,
+  memoryUsageReport,
+  listCorrections,
   listMistakes, retrieveMemories,
   getPolicies, updatePolicies, clientIsOperator,
   exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
@@ -47,7 +47,8 @@ import type {
   MemoryExportDocument, MemoryLifecycleView,
   MemoryLifecycleResponse, MemoryOverview,
   MemoryProfileResponse,
-  MemoryRetentionStatus, MemorySemanticStatus,
+  MemoryRetentionStatus,
+  MemoryUsageReport,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord, MemoryConflictReview, CompactionProposal,
   SessionSearchHealth, SessionSearchHit, SessionOpenResult,
   ChatSessionRecord, MemoryProfileRecord, MemoryProviderStatus,
@@ -154,22 +155,22 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [retention, setRetention] = useState<MemoryRetentionStatus | null>(null);
-  const [semantic, setSemantic] = useState<MemorySemanticStatus | null>(null);
+  const [usage, setUsage] = useState<MemoryUsageReport | null>(null);
 
   const load = useCallback(async (target: MemoryLifecycleView) => {
     setLoading(true); setError(null);
     try {
-      // Fan the three reads out in parallel — they are independent, and doing
+      // Fan the reads out in parallel — they are independent, and doing
       // them sequentially tripled the tab's latency.
-      const [body, retentionBody, semanticBody] = await Promise.all([
+      const [body, retentionBody, usageBody] = await Promise.all([
         memoryLifecycle(target),
         memoryRetention(),
-        memorySemanticStatus(),
+        memoryUsageReport(30),
       ]);
       setOverview(body);
       setMemories(body.memories ?? []);
       setRetention(retentionBody);
-      setSemantic(semanticBody);
+      setUsage(usageBody);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
   }, []);
@@ -237,54 +238,53 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
           </div>
         )}
 
-        {semantic && (
-          <div className="rounded-2xl border border-white/10 glass-card p-3.5">
-            <p className="text-[11px] font-semibold text-foreground">Contradiction detection</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {semantic.mode === "lexical+semantic"
-                ? "Lexical + local semantic candidates. Semantic similarity can only suggest a possible contradiction for review — it never supersedes or activates memory."
-                : semantic.mode === "lexical+semantic-unavailable"
-                  ? "Semantic detection is enabled but no local backend is available — detection is lexical-only (safe fallback)."
-                  : "Lexical detection only. No network, no model, no embeddings."}
-            </p>
-            <p className="mt-1 text-[10px] text-muted-foreground/80">
-              backend: {semantic.backend} · detector {semantic.detectorVersion}
-            </p>
-            {semantic.controls && (
-              <p className="mt-1 text-[10px] text-muted-foreground/80">
-                threshold {String(semantic.controls.threshold ?? "—")} ·
-                {" "}candidates ≤ {String(semantic.controls.candidateLimit ?? "—")} ·
-                {" "}index ≤ {String(semantic.controls.indexLimit ?? "—")} ·
-                {" "}timeout {String(semantic.controls.timeoutMs ?? "—")}ms
-              </p>
-            )}
-            {semantic.stats?.available && (
-              <p className="mt-1 text-[10px] text-muted-foreground/80">
-                semantic proposals: {semantic.stats.proposedBySemantics ?? 0} ·
-                {" "}actionable {semantic.stats.actionableCandidates ?? 0} ·
-                {" "}confirmed {semantic.stats.confirmedAfterReview ?? 0} ·
-                {" "}kept/dismissed {semantic.stats.keptExistingOrDismissed ?? 0}
-              </p>
-            )}
-            {semantic.backends && semantic.backends.length > 0 && (
-              <p className="mt-1 text-[10px] text-muted-foreground/60">
-                backends: {semantic.backends.map((b) => `${b.backend}${b.available ? "" : " (unavailable)"}`).join(", ")}
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={!isOperator || busy}
-              onClick={() => act(async () => {
-                const result = await rebuildSemanticIndex();
-                return result.reason;
-              }, "Semantic index: no persistent index to rebuild (computed per write)")}
-              className="mt-2 rounded-lg border border-white/10 px-2 py-0.5 text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-50 cursor-pointer"
-            >
-              Clear / rebuild optional index
-            </button>
-          </div>
-        )}
+        <div className="rounded-2xl border border-white/10 glass-card p-3.5">
+          <p className="text-[11px] font-semibold text-foreground">Contradiction detection</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Deterministic lexical detection only. No network, no model, no embeddings.
+            The optional semantic candidate layer was removed — deterministic
+            normalization closed the measured gap, so it added no recall at a safe
+            threshold.
+          </p>
+        </div>
       </div>
+
+      {usage && (
+        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
+          <p className="text-[11px] font-semibold text-foreground">Real usage (last {usage.windowDays} days)</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Measured from actual persisted rows — not a synthetic set. A labeled eval proves
+            the detector implements its rules, not that the rules match reality. Early
+            numbers are small; treat them as such.
+          </p>
+          {usage.insufficientData ? (
+            <p className="mt-1 text-[10px] text-muted-foreground/80">No usage in this window yet.</p>
+          ) : (
+            <>
+              <p className="mt-1.5 text-[10px] text-foreground/80">
+                Writes: {usage.durableWrites.saved} saved · {usage.durableWrites.suggested} suggested ·{" "}
+                {usage.durableWrites.historyOnly} history-only · {usage.durableWrites.ignored} ignored
+                {usage.durableWrites.explicitRequestRate != null
+                  ? ` · explicit {Math.round(usage.durableWrites.explicitRequestRate * 100)}% of saves`
+                  : ""}
+              </p>
+              <p className="mt-1 text-[10px] text-foreground/80">
+                Conflicts: {usage.conflicts.raised} raised · {usage.conflicts.accepted} accepted ·{" "}
+                {usage.conflicts.dismissed} dismissed · {usage.conflicts.pending} pending
+                {usage.conflicts.falsePositiveRate != null
+                  ? ` · ${Math.round(usage.conflicts.falsePositiveRate * 100)}% dismissed (false-positive proxy)`
+                  : ""}
+              </p>
+              {usage.likelyMissedConflicts.count > 0 && (
+                <p className="mt-1 text-[10px] text-amber-300/90">
+                  {usage.likelyMissedConflicts.count} subject(s) have more than one active same-type
+                  record — possible missed conflicts for human review (no text shown here).
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <CompactionPanel isOperator={isOperator} onChanged={() => void load(view)} />
 
@@ -2026,15 +2026,8 @@ const POLICY_LABELS: Record<string, string> = {
   auto_promote_low_risk: "Auto-promote low-risk skills (locked off)",
   memory_enabled: "Memory enabled (hard off switch)",
   memory_in_diagnostics: "Show memory in diagnostic views",
-  semantic_indexing_enabled: "Allow optional local semantic indexing (not implemented)",
   capture_policy: "Per-category capture policy",
   recall_policy: "Per-category recall policy",
-  semantic_conflict_enabled: "Local semantic contradiction candidates",
-  semantic_conflict_threshold: "Semantic candidate threshold",
-  semantic_conflict_max_candidates: "Max semantic candidates",
-  semantic_conflict_max_index: "Max semantic index size",
-  semantic_conflict_timeout_ms: "Semantic search timeout (ms)",
-  semantic_conflict_diagnostics: "Show conflict detector metadata",
 };
 
 const LEARNING_MODE_OPTIONS: { value: string; label: string; hint: string }[] = [
@@ -2071,15 +2064,8 @@ const POLICY_HINTS: Record<string, string> = {
   memory_enabled: "Hard local off switch: when off, no memory is stored at all — not even an explicit “remember this”.",
   retention_days: "Days an automatically learned memory is kept before it becomes eligible for expiry review. 0 = never. Explicit memory is never auto-expired.",
   memory_in_diagnostics: "Whether memory content appears in the Lifecycle and explanation views. Off hides it without deleting anything.",
-  semantic_indexing_enabled: "Reserved: optional local semantic indexing. Not implemented — semantic retrieval is deliberately deferred because the labeled evaluation showed no measured need. Turning this on changes nothing today and never enables a network service.",
   capture_policy: "Per-category capture rule. “deny” refuses a category; it can never widen authorization.",
   recall_policy: "Per-category recall rule. “deny” removes a category from recall; scope/privacy filtering stays authoritative.",
-  semantic_conflict_enabled: "Off by default. When on, a local, bounded similarity check may surface a possible contradiction as an inert item for review. It never supersedes, activates, archives or deletes anything, and never bypasses scope, privacy or authority rules. Lexical detection stays active either way.",
-  semantic_conflict_threshold: "Minimum similarity for a semantic candidate (0–1). Higher is more conservative.",
-  semantic_conflict_max_candidates: "Maximum semantic candidates considered per write.",
-  semantic_conflict_max_index: "Maximum same-dimension memories compared per write.",
-  semantic_conflict_timeout_ms: "Wall-clock budget for one semantic search (ms). On timeout, detection falls back to lexical-only.",
-  semantic_conflict_diagnostics: "Whether the detector used, similarity and candidate ids are shown in the Control Room. Never affects a decision.",
 };
 
 const CATEGORY_POLICY_KEYS = new Set(["capture_policy", "recall_policy"]);

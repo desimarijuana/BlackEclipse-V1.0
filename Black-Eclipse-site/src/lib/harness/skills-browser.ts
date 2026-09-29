@@ -31,8 +31,9 @@ import type {
   SkillPatchResult,
   SkillSummary,
   SkillVersionHistoryEntry,
+  SkillMaintenanceReport,
+  SkillMaintenanceRunResult,
 } from "./skills-types";
-
 export interface SkillListResult {
   skills: SkillSummary[];
   loadErrors: string[];
@@ -266,6 +267,26 @@ export interface AuthoringMeta {
   permissions: string[];
   categories: string[];
   riskLevels: string[];
+}
+
+export async function getSkillMaintenance(): Promise<SkillMaintenanceReport> {
+  return api<SkillMaintenanceReport>("/api/skills/maintenance");
+}
+
+export async function runSkillMaintenance(): Promise<SkillMaintenanceRunResult> {
+  return api<SkillMaintenanceRunResult>("/api/skills/maintenance/run", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function pinSkillVersion(
+  skillId: string, version: string | undefined, pinned: boolean,
+): Promise<{ success?: boolean; pinned: boolean; error?: string }> {
+  return api(`/api/skills/${encodeURIComponent(skillId)}/pin`, {
+    method: "POST",
+    body: JSON.stringify({ version, pinned }),
+  });
 }
 
 export async function getAuthoringMeta(): Promise<AuthoringMeta> {

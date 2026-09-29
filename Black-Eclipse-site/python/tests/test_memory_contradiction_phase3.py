@@ -69,13 +69,15 @@ def test_thresholds_declare_absolute_safety():
     assert CONTRADICTION_THRESHOLDS["falseConflictRate"] == 0.0
 
 
-def test_report_explains_when_semantics_are_useful():
+def test_report_states_measurement_honesty():
     report = run_contradiction_evaluation()
     interpretation = report["interpretation"]
     assert "lexicalMisses" in interpretation
     assert "deepMisses" in interpretation
-    # The report never claims semantic auto-resolution is safe.
-    assert "auto" in interpretation["semanticNotUsefulFor"].lower()
+    # The report states that a self-authored set is not real-world evidence.
+    conclusion = interpretation["honestConclusion"].lower()
+    assert "reality" in conclusion
+    assert "usage-report" in conclusion
     text = format_contradiction_report(report)
     assert "interpretation" in text
 

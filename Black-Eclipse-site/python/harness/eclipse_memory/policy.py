@@ -116,34 +116,6 @@ DEFAULTS: dict[str, Any] = {
     "capture_policy": {},
     # Category-specific recall policy: memory type -> "allow" | "deny".
     "recall_policy": {},
-    # ── Optional local semantic contradiction candidates (Phase 3) ───────────
-    # OFF by default. When enabled it may only find *candidate* related memories
-    # for the deterministic + authority decision; it can never supersede,
-    # activate, archive or delete, and never bypasses scope/privacy rules. When
-    # disabled — or when no local backend is available — detection stays lexical.
-    "semantic_conflict_enabled": False,
-    # Minimum similarity for a semantic candidate.
-    "semantic_conflict_threshold": 0.72,
-    # Which local backend to use: "char-ngram" (default, dependency-free), "auto"
-    # (use a stronger local embedding model only if one is already installed and
-    # configured locally), "local-embedding", or "none" (force lexical-only).
-    # Never triggers a network call or a model download.
-    "semantic_conflict_backend": "char-ngram",
-    # Maximum candidates considered per write.
-    "semantic_conflict_max_candidates": 5,
-    # Maximum same-dimension memories indexed/compared per write.
-    "semantic_conflict_max_index": 500,
-    # Wall-clock budget for one semantic candidate search (ms).
-    "semantic_conflict_timeout_ms": 50,
-    # Whether detector metadata (detector, similarity, candidate ids) is shown in
-    # diagnostics/UI. Never affects decisions.
-    "semantic_conflict_diagnostics": True,
-    # Optional: allow the local semantic backend to reorder ONLY memories that
-    # already passed the authoritative scope/status/expiry/recall filters AND
-    # carried a lexical relevance signal. It can never surface an excluded
-    # memory or widen the recalled set. Off by default; lexical ranking remains
-    # the production default.
-    "semantic_recall_tiebreak": False,
     # ── Full-session historical recall (M2) ─────────────────────────────────
     # Whether the agent may search prior Eclipse sessions at all.
     "session_history_enabled": True,
@@ -174,6 +146,26 @@ DEFAULTS: dict[str, Any] = {
     # off, no project root is scanned and no notice is shown. Even when on, a
     # project's skills load ONLY after an explicit operator trust decision.
     "project_skill_discovery": True,
+    # ── Skill maintenance: staleness / usage / retirement (Milestone 1) ─────
+    # Whether the deterministic maintenance pass runs at all. OFF by default:
+    # the pass computes and surfaces recommendations but changes NOTHING unless
+    # an operator explicitly enables it. The pass never deletes; it can only
+    # move a stale skill toward `archived` (reversible), and pinned skills are
+    # always exempt.
+    "skill_maintenance_enabled": False,
+    # Days without a successful execution before an ENABLED version is reported
+    # stale (0 = never report stale). Derived from persisted SkillExecution rows
+    # plus the version activation/updated timestamps only.
+    "skill_stale_after_days": 90,
+    # Days since the last successful execution before an enabled, unpinned
+    # version becomes eligible to be ARCHIVED (0 = never archive). Archiving is
+    # reversible through the lifecycle/version machinery.
+    "skill_archive_after_days": 180,
+    # Whether a stale version may be AUTOMATICALLY archived. False = report-only
+    # (recommendations only). Even when true, only enabled, unpinned, unused
+    # versions past the archive threshold are affected — never a pinned or
+    # operator-managed one.
+    "skill_maintenance_auto_archive": False,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
@@ -189,13 +181,11 @@ BOUNDS: dict[str, tuple[Any, Any]] = {
     "max_memories": (0, 100_000),
     "retention_days": (0, 3650),
     "audit_retention_rows": (0, 100_000),
-    "semantic_conflict_threshold": (0.0, 1.0),
-    "semantic_conflict_max_candidates": (1, 50),
-    "semantic_conflict_max_index": (1, 5000),
-    "semantic_conflict_timeout_ms": (1, 5000),
     "session_retention_days": (0, 3650),
     "session_search_max_results": (1, 50),
     "external_memory_native_sufficiency": (1, 50),
+    "skill_stale_after_days": (0, 3650),
+    "skill_archive_after_days": (0, 3650),
 }
 
 # Keys that are safety-critical and may NOT be enabled by policy at all — the
@@ -235,10 +225,6 @@ def derived_flags(resolved: dict[str, Any]) -> dict[str, bool]:
 # falls back to the safe default ("allow" for capture in automatic modes is
 # governed by the mode, so a bad value never widens capture).
 CATEGORY_POLICY_VALUES = ("allow", "suggest", "deny")
-
-# Accepted semantic backend selectors (see `semantic.py`). `auto` picks the
-# strongest AVAILABLE local backend; it never downloads or contacts a network.
-SEMANTIC_BACKEND_VALUES = ("char-ngram", "local-embedding", "auto", "none")
 
 
 def category_policy(resolved: dict[str, Any], key: str, memory_type: str) -> str:
@@ -284,8 +270,6 @@ def validate(key: str, value: Any) -> Any:
     coerced = _coerce(key, value)
     if key in MODE_KEYS and coerced not in MODE_VALUES:
         raise PolicyError(f"policy {key!r} must be one of {MODE_VALUES}")
-    if key == "semantic_conflict_backend" and coerced not in SEMANTIC_BACKEND_VALUES:
-        raise PolicyError(f"policy {key!r} must be one of {SEMANTIC_BACKEND_VALUES}")
     if key in LOCKED_VALUES and coerced != LOCKED_VALUES[key]:
         raise PolicyError(f"policy {key!r} is locked to {LOCKED_VALUES[key]!r}")
     if key in BOUNDS:

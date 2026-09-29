@@ -34,6 +34,11 @@ const PREFERENCE_TYPES = new Set(["preference", "constraint"]);
 // so a stale targeted edit can be rejected before it is applied.
 const ID_MARKER = /<!--\s*eclipse:id=([^;\s]+);type=([^;\s]+);scope=([^;\s]+)(?:;version=([^;\s]+))?\s*-->/i;
 
+// The projections whose every bullet entry carries an `eclipse:` id marker.
+// Drift detection applies only to these; the generated README/SKILLS/PROFILE
+// files legitimately contain bare bullets.
+const ENTRY_FILES: MemoryFileName[] = ["USER_PROFILE.md", "MEMORY.md", "PROJECT_MEMORY.md"];
+
 export function memoryFilesRoot(): string {
   const override = process.env.BLACK_ECLIPSE_MEMORY_ROOT;
   if (override) return path.resolve(override);
@@ -228,6 +233,118 @@ export async function atomicWriteFile(target: string, content: string): Promise<
   await fs.rename(tmp, target);
 }
 
+// ── Read-side guards (Milestone 3) ──────────────────────────────────────────
+//
+// The projection files are hand-editable, so the reader must not silently
+// destroy content it cannot understand. Three data-loss classes are guarded:
+// an unreadable file is never treated as empty; a leading UTF-8 BOM is stripped
+// so it cannot glue to the first entry; decoding is strict.
+
+const BOM = "\uFEFF";
+
+/** Read a projection file, stripping a leading UTF-8 BOM. Strict decoding. */
+export async function readMemoryFileStrict(target: string): Promise<string | null> {
+  // `null` means the file genuinely does not exist. Any other read failure
+  // (permissions, EISDIR, undecodable bytes) is rethrown so the caller refuses
+  // to write rather than treating it as an empty file.
+  let buffer: Buffer;
+  try {
+    buffer = await fs.readFile(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+    throw err;
+  }
+  // Strict decode: invalid UTF-8 throws rather than silently substituting U+FFFD
+  // (a lossy decode followed by a save would persist the loss).
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  return text.startsWith(BOM) ? text.slice(BOM.length) : text;
+}
+
+export class MemoryFileUnreadableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MemoryFileUnreadableError";
+  }
+}
+
+export class MemoryFileDriftError extends Error {
+  backupPath: string;
+  remediation: string;
+  constructor(message: string, backupPath: string, remediation: string) {
+    super(message);
+    this.name = "MemoryFileDriftError";
+    this.backupPath = backupPath;
+    this.remediation = remediation;
+  }
+}
+
+/**
+ * Detect whether an on-disk projection file would survive a round-trip through
+ * the projection's own parser. A hand edit, a shell append or a foreign tool can
+ * leave content the projection did not write; flushing over it would discard it.
+ *
+ * The check is structural: every non-header, non-empty line that looks like an
+ * entry (`- …`) must carry a following `<!-- eclipse:… -->` marker. A file the
+ * projection wrote always satisfies this.
+ */
+export function detectExternalDrift(file: MemoryFileName, text: string): boolean {
+  // Only the entry-list projections have a marker-per-entry contract; the
+  // generated README/SKILLS/PROFILE files legitimately contain bare bullets.
+  if (!ENTRY_FILES.includes(file)) return false;
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!/^\s*-\s+\S/.test(line)) continue;
+    const content = line.replace(/^\s*-\s+/, "").trim();
+    if (content === "_None._") continue;
+    if (!ID_MARKER.test(lines[i + 1] ?? "")) return true;
+  }
+  return false;
+}
+
+async function snapshotDrift(target: string, raw: string): Promise<string> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = `${target}.${stamp}.bak`;
+  await fs.writeFile(backupPath, raw, "utf8");
+  return backupPath;
+}
+
+/**
+ * Write a projection file with the read-side guards applied.
+ *
+ *  * refuses to write when the target exists but cannot be read (never silently
+ *    wipes it);
+ *  * refuses to flush over externally-drifted content, snapshotting the raw
+ *    bytes to a timestamped `.bak` and returning a remediation instruction;
+ *  * strips a leading BOM before parsing so it cannot corrupt entry identity.
+ */
+export async function safeWriteProjection(
+  file: MemoryFileName,
+  content: string,
+): Promise<{ written: boolean; drift?: boolean; backupPath?: string; remediation?: string }> {
+  const target = resolveFile(file);
+  let existing: string | null;
+  try {
+    existing = await readMemoryFileStrict(target);
+  } catch (err) {
+    throw new MemoryFileUnreadableError(
+      `refusing to write ${file}: the existing file could not be read ` +
+        `(${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+  if (existing !== null && detectExternalDrift(file, existing)) {
+    const backupPath = await snapshotDrift(target, existing);
+    const remediation =
+      `The on-disk ${file} contains content this projection did not write ` +
+      `(a hand edit, a shell append, or another tool). Nothing was overwritten. ` +
+      `Raw bytes were saved to ${backupPath}. Reconcile the file — regenerate from ` +
+      `the database, or import it through the gated pipeline — then retry.`;
+    throw new MemoryFileDriftError(remediation, backupPath, remediation);
+  }
+  await atomicWriteFile(target, content);
+  return { written: true };
+}
+
 export async function regenerateMemoryFiles(
   memories: MemoryRecord[],
   profile: MemoryProfileResponse,
@@ -239,7 +356,9 @@ export async function regenerateMemoryFiles(
   const backupDir = await backupMemoryFiles();
   const files = renderMemoryFiles(memories, profile, skills);
   for (const [name, content] of Object.entries(files)) {
-    await atomicWriteFile(resolveFile(name as MemoryFileName), content);
+    // Guarded write: refuses to wipe an unreadable file or clobber externally
+    // drifted content (snapshotting it to a `.bak` first).
+    await safeWriteProjection(name as MemoryFileName, content);
   }
   return { root, files, backupDir };
 }
@@ -435,7 +554,19 @@ export async function listRevisions(file: MemoryFileName): Promise<HistoryRevisi
 export async function applyFileEdit(request: FileEditRequest, actor = "operator"): Promise<FileEditResult> {
   if (!FILES.includes(request.file)) return { ok: false, error: "unknown file" };
   const target = resolveFile(request.file);
-  const before = await fs.readFile(target, "utf8").catch(() => null);
+  // Refuse to treat an existing-but-unreadable file as empty: that would wipe
+  // it on save. A genuinely missing file (ENOENT) is `null` and is fine.
+  let before: string | null;
+  try {
+    before = await readMemoryFileStrict(target);
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        `refusing to edit ${request.file}: the existing file could not be read ` +
+        `(${err instanceof Error ? err.message : String(err)}). Nothing was changed.`,
+    };
+  }
   const parsed = before === null ? { entries: [], ignored: [] } : parseMarkdownEntryList(request.file, before);
   const entries = [...parsed.entries];
   const index = request.memoryId ? entries.findIndex((e) => e.id === request.memoryId) : -1;
@@ -494,6 +625,14 @@ export async function applyFileEdit(request: FileEditRequest, actor = "operator"
         if (seen.has(key)) continue;
         seen.set(key, entry);
         consolidated.push(entry);
+      }
+      // A consolidation batch must never empty a previously non-empty file.
+      // A deliberate single removal is the only wipe path.
+      if (consolidated.length === 0 && parsed.entries.length > 0) {
+        return {
+          ok: false,
+          error: "refusing to consolidate an existing non-empty file to empty; remove entries individually instead",
+        };
       }
       entries.length = 0;
       entries.push(...consolidated);
@@ -560,7 +699,15 @@ export async function previewMemoryImport(): Promise<ParsedMemoryFiles> {
   const entries: ParsedFileEntry[] = [];
   const ignored: ParsedMemoryFiles["ignored"] = [];
   for (const name of ["USER_PROFILE.md", "MEMORY.md", "PROJECT_MEMORY.md"] as MemoryFileName[]) {
-    const text = await fs.readFile(resolveFile(name), "utf8").catch(() => null);
+    let text: string | null;
+    try {
+      text = await readMemoryFileStrict(resolveFile(name));
+    } catch (err) {
+      // An unreadable file is NOT an empty file: report it rather than dropping
+      // its content from the preview.
+      ignored.push({ file: name, reason: `unreadable: ${err instanceof Error ? err.message : String(err)}` });
+      continue;
+    }
     if (text === null) {
       ignored.push({ file: name, reason: "file not found" });
       continue;

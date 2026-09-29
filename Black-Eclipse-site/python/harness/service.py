@@ -215,18 +215,44 @@ class AgenticService:
             log.warning("MCP shutdown failed", exc_info=True)
 
     def run_startup_maintenance(self) -> dict[str, Any]:
-        """Run one-time memory maintenance at runtime startup.
+        """Run one-time memory + skill maintenance at runtime startup.
 
-        Currently the retention sweep: due AUTOMATIC memories become inert. It is
-        idempotent, best-effort, and NEVER raises — a failure must not stop the
-        application or agent runtime from starting. There is no new daemon or
-        thread; this reuses the existing FastAPI lifespan startup hook.
+        Currently the retention sweep (due AUTOMATIC memories become inert) plus
+        the deterministically-computed skill maintenance pass (report-only by
+        default; it can only age enabled, unpinned, unused skills and never
+        deletes). Both are idempotent, best-effort, and NEVER raise — a failure
+        must not stop the application or agent runtime from starting. There is no
+        new daemon or thread; this reuses the existing FastAPI lifespan hook.
         """
         try:
-            return self.memory.run_retention_maintenance()
+            result = self.memory.run_retention_maintenance()
         except Exception:  # noqa: BLE001 - startup maintenance must never block boot
             log.warning("startup memory maintenance failed", exc_info=True)
-            return {"ok": False, "error": "maintenance failed"}
+            result = {"ok": False, "error": "maintenance failed"}
+        try:
+            result["skillMaintenance"] = self.run_skill_maintenance()
+        except Exception:  # noqa: BLE001 - skill maintenance must never block boot
+            log.warning("startup skill maintenance failed", exc_info=True)
+            result["skillMaintenance"] = {"ok": False, "error": "maintenance failed"}
+        return result
+
+    def run_skill_maintenance(self) -> dict[str, Any]:
+        """One skill-maintenance pass (report-only unless policy opts in).
+
+        Idempotent, never raises, no new daemon. Wired into the existing startup
+        lifespan exactly like the retention sweep.
+        """
+        from .skills.maintenance import run_skill_maintenance  # noqa: PLC0415
+
+        return run_skill_maintenance(
+            self.skill_store, self.skill_registry, self.memory.policy.get_all(),
+        )
+
+    def skill_maintenance_report(self) -> dict[str, Any]:
+        """Read-only skill-maintenance report (stale skills, reasons, actions)."""
+        from .skills.maintenance import maintenance_report  # noqa: PLC0415
+
+        return maintenance_report(self.skill_store, self.memory.policy.get_all())
 
     async def start_learning_review(self) -> None:
         """Start the bounded learning-review queue workers (idempotent)."""

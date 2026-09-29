@@ -334,6 +334,64 @@ def untrust_project_skill(
     return {"success": True, "root": state.to_dict()}
 
 
+@router.get("/skills/maintenance")
+def skill_maintenance_report() -> dict[str, Any]:
+    """Read-only skill-maintenance report: stale skills, reasons, actions.
+
+    Declared BEFORE `/skills/{skill_id}` so the literal path wins. Never mutates.
+    """
+    return {"success": True, **service.skill_maintenance_report()}
+
+
+@router.post("/skills/maintenance/run")
+def run_skill_maintenance(
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run one maintenance pass. Operator-gated.
+
+    Report-only by default: it changes nothing unless the operator has enabled
+    `skill_maintenance_enabled` AND `skill_maintenance_auto_archive`. Pinned
+    skills are always exempt; the pass never deletes and never enables.
+    """
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    return {"success": True, **service.run_skill_maintenance()}
+
+
+@router.post("/skills/{skill_id}/pin")
+def pin_skill_version(
+    skill_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Pin (or unpin) a skill version so automatic maintenance never touches it.
+
+    Operator-gated. Pinning is orthogonal to `status`: pinning does not enable or
+    disable a skill; it only exempts it from automatic staleness/archive.
+    """
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    payload = payload or {}
+    registry = service.skill_registry
+    if registry.store.get_skill(skill_id) is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    version = payload.get("version") or registry.resolve_version(skill_id)
+    if not version:
+        raise HTTPException(status_code=400, detail="a version is required")
+    pinned = payload.get("pinned", True)
+    updated = registry.store.set_version_pinned(skill_id, version, bool(pinned))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Version not found")
+    service.skill_store.append_event(
+        "skill.pinned" if pinned else "skill.unpinned",
+        skill_id=skill_id, version=version, data={"pinned": bool(pinned)},
+    )
+    return {
+        "success": True, "skillId": skill_id, "version": version,
+        "pinned": bool(pinned),
+    }
+
+
 @router.get("/skills/{skill_id}")
 def get_skill(skill_id: str) -> dict[str, Any]:
     registry = service.skill_registry

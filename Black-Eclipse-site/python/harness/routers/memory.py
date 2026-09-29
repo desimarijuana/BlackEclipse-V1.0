@@ -22,6 +22,18 @@ def eclipse_memory_health() -> dict[str, Any]:
     return {"success": True, **service.memory.health()}
 
 
+@router.get("/eclipse-memory/usage-report")
+def memory_usage_report(windowDays: int = 30) -> dict[str, Any]:
+    """Real-usage measurement over persisted rows (read-only, bounded, honest).
+
+    Counts durable-write outcomes, real conflict resolutions and likely-missed
+    conflicts. Complements the synthetic labeled evals, which only prove the
+    detector implements its rules. Never writes; empty data yields an honest
+    empty report.
+    """
+    return {"success": True, **service.memory.usage_report(window_days=windowDays)}
+
+
 def memory_available() -> bool:
     """True when the memory database is readable and not corrupt.
 
@@ -296,36 +308,37 @@ def retention_status() -> dict[str, Any]:
 
 @router.get("/eclipse-memory/semantic-status")
 def semantic_status() -> dict[str, Any]:
-    """The active conflict-detection mode + semantic fallback state.
-
-    Read-only; exposes no embedding, model path or memory content. `mode` is
-    `lexical`, `lexical+semantic`, or `lexical+semantic-unavailable`. Includes
-    bounded controls, backend health and diagnostic counters.
+    """Retired: the optional semantic candidate layer was removed on the evidence
+    that it added no measurable recall at a safe threshold (deterministic
+    normalization closed the gap). Kept as an honest, non-mutating tombstone so an
+    old client gets a truthful answer instead of a 404.
     """
-    return {"success": True, **service.memory.semantic_status()}
+    return {
+        "success": True,
+        "retired": True,
+        "mode": "lexical",
+        "lexicalActive": True,
+        "semanticEnabled": False,
+        "semanticAvailable": False,
+        "reason": (
+            "the semantic candidate layer was removed; deterministic lexical "
+            "detection is authoritative"
+        ),
+        "doc": "docs/harness/memory-contradiction-detection.md",
+    }
 
 
 @router.post("/eclipse-memory/semantic/rebuild")
 def semantic_rebuild(_: bool = Depends(require_operator)) -> dict[str, Any]:
-    """Clear/rebuild the optional local semantic index.
-
-    Honest by design: the v1 local backends hold NO persistent index (similarity
-    is computed per write over an already-authorized in-memory pool), so there is
-    nothing to clear or corrupt. This reports that fact; it never deletes memory
-    and never triggers a model download or network call. A future backend that
-    does keep an index would clear/rebuild it here.
+    """Retired tombstone: the semantic candidate layer was removed, so there is no
+    index to rebuild. Non-mutating; kept so an old client gets a truthful answer.
     """
-    status = service.memory.semantic_status()
     return {
         "success": True,
+        "retired": True,
         "rebuilt": False,
         "persistentIndex": False,
-        "reason": (
-            "no persistent semantic index exists for the active backend; "
-            "similarity is computed per write"
-        ),
-        "backend": status.get("backend"),
-        "available": status.get("semanticAvailable"),
+        "reason": "the semantic candidate layer was removed; there is nothing to rebuild",
     }
 
 

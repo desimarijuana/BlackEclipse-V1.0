@@ -715,7 +715,7 @@ class SkillRegistry:
         visiting: set[str] = set()
         visited: set[str] = set()
 
-        def visit(current_id: str, constraint: Optional[str], chain: list[str]) -> bool:
+        def visit(current_id: str, constraint: Optional[str], chain: list[str], *, root: bool = False) -> bool:
             if current_id in visiting:
                 cycle = " -> ".join([*chain, current_id])
                 result.cycles.append(cycle)
@@ -732,7 +732,10 @@ class SkillRegistry:
                 return False
             record = self.store.get_skill(current_id)
             stored_status = record["status"] if record else entry.manifest.status
-            if stored_status not in EXECUTABLE_STATUSES:
+            # A skill's OWN current status is not a dependency of itself: the root
+            # being validated for (re-)enablement may legitimately be disabled,
+            # deprecated or archived. Only its DEPENDENCIES must be executable.
+            if not root and stored_status not in EXECUTABLE_STATUSES:
                 result.disabled.append(f"{current_id} is {stored_status}")
                 return False
             if current_id in visited:
@@ -750,7 +753,7 @@ class SkillRegistry:
             result.order.append((current_id, resolved_version or entry.manifest.version))
             return True
 
-        ok = visit(skill_id, None, [])
+        ok = visit(skill_id, None, [], root=True)
         result.ok = ok and not (
             result.missing or result.disabled or result.cycles or result.version_mismatches
         )
@@ -910,6 +913,7 @@ class SkillRegistry:
                 "createdAt": v["createdAt"],
                 "origin": v["origin"],
                 "author": v["author"],
+                "pinned": bool(v.get("pinned")),
             }
             for v in self.store.list_versions(skill_id)
         ]

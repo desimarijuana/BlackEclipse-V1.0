@@ -23,10 +23,10 @@ import type {
   MemoryProfileResponse,
   MemoryRetentionStatus,
   MemoryRetrievalDiagnostics,
-  MemorySemanticStatus,
   MemoryProviderSearchResponse,
   MemoryProviderStatus,
   MemoryProviderTestResult,
+  MemoryUsageReport,
   MistakeRecord,
   SessionOpenResult,
   SessionSearchHealth,
@@ -163,8 +163,8 @@ export async function memoryRetention(): Promise<MemoryRetentionStatus> {
   return request<MemoryRetentionStatus>("/eclipse-memory/retention", { method: "GET" });
 }
 
-export async function memorySemanticStatus(): Promise<MemorySemanticStatus> {
-  return request<MemorySemanticStatus>("/eclipse-memory/semantic-status", { method: "GET" });
+export async function memoryUsageReport(windowDays = 30): Promise<MemoryUsageReport> {
+  return request<MemoryUsageReport>(`/eclipse-memory/usage-report?windowDays=${windowDays}`, { method: "GET" });
 }
 
 // ── Memory providers (M8) ───────────────────────────────────────────────────
@@ -281,17 +281,6 @@ export async function decideLearningReview(operator: boolean, reviewId: string, 
     "/learning-review/decide",
     { method: "POST", body: JSON.stringify({ operator, reviewId, outcomeIndex, action }) }
   );
-}
-
-export async function rebuildSemanticIndex(): Promise<{
-  success: boolean;
-  rebuilt: boolean;
-  persistentIndex: boolean;
-  reason: string;
-  backend: string;
-  available: boolean;
-}> {
-  return request("/eclipse-memory/semantic/rebuild", { method: "POST", body: JSON.stringify({}) });
 }
 
 export async function restoreMemory(memoryId: string, operator: boolean) {
