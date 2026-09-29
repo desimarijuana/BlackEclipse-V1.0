@@ -89,6 +89,11 @@ class ToolContext:
     # The harness memory store (AgentMemoryStore), for durable retrieval replay
     # (D1) and agent memory/skill tools.
     memory_store: Any = None
+    # Source collection sink for an ORDINARY run. Retrieval tools call
+    # `sink(result)` after each successful retrieval so the run's provenance
+    # (citations + consulted sources) can be surfaced as a Sources panel, exactly
+    # like a gated research run. None = collection disabled (no sink attached).
+    source_sink: Any = None
     # The model settings for THIS run, so a controlled skill sub-run inherits the
     # same provider/credentials (never a second adapter).
     model_settings: Any = None

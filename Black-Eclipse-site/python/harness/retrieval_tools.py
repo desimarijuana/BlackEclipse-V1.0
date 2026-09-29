@@ -82,6 +82,54 @@ def _event_logger(ctx: ToolContext):
     return _log
 
 
+def _collect(ctx: ToolContext, result: Any) -> None:
+    """Hand a retrieval result to the run's source collector, when one is attached.
+
+    Ordinary chat runs collect provenance so the answer can show a Sources panel
+    (built only from what was actually retrieved). A run with no sink (tests, or
+    the gated research path) simply skips this — collection is additive and must
+    never affect the tool's returned text.
+    """
+    sink = getattr(ctx, "source_sink", None)
+    if sink is None:
+        return
+    try:
+        sink.add(result)
+    except Exception:  # noqa: BLE001 - provenance collection must never break a tool
+        pass
+
+
+def _finish(ctx: ToolContext, result: Any) -> tuple[str, Any]:
+    """Collect provenance (when enabled) and return the standard tool tuple."""
+    _collect(ctx, result)
+    return _summarize(result), result.model_dump()
+
+
+def _record_fetched(
+    ctx: ToolContext,
+    *,
+    url: str,
+    title: Any = None,
+    ok: bool = True,
+    published_at: Any = None,
+    retrieved_at: Any = None,
+) -> None:
+    """Record a directly-fetched URL on the run's collector, when one is attached."""
+    sink = getattr(ctx, "source_sink", None)
+    if sink is None:
+        return
+    try:
+        sink.add_fetched_source(
+            url=url,
+            title=(str(title) if title else None),
+            ok=ok,
+            published_at=(str(published_at) if published_at else None),
+            retrieved_at=(str(retrieved_at) if retrieved_at else None),
+        )
+    except Exception:  # noqa: BLE001 - provenance collection must never break a tool
+        pass
+
+
 def _summarize(result: Any) -> str:
     """A compact, honest text summary of a retrieval result."""
     lines = [
@@ -158,7 +206,7 @@ async def market_get_quote(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         allowWeb=bool(args.get("allow_web", False)),
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def market_get_ohlcv(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -173,7 +221,7 @@ async def market_get_ohlcv(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         allowWeb=False,  # a series is never sourced from search results
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def fundamentals_get_company_profile(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -186,7 +234,7 @@ async def fundamentals_get_company_profile(args: dict[str, Any], ctx: ToolContex
         allowWeb=bool(args.get("allow_web", True)),
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def fundamentals_get_financials(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -199,7 +247,7 @@ async def fundamentals_get_financials(args: dict[str, Any], ctx: ToolContext) ->
         allowWeb=bool(args.get("allow_web", False)),
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def research_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -213,7 +261,7 @@ async def research_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
         allowWeb=True,
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def research_search_news(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -227,7 +275,7 @@ async def research_search_news(args: dict[str, Any], ctx: ToolContext) -> tuple[
         allowWeb=True,
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -259,6 +307,7 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
             hint = " The document could not be attributed to the requested instrument."
         elif category in ("timeout", "transport_error", "http_error"):
             hint = " This is a retrieval/transport failure, not evidence that the document does not exist."
+        _record_fetched(ctx, url=url, title=None, ok=False)
         return (
             f"UNAVAILABLE — the source at {url} could not be retrieved "
             f"({payload.get('error', 'unknown reason')}; category={category}). It is not treated as verified.{hint}",
@@ -271,6 +320,10 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
     document_id = payload.get("documentId")
     published_at = payload.get("publishedAt")
     retrieved_at = payload.get("retrievedAt")
+    _record_fetched(
+        ctx, url=url, title=title, ok=True,
+        published_at=published_at, retrieved_at=retrieved_at,
+    )
     meta_bits = []
     if extraction:
         meta_bits.append(f"extracted via {extraction}")
@@ -332,7 +385,7 @@ async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         metadata={"source": args.get("source") or identity.get("sourceId") or None},
     )
     result = await _layer(ctx).retrieve(request)
-    return _summarize(result), result.model_dump()
+    return _finish(ctx, result)
 
 
 async def _resolve_macro_via_bridge(

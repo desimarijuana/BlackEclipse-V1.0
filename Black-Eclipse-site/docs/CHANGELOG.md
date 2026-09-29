@@ -8,6 +8,23 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Sources panel for ordinary (non-gated) chat runs.** Previously only a gated
+  research run produced a Sources panel; a normal chat run that consulted
+  retrieval tools showed provenance only in its prose. New
+  `python/harness/source_collector.py` (`SourceCollector`) collects each
+  retrieval tool's `FinancialRetrievalResult` and emits a `research`-shaped blob
+  with status `collected` (citations reused verbatim from
+  `research.citations.build_citations`, plus consulted sources, failed routes and
+  conflicts). Wired through a new `ToolContext.source_sink` (retrieval tools call
+  it in `_finish`/`_record_fetched`), `build_graph(source_sink=...)`, and
+  `execute_run`, which builds the collector and persists the blob on the completed
+  run. The chat panel renders it with a new neutral `collected` status
+  ("Sources consulted") — never a verification claim. Additive and best-effort:
+  no sink ⇒ no collection, and a collector error can never break a tool. Tests:
+  `python/tests/test_source_collector.py` (9). Checks: `tsc` clean; vitest 1837
+  pass; pytest 1446 pass (+9). docs updated: `docs/CHANGELOG.md`,
+  `docs/NAVIGATION.md`.
+
 - **Chat "What influenced this run" panel redesign.** The run-explanation
   disclosure now spans the full transcript width, uses a magnifying-glass icon,
   and presents memory observability in plain language: stat tiles for memories

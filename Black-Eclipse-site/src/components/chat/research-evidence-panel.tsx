@@ -39,6 +39,10 @@ const STATUS_META: Record<string, { label: string; icon: typeof ShieldCheck; ton
   accepted: { label: 'Evidence-grounded', icon: ShieldCheck, tone: 'text-emerald-500' },
   partial: { label: 'Partial — gaps disclosed', icon: ShieldQuestion, tone: 'text-amber-500' },
   rejected: { label: 'Not established', icon: ShieldAlert, tone: 'text-rose-500' },
+  // An ordinary (non-gated) run that consulted retrieval sources. This is the
+  // provenance of what was consulted — never a verification claim, so it uses
+  // the neutral question mark, not the "verified" shield.
+  collected: { label: 'Sources consulted', icon: ShieldQuestion, tone: 'text-muted-foreground' },
 };
 
 // Coverage leg status → dot colour + plain-language label (Phase 5 statuses).

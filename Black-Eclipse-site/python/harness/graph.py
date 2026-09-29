@@ -193,6 +193,7 @@ def build_graph(
     effect_authorizer: Optional[Any] = None,
     memory_router: Optional[Any] = None,
     allowed: Optional[set[str]] = None,
+    source_sink: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -231,6 +232,7 @@ def build_graph(
         memory_store=store,
         memory_service=memory_service,
         memory_router=memory_router,
+        source_sink=source_sink,
         skill_registry=skill_registry,
         model_settings=request.modelSettings,
         bus=bus,
@@ -702,6 +704,15 @@ async def execute_run(
             request, memory_service, emitter, budget, emit=False,
         )
 
+    # Ordinary-run source collection: retrieval tools hand their results to this
+    # collector so the answer can show a Sources panel built ONLY from what was
+    # actually retrieved (the gated research path has its own citations). It is
+    # additive, best-effort provenance; it never affects the tool result or the
+    # run's authorization.
+    from .source_collector import SourceCollector  # noqa: PLC0415
+
+    source_collector = SourceCollector()
+
     # Bounded recovery (Milestone 4): if the run failed with a classified
     # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
     # terminal status is persisted once, below, after recovery resolves.
@@ -720,6 +731,7 @@ async def execute_run(
             _effect_authorizer(approvals, request.runId, emitter),
             memory_router,
             allowed=allowed,
+            source_sink=source_collector,
         )
         return await app.ainvoke(
             {
@@ -803,9 +815,15 @@ async def execute_run(
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
+    # Provenance collected from this run's retrieval tool calls (None when the
+    # run consulted no sources, so an empty panel is never shown). An ordinary
+    # run's collected blob carries status `collected`, distinct from a gated
+    # research run's `accepted`/`partial`/`rejected`.
+    research_blob = source_collector.to_research_blob()
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
+        **( {"research": research_blob} if research_blob else {} ),
     )
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
@@ -834,6 +852,7 @@ async def execute_run(
     result = _result(request.runId, "completed", store, None, output)
     result.memory = memory_blob or None
     result.context = context_blob
+    result.research = research_blob
     return result
 
 
