@@ -154,6 +154,17 @@ last-verified: 2026-09-28
 - **No code, contract, schema or runtime behavior changed by the amendment
   either** — it is still a plan document. `jdds.db` untouched.
 
+- **Investor Eye map: render all of Jammu & Kashmir as Pakistan (deliberate POV).**
+  Reworked the committed `public/geo/world.geo.json` so the Kashmir Valley,
+  Jammu, Ladakh and the LoC-administered tracts join Azad Kashmir and
+  Gilgit-Baltistan under Pakistan, using Natural Earth's authoritative 10m
+  `Kashmir` region polygon spliced with `martinez-polygon-clipping` (exact shared
+  edge, no slivers or gaps; only the `India` and `Pakistan` features changed,
+  Aksai Chin stays with China). Added a warning to
+  `scripts/fetch-world-geo.mjs` because its regeneration path emits the default
+  Natural Earth view and would silently revert this policy. docs updated:
+  `docs/investor-eye-architecture.md`, `docs/CHANGELOG.md`
+
 ## 2026-09-28
 
 - **Eclipse Memory: cut per-request runtime-probe and serial-fetch overhead.**

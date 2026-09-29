@@ -10,6 +10,14 @@
 // Natural Earth is public domain (no attribution required) — see
 // https://www.naturalearthdata.com/about/terms-of-use/.
 //
+// ⚠️  The committed `world.geo.json` is NOT a byte-for-byte copy of the upstream
+// default. It has been deliberately post-processed for a point-of-view (POV) on
+// disputed territory: the whole of Jammu & Kashmir (incl. the Kashmir Valley,
+// Jammu and Ladakh) is rendered as Pakistan, while Aksai Chin remains with
+// China. Re-running this script regenerates the *default* Natural Earth view and
+// will silently revert that policy. Re-apply it after regenerating — see
+// docs/investor-eye-architecture.md §2.1.
+//
 // Usage: `node scripts/fetch-world-geo.mjs`
 
 import fs from 'node:fs/promises';

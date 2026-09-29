@@ -123,6 +123,17 @@ additive later. **Investor Eye must not require accounts.**
 
 1. **Geography asset** — a slimmed Natural Earth country GeoJSON in
    `public/geo/`, fetched at build/commit time (not hard-coded in components).
+
+   The committed `public/geo/world.geo.json` carries a deliberate **point of
+   view**: the whole of Jammu & Kashmir (including the Kashmir Valley, Jammu and
+   Ladakh) is drawn as Pakistan, while Aksai Chin remains with China. Natural
+   Earth ships the default (division along the Line of Control) view, and the
+   `scripts/fetch-world-geo.mjs` regeneration path reproduces *that default* — it
+   does **not** re-apply this policy, so any regeneration must be followed by the
+   Kashmir splice. India and Pakistan are the only two features affected; the
+   shared boundary is a single clean edge (no slivers, no gaps), and the
+   server/client point-in-polygon lookups (`admin-boundaries.ts`,
+   `app-geo.ts`) inherit it automatically.
 2. **Investor Eye data models** (only these; see §3.2):
    `Country`, `GeopoliticalEvent`, `EventEntity`, `SourceRun` (observability).
 3. **Source connector tier for events** — `src/lib/investor-eye/sources/` with a
