@@ -8,6 +8,14 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Chat background anchored to the panel, not the viewport.** The eclipse
+  artwork was `fixed inset-0`, so it centered on the whole window and the opaque
+  sidebar (when open) covered its left half — the image appeared to disappear/
+  shift. It is now an `absolute inset-0` layer inside the chat content panel with
+  the shell kept `relative`, so it recenters with the panel as the sidebar
+  collapses/expands.
+  `src/components/screens/stock-chat.tsx`. `tsc` clean; vitest 1837 pass.
+  no doc change — visual only.
 - **Tighten the landing composer's bottom gap.** `pb-6 md:pb-10`→`pb-2` on the
   empty-state wrapper. `src/components/chat/empty-state.tsx`. `tsc` clean;
   vitest 1837 pass. no doc change — visual only.

@@ -798,18 +798,6 @@ function StockChatContent() {
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
-      {/* Chat paints the eclipse artwork across the whole page (header included)
-          only on the empty landing. Once a conversation starts the surface goes
-          solid so the transcript stays legible; every other tab keeps the
-          frosted-glass app shell. */}
-      {activeTab === 'chat' && messages.length === 0 && (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: "url('/backgrounds/eclipse bg.svg')" }}
-        />
-      )}
-
       <div
         className={cn(
           'flex-1 flex flex-col relative z-10 overflow-hidden min-w-0 h-full',
@@ -817,6 +805,18 @@ function StockChatContent() {
             'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
         )}
       >
+        {/* Chat paints the eclipse artwork across this panel (header included)
+            only on the empty landing. Anchored to the panel, not the viewport,
+            so it recenters as the sidebar opens/closes instead of sliding under
+            it. Once a conversation starts the surface goes solid so the
+            transcript stays legible; every other tab keeps the glass shell. */}
+        {activeTab === 'chat' && messages.length === 0 && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
+            style={{ backgroundImage: "url('/backgrounds/eclipse bg.svg')" }}
+          />
+        )}
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
