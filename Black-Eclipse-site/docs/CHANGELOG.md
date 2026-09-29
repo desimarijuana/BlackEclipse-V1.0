@@ -8,6 +8,25 @@ last-verified: 2026-09-28
 
 ## 2026-09-28
 
+- **Eclipse Memory: cut per-request runtime-probe and serial-fetch overhead.**
+  Measured: Python memory endpoints answer in 6–12 ms, but the Next memory
+  routes took ~100 ms cold and 1.7 s spikes; a 6-way parallel burst of the same
+  route took 10.6 s. Two causes, both fixed. (1) `ensurePythonRuntime()` — called
+  by *every* proxied request via the shared `request()` helpers — did a full
+  `/health` round-trip **and** a synchronous `python/harness/*.py` directory scan
+  on each call, with no caching or coalescing. It now has a 5 s success-TTL fast
+  path and in-flight promise coalescing, so the several routes a Memory tab fans
+  out share one probe instead of N probes. (2) The Lifecycle tab fetched
+  lifecycle→retention→semantic sequentially and the Health tab fetched
+  health→database-health sequentially; both now use `Promise.all`, removing the
+  serial round-trip chain. The remaining ~65 ms per route is generic Next.js dev
+  overhead (a non-Python route measures the same), not memory-specific. Checks:
+  `tsc` clean; Vitest **1808 passed**; Python **1315 passed**; lint 0 errors.
+  `jdds.db` untouched.
+  no doc change — performance fix; contracts and architecture unchanged
+
+## 2026-09-28
+
 - **Command Center fullscreen: move the Exit control into the top bar.** The
   fullscreen overlay's Exit button floated at bottom-right over the board; it
   now sits in the TopBar row (top, trailing edge, next to the app chrome) and

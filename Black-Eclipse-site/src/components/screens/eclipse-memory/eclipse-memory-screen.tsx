@@ -41,6 +41,7 @@ import {
   EmptyBox, ErrorBox, FilterRow, Header, MemoryModelLegend, Meta, Muted,
   OriginBadge, Section, Spinner, StatusPill, TypeBadge,
 } from "./memory-ui";
+import { MemoryDrawer, MemoryModal } from "./memory-overlay";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
   MemoryExportDocument, MemoryLifecycleView,
@@ -158,11 +159,17 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
   const load = useCallback(async (target: MemoryLifecycleView) => {
     setLoading(true); setError(null);
     try {
-      const body = await memoryLifecycle(target);
+      // Fan the three reads out in parallel — they are independent, and doing
+      // them sequentially tripled the tab's latency.
+      const [body, retentionBody, semanticBody] = await Promise.all([
+        memoryLifecycle(target),
+        memoryRetention(),
+        memorySemanticStatus(),
+      ]);
       setOverview(body);
       setMemories(body.memories ?? []);
-      setRetention(await memoryRetention());
-      setSemantic(await memorySemanticStatus());
+      setRetention(retentionBody);
+      setSemantic(semanticBody);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
   }, []);
@@ -185,78 +192,6 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
       />
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
 
-      {retention && (
-        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
-          <p className="text-[11px] font-semibold text-foreground">Retention</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {retention.automaticExpiryEnabled
-              ? `Automatically learned memory expires after ${retention.retentionDays} day(s); explicit memory is never silently expired.`
-              : "Automatic retention is off (0 days) — automatic memory never expires by policy. Explicit memory is never silently expired."}
-          </p>
-          {retention.nextMaintenanceAction && (
-            <p className="mt-1 text-[10px] text-foreground/80">Next: {retention.nextMaintenanceAction}</p>
-          )}
-          {retention.lastSweep ? (
-            <p className={cn("mt-1 text-[10px]", retention.lastSweep.ok ? "text-muted-foreground" : "text-amber-400")}>
-              Last sweep {retention.lastSweep.ranAt}: inspected {retention.lastSweep.inspected}, expired {retention.lastSweep.expired}, skipped {retention.lastSweep.skipped}
-              {!retention.lastSweep.ok && retention.lastSweep.error ? ` — failed: ${retention.lastSweep.error}` : ""}
-            </p>
-          ) : (
-            <p className="mt-1 text-[10px] text-muted-foreground">No sweep recorded yet.</p>
-          )}
-        </div>
-      )}
-
-      <CompactionPanel isOperator={isOperator} onChanged={() => void load(view)} />
-
-      {semantic && (
-        <div className="mb-4 rounded-2xl border border-white/10 glass-card p-3.5">
-          <p className="text-[11px] font-semibold text-foreground">Contradiction detection</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {semantic.mode === "lexical+semantic"
-              ? "Lexical + local semantic candidates. Semantic similarity can only suggest a possible contradiction for review — it never supersedes or activates memory."
-              : semantic.mode === "lexical+semantic-unavailable"
-                ? "Semantic detection is enabled but no local backend is available — detection is lexical-only (safe fallback)."
-                : "Lexical detection only. No network, no model, no embeddings."}
-          </p>
-          <p className="mt-1 text-[10px] text-muted-foreground/80">
-            backend: {semantic.backend} · detector {semantic.detectorVersion}
-          </p>
-          {semantic.controls && (
-            <p className="mt-1 text-[10px] text-muted-foreground/80">
-              threshold {String(semantic.controls.threshold ?? "—")} ·
-              {" "}candidates ≤ {String(semantic.controls.candidateLimit ?? "—")} ·
-              {" "}index ≤ {String(semantic.controls.indexLimit ?? "—")} ·
-              {" "}timeout {String(semantic.controls.timeoutMs ?? "—")}ms
-            </p>
-          )}
-          {semantic.stats?.available && (
-            <p className="mt-1 text-[10px] text-muted-foreground/80">
-              semantic proposals: {semantic.stats.proposedBySemantics ?? 0} ·
-              {" "}actionable {semantic.stats.actionableCandidates ?? 0} ·
-              {" "}confirmed {semantic.stats.confirmedAfterReview ?? 0} ·
-              {" "}kept/dismissed {semantic.stats.keptExistingOrDismissed ?? 0}
-            </p>
-          )}
-          {semantic.backends && semantic.backends.length > 0 && (
-            <p className="mt-1 text-[10px] text-muted-foreground/60">
-              backends: {semantic.backends.map((b) => `${b.backend}${b.available ? "" : " (unavailable)"}`).join(", ")}
-            </p>
-          )}
-          <button
-            type="button"
-            disabled={!isOperator || busy}
-            onClick={() => act(async () => {
-              const result = await rebuildSemanticIndex();
-              return result.reason;
-            }, "Semantic index: no persistent index to rebuild (computed per write)")}
-            className="mt-2 rounded-lg border border-white/10 px-2 py-0.5 text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-50 cursor-pointer"
-          >
-            Clear / rebuild optional index
-          </button>
-        </div>
-      )}
-
       {overview && (
         <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2">
           {[
@@ -276,6 +211,82 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
           ))}
         </div>
       )}
+
+      {/* Diagnostics: retention + contradiction side-by-side on wide screens so
+          they no longer stack as full-width blocks that bury the memory list. */}
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        {retention && (
+          <div className="rounded-2xl border border-white/10 glass-card p-3.5">
+            <p className="text-[11px] font-semibold text-foreground">Retention</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {retention.automaticExpiryEnabled
+                ? `Automatically learned memory expires after ${retention.retentionDays} day(s); explicit memory is never silently expired.`
+                : "Automatic retention is off (0 days) — automatic memory never expires by policy. Explicit memory is never silently expired."}
+            </p>
+            {retention.nextMaintenanceAction && (
+              <p className="mt-1 text-[10px] text-foreground/80">Next: {retention.nextMaintenanceAction}</p>
+            )}
+            {retention.lastSweep ? (
+              <p className={cn("mt-1 text-[10px]", retention.lastSweep.ok ? "text-muted-foreground" : "text-amber-400")}>
+                Last sweep {retention.lastSweep.ranAt}: inspected {retention.lastSweep.inspected}, expired {retention.lastSweep.expired}, skipped {retention.lastSweep.skipped}
+                {!retention.lastSweep.ok && retention.lastSweep.error ? ` — failed: ${retention.lastSweep.error}` : ""}
+              </p>
+            ) : (
+              <p className="mt-1 text-[10px] text-muted-foreground">No sweep recorded yet.</p>
+            )}
+          </div>
+        )}
+
+        {semantic && (
+          <div className="rounded-2xl border border-white/10 glass-card p-3.5">
+            <p className="text-[11px] font-semibold text-foreground">Contradiction detection</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {semantic.mode === "lexical+semantic"
+                ? "Lexical + local semantic candidates. Semantic similarity can only suggest a possible contradiction for review — it never supersedes or activates memory."
+                : semantic.mode === "lexical+semantic-unavailable"
+                  ? "Semantic detection is enabled but no local backend is available — detection is lexical-only (safe fallback)."
+                  : "Lexical detection only. No network, no model, no embeddings."}
+            </p>
+            <p className="mt-1 text-[10px] text-muted-foreground/80">
+              backend: {semantic.backend} · detector {semantic.detectorVersion}
+            </p>
+            {semantic.controls && (
+              <p className="mt-1 text-[10px] text-muted-foreground/80">
+                threshold {String(semantic.controls.threshold ?? "—")} ·
+                {" "}candidates ≤ {String(semantic.controls.candidateLimit ?? "—")} ·
+                {" "}index ≤ {String(semantic.controls.indexLimit ?? "—")} ·
+                {" "}timeout {String(semantic.controls.timeoutMs ?? "—")}ms
+              </p>
+            )}
+            {semantic.stats?.available && (
+              <p className="mt-1 text-[10px] text-muted-foreground/80">
+                semantic proposals: {semantic.stats.proposedBySemantics ?? 0} ·
+                {" "}actionable {semantic.stats.actionableCandidates ?? 0} ·
+                {" "}confirmed {semantic.stats.confirmedAfterReview ?? 0} ·
+                {" "}kept/dismissed {semantic.stats.keptExistingOrDismissed ?? 0}
+              </p>
+            )}
+            {semantic.backends && semantic.backends.length > 0 && (
+              <p className="mt-1 text-[10px] text-muted-foreground/60">
+                backends: {semantic.backends.map((b) => `${b.backend}${b.available ? "" : " (unavailable)"}`).join(", ")}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!isOperator || busy}
+              onClick={() => act(async () => {
+                const result = await rebuildSemanticIndex();
+                return result.reason;
+              }, "Semantic index: no persistent index to rebuild (computed per write)")}
+              className="mt-2 rounded-lg border border-white/10 px-2 py-0.5 text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-50 cursor-pointer"
+            >
+              Clear / rebuild optional index
+            </button>
+          </div>
+        )}
+      </div>
+
+      <CompactionPanel isOperator={isOperator} onChanged={() => void load(view)} />
 
       <div className="mb-4 flex flex-wrap gap-1.5">
         {LIFECYCLE_VIEWS.map((v) => (
@@ -329,11 +340,46 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
         </div>
       )}
 
-      {detail && (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setDetail(null)} />
-          <div className="relative w-full max-w-md h-full glass-card-strong border-l border-white/10 overflow-y-auto p-5">
-            <button onClick={() => setDetail(null)} className="mb-3 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer">← Close</button>
+      <MemoryDrawer
+        open={Boolean(detail)}
+        onClose={() => setDetail(null)}
+        title="Memory detail"
+        subtitle={detail ? `${detail.memory.memoryType} · ${detail.memory.status} · ${detail.memory.authority ?? "explicit"}` : undefined}
+        width="md"
+        footer={detail ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {detail.memory.status === "active" && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => renewMemory(detail.memory.id), "Memory confirmed / renewed")}>
+                  Confirm & renew
+                </Button>
+              )}
+              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
+                  Restore
+                </Button>
+              )}
+              {detail.memory.status === "proposed" && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
+                  Approve
+                </Button>
+              )}
+              {detail.memory.status !== "archived" && (
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
+                  onClick={() => act(() => archiveMemory(detail.memory.id), "Memory archived")}>
+                  <Trash2 size={12} className="mr-1" /> Archive
+                </Button>
+              )}
+            </div>
+            {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — changes require operator authorization.</p>}
+          </>
+        ) : undefined}
+      >
+        {detail && (
+          <>
             <p className="text-[12px] text-foreground leading-relaxed">{detail.memory.content}</p>
             {detail.explanation && (
               <div className="mt-4 rounded-2xl border border-white/10 glass-card-subtle p-3">
@@ -384,36 +430,9 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
                 </ul>
               </div>
             )}
-            <div className="mt-5 flex flex-wrap gap-2">
-              {detail.memory.status === "active" && (
-                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                  onClick={() => act(() => renewMemory(detail.memory.id), "Memory confirmed / renewed")}>
-                  Confirm & renew
-                </Button>
-              )}
-              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
-                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
-                  Restore
-                </Button>
-              )}
-              {detail.memory.status === "proposed" && (
-                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                  onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
-                  Approve
-                </Button>
-              )}
-              {detail.memory.status !== "archived" && (
-                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
-                  onClick={() => act(() => archiveMemory(detail.memory.id), "Memory archived")}>
-                  <Trash2 size={12} className="mr-1" /> Archive
-                </Button>
-              )}
-            </div>
-            {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — changes require operator authorization.</p>}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </MemoryDrawer>
     </div>
   );
 }
@@ -768,24 +787,21 @@ function History() {
         ))}
       </div>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setOpen(null)}>
-          <div className="max-h-[80vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/10 glass-card-strong p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">Run {open.runId}</p>
-              <button onClick={() => setOpen(null)} className="cursor-pointer text-muted-foreground hover:text-foreground"><X size={16} /></button>
+      <MemoryModal
+        open={Boolean(open)}
+        onClose={() => setOpen(null)}
+        title={open ? `Run ${open.runId}` : ""}
+        width="lg"
+      >
+        <div className="space-y-2">
+          {open?.messages.map((m) => (
+            <div key={m.messageId} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{m.role}/{m.kind} · {m.createdAt}</p>
+              <p className="mt-1 text-[11px] text-foreground/90 whitespace-pre-wrap">{m.content ?? m.snippet}</p>
             </div>
-            <div className="mt-3 space-y-2">
-              {open.messages.map((m) => (
-                <div key={m.messageId} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
-                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{m.role}/{m.kind} · {m.createdAt}</p>
-                  <p className="mt-1 text-[11px] text-foreground/90 whitespace-pre-wrap">{m.content ?? m.snippet}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
-      )}
+      </MemoryModal>
 
       <p className="mt-3 text-[10px] text-amber-300/90">Historical results are context only. They can never answer a current price/fundamental question — retrieve fresh data for that.</p>
     </div>
@@ -1001,14 +1017,15 @@ function Sessions({ isOperator }: { isOperator: boolean }) {
         </div>
       )}
 
-      {detail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setDetail(null)}>
-          <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/10 glass-card-strong p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">{detail.session.title || detail.session.id}</p>
-              <button onClick={() => setDetail(null)} className="cursor-pointer text-muted-foreground hover:text-foreground"><X size={16} /></button>
-            </div>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
+      <MemoryModal
+        open={Boolean(detail)}
+        onClose={() => setDetail(null)}
+        title={detail ? (detail.session.title || detail.session.id) : ""}
+        width="lg"
+      >
+        {detail && (
+          <>
+            <p className="-mt-1 text-[10px] text-muted-foreground">
               {detail.runs.length} run(s) · {detail.messages.length} indexed message(s) · profile {detail.session.profileId ?? "default"}
             </p>
 
@@ -1037,9 +1054,9 @@ function Sessions({ isOperator }: { isOperator: boolean }) {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </MemoryModal>
     </div>
   );
 }
@@ -1331,9 +1348,9 @@ function FilesTab({ isOperator }: { isOperator: boolean }) {
       )}
       {preview && <p className="mb-3 text-[11px] text-muted-foreground">Preview: {preview.entries} importable entr(ies), {preview.ignored} ignored.</p>}
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         {/* File content */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {fileNames.map((name) => (
             <div key={name} className={cn("rounded-2xl border glass-card p-3", activeFile === name ? "border-primary/40" : "border-white/10")}>
               <div className="mb-1 flex items-center justify-between gap-2">
@@ -1346,7 +1363,7 @@ function FilesTab({ isOperator }: { isOperator: boolean }) {
         </div>
 
         {/* Detail / history / edit */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {!activeFile && (
             <div className="rounded-2xl border border-white/10 glass-card-subtle p-4 text-center">
               <FileText size={20} className="mx-auto text-muted-foreground/60" />
@@ -1605,11 +1622,40 @@ function Memories({ isOperator }: { isOperator: boolean }) {
         </div>
       )}
 
-      {detail && (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setDetail(null)} />
-          <div className="relative w-full max-w-md h-full glass-card-strong border-l border-white/10 overflow-y-auto p-5">
-            <button onClick={() => setDetail(null)} className="mb-3 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer">← Close</button>
+      <MemoryDrawer
+        open={Boolean(detail)}
+        onClose={() => setDetail(null)}
+        title="Fact detail"
+        subtitle={detail ? `${detail.memory.memoryType} · ${detail.memory.status} · ${detail.memory.authority ?? "explicit"}` : undefined}
+        width="md"
+        footer={detail ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {detail.memory.status === "proposed" && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
+                  Approve
+                </Button>
+              )}
+              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
+                  Restore
+                </Button>
+              )}
+              {detail.memory.status !== "archived" && (
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
+                  onClick={() => act(() => archiveMemory(detail.memory.id), "Memory archived")}>
+                  <Trash2 size={12} className="mr-1" /> Archive
+                </Button>
+              )}
+            </div>
+            {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — review/archive require operator authorization.</p>}
+          </>
+        ) : undefined}
+      >
+        {detail && (
+          <>
             <div className="flex items-center gap-2 flex-wrap">
               <TypeBadge type={detail.memory.memoryType} />
               <StatusPill status={detail.memory.status} />
@@ -1693,31 +1739,9 @@ function Memories({ isOperator }: { isOperator: boolean }) {
                 </ul>
               </div>
             )}
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              {detail.memory.status === "proposed" && (
-                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                  onClick={() => act(() => reviewMemory(detail.memory.id, true), "Memory approved")}>
-                  Approve
-                </Button>
-              )}
-              {(detail.memory.status === "archived" || detail.memory.status === "expired" || detail.memory.status === "superseded") && (
-                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                  onClick={() => act(() => restoreMemory(detail.memory.id), "Memory restored")}>
-                  Restore
-                </Button>
-              )}
-              {detail.memory.status !== "archived" && (
-                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer text-rose-300" disabled={!isOperator || busy}
-                  onClick={() => act(() => archiveMemory(detail.memory.id), "Memory archived")}>
-                  <Trash2 size={12} className="mr-1" /> Archive
-                </Button>
-              )}
-            </div>
-            {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — review/archive require operator authorization.</p>}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </MemoryDrawer>
 
       {conflictId && (
         <ConflictReview
@@ -1801,51 +1825,54 @@ function ConflictReview({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-lg h-full glass-card-strong border-l border-white/10 overflow-y-auto p-5">
-        <button onClick={onClose} className="mb-3 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer">← Close</button>
-        <h3 className="font-serif text-sm font-semibold text-foreground">Conflict review</h3>
-        {loading ? <Spinner /> : !review ? (
-          <p className="mt-2 text-[11px] text-muted-foreground">No conflict review available for this memory.</p>
-        ) : (
-          <>
-            <p className="mt-1 text-[11px] text-muted-foreground">{review.recommendation}</p>
-            {message && <p className="mt-2 text-[11px] text-rose-300">{message}</p>}
-            <div className="mt-3 space-y-2">
-              <Row record={review.self} label="This memory" />
-              {review.peers.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">No competing record is linked.</p>
-              ) : review.peers.map((peer) => <Row key={peer.id} record={peer} label="Competing" />)}
-            </div>
-            {mergeText && (
-              <div className="mt-3 rounded-2xl border border-primary/20 glass-card p-3">
-                <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Merge into a new fact</p>
-                <textarea value={mergeText} onChange={(e) => setMergeText(e.target.value)} rows={3}
-                  className="mt-1 w-full rounded-xl border border-border/30 bg-background/60 px-3 py-2 text-[12px] outline-none focus:border-primary/40" />
-                <div className="mt-2 flex gap-2">
-                  <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                    onClick={() => act("merge", review.peers.find((p) => p.status === "active")?.id ?? review.peers[0]?.id, mergeText)}>
-                    Create merged fact
-                  </Button>
-                  <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => setMergeText("")}>Cancel</Button>
-                </div>
+    <MemoryDrawer
+      open
+      onClose={onClose}
+      title="Conflict review"
+      subtitle="Resolve competing facts safely — every action is audited and reversible."
+      width="lg"
+      footer={review ? (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act("keep")}>Keep as-is</Button>
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+            onClick={() => act("defer")}>Defer review</Button>
+        </div>
+      ) : undefined}
+    >
+      {loading ? <Spinner /> : !review ? (
+        <p className="text-[11px] text-muted-foreground">No conflict review available for this memory.</p>
+      ) : (
+        <>
+          <p className="text-[11px] text-muted-foreground">{review.recommendation}</p>
+          {message && <p className="mt-2 text-[11px] text-rose-300">{message}</p>}
+          <div className="mt-3 space-y-2">
+            <Row record={review.self} label="This memory" />
+            {review.peers.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">No competing record is linked.</p>
+            ) : review.peers.map((peer) => <Row key={peer.id} record={peer} label="Competing" />)}
+          </div>
+          {mergeText && (
+            <div className="mt-3 rounded-2xl border border-primary/20 glass-card p-3">
+              <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Merge into a new fact</p>
+              <textarea value={mergeText} onChange={(e) => setMergeText(e.target.value)} rows={3}
+                className="mt-1 w-full rounded-xl border border-border/30 bg-background/60 px-3 py-2 text-[12px] outline-none focus:border-primary/40" />
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
+                  onClick={() => act("merge", review.peers.find((p) => p.status === "active")?.id ?? review.peers[0]?.id, mergeText)}>
+                  Create merged fact
+                </Button>
+                <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" onClick={() => setMergeText("")}>Cancel</Button>
               </div>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                onClick={() => act("keep")}>Keep as-is</Button>
-              <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-                onClick={() => act("defer")}>Defer review</Button>
             </div>
-            <p className="mt-3 text-[10px] text-muted-foreground">
-              Every action is audited and reversible; no record is hard-deleted. Semantic
-              similarity never resolves a conflict automatically.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+          <p className="mt-3 text-[10px] text-muted-foreground">
+            Every action is audited and reversible; no record is hard-deleted. Semantic
+            similarity never resolves a conflict automatically.
+          </p>
+        </>
+      )}
+    </MemoryDrawer>
   );
 }
 
@@ -2238,8 +2265,12 @@ function Health({ isOperator }: { isOperator: boolean }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setHealth(await memoryHealth());
-      setDbHealth(await memoryDatabaseHealth());
+      const [healthBody, dbHealthBody] = await Promise.all([
+        memoryHealth(),
+        memoryDatabaseHealth(),
+      ]);
+      setHealth(healthBody);
+      setDbHealth(dbHealthBody);
     }
     catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }

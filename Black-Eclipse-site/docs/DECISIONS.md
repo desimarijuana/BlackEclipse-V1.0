@@ -742,3 +742,26 @@ infrastructure.
 eclipse-memory-{client,browser,types},python-client}.ts`, new `/api/sessions/**`,
 `/api/profiles/**`, `/api/eclipse-memory/files/{edit,history}`, and the Memory
 Control Room tabs. ADR-H56…H58 in `docs/harness/decisions.md`.
+
+## ADR-037 - Floating overlays must be portaled; app-wide z-index tiers (2026)
+**Decision:** Every floating surface (drawer, dialog, modal, fullscreen panel,
+chat dock, toast) renders through `createPortal(document.body)` - never inline -
+and uses a single documented z-index scale: fullscreen panels `z-[80..86]` <
+floating chat dock `z-[90]` < drawers/dialogs `z-[100]` < toasts `z-[110]`. The
+Memory Control Room's six hand-rolled overlays are replaced by one shared
+primitive (`src/components/screens/eclipse-memory/memory-overlay.tsx`:
+`MemoryDrawer` + `MemoryModal`) that owns the portal, Escape-to-close and body
+scroll lock, a sticky header, and the width tiers.
+**Why:** The Memory screen is rendered inside the app shell's `glass-card`
+container, which uses `backdrop-filter`/`transform` and is therefore a
+containing block + backdrop root. An inline `position: fixed` drawer is scoped to
+that container: it clipped, sat under the header, and overlapped the floating
+chat dock. The overlays also used `z-50`, i.e. below the dock (`z-[90]`), so
+they rendered behind it. Hand-rolling six near-identical overlays had let their
+widths, backdrops and structure drift apart - the visible "overlapping / not
+properly structured" symptom.
+**Impact:** `memory-overlay.tsx` is the one place the Memory overlays are built;
+`skills-screen.tsx` toast moved to the `z-[110]` tier. The rule applies to any
+future floating surface. The frosted-glass hard rules (see the
+`black-eclipse-ui` skill) still require the tint to stay <= ~0.55 alpha and the
+portal to escape transformed/animated ancestors.

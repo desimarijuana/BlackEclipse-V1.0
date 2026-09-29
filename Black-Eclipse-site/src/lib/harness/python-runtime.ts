@@ -36,9 +36,21 @@ export const HARNESS_PY_PORT = parsed?.port ?? 8765;
 interface RuntimeGlobal {
   __harnessPyProc?: ChildProcess;
   __harnessPyStart?: Promise<boolean>;
+  /** Last successful health verification (ms). Short-TTL cache so a burst of
+   * requests (one page load fans out several API routes) shares a single probe
+   * instead of each doing its own round-trip + directory scan. */
+  __harnessPyHealthyAt?: number;
+  /** In-flight ensure() so concurrent callers coalesce onto one probe. */
+  __harnessPyEnsure?: Promise<boolean>;
 }
 
 const g = globalThis as unknown as RuntimeGlobal;
+
+// A memory/skills tab load fans out several API routes at once; without this,
+// each route re-probed `/health` and re-scanned the source directory on every
+// call. A short TTL is safe: staleness is still detected within the window, and
+// an actually-down runtime re-probes immediately after the TTL.
+const HEALTH_TTL_MS = 5_000;
 
 interface HealthInfo {
   ok?: boolean;
@@ -130,6 +142,26 @@ async function waitForHealth(deadlineMs: number): Promise<boolean> {
  * treat `false` as "agent runtime unavailable", not fall back to a fake agent.
  */
 export async function ensurePythonRuntime(): Promise<boolean> {
+  // Fast path: a recent successful check, and no reason to suspect it changed.
+  if (g.__harnessPyHealthyAt && Date.now() - g.__harnessPyHealthyAt < HEALTH_TTL_MS) {
+    return true;
+  }
+  // Coalesce concurrent callers (a page load fires several routes at once) onto
+  // a single probe so the runtime is not asked N times for the same page.
+  if (g.__harnessPyEnsure) return g.__harnessPyEnsure;
+
+  g.__harnessPyEnsure = (async () => {
+    const ok = await ensurePythonRuntimeUncached();
+    if (ok) g.__harnessPyHealthyAt = Date.now();
+    return ok;
+  })().finally(() => {
+    g.__harnessPyEnsure = undefined;
+  });
+
+  return g.__harnessPyEnsure;
+}
+
+async function ensurePythonRuntimeUncached(): Promise<boolean> {
   const health = await getHealth();
   if (health) {
     // A healthy runtime that started before our source was last edited is an
@@ -202,4 +234,6 @@ export function stopPythonRuntime(): void {
   g.__harnessPyProc?.kill();
   g.__harnessPyProc = undefined;
   g.__harnessPyStart = undefined;
+  g.__harnessPyHealthyAt = undefined;
+  g.__harnessPyEnsure = undefined;
 }
