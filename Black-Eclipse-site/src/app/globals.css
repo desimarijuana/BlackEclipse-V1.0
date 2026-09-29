@@ -1057,6 +1057,30 @@ html:not(.dark) .glass-card-subtle {
     inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
 
+/* Frosted-glass tooltip / popover — the SAME recipe the chart/HUD tooltips use
+ * (ECharts `extraCssText` in eclipse-provider.ts), so a hover popup over the
+ * chat transcript matches the chart tooltips exactly. Translucent tint (0.5),
+ * blur 18 + saturate 1.35, soft drop shadow + inset highlight.
+ * REQUIRES rendering at <body> level (portal): the blur samples whatever is
+ * behind the element, so an ancestor with transform/filter/backdrop-filter
+ * (a backdrop root) scopes the blur to nothing and the glass reads flat. */
+.glass-tooltip {
+  background: rgba(18, 18, 20, 0.5);
+  backdrop-filter: blur(18px) saturate(1.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .glass-tooltip {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
 /* Side drawer / large panel — a deliberately LOW-opacity, HIGH-blur tier so the
  * page behind is clearly visible and frosted (the standard card tier is too
  * opaque to read as glass on a dark page). Used by the workspace widget

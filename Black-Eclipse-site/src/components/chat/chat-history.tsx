@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowDown, Sparkles, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
@@ -8,6 +9,7 @@ import { ActivityFeed } from './activity-feed';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { RunExplanationPanel } from './run-explanation-panel';
+import { MessageRail } from './message-rail';
 
 interface ChatHistoryProps {
   messages: Message[];
@@ -49,9 +51,16 @@ const AssistantContent = memo(function AssistantContent({
 
 export function ChatHistory({ messages, compact = false, onEditMessage, onRetryMessage, onFeedback }: ChatHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // The "Latest" pill is portaled to <body> so its backdrop-filter samples the
+  // real page. The transcript sits inside the app shell's own `.glass-card`,
+  // which is a backdrop root and would silently flatten a nested glass surface —
+  // and a CSS transform on an ancestor does the same. This tracks the
+  // transcript's on-screen box so the portaled pill can be positioned over it.
+  const [rootRect, setRootRect] = useState<{ left: number; top: number; width: number; bottom: number } | null>(null);
 
   // Track whether the viewport is pinned to the bottom. When it is, we follow the
   // stream and hide the scrollbar; when the user scrolls up we reveal the
@@ -87,6 +96,26 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
     onScroll();
   }, [onScroll, messages]);
 
+  // Keep the portaled "Latest" pill aligned with the transcript box.
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setRootRect({ left: r.left, top: r.top, width: r.width, bottom: r.bottom });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [messages]);
+
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
     setDraft(msg.content);
@@ -108,7 +137,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
   };
 
   return (
-    <div className="relative flex-1 min-h-0 w-full">
+    <div ref={rootRef} className="relative flex-1 min-h-0 w-full">
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -124,6 +153,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
           return (
             <div
               key={msg.id}
+              data-message-id={msg.id}
               className={`group animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
             >
               {msg.role === 'assistant' && !compact && (
@@ -294,20 +324,27 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onRetryM
       </div>
       </div>
 
-      {!atBottom && (
-        <button
-          type="button"
-          onClick={() => scrollToBottom(true)}
-          className={cn(
-            'absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-primary/25 glass-card-strong px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg shadow-black/30 transition-colors hover:text-primary cursor-pointer animate-fade-in',
-            compact ? 'bottom-2' : 'bottom-4',
-          )}
-          title="Scroll to latest"
-          aria-label="Scroll to latest"
-        >
-          <ArrowDown size={13} /> Latest
-        </button>
-      )}
+      <MessageRail messages={messages} scrollRef={scrollRef} />
+
+      {!atBottom && rootRect &&
+        createPortal(
+          <button
+            type="button"
+            onClick={() => scrollToBottom(true)}
+            style={{
+              position: 'fixed',
+              left: rootRect.left + rootRect.width / 2,
+              top: compact ? rootRect.bottom - 8 : rootRect.bottom - 16,
+              transform: 'translate(-50%, -100%)',
+            }}
+            className="z-30 flex items-center gap-1.5 rounded-full glass-tooltip px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:text-primary cursor-pointer animate-fade-in"
+            title="Scroll to latest"
+            aria-label="Scroll to latest"
+          >
+            <ArrowDown size={13} /> Latest
+          </button>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -8,6 +8,68 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Tighten the landing composer's bottom gap.** `pb-6 md:pb-10`→`pb-2` on the
+  empty-state wrapper. `src/components/chat/empty-state.tsx`. `tsc` clean;
+  vitest 1837 pass. no doc change — visual only.
+- **Slim down the chat composer.** The input bar read as oversized: textarea
+  `text-base sm:text-lg`→`text-sm`, padding `py-3`→`py-2`; all round buttons
+  `h-10/h-9`→`h-8`, icons 20/18→17/16; provider pill `h-8`→`h-7` and `text-sm`→
+  `text-xs`; container padding `py-1.5`→`py-1`, `px-2 sm:px-4`→`px-1.5 sm:px-3`;
+  `MAX_HEIGHT` 176→120 so the draft grows to ~4 lines before scrolling.
+  `src/components/chat/chat-input.tsx`. `tsc` clean; vitest 1837 pass.
+  no doc change — visual only.
+- **Chat background is landing-only; composer pinned to bottom.** The eclipse
+  artwork now paints the whole page (header + rail included) only while the chat
+  thread is empty, and the app shell drops its `glass-card` on the chat tab so the
+  transparent header shows it. As soon as a message exists the artwork unmounts and
+  the surface falls back to solid/glass so the transcript stays legible. The
+  landing composer is pinned to the bottom of the viewport. Background uses
+  `bg-cover bg-center bg-no-repeat` (removed `bg-fixed` so it centers on the
+  visible frame, not an oversized fixed canvas).
+  `src/components/screens/stock-chat.tsx`, `src/components/chat/empty-state.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only.
+- **Chat landing is composer-only, full width, on the eclipse background.**
+  Removed the empty-state hero (wand icon, heading, description), the four
+  suggestion tiles, and the "View Market Overview" button — the landing now shows
+  only `ChatInput`, widened to `max-w-[1400px]`. The running-conversation composer
+  uses the same width. The chat tab container paints
+  `/backgrounds/eclipse bg.svg` (cover, centered, fixed). Landing is the first
+  step of stripping the page's AI-generated look; transcript/history still render
+  once a conversation starts.
+  `src/components/chat/empty-state.tsx`, `src/components/screens/stock-chat.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only, no contract
+  or data-shape change.
+- **Chat message navigation rail.** A thin index on the right edge of the chat
+  transcript, one tick per user turn. Clicking a tick scrolls that turn to the
+  top, the tick nearest the reading position is highlighted, and hovering shows a
+  short glassy preview popup. Ticks are hairline (`h-px w-3`) at rest and expand
+  to a small pill (`h-[3px] w-5`) on hover/active. Shown only with 2+ user turns,
+  on `md+`; scroll measurement is rAF-throttled and reads the already-rendered
+  rows (`data-message-id`), so it is a pure view with no conversation state. New
+  `src/components/chat/message-rail.tsx`; rows tagged in
+  `src/components/chat/chat-history.tsx`. Checks: `tsc` clean; vitest 1837 pass.
+  no doc change — UI presentation only, no contract or data-shape change.
+- **Fix flat frosted glass in chat provenance surfaces.** The `Latest` jump
+  button and the message-rail hover preview were rendering as solid fills, not
+  frost. Two causes: (1) `glass-card-strong`'s near-opaque tint
+  (`rgba(16,16,18,0.85)`) hides the blur — switched both to `.glass-card`
+  (≤0.55); (2) both sat under a backdrop root (the app shell's own `.glass-card`
+  for the button; the rail's `-translate-y-1/2` ancestor for the popup), so the
+  `backdrop-filter` sampled an empty box — both are now `createPortal`ed to
+  `document.body` and positioned from a `ResizeObserver`-tracked transcript rect.
+  Added a canonical `.glass-tooltip` class (the exact chart-tooltip recipe:
+  tint 0.5, blur 18 + saturate 1.35, radius 14) and applied it to both, so hover
+  popups frost identically to the ECharts chart/HUD tooltips. Documented the tier
+  and the "`-strong` is not for tooltips" pitfall in
+  `.opencode/skills/black-eclipse-ui/SKILL.md`.
+  `src/app/globals.css`, `src/components/chat/{chat-history,message-rail}.tsx`.
+  `tsc` clean; vitest 1837 pass. docs updated:
+  `.opencode/skills/black-eclipse-ui/SKILL.md`, `docs/CHANGELOG.md`.
+- **Narrow the collapsed sidebar.** Collapsed rail is now `w-12` (48px), down
+  from `w-16` (64px); the expanded sidebar stays `w-60` (240px). Icon buttons
+  (`w-10`) still center. `src/components/layout/sidebar.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — styling only.
+
 - **Sources panel for ordinary (non-gated) chat runs.** Previously only a gated
   research run produced a Sources panel; a normal chat run that consulted
   retrieval tools showed provenance only in its prose. New

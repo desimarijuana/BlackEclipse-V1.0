@@ -114,7 +114,7 @@ export function Sidebar({
   const sidebarContent = (
     <div 
       className={`sidebar-root h-full flex flex-col glass-card-strong border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
-        isCollapsed ? 'w-16 px-0 items-center' : 'w-60 px-4'
+        isCollapsed ? 'w-12 px-0 items-center' : 'w-60 px-4'
       }`}
     >
       {/* Brand logo header */}
@@ -345,7 +345,7 @@ export function Sidebar({
 
       {/* Desktop sidebar */}
       <div className={`hidden md:block h-screen select-none z-50 shrink-0 transition-all duration-300 ${
-        isCollapsed ? 'w-16' : 'w-60'
+        isCollapsed ? 'w-12' : 'w-60'
       }`}>
         {sidebarContent}
       </div>

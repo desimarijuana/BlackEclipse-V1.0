@@ -798,7 +798,25 @@ function StockChatContent() {
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 overflow-hidden glass-card min-w-0 h-full before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent">
+      {/* Chat paints the eclipse artwork across the whole page (header included)
+          only on the empty landing. Once a conversation starts the surface goes
+          solid so the transcript stays legible; every other tab keeps the
+          frosted-glass app shell. */}
+      {activeTab === 'chat' && messages.length === 0 && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: "url('/backgrounds/eclipse bg.svg')" }}
+        />
+      )}
+
+      <div
+        className={cn(
+          'flex-1 flex flex-col relative z-10 overflow-hidden min-w-0 h-full',
+          activeTab !== 'chat' &&
+            'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
+        )}
+      >
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
@@ -834,7 +852,11 @@ function StockChatContent() {
           )}
 
           {visited.has('chat') && (
-            <div ref={chatRootRef} data-keyboard-scope="Chat" className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}>
+            <div
+              ref={chatRootRef}
+              data-keyboard-scope="Chat"
+              className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}
+            >
               <div className="w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0">
                 {messages.length === 0 ? (
                   <EmptyState
@@ -854,7 +876,7 @@ function StockChatContent() {
                       onRetryMessage={handleRetryMessage}
                       onFeedback={handleFeedback}
                     />
-                    <div className="w-full px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
+                    <div className="w-full max-w-[1400px] mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
                       <ChatInput
                         query={query}
                         setQuery={setQuery}

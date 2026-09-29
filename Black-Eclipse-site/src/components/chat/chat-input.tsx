@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
 
-// Grow the composer to roughly six lines, then scroll instead of growing.
-const MAX_HEIGHT = 176;
+// Grow the composer to roughly four lines, then scroll instead of growing.
+const MAX_HEIGHT = 120;
 
 interface ChatInputProps {
   query: string;
@@ -79,7 +79,7 @@ export function ChatInput({
 
   return (
     <div className="w-full">
-      <form onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-2 sm:px-4 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
+      <form onSubmit={onSend} aria-busy={busy} className="relative flex items-end w-full glass-card border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1 shadow-lg shadow-black/20 focus-within:border-primary focus-within:glass-card transition-colors overflow-hidden">
         <Button
           type="button"
           variant="ghost"
@@ -88,9 +88,9 @@ export function ChatInput({
           disabled={attaching}
           title="Add documents as context"
           aria-label="Add documents as context"
-          className="flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-10 w-10 mb-1 focus-visible:ring-0 focus-visible:outline-none"
+          className="flex text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 mb-0.5 focus-visible:ring-0 focus-visible:outline-none"
         >
-          {attaching ? <Loader2 size={20} className="animate-spin" /> : <Plus size={20} />}
+          {attaching ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
         </Button>
         
         <textarea 
@@ -102,17 +102,17 @@ export function ChatInput({
           placeholder={placeholder}
           autoFocus={autoFocus}
           aria-label="Message Eclipse"
-          className="chat-composer-scroll flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-hidden placeholder:text-muted-foreground text-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-3 text-base sm:text-lg leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
+          className="chat-composer-scroll flex-1 self-center bg-transparent border-0 outline-none resize-none overflow-y-hidden placeholder:text-muted-foreground text-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2 text-sm leading-relaxed min-w-0 w-full focus:outline-none focus:ring-0"
         />
         
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-1">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0 mb-0.5">
           {showProvider && (
             /* The real configured provider — not a fabricated model picker. */
             <span
-              className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1.5 h-8 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs sm:text-sm font-medium whitespace-nowrap"
+              className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1 h-7 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs font-medium whitespace-nowrap"
               title={`Chat provider: ${providerLabel}`}
             >
-              <Sparkles size={13} className="text-primary" />
+              <Sparkles size={12} className="text-primary" />
               {providerLabel}
             </span>
           )}
@@ -120,9 +120,9 @@ export function ChatInput({
             type="button" 
             variant="ghost" 
             size="icon" 
-            className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-9 w-9 focus-visible:ring-0 focus-visible:outline-none"
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none"
           >
-            <Mic size={18} className="sm:size-5" />
+            <Mic size={16} />
           </Button>
           {busy ? (
             <Button
@@ -131,18 +131,18 @@ export function ChatInput({
               onClick={onCancel}
               title="Stop generating"
               aria-label="Stop generating"
-              className="p-2 bg-foreground/90 text-background hover:bg-foreground rounded-full shrink-0 h-9 w-9 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
+              className="p-1.5 bg-foreground/90 text-background hover:bg-foreground rounded-full shrink-0 h-8 w-8 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
             >
-              <Pause size={16} className="sm:size-[18px]" fill="currentColor" />
+              <Pause size={15} fill="currentColor" />
             </Button>
           ) : (
             <Button 
               type="submit" 
               size="icon" 
               disabled={!query.trim()}
-              className="p-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-9 w-9 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
+              className="p-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-8 w-8 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
             >
-              <ArrowUp size={18} className="sm:size-5" />
+              <ArrowUp size={17} />
             </Button>
           )}
         </div>

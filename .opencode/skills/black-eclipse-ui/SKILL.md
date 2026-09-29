@@ -113,6 +113,7 @@ Apply this to every chart tooltip: `eclipse-provider.ts`, `tradingview-chart.tsx
 | `.glass-card-subtle` | Small tiles, table headers, control strips, chips, stat tiles    |
 | `.glass-drawer`      | Large side drawers/panels that must read as REAL frost over the dark page — lower opacity + higher blur (widget library, config panel, workspace drawers) |
 | `.glass-button`      | Frosted button/toolbar control — translucent tint + blur, no border (workspace toolbar, dashboard header buttons) |
+| `.glass-tooltip`     | Hover popups / small floating tips — the EXACT chart-tooltip recipe (tint 0.5, blur 18 + saturate 1.35, radius 14, soft shadow + inset highlight). Use for chart-adjacent hover popups, message-rail previews, "jump to latest" pills — anything that must match the ECharts chart tooltips. MUST be portaled to `<body>` (see hard rule #3); a nested one renders flat. |
 | `.tab-bar-subtle`    | Restrained tab strip (control-strip tier) — used via `<TabBar variant="subtle" />` for dense/toolbar-adjacent tab rows |
 
 > Drawers that should show the page through them blurred (e.g. the workspace
@@ -147,6 +148,13 @@ than a hero card (dense/toolbar-adjacent tabs, e.g. Command Center market tabs).
 - **Default to `.glass-card`** for any new card/panel. Use `-strong` for
   floating/overlay surfaces, `-subtle` for small tiles/chips, and `.glass-button`
   for toolbar buttons.
+- **Hover popups / small tips use `.glass-tooltip`** — it is the exact recipe the
+  chart tooltips use, so a popup beside a chart or over the transcript frosts
+  identically. `-strong` is the WRONG tier for a tooltip: its 0.85 tint is
+  near-opaque and reads flat.
+- **`.glass-card-strong` is for large opaque overlays (modals/dialogs), not
+  popovers or tooltips.** Its tint (`rgba(16,16,18,0.85)`) is above the ≤0.55
+  frosted threshold, so its blur is invisible — it looks like a solid panel.
 - Keep Tailwind `border`, `rounded-*`, `shadow-*` utilities as-is; only swap the
   background+blur for the glass class.
 - **Do NOT** combine a glass class with `backdrop-blur-*` (double blur).
