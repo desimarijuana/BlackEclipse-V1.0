@@ -166,6 +166,13 @@ DEFAULTS: dict[str, Any] = {
     # versions past the archive threshold are affected — never a pinned or
     # operator-managed one.
     "skill_maintenance_auto_archive": False,
+    # ── Dropped-context extraction (Milestone 2 / Phase 1) ──────────────────
+    # OFF by default. When on, the dropped-context seam MAY additionally ask the
+    # run's own configured model to propose INERT candidates from the turns that
+    # leave the history window. It never stores anything, never follows
+    # instructions in the transcript, is bounded, and fails closed (no block on
+    # any failure). Deterministic extraction always runs first and is unaffected.
+    "dropped_context_model_extraction": False,
 }
 
 # Hard bounds. Policy may pick any value in range, but never cross these.

@@ -965,6 +965,7 @@ async def _dropped_context_block(
         return messages, ""
     try:
         from .eclipse_memory.dropped_context import (  # noqa: PLC0415
+            MAX_ITEMS,
             DroppedTurn,
             extract_dropped_context,
             render_dropped_context_block,
@@ -980,6 +981,27 @@ async def _dropped_context_block(
             [DroppedTurn(role=t.role, content=t.content) for t in dropped],
             settings=settings, user_id=request.userId,
         )
+        model_used = False
+        # Optional, policy-gated model-assisted extraction. It is additive to the
+        # deterministic pass, inert, bounded, and fail-closed: any failure leaves
+        # the deterministic result untouched and emits no lossy summary.
+        if settings.get("dropped_context_model_extraction") and memory_service is not None:
+            try:
+                model_items = await _model_extract_dropped(
+                    request, [DroppedTurn(role=t.role, content=t.content) for t in dropped],
+                )
+                if model_items:
+                    merged = list(result.items)
+                    seen = {(i.action, i.content) for i in merged}
+                    for item in model_items:
+                        key = (item.action, item.content)
+                        if key not in seen:
+                            merged.append(item)
+                            seen.add(key)
+                    result.items = merged[:MAX_ITEMS]
+                    model_used = True
+            except Exception:  # noqa: BLE001 - model extraction must never break the run
+                model_used = False
         block = render_dropped_context_block(result)
         try:
             await emitter.emit(
@@ -990,6 +1012,7 @@ async def _dropped_context_block(
                     "candidates": len(result.items),
                     "emitted": bool(block),
                     "ok": result.ok,
+                    "modelAssisted": model_used,
                     "reason": result.reason or None,
                 },
             )
@@ -1006,6 +1029,36 @@ async def _dropped_context_block(
 
 
 
+async def _model_extract_dropped(
+    request: RunRequest, turns: list[Any],
+) -> list[Any]:
+    """Optionally ask the run's own model for INERT candidates from dropped turns.
+
+    Uses the SAME model/provider the run already resolved (no new dependency, no
+    extra client). Bounded by a short timeout and the extractor's own item cap.
+    Any failure returns [] — the deterministic extraction is unaffected and the
+    caller emits no lossy summary. Never raises to the caller.
+    """
+    from .eclipse_memory.dropped_context import (  # noqa: PLC0415
+        build_extraction_prompt,
+        parse_extraction_response,
+    )
+
+    prompt = build_extraction_prompt(turns)
+    if not prompt:
+        return []
+    try:
+        model = build_chat_model(request.modelSettings)
+        response = await asyncio.wait_for(
+            model.ainvoke([HumanMessage(content=prompt)]), timeout=20.0,
+        )
+    except Exception:  # noqa: BLE001 - absence/failure is not an error here
+        return []
+    text = _text(response)
+    parsed = parse_extraction_response(text)
+    return parsed.items if parsed.ok else []
+
+
 async def _memory_context(
     request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter
 ) -> str:
@@ -1016,6 +1069,14 @@ async def _memory_context(
     leak into another's run, and it is budgeted so it cannot flood the context.
     """
     if memory_service is None:
+        return ""
+    # A hard-off store surfaces nothing: no retrieval, no injection. This is the
+    # other half of surface honesty — a disabled store must not still put memory
+    # into the prompt.
+    try:
+        if memory_service.policy.get("memory_enabled") is False:
+            return ""
+    except Exception:  # noqa: BLE001 - a policy read failure fails closed to no memory
         return ""
     # Trivial turns skip retrieval too (no stale context attaches to a one-word
     # reply). The gate is pure and writes nothing.
@@ -1082,6 +1143,9 @@ async def _profile_context(
         settings = memory_service.policy.get_all()
     except Exception:  # noqa: BLE001
         settings = {}
+    # A hard-off store injects no profile either (surface honesty).
+    if settings.get("memory_enabled") is False:
+        return "", None
     if not bool(settings.get("profile_enabled", True)):
         return "", None
     try:

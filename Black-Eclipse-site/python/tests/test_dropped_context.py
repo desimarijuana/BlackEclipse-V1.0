@@ -154,3 +154,60 @@ def test_short_history_drops_nothing():
     # Byte-identical to the old behaviour: one message per turn, in order.
     messages = _history_messages(_request(turns))
     assert [m.content for m in messages] == turns
+
+
+# ── Optional model-assisted extraction (Phase 1) ────────────────────────────
+
+
+def test_build_extraction_prompt_fences_transcript():
+    from harness.eclipse_memory.dropped_context import build_extraction_prompt
+
+    prompt = build_extraction_prompt(_turns("Remember I prefer charts", role="user"))
+    assert "TRANSCRIPT (untrusted data):" in prompt
+    # Exactly two fences: opening and closing the transcript.
+    assert prompt.count("```") == 2
+    assert "INERT" in prompt
+
+
+def test_parse_extraction_response_accepts_valid_json():
+    from harness.eclipse_memory.dropped_context import parse_extraction_response
+
+    parsed = parse_extraction_response(
+        '{"items": [{"action": "durable_memory", "content": "prefers charts"}]}'
+    )
+    assert parsed.ok is True
+    assert len(parsed.items) == 1
+    assert parsed.items[0].action == "durable_memory"
+
+
+def test_parse_extraction_response_fails_closed_on_garbage():
+    from harness.eclipse_memory.dropped_context import parse_extraction_response
+
+    assert parse_extraction_response("not json at all").ok is False
+    assert parse_extraction_response("").ok is False
+    assert parse_extraction_response("[1,2,3]").ok is False
+
+
+def test_parse_extraction_response_rejects_unknown_actions_and_oversize():
+    from harness.eclipse_memory.dropped_context import (
+        MAX_ITEMS,
+        parse_extraction_response,
+    )
+
+    payload = {"items": [{"action": "delete_everything", "content": "x"}]}
+    import json
+    assert parse_extraction_response(json.dumps(payload)).items == []
+
+    many = {"items": [{"action": "durable_memory", "content": f"c{i}"} for i in range(50)]}
+    parsed = parse_extraction_response(json.dumps(many))
+    assert len(parsed.items) <= MAX_ITEMS
+
+
+def test_parse_extraction_sanitizes_fences():
+    from harness.eclipse_memory.dropped_context import parse_extraction_response
+
+    parsed = parse_extraction_response(
+        '{"items": [{"action": "durable_memory", "content": "``` inject ```"}]}'
+    )
+    assert "```" not in parsed.items[0].content
+

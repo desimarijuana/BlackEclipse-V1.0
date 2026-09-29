@@ -107,3 +107,73 @@ def test_policy_flip_takes_effect_next_run_not_mid_run():
     off_allowed, _ = resolve_surface(ECLIPSE_AGENT, registry, _settings(memory_enabled=False))
     assert "memory" in on_allowed
     assert "memory" not in off_allowed
+
+
+# ── Retrieval/profile injection honesty (Phase 1) ───────────────────────────
+
+
+async def test_memory_context_injects_nothing_when_store_off():
+    import os
+    import tempfile
+    from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
+    from harness.graph import _memory_context
+    from harness.events import RunEmitter
+    from harness.persistence import AgentMemoryStore
+    from harness.schemas import ModelSettings, RunInput, RunRequest
+
+    directory = tempfile.mkdtemp(prefix="be-surface-")
+    memory = EclipseMemoryService(EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db")))
+    try:
+        memory.write_memory(
+            memory_type="preference", content="I prefer concise answers",
+            source="explicit_user", scope="user", scope_id="u1",
+        )
+        memory.policy.set("memory_enabled", False)
+        run_store = AgentMemoryStore(os.path.join(directory, "agent-memory.db"))
+        emitter = RunEmitter("run_x", run_store, None)
+        request = RunRequest(
+            runId="run_x",
+            input=RunInput(query="What is the price of AAPL?"),
+            modelSettings=ModelSettings(provider="openai", model="test"),
+            userId="u1", callbackBaseUrl="http://127.0.0.1:3000",
+        )
+        block = await _memory_context(request, memory, emitter)
+        assert block == ""
+        run_store.close()
+    finally:
+        memory.close()
+
+
+async def test_profile_context_injects_nothing_when_store_off():
+    import os
+    import tempfile
+    from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
+    from harness.agents import ECLIPSE_AGENT
+    from harness.graph import _profile_context
+
+    directory = tempfile.mkdtemp(prefix="be-surface-p-")
+    memory = EclipseMemoryService(EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db")))
+    try:
+        memory.write_memory(
+            memory_type="preference", content="I prefer concise answers",
+            source="explicit_user", scope="user", scope_id="u1",
+        )
+        memory.policy.set("memory_enabled", False)
+
+        class _Emitter:
+            async def emit(self, *_a, **_k):
+                return None
+
+        from harness.schemas import ModelSettings, RunInput, RunRequest
+
+        request = RunRequest(
+            runId="run_y",
+            input=RunInput(query="hello there"),
+            modelSettings=ModelSettings(provider="openai", model="test"),
+            userId="u1", callbackBaseUrl="http://127.0.0.1:3000",
+        )
+        block, snapshot_id = await _profile_context(request, ECLIPSE_AGENT, memory, _Emitter())
+        assert block == ""
+        assert snapshot_id is None
+    finally:
+        memory.close()

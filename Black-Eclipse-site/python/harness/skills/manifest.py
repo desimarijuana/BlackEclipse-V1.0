@@ -38,6 +38,7 @@ SkillStatus = Literal[
     "active",      # alias of enabled: the currently authoritative version
     "disabled",    # installed but inert (operator choice)
     "deprecated",  # superseded; retained for history, not selectable
+    "archived",    # retired by maintenance (unused/stale); inert but restorable
     "superseded",  # replaced by a newer active version; retained for history
     "rolled_back", # automatically or manually reverted; retained for history
     "rejected",    # reviewed and refused
@@ -65,7 +66,7 @@ EXECUTABLE_STATUSES: frozenset[str] = frozenset({"enabled", "active", "validated
 # Statuses that are never executable in any mode.
 NON_EXECUTABLE_STATUSES: frozenset[str] = frozenset(
     {"draft", "evaluating", "review", "approved", "disabled", "deprecated",
-     "superseded", "rolled_back", "rejected"}
+     "archived", "superseded", "rolled_back", "rejected"}
 )
 
 # The permission vocabulary. Phase 3 grants only the safe subset (see

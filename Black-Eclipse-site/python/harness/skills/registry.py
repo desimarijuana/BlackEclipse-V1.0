@@ -556,7 +556,7 @@ class SkillRegistry:
         results: list[dict[str, Any]] = []
         for entry in self._skills.values():
             manifest = entry.manifest
-            if not include_non_executable and manifest.status in {"rejected", "deprecated"}:
+            if not include_non_executable and manifest.status in {"rejected", "deprecated", "archived"}:
                 continue
             if category and manifest.category != category:
                 continue
@@ -871,6 +871,7 @@ class SkillRegistry:
             "enabled": "skill.enable",
             "disabled": "skill.disable",
             "deprecated": "skill.enable",
+            "archived": "skill.enable",
         }.get(status)
         if required_permission and required_permission not in actor.granted():
             return {"ok": False, "error": f"{required_permission} requires an authorized operator"}
@@ -878,7 +879,7 @@ class SkillRegistry:
         target_version = version or self.resolve_version(skill_id) or manifest.version
         evaluation_status = "passed" if status == "enabled" else None
         self.store.set_version_status(skill_id, target_version, status, evaluation_status)
-        self.store.append_event(f"skill.{status}" if status in {"enabled", "disabled", "deprecated"} else "skill.status_changed",
+        self.store.append_event(f"skill.{status}" if status in {"enabled", "disabled", "deprecated", "archived"} else "skill.status_changed",
                                 skill_id=skill_id, version=target_version,
                                 data={"status": status, "actor": actor.id})
         return {"ok": True, "skillId": skill_id, "version": target_version, "status": status}

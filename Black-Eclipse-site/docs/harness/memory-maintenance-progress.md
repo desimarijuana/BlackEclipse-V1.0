@@ -136,6 +136,18 @@ interpreter with `PYTHONPATH=python`; the `python` shim is not on PATH.
   contradiction doc and the eval's interpretation block.
 - Evidence: `python/tests/test_usage_report.py` (7 tests).
 
+## Limitation fixes
+
+### Phase 1 — correctness/clarity ✅
+
+- **P1.1** distinct, restorable `archived` skill status (manifest + TS + registry
+  + UI); maintenance retirement now uses it instead of `deprecated`.
+- **P1.2** surface honesty at the injection layer: `memory_enabled=false` no
+  longer injects retrieved memory or the profile.
+- **P1.3** optional, policy-gated model-assisted dropped-context extraction
+  (default off; injectable model; inert/bounded/fail-closed).
+- **P1.4** `python/tests/test_migration_matrix.py` (full reopen matrix) + hygiene.
+
 ## Checks (after all milestones)
 
 | Check | Result |

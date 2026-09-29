@@ -15,6 +15,7 @@ export type SkillStatus =
   | "active"
   | "disabled"
   | "deprecated"
+  | "archived"
   | "superseded"
   | "rolled_back"
   | "rejected";

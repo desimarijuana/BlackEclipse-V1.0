@@ -15,7 +15,7 @@ import type { SkillSummary } from "@/lib/harness/skills-types";
 import { EvalBadge, LoadingState, RiskBadge, StatusBadge } from "./skill-ui";
 
 const CATEGORIES = ["all", "research", "quality", "finance", "system"] as const;
-const STATUSES = ["all", "enabled", "validated", "testing", "draft", "disabled", "deprecated", "rejected"] as const;
+const STATUSES = ["all", "enabled", "validated", "testing", "draft", "disabled", "deprecated", "archived", "rejected"] as const;
 const RISKS = ["all", "low", "medium", "high", "critical"] as const;
 
 const CATEGORY_LABEL: Record<string, string> = {

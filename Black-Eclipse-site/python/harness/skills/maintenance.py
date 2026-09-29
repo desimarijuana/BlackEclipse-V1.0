@@ -47,12 +47,11 @@ from typing import Any, Optional
 # in any other state (draft/evaluating/canary/disabled/deprecated/archived/…)
 # is not eligible: maintenance only ages ENABLED skills.
 _ENABLED_STATUS = "enabled"
-# The reversible retirement state the pass may move a stale skill into. There is
-# no `archived` lifecycle status in the state machine, so retirement uses the
-# existing `deprecated` state, which is fully restorable via
-# `SkillRegistry.set_status(..., "enabled")`. The pass reports the action as
-# "archive" (the user-facing term) while the persisted state is `deprecated`.
-_ARCHIVED_STATUS = "deprecated"
+# The reversible retirement state the pass may move a stale skill into. A
+# distinct `archived` lifecycle status separates maintenance retirement from an
+# operator's deliberate `deprecated`; it is fully restorable via
+# `SkillRegistry.set_status(..., "enabled")`.
+_ARCHIVED_STATUS = "archived"
 # Execution statuses that count as real usage. A failed/cancelled/running run is
 # not usage of the skill.
 _SUCCESS_STATUSES = frozenset({"succeeded", "completed", "ok", "success"})

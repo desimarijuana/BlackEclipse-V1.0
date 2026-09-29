@@ -181,8 +181,8 @@ def test_archive_is_reversible(store):
         store, registry, _policy(skill_maintenance_enabled=True, skill_maintenance_auto_archive=True)
     )
     assert len(result["archived"]) == 1
-    # Retirement persists as the existing `deprecated` lifecycle state.
-    assert store.get_skill("old.skill")["status"] == "deprecated"
+    # Retirement persists as the distinct `archived` lifecycle state.
+    assert store.get_skill("old.skill")["status"] == "archived"
 
     # Restorable through the existing lifecycle machinery: register the skill in
     # the registry and re-enable the version.

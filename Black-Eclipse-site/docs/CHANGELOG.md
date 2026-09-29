@@ -8,6 +8,21 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Limitations Phase 1 (correctness/clarity).** (1) Added a distinct, restorable
+  `archived` skill lifecycle status (`manifest.SkillStatus`, TS `SkillStatus`,
+  registry `set_status`, UI badge/filter); maintenance retirement now persists as
+  `archived` instead of reusing `deprecated`, separating maintenance retirement
+  from operator deprecation. (2) Surface honesty closed at the injection layer: a
+  hard-off store (`memory_enabled=false`) no longer injects retrieved memory or
+  the profile into the prompt (`graph._memory_context` / `_profile_context`).
+  (3) Optional, policy-gated (`dropped_context_model_extraction`, default off)
+  model-assisted dropped-context extraction: additive to the deterministic pass,
+  inert, bounded, fail-closed, using the run's own model — no new dependency.
+  (4) New `python/tests/test_migration_matrix.py` proves every historical schema
+  version reopens cleanly at the latest, a pre-change database keeps its data, and
+  the pin + maintenance ledger survive a reopen. Added tests for the injection
+  guard and model-prompt parse. docs updated: `docs/CHANGELOG.md` (this entry),
+  `docs/harness/memory-maintenance-progress.md`.
 - **Memory & skills maintenance hardening — all seven milestones implemented.**
   (1) New `python/harness/skills/maintenance.py`: deterministic staleness/usage/
   retirement derived from existing `SkillExecution`/version rows, report-only by
