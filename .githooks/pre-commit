@@ -1,0 +1,40 @@
+#!/bin/sh
+# BlackEclipse pre-commit identity guard.
+#
+# WHY THIS EXISTS: GitHub credits a contribution only when a commit's author
+# email is linked to the account. A correct-looking local `git config user.email`
+# is NOT enough — if that email is not verified on GitHub, every commit silently
+# goes uncredited. This hook hard-fails the commit instead, so the mistake can
+# never reach the remote again.
+#
+# Override intentionally with:  GIT_COMMIT_ALLOWED_EMAIL=<email> git commit ...
+# or skip (not recommended):    SKIP_IDENTITY_CHECK=1 git commit ...
+
+expected_email="121116805+desimarijuana@users.noreply.github.com"
+allowed_email="${GIT_COMMIT_ALLOWED_EMAIL:-$expected_email}"
+actual_email="$(git config --get user.email 2>/dev/null)"
+actual_name="$(git config --get user.name 2>/dev/null)"
+
+if [ "${SKIP_IDENTITY_CHECK:-0}" = "1" ]; then
+  exit 0
+fi
+
+if [ -z "$actual_email" ]; then
+  echo "✗ COMMIT BLOCKED: git user.email is not set." >&2
+  echo "  Run: node scripts/install-git-hooks.js" >&2
+  exit 1
+fi
+
+if [ "$actual_email" != "$allowed_email" ]; then
+  echo "✗ COMMIT BLOCKED: wrong author identity." >&2
+  echo "    expected: $allowed_email" >&2
+  echo "    actual:   $actual_email" >&2
+  echo "" >&2
+  echo "  Commits with an email that is not linked to your GitHub account do NOT" >&2
+  echo "  count as contributions. Fix the repo-local identity with:" >&2
+  echo "    node scripts/install-git-hooks.js" >&2
+  echo "  (or, to override for this one commit:) GIT_COMMIT_ALLOWED_EMAIL=\"$actual_email\" git commit ..." >&2
+  exit 1
+fi
+
+exit 0

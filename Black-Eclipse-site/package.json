@@ -6,8 +6,9 @@
     "black": "bin/black.js"
   },
   "scripts": {
-    "postinstall": "prisma generate && node scripts/setup-python.js && node scripts/link-global.js",
+    "postinstall": "prisma generate && node scripts/setup-python.js && node scripts/link-global.js && node scripts/install-git-hooks.js",
     "setup:python": "node scripts/setup-python.js",
+    "setup:git": "node scripts/install-git-hooks.js",
     "predev": "node scripts/doctor.js && node scripts/kill-port.js",
     "dev": "next dev",
     "prestart": "node scripts/doctor.js",
