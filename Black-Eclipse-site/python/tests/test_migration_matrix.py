@@ -109,3 +109,51 @@ def test_pin_and_ledger_survive_reopen():
         assert status is not None and status["archived"] == 1
     finally:
         reopened.close()
+
+
+def test_agent_memory_db_reopens_cleanly():
+    """The separate agent-memory.db (runs/events) reopens with its rows intact."""
+    from harness.persistence import AgentMemoryStore
+
+    directory = tempfile.mkdtemp(prefix="be-agentdb-")
+    path = os.path.join(directory, "agent-memory.db")
+    first = AgentMemoryStore(path)
+    first.create_run(
+        "run_1", "eclipse-agent", {"query": "hello"}, None, "openai", "test",
+    )
+    first.close()
+
+    reopened = AgentMemoryStore(path)
+    try:
+        run = reopened.get_run("run_1")
+        assert run is not None and run["id"] == "run_1"
+    finally:
+        reopened.close()
+
+
+def test_transition_cas_is_additive_and_safe():
+    """The compare-and-set transition only fires on the expected state."""
+    path = _fresh_path()
+    store = EclipseMemoryStore(path)
+    try:
+        store.upsert_skill(
+            skill_id="t.skill", name="t", description="d", category="research",
+            latest_version="1.0.0", status="enabled", tags=[],
+        )
+        from harness.skills.manifest import SkillManifest
+
+        manifest = SkillManifest(
+            id="t.skill", name="t", version="1.0.0", description="d", category="research",
+            status="enabled", inputSchema={"type": "object", "properties": {}},
+            requiredTools=[], permissions=["data.read"],
+        )
+        store.save_version(manifest.model_dump(), manifest.content_hash(), instructions="x")
+        # Wrong expected status → no change.
+        assert store.transition_version_status(
+            "t.skill", "1.0.0", "archived", expect_status="draft",
+        ) is False
+        assert store.transition_version_status(
+            "t.skill", "1.0.0", "archived", expect_status="enabled",
+        ) is True
+    finally:
+        store.close()

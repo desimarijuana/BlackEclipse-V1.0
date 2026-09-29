@@ -750,6 +750,31 @@ class EclipseMemoryStore:
         self._db.execute("UPDATE Skill SET status=?, updatedAt=? WHERE id=?", (status, now_iso(), skill_id))
         self._db.commit()
 
+    def transition_version_status(
+        self, skill_id: str, version: str, to_status: str, *,
+        expect_status: str, expect_unpinned: bool = True,
+    ) -> bool:
+        """Atomic compare-and-set transition. Returns True iff it applied.
+
+        Used by automatic maintenance so two concurrent passes (or a pass racing
+        an operator) can never double-apply: the UPDATE only fires when the
+        version is still in `expect_status` and (by default) still unpinned.
+        """
+        where = "skillId=? AND version=? AND status=?"
+        params: list[Any] = [to_status, now_iso(), skill_id, version, expect_status]
+        if expect_unpinned:
+            where += " AND pinned=0"
+        cursor = self._db.execute(
+            f"UPDATE SkillVersion SET status=?, updatedAt=? WHERE {where}", params,
+        )
+        applied = cursor.rowcount > 0
+        if applied:
+            self._db.execute(
+                "UPDATE Skill SET status=?, updatedAt=? WHERE id=?", (to_status, now_iso(), skill_id)
+            )
+        self._db.commit()
+        return applied
+
     def set_latest_version(self, skill_id: str, version: str) -> None:
         self._db.execute("UPDATE Skill SET latestVersion=?, updatedAt=? WHERE id=?", (version, now_iso(), skill_id))
         self._db.commit()

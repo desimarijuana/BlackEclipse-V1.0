@@ -269,3 +269,43 @@ def test_near_duplicate_skills_reported_content_free(store):
     assert set(groups[0]["skillIds"]) == {"finance.reporting", "finance_reporting"}
     # No content/manifest leaked.
     assert "content" not in str(groups)
+
+
+# ── Concurrency (Phase 3) ───────────────────────────────────────────────────
+
+
+def test_concurrent_pass_is_serialised(store):
+    """A second pass while one holds the lock reports skipped, not a race."""
+    from harness.skills import maintenance as maintenance_mod
+
+    registry = SkillRegistry(store)
+    _seed(store, "old.skill", created_days_ago=400)
+    policy = _policy(skill_maintenance_enabled=True, skill_maintenance_auto_archive=True)
+
+    acquired = maintenance_mod._MAINTENANCE_LOCK.acquire(blocking=False)
+    try:
+        assert acquired is True
+        result = maintenance_mod.run_skill_maintenance(store, registry, policy)
+        assert result.get("skipped") is True
+        # The locked pass changed nothing while the lock was held.
+        assert store.get_skill("old.skill")["status"] == "enabled"
+    finally:
+        maintenance_mod._MAINTENANCE_LOCK.release()
+
+
+def test_compare_and_set_wont_archive_pinned_or_non_enabled(store):
+    _seed(store, "cas.skill", created_days_ago=400)
+    # Simulate a concurrent pin arriving after assessment.
+    store.set_version_pinned("cas.skill", "1.0.0", True)
+    applied = store.transition_version_status(
+        "cas.skill", "1.0.0", "archived", expect_status="enabled", expect_unpinned=True,
+    )
+    assert applied is False
+    assert store.get_skill("cas.skill")["status"] == "enabled"
+
+    store.set_version_pinned("cas.skill", "1.0.0", False)
+    applied = store.transition_version_status(
+        "cas.skill", "1.0.0", "archived", expect_status="enabled", expect_unpinned=True,
+    )
+    assert applied is True
+    assert store.get_skill("cas.skill")["status"] == "archived"

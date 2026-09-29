@@ -392,11 +392,16 @@ export async function restoreMemoryFiles(backupId?: string): Promise<{ restored:
   let target = backupId;
   if (!target) {
     const entries = await fs.readdir(backupsRoot).catch(() => [] as string[]);
-    const dirs = entries.filter((e) => /^[0-9T-]+$/.test(e)).sort();
+    // Backup dirs are `toISOString()` with `:`/`.` replaced by `-`, so the name
+    // keeps a trailing `Z`. Match exactly that shape (the old `[0-9T-]+` filter
+    // silently rejected every real backup because of the `Z`).
+    const dirs = entries.filter((e) => /^[0-9]{4}-[0-9TZ-]+$/i.test(e)).sort();
     target = dirs[dirs.length - 1];
   }
   if (!target) return { restored: false, from: null };
   const from = path.join(backupsRoot, target);
+  const exists = await fs.stat(from).then((s) => s.isDirectory()).catch(() => false);
+  if (!exists) return { restored: false, from: null };
   for (const name of FILES) {
     const content = await fs.readFile(path.join(from, name), "utf8").catch(() => null);
     if (content !== null) await fs.writeFile(resolveFile(name), content, "utf8");

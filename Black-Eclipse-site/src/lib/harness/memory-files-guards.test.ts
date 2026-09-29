@@ -164,4 +164,28 @@ describe("memory-files data-loss guards (M3)", () => {
   it("a missing file reads as null (not an error)", async () => {
     expect(await readMemoryFileStrict(path.join(ROOT, "NOPE.md"))).toBeNull();
   });
+
+  // ── Cross-cutting: the projection survives backup/restore (Phase 3) ────────
+
+  it("backup and restore round-trip preserves entry identity and dedups", async () => {
+    const clean = renderUserMd([memory({ id: "mem_1" }), memory({ id: "mem_2", content: "Another" })]);
+    await fs.writeFile(USER, clean, "utf8");
+    const { backupMemoryFiles, restoreMemoryFiles } = await import("./memory-files");
+    const backupDir = await backupMemoryFiles();
+    expect(backupDir).not.toBeNull();
+    // Perturb the live file, then restore.
+    await fs.writeFile(USER, renderUserMd([memory({ id: "mem_1", content: "Changed" })]), "utf8");
+    const restored = await restoreMemoryFiles();
+    expect(restored.restored).toBe(true);
+    const text = await readMemoryFileStrict(USER);
+    const { entries } = parseMarkdownEntryList("USER_PROFILE.md", text ?? "");
+    expect(entries.map((e) => e.id)).toEqual(["mem_1", "mem_2"]);
+  });
+
+  it("a BOM-prefixed external drift is still detected after BOM strip", async () => {
+    const drifted = "\uFEFF" + `${renderUserMd([memory({ id: "mem_1" })])}\n- shell appended\n`;
+    await fs.writeFile(USER, drifted, "utf8");
+    const text = await readMemoryFileStrict(USER);
+    expect(detectExternalDrift("USER_PROFILE.md", text ?? "")).toBe(true);
+  });
 });

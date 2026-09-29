@@ -8,6 +8,18 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Limitations Phase 3 (robustness/concurrency).** (P3.1) Skill maintenance is
+  serialised by a process-wide non-blocking lock (a second pass reports
+  `skipped` instead of racing), and every automatic retirement is a compare-and-set
+  (`store.transition_version_status`, only firing when the version is still
+  `enabled` and unpinned) so a concurrent pin/re-enable wins rather than being
+  overwritten. (P3.2) Cross-cutting reopen matrix extended: agent-memory.db
+  reopen, the transition CAS, and projection backup/restore round-trip. Fixed a
+  real pre-existing bug found doing this: `restoreMemoryFiles`'s backup-dir
+  filter rejected every real backup (the `Z` in the ISO timestamp), so restore
+  silently never found its own backup. Tests: `test_migration_matrix.py`,
+  `test_skill_maintenance.py`, `memory-files-guards.test.ts` extended.
+  docs updated: `docs/CHANGELOG.md`, `docs/harness/memory-maintenance-progress.md`.
 - **Limitations Phase 2 (measurement honesty).** (P2.1) Operator ground-truth
   conflict labels: `POST /eclipse-memory/memories/{id}/conflict-label`
   (`true_conflict` | `false_positive`), append-only as a bounded `MemoryEvent`;

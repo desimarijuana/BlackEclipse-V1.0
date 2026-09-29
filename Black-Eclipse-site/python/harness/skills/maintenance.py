@@ -58,6 +58,14 @@ _SUCCESS_STATUSES = frozenset({"succeeded", "completed", "ok", "success"})
 
 OPERATION = "skill_maintenance"
 
+# A process-wide non-blocking lock so two maintenance passes (e.g. two startup
+# hooks, or a startup pass racing an operator-run pass) cannot interleave. This
+# is a local single-user runtime with one store, so an in-process lock plus a
+# per-transition compare-and-set is sufficient and needs no new dependency.
+import threading  # noqa: E402
+
+_MAINTENANCE_LOCK = threading.Lock()
+
 # The recent-usage trend window: executions inside this many days count as
 # "recent" usage, so a skill that is old AND unused reads differently from one
 # that is old but actively used.
@@ -252,10 +260,21 @@ def _archive_version(store: Any, registry: Any, skill_id: str, version: str, act
     """
     manifest = registry.manifest(skill_id) if registry is not None else None
     if manifest is not None:
+        # Serialised by the pass lock; the registry path applies the operator
+        # lifecycle checks. Re-check the pin first (defense in depth).
+        if store.is_version_pinned(skill_id, version):
+            return {"ok": False, "error": "pinned"}
         return registry.set_status(skill_id, _ARCHIVED_STATUS, actor, version=version)
     if store.get_version(skill_id, version) is None:
         return {"ok": False, "error": "version not found"}
-    store.set_version_status(skill_id, version, _ARCHIVED_STATUS)
+    # Direct-store fallback: a compare-and-set so a concurrent pin/re-enable wins
+    # rather than being overwritten.
+    applied = store.transition_version_status(
+        skill_id, version, _ARCHIVED_STATUS,
+        expect_status=_ENABLED_STATUS, expect_unpinned=True,
+    )
+    if not applied:
+        return {"ok": False, "error": "version changed or is pinned; not archived"}
     store.save_review(
         skill_id=skill_id, version=version, actor=getattr(actor, "id", "operator"),
         decision="archived", notes="stale: unused past archive threshold",
@@ -348,7 +367,28 @@ def run_skill_maintenance(
     ``skill_maintenance_auto_archive`` are true, archives the eligible unpinned
     versions through the existing lifecycle machinery. Pinned versions are
     always exempt. Records its outcome in `SkillMaintenance`.
+
+    Concurrency: a process-wide lock serialises passes, and every transition is a
+    compare-and-set (`store.transition_version_status` only fires when the
+    version is still in the expected state), so two concurrent passes can never
+    double-archive a version.
     """
+    if not _MAINTENANCE_LOCK.acquire(blocking=False):
+        # Another pass is already running; report that honestly rather than
+        # racing it. Startup boot is never blocked.
+        return {
+            "ok": True, "skipped": True,
+            "reason": "another maintenance pass is already running",
+        }
+    try:
+        return _run_skill_maintenance_locked(store, registry, policy, actor=actor)
+    finally:
+        _MAINTENANCE_LOCK.release()
+
+
+def _run_skill_maintenance_locked(
+    store: Any, registry: Any, policy: dict[str, Any], *, actor: Any = None,
+) -> dict[str, Any]:
     try:
         enabled = bool(policy.get("skill_maintenance_enabled"))
         auto_archive = bool(policy.get("skill_maintenance_auto_archive"))

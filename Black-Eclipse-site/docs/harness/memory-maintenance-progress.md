@@ -156,6 +156,14 @@ interpreter with `PYTHONPATH=python`; the `python` shim is not on PATH.
 - **P2.3** skill usage trend (active/dormant/never) + content-free near-duplicate
   skill detector.
 
+### Phase 3 — robustness/concurrency ✅
+
+- **P3.1** single-writer maintenance lock + compare-and-set retirement
+  (`store.transition_version_status`); concurrent pass reports `skipped`.
+- **P3.2** cross-cutting reopen matrix (both DBs + projection backup/restore).
+  Fixed a real pre-existing bug: `restoreMemoryFiles` rejected every real backup
+  dir (ISO `Z`), so restore never found its own backup.
+
 ## Checks (after all milestones)
 
 | Check | Result |
