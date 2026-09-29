@@ -268,11 +268,41 @@ def parse_extraction_response(text: str) -> ExtractionResult:
         content = _sanitize(str(entry.get("content") or ""))
         if action not in allowed or not content:
             continue
+        # Privacy/financial guards apply with full force to the model path too: a
+        # model must not be able to smuggle a secret, an override attempt, a raw
+        # transcript dump, or a current financial fact into a candidate. Reuse the
+        # SAME deterministic guards the decision gate uses.
+        if _refused_content(content):
+            continue
         items.append(ExtractionItem(
             action=action, content=content[:MAX_ITEM_CHARS],
             reason="model-extracted candidate (inert)",
         ))
     return ExtractionResult(ok=True, items=items, scanned=len(items_in))
+
+
+def _refused_content(content: str) -> bool:
+    """True when content is refused by the shared privacy/financial guards.
+
+    Imported lazily so this module stays importable without the decision layer.
+    On any import/guard failure we refuse (fail closed) rather than admit an
+    unchecked candidate.
+    """
+    try:
+        from .decision import (  # noqa: PLC0415
+            looks_like_dump,
+            looks_like_financial_fact,
+            looks_like_override,
+            looks_like_secret,
+        )
+
+        if looks_like_secret(content) or looks_like_override(content):
+            return True
+        if looks_like_dump(content) or looks_like_financial_fact(content):
+            return True
+        return False
+    except Exception:  # noqa: BLE001 - absence of guards means fail closed
+        return True
 
 
 __all__ = [

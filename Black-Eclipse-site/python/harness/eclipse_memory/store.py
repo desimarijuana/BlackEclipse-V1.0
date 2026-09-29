@@ -1323,6 +1323,62 @@ class EclipseMemoryStore:
         self._db.commit()
         return snapshot_id
 
+    # ── Cross-process maintenance lease (Phase 4) ───────────────────────────
+
+    def acquire_maintenance_lease(
+        self, holder: str, *, ttl_seconds: int = 300,
+    ) -> bool:
+        """Try to take the single maintenance lease. True iff acquired.
+
+        Cross-process safe: relies on SQLite's serialised writers. An expired or
+        missing lease is reclaimable; a live lease held by another holder is not.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        expires = (now + timedelta(seconds=max(1, int(ttl_seconds)))).strftime(
+            "%Y-%m-%dT%H:%M:%S.%f"
+        ) + "Z"
+        now_s = now.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        try:
+            cursor = self._db.execute(
+                """UPDATE MaintenanceLease
+                   SET holder=?, acquiredAt=?, expiresAt=?
+                   WHERE id=1 AND (expiresAt <= ? OR holder = ?)""",
+                (holder, now_s, expires, now_s, holder),
+            )
+            if cursor.rowcount > 0:
+                self._db.commit()
+                return True
+            existing = self._db.execute(
+                "SELECT holder FROM MaintenanceLease WHERE id=1"
+            ).fetchone()
+            if existing is None:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO MaintenanceLease (id, holder, acquiredAt, expiresAt) "
+                    "VALUES (1, ?, ?, ?)",
+                    (holder, now_s, expires),
+                )
+                self._db.commit()
+                row = self._db.execute(
+                    "SELECT holder FROM MaintenanceLease WHERE id=1"
+                ).fetchone()
+                return bool(row and row["holder"] == holder)
+            # A live lease held by another holder.
+            self._db.commit()
+            return False
+        except Exception:  # noqa: BLE001 - a lease failure must not block boot
+            return False
+
+    def release_maintenance_lease(self, holder: str) -> None:
+        try:
+            self._db.execute(
+                "DELETE FROM MaintenanceLease WHERE id=1 AND holder=?", (holder,)
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
     def latest_profile_snapshot(self) -> Optional[dict[str, Any]]:
         try:
             row = self._db.execute(

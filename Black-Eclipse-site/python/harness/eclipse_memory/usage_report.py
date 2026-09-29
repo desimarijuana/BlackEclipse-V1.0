@@ -44,6 +44,9 @@ _CONFLICT_DISMISSED = ("memory.conflict_kept", "memory.conflict_dismissed")
 
 _MAX_ROWS = 5000  # hard bound on rows read
 
+# Minimum writes in EACH half-window before a trend direction is asserted.
+_MIN_TREND_SAMPLE = 5
+
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -171,7 +174,8 @@ def _windowed_counts(store: Any, days: int) -> dict[str, Any]:
     """Split the window in half and report the delta for the key counters.
 
     Honest trend: small sample sizes are labelled, never smoothed into a
-    misleading direction.
+    misleading direction. `direction` is only asserted when BOTH halves have a
+    meaningful sample; otherwise it is `"insufficient"`.
     """
     try:
         mid_days = max(1, days // 2)
@@ -188,14 +192,43 @@ def _windowed_counts(store: Any, days: int) -> dict[str, Any]:
         return _sum_types(c, _SAVE_EVENTS) + _sum_types(c, _SUGGEST_EVENTS) + \
             _sum_types(c, _HISTORY_ONLY_EVENTS) + _sum_types(c, _IGNORE_EVENTS)
 
+    decisions_recent = _writes(recent)
+    decisions_older = _writes(older)
+    # Require a minimum sample in BOTH halves before naming a direction.
+    confident = decisions_recent >= _MIN_TREND_SAMPLE and decisions_older >= _MIN_TREND_SAMPLE
+    if not confident:
+        direction = "insufficient"
+    elif decisions_recent > decisions_older:
+        direction = "up"
+    elif decisions_recent < decisions_older:
+        direction = "down"
+    else:
+        direction = "flat"
     return {
         "recentHalfDays": mid_days,
         "olderHalfDays": days - mid_days,
-        "decisionsRecent": _writes(recent),
-        "decisionsOlder": _writes(older),
+        "decisionsRecent": decisions_recent,
+        "decisionsOlder": decisions_older,
         "conflictsRaisedRecent": _sum_types(recent, _CONFLICT_RAISED),
         "conflictsRaisedOlder": _sum_types(older, _CONFLICT_RAISED),
+        "direction": direction,
+        "confident": confident,
     }
+
+
+def _wilson_interval(successes: int, total: int, z: float = 1.96) -> Optional[list[float]]:
+    """A Wilson score interval for a proportion. None when total == 0.
+
+    Reported alongside precision so a small labelled sample is not mistaken for a
+    precise estimate. Pure stdlib; no scipy.
+    """
+    if total <= 0:
+        return None
+    phat = successes / total
+    denom = 1 + z * z / total
+    center = (phat + z * z / (2 * total)) / denom
+    margin = (z * ((phat * (1 - phat) / total) + (z * z / (4 * total * total))) ** 0.5) / denom
+    return [round(max(0.0, center - margin), 3), round(min(1.0, center + margin), 3)]
 
 
 def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
@@ -267,6 +300,9 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
             "labeledTrue": labels["true_conflict"],
             "labeledFalsePositive": labels["false_positive"],
             "precision": real_precision,
+            # A Wilson interval so a small labelled sample is not mistaken for a
+            # precise estimate.
+            "precisionInterval": _wilson_interval(labels["true_conflict"], labeled_total),
         },
         "trend": trend,
         "likelyMissedConflicts": {

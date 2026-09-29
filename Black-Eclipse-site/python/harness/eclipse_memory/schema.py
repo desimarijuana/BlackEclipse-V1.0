@@ -914,6 +914,28 @@ MIGRATIONS.append(
     )
 )
 
+# Cross-process maintenance lease (Phase 4). A single-row table holding the
+# holder + expiry of the CURRENT maintenance pass, so two PROCESSES (not just two
+# threads) cannot run a sweep concurrently. In-process locking alone is
+# insufficient if the runtime is ever started twice against one database. The
+# lease is advisory via SQLite's own row locking; an expired/stale lease is
+# reclaimable. Additive/idempotent; a pre-change database opens with no data loss.
+MIGRATIONS.append(
+    (
+        25,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS MaintenanceLease (
+              id        INTEGER PRIMARY KEY CHECK (id = 1),
+              holder    TEXT NOT NULL,
+              acquiredAt TEXT NOT NULL,
+              expiresAt TEXT NOT NULL
+            );
+            """,
+        ],
+    )
+)
+
 # The current schema version = the highest migration number.
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 

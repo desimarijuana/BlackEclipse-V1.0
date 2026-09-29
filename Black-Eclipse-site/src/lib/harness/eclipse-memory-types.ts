@@ -132,6 +132,7 @@ export interface MemoryUsageReport {
     labeledTrue: number;
     labeledFalsePositive: number;
     precision: number | null;
+    precisionInterval: [number, number] | null;
   };
   trend?: {
     recentHalfDays: number;
@@ -140,6 +141,8 @@ export interface MemoryUsageReport {
     decisionsOlder: number;
     conflictsRaisedRecent: number;
     conflictsRaisedOlder: number;
+    direction?: "up" | "down" | "flat" | "insufficient";
+    confident?: boolean;
   };
   smallSample?: boolean;
   likelyMissedConflicts: {

@@ -380,10 +380,37 @@ def run_skill_maintenance(
             "ok": True, "skipped": True,
             "reason": "another maintenance pass is already running",
         }
+    holder = f"{_host_holder()}"
+    lease_acquired = False
     try:
+        # Cross-PROCESS guard: in-process locking alone is insufficient if the
+        # runtime is ever started twice against one database. The lease is
+        # reclaimable after its TTL, so a crashed holder cannot wedge maintenance.
+        try:
+            lease_acquired = store.acquire_maintenance_lease(holder, ttl_seconds=300)
+        except Exception:  # noqa: BLE001 - a lease failure must not block boot
+            lease_acquired = True  # proceed: the in-process lock still protects
+        if not lease_acquired:
+            return {
+                "ok": True, "skipped": True,
+                "reason": "another process holds the maintenance lease",
+            }
         return _run_skill_maintenance_locked(store, registry, policy, actor=actor)
     finally:
+        if lease_acquired:
+            try:
+                store.release_maintenance_lease(holder)
+            except Exception:  # noqa: BLE001
+                pass
         _MAINTENANCE_LOCK.release()
+
+
+def _host_holder() -> str:
+    """A stable lease holder id for this process invocation."""
+    import os
+    import uuid
+
+    return f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
 def _run_skill_maintenance_locked(

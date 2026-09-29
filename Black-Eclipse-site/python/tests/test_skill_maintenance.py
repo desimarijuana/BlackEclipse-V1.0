@@ -309,3 +309,25 @@ def test_compare_and_set_wont_archive_pinned_or_non_enabled(store):
     )
     assert applied is True
     assert store.get_skill("cas.skill")["status"] == "archived"
+
+
+def test_cross_process_lease_is_exclusive_and_reclaimable(store):
+    # A second holder cannot take a live lease.
+    assert store.acquire_maintenance_lease("holder-a", ttl_seconds=300) is True
+    assert store.acquire_maintenance_lease("holder-b", ttl_seconds=300) is False
+    # The same holder may re-acquire (idempotent renew).
+    assert store.acquire_maintenance_lease("holder-a", ttl_seconds=300) is True
+    # Release lets another take it.
+    store.release_maintenance_lease("holder-a")
+    assert store.acquire_maintenance_lease("holder-b", ttl_seconds=300) is True
+    store.release_maintenance_lease("holder-b")
+
+
+def test_lease_reclaims_after_expiry(store):
+    # A tiny TTL then sleep, so an expired lease is reclaimable (crash safety).
+    import time
+
+    assert store.acquire_maintenance_lease("crashed", ttl_seconds=1) is True
+    time.sleep(1.1)
+    assert store.acquire_maintenance_lease("fresh", ttl_seconds=300) is True
+    store.release_maintenance_lease("fresh")

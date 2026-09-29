@@ -278,9 +278,23 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
               <p className="mt-1 text-[10px] text-foreground/80">
                 Ground truth (operator-labelled): {usage.conflicts.labeled} labelled
                 {usage.conflicts.precision != null
-                  ? ` · precision ${Math.round(usage.conflicts.precision * 100)}% (${usage.conflicts.labeledTrue} true / ${usage.conflicts.labeledFalsePositive} false)`
+                  ? ` · precision ${Math.round(usage.conflicts.precision * 100)}%` +
+                    (usage.conflicts.precisionInterval
+                      ? ` (95% CI ${Math.round(usage.conflicts.precisionInterval[0] * 100)}–${Math.round(usage.conflicts.precisionInterval[1] * 100)}%)`
+                      : "") +
+                    ` · ${usage.conflicts.labeledTrue} true / ${usage.conflicts.labeledFalsePositive} false`
                   : " · no labels yet — precision unknown, not perfect"}
               </p>
+              {usage.trend && usage.trend.confident === false && (
+                <p className="mt-1 text-[10px] text-muted-foreground/80">
+                  Trend: insufficient data in one or both halves to name a direction.
+                </p>
+              )}
+              {usage.trend && usage.trend.confident && (
+                <p className="mt-1 text-[10px] text-foreground/80">
+                  Trend: decisions {usage.trend.direction} (older {usage.trend.decisionsOlder} → recent {usage.trend.decisionsRecent})
+                </p>
+              )}
               {usage.smallSample && (
                 <p className="mt-1 text-[10px] text-amber-300/90">
                   Sample is small — treat these numbers as directional, not reliable.

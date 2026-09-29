@@ -157,6 +157,30 @@ def test_report_contains_trend_and_small_sample_flag(service):
     assert report["smallSample"] is True
 
 
+def test_trend_direction_insufficient_on_low_sample(service):
+    report = service.usage_report(window_days=30)
+    # No/insufficient usage → no confident direction asserted.
+    assert report["trend"]["direction"] == "insufficient"
+    assert report["trend"]["confident"] is False
+
+
+def test_precision_interval_reported_with_labels(service):
+    m1 = service.write_memory(
+        memory_type="preference", content="I prefer concise answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    m2 = service.write_memory(
+        memory_type="preference", content="I prefer detailed answers",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    service.label_conflict(m1["id"], "true_conflict")
+    service.label_conflict(m2["id"], "false_positive")
+    report = service.usage_report(window_days=30)
+    interval = report["conflicts"]["precisionInterval"]
+    assert interval is not None
+    assert interval[0] <= 0.5 <= interval[1]
+
+
 def test_retired_semantic_policy_rows_are_cleaned_on_open():
     """Migration 24 removes dead semantic keys; a pre-change db still opens and
     keeps its real memory rows."""

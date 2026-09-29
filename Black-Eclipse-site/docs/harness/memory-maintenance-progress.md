@@ -164,6 +164,15 @@ interpreter with `PYTHONPATH=python`; the `python` shim is not on PATH.
   Fixed a real pre-existing bug: `restoreMemoryFiles` rejected every real backup
   dir (ISO `Z`), so restore never found its own backup.
 
+### Phase 4 — fix remaining limitations ✅
+
+- Cross-PROCESS maintenance lease (migration 25, `MaintenanceLease`; reclaimable
+  TTL, crash-safe) under the in-process lock.
+- Trend honesty: direction only with a minimum sample in both halves.
+- Wilson 95% precision interval on operator-labelled conflict precision.
+- Model-assisted extraction now applies the decision gate's privacy/financial/
+  override/dump guards (fail-closed).
+
 ## Checks (after all milestones)
 
 | Check | Result |

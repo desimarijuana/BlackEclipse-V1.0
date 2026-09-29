@@ -8,6 +8,22 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Limitations Phase 4 (fix the remaining honest limitations).** (a) Cross-
+  PROCESS maintenance lock: migration 25 adds a single-row `MaintenanceLease`
+  table with a reclaimable TTL; `store.acquire_maintenance_lease` /
+  `release_maintenance_lease` (SQLite-serialised, crash-safe) layered under the
+  in-process lock, so two runtime PROCESSES against one database cannot sweep
+  concurrently. (b) Trend honesty: the usage report's half-window trend now
+  asserts a direction only when BOTH halves clear a minimum sample, else reports
+  `insufficient`/`confident:false`; UI shows this. (c) Precision confidence: a
+  Wilson 95% interval is reported alongside operator-labelled precision so a small
+  sample is not mistaken for a precise estimate. (d) Model-assisted extraction
+  now runs the SAME privacy/financial/override/dump guards as the decision gate
+  (fail-closed), so a model cannot smuggle a secret, override, dump or current
+  financial fact into a candidate. Tests extended across `test_skill_maintenance.py`,
+  `test_usage_report.py`, `test_dropped_context.py`, `test_migration_matrix.py`.
+  docs updated: `docs/CHANGELOG.md`, `docs/harness/memory-maintenance-progress.md`,
+  `docs/NAVIGATION.md`.
 - **Limitations Phase 3 (robustness/concurrency).** (P3.1) Skill maintenance is
   serialised by a process-wide non-blocking lock (a second pass reports
   `skipped` instead of racing), and every automatic retirement is a compare-and-set
