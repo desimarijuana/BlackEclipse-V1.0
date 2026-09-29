@@ -19,6 +19,7 @@ HarnessErrorCode = Literal[
     "PROVIDER_NOT_CONFIGURED",
     "PROVIDER_ERROR",
     "PROVIDER_TIMEOUT",
+    "CONTEXT_OVERFLOW",
     "TOOL_NOT_FOUND",
     "TOOL_VALIDATION_FAILED",
     "TOOL_FORBIDDEN",
@@ -161,6 +162,10 @@ class RunResult(BaseModel):
     # refused/needs_confirmation) and whether the run is eligible to become a
     # learning candidate. Absent for skill runs and older rows.
     memory: Optional[dict[str, Any]] = None  # noqa: N815
+    # Context budgeting (additive, optional): how the resolved model's window
+    # bounded this run's history. Absent for older persisted rows and for runs
+    # that did not trim, so existing clients remain compatible.
+    context: Optional[dict[str, Any]] = None
 
 
 EventLiteral = Literal[

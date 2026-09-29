@@ -8,6 +8,88 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Model picker in Settings › AI / LLM.** The Model field was a bare free-text
+  input, so there was no way to *see* which models a provider offers. The Python
+  catalog now declares a known-model list per provider (`PROVIDER_MODELS` in
+  `python/harness/models.py`), exposed additively via `list_providers()` →
+  `GET /api/harness/models` (`models` + `modelWindows`, each model → its resolved
+  context window). A new client hook `src/lib/agent/model-catalog.ts`
+  (`useModelCatalog`, `modelsForProvider`) feeds a native `<datalist>` on the
+  Model field, which shows the declared ids **and still accepts a custom id**
+  (never an allowlist), plus an honest context-window hint (`N-token window` or
+  "Context window unknown"). The list is deliberately data in Python, not a
+  second TS copy that would drift. Tests: `test_context_window.py` (declared
+  models/windows), `src/lib/agent/model-catalog.test.ts`. Checks: `tsc` clean;
+  vitest 1831 pass; pytest 1430 pass; eval gates unchanged. docs updated:
+  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+- **Model-aware context budget & honest overflow.** Fixed three defects sharing
+  one root cause. **A (measured budgeting):** new
+  `python/harness/context_budget.py::compute_history_budget` measures the real
+  request (resolved system prompt, advertised tool schemas, the per-run profile /
+  skill-manifest / memory / dropped-context blocks, the user turn, a reserved
+  output allowance) and derives the history allowance from the **resolved
+  model's declared window**; `graph.execute_run` builds it per run (never at
+  import/`__init__`), keeping `MAX_HISTORY_CHARS` as an absolute ceiling.
+  **B (classification):** `CONTEXT_OVERFLOW` added to `HarnessErrorCode`; a
+  false-positive-guarded `classify_context_overflow` in `models.py` runs before
+  the generic catch-all. **C (visibility):** `memory.history_bounded` is emitted
+  on the success path (counts + estimates only, never content); a `bounded`
+  activity line renders through the existing passthrough, and a `CONTEXT_OVERFLOW`
+  failure surfaces its specific reason/remedy. **Registry:** `ProviderSpec.context_window`
+  + `MODEL_CONTEXT_WINDOWS` + pure `resolve_context_window`; **unknown windows
+  stay unknown** and fall back to today's conservative ceiling. **Recovery:** one
+  tighter retry on a first-call overflow (no duplicated side effects, exactly one
+  terminal status), then an honest failure. Additive `RunResult.context` /
+  `RunRecord.context` (TS + Python) and the `HarnessRun.context` persistence
+  column, absent for old rows. Tests: `test_context_window.py`,
+  `test_context_budget.py`, `test_context_budget_repro.py`,
+  `test_context_overflow.py`, `test_history_bounded.py`,
+  `context-budget-contract.test.ts`, extended `events.test.ts`. Checks:
+  `tsc --noEmit` clean; vitest 147 files / 1828 tests pass; pytest 1429 pass;
+  both eval gates PASS and unchanged. docs updated: `docs/CHANGELOG.md`,
+  `docs/harness/context-budget-progress.md` (new),
+  `docs/harness/decisions.md` (ADR-H63/H64), `docs/NAVIGATION.md` (already had
+  the row from the prompt entry).
+- **OpenCode context-budget prompt (planning).** See the earlier entry below.- **Add the model-aware context-budget OpenCode prompt.** New
+  `docs/harness/context-budget-opencode-prompt.md` — an implementation prompt in
+  the same format as the maintenance and Phase-4 prompts, scoped to the last
+  structural gap found by comparing Eclipse's context handling against a second
+  agent's design. Three defects share one root cause. **A:** `graph.py` bounds
+  history with hardcoded `MAX_HISTORY_TURNS = 20` / `MAX_HISTORY_CHARS = 40_000`
+  constants while `ModelSettings` and `PROVIDER_CATALOG` carry no context size, so
+  the request is never measured as a whole — a ~40 000-char history is roughly
+  10–13k tokens, which overflows a small-context model and wastes most of a large
+  one. **B:** `HarnessErrorCode` has fourteen codes and none for context overflow,
+  so a provider's context-length rejection falls through to a generic
+  `PROVIDER_ERROR`/`INTERNAL_ERROR` with no recovery and no explanation. **C:**
+  `_bounded_history` computes the dropped turns precisely but emits an event on
+  **failure only** — no success event, no count, no UI surface — so a user whose
+  follow-up depends on a trimmed turn is told nothing. Six milestones: (0) a
+  gating **reproduction** that must be recorded verbatim, with an explicit
+  instruction to stop and report honestly if the premise does not reproduce and
+  then implement only the registry + visibility work; (1) context-window
+  knowledge as **catalog data** (`ProviderSpec.context_window` +
+  `resolve_context_window`), reused by the existing `estimate_tokens`, with a
+  documented unknown-window policy that falls back to today's conservative
+  ceiling rather than guessing; (2) measured, model-aware budgeting — sum the
+  real system prompt, tool schemas, per-run blocks and user turn, then derive the
+  history allowance from what remains, keeping the char ceiling as an absolute
+  cap, with the two halves required to land together so a raised bound cannot
+  turn silent forgetting into a hard failure; (3) a `CONTEXT_OVERFLOW` code and a
+  bounded classifier across the provider families with a false-positive guard;
+  (4) one bounded tighter retry with no duplicated side effects and exactly one
+  terminal status; (5) `memory.history_bounded` on the success path plus a chat
+  surface reusing the existing event passthrough, and a specific overflow message
+  instead of a generic failure; (6) verification against the Milestone 0 fixture,
+  both eval gates, and the documentation obligations. Explicitly **not** a
+  summarization/compaction engine, not a tokenizer dependency, not a second
+  estimator, and no window guessing. docs updated:
+  `docs/harness/context-budget-opencode-prompt.md` (new), `docs/CHANGELOG.md`,
+  `docs/NAVIGATION.md`
+- **No code, contract, schema or runtime behavior changed by this entry.** The
+  prompt is a plan; the reproduction in its Milestone 0 is a required first step
+  and the bug is stated as a premise to verify, not an established fact.
+  `jdds.db` untouched.
 - **Limitations Phase 4 (fix the remaining honest limitations).** (a) Cross-
   PROCESS maintenance lock: migration 25 adds a single-row `MaintenanceLease`
   table with a reclaimable TTL; `store.acquire_maintenance_lease` /
@@ -153,7 +235,6 @@ last-verified: 2026-09-28
   `docs/harness/memory-maintenance-opencode-prompt.md`, `docs/CHANGELOG.md`
 - **No code, contract, schema or runtime behavior changed by the amendment
   either** — it is still a plan document. `jdds.db` untouched.
-
 - **Investor Eye map: render all of Jammu & Kashmir as Pakistan (deliberate POV).**
   Reworked the committed `public/geo/world.geo.json` so the Kashmir Valley,
   Jammu, Ladakh and the LoC-administered tracts join Azad Kashmir and

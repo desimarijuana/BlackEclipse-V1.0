@@ -134,7 +134,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.memory) t.memory = event.memory;
           if (event.runId) t.runId = event.runId;
           if (event.error) {
-            t.error = { message: event.error };
+            t.error = { code: event.errorCode, message: event.error };
             t.status = 'error';
           } else {
             t.status = 'completed';

@@ -35,6 +35,7 @@ import { GeneralSettingsPanel } from "./general-settings";
 import { SoundSettingsPanel } from "./sound-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources, SettingsStatusHeader, ProviderKeyEditor, useProviderHealth } from "./provider-registry-panel";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl } from "@/lib/agent/presets";
+import { useModelCatalog, modelsForProvider } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
 import { sound } from "@/lib/sounds";
 import {
@@ -259,6 +260,9 @@ export function Settings({
   });
   const [testingLlm, setTestingLlm] = useState(false);
   const [llmTest, setLlmTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
+  // Declared model ids per provider, from the Python runtime catalog (a
+  // convenience list, never an allowlist — a custom id is always typeable).
+  const modelCatalog = useModelCatalog();
 
   // News
   const [feeds, setFeeds] = useState<NewsFeed[]>([]);
@@ -402,7 +406,6 @@ export function Settings({
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
-
   const clearStorage = (keys: string[], label: string) => {
     // Confirmation is on by default (Settings › General). A mis-click here used
     // to wipe chats/watchlist/portfolio instantly and irreversibly.
@@ -468,6 +471,20 @@ export function Settings({
   // The vault env var that stores the selected provider's key (if it is a
   // known preset). The AI section's key editor is keyed off this.
   const activeKeyEnvVar = presetForBaseUrl(llm.baseUrl)?.envVar;
+
+  // The declared model list + context window for the currently selected
+  // provider, from the runtime catalog. `provider` = the provider kind; when the
+  // mode is `auto` or the provider is not in the catalog, fall back to the
+  // preset id (the base URL identifies the vendor). Never an allowlist.
+  const activeCatalogProvider =
+    (llm.provider !== "auto" && llm.provider !== "mock" ? modelCatalog[llm.provider] : undefined) ??
+    modelCatalog[presetForBaseUrl(llm.baseUrl)?.id ?? ""];
+  const activeModelOptions = activeCatalogProvider?.models ?? [];
+  const activeWindow =
+    activeCatalogProvider?.modelWindows?.[llm.model] ??
+    activeCatalogProvider?.contextWindow ??
+    null;
+  const activeWindowKnown = activeWindow != null;
 
   // Rail attention dots: sections whose providers still need a key.
   const { health: homeHealth } = useProviderHealth();
@@ -766,13 +783,41 @@ export function Settings({
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Model" hint="The exact model id this provider expects.">
+                    <Field
+                      label="Model"
+                      hint="Pick a known model or type any id this provider expects."
+                    >
+                      {/* A native datalist gives a dropdown of the runtime's
+                          declared models AND still accepts a custom id — never an
+                          allowlist. When the catalog is empty it is a plain field. */}
                       <Input
                         value={llm.model}
                         onChange={(e) => updateLlm({ model: e.target.value })}
                         placeholder="gpt-4o-mini / llama3.1"
                         className="font-mono"
+                        list={activeModelOptions.length > 0 ? "llm-model-options" : undefined}
                       />
+                      {activeModelOptions.length > 0 && (
+                        <datalist id="llm-model-options">
+                          {activeModelOptions.map((m) => (
+                            <option key={m} value={m} />
+                          ))}
+                        </datalist>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                        {activeWindowKnown ? (
+                          <span className="text-emerald-400/90">
+                            {activeWindow.toLocaleString()}-token context window
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/80">Context window unknown</span>
+                        )}
+                        {activeModelOptions.length > 0 && (
+                          <span className="text-muted-foreground/60">
+                            · {activeModelOptions.length} known model{activeModelOptions.length === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </p>
                     </Field>
                     <Field label="Mode" hint="Auto follows environment variables.">
                       <Select value={llm.provider} onValueChange={(v) => updateLlm({ provider: v as LLMProviderName }, 0)}>

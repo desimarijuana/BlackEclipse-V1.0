@@ -278,6 +278,9 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         # memory intent for this run (saved/forgotten/corrected/refused) plus
         # learning eligibility. Additive and NULL for older rows.
         ("memory", "TEXT"),
+        # Context budgeting: how the resolved model's window bounded this run's
+        # history (counts + estimates only). Additive and NULL for older rows.
+        ("context", "TEXT"),
         # M3/M4: a run belongs to a session, profile and project. Additive and
         # NULL for older rows, so existing clients stay compatible.
         ("sessionId", "TEXT"),
@@ -363,6 +366,7 @@ class AgentMemoryStore:
             "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
             "promptTokens", "completionTokens", "totalTokens",
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
+            "context",
             "sessionId", "profileId", "projectId",
         }
         sets, params = [], []
@@ -371,7 +375,7 @@ class AgentMemoryStore:
                 continue
             value = patch[key]
             sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory") and value is not None:
+            if key in ("error", "research", "memory", "context") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1327,6 +1331,7 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "model": row["model"],
         "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
         "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
+        "context": json.loads(row["context"]) if _has_column(row, "context") and row["context"] else None,
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,

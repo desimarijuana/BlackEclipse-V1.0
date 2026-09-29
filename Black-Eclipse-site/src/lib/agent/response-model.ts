@@ -16,11 +16,11 @@ export type ResponseStatus =
   | 'cancelled'
   | 'error';
 
-/** One thing the agent did (a tool call, or a retrieval source it used). */
+/** One thing the agent did (a tool call, a retrieval source, or a context note). */
 export interface ActivityItem {
   /** Stable id — the tool's `toolCallId` when the runtime provides one. */
   id: string;
-  kind: 'tool' | 'retrieval';
+  kind: 'tool' | 'retrieval' | 'bounded';
   /** Raw operation name, e.g. `market_get_quote`. Kept for developer detail. */
   name: string;
   /** Human-readable label, e.g. "Retrieving market quote". Safe to display. */

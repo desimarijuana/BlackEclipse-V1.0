@@ -162,6 +162,64 @@ describe('normalizeHarnessEvent', () => {
       status: 'cancelled',
     });
   });
+
+  it('surfaces a history trim as one bounded activity line (counts only)', () => {
+    const e = normalizeHarnessEvent('memory.history_bounded', {
+      type: 'memory.history_bounded',
+      data: {
+        keptTurns: 20,
+        droppedTurns: 10,
+        droppedTokensEstimate: 5000,
+        window: 32000,
+        windowKnown: true,
+        tighterRetry: false,
+      },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: { id: 'history_bounded', kind: 'bounded', status: 'completed' },
+    });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.label).toContain('Trimmed 10 older turns');
+      expect(e.item.summary).toContain('20 kept');
+      expect(e.item.summary).toContain('32,000-token window');
+    }
+  });
+
+  it('reports an unknown window honestly on the bounded line', () => {
+    const e = normalizeHarnessEvent('memory.history_bounded', {
+      type: 'memory.history_bounded',
+      data: { keptTurns: 20, droppedTurns: 10, window: null, windowKnown: false },
+    });
+    if (e?.kind === 'activity_start') {
+      expect(e.item.summary).toContain('context window unknown');
+    } else {
+      throw new Error('expected an activity_start');
+    }
+  });
+
+  it('emits nothing for a history_bounded with no dropped turns', () => {
+    expect(
+      normalizeHarnessEvent('memory.history_bounded', {
+        type: 'memory.history_bounded',
+        data: { keptTurns: 5, droppedTurns: 0, window: 32000, windowKnown: true },
+      }),
+    ).toBeNull();
+  });
+
+  it('maps a CONTEXT_OVERFLOW run.failed with its specific message', () => {
+    const e = normalizeHarnessEvent('run.failed', {
+      type: 'run.failed',
+      data: {
+        error: {
+          code: 'CONTEXT_OVERFLOW',
+          message: 'The request exceeded the model\'s context window. Start a shorter conversation.',
+        },
+      },
+    });
+    expect(e).toMatchObject({ kind: 'error', code: 'CONTEXT_OVERFLOW' });
+    if (e?.kind === 'error') expect(e.message).toContain('shorter conversation');
+  });
 });
 
 describe('response-model helpers', () => {

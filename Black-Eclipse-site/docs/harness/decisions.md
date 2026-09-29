@@ -1429,3 +1429,46 @@ now that the agentic runtime is Python.
 **Consequences.** First run may take longer while pip installs. `npm test` runs
 both the Vitest and pytest suites; the Python suite is skipped (not failed) when
 the stack is absent.
+
+## ADR-H63 - Context windows are declared catalog data; an unknown window stays unknown
+
+**Decision.** The context window is a `ProviderSpec.context_window` field plus a
+`MODEL_CONTEXT_WINDOWS` model-substring table, resolved by a pure
+`resolve_context_window(provider, model)`. Where a provider's models vary, the
+declared value is a conservative FLOOR with a documented source; where the
+runtime cannot know the window (local servers, routers, a custom endpoint) the
+value stays `None`.
+
+**Why.** The runtime previously bounded history with hardcoded constants and
+never knew its model's window, so a small-context model overflowed and a
+large-context model wasted most of its window. Declaring windows as data follows
+the existing catalog pattern (add a provider = add an entry) instead of a branch
+per vendor. Guessing a window would be worse than not knowing: it would make the
+runtime over-confident on exactly the models it understands least.
+
+**Consequences.** An unknown window makes the budget inert and falls back to the
+old `MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` ceiling; every surface reports
+"unknown". Adding a window is a one-line data change with provenance. No network
+call is ever made to discover a window.
+
+## ADR-H64 - Overflow is classified, retried once against a tighter budget, then reported honestly
+
+**Decision.** `CONTEXT_OVERFLOW` is a first-class `HarnessErrorCode`. A
+conservative classifier in `models.py` recognises a provider's context-length
+rejection (structured code OR a bounded, specific message pattern) before the
+generic provider catch-all. On a first-call overflow — before any tool ran — the
+run retries ONCE with half the derived history allowance; otherwise it fails
+with a specific message and the remedy. Exactly one terminal status is persisted.
+
+**Why.** A provider context-length rejection previously fell through to a generic
+`PROVIDER_ERROR` with no recovery and no explanation. A single bounded retry is
+the cheapest honest recovery; looping would risk duplicate side effects, and
+retrying after a tool executed would re-run that tool.
+
+**Consequences.** Overflow is distinguished from rate-limit / timeout / auth /
+quota errors (false-positive guarded by tests). Recovery is first-call only and
+is skipped when the tightened history would not actually be smaller. The success
+path emits `memory.history_bounded` (counts/estimates only) so a trimmed turn is
+never silent; the `RunResult.context` blob is additive and absent for old rows.
+A token-aware summarization ladder remains explicitly out of scope, gated on this
+event data.

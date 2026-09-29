@@ -27,7 +27,7 @@ export type HarnessUiEvent =
       /** Short user-safe result summary (e.g. "3 records") when reported. */
       summary?: string;
     }
-  | { kind: 'final'; output?: string; error?: string; status?: string; research?: unknown; memory?: unknown; runId?: string }
+  | { kind: 'final'; output?: string; error?: string; errorCode?: string; status?: string; research?: unknown; memory?: unknown; runId?: string }
   | { kind: 'error'; message: string; code?: string };
 
 /**
@@ -95,6 +95,31 @@ export function normalizeHarnessEvent(
     };
   }
 
+  // Context budgeting: the runtime trimmed history to fit the resolved model's
+  // window. Surface it as one plain activity line (counts only — never content).
+  if (event === 'memory.history_bounded') {
+    const dropped = num(payload.droppedTurns) ?? 0;
+    const kept = num(payload.keptTurns) ?? 0;
+    if (dropped <= 0) return null;
+    const windowKnown = payload.windowKnown === true;
+    const window = num(payload.window);
+    const detail =
+      windowKnown && window != null
+        ? `${window.toLocaleString()}-token window`
+        : 'context window unknown';
+    return {
+      kind: 'activity_start',
+      item: {
+        id: 'history_bounded',
+        kind: 'bounded',
+        name: 'memory.history_bounded',
+        label: `Trimmed ${dropped} older turn${dropped === 1 ? '' : 's'} to fit the context window`,
+        status: 'completed',
+        summary: `${kept} kept · ${detail}`,
+      },
+    };
+  }
+
   if (event === 'tool.completed' || event === 'tool.failed') {
     const name = str(payload.name) ?? 'tool';
     const failed = event === 'tool.failed';
@@ -144,10 +169,20 @@ export function normalizeHarnessEvent(
 
   // Front-door terminal frame: carries the authoritative answer.
   if (event === 'client.final') {
+    const err = payload.error;
+    // `error` is a structured `{ code, message }` from the run record; the
+    // specific code (e.g. CONTEXT_OVERFLOW) must reach the UI, not a generic string.
+    const errorMessage =
+      err && typeof err === 'object'
+        ? str((err as Record<string, unknown>).message)
+        : str(err);
+    const errorCode =
+      err && typeof err === 'object' ? str((err as Record<string, unknown>).code) : undefined;
     return {
       kind: 'final',
       output: str(payload.output),
-      error: str(payload.error),
+      error: errorMessage,
+      errorCode,
       status: str(payload.status),
       research: payload.research ?? undefined,
       memory: payload.memory ?? undefined,

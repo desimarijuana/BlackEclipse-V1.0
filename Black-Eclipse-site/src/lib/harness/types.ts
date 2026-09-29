@@ -187,6 +187,25 @@ export interface RunResult {
   research?: ResearchRunInfo;
   /** Phase 3-M Reliability: explicit memory-intent outcome + learning eligibility. */
   memory?: MemoryRunInfo;
+  /**
+   * Context budgeting (additive, optional). Present when the runtime trimmed
+   * conversation history to fit the resolved model's window. Absent/undefined
+   * for older persisted rows and for runs that did not trim, so existing clients
+   * remain compatible.
+   */
+  context?: ContextBudgetInfo;
+}
+
+export interface ContextBudgetInfo {
+  /** Resolved model context window in tokens, or null when unknown. */
+  window: number | null;
+  windowKnown: boolean;
+  keptTurns: number;
+  droppedTurns: number;
+  /** Estimated tokens of the dropped window (never the dropped text). */
+  droppedTokensEstimate: number;
+  /** True when the run recovered from an overflow via the one tighter retry. */
+  tighterRetry: boolean;
 }
 
 export interface MemoryRunInfo {
@@ -238,6 +257,8 @@ export interface RunRecord {
   research?: ResearchRunInfo | null;
   /** Phase 3-M Reliability memory-intent/eligibility (null for older rows). */
   memory?: MemoryRunInfo | null;
+  /** Context budgeting metadata (null for ordinary/older rows). */
+  context?: ContextBudgetInfo | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

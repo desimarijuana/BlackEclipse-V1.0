@@ -269,6 +269,26 @@ def build_graph(
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}})
             return {**state, "step": step, "error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}}
         except Exception as exc:  # noqa: BLE001
+            # Classify a provider context-length rejection SPECIFICALLY, before the
+            # generic provider error. The terminal run.failed for overflow is
+            # emitted once by `execute_run` after the bounded recovery attempt, so
+            # a successful retry does not leave a spurious terminal failure.
+            from .models import (  # noqa: PLC0415
+                classify_context_overflow,
+                context_overflow_error,
+                resolve_context_window,
+            )
+
+            if classify_context_overflow(exc):
+                provider = request.modelSettings.provider
+                model_name = request.modelSettings.model
+                window = resolve_context_window(provider, model_name)
+                code, message = context_overflow_error(provider, model_name, window)
+                await emitter.emit(
+                    "context.overflow",
+                    {"step": step, "provider": provider, "windowKnown": window is not None},
+                )
+                return {**state, "step": step, "error": {"code": code, "message": message}}
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": str(exc)}})
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
 
@@ -629,6 +649,17 @@ async def execute_run(
         surface_settings = {}
     allowed, system_prompt = resolve_surface(agent, registry, surface_settings)
 
+    # A test/operator seam: allows a deterministic tighter budget to be injected
+    # (used to exercise the overflow-recovery path without a live provider). It
+    # only narrows the derived allowance — it can never widen it.
+    budget_overrides: dict[str, Any] = {}
+    try:
+        raw_override = (request.input.context or {}).get("_context_budget_override")
+        if isinstance(raw_override, dict):
+            budget_overrides = dict(raw_override)
+    except Exception:  # noqa: BLE001 - an override is never required
+        budget_overrides = {}
+
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,
         agent_id=agent.id,
@@ -641,26 +672,44 @@ async def execute_run(
     )
     await emitter.emit("prompt.plan", prompt_plan.to_dict())
 
-    # The dropped-context extraction seam: turns the history bound removes are
-    # read deterministically and surfaced as an INERT, clearly-labelled block in
-    # the same per-run SystemMessage slot the other per-run blocks use. When the
-    # history is under the bound, `dropped` is empty and the message list is
-    # byte-identical to the previous behaviour (no block, no change).
-    history_messages, dropped_block = await _dropped_context_block(
-        request, memory_service, emitter,
+    # Measure the request and derive the history budget from the RESOLVED model's
+    # declared context window. When the window is unknown the budget is inert and
+    # the bound falls back to the module constants (byte-identical to before).
+    #
+    # The dropped-context block itself costs tokens, so the budget must be
+    # measured with it present. We derive it once with the conservative bound to
+    # extract the dropped context, then re-derive so the final bound accounts for
+    # the block's own size. Two passes, no loop.
+    budget = _history_budget(
+        request, allowed, registry, system_prompt, profile_block, skill_manifest,
+        memory_block, dropped_block="", overrides=budget_overrides,
     )
+    history_messages, dropped_block, dropped_turns = await _dropped_context_block(
+        request, memory_service, emitter, budget,
+    )
+    budget = _history_budget(
+        request, allowed, registry, system_prompt, profile_block, skill_manifest,
+        memory_block, dropped_block=dropped_block, overrides=budget_overrides,
+    )
+    if budget.effective:
+        # Re-derive the trimmed set under the measured bound (re-extraction is
+        # cheap and deterministic; the extraction event is emitted once).
+        history_messages, dropped_block, dropped_turns = await _dropped_context_block(
+            request, memory_service, emitter, budget, emit=False,
+        )
 
-    messages: list[BaseMessage] = [
-        SystemMessage(content=system_prompt),
-        *history_messages,
-        *([SystemMessage(content=profile_block)] if profile_block else []),
-        *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
-        *([SystemMessage(content=memory_block)] if memory_block else []),
-        *([SystemMessage(content=dropped_block)] if dropped_block else []),
-        HumanMessage(content=_user_message(request)),
-    ]
-
-    try:
+    # Bounded recovery (Milestone 4): if the run failed with a classified
+    # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
+    # terminal status is persisted once, below, after recovery resolves.
+    async def _invoke_with_history(
+        history_msgs: list[BaseMessage], dropped: Optional[str] = None,
+    ) -> dict[str, Any]:
+        run_messages = _assemble_run_messages(
+            request, system_prompt=system_prompt, history_messages=history_msgs,
+            profile_block=profile_block, skill_manifest=skill_manifest,
+            memory_block=memory_block,
+            dropped_block=dropped if dropped is not None else dropped_block,
+        )
         app = build_graph(
             request, registry, data_bridge, store, emitter, bus, cancel_event,
             retrieval_cache, memory_service, skill_registry,
@@ -668,9 +717,9 @@ async def execute_run(
             memory_router,
             allowed=allowed,
         )
-        final_state = await app.ainvoke(
+        return await app.ainvoke(
             {
-                "messages": messages,
+                "messages": run_messages,
                 "step": 0,
                 "tool_calls": 0,
                 "tool_errors": 0,
@@ -679,6 +728,19 @@ async def execute_run(
                 "final": None,
             },
         )
+
+    retry_budget: Optional[Any] = None
+    try:
+        final_state = await _invoke_with_history(history_messages)
+        if _is_context_overflow(final_state.get("error")):
+            final_state, retry_budget = await _retry_with_tighter_budget(
+                request, emitter, final_state, base_budget=budget,
+                overrides=budget_overrides,
+                system_prompt=system_prompt, profile_block=profile_block,
+                skill_manifest=skill_manifest, memory_block=memory_block,
+                memory_service=memory_service, allowed=allowed,
+                registry=registry, invoke=_invoke_with_history,
+            )
     except asyncio.CancelledError:
         store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
         await emitter.emit("run.cancelled", {"reason": "cancelled"})
@@ -690,13 +752,57 @@ async def execute_run(
         return RunResult(runId=request.runId, status="failed", error=error, toolCalls=0, toolErrors=0, modelSteps=0)
 
     if final_state.get("error"):
-        err = final_state["error"]
-        store.update_run(request.runId, status="failed", error=err, finishedAt=now_iso())
+        err = dict(final_state["error"])
+        # An unrecovered CONTEXT_OVERFLOW is a specific, user-facing failure.
+        # Rewrite the message to state whether the tighter retry was actually
+        # attempted (honest — no claim of a retry that did not happen), and emit
+        # the terminal event here (the classifier deliberately does not) so the
+        # stream and the persisted run agree.
+        context_blob = _context_budget_blob(
+            retry_budget or budget, request, kind="overflow",
+            retried=retry_budget is not None,
+        )
+        if _is_context_overflow(err):
+            from .models import context_overflow_error  # noqa: PLC0415
+
+            window = getattr(retry_budget or budget, "window", None)
+            _code, message = context_overflow_error(
+                request.modelSettings.provider, request.modelSettings.model,
+                window, retried=retry_budget is not None,
+            )
+            err["message"] = message
+            store.update_run(
+                request.runId, status="failed", error=err, finishedAt=now_iso(),
+                context=context_blob,
+            )
+            await emitter.emit("run.failed", {"error": err})
+        else:
+            store.update_run(request.runId, status="failed", error=err, finishedAt=now_iso())
         await _post_run_analysis(request.runId, store, memory_service, skill_registry)
-        return _result(request.runId, "failed", store, err)
+        result = _result(request.runId, "failed", store, err)
+        result.context = context_blob
+        return result
+
+    # The user-visible trimming signal (Defect C): emitted on the SUCCESS path
+    # whenever history was actually trimmed, with counts and estimates only —
+    # never memory/dropped content. Nothing is emitted when nothing was dropped.
+    # Re-derived with the FINAL budget so a tighter retry is reflected.
+    final_budget = retry_budget or budget
+    kept_final, dropped_final = _bounded_history(request, final_budget)
+    if dropped_final:
+        await emitter.emit("memory.history_bounded", _history_bounded_data(
+            final_budget, kept_turns=len(kept_final), dropped_turns=dropped_final,
+            retried=retry_budget is not None,
+        ))
 
     output = final_state.get("final") or ""
-    store.update_run(request.runId, status="completed", output=output, finishedAt=now_iso())
+    context_blob = _context_budget_blob(
+        final_budget, request, kind="completed", retried=retry_budget is not None,
+    )
+    store.update_run(
+        request.runId, status="completed", output=output, finishedAt=now_iso(),
+        context=context_blob,
+    )
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
     # An explicit "turn this into a skill" request is now turned into a real
@@ -723,6 +829,7 @@ async def execute_run(
     await _index_session(request, store, memory_service, emitter)
     result = _result(request.runId, "completed", store, None, output)
     result.memory = memory_blob or None
+    result.context = context_blob
     return result
 
 
@@ -913,31 +1020,228 @@ MAX_HISTORY_TURNS = 20
 MAX_HISTORY_CHARS = 40_000
 
 
-def _bounded_history(request: RunRequest) -> tuple[list[Any], list[Any]]:
+def _history_budget(
+    request: RunRequest,
+    allowed: Optional[set[str]],
+    registry: ToolRegistry,
+    system_prompt: str,
+    profile_block: str,
+    skill_manifest: str,
+    memory_block: str,
+    dropped_block: str,
+    *,
+    overrides: Optional[dict[str, Any]] = None,
+    tighter: bool = False,
+) -> Any:
+    """Compute the per-run history budget from the resolved model + real request.
+
+    Pure and local (no network). The window is the resolved model's declared
+    context size; an unknown window yields an inert budget and the bound falls
+    back to the module constants. `overrides` is the test/operator seam — it may
+    supply a known window or a reserved-output value, never fabricate one.
+    """
+    from .context_budget import DEFAULT_RESERVED_OUTPUT_TOKENS, compute_history_budget  # noqa: PLC0415
+
+    overrides = overrides or {}
+    reserved = int(overrides.get("reserved_output_tokens", DEFAULT_RESERVED_OUTPUT_TOKENS))
+    window_override = overrides.get("window")
+    if overrides.get("tighter") and not tighter:
+        tighter = True
+    tool_schemas = ""
+    try:
+        from .context_budget import tool_schema_text  # noqa: PLC0415
+
+        tool_schemas = tool_schema_text(registry.schemas(allowed))
+    except Exception:  # noqa: BLE001 - a schema read failure must not break the run
+        tool_schemas = ""
+    return compute_history_budget(
+        provider=request.modelSettings.provider,
+        model=request.modelSettings.model,
+        system_prompt=system_prompt,
+        tool_schemas=tool_schemas,
+        profile_block=profile_block,
+        skill_manifest=skill_manifest,
+        memory_block=memory_block,
+        dropped_block=dropped_block,
+        user_turn=_user_message(request),
+        absolute_max_turns=MAX_HISTORY_TURNS,
+        absolute_max_chars=MAX_HISTORY_CHARS,
+        reserved_output_tokens=reserved,
+        tighter=tighter,
+        window_override=window_override,
+    )
+
+
+def _assemble_run_messages(
+    request: RunRequest,
+    *,
+    system_prompt: str,
+    history_messages: list[BaseMessage],
+    profile_block: str,
+    skill_manifest: str,
+    memory_block: str,
+    dropped_block: str,
+) -> list[BaseMessage]:
+    """The full message list for one run, with the SAME slot order as before.
+
+    Only the number of history messages varies per budget; the system-prompt
+    head and the per-run block order are byte-stable within a run.
+    """
+    return [
+        SystemMessage(content=system_prompt),
+        *history_messages,
+        *([SystemMessage(content=profile_block)] if profile_block else []),
+        *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
+        *([SystemMessage(content=memory_block)] if memory_block else []),
+        *([SystemMessage(content=dropped_block)] if dropped_block else []),
+        HumanMessage(content=_user_message(request)),
+    ]
+
+
+def _is_context_overflow(error: Optional[dict[str, Any]]) -> bool:
+    return bool(error) and error.get("code") == "CONTEXT_OVERFLOW"
+
+
+def _history_bounded_data(
+    budget: Any,
+    *,
+    kept_turns: int,
+    dropped_turns: list[Any],
+    retried: bool = False,
+) -> dict[str, Any]:
+    """The bounded, content-free payload for `memory.history_bounded`.
+
+    Counts and estimated tokens only — never memory content or the dropped text.
+    """
+    from .eclipse_memory.profile import estimate_tokens  # noqa: PLC0415
+
+    dropped_tokens = sum(estimate_tokens(t.content) for t in dropped_turns)
+    return {
+        "keptTurns": kept_turns,
+        "droppedTurns": len(dropped_turns),
+        "droppedTokensEstimate": dropped_tokens,
+        "window": budget.window,
+        "windowKnown": bool(budget.window_known),
+        "tighterRetry": bool(retried),
+    }
+
+
+def _context_budget_blob(
+    budget: Any, request: RunRequest, *, kind: str, retried: bool = False,
+) -> Optional[dict[str, Any]]:
+    """The additive `RunResult.context` blob for a completed/overflowed run.
+
+    Present only when history was actually trimmed or the run overflowed, so an
+    ordinary short run leaves `context` absent (old clients unaffected).
+    """
+    kept, dropped = _bounded_history(request, budget)
+    if not dropped and kind != "overflow":
+        return None
+    data = _history_bounded_data(
+        budget, kept_turns=len(kept), dropped_turns=dropped, retried=retried,
+    )
+    data["status"] = kind
+    return data
+
+
+async def _retry_with_tighter_budget(
+    request: RunRequest,
+    emitter: RunEmitter,
+    final_state: dict[str, Any],
+    *,
+    base_budget: Any,
+    overrides: dict[str, Any],
+    system_prompt: str,
+    profile_block: str,
+    skill_manifest: str,
+    memory_block: str,
+    memory_service: Optional[Any],
+    allowed: Optional[set[str]],
+    registry: ToolRegistry,
+    invoke: Any,
+) -> tuple[dict[str, Any], Optional[Any]]:
+    """Retry ONCE with a materially tighter history allowance.
+
+    Only the history allowance changes: the system prompt, tools, per-run blocks
+    and side-effecting tools are NOT re-run differently. An unknown-window budget
+    (inert) is unaffected by `tighter`, so overflow on an unknown window fails
+    honestly with no pointless second attempt. Returns
+    `(final_state, retry_budget_or_None)`.
+    """
+    if not base_budget.effective:
+        return final_state, None
+    # Only recover when the overflow happened on the FIRST model call, before any
+    # tool executed. Rebuilding the graph would otherwise re-run side-effecting
+    # tools already executed this run.
+    if int(final_state.get("step") or 1) > 1:
+        return final_state, None
+    tighter_budget = _history_budget(
+        request, allowed, registry, system_prompt, profile_block, skill_manifest,
+        memory_block, dropped_block="", overrides=overrides, tighter=True,
+    )
+    kept, _dropped = _bounded_history(request, tighter_budget)
+    base_kept_count = len(_bounded_history(request, base_budget)[0])
+    # Nothing left to remove: a second attempt would be identical, so do not make
+    # one. The honest CONTEXT_OVERFLOW stands.
+    if len(kept) >= base_kept_count:
+        return final_state, None
+    kept_messages = [
+        HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
+        for t in kept
+    ]
+    # Re-extract the (now larger) dropped window and carry it in the retry so the
+    # attempt is materially smaller than the first, not merely a re-ask.
+    _msgs, tighter_dropped_block, _dt = await _dropped_context_block(
+        request, memory_service, emitter, tighter_budget, emit=False,
+    )
+    await emitter.emit("context.retry", {
+        "reason": "context_overflow",
+        "windowKnown": bool(tighter_budget.window_known),
+        "keptTurns": len(kept),
+        "maxHistoryChars": tighter_budget.max_history_chars,
+    })
+    retried_state = await invoke(kept_messages, tighter_dropped_block)
+    return retried_state, tighter_budget
+
+
+def _bounded_history(
+    request: RunRequest, budget: Optional[Any] = None,
+) -> tuple[list[Any], list[Any]]:
     """Return `(kept, dropped)` turns under the history bound.
 
     `kept` is the oldest-first list actually prompted; `dropped` is the prefix
     the bound removed. A history under the bound drops nothing — `dropped` is
     empty and the caller must behave exactly as before.
+
+    The bound comes from the per-run measured `budget` when it is effective (the
+    resolved model's window is known); otherwise it falls back to the module
+    constants. The fallback is byte-for-byte today's behaviour, which is the
+    safety property for an unknown window.
     """
     history = request.input.history or []
+    if budget is not None and getattr(budget, "effective", False):
+        max_turns = int(getattr(budget, "max_history_turns", MAX_HISTORY_TURNS))
+        max_chars = int(getattr(budget, "max_history_chars", MAX_HISTORY_CHARS))
+    else:
+        max_turns = MAX_HISTORY_TURNS
+        max_chars = MAX_HISTORY_CHARS
     if not history:
         return [], []
-    trimmed = list(history[-MAX_HISTORY_TURNS:])
-    dropped = list(history[: max(0, len(history) - MAX_HISTORY_TURNS)])
+    trimmed = list(history[-max_turns:]) if max_turns > 0 else []
+    dropped = list(history[: max(0, len(history) - max_turns)]) if max_turns > 0 else list(history)
     # Also cap total characters, dropping oldest turns first.
     total = sum(len(t.content) for t in trimmed)
-    while trimmed and total > MAX_HISTORY_CHARS:
+    while trimmed and total > max_chars:
         total -= len(trimmed[0].content)
         dropped.append(trimmed[0])
         trimmed = trimmed[1:]
     return trimmed, dropped
 
 
-def _history_messages(request: RunRequest) -> list[BaseMessage]:
+def _history_messages(request: RunRequest, budget: Optional[Any] = None) -> list[BaseMessage]:
     """Prior conversation turns, oldest first, bounded so a long chat cannot
     blow the context window. Keeps the MOST RECENT turns when trimming."""
-    trimmed, _dropped = _bounded_history(request)
+    trimmed, _dropped = _bounded_history(request, budget)
     return [
         HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
         for t in trimmed
@@ -945,24 +1249,33 @@ def _history_messages(request: RunRequest) -> list[BaseMessage]:
 
 
 async def _dropped_context_block(
-    request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter,
-) -> tuple[list[BaseMessage], str]:
+    request: RunRequest,
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+    budget: Optional[Any] = None,
+    *,
+    emit: bool = True,
+) -> tuple[list[BaseMessage], str, list[Any]]:
     """The bounded history messages plus an inert dropped-context block ("").
 
-    When the history is under the bound nothing is dropped, so no block is
-    produced and the message list is byte-identical to the pre-change behaviour.
-    Extraction is deterministic-first and produces INERT candidates only. It is
-    fail-closed: if extraction cannot complete, NO block is emitted (never a
-    lossy summary) and an honest event is recorded. Extraction never blocks or
-    fails the run.
+    Returns `(messages, block, dropped_turns)`. When the history is under the
+    bound nothing is dropped, so no block is produced and the message list is
+    byte-identical to the pre-change behaviour. Extraction is deterministic-first
+    and produces INERT candidates only. It is fail-closed: if extraction cannot
+    complete, NO block is emitted (never a lossy summary) and an honest event is
+    recorded. Extraction never blocks or fails the run.
+
+    `emit=False` suppresses the extraction event, used when `execute_run`
+    re-derives the history after measuring the dropped block's own cost (so the
+    event is emitted exactly once).
     """
-    kept, dropped = _bounded_history(request)
+    kept, dropped = _bounded_history(request, budget)
     messages = [
         HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
         for t in kept
     ]
     if not dropped:
-        return messages, ""
+        return messages, "", dropped
     try:
         from .eclipse_memory.dropped_context import (  # noqa: PLC0415
             MAX_ITEMS,
@@ -1004,28 +1317,30 @@ async def _dropped_context_block(
                 model_used = False
         block = render_dropped_context_block(result)
         try:
-            await emitter.emit(
-                "memory.dropped_context_extracted",
-                {
-                    "droppedTurns": len(dropped),
-                    "scanned": result.scanned,
-                    "candidates": len(result.items),
-                    "emitted": bool(block),
-                    "ok": result.ok,
-                    "modelAssisted": model_used,
-                    "reason": result.reason or None,
-                },
-            )
+            if emit:
+                await emitter.emit(
+                    "memory.dropped_context_extracted",
+                    {
+                        "droppedTurns": len(dropped),
+                        "scanned": result.scanned,
+                        "candidates": len(result.items),
+                        "emitted": bool(block),
+                        "ok": result.ok,
+                        "modelAssisted": model_used,
+                        "reason": result.reason or None,
+                    },
+                )
         except Exception:  # noqa: BLE001
             pass
-        return messages, block
+        return messages, block, dropped
     except Exception as exc:  # noqa: BLE001 - extraction must never break a run
         try:
-            await emitter.emit("memory.dropped_context_failed", {"error": str(exc), "droppedTurns": len(dropped)})
+            if emit:
+                await emitter.emit("memory.dropped_context_failed", {"error": str(exc), "droppedTurns": len(dropped)})
         except Exception:  # noqa: BLE001
             pass
         # Fail closed: emit no block at all, carry on.
-        return messages, ""
+        return messages, "", dropped
 
 
 

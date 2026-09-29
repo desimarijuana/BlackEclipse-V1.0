@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-28
+last-verified: 2026-09-29
 ---
 
 # Harness Architecture
@@ -67,6 +67,7 @@ Two boundaries, both deliberate:
 | `session_index.py` | builds the bounded, redacted `SessionMessage` search index of a completed run (never a second copy of the trace) + `build_summary` (a bounded deterministic session summary; searchable, never auto-injected) |
 | `learning_review.py` | the bounded in-process post-run learning-review queue (priority-ordered, per-session coalescing, idle-aware; deterministic + optional inert model proposal; never enables a skill) |
 | `prompt_segments.py` | immutable prompt segments + a stable identity-only `prompt_cache_key`, selective bounded skill-manifest injection, and `prompt.plan` observability (`build_prompt_plan`, `build_skill_manifest`, `compare_plans`) |
+| `context_budget.py` | the measured per-run history budget: sums the resolved system prompt, advertised tool schemas, per-run blocks and user turn, derives the history allowance from the resolved model's declared window (unknown → conservative ceiling), and keeps `MAX_HISTORY_CHARS` as an absolute cap (`compute_history_budget`) |
 | `memory_providers/` | the M8 external-memory-provider layer: `protocol.py` (`MemoryProvider` contract + typed request/response, external `provenance`/`verified=false` defaults), `native.py`, `mcp.py` (read-only-first, L2 write-gated, no automatic writes), `registry.py`, `routing.py` (native-first + external fencing, never promotes), `diagnostics.py` |
 | `eclipse_memory/profiles.py` | the M4 named-profile registry (`ProfileRegistry`) + directory projection under `.black-eclipse/profiles/<id>/`; metadata only, READ-ONLY inheritance, no memory content |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
@@ -422,6 +423,32 @@ observed, and the front door sends the terminal `client.final` with the
 authoritative answer when the stream ends. If SSE is unavailable the client
 falls back to the one-shot `/api/harness/chat` — a run always yields an answer
 or an honest error.
+
+### Model-aware context budgeting
+
+History is no longer bounded by a hardcoded guess. Before a run, the runtime
+measures the **actual request** — the resolved system prompt, the tool schemas
+advertised for the run, the per-run blocks (profile, skill manifest, retrieved
+memory, dropped-context) and the user turn — then derives the history allowance
+from the **resolved model's declared context window** (`ProviderSpec.context_window`
++ `MODEL_CONTEXT_WINDOWS`, via `resolve_context_window`) minus a reserved output
+allowance and a margin. `MAX_HISTORY_CHARS` remains an absolute ceiling. The
+estimator is the existing `eclipse_memory/profile.py::estimate_tokens` — an
+approximation, hence the margin; no tokenizer dependency is added.
+
+An **unknown window stays unknown**: local servers, routers and a custom endpoint
+make the budget inert and the bound falls back to the old
+`MAX_HISTORY_TURNS` / `MAX_HISTORY_CHARS` constants, byte-identical to previous
+behaviour. Every surface reports "unknown" rather than a guessed number.
+
+A provider context-length rejection is classified as `CONTEXT_OVERFLOW`
+(false-positive guarded against rate-limit/timeout/auth/quota), retried **once**
+with half the allowance when it happened on the first model call (so no
+side-effecting tool is re-run), and otherwise reported with a specific reason and
+remedy. The success path emits `memory.history_bounded` (counts/estimates only)
+so a trimmed turn is never silent; the additive `RunResult.context` blob and the
+`HarnessRun.context` column carry the same facts for old-row-safe reads.
+Decisions: ADR-H63, ADR-H64 in [`decisions.md`](./decisions.md).
 
 ### Token accounting
 

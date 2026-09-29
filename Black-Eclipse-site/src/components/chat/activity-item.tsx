@@ -10,7 +10,7 @@
 // a developer-facing view is allowed to show.
 
 import { useState } from 'react';
-import { AlertCircle, Check, ChevronRight, Globe, Loader2, Search, Sigma, Wrench } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ActivityItem } from '@/lib/agent/response-model';
 
@@ -29,6 +29,7 @@ function formatDuration(ms: number): string {
 
 /** Pick a category icon from the operation kind/name (display only). */
 function CategoryIcon({ item, className }: { item: ActivityItem; className?: string }) {
+  if (item.kind === 'bounded') return <Scissors size={12} className={className} />;
   if (item.kind === 'retrieval') return <Globe size={12} className={className} />;
   if (/search|research/.test(item.name)) return <Search size={12} className={className} />;
   if (/calc|rsi|sma|indicator|technical/.test(item.name)) return <Sigma size={12} className={className} />;
