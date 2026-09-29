@@ -36,6 +36,12 @@ interface TabBarProps {
    * it to that tab's position. Enables HTML5 drag on each tab button.
    */
   onReorder?: (fromId: string, toId: string) => void
+  /**
+   * Wrap tabs onto multiple rows instead of scrolling horizontally. Use for a
+   * dense toolbar of long-named tabs where a hidden-scrollbar row would clip the
+   * last tab with no visible affordance.
+   */
+  wrap?: boolean
 }
 
 /**
@@ -54,13 +60,15 @@ export function TabBar({
   onItemRemove,
   variant = 'glass',
   onReorder,
+  wrap = false,
 }: TabBarProps) {
   const [dragId, setDragId] = React.useState<string | null>(null)
   const [overId, setOverId] = React.useState<string | null>(null)
   return (
     <div
       className={cn(
-        'mb-5 flex items-center gap-1.5 p-1 rounded-2xl shrink-0 overflow-x-auto scrollbar-hide',
+        'mb-5 flex items-center gap-1.5 p-1 rounded-2xl shrink-0',
+        wrap ? 'flex-wrap' : 'overflow-x-auto scrollbar-hide',
         variant === 'glass' ? 'tab-bar-glass' : 'tab-bar-subtle',
         className
       )}

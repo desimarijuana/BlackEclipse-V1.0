@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
+  AlertCircle, FolderGit2, Loader2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -226,11 +226,15 @@ function FilterRow<T extends string>({
 }
 
 function LoadingGrid() {
+  // A labelled spinner, not empty card shells: empty pulsing boxes read as a
+  // broken/blank page while the (slow) Python runtime answers the first call.
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="rounded-2xl border border-white/10 glass-card p-4 h-[150px] animate-pulse" />
-      ))}
+    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/20 glass-card-subtle py-16 text-muted-foreground">
+      <Loader2 className="animate-spin" size={18} />
+      <p className="text-[11px]">Loading the skill library…</p>
+      <p className="text-[10px] text-muted-foreground/70">
+        First load starts the Python runtime, which can take a few seconds.
+      </p>
     </div>
   );
 }

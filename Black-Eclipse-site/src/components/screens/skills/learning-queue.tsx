@@ -9,6 +9,7 @@ import {
   AlertCircle, FileText, Lightbulb, Loader2, RefreshCcw, ShieldCheck, ThumbsDown, WandSparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { LearningCandidate } from "@/lib/harness/skills-types";
 import { formatWhen, Panel } from "./skill-ui";
@@ -45,6 +46,7 @@ export function LearningQueue({
   onOpenDraft: (skillId: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const pagination = usePagination(candidates, 25);
 
   const act = async (id: string, fn: (id: string) => Promise<void>) => {
     setBusy(id);
@@ -93,10 +95,11 @@ export function LearningQueue({
           </p>
         </Panel>
       ) : (
-        <div className="space-y-3">
-          {candidates.map((candidate) => (
-            <Panel key={candidate.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
+        <>
+          <div className="space-y-3">
+            {pagination.pageItems.map((candidate) => (
+              <Panel key={candidate.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-foreground">{candidate.title}</span>
@@ -175,7 +178,9 @@ export function LearningQueue({
               </div>
             </Panel>
           ))}
-        </div>
+          </div>
+          <PaginationFooter pagination={pagination} label="candidates" />
+        </>
       )}
     </div>
   );

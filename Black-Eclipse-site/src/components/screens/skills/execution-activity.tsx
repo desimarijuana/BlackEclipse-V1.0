@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Activity, AlertCircle, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillExecutionRecord } from "@/lib/harness/skills-types";
 import { formatDuration, formatWhen, MetaRow, Panel } from "./skill-ui";
@@ -34,6 +35,7 @@ export function ExecutionActivity({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const pagination = usePagination(executions, 25);
 
   return (
     <div className="animate-fade-in-up">
@@ -65,8 +67,9 @@ export function ExecutionActivity({
           <p className="mt-1 text-[11px] text-muted-foreground">Run a skill from the library to see its trace here.</p>
         </Panel>
       ) : (
-        <div className="space-y-2">
-          {executions.map((execution) => {
+        <>
+          <div className="space-y-2">
+            {pagination.pageItems.map((execution) => {
             const expanded = open === execution.runId;
             return (
               <Panel key={execution.id}>
@@ -171,7 +174,9 @@ export function ExecutionActivity({
               </Panel>
             );
           })}
-        </div>
+          </div>
+          <PaginationFooter pagination={pagination} label="executions" />
+        </>
       )}
     </div>
   );

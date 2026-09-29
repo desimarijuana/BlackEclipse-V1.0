@@ -274,7 +274,10 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   ], [candidates.length]);
 
   return (
-    <div className="w-full px-4 py-6 md:px-8">
+    // Full-width screen container matching the app convention (`w-full`,
+    // `px-4 md:px-8`); `#main-content` owns the scroll. `pb-24` keeps the last
+    // row clear of the floating chat dock at the bottom.
+    <div className="w-full px-4 py-6 md:px-8 pb-24">
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-xs font-semibold shadow-lg glass-card-strong ${
           toast.tone === "ok" ? "border-emerald-400/30 text-emerald-200" : "border-rose-400/30 text-rose-200"
@@ -310,7 +313,7 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
         </>
       ) : (
         <>
-          <TabBar items={tabs} activeId={tab} onChange={(id) => setTab(id as Tab)} variant="subtle" />
+          <TabBar items={tabs} activeId={tab} onChange={(id) => setTab(id as Tab)} variant="subtle" wrap />
           {tab === "library" && (
             <SkillLibrary
               skills={skills}

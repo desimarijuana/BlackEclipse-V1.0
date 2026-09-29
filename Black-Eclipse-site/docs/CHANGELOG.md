@@ -8,6 +8,39 @@ last-verified: 2026-09-28
 
 ## 2026-09-28
 
+- **Skills UI: full-width layout, pagination, wrapping tabs.** (1) The Skills
+  screen now uses the app's screen convention (`w-full`, `px-4 md:px-8`) with
+  `pb-24`, so content fills the width and the last row is never hidden behind the
+  floating chat dock. (2) Added a shared `Pagination` (`src/components/ui/
+  pagination.tsx`: `usePagination` + `PaginationFooter`, client-side, page-size
+  selector, auto-clamps when the list shrinks) and applied it to the unbounded
+  lists — Learning Queue (25/page), Execution Activity (25/page), and Journey
+  relations (25/page). This fixes long lists overflowing the page. (3) `TabBar`
+  gained a `wrap` option (dense tab rows wrap instead of clipping the last tab
+  behind a hidden scrollbar); the Skills tab bar uses it. UI-only; no
+  contract/architecture change. Checks: Vitest **1808 passed**; Python **1315
+  passed**; `tsc` clean; lint 0 errors. `jdds.db` untouched.
+  docs updated: CHANGELOG.md
+
+## 2026-09-28
+
+- **Skills UI: journey force-graph + execution-list 404 fix.** (1) The Journey
+  tab rendered two long text columns instead of a graph; it now shows an
+  ECharts force-directed graph of the derived learning journey
+  (`learning-graph.tsx`): node colour by `kind`, edge colour by `relation`, size
+  by degree, hover tooltip, click-to-inspect (relations list), kind-filter
+  highlight, and a full-page (Esc) mode — modelled on `investor-eye/graph-panel`.
+  No backend change; the nodes/edges already came from `learning_graph.py`.
+  (2) Fixed a real 404: `skills-browser.listSkillExecutions` called
+  `GET /api/skill-executions`, but only the `[runId]` proxy existed, so the
+  Execution Activity tab fetched nothing; added the list route. (3) The Library
+  loading state is now a labelled spinner instead of empty skeleton cards that
+  read as a broken page. Checks: Vitest **1808 passed**; Python **1315 passed**;
+  `tsc` clean; lint 0 errors. `jdds.db` untouched.
+  docs updated: CHANGELOG.md (UI-only change; no architecture/contract change)
+
+## 2026-09-28
+
 - **Engineering follow-up: lint, router split, frontend atoms, a11y.** (1) Fixed
   `eslint.config.mjs` to ignore `.next-dev/**` — the dev build output was being
   linted, producing all 400 reported "errors"; source now lints to **0 errors**,
