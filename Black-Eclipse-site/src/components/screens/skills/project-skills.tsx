@@ -8,7 +8,7 @@
 // same permission/execution gate as any other skill.
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FolderGit2, Loader2, ShieldCheck, ShieldOff, History } from "lucide-react";
+import { CheckCircle2, FolderGit2, ShieldCheck, ShieldOff, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -16,6 +16,7 @@ import {
   projectTrustHistory,
 } from "@/lib/harness/skills-browser";
 import type { ProjectSkillStatus, ProjectTrustApproval } from "@/lib/harness/skills-types";
+import { LoadingState } from "./skill-ui";
 
 export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
   const [status, setStatus] = useState<ProjectSkillStatus | null>(null);
@@ -46,7 +47,7 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>;
+    return <LoadingState label="Loading project skills…" />;
   }
   if (error) {
     return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;

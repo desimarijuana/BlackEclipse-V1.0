@@ -5,6 +5,7 @@
 // Uses the existing frosted-glass classes (see the black-eclipse-ui skill) — no
 // new visual language.
 
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { EvaluationStatus, SkillRisk, SkillStatus } from "@/lib/harness/skills-types";
 
@@ -127,6 +128,21 @@ export function SectionTitle({ icon: Icon, title, hint }: { icon: React.ElementT
         <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">{title}</h3>
       </div>
       {hint && <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * The single loading placeholder for every Skills sub-page. Centred on both
+ * axes with a consistent minimum height so a tab never appears left-aligned,
+ * top-anchored or at a different height than its siblings.
+ */
+export function LoadingState({ label = "Loading…", hint }: { label?: string; hint?: string }) {
+  return (
+    <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+      <Loader2 className="animate-spin" size={18} />
+      <p className="text-[11px]">{label}</p>
+      {hint && <p className="text-[10px] text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }

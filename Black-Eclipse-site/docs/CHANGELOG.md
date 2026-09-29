@@ -8,6 +8,39 @@ last-verified: 2026-09-28
 
 ## 2026-09-28
 
+- **Memory & Skills: consistent, properly-centred loading states.** Loading
+  placeholders were inconsistent — some sat left-aligned, some top-anchored, at
+  differing heights, and `SkillQuality`/`Onboarding` rendered an inline spinner
+  with no centering at all. Added one shared `LoadingState` atom to
+  `skills/skill-ui.tsx` (flex column, both axes centred, `min-h-[40vh]`, optional
+  hint) and a matching centered `Spinner` in `eclipse-memory/memory-ui.tsx`, then
+  routed every Skills sub-page loader through it (library, learning queue,
+  execution activity, evaluation, project skills, bundles, journey, quality,
+  onboarding, skill detail). Removed the now-unused `Loader2` imports. UI-only;
+  no contract/architecture change. Checks: `tsc` clean; Vitest **1808 passed**;
+  Python **1315 passed**; `jdds.db` untouched.
+  no doc change — UI-only tweak; NAVIGATION/ARCHITECTURE contracts unchanged
+
+## 2026-09-28
+
+- **Memory & Skills UI: unreachable Memory sub-tabs, full-width panels.** (1)
+  Fixed a real bug in the Memory Control Room: the `History` (session-search)
+  view and the `Sessions` view both existed in the `Tab` union but the tab bar
+  only rendered `Sessions` — `History` was unreachable, and the subroute map
+  wrongly aliased `sessions → "history"`, so selecting Sessions opened the
+  buttonless search view. Added a distinct "Session Search" tab and corrected
+  the map (`sessions → sessions`, `history → history`). (2) The Memory tab bar
+  now passes `wrap` (like Skills) so the 15 tabs wrap instead of scrolling into
+  a hidden-scrollbar clip. (3) Memory root gained `pb-24` so content clears the
+  floating chat dock. (4) Removed the leftover `max-w-3xl` on the Skills
+  `GuidedLearn` and `OnboardingPanel` roots so those sub-pages fill the width
+  like the rest of the screen. UI-only; no contract/architecture change. Checks:
+  Vitest **1808 passed**; Python **1315 passed**; `tsc` clean;
+  `jdds.db` untouched.
+  no doc change — UI-only fix; NAVIGATION/ARCHITECTURE contracts unchanged
+
+## 2026-09-28
+
 - **Skills UI: full-width layout, pagination, wrapping tabs.** (1) The Skills
   screen now uses the app's screen convention (`w-full`, `px-4 md:px-8`) with
   `pb-24`, so content fills the width and the last row is never hidden behind the

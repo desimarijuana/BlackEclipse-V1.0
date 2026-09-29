@@ -6,10 +6,10 @@
 // never promotes or enables anything.
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, LineChart, Loader2 } from "lucide-react";
+import { AlertTriangle, LineChart } from "lucide-react";
 import { getSkillQuality } from "@/lib/harness/skills-browser";
 import type { SkillQualityMetrics } from "@/lib/harness/skills-types";
-import { MetaRow, Panel } from "./skill-ui";
+import { LoadingState, MetaRow, Panel } from "./skill-ui";
 
 export function SkillQualityPanel({ skillId, version }: { skillId: string; version?: string }) {
   const [metrics, setMetrics] = useState<SkillQualityMetrics | null>(null);
@@ -24,7 +24,7 @@ export function SkillQualityPanel({ skillId, version }: { skillId: string; versi
   }, [skillId, version]);
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-3"><Loader2 size={12} className="animate-spin" /> Loading quality…</div>;
+  if (loading) return <LoadingState label="Loading quality…" />;
   if (error) return <p className="text-[11px] text-rose-300">{error}</p>;
   if (!metrics || metrics.executions === 0) {
     return <p className="text-[11px] text-muted-foreground">No executions recorded yet — quality is unknown, not zero.</p>;

@@ -5,11 +5,11 @@
 // marked; a blocked/failed mandatory dimension blocks promotion.
 
 import { useEffect, useState } from "react";
-import { AlertCircle, FlaskConical, Loader2, RefreshCcw } from "lucide-react";
+import { AlertCircle, FlaskConical, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillEvaluationRecord, SkillSummary } from "@/lib/harness/skills-types";
-import { EvalBadge, formatWhen, Panel } from "./skill-ui";
+import { EvalBadge, formatWhen, LoadingState, Panel } from "./skill-ui";
 
 export function EvaluationCenter({
   skills,
@@ -85,7 +85,7 @@ export function EvaluationCenter({
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>
+        <LoadingState label="Loading evaluations…" />
       ) : error ? (
         <Panel className="p-8 text-center"><AlertCircle size={24} className="mx-auto text-rose-400" /><p className="mt-2 text-sm text-foreground">{error}</p></Panel>
       ) : evaluations.length === 0 ? (

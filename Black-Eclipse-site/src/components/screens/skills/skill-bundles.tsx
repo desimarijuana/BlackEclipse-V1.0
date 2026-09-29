@@ -7,7 +7,7 @@
 // permission. This panel creates/edits and resolves bundles.
 
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, Loader2, Plus, RefreshCcw, Trash2, X } from "lucide-react";
+import { Boxes, Plus, RefreshCcw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import {
   lockSkillBundle, unlockSkillBundle,
 } from "@/lib/harness/skills-browser";
 import type { SkillBundle, SkillBundleResolution } from "@/lib/harness/skills-types";
+import { LoadingState } from "./skill-ui";
 
 const EMPTY: Partial<SkillBundle> & { id: string } = {
   id: "", name: "", description: "", skills: [], instruction: "", constraints: "", provenance: "manual",
@@ -80,7 +81,7 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>;
+    return <LoadingState label="Loading bundles…" />;
   }
   if (error) {
     return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillExecutionRecord } from "@/lib/harness/skills-types";
-import { formatDuration, formatWhen, MetaRow, Panel } from "./skill-ui";
+import { formatDuration, formatWhen, LoadingState, MetaRow, Panel } from "./skill-ui";
 
 export interface ExecutionWithSkill extends SkillExecutionRecord {
   skillName?: string;
@@ -57,7 +57,7 @@ export function ExecutionActivity({
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>
+        <LoadingState label="Loading execution activity…" />
       ) : error ? (
         <Panel className="p-8 text-center"><AlertCircle size={24} className="mx-auto text-rose-400" /><p className="mt-2 text-sm text-foreground">{error}</p></Panel>
       ) : executions.length === 0 ? (

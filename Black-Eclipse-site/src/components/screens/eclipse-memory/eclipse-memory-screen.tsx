@@ -79,19 +79,20 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       explorer: "memories", activity: "activity", health: "health",
       memories: "memories", overview: "overview", policies: "policies",
       suggestions: "suggestions", lifecycle: "lifecycle", profile: "profile",
-      history: "history", sessions: "history",
+      history: "history", sessions: "sessions",
       reviews: "reviews", learning: "reviews",
     };
     if (slug && map[slug]) setTab(map[slug]);
   });
 
   return (
-    <div className="w-full px-4 py-6 md:px-8">
+    <div className="w-full px-4 py-6 md:px-8 pb-24">
       <TabBar
         items={[
           { id: "overview", label: "Overview", icon: Brain },
           { id: "memories", label: "Facts", icon: Database },
-          { id: "sessions", label: "Session History", icon: MessageSquare },
+          { id: "sessions", label: "Sessions", icon: MessageSquare },
+          { id: "history", label: "Session Search", icon: Search },
           { id: "skills", label: "Skills", icon: Wrench },
           { id: "suggestions", label: "Suggestions", icon: Lightbulb },
           { id: "lifecycle", label: "Lifecycle", icon: RefreshCcw },
@@ -107,6 +108,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
         activeId={tab}
         onChange={(id) => setTab(id as Tab)}
         variant="subtle"
+        wrap
       />
       {tab === "overview" && <Overview onNavigate={setTab} />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
@@ -716,7 +718,7 @@ function History() {
 
   return (
     <div className="animate-fade-in-up">
-      <Header title="Session History" hint="Search what was discussed, decided, corrected or discovered in prior sessions. Historical content is CONTEXT — never current market evidence; re-retrieve current facts separately." />
+      <Header title="Session Search" hint="Search what was discussed, decided, corrected or discovered in prior sessions. Historical content is CONTEXT — never current market evidence; re-retrieve current facts separately." />
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
       <div className="rounded-2xl border border-white/10 glass-card p-4">
         <div className="flex gap-2">

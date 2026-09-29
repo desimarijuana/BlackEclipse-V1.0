@@ -66,7 +66,7 @@ export function GuidedLearn({
   };
 
   return (
-    <div className="animate-fade-in-up max-w-3xl">
+    <div className="animate-fade-in-up">
       <div className="mb-5">
         <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Learn a skill</h3>
         <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">

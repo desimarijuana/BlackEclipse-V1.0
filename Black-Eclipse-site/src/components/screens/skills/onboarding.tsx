@@ -6,9 +6,10 @@
 // starter content carries visible `bundled` provenance and is removable.
 
 import { useEffect, useState } from "react";
-import { GraduationCap, Loader2, Sparkles, X } from "lucide-react";
+import { GraduationCap, Sparkles, X } from "lucide-react";
 import { getOnboarding } from "@/lib/harness/skills-browser";
 import type { OnboardingContent } from "@/lib/harness/skills-types";
+import { LoadingState } from "./skill-ui";
 
 export function OnboardingPanel({ onClose }: { onClose?: () => void }) {
   const [content, setContent] = useState<OnboardingContent | null>(null);
@@ -23,12 +24,12 @@ export function OnboardingPanel({ onClose }: { onClose?: () => void }) {
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) return <div className="flex items-center gap-2 py-8 text-[11px] text-muted-foreground"><Loader2 size={12} className="animate-spin" /> Loading…</div>;
+  if (loading) return <LoadingState label="Loading…" />;
   if (error) return <p className="py-4 text-[11px] text-rose-300">{error}</p>;
   if (!content) return null;
 
   return (
-    <div className="animate-fade-in-up max-w-3xl">
+    <div className="animate-fade-in-up">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Start here</h3>

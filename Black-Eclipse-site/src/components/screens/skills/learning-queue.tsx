@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { LearningCandidate } from "@/lib/harness/skills-types";
-import { formatWhen, Panel } from "./skill-ui";
+import { formatWhen, LoadingState, Panel } from "./skill-ui";
 
 const TYPE_LABEL: Record<string, string> = {
   failure_recovery: "Failure recovery",
@@ -80,7 +80,7 @@ export function LearningQueue({
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>
+        <LoadingState label="Loading learning candidates…" />
       ) : error ? (
         <Panel className="p-8 text-center">
           <AlertCircle size={24} className="mx-auto text-rose-400" />

@@ -8,14 +8,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
-  FlaskConical, GitBranch, History, Info, LineChart, Loader2, Pencil, Play, Power, ScrollText, ShieldCheck,
+  FlaskConical, GitBranch, History, Info, LineChart, Pencil, Play, Power, ScrollText, ShieldCheck,
   Trash2, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";
 import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/skills-browser";
-import { EvalBadge, formatDuration, formatWhen, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
+import { EvalBadge, formatDuration, formatWhen, LoadingState, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
 import { SkillQualityPanel } from "./skill-quality";
 
 function Collapsible({
@@ -84,11 +84,7 @@ export function SkillDetailPanel({
   }, [skill]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
-        <Loader2 className="animate-spin mr-2" size={16} /> Loading skill…
-      </div>
-    );
+    return <LoadingState label="Loading skill…" />;
   }
   if (error || !skill) {
     return (

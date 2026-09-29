@@ -144,8 +144,13 @@ export function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-[11px] text-muted-foreground">{children}</p>;
 }
 
-export function Spinner() {
-  return <div className="flex items-center justify-center py-16 text-muted-foreground"><Loader2 className="animate-spin mr-2" size={16} /> Loading…</div>;
+export function Spinner({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+      <Loader2 className="animate-spin" size={18} />
+      <p className="text-[11px]">{label}</p>
+    </div>
+  );
 }
 
 export function ErrorBox({ message }: { message: string }) {

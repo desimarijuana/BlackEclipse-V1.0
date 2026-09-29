@@ -6,13 +6,13 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, FolderGit2, Loader2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
+  AlertCircle, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SkillSummary } from "@/lib/harness/skills-types";
-import { EvalBadge, RiskBadge, StatusBadge } from "./skill-ui";
+import { EvalBadge, LoadingState, RiskBadge, StatusBadge } from "./skill-ui";
 
 const CATEGORIES = ["all", "research", "quality", "finance", "system"] as const;
 const STATUSES = ["all", "enabled", "validated", "testing", "draft", "disabled", "deprecated", "rejected"] as const;
@@ -226,17 +226,9 @@ function FilterRow<T extends string>({
 }
 
 function LoadingGrid() {
-  // A labelled spinner, not empty card shells: empty pulsing boxes read as a
-  // broken/blank page while the (slow) Python runtime answers the first call.
-  return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-border/20 glass-card-subtle py-16 text-muted-foreground">
-      <Loader2 className="animate-spin" size={18} />
-      <p className="text-[11px]">Loading the skill library…</p>
-      <p className="text-[10px] text-muted-foreground/70">
-        First load starts the Python runtime, which can take a few seconds.
-      </p>
-    </div>
-  );
+  // A labelled, centred spinner, not empty card shells: empty pulsing boxes
+  // read as a broken/blank page while the (slow) Python runtime answers.
+  return <LoadingState label="Loading the skill library…" hint="First load starts the Python runtime, which can take a few seconds." />;
 }
 
 function Empty({ icon: Icon, title, hint }: { icon: React.ElementType; title: string; hint: string }) {

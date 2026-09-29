@@ -8,12 +8,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { GitBranch, Loader2, Minimize2, RefreshCcw, X } from "lucide-react";
+import { GitBranch, Minimize2, RefreshCcw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { learningJourney } from "@/lib/harness/skills-browser";
 import type { JourneyNode, LearningJourney } from "@/lib/harness/skills-types";
-import { formatWhen } from "./skill-ui";
+import { formatWhen, LoadingState } from "./skill-ui";
 import { FullPageButton, KIND_COLOR, LearningGraphChart } from "./learning-graph";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 
@@ -86,12 +86,7 @@ export function LearningJourneyPanel() {
   const kinds = useMemo(() => Object.keys(graph?.stats.byKind ?? {}), [graph]);
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-        <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Loading the learning journey…</span>
-        <span className="text-[10px] text-muted-foreground/70">First load can start the Python runtime.</span>
-      </div>
-    );
+    return <LoadingState label="Loading the learning journey…" hint="First load can start the Python runtime." />;
   }
   if (error) return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;
   if (!graph) return null;
