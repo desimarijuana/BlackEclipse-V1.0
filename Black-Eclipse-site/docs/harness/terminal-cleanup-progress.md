@@ -232,3 +232,26 @@ commit.
 **Still open:** none, except the **`jdds.db` history purge (Item 5)**, which was
 prepared and measured with a written recommendation to **keep it** (the ~33.4 MB
 packed gain is not worth a total history rewrite + force-push). The loop ends here.
+
+## Limitations fixed (follow-up)
+
+Two concrete limitations from the final report were fixable and are now fixed;
+the rest are inherently external (see "Still open").
+
+1. **Dangling objects pruned.** `git fsck` reported **5 dangling objects** (blobs
+   from earlier index rewrites). `git gc --prune=now` -> `count: 54 -> 0`,
+   `garbage 0`, and `git fsck` now reports **0 dangling**. `size-pack` 38.30 ->
+   38.40 MiB (repack variance). No history touched.
+2. **`core.autocrlf` no longer fights the attributes.** `core.autocrlf` was
+   `true`, which appends CRLF on checkout/edits and is exactly what produced the
+   mixed endings. Set repo-locally to **`false`**, so `eol=lf` (and the explicit
+   `eol=crlf` for `.ps1`) are the single source of truth. `git ls-files --eol` now
+   shows only the one intentional `eol=crlf` `.ps1` and the three protected user
+   files (the protected `investor-eye-architecture.md` is CRLF on disk and left
+   exactly as found — its index blob is already LF, so a commit would normalize it
+   without content change).
+3. **CI workflow validated as YAML.** `yaml.safe_load('.github/workflows/ci.yml')`
+   parses cleanly (it is the only thing I can verify without pushing).
+
+**Gates after the fixes:** `tsc` 0; vitest **1902 / 160**; eslint 0 errors /
+24 warnings; Python 1603; `npm run test:evals` ALL PASS.
