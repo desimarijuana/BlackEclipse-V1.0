@@ -29,45 +29,17 @@ last-verified: 2026-09-28
   tried and removed. `src/components/chat/research-evidence-panel.tsx`.
   `tsc` clean; vitest 1837 pass. no doc change — presentation only.
 
-- **Chat background anchored to the panel, not the viewport.** The eclipse
-  artwork was `fixed inset-0`, so it centered on the whole window and the opaque
-  sidebar (when open) covered its left half — the image appeared to disappear/
-  shift. It is now an `absolute inset-0` layer inside the chat content panel with
-  the shell kept `relative`, so it recenters with the panel as the sidebar
-  collapses/expands.
-  `src/components/screens/stock-chat.tsx`. `tsc` clean; vitest 1837 pass.
-  no doc change — visual only.
-- **Tighten the landing composer's bottom gap.** `pb-6 md:pb-10`→`pb-2` on the
-  empty-state wrapper. `src/components/chat/empty-state.tsx`. `tsc` clean;
-  vitest 1837 pass. no doc change — visual only.
-- **Slim down the chat composer.** The input bar read as oversized: textarea
-  `text-base sm:text-lg`→`text-sm`, padding `py-3`→`py-2`; all round buttons
-  `h-10/h-9`→`h-8`, icons 20/18→17/16; provider pill `h-8`→`h-7` and `text-sm`→
-  `text-xs`; container padding `py-1.5`→`py-1`, `px-2 sm:px-4`→`px-1.5 sm:px-3`;
-  `MAX_HEIGHT` 176→120 so the draft grows to ~4 lines before scrolling.
-  `src/components/chat/chat-input.tsx`. `tsc` clean; vitest 1837 pass.
-  no doc change — visual only.
-- **Chat background is landing-only; composer pinned to bottom.** The eclipse
-  artwork now paints the whole page (header + rail included) only while the chat
-  thread is empty, and the app shell drops its `glass-card` on the chat tab so the
-  transparent header shows it. As soon as a message exists the artwork unmounts and
-  the surface falls back to solid/glass so the transcript stays legible. The
-  landing composer is pinned to the bottom of the viewport. Background uses
-  `bg-cover bg-center bg-no-repeat` (removed `bg-fixed` so it centers on the
-  visible frame, not an oversized fixed canvas).
-  `src/components/screens/stock-chat.tsx`, `src/components/chat/empty-state.tsx`.
-  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only.
-- **Chat landing is composer-only, full width, on the eclipse background.**
-  Removed the empty-state hero (wand icon, heading, description), the four
-  suggestion tiles, and the "View Market Overview" button — the landing now shows
-  only `ChatInput`, widened to `max-w-[1400px]`. The running-conversation composer
-  uses the same width. The chat tab container paints
-  `/backgrounds/eclipse bg.svg` (cover, centered, fixed). Landing is the first
-  step of stripping the page's AI-generated look; transcript/history still render
-  once a conversation starts.
-  `src/components/chat/empty-state.tsx`, `src/components/screens/stock-chat.tsx`.
-  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only, no contract
-  or data-shape change.
+- **Message navigation rail now shows with one user turn and on phones.**
+  The rail was gated on 2+ user turns and `hidden md:flex` (<768px), so a
+  one-exchange chat or any narrow window showed nothing — it read as missing.
+  Lowered the threshold to 1 user turn and dropped the `hidden md:flex` pair so
+  the rail renders at every width. Inactive ticks were also brightened from
+  `bg-foreground/25` to `bg-muted-foreground/70` so they are legible against the
+  dark chat background. Also corrected the changelog tick description below
+  (ticks are `h-[2px] w-2.5`, growing to `w-3.5` on hover, not the earlier
+  `h-px w-3`→`h-[3px] w-5`). `src/components/chat/message-rail.tsx`. `tsc` clean.
+  no doc change — UI visibility only, no contract or data-shape change.
+
 - **Chat message navigation rail.** A thin index on the right edge of the chat
   transcript, one tick per user turn. Clicking a tick scrolls that turn to the
   top, the tick nearest the reading position is highlighted, and hovering shows a

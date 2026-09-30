@@ -111,8 +111,8 @@ export function MessageRail({
     el.scrollTo({ top: Math.max(0, topWithin(el, node) - 12), behavior: "smooth" });
   };
 
-  // One tick is not navigation — show the rail only once there is somewhere to go.
-  if (userTurns.length < 2) return null;
+  // Show the rail as soon as there is a turn to jump back to.
+  if (userTurns.length < 1) return null;
 
   // Bound the rail like an editor minimap: when a conversation is long, show a
   // window of turns centred on the reading position instead of one tick per turn
@@ -132,7 +132,7 @@ export function MessageRail({
     <nav
       aria-label="Jump to message"
       className={cn(
-        "pointer-events-none absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 md:flex flex-col items-end gap-[3px] py-1",
+        "pointer-events-none absolute right-2 top-1/2 z-20 flex -translate-y-1/2 flex-col items-end gap-[3px] py-1",
         className,
       )}
     >
@@ -167,7 +167,7 @@ export function MessageRail({
                 // override both the flat corners and the accent colour.
                 // WIDTH grows only on HOVER. The active/reading tick keeps its
                 // size and only glows the accent colour.
-                "w-2.5 bg-foreground/25",
+                "w-2.5 bg-muted-foreground/70",
                 hovering && "w-3.5 bg-[var(--primary)] shadow-[0_0_7px_var(--primary)]",
                 active && !hovering && "bg-[var(--primary)] shadow-[0_0_6px_var(--primary)]",
               )}
