@@ -1,7 +1,7 @@
 ---
 title: Decisions (ADR log)
 status: Current
-last-verified: 2026-09-25
+last-verified: 2026-09-30
 ---
 
 # Decisions â€” Architecture Decision Record
@@ -599,7 +599,8 @@ to an ADR if it gets challenged.
 ---
 
 ## ADR-030 â€” Resilient multi-source research: structured failure diagnostics, independent routes, bounded retry (2026)
-**Decision:** Web search/page fetch return a structured RetrievalDiagnostic (provider, category, HTTP status, latency, timeout, result count, bytes, parse outcome, retryability) rather than an opaque UNAVAILABLE; a JSON source document is accepted instead of rejected as 'not HTML'. Structured retrieval is one route among several: a direct SEC EDGAR source (tier primary, US issuers, identity-gated) and an operator-configurable second search provider (vault keys SEARCH_API_CONFIG/SEARCH_API_KEY) join the keyless DuckDuckGo default, with the source policy as data in etrieval/planner.py (inancial_statements â†’ [SEC, JDDS, WEB]). The loop retries only transient failures with bounded backoff, switches to the next independent provider, targets unresolved legs, and records a stopReason. Skill learning stays operator-gated and automatic promotion remains blocked.
+**Decision:** Web search/page fetch return a structured RetrievalDiagnostic (provider, category, HTTP status, latency, timeout, result count, bytes, parse outcome, retryability) rather than an opaque UNAVAILABLE; a JSON source document is accepted instead of rejected as 'not HTML'. Structured retrieval is one route among several: a direct SEC EDGAR source (tier primary, US issuers, identity-gated) and an operator-configurable second search provider (vault keys SEARCH_API_CONFIG/SEARCH_API_KEY) join the keyless DuckDuckGo default, with the source policy as data in 
+etrieval/planner.py (inancial_statements â†’ [SEC, JDDS, WEB]). The loop retries only transient failures with bounded backoff, switches to the next independent provider, targets unresolved legs, and records a stopReason. Skill learning stays operator-gated and automatic promotion remains blocked.
 **Why:** The NVDA run could not tell 'the web had nothing' from 'every route is broken'. Verified causes: DuckDuckGo's HTTP 202 anti-bot page parsed to zero results and returned []; a valid pplication/json SEC XBRL response was rejected by a content-type gate; escalation discarded the failure reason; and all web routes shared one transport.
 **Impact:** src/lib/{retrieval-diagnostics,web-search,web-research}.ts, data-bridge.ts, python/harness/retrieval/*, python/harness/research/*, the NVDA labeled eval, and an operator smoke test. Full decisions: ADR-H25â€“H28 in docs/harness/decisions.md.
 
@@ -694,9 +695,9 @@ registry,runtime,evaluation}.py`, `eclipse_memory/{retrieval,service,store}.py`,
 errors.ts`. ADR-H45â€¦H47 in `docs/harness/decisions.md`.
 
 
-## ADR-035 — Autonomous-but-governed learning: provider layer, structured skill patches, hybrid namespaces, prompt segments (2026)
+## ADR-035 â€” Autonomous-but-governed learning: provider layer, structured skill patches, hybrid namespaces, prompt segments (2026)
 **Decision:** Add four capabilities without relaxing a safety invariant. External
-memory is a dedicated `MemoryProvider` layer over the existing MCP boundary —
+memory is a dedicated `MemoryProvider` layer over the existing MCP boundary â€”
 external results are `provenance=external_provider`/`verified=false`, fenced,
 native-first routed, never promoted; external writes require an explicit user
 request AND operator approval, and automatic external writes are absent by
@@ -710,7 +711,7 @@ authorized memory. The prompt is split into immutable segments with an
 identity-only `prompt_cache_key`, and skills are injected as a bounded relevant-
 only manifest.
 **Why:** The product must be autonomous in discovering, proposing, testing,
-versioning, activating, monitoring and rolling back improvements — but never
+versioning, activating, monitoring and rolling back improvements â€” but never
 autonomous in silently changing truth, permissions, financial-retrieval rules or
 irreversible behavior. Each capability therefore ends at a reviewable, versioned,
 reversible or clearly-labelled boundary.
@@ -719,13 +720,13 @@ reversible or clearly-labelled boundary.
 `memory_tools.py`, `service.py`, `graph.py`, `main.py`, `agents.py`,
 `eclipse_memory/{policy,schema,store}.py`, `skills/{manifest,registry,evaluation}.py`;
 migration 13; routes `/memory-providers/*` and `/skills/{id}/version-history|patch/**`;
-TS skill/memory clients + a patch-version UI panel. ADR-H52…H55 in
+TS skill/memory clients + a patch-version UI panel. ADR-H52â€”H55 in
 `docs/harness/decisions.md`.
 
-## ADR-036 — Long-lived sessions, named profiles and reversible file editing (2026)
+## ADR-036 â€” Long-lived sessions, named profiles and reversible file editing (2026)
 **Decision:** Add a durable `ChatSession` (metadata + a bounded deterministic
 summary) with a run-belongs-to-session / session-belongs-to-profile link and a
-ranked, filtered, bounded session search — history is context, never current
+ranked, filtered, bounded session search â€” history is context, never current
 evidence, and a summary is never auto-injected. Add named profiles as a metadata
 registry over `.black-eclipse/profiles/` with READ-ONLY inheritance and
 request-scoped isolation. Make the Markdown projection editable only through a
@@ -733,7 +734,7 @@ targeted, atomic, versioned API (expectedVersion guard, temp+fsync+rename,
 structured revision history + rollback + diff); SQLite stays canonical.
 **Why:** Users need long-lived sessions and named profiles for real isolation,
 and hand-editing a projection must not be able to lose a concurrent edit, leave a
-partial file, or lack an audit trail — without replacing SQLite or adding
+partial file, or lack an audit trail â€” without replacing SQLite or adding
 infrastructure.
 **Impact:** `persistence.py` (ChatSession + scope columns), `session_index.py`
 (summary), `eclipse_memory/profiles.py`, `schemas.py` (`RunRequest` ids),
@@ -741,7 +742,7 @@ infrastructure.
 (session/profile wiring), `src/lib/harness/{memory-files,run-service,
 eclipse-memory-{client,browser,types},python-client}.ts`, new `/api/sessions/**`,
 `/api/profiles/**`, `/api/eclipse-memory/files/{edit,history}`, and the Memory
-Control Room tabs. ADR-H56…H58 in `docs/harness/decisions.md`.
+Control Room tabs. ADR-H56â€”H58 in `docs/harness/decisions.md`.
 
 ## ADR-037 - Floating overlays must be portaled; app-wide z-index tiers (2026)
 **Decision:** Every floating surface (drawer, dialog, modal, fullscreen panel,
@@ -785,3 +786,14 @@ also generates camelCase aliases (to_camel + populate_by_name) - fixing a
 pre-existing bug where the TS front door's baseUrl/apiKey were silently dropped
 by pydantic. Settings > AI / LLM offers a numeric window field only when the
 catalog cannot resolve one; an emptied field clears the declaration.
+
+
+## ADR-038 - MCP config round-trip integrity: a save can never silently widen authority (2026)
+**Decision:** `upsert_mcp_config` merges from the incoming model's `model_fields_set`, not `if value is not None`: absent means preserve, explicitly present means replace (including explicit `null`/`false`/`{}`/`[]` for clearing). An omitted field cannot be reset by a partial save; the UI can still clear a field because it always sends every field it owns. This makes a save provably unable to widen authority by omission (`trust`, `enabled_effects`, `tool_effects`, `data_source_tools`, `confirmed_catalog_digest`, `selected_tools`). `env` keeps its write-only merge; `install_mcp_integration` is create-if-absent; `public_dict()` emits the raw operator-set bounds so the wire is lossless. A pure TS module (`src/lib/harness/mcp-draft.ts`) owns view<->draft<->input mapping.
+**Reason:** The Phase-6 field set lived only on the wire, not in the UI payload. Re-saving a server through Settings silently downgraded `untrusted`->`full`, disabled resources/prompts, dropped the data-source declaration and every tool effect, and invalidated the catalog confirmation - a silent authority widening.
+**Impact:** python/harness/mcp/{config,runtime,introspection,oauth_flow,manager}.py, python/harness/service.py, src/lib/harness/{mcp-types,mcp-draft,mcp-client}.ts, src/components/screens/mcp-settings.tsx + src/components/screens/mcp/*, src/app/api/harness/mcp/{integrations/[id]/install,supply-chain}/route.ts; tests test_mcp_config_roundtrip.py, test_mcp_example_config.py, mcp-draft.test.ts. See docs/harness/decisions.md ADR-H74 and docs/harness/mcp-ui-parity-progress.md.
+
+## ADR-039 - The release gate is local and runnable (2026)
+**Decision:** Delete the unreachable `Black-Eclipse-site/.github/workflows/` (GitHub reads only root `/.github/workflows`; the repo git root is above the app dir) and replace it with ONE local gate: `npm run check:all` runs prisma generate, typecheck, lint, `npm test` and `npm run test:evals` in order, failing on the first error. The three eval gates (retrieval, contradiction, compaction) move into `npm test` via `scripts/test-evals.js` (offline, ~0.7s) using the explicit-`sys.path` launcher; the dead `semantic_cli` reference is removed. The CHANGELOG obligation is enforced by `.githooks/commit-msg` (non-doc change must stage the CHANGELOG; `SKIP_CHANGELOG_CHECK=1` bypass).
+**Reason:** The release gate was fictional three ways: a CI job that could not pass, a workflow GitHub never read, and eval floors no local command ran.
+**Impact:** .github/ removed; scripts/test-evals.js + scripts/check-all.js (new); package.json (`test:evals`, `check:all`, `test` includes evals); .githooks/commit-msg (new); scripts/install-git-hooks.js. See docs/harness/decisions.md ADR-H75 and docs/harness/engineering-hardening-progress.md.

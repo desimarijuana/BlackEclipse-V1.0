@@ -1,9 +1,13 @@
-# SQLite database files (WAL mode)
-0
-0-shm
-0-wal
+# Root-level ignore rules. The app lives in Black-Eclipse-site/ and has its own
+# detailed .gitignore; these cover the git repository root only.
 
-# Local backups / QA artifacts
+# SQLite database files (WAL mode) anywhere in the tree. The previous patterns
+# were the literal strings `0`, `0-shm`, `0-wal` (a truncated `*.db`), which
+# matched any path segment named `0` and could silently ignore a real file.
+*.db
+*.db-shm
+*.db-wal
+
+# Local, regenerable artifacts kept at the repository root.
 /_backups/
 /opencode/
-/scripts/

@@ -250,3 +250,11 @@ Phase-6 documented manual https step; the device flow is wired in the UI. A
 non-text MCP result carries metadata only (no binary transport). The supply-chain
 report is offline-only. `resource_schemes` is a narrowing; `_ALLOWED_RESOURCE_SCHEMES`
 remains the ceiling.
+
+**Addendum (2026-09-30, engineering hardening).** The four items above were
+revisited: non-text results now state that content exists and was not shown; the
+supply-chain report is explicitly `offlineOnly`/`upstreamChecked: false` and its
+date is a review date, not a live check; `resource_schemes` reachability was
+verified end-to-end; and the OAuth authorization-code leg keeps its named
+unblocking condition (a local https callback or a hosted redirect URI). See
+`docs/harness/engineering-hardening-progress.md` Phase 6.

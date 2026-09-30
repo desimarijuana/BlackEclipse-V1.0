@@ -107,13 +107,17 @@ function main() {
     console.log(`[git-hooks] identity already correct: ${currentEmail}`);
   }
 
-  // 3. Make the hook executable where the platform has exec bits (no-op on Windows).
-  const hook = path.join(HOOKS_DIR, "pre-commit");
-  if (fs.existsSync(hook)) {
-    try {
-      fs.chmodSync(hook, 0o755);
-    } catch {
-      /* Windows: not required */
+  // 3. Make the hooks executable where the platform has exec bits (no-op on
+  //    Windows). Both the identity guard (pre-commit) and the CHANGELOG guard
+  //    (commit-msg) are committed in `.githooks/`.
+  for (const name of ["pre-commit", "commit-msg"]) {
+    const hook = path.join(HOOKS_DIR, name);
+    if (fs.existsSync(hook)) {
+      try {
+        fs.chmodSync(hook, 0o755);
+      } catch {
+        /* Windows: not required */
+      }
     }
   }
 }

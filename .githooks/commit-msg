@@ -1,0 +1,46 @@
+#!/bin/sh
+# BlackEclipse commit-msg CHANGELOG guard.
+#
+# WHY THIS EXISTS: AGENTS.md requires a dated CHANGELOG entry for every change,
+# but nothing enforced it. This hook refuses a commit that changes code without
+# also staging the CHANGELOG (Black-Eclipse-site/docs/CHANGELOG.md), so the
+# obligation is executable rather than aspirational.
+#
+# A change is exempt when it is DOC-ONLY (every staged path is under a docs/
+# directory) — doc edits do not need to announce themselves.
+#
+# Override intentionally with:  SKIP_CHANGELOG_CHECK=1 git commit ...
+#
+# It is fast and offline: it only reads the staged path list via `git`.
+
+if [ "${SKIP_CHANGELOG_CHECK:-0}" = "1" ]; then
+  exit 0
+fi
+
+changelog="Black-Eclipse-site/docs/CHANGELOG.md"
+
+# Staged paths (added/copied/modified/renamed), excluding deletions.
+staged="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null)"
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+# If the CHANGELOG itself is staged, the obligation is met.
+if printf '%s\n' "$staged" | grep -qx "$changelog"; then
+  exit 0
+fi
+
+# Exempt a doc-only change: every staged path must live under a docs/ directory.
+# `grep -qv` returns success (0) when at least one line does NOT match.
+if ! printf '%s\n' "$staged" | grep -qv '/docs/\|^docs/'; then
+  exit 0
+fi
+
+echo "✗ COMMIT BLOCKED: no CHANGELOG entry for a non-doc change." >&2
+echo "  AGENTS.md requires a dated entry in:" >&2
+echo "    $changelog" >&2
+echo "" >&2
+echo "  Add one (ending with 'docs updated: <file(s)>' or 'no doc change — <reason>')," >&2
+echo "  or bypass this one commit with:" >&2
+echo "    SKIP_CHANGELOG_CHECK=1 git commit ..." >&2
+exit 1

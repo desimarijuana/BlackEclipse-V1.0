@@ -5,7 +5,6 @@
 // name throws ENOENT, so every bridge call must go through this resolver.
 
 import { execFile } from "child_process";
-import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
 
@@ -22,10 +21,6 @@ const VENDOR_PYTHON =
   process.platform === "win32"
     ? path.join(process.cwd(), "scripts", "vendor", "python", "python.exe")
     : null;
-
-function vendorAvailable(): boolean {
-  return !!VENDOR_PYTHON && existsSync(VENDOR_PYTHON);
-}
 
 async function canRun(cmd: string, mod?: string): Promise<boolean> {
   try {

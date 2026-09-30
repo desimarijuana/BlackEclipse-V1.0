@@ -54,7 +54,10 @@ The canonical system documentation lives in
 
 - `Black-Eclipse-site/docs/` — **canonical**: how the system works.
 - `Black-Eclipse-site/skills/ARCHITECT.md` — authoritative for ADRs and deep
-  architecture. New ADRs go here first, then mirror into `docs/DECISIONS.md`.
+  architecture. **Two ADR series exist:** app-level `ADR-NNN` lives here first,
+  then mirrors into `docs/DECISIONS.md`; harness-level `ADR-HNN` lives only in
+  `docs/harness/decisions.md` (harness/runtime decisions, not mirrored). Keep
+  the app series identical in both files when you add one.
 - `Black-Eclipse-site/skills/DOCS.md` and
   `.opencode/skills/black-eclipse-docs/SKILL.md` — the method itself.
 - `README.md` / `CONTRIBUTING.md` — point into `docs/`; do not restate it.

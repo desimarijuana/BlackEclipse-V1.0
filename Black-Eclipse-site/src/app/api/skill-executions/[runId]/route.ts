@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSkillExecution, cancelSkillExecution } from "@/lib/harness/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
+import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ run
 }
 
 // DELETE /api/skill-executions/:runId — cancel a running skill execution.
-export async function DELETE(_request: Request, { params }: { params: Promise<{ runId: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ runId: string }> }) {
+  // Cancelling a run is a mutation (operator-gated).
+  const blocked = guardMutation(request, "skill-execution-cancel");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const { runId } = await params;
     const cancelled = await cancelSkillExecution(runId);

@@ -330,6 +330,12 @@ export interface MCPSupplyChainReport {
   success?: boolean;
   readOnly: boolean;
   offline: boolean;
+  /** True always: this report never contacts the network. */
+  offlineOnly?: boolean;
+  /** True when the report does NOT reflect a live upstream check. */
+  upstreamChecked?: boolean;
+  /** When the report was produced (not a live freshness check). */
+  generatedAt?: string;
   unavailable?: boolean;
   checkedAt: string;
   packages: MCPSupplyChainPackage[];

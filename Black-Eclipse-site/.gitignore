@@ -50,7 +50,13 @@ next-env.d.ts
 
 /src/generated/prisma
 
-# database (seed snapshot jdds.db IS committed; ignore runtime WAL/side files)
+# Database (JDdS). The 60 MB runtime vault is NOT tracked: committing a binary
+# that shows modified on every run bloats the repo and is not a code artifact.
+# A fresh clone gets a working vault without any manual step: `scripts/doctor.js`
+# (run by `predev`/`prestart`/`up`) creates it with `npx prisma db push` when it
+# is absent and applies additive schema drift to an existing one. Local WAL/side
+# files are ignored too.
+jdds.db
 jdds.db-*
 
 # Harness agent-memory database (separate from JDdS; runtime operational state)

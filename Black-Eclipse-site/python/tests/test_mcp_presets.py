@@ -61,6 +61,23 @@ def test_supply_chain_report_is_offline_and_flags_unpinned():
     assert report["unpinnedCount"] >= 1
 
 
+def test_supply_chain_report_is_honest_about_not_being_a_live_check():
+    # The report must not imply freshness: it is offline-only and the date is a
+    # review/generation date, never a network version check.
+    report = supply_chain_report()
+    assert report["offlineOnly"] is True
+    assert report["upstreamChecked"] is False
+    assert report["generatedAt"]  # dated at generation time, not a hardcoded string
+    assert "not a live" in report["note"] or "not refreshed" in report["note"]
+
+
+def test_supply_chain_checked_at_defaults_to_today_utc():
+    from datetime import datetime, timezone
+
+    report = supply_chain_report()
+    assert report["checkedAt"] == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def test_supply_chain_report_includes_configured_command():
     class _Rt:
         pass

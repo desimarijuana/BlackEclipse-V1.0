@@ -32,7 +32,7 @@ type signature. Reference `path/file.ts:line` instead.
 | `ARCHITECTURE.md` | Layers, shell, DataHub, API, JDDS, workers, the two workspaces, UI system |
 | `DATA-FLOW.md` | Ingestion → JDDS → API → screen; provenance and staleness |
 | `NAVIGATION.md` | "Which file do I open?" — **the update trigger table** |
-| `DECISIONS.md` | ADR log (mirror of `ARCHITECT.md`; that file is authoritative) |
+| `DECISIONS.md` | App-level ADR log (`ADR-NNN`), mirror of `ARCHITECT.md` (that file is authoritative). Harness-level `ADR-HNN` live only in `docs/harness/decisions.md`. |
 | `GLOSSARY.md` | Terms |
 | `CHANGELOG.md` | **Required** record of every change + whether docs were updated |
 
@@ -79,8 +79,9 @@ Update the owning doc when a change alters:
 - **Setup or operations** — prerequisites, npm scripts, env vars, boot sequence,
   DB handling.
 - **A top-level folder or major module** — also update `NAVIGATION.md`.
-- **An architectural decision** — add an ADR to `ARCHITECT.md`, mirror it in
-  `DECISIONS.md`.
+- **An architectural decision** — add an app-level ADR (`ADR-NNN`) to
+  `ARCHITECT.md` and mirror it in `DECISIONS.md`. A harness/runtime decision uses
+  `ADR-HNN` and lives only in `docs/harness/decisions.md`.
 
 ## When a doc *update* is NOT required (the changelog entry still is)
 

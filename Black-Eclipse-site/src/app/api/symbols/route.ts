@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchYahooBatchQuote } from "@/lib/scraper/fetchers/yfinance";
+import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,9 @@ const MARKET_ID_MAP: Record<string, string> = {
 // Verifies the ticker resolves on Yahoo, adds it to JDDS (upsert — re-adding
 // just refreshes the price), prices it immediately, and returns the result.
 export async function POST(request: Request) {
+  // Persists a JDDS asset + price row, so it is a mutation (operator-gated).
+  const blocked = guardMutation(request, "symbols-add");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const body = await request.json().catch(() => ({}));
     const rawMarket: string = (body.market || "US").toUpperCase();
@@ -116,6 +120,9 @@ export async function POST(request: Request) {
 // DELETE /api/symbols — remove a user-added symbol from a market.
 // Body: { market: "US", symbol: "BRK.B" }
 export async function DELETE(request: Request) {
+  // Deletes a JDDS asset row, so it is a mutation (operator-gated).
+  const blocked = guardMutation(request, "symbols-remove");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
     const body = await request.json().catch(() => ({}));
     const rawMarket: string = (body.market || "US").toUpperCase();

@@ -1,14 +1,14 @@
 ---
 title: Harness Phase 4 — Evidence-Grounded Answering
-status: In progress
-last-verified: 2026-09-23
+status: Current
+last-verified: 2026-09-30
 ---
 
 # Harness Phase 4 — Evidence-Grounded Answering
 
 **Phase:** 4 — Research mandates, answer validation, point-in-time evidence,
 deterministic calculations, and evaluation
-**Status:** In progress — Phase 5 web escalation + Phase 6 resilient multi-source research added + Phase 7 global market research + Phase 8 reliability/global-research hardening
+**Status:** Complete — Phase 5 web escalation + Phase 6 resilient multi-source research added + Phase 7 global market research + Phase 8 reliability/global-research hardening
 
 ## Phase 8 — Reliability & global-research hardening (2026-09-23)
 

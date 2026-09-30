@@ -17,9 +17,11 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node scripts/test-python.js",
+    "test": "vitest run && node scripts/test-python.js && node scripts/test-evals.js",
     "test:py": "node scripts/test-python.js",
-    "test:smoke": "node scripts/test-python.js smoke"
+    "test:evals": "node scripts/test-evals.js",
+    "test:smoke": "node scripts/test-python.js smoke",
+    "check:all": "node scripts/check-all.js"
   },
   "engines": {
     "node": ">=20"

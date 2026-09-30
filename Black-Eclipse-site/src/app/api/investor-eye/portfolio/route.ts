@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assembleState } from "@/lib/investor-eye/state";
 import { computeExposure, portfolioIntersections, type HoldingLike } from "@/lib/investor-eye/analytics";
+import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic";
 // holdings it receives. It never returns advice, and it never invents a
 // country/sector for a holding that did not supply one.
 export async function POST(request: Request) {
+  // assembleState refreshes and PERSISTS geopolitical events + source runs, so
+  // this is a mutation even though the response is a read-shaped exposure view.
+  const blocked = guardMutation(request, "investor-eye-portfolio");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   let holdings: HoldingLike[] = [];
   try {
     const body = (await request.json()) as { holdings?: unknown };

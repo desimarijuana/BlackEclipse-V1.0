@@ -1,7 +1,7 @@
 ---
 title: Harness Decisions
 status: Current
-last-verified: 2026-09-26
+last-verified: 2026-09-30
 ---
 
 # Harness Decisions
@@ -1456,7 +1456,7 @@ call is ever made to discover a window.
 **Decision.** `CONTEXT_OVERFLOW` is a first-class `HarnessErrorCode`. A
 conservative classifier in `models.py` recognises a provider's context-length
 rejection (structured code OR a bounded, specific message pattern) before the
-generic provider catch-all. On a first-call overflow — before any tool ran — the
+generic provider catch-all. On a first-call overflow â€” before any tool ran â€” the
 run retries ONCE with half the derived history allowance; otherwise it fails
 with a specific message and the remedy. Exactly one terminal status is persisted.
 
@@ -1482,7 +1482,7 @@ mapping: counts and character budget only, `selected <= 0` emits nothing, and
 `selectedIds`/`excluded`/memory text never reach the UI. No run-result contract
 field is added.
 
-**Why.** Trimming was visible but recall was not — the last observability
+**Why.** Trimming was visible but recall was not â€” the last observability
 asymmetry, even though the runtime already told the UI everything needed. A
 run-result `recall` blob would have no reader; the activity passthrough is the
 one mechanism that already renders this class of fact, so a second one would be
@@ -1530,7 +1530,7 @@ untouched.
 2. **Filters.** `selected_tools` accepts the legacy exact list (unchanged) or
    `{include, exclude}` with fnmatch globs; include wins over exclude; an empty
    include selects nothing.
-3. **Screening.** A static screen (`mcp/screening.py`) refuses — never sanitizes —
+3. **Screening.** A static screen (`mcp/screening.py`) refuses â€” never sanitizes â€”
    a shell interpreter with an inline flag, shell control operators, a download/
    execute or exfil shape, and a known-IOC package token; it runs at load, at
    save, and at spawn so a hand-edited file cannot bypass it.
@@ -1572,7 +1572,7 @@ seed, not a completeness claim. `jdds.db` untouched.
    A **read** is reconnected and replayed exactly once; a **write/external_action**
    is NEVER replayed and returns an explicit `outcomeUncertain` outcome.
 4. **Keepalive/recycle.** One manager lifecycle task (started/stopped with the
-   manager — not a daemon) pings a live session on `keepalive_interval` and
+   manager â€” not a daemon) pings a live session on `keepalive_interval` and
    recycles a stdio child on `idle_timeout_seconds`/`max_lifetime_seconds` only
    when no call is in flight.
 5. **Orphan reaping.** `mcp/orphan_supervisor.py` (stdlib-only) starts ONE
@@ -1605,7 +1605,7 @@ authorization-code + PKCE path reuses the MCP SDK's own `OAuthClientProvider`
 in `mcp/oauth.py`. Tokens, client registration and issuer metadata are stored
 ENCRYPTED at rest in JDDS (`SystemConfig.key = 'mcp_oauth_tokens_v1'`,
 AES-256-GCM), referenced by server id, never in `mcp-servers.json`, an event, a
-log, or a response. If the vault cannot encrypt, saving throws — no plaintext
+log, or a response. If the vault cannot encrypt, saving throws â€” no plaintext
 fallback. Clear-credentials stays configured-but-disconnected. `ssl_verify`
 (true|false|CA path), mTLS (`client_cert`/`client_key`), SSE transport and a
 redirect/origin re-validation hook are added on the same lifecycle.
@@ -1625,7 +1625,7 @@ advertises the capability AND the operator toggles `tools.resources`/`tools.prom
 prompt text is returned as INERT data. **Subscriptions are not implemented.**
 Shipping them well needs ownership, rate limiting, a bounded queue, a drop-oldest
 policy with an honest drop count, and a decision that a notification triggers
-nothing — none of which exist, and inventing a second event bus is forbidden, so
+nothing â€” none of which exist, and inventing a second event bus is forbidden, so
 the honest choice is a documented non-goal. A notification can never trigger a run
 or a write.
 
@@ -1643,7 +1643,7 @@ tool without that tool's normal approval and never widens the agent allowlist.
 parallel prompt path); URL-mode requests are declined; consent is per-call, never
 remembered. Sampling/elicitation content is untrusted data.
 
-**Why.** These are the two directions where a server asks Eclipse for something —
+**Why.** These are the two directions where a server asks Eclipse for something â€”
 genuinely useful and genuinely new authority. They ship last, off by default, and
 audited.
 
@@ -1668,10 +1668,10 @@ schema hygiene.
 
 **Why.** MCP stops being a bolt-on when native planning can consider and explain an
 MCP source; and an investor's other agents querying Eclipse's receipts is a moat
-if — and only if — it cannot leak a credential.
+if â€” and only if â€” it cannot leak a credential.
 
 **Consequences.** The new conflict/freshness planner is self-contained and tested
-directly but is **not yet invoked by `retrieval/planner.py`** — the documented
+directly but is **not yet invoked by `retrieval/planner.py`** â€” the documented
 seam gap. `jdds.db` untouched.
 
 ## ADR-H73 - MCP data sources flow into the native planner; sampling runs on the run model; the AC OAuth leg is a manual https step
@@ -1688,7 +1688,7 @@ seam gap. `jdds.db` untouched.
    and is never forced through the contract.
 2. **Sampling on the run model.** `AgenticService._sampling_model_factory` binds
    server `sampling/createMessage` to the runtime's OWN `models.build_chat_model`
-   with the run's credentials and the policy's token cap — never a second model
+   with the run's credentials and the policy's token cap â€” never a second model
    adapter. Sampling is still off by default per server; with no run model bound a
    request is refused with `mcp_sampling_unavailable` (honest, never a fake model).
 3. **Eclipse-as-server second client.** The offline suite now drives the exposure
@@ -1747,3 +1747,31 @@ OAuth flow are pure-extracted from `manager.py` into `runtime.py`,
 unchanged public API. `resource_schemes` adds an optional per-server URI-scheme
 narrowing with the global allowlist as a hard ceiling. Non-text MCP content
 reports MIME type + byte size rather than an opaque omission.
+
+## ADR-H75 - The release gate is local and runnable, not a fictional CI workflow
+
+**Decision.** The unreachable workflows at `Black-Eclipse-site/.github/workflows/`
+are deleted. GitHub Actions reads only `/.github/workflows` at the repository root,
+and this repo's git root is above the app directory, so those workflows never ran.
+Rather than move them to the root (unverifiable without a push, and the sibling
+`backup.yml` would cron a daily `sqlite3 jdds.db` against a file that is no longer
+tracked), the gate becomes ONE local command:
+`npm run check:all` -> `scripts/check-all.js`, which runs prisma generate,
+typecheck, lint, `npm test` (vitest + Python) and `npm run test:evals` in order and
+exits non-zero on the first failure. The three surviving eval gates (retrieval,
+contradiction, compaction) are folded into `npm test` via `scripts/test-evals.js`
+(offline, ~0.7 s), using the explicit-`sys.path` launcher the vendored interpreter
+requires. The `semantic_cli` reference is gone: the semantic layer was deleted
+deliberately and its removal is documented evidence.
+
+**Why.** The stated release gate was fictional three ways: a CI job that could not
+pass (a missing module), a workflow GitHub never reads, and eval floors no local
+command ran. A gate that cannot run is worse than no gate: it implies coverage that
+does not exist.
+
+**Consequences.** CI on GitHub is now **absent by decision**, not by accident; a
+future root-level `.github/` would be a deliberate re-introduction (and must add a
+working Python install plus a `jdds.db` story first). The CHANGELOG obligation is
+enforced by `.githooks/commit-msg` (non-doc change must stage the CHANGELOG; doc-only
+exempt; `SKIP_CHANGELOG_CHECK=1` bypass mirrors the identity guard). The smoke test
+remains operator-triggered and offline-excluded.

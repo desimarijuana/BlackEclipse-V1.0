@@ -20,9 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type {
-  MCPEffect, MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
+  MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
   MCPIntegrationView, MCPWorkflowView, MCPDiagnosticView, MCPDiagnosticsResponse,
   MCPSupplyChainReport,
 } from "@/lib/harness/mcp-types";
@@ -802,12 +801,16 @@ function MCPSupplyChainPanel() {
           {report && (
             <>
               <p className="text-[10px] text-muted-foreground">{report.note}</p>
+              <p className="text-[10px] text-muted-foreground/70">
+                This report never contacts the network. The date shown is when an entry was last reviewed, not a
+                live version check, so it does not imply the package is current.
+              </p>
               {report.packages.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground/70">No packages to report.</p>
               ) : (
                 <>
                   <p className="text-[10px] text-muted-foreground">
-                    {report.packages.length} package(s) · {report.unpinnedCount} unpinned · checked {report.checkedAt}
+                    {report.packages.length} package(s) · {report.unpinnedCount} unpinned · generated {report.generatedAt ?? report.checkedAt}
                   </p>
                   <div className="rounded-xl border border-border/20 divide-y divide-border/10">
                     {report.packages.map((p) => (
@@ -817,7 +820,9 @@ function MCPSupplyChainPanel() {
                           {p.pinned ? "pinned" : "unpinned"}
                         </span>
                         <span className="text-[9px] font-mono text-muted-foreground">{p.source}</span>
-                        <span className="text-[9px] font-mono text-muted-foreground">{p.checkedAt}</span>
+                        <span className="text-[9px] font-mono text-muted-foreground" title="last reviewed, not live-checked">
+                          reviewed {p.checkedAt}
+                        </span>
                       </div>
                     ))}
                   </div>

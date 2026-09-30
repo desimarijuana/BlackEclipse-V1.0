@@ -883,7 +883,11 @@ def _normalize_result(
             raw = getattr(block, "data", None)
             size = _decoded_size(raw)
             size_note = f", ~{size} bytes" if size is not None else ""
-            parts.append(f"[{block_type} content omitted: {mime}{size_note}]")
+            parts.append(
+                f"[This tool returned {block_type} content ({mime}{size_note}) that was NOT shown here. "
+                "The agent runtime cannot carry binary content; the data exists on the server but is not "
+                "in this result.]"
+            )
             kinds.append(block_type)
             content_meta.append({"type": block_type, "mimeType": mime, "bytes": size})
         elif block_type == "resource":

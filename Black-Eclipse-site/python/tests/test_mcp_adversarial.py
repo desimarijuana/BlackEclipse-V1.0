@@ -205,7 +205,8 @@ def test_non_text_content_reports_mime_and_size_not_opaque_omission():
     outcome = _normalize_result(_Result(), "srv", "screenshot")
     assert "image/png" in outcome.text
     assert "240 bytes" in outcome.text
-    assert "omitted" in outcome.text
+    # The placeholder states plainly that content EXISTS and was NOT shown.
+    assert "NOT shown" in outcome.text
     assert outcome.data["contentKinds"] == ["text", "image"]
     meta = outcome.data["nonTextContent"]
     assert meta == [{"type": "image", "mimeType": "image/png", "bytes": 240}]

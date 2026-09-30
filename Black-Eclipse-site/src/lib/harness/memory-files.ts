@@ -20,15 +20,6 @@ import type { MemoryExportDocument, MemoryProfileResponse, MemoryRecord } from "
 const FILES = ["USER_PROFILE.md", "MEMORY.md", "PROJECT_MEMORY.md", "SKILLS.md", "PROFILE.md", "README.md"] as const;
 export type MemoryFileName = (typeof FILES)[number];
 
-// Legacy names from the earlier projection; still read so an existing install
-// migrates cleanly on the next regenerate.
-const LEGACY_FILES: Record<string, MemoryFileName> = {
-  "USER.md": "USER_PROFILE.md",
-  "MEMORY.md": "MEMORY.md",
-  "PROFILE.md": "PROFILE.md",
-  "README.md": "README.md",
-};
-
 const PREFERENCE_TYPES = new Set(["preference", "constraint"]);
 // Stable entry marker. `version` (the memory's version/updated stamp) is included
 // so a stale targeted edit can be rejected before it is applied.

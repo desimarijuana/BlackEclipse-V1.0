@@ -574,15 +574,15 @@ name only real tools. Path config: `ECLIPSE_MEMORY_DB_PATH`. See
 **Impact:** src/lib/regime/{types,scoring,client,store,visuals}.ts, src/app/api/regime/route.ts, src/components/layout/{aurora-glow,market-regime-control,top-bar}.tsx, src/components/ui/Aurora.tsx (added `dim`), src/components/screens/stock-chat.tsx (be:ask-eclipse), tests src/lib/regime/scoring.test.ts. See docs/DECISIONS.md ADR-033 and docs/ARCHITECTURE.md › Market Regime.
 
 
-### ADR-034 � Autonomous-but-governed learning: provider layer, structured skill patches, hybrid namespaces, prompt segments (2026)
-**Decision:** Four capabilities were added without relaxing any safety invariant. (1) External memory is a dedicated provider layer (python/harness/memory_providers/) implementing ONE MemoryProvider contract over the existing MCP boundary; external results are labelled provenance=external_provider / verified=false, fenced, native-first routed, never promoted, and external writes need an explicit user request AND approval (automatic external writes are absent by construction). (2) Self-improving skills are STRUCTURED patches (JSON-pointer replace/add/remove over an allowed-field set; identity/permission/tool/risk fields are not patchable) that always create a NEW SkillVersion; a stale base version is rejected, activation requires a passing evaluation, canary is limited to safe non-mutating skills, and rollback (manual or automatic on a regression/correction) is atomic and preserves both versions. (3) Memory retrieval uses logical namespaces and a bounded hybrid score whose semantic term can only nudge an already-authorized memory � never confirm, supersede, archive or authorize. (4) The prompt is split into immutable segments with an identity-only prompt_cache_key, so a new user message never invalidates the reusable prefix, and skills are injected as a bounded relevant-only manifest.
-**Reason:** The product goal is autonomy in discovering, proposing, testing, versioning, activating, monitoring and rolling back improvements � but never autonomy in silently changing truth, permissions, financial-retrieval rules, or irreversible behavior. Each capability therefore ends at a reviewable, versioned, reversible or clearly-labelled boundary.
-**Impact:** python/harness/memory_providers/* (new), python/harness/prompt_segments.py (new), python/harness/skills/{patches,versioning}.py (new), python/harness/eclipse_memory/hybrid.py (new); memory_tools.py, service.py, graph.py, main.py, agents.py; eclipse_memory/{policy,schema,store,skill_quality}.py; skills/{manifest,registry,evaluation}.py; migrations 12/13; routes /memory-providers/*, /skills/{id}/version-history + /skills/{id}/patch/**; TS skills-client/browser, eclipse-memory-client/browser/types, routes + a patch-version UI panel. Full decisions: ADR-H52�H55 in docs/harness/decisions.md.
+### ADR-034 — Autonomous-but-governed learning: provider layer, structured skill patches, hybrid namespaces, prompt segments (2026)
+**Decision:** Four capabilities were added without relaxing any safety invariant. (1) External memory is a dedicated provider layer (python/harness/memory_providers/) implementing ONE MemoryProvider contract over the existing MCP boundary; external results are labelled provenance=external_provider / verified=false, fenced, native-first routed, never promoted, and external writes need an explicit user request AND approval (automatic external writes are absent by construction). (2) Self-improving skills are STRUCTURED patches (JSON-pointer replace/add/remove over an allowed-field set; identity/permission/tool/risk fields are not patchable) that always create a NEW SkillVersion; a stale base version is rejected, activation requires a passing evaluation, canary is limited to safe non-mutating skills, and rollback (manual or automatic on a regression/correction) is atomic and preserves both versions. (3) Memory retrieval uses logical namespaces and a bounded hybrid score whose semantic term can only nudge an already-authorized memory — never confirm, supersede, archive or authorize. (4) The prompt is split into immutable segments with an identity-only prompt_cache_key, so a new user message never invalidates the reusable prefix, and skills are injected as a bounded relevant-only manifest.
+**Reason:** The product goal is autonomy in discovering, proposing, testing, versioning, activating, monitoring and rolling back improvements — but never autonomy in silently changing truth, permissions, financial-retrieval rules, or irreversible behavior. Each capability therefore ends at a reviewable, versioned, reversible or clearly-labelled boundary.
+**Impact:** python/harness/memory_providers/* (new), python/harness/prompt_segments.py (new), python/harness/skills/{patches,versioning}.py (new), python/harness/eclipse_memory/hybrid.py (new); memory_tools.py, service.py, graph.py, main.py, agents.py; eclipse_memory/{policy,schema,store,skill_quality}.py; skills/{manifest,registry,evaluation}.py; migrations 12/13; routes /memory-providers/*, /skills/{id}/version-history + /skills/{id}/patch/**; TS skills-client/browser, eclipse-memory-client/browser/types, routes + a patch-version UI panel. Full decisions: ADR-H52—H55 in docs/harness/decisions.md.
 
-### ADR-035 � Long-lived sessions, named profiles and reversible file editing (2026)
+### ADR-035 — Long-lived sessions, named profiles and reversible file editing (2026)
 **Decision:** Sessions are first-class: a durable `ChatSession` (metadata + a bounded deterministic summary) in agent-memory.db, a run belongs to a session which belongs to one profile, session search ranks by the documented hybrid (exact phrase > BM25 > decision/correction/skill-failure/memory-action > recency > prose) with full filters, and a summary is searchable but never auto-injected. Named profiles are a metadata registry (eclipse_memory/profiles.py) over `.black-eclipse/profiles/` with per-namespace scoping, prompt profile, retention and settings, explicit READ-ONLY inheritance, and request-scoped isolation on every memory/session/skill/provider query. The Markdown memory projection is edited only through a targeted, atomic, versioned API (expectedVersion stale-edit guard, temp+fsync+rename, backup before regenerate, structured revision history + rollback + diff); SQLite remains canonical and archive/restore stay structured-memory actions.
-**Reason:** Users need to continue long-lived sessions and keep work/personal/project memory isolated, and a hand-edited projection must not lose a concurrent edit, leave a partial file, or lack an audit trail � all without merging stores or adding infrastructure.
-**Impact:** python/harness/persistence.py (ChatSession + run/session scope columns), session_index.py (build_summary), eclipse_memory/profiles.py, schemas.py (RunRequest ids), graph.py, main.py (/sessions*, /profiles*, filters); src/lib/harness/{memory-files,run-service,eclipse-memory-*,python-client}.ts, new /api/sessions, /api/profiles, /api/eclipse-memory/files/{edit,history}, and Memory Control Room tabs (Sessions/Profiles/Providers/Files/Skills + richer Overview). Full decisions: ADR-H56�H58 in docs/harness/decisions.md.
+**Reason:** Users need to continue long-lived sessions and keep work/personal/project memory isolated, and a hand-edited projection must not lose a concurrent edit, leave a partial file, or lack an audit trail — all without merging stores or adding infrastructure.
+**Impact:** python/harness/persistence.py (ChatSession + run/session scope columns), session_index.py (build_summary), eclipse_memory/profiles.py, schemas.py (RunRequest ids), graph.py, main.py (/sessions*, /profiles*, filters); src/lib/harness/{memory-files,run-service,eclipse-memory-*,python-client}.ts, new /api/sessions, /api/profiles, /api/eclipse-memory/files/{edit,history}, and Memory Control Room tabs (Sessions/Profiles/Providers/Files/Skills + richer Overview). Full decisions: ADR-H56—H58 in docs/harness/decisions.md.
 
 ### ADR-036 - MCP Phase 6: trustworthy-before-capable hardening and resilience (2026)
 **Decision:** The MCP layer is hardened in ordered phases. (1) The config contract is shareable and safe: `${VAR}`/`${env:VAR}` interpolation with a fail-closed remote rule, `selected_tools` include/exclude globs (legacy list unchanged), a static entry screen that REFUSES shell/interpreter/egress shapes at load, save and spawn, a fail-closed `trust` tier (`full`/`untrusted`) where an untrusted server needs a per-call approval for every non-read call and its own annotations can never activate a tool, and Eclipse tool names use a double-underscore boundary (`mcp__<server>__<tool>`) with the identity digest kept only as a genuine-collision last resort. The Python MCP read routes are operator-gated. (2) Lifecycle is resilient: separate jittered retry budgets, a call-time reconnect that re-checks authority, an honest session-expiry rule (a read replays once; a write returns `outcomeUncertain` and is never replayed), optional keepalive/recycle, POSIX orphan reaping via a stdlib-only supervisor (Windows relies on the SDK's Job Object), and lazy startup with a fingerprint-keyed on-disk schema cache. Every capability stays inert until an operator selects it; discovery never activates.
@@ -591,10 +591,272 @@ name only real tools. Path config: `ECLIPSE_MEMORY_DB_PATH`. See
 
 ### ADR-037 - MCP data sources join native planning; sampling uses the run model; AC OAuth is a manual https step (2026)
 **Decision:** An operator-declared MCP data tool (`data_source_tools: {tool: dataType}`) becomes a native `RetrievalSource` via `manager.mcp_sources()`, reaches `FinancialRetrievalLayer` through `ToolContext.mcp_manager`, and is considered by `plan_retrieval(additional_sources=...)` after native structured sources but before generic web; provenance stays `secondary`/`eclipseVerified=false` and JDdS is never silently upgraded. Server sampling (`sampling/createMessage`) runs on the runtime's own model adapter (`models.build_chat_model`) with the run's credentials and the policy token cap, still off by default. Eclipse-as-server is exercised by TWO offline clients (Streamable HTTP + SSE); the real Hermes interop is a documented manual step.
-**Reason:** The deferred seams were real: without wiring, an MCP source could never be planned, a server sampling request could never be served, and "two clients" was asserted from one. The SDK's OAuth client refuses plain-http OAuth URLs (RFC 8252), so the interactive authorization-code leg is necessarily a manual https step � stated, not faked.
+**Reason:** The deferred seams were real: without wiring, an MCP source could never be planned, a server sampling request could never be served, and "two clients" was asserted from one. The SDK's OAuth client refuses plain-http OAuth URLs (RFC 8252), so the interactive authorization-code leg is necessarily a manual https step — stated, not faked.
 **Impact:** python/harness/mcp/{manager,mcp_retrieval,config,interactions}.py, python/harness/{tools,graph,service,retrieval_tools}.py, python/harness/retrieval/{layer,planner}.py, python/harness/routers/mcp.py; TS src/lib/harness/{mcp-types.ts}; tests test_mcp_source_planning.py, test_mcp_sampling.py, test_mcp_server_exposure.py, test_mcp_oauth.py. Full decision: ADR-H73 in docs/harness/decisions.md; progress docs/harness/mcp-phase-6-progress.md.
 
 ### ADR-038 - MCP config round-trip integrity: a save can never silently widen authority (2026)
 **Decision:** `upsert_mcp_config` merges from the incoming model's `model_fields_set`, not `if value is not None`: absent means preserve, explicitly present means replace (including explicit `null`/`false`/`{}`/`[]` for clearing). An omitted field cannot be reset by a partial save; the UI can still clear a field because it always sends every field it owns. This makes a save provably unable to widen authority by omission (`trust`, `enabled_effects`, `tool_effects`, `data_source_tools`, `confirmed_catalog_digest`, `selected_tools`). `env` keeps its write-only merge; `install_mcp_integration` is create-if-absent; `public_dict()` emits the raw operator-set bounds so the wire is lossless. A pure TS module (`src/lib/harness/mcp-draft.ts`) owns view<->draft<->input mapping.
 **Reason:** The Phase-6 field set lived only on the wire, not in the UI payload. Re-saving a server through Settings silently downgraded `untrusted`->`full`, disabled resources/prompts, dropped the data-source declaration and every tool effect, and invalidated the catalog confirmation - a silent authority widening.
 **Impact:** python/harness/mcp/{config,runtime,introspection,oauth_flow,manager}.py, python/harness/service.py, src/lib/harness/{mcp-types,mcp-draft,mcp-client}.ts, src/components/screens/mcp-settings.tsx + src/components/screens/mcp/*, src/app/api/harness/mcp/{integrations/[id]/install,supply-chain}/route.ts; tests test_mcp_config_roundtrip.py, test_mcp_example_config.py, mcp-draft.test.ts. See docs/harness/decisions.md ADR-H74 and docs/harness/mcp-ui-parity-progress.md.
+
+### ADR-039 - The release gate is local and runnable (2026)
+**Decision:** Delete the unreachable `Black-Eclipse-site/.github/workflows/` (GitHub reads only root `/.github/workflows`; the repo git root is above the app dir) and replace it with ONE local gate: `npm run check:all` runs prisma generate, typecheck, lint, `npm test` and `npm run test:evals` in order, failing on the first error. The three eval gates (retrieval, contradiction, compaction) move into `npm test` via `scripts/test-evals.js` (offline, ~0.7s) using the explicit-`sys.path` launcher; the dead `semantic_cli` reference is removed. The CHANGELOG obligation is enforced by `.githooks/commit-msg` (non-doc change must stage the CHANGELOG; `SKIP_CHANGELOG_CHECK=1` bypass).
+**Reason:** The release gate was fictional three ways: a CI job that could not pass, a workflow GitHub never read, and eval floors no local command ran.
+**Impact:** .github/ removed; scripts/test-evals.js + scripts/check-all.js (new); package.json (`test:evals`, `check:all`, `test` includes evals); .githooks/commit-msg (new); scripts/install-git-hooks.js. See docs/harness/decisions.md ADR-H75 and docs/harness/engineering-hardening-progress.md.
+
+
+### ADR-019 — Provider-agnostic financial retrieval layer; web research is first-class (2026)
+**Decision:** The agent requests an **objective + data type**, not a provider. A
+dedicated `python/harness/retrieval/` package (`FinancialRetrievalLayer`) plans
+the source(s) with a deterministic, explainable planner, retrieves them
+(cache-aware, possibly in parallel), normalizes to one
+`NormalizedFinancialObject`, validates, resolves source conflicts, and returns
+provenance-carrying evidence. Tools call the layer; the layer is the only place
+that knows JDdS, yfinance or the web exist. Web research
+(`src/lib/web-research.ts`, the single shared search+fetch implementation) is a
+first-class selectable path, not merely a fallback. A precise quantitative
+request (historical prices, macro series, derived metrics) **never** uses web:
+with no structured dataset the layer returns `UNAVAILABLE`.
+**Why:** The Phase-2 objective is "what information do I need → what is the best
+source → structured/cache/web/multiple → is the evidence fresh and reliable?" —
+a decision that belongs in one explainable place, not scattered across tools.
+It keeps the agent decoupled from every individual data source and keeps JDdS and
+yfinance as *sources*, not mandates.
+**Impact:** Adding a provider means implementing the `RetrievalSource` contract
+and adding its name to the planner; source-selection policy is data. The
+retrieval cache is in-process and shared across runs with in-flight
+deduplication (no new database). See
+[`harness/architecture.md`](./harness/architecture.md) and
+[`harness/decisions.md`](./harness/decisions.md) (ADR-H10…H12).
+
+---
+
+### ADR-020 — A ticker is not an instrument identity; unhonoured qualifiers fail loudly (2026)
+**Decision:** Instrument resolution requires a **canonical identity** —
+`{ market, symbol, currency (ISO 4217), assetClass }` — not a bare ticker. Every
+instrument resolution and payload carries it. A market qualifier (venue, country,
+market id) is resolved through a single alias table (`resolveMarketId`); if it
+cannot be honored the request **fails** (`market_unknown`). A bare ticker that
+maps to more than one instrument is **`AMBIGUOUS`**, never a "best match". A
+provider answer whose currency/market disagrees with the resolved identity is
+**discarded**. `AMBIGUOUS` and `UNAVAILABLE` are correct, first-class outcomes.
+**Why:** A live analysis of `FFC` (Fauji Fertilizer, PSX) returned a US
+closed-end fund's price, stamped `realtime`, because the live path dropped the
+`market` qualifier and fetched the bare ticker. Tickers are reused across venues,
+asset classes and issuers (4160 colliding tickers in the committed master alone)
+and carry no currency — a confidently wrong number is worse than no number.
+**Impact:** `src/lib/instrument-identity.ts` owns resolution and returns a typed
+failure union; the read-only bridge returns `AMBIGUOUS`/`UNAVAILABLE`; the Python
+retrieval contract gains `AMBIGUOUS` + `InstrumentIdentity`; the fetchers refuse
+an unresolvable market rather than emitting a bare US ticker. Every real
+collision is a permanent regression fixture
+(`src/lib/instrument-collisions.json`, generated from the master). Supersedes any
+implicit "symbol is enough" assumption in the retrieval layer (ADR-019).
+
+---
+
+### ADR-021 — One failure contract, declared coverage, and terms-aware identity (2026)
+**Decision:** Every tool and source reports failure through one taxonomy
+(`src/lib/harness/failure.ts`): `ambiguous`, `market_unknown`, `not_found`,
+`currency_mismatch`, `venue_mismatch`, `terms_missing`, `not_covered`,
+`no_data`, `source_failure`, `incomplete`, `conflict`, `invalid_request`.
+Message text is derived from the class, never hand-written per tool. Coverage is
+**declared data** (`src/lib/harness/coverage.ts`), queryable via a `coverage`
+capability — an unregistered market/asset class returns `not_covered` instead of
+routing to a guessed backend. Derivatives and fixed income require contract
+terms (`expiry`/`strike`/`right`, `maturity`/`coupon`/`seniority`) before a
+value may be returned. Every numeric payload carries `currency` and `units`.
+`get_news` falls through from the vault to the shared web transport and never
+phrases a source failure as "no news". Source health is derived from recorded
+runs (`healthy`/`degraded`/`failing`/`unknown`), so confidence is earned.
+**Why:** The same underlying miss behaved differently across tools
+(`get_market_snapshot` refused; `market_get_quote` returned a US fund;
+`get_news` reported "no news" on an infrastructure miss). A false "no news" in a
+financial tool reads as "nothing happened" — materially misleading. Uniformity
+is the only way one tool's safety guarantee holds for all of them.
+**Impact:** Extends ADR-020 (identity). Tools route through the shared classes;
+a new asset class/venue is a data change in `coverage.ts`. `isCovered()` gates a
+request before any source is attempted.
+
+---
+
+### ADR-022 — Deterministic retrieval, strict macro identity, and top-level degradation (2026)
+**Decision:** Four rules complete the identity contract. (1) **D1 — parse once,
+persist, replay.** A successful retrieval is written to `RetrievalRecord`
+(`agent-memory.db`) keyed by request; an identical, non-realtime request replays
+the stored result, so the same question yields identical figures and citations
+instead of re-scraping (which drifts). (2) **A8 — macro series are identities.**
+`python/harness/macro_identity.py` + `src/lib/harness/macro-identity.ts` resolve a
+series to geography + institution + measure + adjustment + frequency. A generic
+measure (`POLICY_RATE`) without a geography is AMBIGUOUS and never defaults to
+US; non-US series route to non-US sources. (3) **D2 — truncation is withheld.**
+A partial numeric parse (`1,23` from `1,234.56`) is detected and the result is
+UNAVAILABLE + `incomplete`, never a figure. (4) **D3 — degradation is
+top-level.** `degraded`/`degradation`/`incomplete`/`conflicts`/
+`provenanceVerified` are fields on the result itself, not nested metadata, so a
+value whose identity was not verified is structurally flagged.
+**Why:** The same infrastructure produced drifting fundamentals (read-time
+scrapes), conflicting policy-rate values (measure collision), a truncated figure,
+and a wrong instrument — each invisible to the consumer because degradation was
+either absent or buried.
+**Impact:** Extends ADR-020/021. `RetrievalRecord` is idempotent (upsert on key).
+Realtime data types are excluded from durable replay by design.
+
+---
+
+### ADR-023 — One shared resolution layer for every tool; no country/venue/asset-class default (2026)
+**Decision:** Instrument resolution is unified in a single bridge resolver
+(`resolveVaultInstrument` / `resolveAnyInstrument`), and **every** resolving
+capability (`market_snapshot`, `fundamentals`, `live_quote`, `price_history`,
+`financial_statements`) routes through it. A tool cannot bypass the gate; a test
+enumerates the tool surface and fails if a resolving tool touches a non-gated
+capability. There is **no** US (or any) default: an unqualified multi-listed
+ticker is `AMBIGUOUS`; an unknown venue is `NOT_COVERED` (not `AMBIGUOUS`); FX
+and crypto are first-class asset classes that never inherit an equity country
+universe; a wrong-currency/venue answer is discarded. Instrument identity carries
+the exchange and MIC where known.
+**Why:** The previous round gated only the quote fallback path, so
+`market_get_quote` was safe while `fundamentals_get_company_profile` silently
+returned the US ADR of a multi-listed issuer and `market_snapshot` defaulted
+unqualified lookups to the US — the original defect, reachable by omitting a
+parameter.
+**Impact:** Extends ADR-020/021/022. `market_unknown` now maps to
+`not_covered`. New `financial_statements` capability serves the persisted
+`FundamentalsCache` (parse-once, deterministic). Source health records from the
+live path, keyed by source × market × asset class. Macro generic measures are
+`AMBIGUOUS` even with a geography, and macro rows are newest-first with units.
+
+---
+
+### ADR-024 — Generic macro aliases never narrow silently; recognition ≠ coverage (2026)
+**Decision:** A generic macro alias (`CPI`, `INFLATION`, `POLICY_RATE`, …) resolves
+only when it names exactly ONE measure; a multi-meaning alias is AMBIGUOUS with
+named candidates, and a recognised concept with no registered series (`PMI`) is
+NOT_COVERED. An index series carries its `unitBase` (e.g. `1982-84=100`) so the
+number is meaningful. Macro rows are newest-first with an explicit `asOf`. A
+venue the system recognises but does not cover (`CME` → `DERIV`) is NOT_COVERED,
+not "unknown venue" — recognition and coverage are distinct. FX/crypto payloads
+state `served: live` and echo the requested symbol, since the vault holds
+equities only. Warnings are de-duplicated, and a slow source cadence marks data
+"delayed" (a transformation, not a quality warning).
+**Why:** CPI silently resolved to the index level, `ES/CME` read as "unknown
+venue", and the FX payload said "not in the universe" beside a valid quote — each
+a confidently-wrong or self-contradictory answer.
+**Impact:** Extends ADR-020…023. `macro_resolve` in TS is the single alias table
+(the Python tool asks it before falling back locally). `get_source_health`
+enumerates the declared source registry so a source with no runs is `unknown`,
+not absent.
+
+### ADR-027 — Evidence-grounded answering: a deterministic research flow over the existing retrieval layer (2026)
+**Decision:** Add one shared Python package `python/harness/research/` that turns
+an objective into a typed research mandate, retrieves each fact leg through the
+*existing* Financial Retrieval Layer, produces deterministic per-leg coverage,
+validates structured claims against actual evidence, computes named metrics in
+pure Python, and persists a bounded research receipt. It adds no agent loop, no
+model adapter, no second retrieval system and no second database. The model
+interprets and explains; the harness owns coverage, calculation truth, structural
+validation and the accept/partial/reject decision. Point-in-time `asOf` is
+explicit and enters cache identity; `NormalizedFinancialObject` gains additive
+`basis`/`publishedAt`. Receipts live in `agent-memory.db` (idempotent DDL), never
+in `eclipse-memory.db` or JDdS.
+**Why:** Phase 2 retrieval produced provenance and conflicts but nothing turned
+an objective into required facts or gated the model's citations against evidence.
+A shared flow is reusable by every financial agent (and future workflow nodes)
+rather than each rebuilding citation logic.
+**Impact:** New `/research/*` runtime endpoints and `ResearchReceipt` table; 61
+new tests; general/unsupported chat is unchanged (`supported=false`). Full
+decision set: ADR-H15…H19 in `docs/harness/decisions.md`; progress in
+`docs/harness/phase-4-progress.md`.
+
+---
+
+### ADR-028 — Phase 4 hardening: deterministic identifiers, gated live chat, honest semantic evaluation (2026)
+**Decision:** Evidence/calculation identifiers use SHA-256 content digests (not
+the salted built-in `hash()`); a supported `financial_comparison` is routed into
+the evidence gate before the agent graph and never silently downgraded; period
+matching is canonical (no substring-of-digits); a versioned human-labeled
+semantic-support evaluation reports false accepts/rejects per slice, and
+production claim status stays `needs_review` where support is unproven.
+Supersession links come only from explicit source revision metadata.
+**Why:** The first Phase 4 cut had non-reproducible receipt hashes, a coverage
+gate that let missing required metadata pass, no live wiring, and no way to
+measure semantic support without over-claiming.
+**Impact:** `python/harness/research/{periods,ids,synthesis,supersession,run}.py`
++ `eval/`; additive `research` on `HarnessRun`/`RunResult`; TS `ResearchRunInfo`
+contracts + `/api/harness/runs/[id]/receipt` + `ResearchEvidencePanel`. Full
+decisions: ADR-H20…H22 in `docs/harness/decisions.md`.
+
+---
+
+### ADR-029 — Bounded web escalation keeps answers evidence-grounded when structured data cannot (2026)
+**Decision:** When structured retrieval is empty, stale, missing a requested
+fiscal period, or lacks required metadata, the research flow escalates a leg
+through a fixed hierarchy — structured → primary-source web (SEC/IR/regulators)
+→ bounded reputable secondary web — using the existing web bridge and a single
+`ResearchBudget`. Every numeric web fact must pass a deterministic validator
+(fetched-page id, verbatim `sourceSpan`, value-in-span, no contradicting period,
+metric/period/currency/basis match) before becoming evidence. Coverage gains
+distinct statuses (`no_matching_period`, `stale`, `qualified`), and a missing
+consolidation basis qualifies the value with disclosure rather than failing it.
+**Why:** Stopping at an unrelated structured row produced unhelpful answers; but
+"answer anyhow" must never mean invent. A snippet is not a number, a page
+instruction is not a fact, and the model cannot decide a source is trustworthy.
+**Impact:** `python/harness/research/{budget,web_facts,escalation}.py`;
+`retrieval/web.py` serves `financial_statements`; receipt carries escalation +
+budget; evidence panel shows tier/dates/period/span. Full decisions: ADR-H23/H24
+in `docs/harness/decisions.md`.
+
+---
+
+## Decisions implied by the code (not yet formal ADRs)
+
+These are real, load-bearing, and currently only documented in prose. Promote one
+to an ADR if it gets challenged.
+
+- **SQLite-only JDDS.** PostgreSQL was removed along with the old daemon.
+  Reintroducing `DATABASE_URL`/pg tooling would be a new ADR.
+- **Keep-alive tabs, single page.** Tabs mount on first visit and stay mounted;
+  no URL routing for main screens.
+- **In-process schedulers.** Cron runs inside the Next.js server (not Vercel-
+  friendly by design; a `POST /api/cron/run` endpoint exists for hosted setups).
+- **Synchronous-write discipline.** Bulk writers yield and sleep by design
+  because better-sqlite3 blocks the event loop.
+- **Separate market-workspace engine.** The Chart Workspace tab (tab id
+  `market-workspace`) has its own panel engine rather than reusing the widget
+  workspace.
+
+---
+
+### ADR-032 — Reliability & global-research hardening: capability-specific health, distinct route categories, a deterministic comparability gate (2026)
+**Decision:** (1) The truthful-capability tools (`get_capability_matrix`,
+`get_research_health`) are read-only and in the Eclipse agent allowlist. (2) A
+tool's own `timeout_ms` is authoritative; the agent `toolTimeoutMs` is only a
+ceiling, and optional news enrichment has its own bounded budget. (3) Source
+health is keyed `(source × market × assetClass × capability × probeKind)`: a
+healthy quote never makes statements/filings healthy, zero attempts stays
+`unknown`, and fixture probes are labelled and excluded from live health. (4) The
+route planner reports distinct categories (ineligible / not_implemented /
+unconfigured / provider_failure / no_instrument / no_data / no_matching_period /
+stale_data / invalid_document) so a skip is never an outage. (5) Documents
+distinguish `too_large` / `empty_response` / `javascript_only` /
+`unsupported_document` / `parse_failure`, preserve title/document-id/publication
+metadata, stream to a bounded size, and refuse a value-less XBRL taxonomy. (6) A
+comparison is permitted only when the legs are the same fact for the same entity
+— `research/comparability.py` blocks a demerger/ticker reuse, unequal durations
+(9M vs 12M), consolidation basis, metric definition, currency, unit, scale or an
+unstated restatement, with the exact reason; each verified leg is still reported
+and no misleading percentage is computed. The model is never the validator.
+**Why:** The international runs recorded `TOOL_FORBIDDEN` for
+`get_capability_matrix`, a 20s news timeout despite a declared 30s budget,
+`unknown — 0 ok / 0 fail` health rows beside a `configured` coverage claim, SEC
+attempted for non-US issuers, and correctness risks (Tata demerger, 9M vs 12M,
+standalone vs consolidated, gross vs operations, issuer currency vs thousands,
+EPS after a subdivision) that only the model understood.
+**Impact:** `python/harness/{agents,finance_tools,retrieval_tools,tools,graph}.py`,
+`python/harness/retrieval/{routing,layer}.py`,
+`python/harness/research/{comparability,engine,run,receipt,citations}.py`,
+`src/lib/harness/{capability,coverage,data-bridge,types}.ts`,
+`src/lib/{web-research,retrieval-diagnostics}.ts`, `scripts/test-python.js`.
+Progress: `docs/harness/phase-4-progress.md` (Phase 8).
+
+---

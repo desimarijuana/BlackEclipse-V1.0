@@ -1,19 +1,32 @@
 """Supply-chain audit over MCP presets and configured commands (Phase 6, M6).
 
-A bounded, read-only, offline-by-default report: every pinned package in
-`presets.py` and every configured `npx`/`uvx` server command, listing the
-package, whether it is pinned, and the last-checked date. A network refresh is
-operator-gated and on-demand only — never a background call.
+A bounded, read-only, OFFLINE-ONLY report: every pinned package in `presets.py`
+and every configured `npx`/`uvx` server command, listing the package, whether it
+is pinned, and the date the entry was last reviewed.
+
+This report never contacts the network and there is no background or scheduled
+refresh. A network refresh (querying the package registry for the latest version)
+is a deliberate non-goal of this phase: it would need a new dependency and an
+opt-in network call. So `generatedAt` is the date the report was produced, and a
+package's `checkedAt` is the date its launch values were last REVIEWED against
+the package registry or the endpoint's own documentation — it is NOT a live
+freshness check. An unpinned package resolves to whatever is latest at run time,
+which the `note` states plainly.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .presets import INTEGRATIONS
 
 # Package runners whose package token is worth reporting.
 _RUNNERS = {"npx", "pnpx", "bunx", "uvx", "pipx"}
+
+
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _package_from_command(command: str, args: list[str]) -> Optional[str]:
@@ -35,8 +48,13 @@ def _is_pinned(spec: str) -> bool:
 
 
 def supply_chain_report(manager: Any = None, *, checked_at: Optional[str] = None) -> dict[str, Any]:
-    """The report. Offline: reads presets + the manager's configured runtimes."""
-    checked_at = checked_at or "2026-09-29"
+    """The report. Offline: reads presets + the manager's configured runtimes.
+
+    `checked_at` defaults to today (UTC) so the report is honestly dated at
+    generation time rather than pinned to a hardcoded string. It is the
+    generation/review date, never a network freshness check.
+    """
+    checked_at = checked_at or _today_utc()
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -79,13 +97,20 @@ def supply_chain_report(manager: Any = None, *, checked_at: Optional[str] = None
     return {
         "readOnly": True,
         "offline": True,
+        # Explicit: this report never contacts the network and is never refreshed
+        # in the background or on a schedule. `generatedAt` is when it was produced;
+        # per-package `checkedAt` is the review date, not live freshness.
+        "offlineOnly": True,
+        "upstreamChecked": False,
+        "generatedAt": checked_at,
         "checkedAt": checked_at,
         "packages": packages,
         "unpinnedCount": sum(1 for p in packages if not p["pinned"]),
         "note": (
-            "Offline by default: no network call is made. A refresh is operator-"
-            "gated and on-demand. An unpinned package (`npx -y foo`) resolves to "
-            "whatever is latest at run time — pin a version for reproducibility."
+            "Offline only: no network call is made and this report is not refreshed "
+            "in the background. 'checkedAt' is the date the entry was last REVIEWED, "
+            "not a live version check. An unpinned package (`npx -y foo`) resolves to "
+            "whatever is latest at run time - pin a version for reproducibility."
         ),
     }
 

@@ -53,6 +53,22 @@ vi.mock("@/lib/scraper/fetchers", () => ({
 vi.mock("@/lib/scraper/fetchers/yfinance", () => ({
   fetchYahooBatchRaw: vi.fn().mockResolvedValue({ quotes: {}, history: {} }),
 }));
+// The macro source must be hermetic. Without this mock the `macro_series` case
+// falls through to the REAL `macroSeries()` → `source.fetch()`, which makes an
+// uncontrolled network request; under parallel load that wall-clock call could
+// exceed the 5 s test timeout (the flake this file hit). A deterministic stub
+// makes the route-identity assertion the only thing under test.
+vi.mock("@/lib/economics/sources", () => ({
+  getSource: (id: string) =>
+    id === "fred-analytics"
+      ? {
+          id,
+          label: "FRED Analytics",
+          controls: [{ name: "seriesId", defaultValue: "CPIAUCSL" }],
+          fetch: async () => [{ date: "2026-08-01", value: "3.1" }],
+        }
+      : undefined,
+}));
 
 import { fetchCapability } from "./data-bridge";
 
@@ -107,10 +123,12 @@ describe("one health seam records every data capability", () => {
   });
 
   it("attributes macro series to the macro asset class", async () => {
-    // Resolve a known macro series then let the fetch run to whatever outcome;
-    // the route key must still be macro, not instrument.
+    // The macro source is stubbed deterministically (see the mock above), so a
+    // resolved series always records a route key — no wall-clock network call.
     await fetchCapability("macro_series", { series: "CPIAUCSL" });
     const call = lastUpsert();
-    if (call) expect(call.create.symbol).toContain("macro#macro_series");
+    expect(call).toBeTruthy();
+    expect(call.create.symbol).toContain("macro#macro_series");
+    expect(call.create.market).toBe("US");
   });
 });
