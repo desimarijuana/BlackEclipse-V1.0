@@ -181,7 +181,8 @@ Two mechanisms:
       `src/lib/backgrounds.ts` (Settings › General › Background): mode
       `none | pattern | image`. `pattern` reuses the theme's `gradient`/`grid`
       treatment; `image` picks one of the shipped wallpapers
-      (`public/backgrounds/eclipse bg-1/4/5.svg`) or the user's own picture.
+      (`public/backgrounds/eclipse bg-1.svg`/`-3.png`/`-4.svg`/`-5.svg`) or the
+      user's own picture.
       Because a full-res wallpaper must not share the ~5 MB localStorage budget
       with themes/chats, custom image bytes live in **IndexedDB** (`be_background`
       / `custom`) while the small prefs live in `be_background_v1`; uploads are

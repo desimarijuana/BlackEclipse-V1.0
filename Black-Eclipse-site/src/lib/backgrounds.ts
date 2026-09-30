@@ -95,6 +95,7 @@ export interface BackgroundAsset {
 
 export const SHIPPED_BACKGROUNDS: BackgroundAsset[] = [
   { id: 'eclipse-1', label: 'Eclipse I', url: '/backgrounds/eclipse%20bg-1.svg', weight: '0.4 MB' },
+  { id: 'eclipse-3', label: 'Eclipse III', url: '/backgrounds/eclipse%20bg-3.png', weight: '40 KB' },
   { id: 'eclipse-4', label: 'Eclipse IV', url: '/backgrounds/eclipse%20bg-4.svg', weight: '2.6 MB' },
   { id: 'eclipse-5', label: 'Eclipse V', url: '/backgrounds/eclipse%20bg-5.svg', weight: '0.9 MB' },
 ];
