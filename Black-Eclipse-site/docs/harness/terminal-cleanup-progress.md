@@ -211,8 +211,8 @@ history and forcing a rewrite. This is a legitimate "keep it" outcome.
 mixed-ending guard); Python **1603 passed**; `npm run test:evals` ALL PASS. No test
 loosened or skipped.
 
-**`.git` size reduction across Items 1-2:** **101,428,986 -> 46,889,484 bytes**
-(-54,539,502; ~-54.5 MB). Breakdown: the 12 codex refs reclaimed ~54.5 MB (their
+**`.git` size reduction across Items 1-2:** **101,428,986 -> 47,456,147 bytes** after the follow-up commits that added
+new objects (the immediate post-gc figure was 46,889,484; -54.5 MB net). Breakdown: the 12 codex refs reclaimed ~54.5 MB (their
 1,528 MB of exclusive `jdds.db` decompressed to ~52 MB packed); the
 `refs/original` remnant + stale lock reclaimed 142 bytes. The remaining ~33.4 MB
 is `main`'s 8 `jdds.db` blobs (see Item 5 — recommended to keep).
