@@ -1334,18 +1334,41 @@ html:not(.dark).theme-glass-off .sidebar-root {
   background-color: rgba(255, 255, 255, 0.92) !important;
 }
 
-/* Page background treatment (Customization › Background). The app shell paints
- * an opaque `bg-background`, so the pattern must layer on the shell element
- * itself (image paints over the background-color on the same box). */
+/* Page background treatment (Settings › General › Background). The theme's
+ * pattern (`--page-bg-image`) paints on the shell (body + .app-page-bg) so it
+ * covers every tab. A chosen wallpaper is NOT painted on the shell — it is
+ * rendered by the `.app-bg-layer` inside the main content panel (see below).
+ * The background store writes these vars inline; when mode is `none`/`pattern`
+ * it removes them and the theme's own `--page-bg-image` (or the shipped
+ * default) applies. */
 body {
   background-image: var(--page-bg-image, none);
   background-size: var(--page-bg-size, auto);
+  background-repeat: repeat;
   background-attachment: fixed;
 }
 .app-page-bg {
   background-image: var(--page-bg-image, none);
   background-size: var(--page-bg-size, auto);
+  background-repeat: repeat;
   background-attachment: fixed;
+}
+
+/* ChatBot wallpaper layer. Fills the main content panel (right of the sidebar)
+ * and resizes with it, so opening/closing the sidebar keeps the image fully
+ * visible rather than cropping it. Deliberately NOT `background-attachment:
+ * fixed` — a fixed attachment sizes the image to the viewport, so the narrower
+ * panel would show only a cropped slice. Rendered only on the chat landing
+ * (gated in stock-chat.tsx), below the panel's content (z-index 0). */
+.app-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--app-bg-scrim, none), var(--app-bg-image, none);
+  background-size: 100% 100%, var(--app-bg-size, auto);
+  background-repeat: no-repeat, var(--app-bg-repeat, no-repeat);
+  background-position: center, var(--app-bg-position, center);
 }
 
 /* ── Accessibility preferences ───────────────────────────────────────────────

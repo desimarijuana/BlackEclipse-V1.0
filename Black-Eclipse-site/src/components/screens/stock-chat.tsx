@@ -13,6 +13,7 @@ import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { useSession } from '@/lib/chat/use-session';
+import { useHydrateBackground } from '@/lib/backgrounds';
 import { Message } from '@/types/chat';
 
 // Screens — heavy ones (ECharts, WebGL bubbles, charts) are code-split and
@@ -110,6 +111,8 @@ function StockChatContent() {
   useHydrateI18n();
   // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
   useHydrateTheme();
+  // Hydrate the app background (pattern or wallpaper; app-wide or chat-only).
+  useHydrateBackground();
   const t = useT();
   // Full-screen theme preview (Settings › Customization) hides the modal so the
   // real app can be auditioned; the panel stays mounted to keep its draft.
@@ -834,18 +837,15 @@ function StockChatContent() {
             'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
         )}
       >
-        {/* Chat paints the eclipse artwork across this panel (header included)
-            only on the empty landing. Anchored to the panel, not the viewport,
-            so it recenters as the sidebar opens/closes instead of sliding under
-            it. Once a conversation starts the surface goes solid so the
-            transcript stays legible; every other tab keeps the glass shell. */}
+        {/* ChatBot wallpaper. Sits in the main content panel (right of the
+            sidebar) so it resizes with the panel and stays fully visible when
+            the sidebar opens/closes. Rendered only on the chat landing (empty
+            transcript); the vars come from the background store and paint
+            `none` unless an image is set. */}
         {activeTab === 'chat' && messages.length === 0 && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
-            style={{ backgroundImage: "url('/backgrounds/eclipse bg.svg')" }}
-          />
+          <div aria-hidden className="app-bg-layer" />
         )}
+
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}

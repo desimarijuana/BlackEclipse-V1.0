@@ -176,16 +176,34 @@ Two mechanisms:
       unmounts) the Settings dialog in `stock-chat.tsx` so the live-themed app is
       visible and interactive, with a portaled floating **Apply / Discard / Exit**
       bar (the panel keeps its draft because it stays mounted; dialog close is
-      suppressed while previewing). The old tiny inline mock was removed. A
-      page-level `.app-page-bg` class carries the
-      `gradient`/`grid` background treatment onto the app shell (the pattern would
-      otherwise be hidden behind the shell's opaque `bg-background`). The Settings
+      suppressed while previewing). The old tiny inline mock was removed.
+      **App background** is a separate, immediately-applied preference owned by
+      `src/lib/backgrounds.ts` (Settings › General › Background): mode
+      `none | pattern | image`. `pattern` reuses the theme's `gradient`/`grid`
+      treatment; `image` picks one of the shipped wallpapers
+      (`public/backgrounds/eclipse bg-1/4/5.svg`) or the user's own picture.
+      Because a full-res wallpaper must not share the ~5 MB localStorage budget
+      with themes/chats, custom image bytes live in **IndexedDB** (`be_background`
+      / `custom`) while the small prefs live in `be_background_v1`; uploads are
+      downscaled (~2560px, JPEG/PNG) in the browser before storing. Wallpapers
+      paint the **ChatBot landing only** (on an empty transcript) through an
+      `.app-bg-layer` that fills the **main content panel** (right of the
+      sidebar) — it resizes with the panel, so opening/closing the sidebar keeps
+      the image fully visible rather than cropping it (no `background-attachment:
+      fixed`, which would size the image to the viewport and crop it). The layer
+      reads `--app-bg-image/-size/-repeat/-position` + `--app-bg-scrim` (the
+      resolver emits a `dim` scrim so text stays legible) and is fed by
+      `useHydrateBackground` in `stock-chat.tsx`. `pattern` mode instead keeps
+      the theme's own `gradient`/`grid` treatment app-wide on the shell
+      (`--page-bg-image`). This replaced the old hardcoded, dead
+      `/backgrounds/eclipse bg.svg` block in `stock-chat.tsx`. The Settings
       panel is tabbed (**General · Theme · Glass & Surfaces · Aurora · Charts ·
       Language & Access**) and embeds the existing Aurora and Chart panels, so all
       appearance controls live under the merged General section. The General tab is
       supplied by the Settings shell (`general-settings.tsx`) and holds startup,
-      default market, refresh, currency, timezone and the destructive-clear
-      confirmation; the remaining tabs are the theme/customization surface.
+      default market, refresh, currency, timezone, the destructive-clear
+      confirmation and the Background card; the remaining tabs are the
+      theme/customization surface.
       The `bridge.ts` helper derives the native chart palette from the theme: on
       explicit user edits it persists (`syncChartPaletteFromTheme`) and during
       preview it overlays without persisting (`previewChartPaletteFromTheme`),

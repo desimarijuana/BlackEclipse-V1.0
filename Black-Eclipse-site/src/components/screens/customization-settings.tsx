@@ -32,7 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DEFAULT_A11Y, LOCALES, useLocaleStore, useT, type LocaleCode } from "@/lib/i18n";
 import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 import {
-  BACKGROUND_OPTIONS, DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
+  DENSITY_OPTIONS, GLASS_PRESETS, HEADING_FONT_OPTIONS, MONO_FONT_OPTIONS,
   SHADOW_OPTIONS, SIDEBAR_PRESETS, THEME_PRESETS, UI_FONT_OPTIONS,
   clearChartPalettePreview, deriveThemeColors, isValidHex, normalizeHex, normalizeTheme,
   syncChartPaletteFromTheme, themeFromBrandColor,
@@ -746,30 +746,6 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
             </div>
           </Card>
 
-          <Card icon={Palette} title="Page Background">
-            <div className="grid grid-cols-3 gap-2">
-              {BACKGROUND_OPTIONS.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => patch({ background: b.id })}
-                  title={b.hint}
-                  className={cn(
-                    "px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer",
-                    draft.background === b.id
-                      ? "bg-primary/10 text-primary border-primary/40"
-                      : "text-muted-foreground border-border/40 hover:text-foreground hover:border-border",
-                  )}
-                >
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              The pattern is tinted with your primary color and paints across the app
-              background, so it always matches the theme.
-            </p>
-          </Card>
         </div>
       )}
 

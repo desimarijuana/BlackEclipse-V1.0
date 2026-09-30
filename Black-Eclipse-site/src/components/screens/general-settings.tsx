@@ -2,10 +2,9 @@
 
 // ── General settings panel ────────────────────────────────────────────────
 // The "General" tab of the merged General/Customization surface. Hosts the
-// presentation-layer preferences that used to live in the standalone General
-// section: start screen and destructive-action safety (localStorage via
-// `general-prefs`), plus the server-backed default market / refresh interval
-// and the local-only display currency / timezone.
+// app background picker plus the presentation-layer preferences: destructive-
+// action safety (localStorage via `general-prefs`), the server-backed default
+// market / refresh interval and the local-only display currency / timezone.
 //
 // It is self-contained: the parent passes the values it already fetched and a
 // persist callback, keeping the merge additive and the parent shell thin.
@@ -18,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/lib/currency";
 import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
-import { DEFAULT_GENERAL_PREFS, START_SCREEN_OPTIONS, loadGeneralPrefs, saveGeneralPrefs, type GeneralPrefs, type StartScreen } from "@/lib/general-prefs";
+import { DEFAULT_GENERAL_PREFS, loadGeneralPrefs, saveGeneralPrefs, type GeneralPrefs } from "@/lib/general-prefs";
+import { BackgroundSettingsPanel } from "./background-settings";
 
 export interface GeneralAppPreferences {
   defaultMarket: string;
@@ -125,28 +125,12 @@ export function GeneralSettingsPanel({
 
   return (
     <div className="animate-fade-in-up space-y-4">
+      {/* Background (pattern / wallpaper) — leads the General panel, with the
+          shipped Eclipse wallpaper selected by default. Self-contained: it
+          reads/writes its own store, so it applies live. */}
+      <BackgroundSettingsPanel />
+
       <Panel className="p-5 md:p-6 space-y-5">
-        <Field label="Start screen" hint="What opens on launch. A shared link still goes to its own page.">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {START_SCREEN_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => updateGeneral({ startScreen: opt.id as StartScreen })}
-                title={opt.hint}
-                className={cn(
-                  "flex flex-col items-start gap-0.5 px-3 py-2.5 text-xs font-medium rounded-xl border transition-all cursor-pointer text-left",
-                  general.startScreen === opt.id
-                    ? "bg-primary/10 text-primary border-primary/40 shadow-sm shadow-primary/10"
-                    : "bg-transparent text-muted-foreground border-border/40 hover:text-foreground hover:border-border"
-                )}
-              >
-                <span>{opt.label}</span>
-                <span className="text-[10px] font-normal opacity-70">{opt.hint}</span>
-              </button>
-            ))}
-          </div>
-        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Default Market">
             <Select value={prefs.defaultMarket} onValueChange={(v) => onPrefsChange({ defaultMarket: v ?? "US" })}>
