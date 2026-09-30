@@ -85,6 +85,7 @@ class RediscoveryMixin:
             connection = rt.connection
             if connection is None or rt.state != "connected":
                 return
+            digest_before = rt.catalog_digest
             before = set(rt.descriptors.keys())
             prev_registered = set(rt.registered_tools)
             try:
@@ -118,6 +119,17 @@ class RediscoveryMixin:
                 # Re-register: keeps tools that still pass the same checks.
                 self._register_all(self._registry)
                 self._register_utilities(self._registry)
+        # A server may send `list_changed` gratuitously. Emitting for an unchanged
+        # catalog would create a stream of no-op "catalog changed" signals, so only
+        # emit when the digest actually moved. The listing refresh above (and the
+        # registry reconcile) still ran; only the EVENT is suppressed.
+        digest_unchanged = (
+            kind == "tools"
+            and digest_before is not None
+            and rt.catalog_digest == digest_before
+        )
+        if digest_unchanged:
+            return
         await self._emit_catalog_changed(rt, removed_count=len(removed), kind=kind)
 
     async def _emit_catalog_changed(

@@ -26,7 +26,12 @@
     "`${VAR}`/`${env:VAR}` and `${workspaceFolder}`/`${userHome}`/`${pathSeparator}`",
     "(a remote url/auth with an unresolved variable is refused, never sent literally).",
     "Remote endpoints must be https and are refused if they resolve to a private",
-    "address (loopback http is allowed for local testing)."
+    "address (loopback http is allowed for local testing). `live_supply_chain_check`",
+    "(default true) queries the public OSV advisory API for the package an `npx`/",
+    "`uvx` server is about to launch: a confirmed malware advisory refuses the spawn,",
+    "a network failure allows it and is labelled. It runs at the spawn path only —",
+    "never in Test, never at boot for a `lazy` server, never for a non-package",
+    "command. Set it to false to skip the (8s-timeout) outbound check entirely."
   ],
   "servers": [
     {

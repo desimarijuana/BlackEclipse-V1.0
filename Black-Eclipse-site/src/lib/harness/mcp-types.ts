@@ -152,6 +152,11 @@ export interface MCPServerView {
   /** The catalog digest the operator last reviewed; activation requires a match. */
   confirmedCatalogDigest?: string | null;
   lazy: boolean;
+  /**
+   * Live supply-chain check at the spawn path (default true). Queries the public
+   * OSV advisory API for the package an `npx`/`uvx` server is about to launch.
+   */
+  liveSupplyChainCheck?: boolean;
   keepaliveInterval?: number | null;
   idleTimeoutSeconds?: number | null;
   maxLifetimeSeconds?: number | null;
@@ -223,6 +228,8 @@ export interface MCPServerInput {
   dataSourceTools?: Record<string, string>;
   confirmedCatalogDigest?: string | null;
   lazy?: boolean;
+  /** Live OSV advisory check at the spawn path (default true when absent). */
+  liveSupplyChainCheck?: boolean;
   keepaliveInterval?: number | null;
   idleTimeoutSeconds?: number | null;
   maxLifetimeSeconds?: number | null;
@@ -376,6 +383,19 @@ export interface MCPDiagnosticsResponse {
   servers: MCPServerDiagnosticsView[];
 }
 
+/** The last live OSV verdict the spawn path recorded for a package (read-only). */
+export interface MCPSupplyChainLiveVerdict {
+  code: "clean" | "blocked" | "unknown";
+  package: string;
+  version?: string | null;
+  ecosystem?: string | null;
+  advisoryIds: string[];
+  reason?: string | null;
+  cached?: boolean;
+  /** When the live check ran (ISO). */
+  checkedAt: string;
+}
+
 /** One package in the offline supply-chain report. */
 export interface MCPSupplyChainPackage {
   package: string;
@@ -386,6 +406,8 @@ export interface MCPSupplyChainPackage {
   verified: boolean;
   verifiedAgainst?: string | null;
   checkedAt: string;
+  /** Present only when the spawn path actually ran a live OSV check. */
+  liveVerdict?: MCPSupplyChainLiveVerdict;
 }
 
 /** The offline, read-only supply-chain report (`GET /mcp/supply-chain`). */

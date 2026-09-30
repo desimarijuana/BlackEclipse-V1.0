@@ -26,7 +26,8 @@ import type {
   MCPSupplyChainReport, MCPVerifyResult,
 } from "@/lib/harness/mcp-types";
 import {
-  draftFromServer, draftToInput, emptyDraft, selectedToolNames, resolveSelectedByGlobs, type DraftServer,
+  catalogChangeSummary, draftFromServer, draftToInput, emptyDraft, selectedToolNames,
+  resolveSelectedByGlobs, type DraftServer,
 } from "@/lib/harness/mcp-draft";
 import { Panel, EffectBadge, stateDot, StateDot } from "./mcp/primitives";
 import { ServerEditor } from "./mcp/server-editor";
@@ -159,11 +160,23 @@ function ServerCard({
             <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
               <div className="flex items-start gap-2">
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-muted-foreground">
-                  This server&apos;s tool catalog changed since you last reviewed it
-                  {server.confirmedCatalogDigest ? "" : " (it has never been confirmed)"}. Tools advertised as
-                  read-only by the server stay disabled until you review and confirm the catalog.
-                </p>
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    This server&apos;s tool catalog changed since you last reviewed it
+                    {server.confirmedCatalogDigest ? "" : " (it has never been confirmed)"}. Tools advertised as
+                    read-only by the server stay disabled until you review and confirm the catalog.
+                  </p>
+                  {(() => {
+                    const s = catalogChangeSummary(server.lifecycle);
+                    if (!s) return null;
+                    return (
+                      <p className="text-[10px] font-mono text-amber-300/80">
+                        {s.count} catalog change{s.count === 1 ? "" : "s"} this session
+                        {s.formattedWhen ? ` · last ${s.formattedWhen}` : ""}
+                      </p>
+                    );
+                  })()}
+                </div>
               </div>
               <Button size="sm" variant="outline" className="cursor-pointer rounded-xl shrink-0" onClick={onConfirmCatalog} disabled={busy}>
                 Confirm catalog
@@ -864,20 +877,46 @@ function MCPSupplyChainPanel() {
                 <>
                   <p className="text-[10px] text-muted-foreground">
                     {report.packages.length} package(s) · {report.unpinnedCount} unpinned · generated {report.generatedAt ?? report.checkedAt}
+                    {report.upstreamChecked ? " · at least one live OSV check recorded" : ""}
                   </p>
                   <div className="rounded-xl border border-border/20 divide-y divide-border/10">
-                    {report.packages.map((p) => (
-                      <div key={`${p.source}:${p.package}`} className="flex items-center justify-between gap-2 px-3 py-2">
-                        <span className="text-[11px] font-mono text-foreground truncate">{p.package}</span>
-                        <span className={cn("text-[9px] font-bold uppercase", p.pinned ? "text-emerald-400" : "text-amber-300")}>
-                          {p.pinned ? "pinned" : "unpinned"}
-                        </span>
-                        <span className="text-[9px] font-mono text-muted-foreground">{p.source}</span>
-                        <span className="text-[9px] font-mono text-muted-foreground" title="last reviewed, not live-checked">
-                          reviewed {p.checkedAt}
-                        </span>
-                      </div>
-                    ))}
+                    {report.packages.map((p) => {
+                      const live = p.liveVerdict;
+                      return (
+                        <div key={`${p.source}:${p.package}`} className="flex flex-col gap-1 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-mono text-foreground truncate">{p.package}</span>
+                            <span className={cn("text-[9px] font-bold uppercase", p.pinned ? "text-emerald-400" : "text-amber-300")}>
+                              {p.pinned ? "pinned" : "unpinned"}
+                            </span>
+                            <span className="text-[9px] font-mono text-muted-foreground">{p.source}</span>
+                            <span className="text-[9px] font-mono text-muted-foreground" title="last reviewed, not live-checked">
+                              reviewed {p.checkedAt}
+                            </span>
+                          </div>
+                          {live ? (
+                            <div className="flex items-center gap-2 flex-wrap text-[9px] font-mono">
+                              <span className={cn("font-bold uppercase",
+                                live.code === "blocked" ? "text-rose-400"
+                                  : live.code === "unknown" ? "text-amber-300" : "text-emerald-400")}>
+                                live: {live.code}
+                              </span>
+                              {live.advisoryIds.length > 0 && (
+                                <span className="text-rose-300">advisories {live.advisoryIds.join(", ")}</span>
+                              )}
+                              {live.code === "unknown" && live.reason && (
+                                <span className="text-amber-300/80">{live.reason}</span>
+                              )}
+                              <span className="text-muted-foreground">checked {live.checkedAt}</span>
+                            </div>
+                          ) : (
+                            <span className="text-[9px] font-mono text-muted-foreground/60">
+                              no live check recorded (the spawn path checks at launch)
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}

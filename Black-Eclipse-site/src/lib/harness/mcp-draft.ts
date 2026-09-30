@@ -20,6 +20,27 @@ import type {
   MCPTrust,
 } from "./mcp-types";
 
+/**
+ * The catalog-change counters to render beside the "catalog changed" banner.
+ *
+ * Returns null when the runtime reported no changes (or an absent/zero count),
+ * so the UI renders NO stray "0"/"—". `formattedWhen` is a short local time, or
+ * null when the runtime omitted it.
+ */
+export function catalogChangeSummary(
+  lifecycle: { catalogChanges?: number; lastCatalogChangeAt?: string | null } | undefined
+): { count: number; formattedWhen: string | null } | null {
+  const count = lifecycle?.catalogChanges;
+  if (typeof count !== "number" || count <= 0) return null;
+  const iso = lifecycle?.lastCatalogChangeAt;
+  let formattedWhen: string | null = null;
+  if (iso) {
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) formattedWhen = d.toLocaleTimeString();
+  }
+  return { count, formattedWhen };
+}
+
 // Documented defaults, stated inline in the editor. A blank limit field means
 // "use the default", which is sent explicitly as that number so a save on an
 // existing server can restore the default rather than preserve an old value.
@@ -90,6 +111,8 @@ export interface DraftServer {
   resourceSchemesText: string;
   // Lifecycle.
   lazy: boolean;
+  /** Live OSV advisory check at the spawn path (default true). */
+  liveSupplyChainCheck: boolean;
   keepaliveIntervalText: string;
   idleTimeoutText: string;
   maxLifetimeText: string;
@@ -124,7 +147,7 @@ export function emptyDraft(): DraftServer {
     toolEffects: {}, acknowledgedEffectMismatches: [], dataSourceTools: {}, dataSourcesText: "",
     resourcesEnabled: false, promptsEnabled: false,
     resourceSchemesText: "",
-    lazy: false, keepaliveIntervalText: "", idleTimeoutText: "", maxLifetimeText: "",
+    lazy: false, liveSupplyChainCheck: true, keepaliveIntervalText: "", idleTimeoutText: "", maxLifetimeText: "",
     sslVerifyMode: "true", sslVerifyPath: "", clientCertText: "", clientCertConfigured: false,
     clearClientCert: false,
     startupTimeoutText: "", catalogTimeoutText: "", callTimeoutText: "",
@@ -313,6 +336,7 @@ export function draftFromServer(view: MCPServerView): DraftServer {
     promptsEnabled: Boolean(view.capabilityToggles?.prompts),
     resourceSchemesText: (view.resourceSchemes ?? []).join(", "),
     lazy: view.lazy,
+    liveSupplyChainCheck: view.liveSupplyChainCheck !== false,
     keepaliveIntervalText: optionalIntText(view.keepaliveInterval),
     idleTimeoutText: optionalIntText(view.idleTimeoutSeconds),
     maxLifetimeText: optionalIntText(view.maxLifetimeSeconds),
@@ -385,6 +409,7 @@ export function draftToInput(draft: DraftServer): DraftPayload {
     enabledEffects: draft.enabledEffects.length ? [...draft.enabledEffects] : ["read"],
     dataSourceTools: parseDataSourceText(draft.dataSourcesText),
     lazy: draft.lazy,
+    liveSupplyChainCheck: draft.liveSupplyChainCheck,
     keepaliveInterval: optionalInt(draft.keepaliveIntervalText),
     idleTimeoutSeconds: optionalInt(draft.idleTimeoutText),
     maxLifetimeSeconds: optionalInt(draft.maxLifetimeText),

@@ -27,8 +27,8 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from urllib.parse import quote
 
 log = logging.getLogger("harness.mcp.supply_chain")
 
@@ -141,12 +141,21 @@ class SupplyChainChecker:
         *,
         ttl_s: int = CACHE_TTL_S,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Optional[Callable[[], float]] = time.time,
     ) -> None:
         self._fetcher = fetcher
         self._ttl = ttl_s
         self._clock = clock
+        # Wall clock is separate from the monotonic cache clock so a human-readable
+        # "when was this checked" is meaningful (monotonic has no epoch).
+        self._wall_clock = wall_clock
         # (ecosystem, package, version) -> (verdict, stored_at)
         self._cache: dict[tuple[str, str, Optional[str]], tuple[SupplyChainVerdict, float]] = {}
+        # The LAST verdict observed for each package, whether or not it was
+        # cacheable (an UNKNOWN is recorded for visibility but not cached), plus
+        # when it was observed. Read-only: this is what a report consults so it
+        # never triggers a network call of its own.
+        self._observed: dict[tuple[str, str, Optional[str]], tuple[SupplyChainVerdict, str]] = {}
 
     async def _default_fetch(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         import httpx
@@ -183,8 +192,29 @@ class SupplyChainChecker:
         verdict = await self._query(ecosystem, package, version)
         if verdict.code in (CLEAN, BLOCKED):
             self._cache[key] = (verdict, self._clock())
-        # A network failure (UNKNOWN) is deliberately NOT cached.
+        # Record the observation for the READ-ONLY report, cacheable or not. A
+        # network failure (UNKNOWN) is deliberately NOT cached (a retry may
+        # succeed) but IS reported so the operator can see the check was attempted.
+        self._observed[key] = (verdict, self._now_iso())
         return verdict
+
+    def _now_iso(self) -> str:
+        try:
+            return datetime.fromtimestamp(self._wall_clock(), tz=timezone.utc).isoformat()
+        except Exception:  # noqa: BLE001 - a clock failure must not break a check
+            return ""
+
+    def observe(self, ecosystem: str, package: str, version: Optional[str]) -> Optional[dict[str, Any]]:
+        """The last observed verdict for a package, or None if never checked.
+
+        Pure, read-only: it consults memory only and NEVER triggers a network call.
+        Returns the verdict's public shape plus `checkedAt`.
+        """
+        entry = self._observed.get((ecosystem, package, version))
+        if entry is None:
+            return None
+        verdict, checked_at = entry
+        return {**verdict.public(), "checkedAt": checked_at}
 
     async def _query(self, ecosystem: str, package: str, version: Optional[str]) -> SupplyChainVerdict:
         payload: dict[str, Any] = {"package": {"name": package, "ecosystem": ecosystem}}
@@ -223,9 +253,29 @@ def checker() -> SupplyChainChecker:
     return _CHECKER
 
 
+def observe_command(command: str, args: list[str]) -> Optional[dict[str, Any]]:
+    """The last observed supply-chain verdict for a `command args...` spec, or None.
+
+    Read-only: never queries the network. Mirrors `check`'s package parsing so a
+    report looks up the exact same `(ecosystem, package, version)` key the spawn
+    path recorded. A non-package runner yields None (never queried).
+    """
+    ecosystem = ecosystem_for_runner(command)
+    if ecosystem is None:
+        return None
+    spec = next((a for a in args or [] if isinstance(a, str) and a and not a.startswith("-")), None)
+    if not spec:
+        return None
+    package, version, _ = parse_package_spec(spec)
+    if not package:
+        return None
+    return _CHECKER.observe(ecosystem, package, version)
+
+
 def reset_cache() -> None:
-    """Clear the process-wide cache (tests / an operator refresh)."""
+    """Clear the process-wide cache and observations (tests / an operator refresh)."""
     _CHECKER._cache.clear()  # noqa: SLF001 - deliberate test seam
+    _CHECKER._observed.clear()  # noqa: SLF001 - deliberate test seam
 
 
 async def check_spawn(command: str, args: list[str], *, enabled: bool = True) -> SupplyChainVerdict:

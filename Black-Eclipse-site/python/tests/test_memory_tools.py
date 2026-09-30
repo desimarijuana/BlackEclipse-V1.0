@@ -122,6 +122,57 @@ async def test_memory_tool_rejects_bad_write(env):
     assert "NOT SAVED" in _  # noqa: F841
 
 
+async def test_memory_tool_save_without_confidence(env):
+    # Regression: save with NO confidence, and with an explicit null, must not
+    # crash with `float() argument must be ... not 'NoneType'`. Both fall back to
+    # the default; authorized write still succeeds.
+    ctx = _ctx(env, user_message="Remember that I prefer terse answers")
+    for content in ("User prefers terse answers", "User prefers terse summaries"):
+        text, data = await env["registry"].get("memory").handler(
+            {"action": "save", "content": content, "type": "preference",
+             "scope": "user", "confidence": None},
+            ctx,
+        )
+        assert data["saved"] is True, (content, data)
+        assert "saved" in text.lower()
+    # Omitted entirely (key absent) is the other common shape.
+    _, data = await env["registry"].get("memory").handler(
+        {"action": "save", "content": "User prefers terse reports", "type": "preference", "scope": "user"},
+        ctx,
+    )
+    assert data["saved"] is True
+
+
+async def test_memory_tool_save_with_malformed_confidence_is_typed(env):
+    # A non-numeric confidence is a typed invalid_input error, not a TypeError.
+    ctx = _ctx(env, user_message="Remember that I prefer terse answers")
+    text, data = await env["registry"].get("memory").handler(
+        {"action": "save", "content": "User prefers terse updates", "type": "preference",
+         "scope": "user", "confidence": "not-a-number"},
+        ctx,
+    )
+    assert data["saved"] is False
+    assert data["outcome"] == "invalid_input"
+    assert "invalid input" in text.lower()
+    assert env["memory"].store.list_memories() == []
+
+
+async def test_memory_tool_list_tolerates_null_limit(env):
+    # Regression: a present-but-null `limit` (JSON null) must not crash.
+    # `args.get("limit", 20)` returns None when the key exists with value None,
+    # so the handler must coerce with `or`, not the default only.
+    ctx = _ctx(env)
+    _, listed = await env["registry"].get("memory").handler(
+        {"action": "list", "limit": None}, ctx,
+    )
+    assert listed["count"] == 0
+
+    _, searched = await env["registry"].get("memory").handler(
+        {"action": "search", "query": "nothing", "limit": None}, ctx,
+    )
+    assert searched["count"] == 0
+
+
 async def test_memory_tool_requires_service():
     ctx = ToolContext(run_id="r", log=lambda *_: None, memory_service=None)
     with pytest.raises(RuntimeError):

@@ -638,3 +638,160 @@ docs updated: `docs/harness/mcp-integrity-progress.md`,
 `docs/harness/decisions.md`, `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
 `docs/CHANGELOG.md`, `docs/harness/mcp-phase-6-progress.md`,
 `docs/harness/mcp-ui-parity-progress.md`, `CONTRIBUTING.md`.
+
+## Milestone 10 — Post-audit fixes (2026-09-30, after `a9a8466`)
+
+A re-audit of the committed tree found three residual honesty/reachability gaps and
+one false premise in this document's own history. Fixed here.
+
+### 10.1 — A no-op `list_changed` emitted a "catalog changed" event (ADR-H87)
+
+`rediscovery.py` emitted `mcp.catalog.changed` unconditionally after every inbound
+`list_changed`. A server announcing a change that never materialises — or firing
+the notification gratuitously — therefore produced a stream of "catalog changed"
+signals asking the operator to re-confirm an identical catalog. The handler now
+snapshots `rt.catalog_digest` before the refresh and suppresses the event when the
+digest is unchanged. Discovery, the registry reconcile and the resource/prompt
+refresh still run; only the event is suppressed.
+
+The `list_changed_all` fixture was **also** wrong: it changed its resource and
+prompt listings but not its TOOL list, so the `tools` event the existing test
+asserted was itself a false positive of the old unconditional emit. The fixture now
+genuinely changes all three. New fixture mode `list_changed_noop` (announces a
+change that never happens) and test
+`test_a_gratuitous_list_changed_emits_no_catalog_event`.
+
+### 10.2 — `live_supply_chain_check` was default-on and invisible (ADR-H87)
+
+`MCPServerConfig.live_supply_chain_check` defaulted to `True` and performs an
+outbound 8s OSV query on every `npx`/`uvx` spawn, but no operator surface mentioned
+it: absent from the editor, from `mcp-servers.example.json`, and from the TS
+`MCPServerView` / `MCPServerInput` / `DraftServer` contract. That last omission was
+the real defect: a save from the editor would **drop** an explicitly-configured
+`false` and silently re-enable the network call — the same field-dropping class
+ADR-H74 fixed for the other lifecycle fields, reintroduced by a new field.
+
+Added the field to the view/input/draft contract with `!== false` as the read rule
+(absent and `true` both mean on; only an explicit `false` disables), the round-trip
+mapping, a Lifecycle checkbox in `server-editor.tsx`, and the example-config
+documentation. Regression: `mcp-draft.test.ts` "round-trips the live supply-chain
+toggle".
+
+### 10.3 — Six manager mixins were undocumented in NAVIGATION
+
+The MCP nav row said `manager.py` is a "facade over the mixins" without naming
+them. `verify.py`, `execution.py`, `lifecycle_mixin.py`, `utilities.py`,
+`rediscovery.py`, `circuit.py` and `supply_chain.py` are now named there. This is
+the same drift class as the stale `_testtmp.py` row corrected in Milestone 2.
+
+### 10.4 — Correction to the G11 disposition (supersedes Milestone 2's wording)
+
+Milestone 2 adopted `python/tests/_tmp_helper.py` as the `tmp_workspace` fixture in
+`python/conftest.py`. Verified after the fact: `tmp_workspace` is requested by
+exactly one test — `python/tests/test_tmp_helper.py`, which exists to prove the
+helper is load-bearing. So the helper is now wired, documented and exercised, but
+**no production-facing test depends on it**; the Windows temp-dir resilience it
+provides is still unexercised by any real suite test. Recorded here rather than
+left as an implied coverage claim.
+
+**Checks (measured, this round):** `npm run check:all` → **ALL GATES PASSED**
+(vitest 1931 / 164 files; python 1681 passed; eval gates PASS). MCP subset: **309
+passed**. `npx tsc --noEmit` exit 0.
+
+**Note on the earlier red gate.** Two failures were observed once each during a
+`check:all` run (`test_identity_hardening.py::test_d1_identical_query_replays_the_same_result`,
+`test_phase6_resilience.py::test_sec_unavailable_falls_through_to_vault`). They were
+caused by a **concurrent edit**: the health-aware-retrieval work landed
+(`layer.py` began issuing a `source_health` bridge read) while the run was in
+flight, and the tests asserting the bridge call list raced it. Both files were
+updated in the same workstream and the failures are not reproducible (5 clean full
+runs afterwards). Not a flake in the committed code.
+
+no doc change — progress doc only (the CHANGELOG/NAVIGATION/architecture/ADR
+updates are already recorded under ADR-H87 in today's CHANGELOG entry).
+
+## Milestone 11 — Close-out: reconcile scope, settle two residual signals (2026-09-30)
+
+Baseline this round (measured): `tsc` exit 0; vitest **1934 / 164**; Python
+**1681**; `npm run check:all` → ALL GATES PASSED. Final after this round: vitest
+**1937 / 164**, Python **1687**, `check:all` ALL GATES PASSED.
+
+### 11.1 — Working-tree reconciliation and the commit boundary (Item 1)
+
+The tree mixes three workstreams. **I did NOT commit** (the repository forbids it
+without explicit operator authorization). Grouped with `git status --porcelain
+-uall`:
+
+- **(a) MCP integrity — uncommitted delta since `a9a8466`:** `rediscovery.py`,
+  `python/tests/mcp_fixtures/raw_fixture.py`, `test_mcp_notifications.py`,
+  `mcp-draft.ts`/`.test.ts`, `mcp-types.ts`, `server-editor.tsx`,
+  `mcp-servers.example.json`, and the doc edits (this doc, ADR-H87 already landed,
+  plus this round's ADR-H88/H89). These are the **Milestone 10** fixes plus this
+  close-out.
+- **(b) Adjacent — health-aware retrieval:** `python/harness/retrieval/health.py`,
+  `retrieval/layer.py`, `python/tests/test_retrieval_health.py`,
+  `src/lib/harness/health-key.ts`, `health-canonical-keys.test.ts`,
+  `src/lib/harness/data-bridge.ts`, `docs/DATA-FLOW.md`, and the ADR-H85/H86 +
+  CHANGELOG entries. Never committed; see 11.2.
+- **(c) Not MCP:** the wallpaper work (`src/lib/backgrounds.ts` +
+  `background-settings.tsx` — another agent's, already committed in `51c962d`/
+  `df6c084`), `public/geo/world.geo.json`, `scripts/fetch-world-geo.mjs`,
+  `src/components/ui/{dialog,global-loader}.tsx`, `docs/investor-eye-architecture.md`.
+
+**Recommended commit boundary (three separate commits, in this order):**
+
+1. `MCP integrity: Milestone 10 fixes and close-out` — bucket (a): the files listed
+   above plus `python/harness/mcp/{supply_chain,audit}.py`, `routers/mcp.py`,
+   `mcp-settings.tsx`, `mcp/lifecycle-panel.tsx`, `mcp-draft.ts/.test.ts`,
+   `mcp-types.ts`, `python/tests/test_mcp_supply_chain.py`, and docs
+   (this progress doc, decisions ADR-H88/H89, NAVIGATION, CHANGELOG).
+2. `Retrieval: health-aware planning + canonical health keys` — bucket (b).
+3. The unrelated user files remain **uncommitted** for their owner.
+
+### 11.2 — Adjacent workstream reconciliation (Item 2)
+
+The health-aware-retrieval workstream is **complete and tested**: Python
+`test_retrieval_health.py` + `test_phase6_resilience.py` → 25 passed; TS
+`health-canonical-keys.test.ts` → 5 passed. Its documentation obligation is
+satisfied — NAVIGATION rows for `retrieval/health.py` (line 146) and
+`health-key.ts` (137/149), ADRs **H85** and **H86**, and dated CHANGELOG entries
+("Source health — canonical route keys…", "Retrieval planning is health-aware…")
+all exist. It was **never committed** (`git log --all` for its files is empty;
+`health-key.ts` is not in HEAD). It is **adjacent scope**, not merged into an MCP
+commit. No part is unfinished.
+
+### 11.3 — Item 3: wire the live supply-chain verdict (Option A) — ADR-H88
+
+Chose **Option A**. `SupplyChainChecker` records the last observation per
+`(ecosystem, package, version)` (cacheable or not) with a wall-clock `checkedAt`;
+`observe_command` is a pure, network-free lookup; `audit.supply_chain_report`
+attaches `liveVerdict` and derives `upstreamChecked` from real observations; the
+dead `upstream_checked` parameter is removed. The route stays offline. Tests
+(`test_mcp_supply_chain.py`, +4): never-checked-yet → no `liveVerdict` +
+`upstreamChecked: false`; blocked → advisories attached + `true`; inconclusive →
+surfaced + `true` and **not cached**; `observe_command` never queries the network.
+
+### 11.4 — Item 4: resolve the duplicated catalog-changed signal (Option i) — ADR-H89
+
+Chose **Option (i)** — surface the existing lifecycle counters, no event consumer.
+Reasoning: the operator acts on the digest mismatch, which is already polled with
+the server list; a `mcp.catalog.changed` SSE consumer would be a second
+notification system invented for symmetry, with no concrete consumer. A pure
+`catalogChangeSummary` helper (in `mcp-draft.ts`) gates the render so a server
+with no recorded change shows **no stray zero**. Rendered beside the existing
+banner (`mcp-settings.tsx`) and in the lifecycle panel. Tests
+(`mcp-draft.test.ts`, +3): null for absent/zero; count + formatted time when
+present; count with no time for an absent/unparseable timestamp. **Deliberately
+not built:** a UI consumer of the `mcp.catalog.changed` event.
+
+### 11.5 — Item 5: docs
+
+ADR-H88/H89 appended; NAVIGATION MCP rows updated (supply-chain route/report
+shape; notification row now names the counters/helper); a dated CHANGELOG entry;
+this section. `data-bridge.ts` remains bucket (b) and was not touched.
+
+**Checks (measured, after Items 3–4):** `tsc` exit 0; vitest **1937 / 164**;
+Python **1687**; MCP subset 311; `npm run check:all` → ALL GATES PASSED. No
+concurrent-edit red gate observed this round.
+
+no doc change — progress doc only (CHANGELOG/NAVIGATION/ADR updated separately).

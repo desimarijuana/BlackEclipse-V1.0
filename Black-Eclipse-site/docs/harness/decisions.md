@@ -2006,3 +2006,147 @@ over-long name failing at the wire is a confusing runtime error.
 name clamp cannot block a tool; it only informs the operator why the callable
 name differs.
 
+## ADR-H85 — The source-health ledger uses canonical route keys and its probes are persisted
+
+**Decision.** A route's health entry is keyed by
+`(source × market × assetClass × capability)` with every dimension normalised to
+a closed vocabulary in one module (`src/lib/harness/health-key.ts`,
+`canonicalMarket` / `canonicalAssetClass` / `canonicalSource`). Market is
+upper-cased against the declared market set; asset class is lower-cased against
+the closed enum (plus the synthetic `macro` class); anything unrecognised — or a
+literal `unknown`/`*` from an instrument route — folds to the wildcard `*`, never
+a persisted `unknown`. Provider/transport ids collapse to one canonical source per
+provider (`safe-get`/`duckduckgo-*`/`custom-search` → `WEB`, `sec-xbrl` → `SEC`).
+Normalisation is applied on BOTH write (`recordHealth`/`recordCapabilityHealth`)
+and read (`sourceHealth`), so legacy rows fold onto the same key. Separately, the
+`research_health` probes now write their outcomes into the same `SourceHealth`
+ledger, under the same canonical route id and the same instrument-less (`*`×`*`)
+key as production traffic, instead of existing only in the returned payload.
+
+**Why.** The ledger was fragmented: the same real route appeared under `Equity`
+and `equity`, under `unknown` and `*`, so per-route success rates were wrong and a
+100%-healthy route could not be distinguished from a 0%-failing one. And because
+the probe tested one provider (`duckduckgo-html`, `safe-get`) while production
+recorded another (`WEB`), a working provider was reported as failing — the health
+surface could not be trusted to decide routing.
+
+**Consequences.** A probe run and a production run of the same capability now
+increment ONE row (the P0-3 acceptance test). Route selection that consults health
+can trust the keys. No schema change: capability + probe-kind are still encoded in
+the existing `symbol` column. A market/class that genuinely cannot be resolved
+still records — as `*`, so a failed attempt is not silently dropped.
+
+## ADR-H86 — Retrieval planning is health-aware: a healthy route outranks a failing one
+
+**Decision.** The Python retrieval layer reorders its planned sources using the
+SAME `SourceHealth` ledger `get_source_health` reports (read through the
+read-only bridge as the `source_health` capability). Ordering rules
+(`python/harness/retrieval/health.py`): health is keyed by
+`(source × capability × market)` with an exact-market hit preferred over a global
+(`*`) route; the capability is derived from the data type and the source, so a
+working quote never lends health to a statement route; **only a healthy route is
+promoted** — a degraded/failing route is never demoted below an *unobserved*
+route, because absence of evidence is not evidence of failure and pushing a
+structured route behind generic web could invert precedence badly. The reorder is
+stable (equal health keeps static order) and never adds or removes a source: it
+only reorders among sources the caller already made available. The index is
+fetched at most once per layer and re-read only after the D1 durable-replay check
+(so a replay performs no provider work). It is fail-open — a missing bridge,
+unavailable ledger or malformed row leaves the static plan untouched.
+
+**Why.** The static plan could sit a 0%-success route ahead of an equally-eligible
+100%-healthy route, so reachable data went unused — the single highest-leverage
+source of missing values in the report. The evidence already existed; selection
+ignored it.
+
+**Consequences.** A healthy route is tried first and its precedence is logged and
+surfaced as a warning when a planned route is recorded degraded/failing. No new
+dependency. The reorder is advisory and bounded: an unobserved environment behaves
+exactly as before.
+
+## ADR-H87 - A `list_changed` with no actual change emits no event, and a silent spawn check becomes visible
+
+**Decision.** Two reachability/honesty rules for the continuation M4/M6 work.
+
+1. `rediscovery.py` snapshots `rt.catalog_digest` BEFORE the refresh and emits
+   `mcp.catalog.changed` only when the digest moved. Discovery, the registry
+   reconcile (deregister vanished tools, re-register survivors) and the
+   resource/prompt listing refresh all still run on every notification — only the
+   EVENT is suppressed. A `resources`/`prompts` notification is unaffected (those
+   listings have no digest and no activation gate).
+2. `MCPServerConfig.live_supply_chain_check` keeps its `True` default, but becomes
+   a first-class operator field: `MCPServerView` / `MCPServerInput` / `DraftServer`
+   carry it, `mcp-draft.ts` round-trips it with `view.liveSupplyChainCheck !== false`
+   as the read rule (absent = the documented default of on), and the editor
+   renders it in the Lifecycle section.
+
+**Why.** (1) A server may announce a change that never materialises, or fire
+`list_changed` gratuitously. The prior behaviour re-ran discovery (harmless) and
+then emitted "catalog changed" every time, which tells the operator to re-review a
+catalog that is byte-identical — the signal is only useful if it is rare and true.
+(2) The check was default-on, ran on the spawn path with an 8s outbound timeout,
+and was named nowhere an operator could see it. Worse, because the field was
+absent from the front door's contract, a save from the editor would DROP an
+explicit `false` and silently re-enable the network call — the same
+field-dropping defect ADR-H74 fixed for the other lifecycle fields, reintroduced by
+a new field.
+
+**Consequences.** A gratuitous notification is now a no-op the operator never
+sees; a real change still emits exactly once. The spawn check remains default-on
+(the safe direction: arbitrary third-party code execution), but its cost is now
+disclosable and switchable. `absent` and `true` both mean "on"; only an explicit
+`false` disables it, so an older config cannot accidentally turn the check off.
+
+## ADR-H88 - The supply-chain report surfaces the last live spawn-path verdict (derived, not a caller flag)
+
+**Decision.** `supply_chain.SupplyChainChecker` records the last observation it
+made for each `(ecosystem, package, version)` — cacheable or not — with a
+human-readable `checkedAt` (wall clock, distinct from the monotonic cache clock).
+A read-only lookup (`observe_command`) resolves a `command args...` spec to that
+observation and NEVER queries the network. `audit.supply_chain_report` consults it
+for each configured server and, when any package carries an observation, attaches
+`liveVerdict` to that package and sets `upstreamChecked: true`. The
+`upstream_checked` caller parameter is **removed** — the flag is now DERIVED from
+real observations, so it can no longer be set by a caller that did not actually
+perform a check. `GET /mcp/supply-chain` still never contacts the network; it
+reports what the spawn path already observed. Per-package `liveVerdict` carries
+the verdict code, advisory ids when blocked, package+version, and `checkedAt`
+(identifiers only — never a response body).
+
+**Why.** The prior contract was unimplementable: `upstream_checked=True` was
+documented as "set by a CALLER that also performed a live OSV check", but no
+caller existed and the only route passed nothing, so `upstreamChecked` could never
+become `true`. The operator saw `offlineOnly: true, upstreamChecked: false` and
+could not tell that a live check *had* run at spawn. An observation-derived flag is
+the honest fix: the report reflects what actually happened, and a network failure
+(the check ran but was inconclusive) is still an observation, so it surfaces too.
+
+**Consequences.** An inconclusive (`unknown`) observation is reported but NOT
+cached — a later spawn re-queries. "Never checked yet" and "checked, inconclusive"
+are now distinguishable by the operator. `reset_cache` clears both the cache and
+the observations. The report stays offline and read-only.
+
+## ADR-H89 - Catalog-change counters are surfaced beside the existing banner (no event consumer)
+
+**Decision.** The runtime keeps emitting the content-free `mcp.catalog.changed`
+event and exposing `lifecycle.catalogChanges` / `lastCatalogChangeAt`. The card
+surfaces those counters BESIDE the existing "catalog changed" banner, and the
+lifecycle panel renders them in a small block — only when at least one change was
+recorded, so a server that never changed shows no stray `0`/`—`. A single pure
+helper (`mcp-draft.catalogChangeSummary`) decides what (if anything) to render.
+No event consumer is added: nothing in the UI needs a live event stream, because
+the change signal the operator acts on is the digest mismatch, which is already
+polled with the server list.
+
+**Why.** Two sources described one fact — the emitted event and the lifecycle
+counters — and the one the operator saw (the digest-derived banner) could not say
+*when* or *how often*. Adding an SSE consumer for an event nothing needs would be
+a second notification system invented for symmetry. Surfacing the already-transported
+counters is the cheapest honest resolution and needs no new contract.
+
+**Consequences.** The counters are counts and a timestamp only — never a tool
+description or a changed tool name. The deliberate non-goal: **no UI consumer of
+`mcp.catalog.changed` was built**; the event remains available on the shared bus
+for a future subscriber but is not required for the operator surface. Re-opening
+that would need a concrete consumer (e.g. a global, non-per-server notification),
+which does not exist today.

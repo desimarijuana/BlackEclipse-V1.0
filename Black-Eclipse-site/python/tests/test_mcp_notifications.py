@@ -177,3 +177,35 @@ async def test_unknown_server_catalog_change_is_a_non_event():
     manager = MCPManager([])
     # No runtimes: nothing to do, and it must not raise.
     await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_a_gratuitous_list_changed_emits_no_catalog_event():
+    """A `list_changed` whose catalog is identical must not emit.
+
+    A server may announce a change that never materialises. Discovery still
+    re-runs (harmless, idempotent), but a no-op "catalog changed" signal would be
+    misleading — and a server that fires the notification gratuitously would
+    produce a stream of them. The digest comparison is what suppresses it.
+    """
+    manager = MCPManager([_cfg("list_changed_noop")])
+    registry = ToolRegistry()
+    sink = RecordingSink()
+    manager.set_event_sink(sink)
+    await manager.start()
+    try:
+        [name] = manager.register_selected_tools(registry)
+        rt = manager._runtimes["raw"]
+        digest_before = rt.catalog_digest
+        ctx = ToolContext(run_id="r-noop", log=lambda *_: None)
+        await registry.execute(name, "c1", {"text": "hi"}, ctx, allowed={name})
+        # Give the notification a chance to be processed.
+        await asyncio.sleep(0.5)
+        # The catalog genuinely did not change.
+        assert rt.catalog_digest == digest_before
+        changed = [e for e in sink.events if e[0] == "mcp.catalog.changed"]
+        assert changed == [], f"a no-op list_changed emitted {changed}"
+        # A real change still emits: prove the suppression is not blanket.
+        assert rt.catalog_changes >= 1
+    finally:
+        await manager.close()

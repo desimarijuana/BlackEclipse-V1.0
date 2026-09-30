@@ -644,7 +644,10 @@ triggers a refresh of that ONE server's listing through the existing path; a
 changed tool catalog re-engages the confirmation gate so it cannot keep a tool
 active, a changed resource/prompt listing replaces the connect-time snapshot the
 utility tools serve, and a content-free `mcp.catalog.changed` event fires
-(ADR-H81). (2) A per-server
+(ADR-H81) — but only when the digest actually moved: a `list_changed` that
+announces no real change is re-discovered and produces NO event, so a server that
+fires the notification gratuitously cannot spam the operator with "catalog
+changed" prompts to re-confirm an identical catalog (ADR-H87). (2) A per-server
 **circuit breaker** stops futile calls to a server that connects but fails every
 call: only transport failures count (never a denied approval, a caller-side
 error, a budget/breaker refusal or a cancellation); an open breaker refuses

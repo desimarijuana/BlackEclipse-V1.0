@@ -48,7 +48,7 @@ def _is_pinned(spec: str) -> bool:
 
 
 def supply_chain_report(
-    manager: Any = None, *, checked_at: Optional[str] = None, upstream_checked: bool = False
+    manager: Any = None, *, checked_at: Optional[str] = None
 ) -> dict[str, Any]:
     """The report. Offline: reads presets + the manager's configured runtimes.
 
@@ -56,10 +56,17 @@ def supply_chain_report(
     generation time rather than pinned to a hardcoded string. It is the
     generation/review date, never a network freshness check.
 
-    `upstream_checked=True` is set by a CALLER that also performed a live OSV
-    check (see `supply_chain.py`); this function itself never contacts the
-    network, and with the default the report stays honestly offline.
+    This function itself NEVER contacts the network. For a CONFIGURED server it
+    also reads the last LIVE supply-chain verdict the spawn path already recorded
+    (`supply_chain.observe_command`, an in-memory, read-only lookup). When any
+    package carries such a verdict the report sets `upstreamChecked: true` and
+    attaches `liveVerdict` to that package, so the operator can tell a live check
+    actually ran and when. Absent observations, the report stays honestly offline
+    (`upstreamChecked: false`) — the value is derived from real observations, not
+    a caller-supplied flag that could lie.
     """
+    from .supply_chain import observe_command
+
     checked_at = checked_at or _today_utc()
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -81,6 +88,7 @@ def supply_chain_report(
             "checkedAt": spec.verified_at or checked_at,
         })
 
+    upstream_checked = False
     if manager is not None:
         for rt in getattr(manager, "_runtimes", {}).values():
             config = rt.config
@@ -90,7 +98,7 @@ def supply_chain_report(
             if not package or package in seen:
                 continue
             seen.add(package)
-            packages.append({
+            entry = {
                 "package": package,
                 "source": "configured",
                 "serverId": config.id,
@@ -98,7 +106,17 @@ def supply_chain_report(
                 "verified": False,
                 "verifiedAgainst": None,
                 "checkedAt": checked_at,
-            })
+            }
+            # The last LIVE verdict the spawn path recorded for this package, if
+            # any. Read-only: this lookup never triggers a network call.
+            try:
+                live = observe_command(config.command, list(config.args))
+            except Exception:  # noqa: BLE001 - a report must not fail on a lookup
+                live = None
+            if live is not None:
+                entry["liveVerdict"] = live
+                upstream_checked = True
+            packages.append(entry)
 
     return {
         "readOnly": True,
@@ -106,8 +124,8 @@ def supply_chain_report(
         # Explicit: this report never contacts the network and is never refreshed
         # in the background or on a schedule. `generatedAt` is when it was produced;
         # per-package `checkedAt` is the review date, not live freshness.
-        # This report itself never contacts the network; `upstreamChecked`
-        # records whether a live OSV check was performed ALONGSIDE it.
+        # `upstreamChecked` is DERIVED from real spawn-path observations above, not
+        # a caller flag: true only when at least one package carries a liveVerdict.
         "offlineOnly": True,
         "upstreamChecked": upstream_checked,
         "generatedAt": checked_at,

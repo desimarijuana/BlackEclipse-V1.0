@@ -387,6 +387,17 @@ export function ServerEditor({
           <input type="checkbox" className="accent-primary" checked={draft.lazy} onChange={(e) => set({ lazy: e.target.checked })} />
           Lazy start (register tools from the on-disk cache without connecting)
         </label>
+        <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
+          <input type="checkbox" className="mt-0.5 accent-primary" checked={draft.liveSupplyChainCheck} onChange={(e) => set({ liveSupplyChainCheck: e.target.checked })} />
+          <span>
+            Live supply-chain check at spawn (default on)
+            <span className="block text-[10px] text-muted-foreground/70">
+              Queries the public OSV advisory API for the package an <code>npx</code>/<code>uvx</code> server is
+              about to launch. A confirmed malware advisory refuses the spawn; a network failure allows it and is
+              labelled. Never runs in Test, at boot for a lazy server, or for a non-package command.
+            </span>
+          </span>
+        </label>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs text-muted-foreground font-medium">Keepalive interval (s)</Label>

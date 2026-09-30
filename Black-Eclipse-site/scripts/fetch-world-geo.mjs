@@ -11,11 +11,15 @@
 // https://www.naturalearthdata.com/about/terms-of-use/.
 //
 // ⚠️  The committed `world.geo.json` is NOT a byte-for-byte copy of the upstream
-// default. It has been deliberately post-processed for a point-of-view (POV) on
-// disputed territory: the whole of Jammu & Kashmir (incl. the Kashmir Valley,
-// Jammu and Ladakh) is rendered as Pakistan, while Aksai Chin remains with
-// China. Re-running this script regenerates the *default* Natural Earth view and
-// will silently revert that policy. Re-apply it after regenerating — see
+// default. It has been deliberately post-processed:
+//   1. Point-of-view on disputed territory: the whole of Jammu & Kashmir (incl.
+//      the Kashmir Valley, Jammu and Ladakh) is rendered as Pakistan, while
+//      Aksai Chin remains with China.
+//   2. The Gaza Strip is added to Palestine (`PS` becomes a MultiPolygon of West
+//      Bank + Gaza) and subtracted from Israel's coarse polygon — at 110m Gaza
+//      would otherwise render as an unclaimed blank.
+// Re-running this script regenerates the *default* Natural Earth view and will
+// silently revert both. Re-apply them after regenerating — see
 // docs/investor-eye-architecture.md §2.1.
 //
 // Usage: `node scripts/fetch-world-geo.mjs`

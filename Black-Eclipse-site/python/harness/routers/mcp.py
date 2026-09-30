@@ -247,7 +247,12 @@ async def install_mcp_integration(
 
 @router.get("/mcp/supply-chain")
 def mcp_supply_chain(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
-    """A read-only, offline supply-chain report over pinned packages/commands."""
+    """A read-only supply-chain report over pinned packages/commands.
+
+    The report never contacts the network. It includes the last LIVE OSV verdict
+    the spawn path already recorded for a configured package (when one exists),
+    via an in-memory lookup, and sets `upstreamChecked` from those observations.
+    """
     from ..mcp.audit import supply_chain_report
 
     report = supply_chain_report(service.mcp)

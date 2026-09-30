@@ -36,6 +36,7 @@ from .contract import (
     SourceReference,
     RetrievalStatus,
 )
+from .health import build_health_index, rank_sources
 from .parallel import run_parallel
 from .policies import cadence_for
 from .planner import (
@@ -87,6 +88,12 @@ class FinancialRetrievalLayer:
         for source in mcp_sources or []:
             self._sources[source.name] = source
         self._mcp_sources = list(mcp_sources or [])
+        # Health-aware ordering (P0-2): the `source_health` index is fetched at
+        # most once per layer lifetime and reused, so ordering is deterministic
+        # within a run and adds no repeated bridge chatter. Fail-open — an
+        # unavailable ledger leaves the static plan untouched.
+        self._health_index: Optional[dict] = None
+        self._health_loaded = False
         self.cache = cache or RetrievalCache()
         self._on_event = on_event
         self._max_retries = max(0, int(max_retries))
@@ -109,6 +116,21 @@ class FinancialRetrievalLayer:
     def available_sources(self, request: FinancialRetrievalRequest) -> set[str]:
         return {name for name, source in self._sources.items() if source.available(request)}
 
+    async def _health(self) -> Optional[dict]:
+        """The `source_health` index, fetched once and cached. Best-effort."""
+        if self._health_loaded:
+            return self._health_index
+        self._health_loaded = True
+        if self._sources[STRUCTURED_VAULT]._bridge is None:  # noqa: SLF001 - internal wiring
+            return None
+        try:
+            payload = await self._sources[STRUCTURED_VAULT]._bridge.fetch("source_health", {})  # noqa: SLF001
+            if isinstance(payload, dict) and payload.get("status") == "OK":
+                self._health_index = build_health_index(payload.get("rows"))
+        except Exception:  # noqa: BLE001 - health is best-effort, never load-bearing
+            self._health_index = None
+        return self._health_index
+
     def _declared_for(self, request: FinancialRetrievalRequest) -> list[str]:
         """Declared MCP source names whose data type matches this request."""
         out: list[str] = []
@@ -130,20 +152,35 @@ class FinancialRetrievalLayer:
             available_sources=self.available_sources(request),
             additional_sources=declared,
         )
-        await self._emit("retrieval.planned", {
-            "dataType": request.dataType, "strategy": plan.sources,
-            "rationale": plan.rationale, "mcpSources": declared,
-        })
 
         # ── Durable replay (D1): an identical request returns the stored result.
-        # Deterministic by construction — no read-time re-scrape to drift.
+        # Deterministic by construction — no read-time re-scrape to drift. It is
+        # checked BEFORE the health read so a replay performs NO provider work at
+        # all (not even reading the health ledger).
         durable = self._recall_durable(request)
         if durable is not None:
             self.metrics["durableHits"] += 1
             durable.strategy = plan.sources
             durable.latencyMs = int((time.monotonic() - started) * 1000)
+            await self._emit("retrieval.planned", {
+                "dataType": request.dataType, "strategy": plan.sources,
+                "rationale": plan.rationale, "mcpSources": declared,
+            })
             await self._emit("retrieval.durable_hit", {"dataType": request.dataType})
             return durable
+
+        # P0-2: reorder so a healthy route outranks a degraded/failing one. Only
+        # REORDERS among already-available sources; never adds or removes one.
+        index = await self._health()
+        if index:
+            plan.sources, health_notes = rank_sources(
+                plan.sources, index, request.market, request.dataType
+            )
+            plan.warnings.extend(health_notes)
+        await self._emit("retrieval.planned", {
+            "dataType": request.dataType, "strategy": plan.sources,
+            "rationale": plan.rationale, "mcpSources": declared,
+        })
 
         # ── Cache (freshness policy) with in-flight deduplication ──
         async def _do_retrieve() -> FinancialRetrievalResult:

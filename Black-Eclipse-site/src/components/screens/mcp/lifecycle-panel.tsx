@@ -8,6 +8,7 @@
 
 import { cn } from "@/lib/utils";
 import type { MCPServerView } from "@/lib/harness/mcp-types";
+import { catalogChangeSummary } from "@/lib/harness/mcp-draft";
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "warn" | "bad" | "ok" }) {
   return (
@@ -102,6 +103,18 @@ export function MCPLifecyclePanel({
             <Stat label="Errors" value={metrics ? metric(metrics.errors) : "unknown"} tone={metrics && metrics.errors ? "warn" : undefined} />
             <Stat label="Avg latency" value={metrics ? `${metric(metrics.avgLatencyMs)} ms` : "unknown"} />
           </div>
+          {/* Catalog-change counters: only rendered once a change was actually
+              recorded, so a server that never changed shows no stray zero. */}
+          {(() => {
+            const s = catalogChangeSummary(lifecycle);
+            if (!s) return null;
+            return (
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="Catalog changes" value={String(s.count)} tone="warn" />
+                <Stat label="Last catalog change" value={s.formattedWhen ?? "unknown"} />
+              </div>
+            );
+          })()}
           {(lifecycle.sampling || lifecycle.interactions) && (
             <div className="border-t border-border/10 pt-2">
               <p className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">

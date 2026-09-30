@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-09-27
+last-verified: 2026-09-30
 ---
 
 # Data Flow
@@ -126,7 +126,11 @@ in place, because the schema enforces uniqueness:
 - `fetchers/http.ts`, `fetchers/browser.ts` (Playwright), `fetchers/scrapling.ts`,
   `fetchers/crypto.ts` — the fallback chain.
 - `SourceHealth` records success/fail counts per strategy so the chain can learn
-  which source is reliable and self-heal.
+  which source is reliable and self-heal. The bridge writes it under ONE canonical
+  route key `(source × market × assetClass × capability)` — market/asset-class are
+  normalised to a closed vocabulary and provider ids aliased to one source each
+  (`src/lib/harness/health-key.ts`, ADR-H85), so production traffic and the
+  `research_health` probes land on the same row instead of fragmenting.
 - `csv.ts` — CSV/API imports write `Price.source = 'csv'` instead of `'scraper'`.
 
 **`Price.source` is the provenance field.** `'scraper'` = live scrape;

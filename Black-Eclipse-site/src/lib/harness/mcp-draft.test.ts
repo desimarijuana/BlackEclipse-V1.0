@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  catalogChangeSummary,
   draftFromServer,
   draftToInput,
   emptyDraft,
@@ -91,6 +92,16 @@ describe("draftFromServer / draftToInput round trip", () => {
   it("preserves the acknowledged effect mismatches so a save cannot drop them", () => {
     const input = draftToInput(draftFromServer(fullView())).server;
     expect(input.acknowledgedEffectMismatches).toEqual(["API-post-search"]);
+  });
+
+  it("round-trips the live supply-chain toggle so an unrelated save cannot flip it", () => {
+    // Default-on in the runtime; an explicit `false` must survive a save, and an
+    // absent field must read as the documented default (true) rather than false.
+    const view = { ...fullView(), liveSupplyChainCheck: false };
+    expect(draftToInput(draftFromServer(view)).server.liveSupplyChainCheck).toBe(false);
+    const { liveSupplyChainCheck: _omitted, ...withoutField } = fullView();
+    expect(draftFromServer(withoutField).liveSupplyChainCheck).toBe(true);
+    expect(draftToInput(draftFromServer(withoutField)).server.liveSupplyChainCheck).toBe(true);
   });
 
   it("preserves capability toggles, lifecycle and TLS mode", () => {
@@ -200,5 +211,29 @@ describe("glob selection helpers (exclude-mode honesty)", () => {
     expect(isShadowedByExclude("put_order", false, ["get_*"], [])).toBe(false);
     // A manually-picked tool the exclude drops is shadowed.
     expect(isShadowedByExclude("get_secret", true, ["get_*"], ["*_secret"])).toBe(true);
+  });
+});
+
+describe("catalogChangeSummary (catalog-change counter for the card)", () => {
+  it("returns null when no change was recorded (no stray zero)", () => {
+    expect(catalogChangeSummary(undefined)).toBeNull();
+    expect(catalogChangeSummary({})).toBeNull();
+    expect(catalogChangeSummary({ catalogChanges: 0 })).toBeNull();
+  });
+
+  it("renders the count and a formatted time when a change was recorded", () => {
+    const s = catalogChangeSummary({
+      catalogChanges: 2,
+      lastCatalogChangeAt: "2026-09-30T12:34:56.000Z",
+    });
+    expect(s?.count).toBe(2);
+    // A valid ISO timestamp formats to a non-empty local time.
+    expect(typeof s?.formattedWhen).toBe("string");
+    expect((s?.formattedWhen ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("renders the count but no time when the timestamp is absent or unparseable", () => {
+    expect(catalogChangeSummary({ catalogChanges: 1 })?.formattedWhen).toBeNull();
+    expect(catalogChangeSummary({ catalogChanges: 1, lastCatalogChangeAt: "not-a-date" })?.formattedWhen).toBeNull();
   });
 });

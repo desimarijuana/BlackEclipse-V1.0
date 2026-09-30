@@ -30,6 +30,26 @@ def _service(ctx: ToolContext) -> Any:
     return svc
 
 
+_DEFAULT_CONFIDENCE = 0.8
+
+
+def _coerce_confidence(value: Any, default: float = _DEFAULT_CONFIDENCE) -> float:
+    """Coerce a caller-supplied confidence to a bounded float.
+
+    A missing OR present-but-null value is the common case (a model omits the
+    field, or emits JSON `null`); `args.get("confidence", default)` would return
+    `None` for the latter and `float(None)` would raise. Both fall back to the
+    default. A genuinely malformed value is left to raise so the save wrapper
+    can return a typed error rather than guessing.
+    """
+    if value is None or value == "":
+        return default
+    confidence = float(value)
+    if confidence != confidence:  # NaN
+        return default
+    return min(1.0, max(0.0, confidence))
+
+
 # ── memory ──────────────────────────────────────────────────────────────────
 
 
@@ -54,20 +74,40 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             settings = svc.policy.get_all()
         except Exception:  # noqa: BLE001 - a policy read failure must fail closed, not open
             settings = {}
-        decision = authorize_proposal(
-            content=content,
-            provenance="skill_lesson" if ctx.is_skill_run else "memory_tool",
-            user_message=getattr(ctx, "user_message", "") or "",
-            user_id=ctx.user_id,
-            memory_type=memory_type,
-            scope=scope,
-            scope_id=str(scope_id) if scope_id else None,
-            subject=args.get("subject"),
-            confidence=float(args.get("confidence", 0.8)),
-            settings=settings,
-            verified=bool(args.get("verified")),
-        )
-        outcome = svc.commit_decision(decision, run_id=ctx.run_id, user_id=ctx.user_id)
+        try:
+            confidence = _coerce_confidence(args.get("confidence"))
+            verified = bool(args.get("verified"))
+        except (TypeError, ValueError) as exc:
+            # Bad tool input is a typed error, never an unhandled TypeError. The
+            # write is refused (no memory is saved) — fail closed.
+            return (
+                "MEMORY NOT SAVED — invalid input: confidence must be a number between 0 and 1.",
+                {"saved": False, "outcome": "invalid_input", "reason": str(exc)},
+            )
+        try:
+            decision = authorize_proposal(
+                content=content,
+                provenance="skill_lesson" if ctx.is_skill_run else "memory_tool",
+                user_message=getattr(ctx, "user_message", "") or "",
+                user_id=ctx.user_id,
+                memory_type=memory_type,
+                scope=scope,
+                scope_id=str(scope_id) if scope_id else None,
+                subject=args.get("subject"),
+                confidence=confidence,
+                settings=settings,
+                verified=verified,
+            )
+            outcome = svc.commit_decision(decision, run_id=ctx.run_id, user_id=ctx.user_id)
+        except (TypeError, ValueError) as exc:
+            # Defense in depth: any bad input the gate would coerce internally is
+            # returned as a typed error instead of an unhandled TypeError. The
+            # write authorization decision itself is untouched — this only wraps
+            # the call so a malformed field cannot crash the tool.
+            return (
+                "MEMORY NOT SAVED — invalid input.",
+                {"saved": False, "outcome": "invalid_input", "reason": str(exc)},
+            )
         if not outcome.get("ok"):
             if outcome.get("action") == "suggested":
                 return (
@@ -110,7 +150,7 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             actor_scope=ctx.user_id and "user",
             scope_id=ctx.user_id,
             run_id=ctx.run_id,
-            limit=int(args.get("limit", 8)),
+            limit=int(args.get("limit") or 8),
         )
         if not result.memories:
             return (
@@ -129,7 +169,7 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     memories = svc.store.list_memories(
         memory_type=args.get("type"), scope=args.get("scope"),
         scope_id=args.get("scope_id") or ctx.user_id,
-        limit=int(args.get("limit", 20)), include_inactive=False,
+        limit=int(args.get("limit") or 20), include_inactive=False,
     )
     if not memories:
         return "No stored memory yet.", {"count": 0, "memories": []}
@@ -206,8 +246,8 @@ async def session_open_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[
     window = store.open_session(
         run_id,
         message_id=args.get("message_id"),
-        before=int(args.get("before", 3)),
-        after=int(args.get("after", 3)),
+        before=int(args.get("before") or 3),
+        after=int(args.get("after") or 3),
     )
     if not window.get("messages"):
         return f"No indexed messages for run {run_id}.", window

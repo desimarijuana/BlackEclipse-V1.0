@@ -1,7 +1,7 @@
 ---
 title: Harness — Memory Maturity Baseline
 status: Current
-last-verified: 2026-09-25
+last-verified: 2026-09-30
 ---
 
 # Memory Maturity Baseline (Phase 0)
@@ -31,6 +31,14 @@ identities. Nothing here assumes hosted accounts or multi-tenant auth.
   `eclipse_memory/decision.py` (`decide_turn` for a user turn,
   `authorize_proposal` for model/UI/analysis proposals): four outcomes
   `save | suggest | history_only | ignore`.
+* **Verification is independent of `source` (by design).** `source=explicit_user`
+  grants *authority* (never auto-expires, wins conflicts) but is stored
+  `verification='unverified'`; only an explicit `verification="verified"`
+  argument or a user-provided correction (`record_correction`) sets
+  `verified`. So "most records are unverified" is expected, not a defect — the
+  flag marks *evidence-backed*, not *user-stated*. The model `memory` tool
+  refuses a self-initiated `save` unless the user turn requested it
+  (`authorize_proposal`); that write gate is intended.
 * Retrieval is `eclipse_memory/retrieval.py`: candidate search → scope/status/
   expiry/low-confidence filter → deterministic lexical ranking (word-boundary
   keyword, exact subject, importance, confidence, verification, access count) →

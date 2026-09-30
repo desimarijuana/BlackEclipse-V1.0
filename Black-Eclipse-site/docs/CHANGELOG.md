@@ -8,11 +8,113 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **MCP integrity close-out — live supply-chain verdict surfaced; catalog-change
+  counters shown; the report's dead `upstreamChecked` flag made real.**
+  `SupplyChainChecker` now records the last observation per
+  `(ecosystem, package, version)` with a wall-clock `checkedAt`; a read-only
+  `observe_command` lets `supply_chain_report` attach `liveVerdict` to a
+  configured package and DERIVE `upstreamChecked` from real observations (the
+  caller `upstream_checked` parameter is removed — it had no caller and could
+  never be true). The route stays offline. The card/lifecycle panel now render
+  `lifecycle.catalogChanges`/`lastCatalogChangeAt` beside the existing "catalog
+  changed" banner, via a pure `catalogChangeSummary` helper — no event consumer
+  was added. `python/tests/test_retrieval_health.py` and the health-aware
+  retrieval workstream are adjacent scope (uncommitted, tested green).
+  docs updated: `docs/harness/mcp-integrity-progress.md` (Milestone 11),
+  `docs/harness/decisions.md` (ADR-H88/H89), `docs/NAVIGATION.md`
+
+- **`memory` tool — save crash on missing/null `confidence` fixed.** `save`
+  crashed with `float() argument must be a string or a real number, not
+  'NoneType'` when `confidence` was present-but-null (`args.get("confidence",
+  0.8)` returns `None` for a JSON `null`). Added `_coerce_confidence`
+  (missing/empty/NaN/out-of-range → default 0.8, bounded 0..1) and wrapped the
+  authorize+commit call so any malformed input returns a typed `invalid_input`
+  refusal instead of an unhandled `TypeError`. The per-turn write-authorization
+  gate is untouched (its fail-closed false negative is intentional). Tests added
+  for save-without-confidence, save-with-null, and malformed confidence.
+  no doc change — bug fix, contract unchanged.
+
 - **Background — Eclipse I is the official first-run wallpaper; added resize controls.** Factored the shipped default into `DEFAULT_BACKGROUND_ID = 'eclipse-1'` (the official background new users get) and marked it with a "Default" badge in the picker. Added image resize controls: **Zoom** (100–300%), **Horizontal** and **Vertical** focal position (0–100%), alongside the existing Fit and Darkening. The wallpaper image moved onto the layer's `::before` so zoom scales only the art (the dim scrim stays full-size), and the resolver now emits `--app-bg-zoom` + a focal `--app-bg-position`. `BackgroundPrefs` gained `scale`/`positionX`/`positionY` (normalized/clamped).
   docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
 
 - **Sidebar — clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
   no doc change — bug fix; no architecture, contract, setup, or data-shape change.
+
+- **MCP: no-op `list_changed` no longer emits a "catalog changed" event, and the
+  live supply-chain check is now a visible operator setting.** Two honesty/
+  reachability gaps in the M4/M6 work. (1) `rediscovery.py` re-ran discovery on
+  every inbound `list_changed` and emitted `mcp.catalog.changed` unconditionally.
+  A server that announces a change that never materialises (or fires the
+  notification gratuitously) therefore produced a stream of misleading "catalog
+  changed" signals — the operator would be asked to re-confirm an identical
+  catalog. The handler now snapshots `rt.catalog_digest` before the refresh and
+  suppresses the event when the digest is unchanged; discovery, the registry
+  reconcile and a real digest change all still run and emit. Regression:
+  `python/tests/test_mcp_notifications.py::test_a_gratuitous_list_changed_emits_no_catalog_event`
+  and a new `list_changed_noop` fixture mode. The `list_changed_all` fixture now
+  actually changes its TOOL list too (it only changed resources/prompts), so the
+  `tools` event it asserts is no longer a false positive. (2)
+  `MCPServerConfig.live_supply_chain_check` defaulted to **true** and did an
+  outbound 8s OSV query on every `npx`/`uvx` spawn, but no operator surface
+  mentioned it: not in the editor, not in the example config, and absent from the
+  TS `MCPServerView`/`MCPServerInput`/`DraftServer` contract — so a save from the
+  editor would have DROPPED an operator's explicit `false` and silently
+  re-enabled the network call. Added the view/input/draft fields with a
+  `!== false` default (absent = the documented default), the round-trip mapping,
+  the lifecycle checkbox in `server-editor.tsx`, and the example-config
+  documentation. Regression: `mcp-draft.test.ts` "round-trips the live
+  supply-chain toggle". Also documented the six manager mixins that the
+  `NAVIGATION.md` MCP row did not name (`verify.py`, `execution.py`,
+  `lifecycle_mixin.py`, `utilities.py`, `rediscovery.py`, `circuit.py`,
+  `supply_chain.py`). Checks: `npx tsc --noEmit` exit 0; `mcp-draft.test.ts` 16
+  passed; `test_mcp_notifications.py` 6 passed.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H87), `docs/CHANGELOG.md`,
+  `mcp-servers.example.json`
+
+- **Retrieval planning is health-aware (P0-2).** The static source order could
+  prefer a route recorded as failing (e.g. `LIVE_STRUCTURED` 0/8) over an
+  equally-eligible healthy one (`yfinance` 4/0). Added
+  `python/harness/retrieval/health.py` (`build_health_index`/`rank_sources`) and
+  wired it in `retrieval/layer.py`: the layer now reads the SAME `SourceHealth`
+  ledger `get_source_health` reports (via the bridge `source_health` capability)
+  and promotes a healthy route ahead of a failing one. It only REORDERS among
+  already-available sources, is stable for equal health, never demotes a failing
+  route below an unobserved one, fetches the index at most once (after the D1
+  durable-replay check), and fails open. Tests:
+  `python/tests/test_retrieval_health.py`.
+  docs updated: `docs/harness/decisions.md` (ADR-H86), `docs/NAVIGATION.md`
+
+- **Memory — confirmed and documented the verification/source policy (P2-11).**
+  No code change: `source=explicit_user` grants authority but is stored
+  `unverified`; only a user correction or an explicit `verification="verified"`
+  marks a record verified. Recorded that "most records unverified" is intended
+  and that the model-initiated `save` write gate is deliberate.
+  docs updated: `docs/harness/memory-maturity-baseline.md`
+
+- **Source health — canonical route keys + persisted probes (P0-3/P1-5).** The
+  `SourceHealth` ledger was fragmented: the same route appeared under `Equity`
+  and `equity`, under `unknown`/`*`, and the `research_health` probe tested one
+  provider (`duckduckgo-html`/`safe-get`) while production recorded another
+  (`WEB`) — so a working provider was reported as failing and per-route success
+  rates were wrong. Added `src/lib/harness/health-key.ts` with a closed
+  vocabulary (`canonicalMarket`/`canonicalAssetClass`/`canonicalSource`, alias
+  folding to one source per provider) applied on both write and read, and made
+  the `research_health` probes upsert into the same ledger under the same
+  instrument-less route key as production. New module keeps `data-bridge.ts`
+  under its size ratchet. Tests: `src/lib/harness/health-canonical-keys.test.ts`.
+  docs updated: `docs/harness/decisions.md` (ADR-H85), `docs/NAVIGATION.md`,
+  `docs/DATA-FLOW.md`
+
+- **`memory` tool — null-limit crash fixed.** `action=list` failed with
+  `TypeError: int() argument must be a string ... not 'NoneType'` when the model
+  emitted a present-but-null `limit` (JSON `null`): `args.get("limit", 20)`
+  returns `None` because the key exists, so `int(None)` raised. Coerced the
+  optional integer args in `python/harness/memory_tools.py` with `or` instead of
+  the positional default (`memory` search/list, `session_open` before/after),
+  which also catches `None`; added a regression test asserting both branches
+  tolerate `limit: null`.
+  no doc change — bug fix, contract unchanged.
 
 - **MCP integrity — real-server defects fixed and the remaining gaps closed.**
   Two sessions. First: a provider-side error body returned with `isError=false`

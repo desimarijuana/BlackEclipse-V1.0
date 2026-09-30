@@ -22,7 +22,14 @@ const WARMUP_ENDPOINTS = [
 // data loads: elapsed time guarantees the number keeps moving, and the real
 // fetch ratio pulls it ahead when endpoints resolve early. Hides the moment
 // all warm-up requests settle, or after maxDelay as a safety cap.
-export function GlobalLoader({ maxDelay = 8000 }: { maxDelay?: number }) {
+//
+// It is deliberately NON-BLOCKING: `pointer-events-none` lets clicks pass
+// through to the shell beneath (so the app is usable the instant it mounts)
+// and it sits BELOW dialogs in z-order, so a dialog opened during the boot
+// window renders on top of it instead of being hidden behind it. maxDelay is
+// short because warm-ups are fire-and-forget: the screens fetch again on
+// their own and their routes cache, so lingering adds no value.
+export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
   const [visible, setVisible] = useState(true);
   const [pct, setPct] = useState(1);
   const totalRef = useRef(getBootProgress().total);
@@ -98,7 +105,7 @@ export function GlobalLoader({ maxDelay = 8000 }: { maxDelay?: number }) {
   const shown = Math.min(100, Math.max(1, pct));
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-5 bg-background/98 backdrop-blur-md" data-global-loader data-pct={Math.floor(shown)}>
+    <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-5 bg-background/98 backdrop-blur-md" data-global-loader data-pct={Math.floor(shown)}>
        <AsciiProgress pct={shown} label="" size={32} />
     </div>
   );

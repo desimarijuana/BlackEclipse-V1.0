@@ -134,6 +134,13 @@ additive later. **Investor Eye must not require accounts.**
    shared boundary is a single clean edge (no slivers, no gaps), and the
    server/client point-in-polygon lookups (`admin-boundaries.ts`,
    `app-geo.ts`) inherit it automatically.
+
+   The same asset also carries the **Gaza Strip**: Natural Earth's 110m layer
+   omits Gaza entirely (it renders as unclaimed blank and matches no country), so
+   the 10m Gaza polygon is added to the `Palestine` (`PS`) feature — which becomes
+   a `MultiPolygon` of West Bank + Gaza — and subtracted from Israel's coarse
+   polygon. This is a geometry completeness fix, not a political statement; like
+   the Kashmir splice it is reverted by a plain `fetch-world-geo.mjs` run.
 2. **Investor Eye data models** (only these; see §3.2):
    `Country`, `GeopoliticalEvent`, `EventEntity`, `SourceRun` (observability).
 3. **Source connector tier for events** — `src/lib/investor-eye/sources/` with a

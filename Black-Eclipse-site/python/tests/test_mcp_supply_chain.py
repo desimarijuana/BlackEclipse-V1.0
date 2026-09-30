@@ -170,3 +170,125 @@ async def test_screen_spawn_blocks_malware_and_allows_a_network_failure():
         assert allowed is None
     finally:
         sc._CHECKER = original
+
+
+# ── read-only observation surfaced in the supply-chain report (Item 3) ──────
+
+
+@pytest.mark.asyncio
+async def test_observe_command_is_read_only_and_none_before_any_check():
+    import harness.mcp.supply_chain as sc
+    from harness.mcp.supply_chain import SupplyChainChecker, observe_command
+
+    async def fetch(url, payload):
+        raise AssertionError("observe_command must never query the network")
+
+    original = sc._CHECKER
+    try:
+        sc._CHECKER = SupplyChainChecker(fetcher=fetch)
+        assert observe_command("npx", ["-y", "never-checked"]) is None
+    finally:
+        sc._CHECKER = original
+
+
+@pytest.mark.asyncio
+async def test_observe_command_returns_the_recorded_verdict_and_time():
+    import harness.mcp.supply_chain as sc
+    from harness.mcp.supply_chain import SupplyChainChecker, observe_command
+
+    async def fetch(url, payload):
+        return _CLEAN
+
+    original = sc._CHECKER
+    try:
+        sc._CHECKER = SupplyChainChecker(fetcher=fetch)
+        await sc._CHECKER.check("npx", ["-y", "pkg@1.2.3"])
+        observed = observe_command("npx", ["-y", "pkg@1.2.3"])
+        assert observed is not None
+        assert observed["code"] == CLEAN
+        assert observed["package"] == "pkg" and observed["version"] == "1.2.3"
+        assert observed["checkedAt"]  # a human-readable timestamp
+    finally:
+        sc._CHECKER = original
+
+
+@pytest.mark.asyncio
+async def test_report_surfaces_a_live_verdict_and_sets_upstream_checked():
+    import harness.mcp.supply_chain as sc
+    from harness.mcp.audit import supply_chain_report
+    from harness.mcp.supply_chain import SupplyChainChecker
+
+    class _Cfg:
+        transport = "stdio"
+        command = "npx"
+        args = ["-y", "some-live-pkg"]
+        id = "srv"
+
+    class _Rt:
+        config = _Cfg()
+
+    class _Mgr:
+        _runtimes = {"srv": _Rt()}
+
+    async def clean_fetch(url, payload):
+        return _CLEAN
+
+    async def malware_fetch(url, payload):
+        return _MALWARE
+
+    original = sc._CHECKER
+    try:
+        # Never checked yet: no liveVerdict, upstreamChecked False.
+        sc._CHECKER = SupplyChainChecker(fetcher=clean_fetch)
+        report = supply_chain_report(_Mgr())
+        pkg = next(p for p in report["packages"] if p["package"] == "some-live-pkg")
+        assert "liveVerdict" not in pkg
+        assert report["upstreamChecked"] is False
+
+        # After a live check: the verdict is attached and upstreamChecked is true.
+        sc._CHECKER = SupplyChainChecker(fetcher=malware_fetch)
+        await sc._CHECKER.check("npx", ["-y", "some-live-pkg"])
+        report = supply_chain_report(_Mgr())
+        pkg = next(p for p in report["packages"] if p["package"] == "some-live-pkg")
+        assert pkg["liveVerdict"]["code"] == BLOCKED
+        assert pkg["liveVerdict"]["advisoryIds"] == ["MAL-2024-1234"]
+        assert pkg["liveVerdict"]["checkedAt"]
+        assert report["upstreamChecked"] is True
+    finally:
+        sc._CHECKER = original
+
+
+@pytest.mark.asyncio
+async def test_report_shows_an_inconclusive_verdict_without_caching_it():
+    import harness.mcp.supply_chain as sc
+    from harness.mcp.audit import supply_chain_report
+    from harness.mcp.supply_chain import SupplyChainChecker
+
+    class _Cfg:
+        transport = "stdio"
+        command = "npx"
+        args = ["-y", "flaky-pkg"]
+        id = "srv2"
+
+    class _Rt:
+        config = _Cfg()
+
+    class _Mgr:
+        _runtimes = {"srv2": _Rt()}
+
+    async def down_fetch(url, payload):
+        raise TimeoutError("down")
+
+    original = sc._CHECKER
+    try:
+        sc._CHECKER = SupplyChainChecker(fetcher=down_fetch)
+        await sc._CHECKER.check("npx", ["-y", "flaky-pkg"])
+        report = supply_chain_report(_Mgr())
+        pkg = next(p for p in report["packages"] if p["package"] == "flaky-pkg")
+        assert pkg["liveVerdict"]["code"] == UNKNOWN
+        # An inconclusive check is still an observed check.
+        assert report["upstreamChecked"] is True
+        # ...but it is not cached: a second check re-queries.
+        assert ("npm", "flaky-pkg", None) not in sc._CHECKER._cache
+    finally:
+        sc._CHECKER = original

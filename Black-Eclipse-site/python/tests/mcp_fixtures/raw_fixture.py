@@ -124,6 +124,16 @@ def tools_for_mode():
         if _change_signalled:
             return [tool("echo", description="Echo text")]
         return [tool("echo", description="Echo text"), tool("transient", description="Goes away")]
+    if MODE == "list_changed_noop":
+        # Sends `list_changed` but the catalog never actually changes: a gratuitous
+        # notification must not produce a stream of no-op "catalog changed" events.
+        return [tool("echo", description="Echo text")]
+    if MODE == "list_changed_all":
+        # All three listings really do change: `transient` disappears from the tool
+        # list as well as the resource/prompt listings.
+        if _change_signalled:
+            return [tool("echo", description="Echo text")]
+        return [tool("echo", description="Echo text"), tool("transient", description="Goes away")]
     return [tool("echo")]
 
 
@@ -166,6 +176,10 @@ def handle(msg):
             sys.exit(0)
         if MODE == "list_changed" and not _change_signalled:
             # Announce the catalog change once, on the first call, then answer it.
+            _change_signalled = True
+            send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed", "params": {}})
+        if MODE == "list_changed_noop" and not _change_signalled:
+            # Announce a change that never happens: the catalog below is identical.
             _change_signalled = True
             send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed", "params": {}})
         if MODE == "list_changed_all" and not _change_signalled:

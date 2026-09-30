@@ -36,6 +36,14 @@ import {
 } from "@/lib/instrument-identity";
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
 import { coverageSummary, isCovered, coverageFor, healthTargets, capabilityHealthTargets } from "@/lib/harness/coverage";
+import {
+  canonicalMarket,
+  canonicalAssetClass,
+  canonicalSource,
+  NON_DATA_CAPABILITIES,
+  HEALTH_CAPABILITY,
+  DEFAULT_HEALTH_SOURCE,
+} from "@/lib/harness/health-key";
 import { resolveMacroSeries } from "@/lib/harness/macro-identity";
 import { MARKET_FULL_NAME, resolveMarketId, splitExchangeSuffix } from "@/lib/markets";
 import type { DataCapability } from "./types";
@@ -335,7 +343,7 @@ const HEALTH_FIXTURE_SUFFIX = "!fixture";
 
 export function encodeHealthKey(assetClass: string, capability: string, probeKind: "live" | "fixture"): string {
   const cap = probeKind === "fixture" ? `${capability}${HEALTH_FIXTURE_SUFFIX}` : capability;
-  return `${assetClass}${HEALTH_CAP_SEP}${cap}`;
+  return `${canonicalAssetClass(assetClass)}${HEALTH_CAP_SEP}${cap}`;
 }
 
 function decodeHealthKey(symbol: string): { assetClass: string; capability: string; probeKind: "live" | "fixture" } {
@@ -344,7 +352,10 @@ function decodeHealthKey(symbol: string): { assetClass: string; capability: stri
     // Legacy row: assetClass only, treated as a live quote probe.
     return { assetClass: symbol, capability: "quote", probeKind: "live" };
   }
-  const assetClass = symbol.slice(0, idx);
+  // Normalise on read too: rows written before normalisation existed may carry
+  // a raw asset class ("Equity") or a non-route "unknown"; they must fold onto
+  // the same canonical key as fresh writes, not form a parallel row.
+  const assetClass = canonicalAssetClass(symbol.slice(0, idx));
   let cap = symbol.slice(idx + 1);
   let probeKind: "live" | "fixture" = "live";
   if (cap.endsWith(HEALTH_FIXTURE_SUFFIX)) {
@@ -364,14 +375,18 @@ async function recordHealth(
   probeKind: "live" | "fixture" = "live",
 ): Promise<void> {
   try {
+    // Normalise the route dimensions so one real route maps to one row
+    // (P1-5) — casing and unresolved values must never fragment the ledger.
+    const canonSource = canonicalSource(source);
+    const canonMarket = canonicalMarket(market);
     const symbol = encodeHealthKey(assetClass, capability, probeKind);
-    const id = `${source}:${market}:${symbol}`;
+    const id = `${canonSource}:${canonMarket}:${symbol}`;
     await prisma.sourceHealth.upsert({
       where: { id },
       create: {
         id,
-        source,
-        market,
+        source: canonSource,
+        market: canonMarket,
         symbol,
         successCount: ok ? 1 : 0,
         failCount: ok ? 0 : 1,
@@ -389,51 +404,6 @@ async function recordHealth(
     /* health is best-effort */
   }
 }
-
-// Capabilities that fetch no market data of their own, so they must NOT be
-// health-recorded: the introspection/reporting routes would otherwise record
-// themselves (recursion/self-noise) and the identity/secret resolvers are not
-// data routes. Everything else is instrumented at the boundary below.
-const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
-  "source_health",
-  "research_health",
-  "coverage",
-  "capability_matrix",
-  "macro_resolve",
-  "mcp_secret_resolve",
-  "mcp_oauth_token_get",
-  "mcp_oauth_token_set",
-  "mcp_oauth_token_clear",
-]);
-
-// Bridge capability → the health capability name the registry declares. Mostly
-// identity, but `market_snapshot` serves a quote, so it reports as `live_quote`.
-const HEALTH_CAPABILITY: Readonly<Record<string, string>> = {
-  market_snapshot: "live_quote",
-  live_quote: "live_quote",
-  price_history: "price_history",
-  fundamentals: "fundamentals",
-  financial_statements: "financial_statements",
-  sec_filings: "sec_filings",
-  news: "news",
-  web_search: "web_search",
-  web_fetch: "web_fetch",
-  macro_series: "macro_series",
-};
-
-// The source id to attribute a route to when the result does not name one.
-const DEFAULT_HEALTH_SOURCE: Readonly<Record<string, string>> = {
-  market_snapshot: "JDDS",
-  live_quote: "LIVE_STRUCTURED",
-  price_history: "LIVE_STRUCTURED",
-  fundamentals: "JDDS",
-  financial_statements: "JDDS",
-  sec_filings: "SEC",
-  news: "WEB",
-  web_search: "WEB",
-  web_fetch: "WEB",
-  macro_series: "JDDS",
-};
 
 export async function fetchCapability(
   capability: DataCapability,
@@ -543,7 +513,17 @@ async function recordCapabilityHealth(
       ctx.assetClass ||
       "unknown";
   const error = ok ? undefined : (typeof result.error === "string" ? result.error : undefined);
-  await recordHealth(source, String(market), String(assetClass), ok, error, healthCap);
+  // Canonicalise the route identity BEFORE recording so two observations of the
+  // same real route cannot land on two rows (P1-5). An unresolved market or
+  // asset class becomes the wildcard `*`, never a persisted "unknown".
+  await recordHealth(
+    canonicalSource(source),
+    canonicalMarket(String(market)),
+    canonicalAssetClass(String(assetClass)),
+    ok,
+    error,
+    healthCap
+  );
 }
 
 /**
@@ -858,7 +838,8 @@ async function sourceHealth(): Promise<DataBridgeResult> {
     const decoded = r.symbol === "*"
       ? { assetClass: "*", capability: "quote", probeKind: "live" as const }
       : decodeHealthKey(r.symbol);
-    const key = `${r.source}|${r.market}|${decoded.assetClass}|${decoded.capability}|${decoded.probeKind}`;
+    // Fold legacy/unnormalised rows onto the canonical route key on read.
+    const key = `${canonicalSource(r.source)}|${canonicalMarket(r.market)}|${decoded.assetClass}|${decoded.capability}|${decoded.probeKind}`;
     meta.set(key, decoded);
     const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, lastStatus: null, lastError: null };
     cur.success += r._sum.successCount ?? 0;
@@ -1515,6 +1496,22 @@ async function researchHealth(): Promise<DataBridgeResult> {
     "https://data.sec.gov/api/xbrl/companyconcept/CIK0000320193/us-gaap/Revenues.json"
   );
   checks.push({ ...secProbe.diagnostic, provider: "sec-xbrl", tier: "primary" as const });
+
+  // Persist each probe into the SAME ledger production traffic writes to, under
+  // the SAME canonical route id (P0-3). A probe and a production run of the same
+  // capability must increment ONE row, not two — otherwise the health surface
+  // reports a working provider as failing. Probe rows are instrument-less
+  // (`*`×`*`) exactly like their production counterparts.
+  for (const d of checks) {
+    await recordHealth(
+      canonicalSource(d.provider),
+      "*",
+      "*",
+      d.normalizedStatus === "ok",
+      d.normalizedStatus === "ok" ? undefined : d.detail,
+      d.provider === "sec-xbrl" ? "sec_filings" : d.capability
+    );
+  }
 
   const capability = (d: RetrievalDiagnostic) => ({
     capability: d.capability,

@@ -144,7 +144,9 @@ def test_sec_unavailable_falls_through_to_vault():
     )
     result = asyncio.run(layer.retrieve(request))
     assert result.status == "OK"
-    assert bridge.calls and bridge.calls[0][0] == "sec_filings"
+    # The ledger read (P0-2) is not a data attempt; SEC is the first DATA route.
+    data_calls = [cap for cap, _ in bridge.calls if cap != "source_health"]
+    assert data_calls and data_calls[0] == "sec_filings"
     assert any(cap == "financial_statements" for cap, _ in bridge.calls)
     # The SEC failure is preserved in the diagnostics even though vault answered.
     assert any(d.get("provider") == "SEC" or "SEC" in str(d) for d in result.diagnostics) or result.diagnostics == []
