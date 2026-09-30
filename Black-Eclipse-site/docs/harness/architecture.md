@@ -580,18 +580,37 @@ change system instructions, enable a tool, or authorize a call.
 
 | Module | Owns |
 |---|---|
-| `config.py` | the typed stdio server contract (id, argv command/args, per-server env allowlist/values, cwd resolution, enabled state, per-tool selection, declared effects, confirmed catalog digest, startup/catalog/call/output/concurrency budgets) + secret redaction and owner-restricted config writes. Host execution controls only — not a domain allowlist. |
-| `naming.py` | collision-resistant namespacing (`mcp_<server>_<tool>` with a stable digest on a sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (operator-declared → untrusted MCP annotation → `unknown`). |
-| `client.py` | the local **stdio** client over the maintained MCP Python SDK (`mcp`): argv launch with no shell, safe default env, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, structured redacted errors. |
+| `config.py` | the typed server contract (id, argv command/args, per-server env allowlist/values, cwd resolution, enabled state, per-tool selection with include/exclude filters, declared effects, coarse `trust` tier, confirmed catalog digest, lifecycle/TLS/capability toggles, startup/catalog/call/output/concurrency budgets) + `${VAR}` connection resolution, secret redaction and owner-restricted config writes. Host execution controls only — not a domain allowlist. |
+| `naming.py` | collision-resistant namespacing (`mcp__<server>__<tool>` — a double-underscore boundary; a stable digest only on a genuine sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (operator-declared → untrusted MCP annotation → `unknown`). |
+| `interpolation.py` | `${VAR}`/`${env:VAR}` + `${workspaceFolder}`/`${userHome}`/`${pathSeparator}` resolution (Milestone 1): one pure function, fail-closed remote rule for `url`/`auth`, literal fallback locally. |
+| `screening.py` | static screening of a server entry (Milestone 1): refuse-not-sanitize for shell inline scripts, control operators, download/execute + exfil shapes, and known-IOC package tokens; warn on a plaintext `env` secret. Applied at load, save and spawn. |
+| `client.py` | the client over the maintained MCP Python SDK (`mcp`): argv launch with no shell (stdio), Streamable-HTTP and SSE for remote, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, TLS/mTLS controls, structured redacted errors. |
 | `manager.py` | discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
 
 **Lifecycle.** `AgenticService.start_mcp()` (run from the FastAPI lifespan)
 connects every **enabled** server, discovers and validates its tools, then
-registers only **selected, read-only** tools into the ONE `ToolRegistry`.
+registers only **selected**, effect-permitted tools into the ONE `ToolRegistry`.
 `stop_mcp()` terminates every subprocess cleanly on shutdown and unregisters only
 the names the manager owns (native tools are never touched). `/health` reports
 configured/connected/registered counts (never secrets). A `test_server` probe
 always tears its temporary child down (success, failure or cancellation).
+
+**Resilience (Phase 6 M2).** A failed initial connect is retried with a jittered
+exponential budget and, if it never connects, reaches a terminal state reported
+with the attempt count. A call arriving at a failed/closed/lazy server triggers
+one bounded reconnect (`manager._reconnect_on_call`) that re-checks selection,
+catalog digest and effect before re-registering. A mid-call session expiry
+classifies honestly: a **read** is replayed exactly once after a reconnect; a
+**write/external_action** is never replayed and returns an explicit
+`outcomeUncertain` result. One manager lifecycle task drives keepalive
+(`keepalive_interval`) and stdio recycle (`idle_timeout_seconds` /
+`max_lifetime_seconds`, only when no call is in flight). A `lazy` server
+registers its tools from an on-disk cache keyed by a fingerprint of the
+connection config (`mcp/schema_cache.py`) and spawns on first call; a missing or
+stale entry falls back to eager. No MCP child outlives Eclipse: on POSIX a single
+stdlib-only supervisor (`mcp/orphan_supervisor.py`) reaps registered process
+groups on parent death via pipe EOF; on Windows the SDK's Job Object
+(`KILL_ON_JOB_CLOSE`) already does. ADR-H68.
 
 **Default-agent reachability.** The Eclipse agent sets `allowMcpTools: true`,
 which expands its run allowlist to include the MCP tools **currently registered**
@@ -601,15 +620,32 @@ merely discovered tool. Custom agents and skills do **not** set the flag and kee
 their exact restricted allowlists.
 
 **Discovery is not activation.** `enabled` defaults to False, `selected_tools`
-defaults to empty, and only `read`-effect tools are activatable in this slice; the
-current runtime refuses non-read tools and there is no approval flow yet, so a
-`write` / `external_action` / `unknown` tool is never registered. Further, an
-effect is trusted only from an **operator declaration** (`tool_effects`) or from
-the operator confirming the server's `catalogDigest`: a server's own
-`readOnlyHint` is untrusted and, on its own, leaves the tool disabled. A changed
-catalog (tool set / description / schema) produces a new digest and invalidates
-prior confirmation until the operator re-confirms. This does **not** claim to
-complete later write/action approval support.
+defaults to empty, and only `read`-effect tools are activatable without the
+effectful-approval path; a `write` / `external_action` / `unknown` tool needs the
+operator to enable that effect class and a matching per-call approval (5G).
+Further, an effect is trusted only from an **operator declaration**
+(`tool_effects`) or from the operator confirming the server's `catalogDigest`: a
+server's own `readOnlyHint` is untrusted and, on its own, leaves the tool
+disabled. A changed catalog (tool set / description / schema) produces a new
+digest and invalidates prior confirmation until the operator re-confirms.
+
+**Trust tier (Phase 6 M1).** `trust` is `full` (default) or `untrusted`
+(fail-closed: any unrecognized value is untrusted). An untrusted server requires
+a per-call approval for **every** non-read call regardless of `enabled_effects`,
+and only an operator-declared effect can activate its tools — its own annotations
+never do. This is strictly additive to the operator-declared-effect rule.
+
+**Config contract, screening, sharing (Phase 6 M1).** `${VAR}`/`${env:VAR}` and
+`${workspaceFolder}`/`${userHome}`/`${pathSeparator}` are resolved from the
+process environment at load/spawn (`mcp/interpolation.py`); a remote `url`/`auth`
+with an unresolved reference **refuses the connect by name** (never sends a
+literal placeholder), while local stdio values keep the literal. `selected_tools`
+accepts the legacy exact list or `{include, exclude}` fnmatch globs (include wins;
+empty include selects nothing). A static screen (`mcp/screening.py`) refuses a
+shell-interpreter inline script, shell control operators, download/execute and
+exfil shapes, and known-IOC package tokens — at load, at save and at spawn — and
+warns on a plaintext `env` secret. Eclipse tool names are
+`mcp__<server>__<tool>` (double underscore). ADR-H67.
 
 **Execution stays authoritative.** Every MCP call enters through
 `ToolRegistry.execute`, so argument validation (pydantic), the agent allowlist,
@@ -657,8 +693,13 @@ user chooses which servers and tools to connect.
 **Authorization.** MCP mutations require proof of authorization — the request
 must originate from loopback (the front door / local operator) **or** present the
 runtime secret (`X-Harness-Operator` / `Bearer`), never a caller-supplied JSON
-boolean. So a directly reachable Python runtime cannot be handed arbitrary
-subprocess configuration by spoofing `operator: true`. Reads stay open.
+boolean. As of Phase 6 M1 the previously-open Python MCP **read** routes
+(`GET /mcp/servers`, `GET /mcp/approvals`, `GET /mcp/integrations`,
+`GET /mcp/workflows`, `POST /mcp/diagnostics`) carry the same
+`require_mcp_operator` dependency, because the TS front door already forwards the
+operator token — so a directly reachable Python runtime does not expose the
+configured subprocess surface to an unauthenticated caller. Tests:
+`test_mcp_api.py` (`test_read_routes_refuse_a_non_operator`).
 
 The SAME rule now guards **every** memory/skill mutation endpoint (memory
 create/update/archive/review, corrections, policies, suggestion accept/dismiss,
@@ -672,15 +713,19 @@ now forward the runtime secret as `X-Harness-Operator` so the front door's own
 authorization is what reaches Python. Tests: `test_memory_api_auth.py`,
 `test_mcp_api.py`.
 
-**Transports (Phase 5D).** A server is `stdio` (local subprocess, default) or
-`http` (remote Streamable-HTTP). `MCPServerConfig.transport` selects it; `http`
-requires a `url` and may carry `auth: {kind: "header"|"query", name, prefix,
-secretRef}` resolved from the vault at connect time. Both transports share the
-SAME connection lifecycle, discovery, effect/approval gating, output bounding and
-redaction — only the stream source differs (`client._transport`). A remote URL is
-checked by `harness/mcp/ssrf.py` (https-only, loopback http allowed; private
-addresses and embedded credentials refused) BEFORE any outbound connection.
-Interactive OAuth and TLS/redirect tuning remain future work within 5D.
+**Transports (Phase 5D).** A server is `stdio` (local subprocess, default),
+`http` (remote Streamable-HTTP) or `sse` (remote SSE). `MCPServerConfig.transport`
+selects it; a remote transport requires a `url` and may carry
+`auth: {kind: "header"|"query"|"oauth", name, prefix, secretRef}` resolved from
+the vault at connect time. All transports share the SAME connection lifecycle,
+discovery, effect/approval gating, output bounding and redaction — only the
+stream source differs (`client._transport`). A remote URL is checked by
+`harness/mcp/ssrf.py` (https-only, loopback http allowed; private addresses and
+embedded credentials refused) BEFORE any outbound connection. TLS controls
+(`ssl_verify: true|false|CA-path`, `client_cert`/`client_key` for mTLS) are
+honored. A hand-typed header/query `auth` is the shipped path; the full OAuth
+authorization-code + device flow and the redirect/origin policy remain (Phase 6
+M3).
 
 **Finance product layer (presets, workflows, diagnostics).** MCP is presented to
 an investor as finance jobs, not servers. `python/harness/mcp/presets.py` is pure
@@ -704,15 +749,22 @@ data stays authoritative. An effectful approval records a plain-language
 **Source independence.** MCP results are never routed through JDdS or the native
 research verifier and are never labelled Eclipse-verified; they are attributed to
 their server/tool. The default prompt tells the agent that JDdS is one fallible
-source and to try other eligible configured sources and selected MCP tools before
-concluding evidence is unavailable. Broad, MCP-aware *native* source planning
-(treating MCP tools as a `RetrievalSource` class with freshness/conflict
-comparison) is **not** implemented — a generic MCP tool does not implement the
-native `RetrievalSource` contract — and remains a later gate (`5F`). Remote
-HTTP/OAuth (`5D`), Eclipse-as-MCP-server (`5H`), and
-resources/prompts/subscriptions (`5I`) are likewise **future work**.
-Decisions: ADR-H38, ADR-H39, ADR-H40, ADR-H41 and ADR-H42 in
-[`decisions.md`](./decisions.md).
+source; to try other eligible configured sources and selected MCP tools before
+concluding evidence is unavailable. MCP-aware source planning is **wired into the
+native retrieval layer**: an operator-declared MCP data tool (a server's
+`data_source_tools` map) becomes a `RetrievalSource` via
+`manager.mcp_sources()`, reaches the layer through `ToolContext.mcp_manager`, and
+`plan_retrieval(additional_sources=...)` considers it after the native structured
+sources but before generic web. The planner primitive
+(`mcp/mcp_retrieval.py`) keeps three distinct freshness states
+(`fresh`/`stale`/`missing`, plus `failed`) and **preserves a conflict** rather
+than silently choosing; provenance is always `secondary`/`eclipseVerified=false`
+and a JDdS result is never silently upgraded. A generic MCP tool that is not
+declared stays directly callable by the model and is never withheld. Remote
+HTTP/OAuth/SSE/TLS (`5D`), resources/prompts (`5I`), sampling/elicitation,
+Eclipse-as-MCP-server (`5H`) and the finance preset/install/audit surface (`5F`)
+are **implemented**; subscriptions remain a documented non-goal (see the progress
+doc and ADR-H67–H73).
 
 ### MCP secret references and effectful approvals (Phase 5 extras)
 

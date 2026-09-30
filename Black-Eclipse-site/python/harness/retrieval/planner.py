@@ -90,8 +90,16 @@ _RATIONALE: dict[str, str] = {
 def plan_retrieval(
     request: FinancialRetrievalRequest,
     available_sources: Optional[set[str]] = None,
+    additional_sources: Optional[list[str]] = None,
 ) -> RetrievalPlan:
-    """Build an ordered, explainable plan for a request."""
+    """Build an ordered, explainable plan for a request.
+
+    `additional_sources` are operator-declared MCP data-source names eligible for
+    the requested data type (Milestone 6). They are considered AFTER the native
+    structured sources but BEFORE generic web, so a declared data source can be
+    selected when the vault is stale/missing without displacing a strong native
+    provider. They are never forced: availability and freshness still decide.
+    """
     order = list(_PLAN.get(request.dataType, [WEB]))
     warnings: list[str] = []
 
@@ -110,6 +118,15 @@ def plan_retrieval(
         order = [s for s in order if s != WEB]
     if request.dataType in ("historical_prices", "macro_series", "derived_metric"):
         order = [s for s in order if s != WEB]
+
+    # Insert operator-declared MCP data sources before generic web (never before
+    # a strong structured provider). An MCP source is `secondary` tier, so it is
+    # a legitimate substitute for web but not for the vault.
+    if additional_sources:
+        insert_at = order.index(WEB) if WEB in order else len(order)
+        for extra in additional_sources:
+            if extra not in order:
+                order.insert(insert_at, extra)
 
     # Availability filter (keeps the plan honest about what can actually run).
     if available_sources is not None:

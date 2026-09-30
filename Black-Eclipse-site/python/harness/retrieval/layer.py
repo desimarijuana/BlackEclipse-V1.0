@@ -72,6 +72,7 @@ class FinancialRetrievalLayer:
         on_event: Optional[Any] = None,
         store: Optional[Any] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        mcp_sources: Optional[list[RetrievalSource]] = None,
     ) -> None:
         self._sources: dict[str, RetrievalSource] = {
             STRUCTURED_VAULT: JddsSource(bridge),
@@ -79,6 +80,13 @@ class FinancialRetrievalLayer:
             SEC_FILINGS: SecFilingsSource(bridge),
             WEB: WebResearchSource(bridge),
         }
+        # Operator-declared MCP data tools (Milestone 6) join the SAME source
+        # registry, so the planner can select/compare them side-by-side. A
+        # generic MCP tool that does not implement the contract is not added
+        # here — it stays directly callable by the model.
+        for source in mcp_sources or []:
+            self._sources[source.name] = source
+        self._mcp_sources = list(mcp_sources or [])
         self.cache = cache or RetrievalCache()
         self._on_event = on_event
         self._max_retries = max(0, int(max_retries))
@@ -101,12 +109,31 @@ class FinancialRetrievalLayer:
     def available_sources(self, request: FinancialRetrievalRequest) -> set[str]:
         return {name for name, source in self._sources.items() if source.available(request)}
 
+    def _declared_for(self, request: FinancialRetrievalRequest) -> list[str]:
+        """Declared MCP source names whose data type matches this request."""
+        out: list[str] = []
+        for source in self._mcp_sources:
+            try:
+                if request.dataType in getattr(source, "dataTypes", ()) and source.available(request):
+                    out.append(source.name)
+            except Exception:  # noqa: BLE001 - a probing failure never selects a source
+                continue
+        return out
+
     async def retrieve(self, request: FinancialRetrievalRequest) -> FinancialRetrievalResult:
         started = time.monotonic()
         self.metrics["requests"] += 1
 
-        plan = plan_retrieval(request, available_sources=self.available_sources(request))
-        await self._emit("retrieval.planned", {"dataType": request.dataType, "strategy": plan.sources, "rationale": plan.rationale})
+        declared = self._declared_for(request)
+        plan = plan_retrieval(
+            request,
+            available_sources=self.available_sources(request),
+            additional_sources=declared,
+        )
+        await self._emit("retrieval.planned", {
+            "dataType": request.dataType, "strategy": plan.sources,
+            "rationale": plan.rationale, "mcpSources": declared,
+        })
 
         # ── Durable replay (D1): an identical request returns the stored result.
         # Deterministic by construction — no read-time re-scrape to drift.

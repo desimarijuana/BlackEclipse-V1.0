@@ -194,6 +194,7 @@ def build_graph(
     memory_router: Optional[Any] = None,
     allowed: Optional[set[str]] = None,
     source_sink: Optional[Any] = None,
+    mcp_manager: Optional[Any] = None,
 ) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
     agent = resolve_agent(request)
@@ -238,6 +239,7 @@ def build_graph(
         bus=bus,
         tool_registry=registry,
         authorize_effect=effect_authorizer,
+        mcp_manager=mcp_manager,
     )
     registry.set_active_context(ctx)
 
@@ -574,6 +576,7 @@ async def execute_run(
     skill_registry: Optional[Any] = None,
     approvals: Optional[Any] = None,
     memory_router: Optional[Any] = None,
+    mcp_manager: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
     agent = resolve_agent(request)
@@ -732,6 +735,7 @@ async def execute_run(
             memory_router,
             allowed=allowed,
             source_sink=source_collector,
+            mcp_manager=mcp_manager,
         )
         return await app.ainvoke(
             {

@@ -113,8 +113,8 @@ async def test_http_server_registers_only_selected_read_tool(http_server):
     mgr.set_secret_resolver(resolver)
     await mgr.start()
     reg = ToolRegistry()
-    assert mgr.register_selected_tools(reg) == ["mcp_http_echo"]
-    result = await reg.execute("mcp_http_echo", "c1", {"text": "x"}, ToolContext(run_id="r1", log=lambda *_: None), allowed={"mcp_http_echo"})
+    assert mgr.register_selected_tools(reg) == ["mcp__http__echo"]
+    result = await reg.execute("mcp__http__echo", "c1", {"text": "x"}, ToolContext(run_id="r1", log=lambda *_: None), allowed={"mcp__http__echo"})
     assert result.ok and "echo:x" in result.text
     await mgr.close()
 

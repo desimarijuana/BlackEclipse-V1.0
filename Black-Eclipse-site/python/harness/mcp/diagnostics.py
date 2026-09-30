@@ -116,6 +116,79 @@ def _network_check(url: str) -> Diagnostic:
     return Diagnostic("endpoint_reachable", OK, f"Reached {host}:{port}")
 
 
+def _tls_check(config: MCPServerConfig) -> Optional[Diagnostic]:
+    """Fail fast when a configured CA bundle / client cert path is missing."""
+    if config.transport == "stdio":
+        return None
+    ssl_verify = config.ssl_verify
+    if ssl_verify is False:
+        return Diagnostic(
+            "tls_verification_disabled", WARN,
+            "TLS certificate verification is DISABLED for this server",
+            "Only use ssl_verify=false for a trusted local test endpoint; prefer a CA bundle.",
+        )
+    if isinstance(ssl_verify, str) and ssl_verify:
+        path = os.path.expanduser(ssl_verify)
+        if not os.path.isfile(path):
+            return Diagnostic(
+                "ca_bundle_missing", ERROR,
+                f"The CA bundle was not found: {path}",
+                "Point ssl_verify at an existing PEM file, or set it to true for the system store.",
+            )
+    if config.client_cert:
+        cert = os.path.expanduser(config.client_cert)
+        if not os.path.isfile(cert):
+            return Diagnostic(
+                "client_cert_missing", ERROR,
+                f"The client certificate was not found: {cert}",
+                "Provide an existing PEM path for client_cert (or clear mTLS).",
+            )
+    return None
+
+
+def _auth_check(config: MCPServerConfig, token_status: Optional[dict[str, Any]] = None) -> Optional[Diagnostic]:
+    """OAuth-specific checks when the server uses `auth.kind == "oauth"`.
+
+    `token_status` (when the caller owns the vault) is
+    `{configured, expired, refreshFailed, rejected}`. Distinguishes "rejected our
+    credentials" from "unreachable".
+    """
+    auth = config.auth if isinstance(config.auth, dict) else None
+    if not auth or auth.get("kind") != "oauth":
+        return None
+    if token_status is None:
+        return Diagnostic(
+            "oauth_unverified", WARN,
+            "This server uses OAuth; token status could not be verified",
+            "Use Connect / log in under Settings › MCP Servers to start the OAuth flow.",
+        )
+    if token_status.get("rejected"):
+        return Diagnostic(
+            "oauth_rejected", ERROR,
+            "The server rejected our credentials (not an outage)",
+            "Re-authenticate: Settings › MCP Servers › Connect (or the login action) to obtain a new token.",
+        )
+    if token_status.get("refreshFailed"):
+        return Diagnostic(
+            "oauth_refresh_failed", ERROR,
+            "The OAuth token could not be refreshed",
+            "Re-authenticate to obtain a new refresh token; check the server's OAuth app settings.",
+        )
+    if not token_status.get("configured"):
+        return Diagnostic(
+            "oauth_not_logged_in", WARN,
+            "No OAuth token is stored for this server",
+            "Connect / log in under Settings › MCP Servers to authorize access.",
+        )
+    if token_status.get("expired"):
+        return Diagnostic(
+            "oauth_expired", WARN,
+            "The stored OAuth token is expired",
+            "It should refresh automatically; if it does not, re-authenticate.",
+        )
+    return Diagnostic("oauth_ok", OK, "OAuth token present and current")
+
+
 def check_server(
     config: MCPServerConfig,
     *,
@@ -123,9 +196,17 @@ def check_server(
     connection_state: Optional[str] = None,
     discovered_tools: Optional[int] = None,
     selected_tools: Optional[int] = None,
+    token_status: Optional[dict[str, Any]] = None,
 ) -> ServerDiagnostics:
     """Run all setup checks for one configured server (pure inspection)."""
     out = ServerDiagnostics(server_id=config.id, transport=config.transport)
+
+    if config.is_untrusted():
+        out.checks.append(Diagnostic(
+            "server_untrusted", WARN,
+            "This server is marked untrusted: every non-read call requires a per-call approval.",
+            "Only declare effects you intend; annotate/confirm is not enough for an untrusted server.",
+        ))
 
     if config.transport == "stdio":
         if not config.command:
@@ -147,13 +228,30 @@ def check_server(
                                          "Set the https endpoint URL for the remote server."))
         else:
             out.checks.append(_network_check(config.url))
+        tls = _tls_check(config)
+        if tls is not None:
+            out.checks.append(tls)
 
     out.checks.append(_secret_resolution_check(config, resolved_secrets))
+
+    auth_check = _auth_check(config, token_status)
+    if auth_check is not None:
+        out.checks.append(auth_check)
 
     if connection_state is not None:
         if connection_state == "connected":
             out.checks.append(Diagnostic("server_connected", OK, "Server connected and responded to discovery"))
-        elif connection_state in ("failed", "closed"):
+        elif connection_state == "lazy":
+            out.checks.append(Diagnostic(
+                "server_lazy", WARN, "Server is lazy: tools are registered from cache and not yet connected",
+                "Call one of its tools (or Test connection) to spawn it; the first call connects.",
+            ))
+        elif connection_state == "unavailable":
+            out.checks.append(Diagnostic(
+                "server_unavailable", ERROR, "Server reconnects were exhausted and it is unavailable",
+                "Check the network/endpoint, then reload MCP to retry.",
+            ))
+        elif connection_state in ("failed", "closed", "failed_refused"):
             out.checks.append(Diagnostic(
                 "server_not_connected", ERROR, f"Server state is `{connection_state}`",
                 "Run Test connection to see the server's own startup error, then fix the cause above.",

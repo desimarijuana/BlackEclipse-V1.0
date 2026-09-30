@@ -16,8 +16,6 @@ from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
 from .graph import execute_run
-from .mcp import MCPManager
-from .mcp.approvals import ApprovalStore
 from .memory_tools import register_memory_tools
 from .persistence import AgentMemoryStore
 from .retrieval.cache import RetrievalCache
@@ -27,6 +25,21 @@ from .skills import SkillRegistry
 from .tools import DataBridge, ToolRegistry
 
 log = logging.getLogger("harness.service")
+
+# The MCP integration is an optional capability: when the `mcp` SDK is not
+# importable (a trimmed install), the runtime reports MCP UNAVAILABLE honestly
+# rather than failing to boot or pretending a fake agent exists.
+try:  # noqa: SIM105
+    from .mcp import MCPManager
+    from .mcp.approvals import ApprovalStore
+
+    MCP_AVAILABLE = True
+    MCP_IMPORT_ERROR: Optional[str] = None
+except Exception as _mcp_exc:  # noqa: BLE001 - a missing SDK is a supported state
+    MCPManager = None  # type: ignore[assignment]
+    ApprovalStore = None  # type: ignore[assignment]
+    MCP_AVAILABLE = False
+    MCP_IMPORT_ERROR = str(_mcp_exc)
 
 
 def _default_callback_base_url() -> str:
@@ -105,11 +118,11 @@ class AgenticService:
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
-        self.mcp = MCPManager()
+        self.mcp = MCPManager() if MCP_AVAILABLE else None
         self.mcp_registered_tools: list[str] = []
         # Effectful-tool approvals (5G): persisted in the runtime's own DB and
         # consulted by every run's effect authorizer.
-        self.approvals = ApprovalStore(self.store)
+        self.approvals = ApprovalStore(self.store) if MCP_AVAILABLE else None
         # Automatic learning review (M3): a lightweight in-process queue that
         # reviews completed runs after the fact. It creates ONLY inert records /
         # suggestions and never enables a skill. Started/stopped with the runtime.
@@ -194,8 +207,11 @@ class AgenticService:
         """Connect enabled MCP servers and register selected read-only tools.
 
         Called once at service startup. A server failure is recorded as a
-        diagnostic and does not block the runtime or other servers.
+        diagnostic and does not block the runtime or other servers. When the MCP
+        SDK is absent, this is a no-op and MCP reports UNAVAILABLE honestly.
         """
+        if self.mcp is None:
+            return
         try:
             # A process-wide bridge is used only for secret resolution at spawn;
             # per-run tools still receive their own run bridge.
@@ -203,12 +219,51 @@ class AgenticService:
                 _default_callback_base_url(), None
             )
             self.mcp.set_secret_resolver(self._secret_resolver(bridge))
+            self.mcp.set_bridge_fetch(self._raw_bridge_fetch(bridge))
             await self.mcp.start()
             self.mcp_registered_tools = self.mcp.register_selected_tools(self.registry)
         except Exception:  # noqa: BLE001 - MCP must never prevent the runtime booting
             log.warning("MCP startup failed", exc_info=True)
 
+    def _raw_bridge_fetch(self, bridge: DataBridge):
+        """A raw `(capability, params) -> dict` fetch for the OAuth token store."""
+
+        async def fetch(capability: str, params: dict[str, Any]) -> dict[str, Any]:
+            return await bridge.fetch(capability, params)
+
+        return fetch
+
+    def _sampling_model_factory(self, request: RunRequest):
+        """Build the `(policy, prompt) -> str` factory for a server sampling call.
+
+        Uses the runtime's OWN model adapter (`models.build_chat_model`) with the
+        RUN's credentials, capped by the policy's max tokens. Sampling stays off
+        by default; this only ever runs when the operator enabled it for a server.
+        """
+        settings = request.modelSettings
+
+        async def factory(policy: Any, prompt: str) -> str:
+            from langchain_core.messages import HumanMessage
+
+            from .models import build_chat_model
+
+            model = build_chat_model(settings)
+            # Best-effort token cap (providers that accept `max_tokens`).
+            try:
+                bound = model.bind(max_tokens=policy.clamped_max_tokens())
+            except Exception:  # noqa: BLE001 - a provider may not accept the kwarg
+                bound = model
+            response = await bound.ainvoke([HumanMessage(content=str(prompt))])
+            content = getattr(response, "content", None)
+            if isinstance(content, list):
+                return "\n".join(str(getattr(b, "text", b)) for b in content)
+            return str(content if content is not None else response)
+
+        return factory
+
     async def stop_mcp(self) -> None:
+        if self.mcp is None:
+            return
         try:
             await self.mcp.close()
         except Exception:  # noqa: BLE001
@@ -275,6 +330,8 @@ class AgenticService:
         """
         from .mcp.config import load_mcp_configs
 
+        if self.mcp is None:
+            return {"configured": 0, "connected": 0, "registeredTools": 0, "loadDiagnostics": [], "unavailable": True}
         configs, diagnostics = load_mcp_configs()
         self.mcp.load_diagnostics = diagnostics
         self.mcp_registered_tools = await self.mcp.reload(configs)
@@ -283,6 +340,42 @@ class AgenticService:
         # activation: the router still requires explicit policy + call opt-in.
         self.refresh_memory_router()
         return self.mcp.summary()
+
+    async def oauth_login(self, server_id: str, *, client_id: Any = None, scope: str = "") -> dict[str, Any]:
+        """Run an OAuth device-code login for a remote MCP server."""
+        if self.mcp is None:
+            return {"success": False, "reason": "MCP is unavailable (runtime missing the mcp SDK)"}
+        return await self.mcp.oauth_login(server_id, client_id=client_id, scope=scope)
+
+    async def oauth_logout(self, server_id: str) -> dict[str, Any]:
+        """Clear a server's stored credentials; it stays configured but disconnected."""
+        if self.mcp is None:
+            return {"success": False, "reason": "MCP is unavailable"}
+        return await self.mcp.oauth_logout(server_id)
+
+    def install_mcp_integration(self, integration_id: str) -> dict[str, Any]:
+        """Install a preset integration as a DISABLED, nothing-selected config.
+
+        The user must not hand-edit JSON for a server Eclipse recommends. Nothing
+        ships enabled or selected; the operator reviews and activates.
+        """
+        from .mcp.config import upsert_mcp_config
+        from .mcp.presets import integration, integration_to_config
+        from .mcp.screening import refusals, screen_entry
+
+        spec = integration(integration_id)
+        if spec is None:
+            return {"success": False, "reason": "unknown integration"}
+        entry = integration_to_config(spec)
+        blocked = refusals(screen_entry(entry))
+        if blocked:
+            return {"success": False, "reason": blocked[0].message}
+        from .mcp.config import MCPServerConfig
+
+        upsert_mcp_config(MCPServerConfig(**entry))
+        if self.mcp is not None:
+            self.mcp.load_diagnostics = []
+        return {"success": True, "installed": integration_id, "config": entry}
 
     async def confirm_mcp_catalog(self, server_id: str) -> dict[str, Any]:
         """Snapshot the live catalog digest as the operator's reviewed version.
@@ -293,6 +386,8 @@ class AgenticService:
         """
         from .mcp.config import load_mcp_configs, upsert_mcp_config
 
+        if self.mcp is None:
+            return {"success": False, "reason": "MCP is unavailable"}
         digest = self.mcp.catalog_digest_for(server_id)
         if not digest:
             return {"success": False, "reason": "server is not connected; test it first"}
@@ -323,6 +418,10 @@ class AgenticService:
 
     async def run(self, request: RunRequest) -> RunResult:
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        # Bind server-initiated sampling to THIS run's model (still off by
+        # default per server; a request is refused unless the operator enabled it).
+        if self.mcp is not None:
+            self.mcp.set_sampling_model_factory(self._sampling_model_factory(request))
         # Foreground activity: defer expensive background reviews to a short idle.
         try:
             self.learning_review.mark_user_active()
@@ -336,6 +435,7 @@ class AgenticService:
             retrieval_cache=self.retrieval_cache,
             memory_service=self.memory, skill_registry=self.skill_registry,
             approvals=self.approvals, memory_router=self.memory_router,
+            mcp_manager=self.mcp,
         )
         await self._schedule_review(request.runId, result.status)
         return result
@@ -386,6 +486,7 @@ class AgenticService:
                     retrieval_cache=self.retrieval_cache,
                     memory_service=self.memory, skill_registry=self.skill_registry,
                     approvals=self.approvals, memory_router=self.memory_router,
+                    mcp_manager=self.mcp,
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:
@@ -423,6 +524,13 @@ class AgenticService:
 
     def list_tool_executions(self, run_id: str) -> list[dict[str, Any]]:
         return self.store.list_tool_executions(run_id)
+
+    def list_receipts(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Research receipts for the read-only Eclipse-as-server surface."""
+        return self.store.list_receipts(limit)
+
+    def get_receipt(self, run_id: str) -> Optional[dict[str, Any]]:
+        return self.store.get_receipt(run_id)
 
     def usage_summary(self, days: int = 30) -> dict[str, Any]:
         return self.store.usage_summary(days)

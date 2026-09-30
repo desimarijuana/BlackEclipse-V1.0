@@ -8,6 +8,8 @@ Behaviour is chosen by the first argv flag:
   malformed    — advertise a tool whose inputSchema is invalid
   duplicate    — advertise two distinct tool names that sanitize to one name
   secret_echo  — advertise `echo`; returns a configured env secret in the result
+  crash_on_call— advertise `echo`; exit on the first tools/call (session drop)
+  die_after_init — advertise `echo`; exit right after tools/list (drop at call)
 """
 
 import json
@@ -16,6 +18,16 @@ import sys
 import time
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "normal"
+
+# Tests that assert orphan reaping need the child's own pid; the fixture writes it
+# to MCP_FIXTURE_PIDFILE when set (this is the direct child the SDK spawned).
+_pidfile = os.environ.get("MCP_FIXTURE_PIDFILE")
+if _pidfile:
+    try:
+        with open(_pidfile, "w", encoding="utf-8") as _fh:
+            _fh.write(str(os.getpid()))
+    except OSError:
+        pass
 
 
 def send(obj):
@@ -73,9 +85,14 @@ def handle(msg):
         if MODE == "slowcatalog":
             time.sleep(5)
         send({"jsonrpc": "2.0", "id": mid, "result": {"tools": tools_for_mode()}})
+        if MODE == "die_after_init":
+            sys.exit(0)
     elif method == "tools/call":
         name = (msg.get("params") or {}).get("name")
         args = (msg.get("params") or {}).get("arguments") or {}
+        if MODE == "crash_on_call":
+            # Drop the session without answering: the client sees EOF/closed.
+            sys.exit(0)
         if MODE == "slow":
             time.sleep(5)
         if MODE == "big":

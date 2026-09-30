@@ -33,7 +33,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Literal, Optional
+from dataclasses import dataclass
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -47,8 +48,22 @@ log = logging.getLogger("harness.mcp.config")
 EffectClass = Literal["read", "write", "external_action", "unknown"]
 
 # Transports. `stdio` launches a local subprocess; `http` connects to a remote
-# Streamable-HTTP MCP endpoint (vault-backed header/bearer auth).
-MCPServerTransport = Literal["stdio", "http"]
+# Streamable-HTTP MCP endpoint; `sse` connects to a remote SSE endpoint. Both
+# remote transports share the same vault-backed auth, SSRF pre-check and
+# lifecycle.
+MCPServerTransport = Literal["stdio", "http", "sse"]
+
+# Coarse trust tier (Milestone 1). `full` is the default; anything else is
+# treated as `untrusted` (fail-closed). An untrusted server requires a per-call
+# approval for EVERY non-read call, regardless of `enabled_effects`, and its own
+# annotations can never satisfy any gate.
+TRUST_FULL = "full"
+TRUST_UNTRUSTED = "untrusted"
+
+# Keepalive / recycle floors (seconds). Values below are clamped up.
+KEEPALIVE_FLOOR_S = 10
+IDLE_TIMEOUT_FLOOR_S = 30
+MAX_LIFETIME_FLOOR_S = 60
 
 # Configuration file resolution:
 #   1. HARNESS_MCP_CONFIG (absolute or relative path);
@@ -88,6 +103,21 @@ def _clamp(value: int | None, floor: int, ceiling: int, default: int) -> int:
         return default
 
 
+@dataclass(frozen=True)
+class ResolvedConnection:
+    """Connection-defining fields after `${VAR}` interpolation.
+
+    Kept separate from the persisted config so a resolved value is never written
+    back to `mcp-servers.json` and the config stays shareable.
+    """
+
+    command: str
+    args: list[str]
+    url: Optional[str]
+    auth: Optional[dict[str, Any]]
+    ssl_verify: Union[bool, str]
+
+
 class MCPServerConfig(BaseModel):
     """One local stdio MCP server, as explicitly configured by the operator.
 
@@ -125,8 +155,16 @@ class MCPServerConfig(BaseModel):
     # Optional working directory; a relative value resolves against repo_root().
     cwd: Optional[str] = None
     enabled: bool = False
-    # Explicit include list. Discovery never activates; only this selects.
-    selected_tools: list[str] = Field(default_factory=list)
+    # Coarse trust tier. `full` (default) keeps the existing operator-declared
+    # effect rules. Any other value — including a typo — is treated as
+    # `untrusted` (fail-closed): every non-read call needs a per-call approval
+    # regardless of `enabled_effects`, and server annotations never satisfy a
+    # gate. This is *additional* to — never a replacement for — the effect rules.
+    trust: str = TRUST_FULL
+    # Explicit include list, or `{include: [...], exclude: [...]}` with
+    # fnmatch-style globs (include wins over exclude). Discovery never activates;
+    # only this selects. An empty include list selects nothing.
+    selected_tools: Union[list[str], dict[str, list[str]]] = Field(default_factory=list)
     # Optional declared effect per original tool name. This is the ONLY trusted
     # source of an effect: a server's own `readOnlyHint` is untrusted metadata
     # and can never, by itself, activate a tool.
@@ -135,6 +173,11 @@ class MCPServerConfig(BaseModel):
     # only when the live catalog digest equals this, so a changed tool set,
     # description or schema invalidates prior selection until re-confirmed.
     confirmed_catalog_digest: Optional[str] = None
+    # Optional declaration that a selected MCP tool is a native DATA SOURCE for a
+    # retrieval data type (e.g. {"get_quote": "current_quote"}). Only a declared
+    # tool is adapted into the native `RetrievalSource` contract; an undeclared
+    # tool stays directly callable by the model and is never withheld.
+    data_source_tools: dict[str, str] = Field(default_factory=dict)
     # Effect classes the operator has opted in to for THIS server. Defaults to
     # {"read"} only. A non-read effect (write/external_action) additionally
     # requires a per-call approval (5G); enabling it here is the standing opt-in.
@@ -146,6 +189,25 @@ class MCPServerConfig(BaseModel):
     output_limit_bytes: int = DEFAULT_OUTPUT_LIMIT_BYTES
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY
     max_tools: int = DEFAULT_MAX_TOOLS
+    # Lifecycle (Milestone 2). `lazy` registers tools from an on-disk schema
+    # cache at boot and spawns only on first call. `keepalive_interval` pings a
+    # live remote session. `idle_timeout_seconds`/`max_lifetime_seconds` recycle
+    # a stdio child. All default to off unless set.
+    lazy: bool = False
+    keepalive_interval: Optional[int] = None
+    idle_timeout_seconds: Optional[int] = None
+    max_lifetime_seconds: Optional[int] = None
+    # TLS controls (Milestone 3). `ssl_verify` is True | False | a CA-bundle
+    # path. mTLS uses `client_cert`/`client_key` (a combined PEM, or
+    # `[cert, key]`, or `[cert, key, passphrase]`).
+    ssl_verify: Union[bool, str] = True
+    client_cert: Optional[str] = None
+    client_key: Optional[Union[str, list[str]]] = None
+    # Capability toggles (Milestone 4). Resources/prompts utility tools are
+    # registered only when the live session advertises the capability AND the
+    # operator has set the toggle true. Default off = fail-closed (discovery is
+    # not activation).
+    tools: dict[str, bool] = Field(default_factory=dict)
     # Protocol/catalog version metadata when the operator pins one.
     protocol_version: Optional[str] = None
     # Free-form, non-secret operator notes (never used for authorization).
@@ -179,20 +241,104 @@ class MCPServerConfig(BaseModel):
         return value
 
     def model_post_init(self, __context: Any) -> None:  # noqa: D401 - pydantic hook
-        # A transport must be fully specified: stdio needs a command, http needs
+        # A transport must be fully specified: stdio needs a command, remote needs
         # a URL. Enforced here (not a field validator) so the error is one clear
-        # message and both transports share the same model.
+        # message and all transports share the same model.
         if self.transport == "stdio":
             if not self.command or not self.command.strip():
                 raise ValueError("stdio transport requires `command`")
-        elif self.transport == "http":
+        elif self.transport in ("http", "sse"):
             if not self.url or not self.url.strip():
-                raise ValueError("http transport requires `url`")
+                raise ValueError(f"{self.transport} transport requires `url`")
             if self.auth is not None:
-                if not isinstance(self.auth, dict) or self.auth.get("kind") not in ("header", "query"):
-                    raise ValueError("auth must be {kind: 'header'|'query', name, secretRef}")
-                if not self.auth.get("name") or not self.auth.get("secretRef"):
-                    raise ValueError("auth requires `name` and `secretRef`")
+                if not isinstance(self.auth, dict) or self.auth.get("kind") not in ("header", "query", "oauth"):
+                    raise ValueError("auth must be {kind: 'header'|'query'|'oauth', name, secretRef}")
+                if self.auth.get("kind") in ("header", "query"):
+                    if not self.auth.get("name") or not self.auth.get("secretRef"):
+                        raise ValueError("auth requires `name` and `secretRef`")
+                # oauth stores its token in the encrypted vault keyed by server id;
+                # no named secret is required (a redirectUri may be supplied).
+
+    def is_untrusted(self) -> bool:
+        """True unless `trust` is exactly `full` (fail-closed on a typo)."""
+        return str(self.trust or "").strip().lower() != TRUST_FULL
+
+    def resolve_selected(self, available: list[str]) -> set[str]:
+        """Resolve `selected_tools` into the concrete set of original tool names.
+
+        Accepts the legacy list form (exact names, byte-for-byte unchanged) and
+        the object form `{include, exclude}` with fnmatch-style globs. Include
+        wins over exclude; an empty/missing include selects nothing.
+        """
+        import fnmatch
+
+        selected = self.selected_tools
+        if isinstance(selected, dict):
+            include = [str(x) for x in (selected.get("include") or [])]
+            exclude = [str(x) for x in (selected.get("exclude") or [])]
+            chosen: set[str] = set()
+            for pattern in include:
+                for name in available:
+                    if fnmatch.fnmatchcase(name, pattern):
+                        chosen.add(name)
+            for pattern in exclude:
+                for name in list(chosen):
+                    if fnmatch.fnmatchcase(name, pattern):
+                        chosen.discard(name)
+            return chosen
+        names = [str(x) for x in (selected or [])]
+        return {name for name in available if name in set(names)}
+
+    def tool_enabled(self, capability: str) -> bool:
+        """Whether a utility capability (resources|prompts) is enabled."""
+        return bool((self.tools or {}).get(capability))
+
+    def _interpolate_local(self, text: str) -> str:
+        from .interpolation import interpolate
+
+        if not text:
+            return text
+        return interpolate(text)[0]
+
+    def resolved_connection(self) -> "ResolvedConnection":
+        """Interpolate the connection-defining fields with the fail-closed rule.
+
+        Remote `url`/`auth` values refuse on an unresolved reference (naming the
+        variable); local stdio `command`/`args` keep the literal placeholder. A
+        stdio server whose command is a `${VAR}` must resolve it, or the spawn
+        would run a literal placeholder — that is reported as a refusal too,
+        since a command cannot be a placeholder.
+        """
+        from .interpolation import InterpolationError, interpolate, interpolate_remote
+
+        command = self._interpolate_local(self.command)
+        args = [self._interpolate_local(a) for a in self.args]
+        url = self.url
+        auth = self.auth
+        if self.transport == "stdio" and command != self.command and "${" in self.command:
+            result, unresolved = interpolate(self.command)
+            if unresolved:
+                raise InterpolationError(unresolved[0], "command")
+            command = result
+        if self.transport in ("http", "sse"):
+            if url:
+                url = interpolate_remote(url, "url")
+            if isinstance(auth, dict):
+                auth = dict(auth)
+                for key in ("name", "prefix", "secretRef"):
+                    if isinstance(auth.get(key), str):
+                        auth[key] = interpolate_remote(auth[key], f"auth.{key}")
+        ssl_verify = self.ssl_verify
+        if isinstance(ssl_verify, str) and ssl_verify:
+            from .interpolation import interpolate as _i
+            ssl_verify = _i(os.path.expanduser(ssl_verify))[0]
+        return ResolvedConnection(
+            command=command,
+            args=args,
+            url=url,
+            auth=auth,
+            ssl_verify=ssl_verify,
+        )
 
     def limits(self) -> dict[str, int]:
         return {
@@ -228,7 +374,8 @@ class MCPServerConfig(BaseModel):
         environment, settings vault, model credentials and callback token are
         never forwarded wholesale. `resolved_secrets` maps an env var NAME to its
         resolved value (from the encrypted vault — see ADR-H41); when a reference
-        is unresolved it is simply omitted, never guessed.
+        is unresolved it is simply omitted, never guessed. `${VAR}` in a declared
+        value is interpolated locally (a literal placeholder is kept when unset).
         """
         resolved: dict[str, str] = {}
         for name in self.env_allowlist:
@@ -237,7 +384,7 @@ class MCPServerConfig(BaseModel):
             value = os.environ.get(name)
             if value is not None:
                 resolved[name] = value
-        resolved.update({k: v for k, v in self.env.items() if k})
+        resolved.update({k: self._interpolate_local(v) for k, v in self.env.items() if k})
         for name, value in (resolved_secrets or {}).items():
             if name and value:
                 resolved[name] = value
@@ -300,10 +447,25 @@ class MCPServerConfig(BaseModel):
             "secretCount": len(self.secret_values()),
             "cwd": self.cwd,
             "enabled": self.enabled,
-            "selectedTools": list(self.selected_tools),
+            "trust": TRUST_UNTRUSTED if self.is_untrusted() else TRUST_FULL,
+            "untrusted": self.is_untrusted(),
+            "selectedTools": (
+                list(self.selected_tools) if isinstance(self.selected_tools, list) else {
+                    "include": list(self.selected_tools.get("include") or []),
+                    "exclude": list(self.selected_tools.get("exclude") or []),
+                }
+            ),
             "toolEffects": dict(self.tool_effects),
             "enabledEffects": list(self.enabled_effects),
             "confirmedCatalogDigest": self.confirmed_catalog_digest,
+            "dataSourceTools": dict(self.data_source_tools),
+            "lazy": self.lazy,
+            "keepaliveInterval": self.keepalive_interval,
+            "idleTimeoutSeconds": self.idle_timeout_seconds,
+            "maxLifetimeSeconds": self.max_lifetime_seconds,
+            "sslVerify": self.ssl_verify if isinstance(self.ssl_verify, bool) else "custom-ca",
+            "clientCertConfigured": bool(self.client_cert),
+            "tools": dict(self.tools),
             "protocolVersion": self.protocol_version,
             "description": self.description,
             "limits": self.limits(),
@@ -349,6 +511,22 @@ def load_mcp_configs(explicit: Optional[str] = None) -> tuple[list[MCPServerConf
     servers: list[MCPServerConfig] = []
     seen: set[str] = set()
     for entry in raw_servers:
+        # Static screening runs BEFORE the entry is parsed or spawned, so a
+        # hand-edited config cannot smuggle a shell/exec payload past the type
+        # layer. A refused entry is skipped with a structured diagnostic.
+        from .screening import refusals, screen_entry
+
+        blocked = refusals(screen_entry(entry))
+        if blocked:
+            first = blocked[0].to_public()
+            diagnostics.append({
+                "server": str((entry or {}).get("id") if isinstance(entry, dict) else "?"),
+                "code": first["code"],
+                "status": first["status"],
+                "message": first["message"],
+                "recovery": first["recovery"],
+            })
+            continue
         try:
             server = MCPServerConfig(**entry)
         except Exception as exc:  # noqa: BLE001 - a bad entry must not abort loading
@@ -362,6 +540,13 @@ def load_mcp_configs(explicit: Optional[str] = None) -> tuple[list[MCPServerConf
         seen.add(server.id)
         servers.append(server)
     return servers, diagnostics
+
+
+def screen_rejections(entry: dict[str, Any]) -> list[dict[str, str]]:
+    """Refusing findings for a raw entry, as structured diagnostics (save path)."""
+    from .screening import refusals, screen_entry
+
+    return [f.to_public() for f in refusals(screen_entry(entry))]
 
 
 def redact_secrets(text: str, secrets: list[str]) -> str:

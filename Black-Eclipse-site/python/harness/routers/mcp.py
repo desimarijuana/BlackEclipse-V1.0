@@ -17,6 +17,7 @@ from ..deps import require_mcp_operator, service
 from ..mcp.config import (
     MCPServerConfig,
     remove_mcp_config,
+    screen_rejections,
     upsert_mcp_config,
 )
 
@@ -24,8 +25,16 @@ router = APIRouter()
 
 
 @router.get("/mcp/servers")
-def list_mcp_servers() -> dict[str, Any]:
-    """Configured servers + live status + discovered tools (secret-free)."""
+def list_mcp_servers(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
+    """Configured servers + live status + discovered tools (secret-free).
+
+    Operator-gated at the Python boundary (loopback or runtime secret), matching
+    every other MCP route, so a directly reachable runtime does not expose the
+    configured subprocess surface to an unauthenticated caller.
+    """
+    if service.mcp is None:
+        return {"success": False, "unavailable": True, "servers": [],
+                "configured": 0, "connected": 0, "registeredTools": 0, "loadDiagnostics": []}
     return {"success": True, "servers": service.mcp.public_configs(), **service.mcp.summary()}
 
 
@@ -41,8 +50,15 @@ class MCPServerUpsertRequest(BaseModel):
 
 @router.post("/mcp/servers")
 async def upsert_mcp_server(request: MCPServerUpsertRequest, _: None = Depends(require_mcp_operator)) -> JSONResponse:
+    # Static screening runs at SAVE (refuse, not sanitize) so a shell/exec entry
+    # is rejected here with a structured diagnostic, independent of load/spawn.
+    entry = request.server.model_dump()
+    rejections = screen_rejections(entry)
+    if rejections:
+        raise HTTPException(status_code=400, detail=rejections[0]["message"])
     upsert_mcp_config(request.server, env_keys=request.envKeys)
-    summary = await service.reload_mcp() if request.reload else service.mcp.summary()
+    summary = await service.reload_mcp() if request.reload else (
+        service.mcp.summary() if service.mcp is not None else {"configured": 0, "connected": 0, "registeredTools": 0})
     return JSONResponse({"success": True, **summary})
 
 
@@ -65,6 +81,8 @@ async def test_mcp_server(payload: dict[str, Any], _: None = Depends(require_mcp
         config = MCPServerConfig(**raw)
     except Exception as exc:  # noqa: BLE001 - a bad config is a 400, not a crash
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if service.mcp is None:
+        raise HTTPException(status_code=503, detail="MCP is unavailable (runtime missing the mcp SDK)")
     result = await service.mcp.test_server(config)
     return JSONResponse({"success": result.get("state") == "connected", **result})
 
@@ -87,8 +105,33 @@ async def confirm_mcp_catalog(server_id: str, _: None = Depends(require_mcp_oper
     return JSONResponse(result)
 
 
+@router.post("/mcp/servers/{server_id}/login")
+async def mcp_oauth_login(
+    server_id: str, payload: Optional[dict[str, Any]] = None, _: None = Depends(require_mcp_operator)
+) -> JSONResponse:
+    """Start an OAuth device-code login for a remote server (operator-gated)."""
+    payload = payload or {}
+    result = await service.oauth_login(
+        server_id,
+        client_id=payload.get("clientId"),
+        scope=str(payload.get("scope") or ""),
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=str(result.get("reason") or "login failed"))
+    return JSONResponse(result)
+
+
+@router.post("/mcp/servers/{server_id}/logout")
+async def mcp_oauth_logout(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
+    """Clear a server's stored credentials; it stays configured but disconnected."""
+    result = await service.oauth_logout(server_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=str(result.get("reason") or "logout failed"))
+    return JSONResponse(result)
+
+
 @router.get("/mcp/approvals")
-def list_mcp_approvals(status: Optional[str] = None) -> dict[str, Any]:
+def list_mcp_approvals(status: Optional[str] = None, _: None = Depends(require_mcp_operator)) -> dict[str, Any]:
     return {"success": True, "approvals": service.approvals.list(status)}
 
 
@@ -108,32 +151,69 @@ async def decide_mcp_approval(
 
 
 @router.get("/mcp/integrations")
-def list_mcp_integrations() -> dict[str, Any]:
+def list_mcp_integrations(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
     from ..mcp.presets import list_integrations
 
     return {"success": True, "integrations": list_integrations()}
 
 
 @router.get("/mcp/workflows")
-def list_mcp_workflows() -> dict[str, Any]:
+def list_mcp_workflows(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
     from ..mcp.presets import list_workflows
 
     return {"success": True, "workflows": list_workflows()}
 
 
 @router.post("/mcp/diagnostics")
-def mcp_diagnostics(payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def mcp_diagnostics(
+    payload: Optional[dict[str, Any]] = None, _: None = Depends(require_mcp_operator)
+) -> dict[str, Any]:
     """Setup diagnostics for every configured server + the environment.
 
-    `knownSecrets` (secret NAMES only) lets the runtime report missing vault
-    references without ever seeing a value.
+    `knownSecrets` (secret NAMES only) and `tokenStatus` (OAuth state by server
+    id, no values) let the runtime report missing references and auth state
+    without ever seeing a value.
     """
     known = set()
     if isinstance(payload, dict):
         for name in payload.get("knownSecrets") or []:
             if isinstance(name, str):
                 known.add(name)
+    if service.mcp is None:
+        return {"success": False, "unavailable": True,
+                "environment": [], "servers": []}
     resolved: dict[str, dict[str, bool]] = {}
     for cfg in service.mcp._runtimes.values():  # noqa: SLF001 - read-only inspection
         resolved[cfg.config.id] = {name: (name in known) for name in cfg.config.secret_ref_names()}
-    return {"success": True, **service.mcp.diagnostics(resolved)}
+    token_status: dict[str, dict[str, Any]] = {}
+    if isinstance(payload, dict):
+        for server_id, status in (payload.get("tokenStatus") or {}).items():
+            if isinstance(server_id, str) and isinstance(status, dict):
+                token_status[server_id] = status
+    return {"success": True, **service.mcp.diagnostics(resolved, token_status)}
+
+
+@router.post("/mcp/integrations/{integration_id}/install")
+async def install_mcp_integration(
+    integration_id: str, _: None = Depends(require_mcp_operator)
+) -> JSONResponse:
+    """Write a preset integration into the config (disabled, nothing selected).
+
+    The user must not hand-edit JSON for a server Eclipse itself recommends. The
+    entry ships disabled with an empty selection: install is not activation.
+    """
+    result = service.install_mcp_integration(integration_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=str(result.get("reason") or "install failed"))
+    return JSONResponse(result)
+
+
+@router.get("/mcp/supply-chain")
+def mcp_supply_chain(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
+    """A read-only, offline supply-chain report over pinned packages/commands."""
+    from ..mcp.audit import supply_chain_report
+
+    report = supply_chain_report(service.mcp)
+    if service.mcp is None:
+        report["unavailable"] = True
+    return {"success": True, **report}

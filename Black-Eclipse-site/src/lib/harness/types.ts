@@ -361,4 +361,7 @@ export type DataCapability =
   | "macro_resolve"
   | "web_search"
   | "web_fetch"
-  | "mcp_secret_resolve";
+  | "mcp_secret_resolve"
+  | "mcp_oauth_token_get"
+  | "mcp_oauth_token_set"
+  | "mcp_oauth_token_clear";

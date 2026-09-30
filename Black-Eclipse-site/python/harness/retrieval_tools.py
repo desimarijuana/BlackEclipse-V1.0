@@ -54,8 +54,16 @@ def _layer(ctx: ToolContext) -> FinancialRetrievalLayer:
     if layer is None:
         cache = getattr(ctx, "retrieval_cache", None)
         store = getattr(ctx, "memory_store", None)
+        mcp_manager = getattr(ctx, "mcp_manager", None)
+        mcp_sources = []
+        if mcp_manager is not None:
+            try:
+                mcp_sources = mcp_manager.mcp_sources()
+            except Exception:  # noqa: BLE001 - MCP sources are optional
+                mcp_sources = []
         layer = FinancialRetrievalLayer(
-            ctx.data_bridge, cache=cache, on_event=_event_logger(ctx), store=store
+            ctx.data_bridge, cache=cache, on_event=_event_logger(ctx), store=store,
+            mcp_sources=mcp_sources,
         )
         ctx.retrieval = layer  # type: ignore[attr-defined]
         ctx.retrieval_cache = layer.cache  # type: ignore[attr-defined]

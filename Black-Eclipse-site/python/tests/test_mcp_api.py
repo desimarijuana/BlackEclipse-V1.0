@@ -65,7 +65,7 @@ def test_upsert_registers_only_selected_read_tool_and_hides_secrets(client):
     tools = {t["originalName"]: t for t in server["tools"]}
     assert tools["echo"]["activatable"] is True
     assert tools["write_thing"]["activatable"] is False
-    assert server["registeredTools"] == ["mcp_fx_echo"]
+    assert server["registeredTools"] == ["mcp__fx__echo"]
     assert server["catalogDigest"]
 
 
@@ -192,7 +192,7 @@ def test_approval_list_and_decision_flow(client):
     from harness import main as main_module
 
     rec = main_module.service.approvals.request(
-        server_id="fx", tool="write_thing", eclipse_tool="mcp_fx_write_thing",
+        server_id="fx", tool="write_thing", eclipse_tool="mcp__fx__write_thing",
         effect="write", args={"text": "x"}, run_id="run_x",
     )
     pending = client.get("/mcp/approvals?status=pending").json()["approvals"]
@@ -211,7 +211,7 @@ def test_approval_decision_requires_authorization(client, monkeypatch):
     from starlette.testclient import TestClient as TC
 
     rec = main_module.service.approvals.request(
-        server_id="fx", tool="t", eclipse_tool="mcp_fx_t", effect="external_action", args={"x": 1},
+        server_id="fx", tool="t", eclipse_tool="mcp__fx__t", effect="external_action", args={"x": 1},
     )
     monkeypatch.delenv("CRON_SECRET", raising=False)
     with TC(main_module.app, client=("203.0.113.9", 5555)) as remote:
@@ -221,4 +221,38 @@ def test_approval_decision_requires_authorization(client, monkeypatch):
 
 def test_approval_unknown_id_is_404(client):
     assert client.post("/mcp/approvals/nope/decide", json={"approve": True}).status_code == 404
+
+
+# ── Phase 6: read routes are operator-gated at the Python boundary ──────────
+
+
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/mcp/servers"),
+    ("GET", "/mcp/approvals"),
+    ("GET", "/mcp/integrations"),
+    ("GET", "/mcp/workflows"),
+    ("POST", "/mcp/diagnostics"),
+])
+def test_read_routes_refuse_a_non_operator(monkeypatch, method, path):
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    from starlette.testclient import TestClient as TC
+
+    import harness.main as main_module
+
+    with TC(main_module.app, client=("203.0.113.9", 5555)) as remote:
+        res = remote.request(method, path, json={} if method == "POST" else None)
+        assert res.status_code == 403, res.text
+
+
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/mcp/servers"),
+    ("GET", "/mcp/approvals"),
+    ("GET", "/mcp/integrations"),
+    ("GET", "/mcp/workflows"),
+    ("POST", "/mcp/diagnostics"),
+])
+def test_read_routes_allow_loopback_operator(client, method, path):
+    res = client.request(method, path, json={} if method == "POST" else None)
+    assert res.status_code == 200, res.text
+
 

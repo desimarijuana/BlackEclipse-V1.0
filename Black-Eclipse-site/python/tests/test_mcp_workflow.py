@@ -195,13 +195,13 @@ async def test_end_to_end_import_analyse_report_export(tmp_path):
     await mgr.start()
     reg = ToolRegistry()
     names = mgr.register_selected_tools(reg)
-    assert set(names) == {"mcp_fin_read_holdings", "mcp_fin_export_report"}
+    assert set(names) == {"mcp__fin__read_holdings", "mcp__fin__export_report"}
 
     ctx = ToolContext(run_id="run_e2e", log=lambda *_: None)
     ctx.authorize_effect = make_effect_authorizer(approvals, "run_e2e", None)
 
     # 1. Import holdings (read-only, no approval).
-    imported = await reg.execute("mcp_fin_read_holdings", "c1", {}, ctx, allowed=set(names))
+    imported = await reg.execute("mcp__fin__read_holdings", "c1", {}, ctx, allowed=set(names))
     assert imported.ok
     holdings = json.loads(imported.data["structuredContent"]["result"])["rows"]
     assert [h["symbol"] for h in holdings] == ["AAPL", "MSFT", "NVDA"]
@@ -218,7 +218,7 @@ async def test_end_to_end_import_analyse_report_export(tmp_path):
 
     # 3. Export the report — an EFFECTFUL tool: refused until approved.
     denied = await reg.execute(
-        "mcp_fin_export_report", "c2",
+        "mcp__fin__export_report", "c2",
         {"name": "review.txt", "content": report}, ctx, allowed=set(names),
     )
     assert not denied.ok and denied.error.code == "TOOL_FORBIDDEN"
@@ -233,7 +233,7 @@ async def test_end_to_end_import_analyse_report_export(tmp_path):
     # 4. Operator approves the exact call; export now runs.
     approvals.decide(pending[0]["id"], approve=True)
     exported = await reg.execute(
-        "mcp_fin_export_report", "c3",
+        "mcp__fin__export_report", "c3",
         {"name": "review.txt", "content": report}, ctx, allowed=set(names),
     )
     assert exported.ok, exported.text
@@ -247,7 +247,7 @@ async def test_end_to_end_import_analyse_report_export(tmp_path):
 
     # A changed payload needs a NEW approval (digest binding).
     changed = await reg.execute(
-        "mcp_fin_export_report", "c4",
+        "mcp__fin__export_report", "c4",
         {"name": "review2.txt", "content": "different"}, ctx, allowed=set(names),
     )
     assert not changed.ok and changed.error.code == "TOOL_FORBIDDEN"

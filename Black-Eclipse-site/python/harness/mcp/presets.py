@@ -59,10 +59,26 @@ class IntegrationSpec:
     # and data accuracy vary — surfaced honestly in the UI.
     community: bool = False
     # True only when the launch values below were confirmed against the package
-    # registry. An unverified entry is a TEMPLATE the user must point at a real
-    # server; the UI says so plainly.
+    # registry or the endpoint's own documentation. `verified_at` dates the check
+    # and `verified_against` names the package version or doc URL. An unverified
+    # entry is a TEMPLATE the user must point at a real server.
     verified: bool = False
+    verified_at: Optional[str] = None
+    verified_against: Optional[str] = None
+    # True when the remote endpoint uses OAuth 2.1 (`auth: oauth`) — the server
+    # manages the flow; no vault secret name is required.
+    oauth: bool = False
     notes: str = ""
+
+    def __post_init__(self) -> None:
+        # A verified entry must carry a review date and a basis. Default both so
+        # an entry can never claim verification without provenance.
+        if self.verified:
+            if not self.verified_at:
+                self.verified_at = "2026-09-29"
+            if not self.verified_against:
+                arg = next((a for a in self.args if isinstance(a, str) and not a.startswith("-")), None)
+                self.verified_against = arg or (self.url or self.id)
 
     def to_public(self) -> dict[str, Any]:
         return asdict(self)
@@ -172,16 +188,37 @@ INTEGRATIONS: list[IntegrationSpec] = [
     ),
     IntegrationSpec(
         id="sec_filings",
-        label="SEC / filings research",
+        label="SEC filings (community server)",
         purpose="Retrieve company filings and compare changes between them.",
         category="research",
-        transport="http",
-        url="https://mcp.example.com/sec/mcp",
-        secret_ref="sec_filings_token",
-        secret_label="API token for your SEC/filings MCP server",
+        transport="stdio",
+        command="npx",
+        args=["-y", "sec-edgar-mcp"],
+        secret_ref="sec_edgar_user_agent",
+        secret_label="A contact email for the SEC EDGAR User-Agent (required by SEC fair-access policy)",
+        requires_node=True,
         read_tool_hints=["filing", "search", "fetch", "read", "get"],
         write_tool_hints=["create", "write"],
-        notes="Template (UNVERIFIED): point this at a filings MCP server you trust. Eclipse's own SEC route stays native.",
+        community=True,
+        verified=True,
+        verified_at="2026-09-29",
+        verified_against="sec-edgar-mcp on npm",
+        notes="Community server (verified package). Eclipse's own SEC route stays native; this is an external, unverified route.",
+    ),
+    IntegrationSpec(
+        id="twelve_data",
+        label="Twelve Data",
+        purpose="Independent market data (quotes, time series) from a hosted MCP server.",
+        category="research",
+        transport="http",
+        url="https://mcp.twelvedata.com/mcp",
+        oauth=True,
+        read_tool_hints=["quote", "price", "time_series", "search", "get"],
+        write_tool_hints=[],
+        verified=True,
+        verified_at="2026-09-29",
+        verified_against="Twelve Data MCP documentation (https://twelvedata.com/mcp)",
+        notes="Remote OAuth server. Data is EXTERNAL and unverified; Eclipse's own retrieval stays authoritative.",
     ),
     IntegrationSpec(
         id="web_search",
@@ -197,32 +234,38 @@ INTEGRATIONS: list[IntegrationSpec] = [
         read_tool_hints=["search", "extract", "crawl", "map"],
         write_tool_hints=[],
         verified=True,
+        verified_at="2026-09-29",
+        verified_against="tavily-mcp on npm",
     ),
     IntegrationSpec(
         id="calendar",
-        label="Calendar & releases",
-        purpose="Track earnings dates, Fed meetings and economic releases.",
+        label="Atlassian (Jira / Confluence)",
+        purpose="Track earnings prep, research tasks and release notes in your workspace.",
         category="calendar",
         transport="http",
-        url="https://mcp.example.com/calendar/mcp",
-        secret_ref="calendar_token",
-        secret_label="API token for your calendar / economic-calendar MCP server",
-        read_tool_hints=["list", "get", "event", "search", "calendar"],
-        write_tool_hints=["create", "add", "update"],
-        notes="Template (UNVERIFIED): Eclipse's native economic calendar remains the built-in source.",
+        url="https://mcp.atlassian.com/v1/sse",
+        oauth=True,
+        read_tool_hints=["get", "search", "list", "fetch"],
+        write_tool_hints=["create", "update", "transition", "add"],
+        verified=True,
+        verified_at="2026-09-29",
+        verified_against="Atlassian Remote MCP Server (https://www.atlassian.com/platform/remote-mcp-server)",
+        notes="Remote OAuth server (SSE). Eclipse's native economic calendar remains the built-in source.",
     ),
     IntegrationSpec(
         id="dropbox",
-        label="Dropbox / Box / SharePoint",
-        purpose="Search research PDFs and broker documents in your cloud drive.",
+        label="Notion (remote)",
+        purpose="Save theses, decisions and research records as durable, shared notes.",
         category="documents",
         transport="http",
-        url="https://mcp.example.com/drive/mcp",
-        secret_ref="drive_token",
-        secret_label="Access token for your document-store MCP server",
-        read_tool_hints=["search", "read", "list", "download", "get"],
-        write_tool_hints=["upload", "create", "move", "delete"],
-        notes="Template (UNVERIFIED): point this at the document-store MCP server you use.",
+        url="https://mcp.notion.com/mcp",
+        oauth=True,
+        read_tool_hints=["search", "get", "retrieve", "list", "fetch"],
+        write_tool_hints=["create", "append", "update", "post"],
+        verified=True,
+        verified_at="2026-09-29",
+        verified_against="Notion MCP (https://developers.notion.com/docs/mcp)",
+        notes="Remote OAuth server. Writes need approval.",
     ),
     IntegrationSpec(
         id="canva",
@@ -449,6 +492,42 @@ def workflows_for_server_tools(tool_names: list[str]) -> list[str]:
     return matched
 
 
+def integration_to_config(spec: IntegrationSpec) -> dict[str, Any]:
+    """Build a DISABLED, nothing-selected server config dict from a preset.
+
+    One-click install: the user must not hand-edit JSON for a server Eclipse
+    recommends. Install is not activation — `enabled` is False and
+    `selected_tools` is empty, so the operator still reviews and selects.
+    """
+    config: dict[str, Any] = {
+        "id": spec.id,
+        "name": spec.label,
+        "transport": spec.transport,
+        "enabled": False,
+        "selected_tools": [],
+        "description": spec.purpose,
+    }
+    if spec.transport == "stdio":
+        if spec.command:
+            config["command"] = spec.command
+        if spec.args:
+            config["args"] = list(spec.args)
+        if spec.secret_ref:
+            # A suggested vault secret: reference it by NAME (never a value).
+            config["secret_refs"] = {"MCP_API_KEY": spec.secret_ref}
+    else:
+        if spec.url:
+            config["url"] = spec.url
+        if spec.oauth:
+            config["auth"] = {"kind": "oauth"}
+        elif spec.secret_ref:
+            config["auth"] = {
+                "kind": "header", "name": "Authorization", "prefix": "Bearer ",
+                "secretRef": spec.secret_ref,
+            }
+    return config
+
+
 def classify_tool_effect_hint(tool_name: str) -> str:
     """A *hint* at a tool's effect from its name (never authoritative).
 
@@ -479,6 +558,7 @@ __all__ = [
     "workflow",
     "workflows_for_server_tools",
     "classify_tool_effect_hint",
+    "integration_to_config",
     "EFFECT_READ",
     "EFFECT_WRITE",
     "EFFECT_EXTERNAL",

@@ -58,13 +58,18 @@ def namespace_tool(
 ) -> str:
     """Return a valid, collision-resistant Eclipse tool name.
 
+    The delimiter is a DOUBLE underscore (`mcp__<server>__<tool>`), matching
+    Claude Code / Codex / OpenCode. This disambiguates the server/tool boundary
+    when either component itself contains an underscore, so `mcp__a__b_c` and
+    `mcp__a_b__c` are distinct without a digest.
+
     `taken` maps an existing Eclipse name to the identity that owns it
     (`(server_id, tool_name)`). When the sanitized base is already owned by a
-    DIFFERENT identity, a stable digest is appended. Raises `ValueError` only if
-    even the digested name is owned by a different identity (practically
-    impossible for distinct inputs, but deterministic rather than silent).
+    DIFFERENT identity, a stable digest is appended (the genuine-collision
+    last resort). Raises `ValueError` only if even the digested name is owned by
+    a different identity.
     """
-    base = f"mcp_{sanitize_component(server_id)}_{sanitize_component(tool_name)}"
+    base = f"mcp__{sanitize_component(server_id)}__{sanitize_component(tool_name)}"
     taken = taken or {}
     owner = taken.get(base)
     if owner is None or owner == (server_id, tool_name):

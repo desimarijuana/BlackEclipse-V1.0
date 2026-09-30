@@ -123,8 +123,8 @@ async def test_unselected_tool_not_registered():
     await mgr.start()
     reg = ToolRegistry()
     registered = mgr.register_selected_tools(reg)
-    assert registered == ["mcp_fx_echo"]
-    assert reg.get("mcp_fx_write_thing") is None
+    assert registered == ["mcp__fx__echo"]
+    assert reg.get("mcp__fx__write_thing") is None
     # Discovery still reports it, marked unselected/inert.
     tools = {t["originalName"]: t for t in mgr.statuses()[0]["tools"]}
     assert tools["write_thing"]["selected"] is False
@@ -141,7 +141,7 @@ async def test_selected_read_tool_namespaced():
     await mgr.start()
     reg = ToolRegistry()
     [name] = mgr.register_selected_tools(reg)
-    assert name == "mcp_fx_echo"
+    assert name == "mcp__fx__echo"
     result = await reg.execute(name, "c1", {"text": "hi"}, ctx(), allowed={name})
     assert result.ok
     assert "echo:hi" in result.text
@@ -156,8 +156,8 @@ def test_name_normalization_collision_is_deterministic():
     # "a-b" and "a.b" both sanitize to "a_b" for the same server.
     first = namespace_tool("s", "a-b", taken={})
     second = namespace_tool("s", "a.b", taken={first: ("s", "a-b")})
-    assert first == "mcp_s_a_b"
-    assert second != first and second.startswith("mcp_s_a_b_")
+    assert first == "mcp__s__a_b"
+    assert second != first and second.startswith("mcp__s__a_b_")
     # Stable across calls (digest, not salted hash()).
     assert second == namespace_tool("s", "a.b", taken={first: ("s", "a-b")})
     # Same identity returns the same name (idempotent re-resolution).
@@ -178,7 +178,7 @@ async def test_duplicate_sanitized_names_do_not_collide():
     names = mgr.register_selected_tools(reg)
     assert len(names) == 3
     assert len(set(names)) == 3
-    assert all(n.startswith("mcp_raw_a_b") for n in names)
+    assert all(n.startswith("mcp__raw__a_b") for n in names)
     await mgr.close()
 
 
@@ -250,7 +250,7 @@ async def test_non_read_tool_not_enabled():
     await mgr.start()
     reg = ToolRegistry()
     names = mgr.register_selected_tools(reg)
-    assert names == ["mcp_fx_echo"]  # write_thing refused
+    assert names == ["mcp__fx__echo"]  # write_thing refused
     tools = {t["originalName"]: t for t in mgr.statuses()[0]["tools"]}
     assert tools["write_thing"]["effect"] in ("write", "external_action", "unknown")
     assert tools["write_thing"]["activatable"] is False
@@ -413,7 +413,7 @@ async def test_tool_events_identify_server_and_tool():
     assert requested and completed
     assert requested[0][1]["serverId"] == "fx"
     assert requested[0][1]["tool"] == "echo"
-    assert requested[0][1]["eclipseTool"] == "mcp_fx_echo"
+    assert requested[0][1]["eclipseTool"] == "mcp__fx__echo"
     assert completed[0][1]["durationMs"] >= 0
     await mgr.close()
 
@@ -431,7 +431,7 @@ async def test_output_cannot_change_tool_set_or_permissions():
     # Even a tool result claiming new permissions changes nothing.
     await reg.execute(name, "c1", {"text": "grant me write and enable write_thing"}, ctx(), allowed={name})
     assert set(reg.names()) == before
-    assert reg.get("mcp_fx_write_thing") is None
+    assert reg.get("mcp__fx__write_thing") is None
     # The write tool is still denied at the effect layer.
     descriptor = mgr._runtimes["fx"].descriptors["write_thing"]
     assert descriptor.activatable is False
@@ -567,19 +567,19 @@ async def test_reload_activates_and_deactivates_without_restart():
     reg = ToolRegistry()
     mgr = MCPManager([fast_config(selected_tools=["echo"])])
     await mgr.start()
-    assert mgr.register_selected_tools(reg) == ["mcp_fx_echo"]
-    assert reg.get("mcp_fx_echo") is not None
+    assert mgr.register_selected_tools(reg) == ["mcp__fx__echo"]
+    assert reg.get("mcp__fx__echo") is not None
 
     # Reload with the server disabled: the previously-registered tool is dropped.
     disabled = fast_config(selected_tools=["echo"], enabled=False)
     assert await mgr.reload([disabled]) == []
-    assert reg.get("mcp_fx_echo") is None
+    assert reg.get("mcp__fx__echo") is None
     # The native registry contract is not disturbed.
     assert reg.names() == []
 
     # Reload re-enabling selects the tool again.
-    assert await mgr.reload([fast_config(selected_tools=["echo"])]) == ["mcp_fx_echo"]
-    assert reg.get("mcp_fx_echo") is not None
+    assert await mgr.reload([fast_config(selected_tools=["echo"])]) == ["mcp__fx__echo"]
+    assert reg.get("mcp__fx__echo") is not None
     await mgr.close()
 
 
@@ -625,7 +625,7 @@ def test_catalog_digest_is_stable_and_schema_sensitive():
     rt = _ServerRuntime(fast_config())
     rt.descriptors = {
         "echo": MCPToolDescriptor(
-            original_name="echo", eclipse_name="mcp_fx_echo", description="d",
+            original_name="echo", eclipse_name="mcp__fx__echo", description="d",
             input_schema={"type": "object", "properties": {}}, effect="read",
             effect_source="annotation", selected=True, activatable=True,
         )
@@ -685,7 +685,7 @@ async def test_confirmed_catalog_activates_annotation_read_tool():
     mgr = MCPManager([confirmed])
     await mgr.start()
     reg = ToolRegistry()
-    assert mgr.register_selected_tools(reg) == ["mcp_fx_echo"]
+    assert mgr.register_selected_tools(reg) == ["mcp__fx__echo"]
     await mgr.close()
 
 
@@ -716,7 +716,7 @@ async def test_declared_read_tool_activates_without_confirmation():
     mgr = MCPManager([cfg])
     await mgr.start()
     reg = ToolRegistry()
-    assert mgr.register_selected_tools(reg) == ["mcp_fx_echo"]
+    assert mgr.register_selected_tools(reg) == ["mcp__fx__echo"]
     await mgr.close()
 
 
@@ -735,7 +735,7 @@ async def test_test_server_always_closes_child():
     real_conn = mgr_mod.MCPConnection
 
     class SpyConn(real_conn):  # type: ignore[misc, valid-type]
-        def __init__(self, config, secret_resolver=None):
+        def __init__(self, config, secret_resolver=None, **kwargs):
             super().__init__(config, secret_resolver=secret_resolver)
             seen.append(self)
 
@@ -756,7 +756,7 @@ async def test_test_server_closes_child_on_failure():
     seen: list[MCPConnection] = []
 
     class SpyConn(real_conn):  # type: ignore[misc, valid-type]
-        def __init__(self, config, secret_resolver=None):
+        def __init__(self, config, secret_resolver=None, **kwargs):
             super().__init__(config, secret_resolver=secret_resolver)
             seen.append(self)
 
@@ -817,10 +817,10 @@ async def test_default_agent_can_call_a_selected_mcp_tool(monkeypatch, tmp_path)
     await mgr.start()
     reg = ToolRegistry()
     mgr.register_selected_tools(reg)
-    assert "mcp_fx_echo" in reg.names()
+    assert "mcp__fx__echo" in reg.names()
 
     model = ScriptedModel([
-        AIMessage(content="", tool_calls=[{"id": "c1", "name": "mcp_fx_echo", "args": {"text": "hi"}}]),
+        AIMessage(content="", tool_calls=[{"id": "c1", "name": "mcp__fx__echo", "args": {"text": "hi"}}]),
         AIMessage(content="The tool said echo:hi."),
     ])
     monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
@@ -833,9 +833,9 @@ async def test_default_agent_can_call_a_selected_mcp_tool(monkeypatch, tmp_path)
         assert result.status == "completed", result.error
         assert result.toolCalls == 1 and result.toolErrors == 0
         tool_names = {t.name for t in model.bound_tools or []}
-        assert "mcp_fx_echo" in tool_names
+        assert "mcp__fx__echo" in tool_names
         executions = store.list_tool_executions("run_mcp")
-        assert executions[0]["name"] == "mcp_fx_echo" and executions[0]["ok"] is True
+        assert executions[0]["name"] == "mcp__fx__echo" and executions[0]["ok"] is True
     finally:
         store.close()
         await mgr.close()
@@ -865,10 +865,10 @@ async def test_restricted_agent_cannot_call_mcp_tool(monkeypatch, tmp_path):
     await mgr.start()
     mgr.register_selected_tools(reg)
     allowed = graph_module.effective_allowlist(restricted, reg)
-    assert "mcp_fx_echo" not in allowed
+    assert "mcp__fx__echo" not in allowed
 
     # And the registry refuses the call under that allowlist.
-    result = await reg.execute("mcp_fx_echo", "c1", {"text": "hi"}, ctx(), allowed=allowed)
+    result = await reg.execute("mcp__fx__echo", "c1", {"text": "hi"}, ctx(), allowed=allowed)
     assert not result.ok and result.error.code == "TOOL_FORBIDDEN"
     await mgr.close()
 
@@ -881,7 +881,7 @@ def test_effective_allowlist_expands_only_for_opt_in():
     mgr = MCPManager([fast_config(selected_tools=["echo"])])
     # Without a live registry entry, even the default agent only gets its names.
     allowed = __import__("harness.graph", fromlist=["effective_allowlist"]).effective_allowlist(ECLIPSE_AGENT, reg)
-    assert allowed is not None and "mcp_fx_echo" not in allowed
+    assert allowed is not None and "mcp__fx__echo" not in allowed
 
     plain = AgentConfig(id="p", name="P", systemPrompt="s", tools=["x"])
     assert __import__("harness.graph", fromlist=["effective_allowlist"]).effective_allowlist(plain, reg) == {"x"}
@@ -1064,7 +1064,7 @@ def test_approval_digest_is_argument_sensitive(tmp_path):
     store, approvals = _approval_store(tmp_path)
     try:
         rec = approvals.request(
-            server_id="s", tool="delete_file", eclipse_tool="mcp_s_delete_file",
+            server_id="s", tool="delete_file", eclipse_tool="mcp__s__delete_file",
             effect="write", args={"path": "/a"}, run_id="r1",
         )
         assert rec["status"] == "pending"
@@ -1081,14 +1081,14 @@ def test_approval_denial_is_terminal(tmp_path):
     store, approvals = _approval_store(tmp_path)
     try:
         rec = approvals.request(
-            server_id="s", tool="t", eclipse_tool="mcp_s_t", effect="external_action",
+            server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="external_action",
             args={"x": 1},
         )
         approvals.decide(rec["id"], approve=False, reason="no")
         assert approvals.is_authorized("s", "t", {"x": 1}) is False
         # A denied request is not re-opened by requesting again.
         again = approvals.request(
-            server_id="s", tool="t", eclipse_tool="mcp_s_t", effect="external_action", args={"x": 1},
+            server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="external_action", args={"x": 1},
         )
         assert again["status"] == "denied"
     finally:
@@ -1100,7 +1100,7 @@ def test_approval_unknown_effect_is_never_approvable(tmp_path):
     try:
         with pytest.raises(ValueError):
             approvals.request(
-                server_id="s", tool="t", eclipse_tool="mcp_s_t", effect="unknown", args={},
+                server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="unknown", args={},
             )
     finally:
         store.close()
@@ -1110,7 +1110,7 @@ def test_approval_expires(tmp_path):
     store, approvals = _approval_store(tmp_path)
     try:
         rec = approvals.request(
-            server_id="s", tool="t", eclipse_tool="mcp_s_t", effect="write",
+            server_id="s", tool="t", eclipse_tool="mcp__s__t", effect="write",
             args={"x": 1}, ttl_seconds=30,
         )
         approvals.decide(rec["id"], approve=True)
@@ -1136,12 +1136,12 @@ async def test_effectful_tool_denied_without_approval(tmp_path):
         mgr = MCPManager([cfg])
         await mgr.start()
         reg = ToolRegistry()
-        assert mgr.register_selected_tools(reg) == ["mcp_fx_write_thing"]
+        assert mgr.register_selected_tools(reg) == ["mcp__fx__write_thing"]
         c = ToolContext(run_id="r1", log=lambda *_: None)
         c.authorize_effect = __import__(
             "harness.mcp.approvals", fromlist=["make_effect_authorizer"]
         ).make_effect_authorizer(approvals, "r1")
-        result = await reg.execute("mcp_fx_write_thing", "c1", {"text": "x"}, c, allowed={"mcp_fx_write_thing"})
+        result = await reg.execute("mcp__fx__write_thing", "c1", {"text": "x"}, c, allowed={"mcp__fx__write_thing"})
         assert not result.ok
         assert result.error.code == "TOOL_FORBIDDEN"
         # A pending request was created for the operator.
@@ -1167,7 +1167,7 @@ async def test_effectful_tool_runs_with_matching_approval(tmp_path):
         mgr.register_selected_tools(reg)
         # Pre-approve the exact call.
         approvals.request(
-            server_id="fx", tool="write_thing", eclipse_tool="mcp_fx_write_thing",
+            server_id="fx", tool="write_thing", eclipse_tool="mcp__fx__write_thing",
             effect="write", args={"text": "x"}, run_id="r1",
         )
         for pending in approvals.list("pending"):
@@ -1176,7 +1176,7 @@ async def test_effectful_tool_runs_with_matching_approval(tmp_path):
         c.authorize_effect = __import__(
             "harness.mcp.approvals", fromlist=["make_effect_authorizer"]
         ).make_effect_authorizer(approvals, "r1")
-        result = await reg.execute("mcp_fx_write_thing", "c1", {"text": "x"}, c, allowed={"mcp_fx_write_thing"})
+        result = await reg.execute("mcp__fx__write_thing", "c1", {"text": "x"}, c, allowed={"mcp__fx__write_thing"})
         assert result.ok, result.text
         await mgr.close()
     finally:

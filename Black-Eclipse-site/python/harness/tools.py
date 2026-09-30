@@ -109,6 +109,9 @@ class ToolContext:
     # approval bound to this exact server/tool/arguments (MCP Phase 5G). No
     # authorizer ⇒ every non-read tool is refused, exactly as before.
     authorize_effect: Any = None
+    # The process-wide MCP manager, so native retrieval can consider
+    # operator-declared MCP data sources (Milestone 6). None = no MCP sources.
+    mcp_manager: Any = None
 
 
 class DataBridge:

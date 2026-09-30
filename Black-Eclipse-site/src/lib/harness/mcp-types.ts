@@ -56,6 +56,8 @@ export interface MCPServerView {
   selectedTools: string[];
   toolEffects: Record<string, MCPEffect>;
   enabledEffects: MCPEffect[];
+  /** Declared MCP tools that act as native retrieval data sources (tool → dataType). */
+  dataSourceTools?: Record<string, string>;
   /** The catalog digest the operator last reviewed; activation requires a match. */
   confirmedCatalogDigest?: string | null;
   protocolVersion?: string | null;
@@ -102,6 +104,7 @@ export interface MCPServerInput {
   selectedTools: string[];
   toolEffects?: Record<string, MCPEffect>;
   enabledEffects?: MCPEffect[];
+  dataSourceTools?: Record<string, string>;
   startupTimeoutMs?: number;
   catalogTimeoutMs?: number;
   callTimeoutMs?: number;

@@ -1517,3 +1517,196 @@ numeric field only when it is unknown; an emptied field sends `null`, which
 `setLLMConfig` treats as an explicit clear. Both wire shapes are accepted, so
 existing TS callers and snake_case test constructors both work. `jdds.db`
 untouched.
+
+## ADR-H67 - MCP config is shareable, screened and trusted in tiers; tool names use a double-underscore boundary
+
+**Decision.** Phase 6 Milestone 1 hardens the MCP config contract:
+
+1. **Interpolation.** `${VAR}`/`${env:VAR}` and the built-ins `${workspaceFolder}`,
+   `${userHome}`, `${pathSeparator}` are resolved from the process environment at
+   load/spawn. One pure function (`mcp/interpolation.py`); remote `url`/`auth`
+   values **refuse the connect by name** on an unresolved reference; local stdio
+   `command`/`args`/`env` keep the literal placeholder when unset.
+2. **Filters.** `selected_tools` accepts the legacy exact list (unchanged) or
+   `{include, exclude}` with fnmatch globs; include wins over exclude; an empty
+   include selects nothing.
+3. **Screening.** A static screen (`mcp/screening.py`) refuses — never sanitizes —
+   a shell interpreter with an inline flag, shell control operators, a download/
+   execute or exfil shape, and a known-IOC package token; it runs at load, at
+   save, and at spawn so a hand-edited file cannot bypass it.
+4. **Trust tier.** `trust: "full" | "untrusted"`, fail-closed on an unrecognized
+   value. Untrusted requires a per-call approval for every non-read call
+   regardless of `enabled_effects`, and its annotations can never activate a
+   tool.
+5. **Naming.** Eclipse tool names are `mcp__<server>__<tool>` (double underscore),
+   disambiguating the server/tool boundary; the identity digest survives only as
+   a genuine-collision last resort.
+6. **Read routes.** The Python MCP read routes are operator-gated at the boundary.
+7. **`httpx2`** is pinned explicitly (it is a declared transitive dep of `mcp`).
+
+**Why.** A config a user cannot share, a filter that makes selection unusable, a
+hostile entry that executes, a secret in plaintext and an undocumented
+authorization story are exactly what users get wrong. Trust must be a declared
+tier, not inferred from a server's own metadata; a changed delimiter must be
+provably safe for saved configs (activation keys on original names).
+
+**Consequences.** Interpolation is applied in memory and never written back, so
+the file stays shareable. Screening is defense-in-depth on top of argv-only spawn
+with no shell. `selected_tools` remains compatible, and existing configs activate
+the same tools across the delimiter change (tests). The IOC list is a documented
+seed, not a completeness claim. `jdds.db` untouched.
+
+## ADR-H68 - MCP lifecycle is resilient: separate retry budgets, honest session-expiry, and platform-appropriate orphan reaping
+
+**Decision.** Phase 6 M2 makes the MCP layer survive transient failures:
+
+1. **Retry/reconnect budgets.** `mcp/lifecycle.py` `RetryBudget` keeps separate
+   initial-connect and reconnect-after-drop counters with full-jitter exponential
+   backoff and an explicit terminal state that is reported with the attempt count.
+   Startup never crashes the service; cancellation propagates.
+2. **Call-time reconnect seam.** A call at a `failed`/`closed`/`lazy` server
+   triggers ONE bounded reconnect under a per-server lock; after reconnecting the
+   live descriptor is re-fetched and selection/digest/effect are re-checked, and
+   only tools passing the same authority checks are re-registered.
+3. **Session-expiry policy.** A mid-call transport/session error is classified.
+   A **read** is reconnected and replayed exactly once; a **write/external_action**
+   is NEVER replayed and returns an explicit `outcomeUncertain` outcome.
+4. **Keepalive/recycle.** One manager lifecycle task (started/stopped with the
+   manager — not a daemon) pings a live session on `keepalive_interval` and
+   recycles a stdio child on `idle_timeout_seconds`/`max_lifetime_seconds` only
+   when no call is in flight.
+5. **Orphan reaping.** `mcp/orphan_supervisor.py` (stdlib-only) starts ONE
+   supervisor per process on POSIX; it detects parent death by pipe EOF and sweeps
+   registered process groups TERM?grace?KILL. Clean shutdown unregisters. On
+   Windows the MCP SDK spawns each child in a Job Object with
+   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, which already kills the tree when the
+   parent dies, so no supervisor is started.
+6. **Lazy startup.** `mcp/schema_cache.py` persists a per-server tool manifest
+   keyed by a fingerprint of the connection-defining config; a `lazy` server
+   registers from cache and spawns on first call. `lazy` defaults off.
+
+**Why.** One transient blip permanently disabled a server until a manual reload; a
+suspended HTTP session made the first call after a pause fail as a generic error;
+a crashed parent leaked `npx` children; and boot spawned everything eagerly. The
+honest session rule is a correctness requirement: a write that may have happened
+must say so, never silently replay or silently fail.
+
+**Consequences.** The orphan guarantee on Windows is the SDK's Job Object, not our
+code (verified by a real-kill test). POSIX reaping registers a child's process
+group by polling `ps` briefly after spawn; where that is unavailable it is a
+no-op and the SDK's own teardown remains the only guarantee. The lifecycle task is
+one per manager, so nothing outlives the runtime. `jdds.db` untouched.
+
+## ADR-H69 - Remote MCP uses the SDK OAuth client; its tokens live encrypted in the vault, keyed by server id
+
+**Decision.** Phase 6 M3 adds OAuth 2.1 to remote MCP servers. The
+authorization-code + PKCE path reuses the MCP SDK's own `OAuthClientProvider`
+(no new dependency); a device-code (RFC 8628) flow the SDK lacks is implemented
+in `mcp/oauth.py`. Tokens, client registration and issuer metadata are stored
+ENCRYPTED at rest in JDDS (`SystemConfig.key = 'mcp_oauth_tokens_v1'`,
+AES-256-GCM), referenced by server id, never in `mcp-servers.json`, an event, a
+log, or a response. If the vault cannot encrypt, saving throws — no plaintext
+fallback. Clear-credentials stays configured-but-disconnected. `ssl_verify`
+(true|false|CA path), mTLS (`client_cert`/`client_key`), SSE transport and a
+redirect/origin re-validation hook are added on the same lifecycle.
+
+**Why.** Every hosted finance server an investor would connect uses OAuth; without
+it they are unreachable. A token is a credential: it must be encrypted, never
+serialized, and never persisted in the gitignored plaintext config.
+
+**Consequences.** The interactive authorization-code path is wired but not
+exercised end-to-end in the offline suite (device flow is). `jdds.db` untouched.
+
+## ADR-H70 - MCP resources and prompts are capability-aware utility tools; subscriptions are a non-goal
+
+**Decision.** Resources/prompts utility tools register only when the live session
+advertises the capability AND the operator toggles `tools.resources`/`tools.prompts`
+(default off). A resource read is bounded, labelled and scheme-authorized;
+prompt text is returned as INERT data. **Subscriptions are not implemented.**
+Shipping them well needs ownership, rate limiting, a bounded queue, a drop-oldest
+policy with an honest drop count, and a decision that a notification triggers
+nothing — none of which exist, and inventing a second event bus is forbidden, so
+the honest choice is a documented non-goal. A notification can never trigger a run
+or a write.
+
+**Why.** An MCP server that is primarily a document source looked empty without
+resources/prompts; but a notification channel is a real new authority surface and
+must not be improvised.
+
+## ADR-H71 - Sampling is off by default and capped; elicitation routes through the existing approval surface
+
+**Decision.** `sampling/createMessage` is off per server; when enabled it has a
+hard max-tokens cap, an RPM cap, a max tool-round count (0 = no tool use), a
+timeout, audit counters, and a harness event. It can never trigger an effectful
+tool without that tool's normal approval and never widens the agent allowlist.
+`elicitation/create` form requests route through the SAME approval authorizer (no
+parallel prompt path); URL-mode requests are declined; consent is per-call, never
+remembered. Sampling/elicitation content is untrusted data.
+
+**Why.** These are the two directions where a server asks Eclipse for something —
+genuinely useful and genuinely new authority. They ship last, off by default, and
+audited.
+
+**Consequences.** The sampling `run_model` seam is not yet bound to the chat
+model, so a live sampling request is refused honestly (`mcp_sampling_unavailable`)
+rather than served by a second adapter.
+
+## ADR-H72 - MCP is a first-class retrieval candidate; conflicts are preserved; Eclipse-as-server stays narrow
+
+**Decision.** Phase 6 adds `mcp/mcp_retrieval.py`: a `SourceCandidate` with
+provider-independent provenance, three distinct freshness states
+(`fresh`/`stale`/`missing`) plus `failed`, a `plan_candidates` that prefers the
+fresher eligible source and **preserves conflicts** rather than silently choosing,
+and a `RetrievalSource` adapter for a declared MCP tool. A generic MCP tool stays
+directly callable and is never withheld for not implementing the contract. Presets
+point at real endpoints with `verified_at`/`verified_against` and a one-click
+install that writes a DISABLED, nothing-selected entry; a read-only offline
+supply-chain audit reports pinned/unpinned packages. Separately, Eclipse exposes a
+narrow READ-ONLY MCP server (`server_exposure.py`) with its own bearer auth
+(distinct from the operator secret), no write capability, bounded pagination and
+schema hygiene.
+
+**Why.** MCP stops being a bolt-on when native planning can consider and explain an
+MCP source; and an investor's other agents querying Eclipse's receipts is a moat
+if — and only if — it cannot leak a credential.
+
+**Consequences.** The new conflict/freshness planner is self-contained and tested
+directly but is **not yet invoked by `retrieval/planner.py`** — the documented
+seam gap. `jdds.db` untouched.
+
+## ADR-H73 - MCP data sources flow into the native planner; sampling runs on the run model; the AC OAuth leg is a manual https step
+
+**Decision.** The three Phase-6 seams left open at first close-out are closed:
+
+1. **MCP ? native planning.** An operator-declared MCP data tool (a server's
+   `data_source_tools: {tool: dataType}`) becomes a `RetrievalSource` via
+   `manager.mcp_sources()`, is threaded through `ToolContext.mcp_manager` into
+   `FinancialRetrievalLayer(mcp_sources=...)`, and is considered by
+   `plan_retrieval(..., additional_sources=...)` AFTER native structured sources
+   but BEFORE generic web. Provenance stays `secondary` / `eclipseVerified=false`;
+   JDdS is never silently upgraded. An undeclared MCP tool stays directly callable
+   and is never forced through the contract.
+2. **Sampling on the run model.** `AgenticService._sampling_model_factory` binds
+   server `sampling/createMessage` to the runtime's OWN `models.build_chat_model`
+   with the run's credentials and the policy's token cap — never a second model
+   adapter. Sampling is still off by default per server; with no run model bound a
+   request is refused with `mcp_sampling_unavailable` (honest, never a fake model).
+3. **Eclipse-as-server second client.** The offline suite now drives the exposure
+   surface with TWO MCP clients: Streamable HTTP and SSE. The real Hermes interop
+   remains the documented manual step.
+4. **OAuth authorization code.** The SDK's `OAuthClientProvider` refuses to build
+   its OAuth URLs over plain http (RFC 8252 https requirement), so the interactive
+   browser leg is a documented manual https step; the construction seam
+   (bridge-backed `TokenStorage` + caller redirect/callback handlers + the
+   discovery/registration/token endpoints the SDK consumes) is tested. Device code
+   is covered end-to-end offline.
+
+**Why.** The remaining limitations were real seams, not cosmetic: without (1) an
+MCP source could never be selected or compared by native planning; without (2) a
+server's sampling request could never be served; without (3) "two clients"
+interoperability was asserted from one.
+
+**Consequences.** `plan_retrieval`'s new `additional_sources` argument is additive
+and defaults empty, so existing callers/tests are unaffected. A declared MCP
+source cannot displace a strong native structured provider (it is inserted only
+before web). `jdds.db` untouched.

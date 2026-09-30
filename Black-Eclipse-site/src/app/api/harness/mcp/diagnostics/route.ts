@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { getMCPDiagnostics } from "@/lib/harness/mcp-client";
 import { listMcpSecretStatus } from "@/lib/harness/mcp-secrets";
+import { listOauthTokenStatus } from "@/lib/harness/mcp-oauth-store";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/harness/mcp/diagnostics — setup diagnostics for every server + the
 // environment, with actionable recovery steps. The vault lives in TS and the
-// runtime cannot see it, so the set of known secret NAMES is passed to the
-// runtime, which then reports missing references honestly (names only, never
-// values).
+// runtime cannot see it, so the set of known secret NAMES and the OAuth token
+// status (by server id, no values) are passed to the runtime, which then reports
+// missing/expired references honestly.
 export async function GET() {
   let knownSecrets: string[] = [];
   try {
@@ -17,8 +18,24 @@ export async function GET() {
   } catch {
     /* vault unavailable — the runtime reports references as unverified */
   }
+  let oauthTokens: Array<{ serverId: string; expiresAt?: number; hasRefresh: boolean }> = [];
   try {
-    const diagnostics = await getMCPDiagnostics(knownSecrets);
+    oauthTokens = await listOauthTokenStatus();
+  } catch {
+    /* vault unavailable — the runtime reports OAuth as unverified */
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const tokenStatus: Record<string, { configured: boolean; expired: boolean; refreshFailed: boolean; rejected: boolean }> = {};
+  for (const t of oauthTokens) {
+    tokenStatus[t.serverId] = {
+      configured: true,
+      expired: typeof t.expiresAt === "number" && t.expiresAt > 0 && t.expiresAt < nowSec,
+      refreshFailed: false,
+      rejected: false,
+    };
+  }
+  try {
+    const diagnostics = await getMCPDiagnostics(knownSecrets, tokenStatus);
     return NextResponse.json({ ...diagnostics, success: true });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

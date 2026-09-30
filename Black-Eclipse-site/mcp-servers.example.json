@@ -2,15 +2,22 @@
   "_comment": [
     "Example MCP server configuration for BlackEclipse. Copy to `mcp-servers.json`",
     "(same folder) — that file is gitignored because it may hold scoped env values.",
-    "Two transports are supported: `stdio` (a local subprocess via npx/python) and",
-    "`http` (a remote Streamable-HTTP endpoint). `secret_refs` maps an env var the",
+    "Transports: `stdio` (a local subprocess via npx/python), `http` (remote",
+    "Streamable-HTTP) and `sse` (remote SSE). `secret_refs` maps an env var the",
     "server reads to a NAMED secret stored encrypted in the vault (Settings > MCP",
-    "Servers > Secret vault); an http server uses `auth` (kind/name/prefix/secretRef)",
+    "Servers > Secret vault); a remote server uses `auth` (kind/name/prefix/secretRef)",
     "instead. Never put a raw API key in this file. `enabled` defaults to false and",
-    "`selected_tools` to empty: nothing activates until you choose it. `tool_effects`",
-    "declares a tool's real effect (read is the only one that needs no per-call",
-    "approval). Remote endpoints must be https and are refused if they resolve to a",
-    "private address (loopback http is allowed for local testing)."
+    "`selected_tools` to empty: nothing activates until you choose it. `selected_tools`",
+    "may be an exact list OR `{include, exclude}` with globs. `tool_effects` declares a",
+    "tool's real effect (read is the only one that needs no per-call approval);",
+    "`trust: \"untrusted\"` requires approval for every non-read call. `data_source_tools`",
+    "declares a selected tool as a NATIVE retrieval data source (tool -> dataType) so",
+    "native source planning can consider it; an undeclared tool stays directly callable.",
+    "Values support",
+    "`${VAR}`/`${env:VAR}` and `${workspaceFolder}`/`${userHome}`/`${pathSeparator}`",
+    "(a remote url/auth with an unresolved variable is refused, never sent literally).",
+    "Remote endpoints must be https and are refused if they resolve to a private",
+    "address (loopback http is allowed for local testing)."
   ],
   "servers": [
     {

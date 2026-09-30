@@ -26,6 +26,14 @@ langgraph>=1.0
 # pinned <3 so a future v3 does not change the transport/lifecycle under us.
 mcp>=2,<3
 
+# The MCP SDK's HTTP transport imports `httpx2` directly (it is re-exported by
+# mcp.client.streamable_http / mcp.client.sse). It is a declared transitive
+# dependency of `mcp` (`httpx2>=2.5.0`), pinned here explicitly with an upper
+# bound so an unrelated upgrade cannot change the transport under us. We do not
+# depend on it anywhere except through the MCP SDK; the lighter alternative
+# (the SDK's own client, which it builds on httpx2) is what we use.
+httpx2>=2.5,<3
+
 # Model providers (universal coverage).
 # langchain-openai also powers EVERY OpenAI-compatible endpoint (Ollama, LM
 # Studio, OpenRouter, DeepSeek, xAI, Perplexity, Together, Fireworks, custom).

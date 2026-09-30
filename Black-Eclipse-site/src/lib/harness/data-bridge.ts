@@ -401,6 +401,9 @@ const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
   "capability_matrix",
   "macro_resolve",
   "mcp_secret_resolve",
+  "mcp_oauth_token_get",
+  "mcp_oauth_token_set",
+  "mcp_oauth_token_clear",
 ]);
 
 // Bridge capability → the health capability name the registry declares. Mostly
@@ -485,6 +488,12 @@ async function dispatchCapability(
       return webFetchCapability(params);
     case "mcp_secret_resolve":
       return mcpSecretResolve(params);
+    case "mcp_oauth_token_get":
+      return mcpOauthTokenGet(params);
+    case "mcp_oauth_token_set":
+      return mcpOauthTokenSet(params);
+    case "mcp_oauth_token_clear":
+      return mcpOauthTokenClear(params);
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
@@ -548,6 +557,35 @@ async function mcpSecretResolve(params: Record<string, unknown>): Promise<DataBr
   const value = await resolveMcpSecret(name);
   if (value === null) return unavailable(`unknown or unreadable MCP secret ${name}`);
   return { status: "OK", value };
+}
+
+// MCP OAuth tokens live in the SAME encrypted vault tier as secrets, under a
+// separate key, referenced by server id. Values never cross to a browser; the
+// Python runtime reads/writes them over this authenticated bridge.
+async function mcpOauthTokenGet(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const { getOauthToken } = await import("./mcp-oauth-store");
+  const token = await getOauthToken(String(params.serverId ?? ""));
+  return { status: "OK", token: token ?? null };
+}
+
+async function mcpOauthTokenSet(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const { saveOauthToken } = await import("./mcp-oauth-store");
+  await saveOauthToken(String(params.serverId ?? ""), {
+    accessToken: String(params.accessToken ?? ""),
+    tokenType: params.tokenType ? String(params.tokenType) : undefined,
+    refreshToken: params.refreshToken ? String(params.refreshToken) : undefined,
+    expiresAt: typeof params.expiresAt === "number" ? params.expiresAt : undefined,
+    scope: params.scope ? String(params.scope) : undefined,
+    clientId: params.clientId ? String(params.clientId) : undefined,
+    issuer: params.issuer ? String(params.issuer) : undefined,
+  });
+  return { status: "OK" };
+}
+
+async function mcpOauthTokenClear(params: Record<string, unknown>): Promise<DataBridgeResult> {
+  const { clearOauthToken } = await import("./mcp-oauth-store");
+  const removed = await clearOauthToken(String(params.serverId ?? ""));
+  return { status: "OK", removed };
 }
 
 async function marketSnapshot(params: Record<string, unknown>): Promise<DataBridgeResult> {

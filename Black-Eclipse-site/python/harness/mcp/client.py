@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -64,6 +65,12 @@ class MCPClosedError(MCPError):
     code = "mcp_closed"
 
 
+class MCPSessionError(MCPError):
+    """A mid-call session/transport expiry (safe to replay a READ once)."""
+
+    code = "mcp_session_expired"
+
+
 @dataclass
 class MCPDiscoveredTool:
     """A tool as advertised by a server — UNTRUSTED and not yet activatable."""
@@ -83,6 +90,9 @@ class MCPCallOutcome:
     text: str
     data: Optional[dict[str, Any]] = None
     is_error: bool = False
+    # True when a non-read call hit a session expiry and was NOT replayed, so the
+    # effect may or may not have happened; the caller must verify.
+    outcome_uncertain: bool = False
 
 
 @dataclass
@@ -90,18 +100,31 @@ class _Request:
     name: str
     arguments: dict[str, Any]
     timeout_s: float
+    kind: str = "call"  # "call" | "ping"
     future: "asyncio.Future[MCPCallOutcome]" = field(default_factory=asyncio.Future)
 
 
 class MCPConnection:
-    """A single stdio server connection with bounded, serialized operations."""
+    """A single stdio/http/sse server connection with bounded, serialized operations."""
 
-    def __init__(self, config: MCPServerConfig, secret_resolver: Any = None) -> None:
+    def __init__(
+        self,
+        config: MCPServerConfig,
+        secret_resolver: Any = None,
+        resolved: Any = None,
+        bridge_fetch: Any = None,
+    ) -> None:
         self.config = config
         # An optional async `(name) -> value | None` resolver for vault secret
         # references. The value is used ONLY to populate the child environment at
         # spawn and is never stored on the connection, logged, or emitted.
         self._secret_resolver = secret_resolver
+        # An optional async `(capability, params) -> dict` bridge for OAuth token
+        # storage. Used only for remote `auth.kind == "oauth"` servers.
+        self._bridge_fetch = bridge_fetch
+        # Connection-defining fields after `${VAR}` interpolation (or None, in
+        # which case they are resolved here). Kept in memory only.
+        self._resolved = resolved
         self.limits = config.limits()
         self._secrets = config.secret_values()
         self._runner: Optional[asyncio.Task[None]] = None
@@ -114,7 +137,16 @@ class MCPConnection:
         self._tools: list[MCPDiscoveredTool] = []
         self._protocol_version: Optional[str] = None
         self._server_info: Optional[dict[str, Any]] = None
+        self._capabilities: dict[str, bool] = {}
+        self._resources: list[dict[str, Any]] = []
+        self._prompts: list[dict[str, Any]] = []
+        # Optional server-initiated interaction callbacks (Milestone 5), injected
+        # by the manager. None means the server gets nothing.
+        self._sampling_callback: Any = None
+        self._elicitation_callback: Any = None
         self._call_count = 0
+        self._connected_at: Optional[float] = None
+        self._last_activity: Optional[float] = None
         # Auth secret resolved in memory for an http connection (never persisted).
         self._resolved_auth: dict[str, Any] = {}
 
@@ -166,8 +198,61 @@ class MCPConnection:
         return self._server_info
 
     @property
+    def capabilities(self) -> dict[str, bool]:
+        return dict(self._capabilities)
+
+    @property
+    def resources(self) -> list[dict[str, Any]]:
+        return list(self._resources)
+
+    @property
+    def prompts(self) -> list[dict[str, Any]]:
+        return list(self._prompts)
+
+    async def read_resource(self, uri: str, *, timeout_ms: Optional[int] = None) -> MCPCallOutcome:
+        """Read one resource, bounded; capability-aware (callers check first)."""
+        if self._state != "ready":
+            raise MCPClosedError(f"MCP server {self.config.id!r} is not connected (state={self._state!r})")
+        if not self._capabilities.get("resources"):
+            raise MCPCallError(
+                f"MCP server {self.config.id!r} does not advertise resources",
+                code="mcp_resource_unsupported",
+            )
+        effective = self.limits["callTimeoutMs"] if timeout_ms is None else max(1, min(int(timeout_ms), self.limits["callTimeoutMs"]))
+        request = _Request(name=uri, arguments={}, timeout_s=effective / 1000, kind="read_resource")
+        return await self._dispatch(request, effective)
+
+    async def get_prompt(self, name: str, arguments: dict[str, Any], *, timeout_ms: Optional[int] = None) -> MCPCallOutcome:
+        if self._state != "ready":
+            raise MCPClosedError(f"MCP server {self.config.id!r} is not connected (state={self._state!r})")
+        if not self._capabilities.get("prompts"):
+            raise MCPCallError(
+                f"MCP server {self.config.id!r} does not advertise prompts",
+                code="mcp_prompt_unsupported",
+            )
+        effective = self.limits["callTimeoutMs"] if timeout_ms is None else max(1, min(int(timeout_ms), self.limits["callTimeoutMs"]))
+        request = _Request(name=name, arguments=arguments or {}, timeout_s=effective / 1000, kind="get_prompt")
+        return await self._dispatch(request, effective)
+
+    @property
     def call_count(self) -> int:
         return self._call_count
+
+    @property
+    def connected_at(self):
+        return self._connected_at
+
+    @property
+    def last_activity(self):
+        return self._last_activity
+
+    @property
+    def error_code(self):
+        return self._error_code
+
+    @property
+    def error_message(self):
+        return self._error
 
     @property
     def redaction_values(self) -> list[str]:
@@ -213,8 +298,29 @@ class MCPConnection:
         ceiling = self.limits["callTimeoutMs"]
         effective = ceiling if timeout_ms is None else max(1, min(int(timeout_ms), ceiling))
         request = _Request(name=name, arguments=arguments or {}, timeout_s=effective / 1000)
-        self._requests.put_nowait(request)
+        return await self._dispatch(request, effective)
+
+    async def ping(self, *, timeout_ms: Optional[int] = None) -> bool:
+        """Send an MCP ping on the live session; True when it answers.
+
+        Used by keepalive: a failure is the signal to route into reconnect.
+        """
+        if self._state != "ready":
+            raise MCPClosedError(f"MCP server {self.config.id!r} is not connected (state={self._state!r})")
+        ceiling = self.limits["callTimeoutMs"]
+        effective = ceiling if timeout_ms is None else max(1, min(int(timeout_ms), ceiling))
+        request = _Request(name="", arguments={}, timeout_s=effective / 1000, kind="ping")
+        self._touch()
+        outcome = await self._dispatch(request, effective)
+        return outcome.ok
+
+    def _dispatch(self, request: _Request, effective: int) -> Any:
         self._call_count += 1
+        self._touch()
+        self._requests.put_nowait(request)
+        return self._await_request(request, effective)
+
+    async def _await_request(self, request: _Request, effective: int) -> MCPCallOutcome:
         try:
             return await asyncio.wait_for(
                 asyncio.shield(request.future), timeout=(effective / 1000) + 1.0
@@ -222,13 +328,19 @@ class MCPConnection:
         except asyncio.TimeoutError as exc:
             request.future.cancel()
             raise MCPTimeoutError(
-                f"MCP tool {name!r} on {self.config.id!r} timed out after {effective}ms"
+                f"MCP tool {request.name!r} on {self.config.id!r} timed out after {effective}ms"
             ) from exc
         except asyncio.CancelledError:
             # Propagate cancellation to the in-flight request, then re-raise so
             # the caller's run is cancelled (never retried).
             request.future.cancel()
             raise
+
+    def _touch(self) -> None:
+        """Record activity for keepalive/idle decisions."""
+        import time as _time
+
+        self._last_activity = _time.monotonic()
 
     # -- runner --------------------------------------------------------------
 
@@ -240,7 +352,12 @@ class MCPConnection:
             transport_cm = self._transport(resolved_secrets)
             async with transport_cm as streams:
                 read_stream, write_stream = streams[0], streams[1]
-                async with ClientSession(read_stream, write_stream) as session:
+                async with ClientSession(
+                    read_stream,
+                    write_stream,
+                    sampling_callback=self._sampling_callback,
+                    elicitation_callback=self._elicitation_callback,
+                ) as session:
                     init = await asyncio.wait_for(
                         session.initialize(),
                         timeout=self.limits["startupTimeoutMs"] / 1000,
@@ -251,8 +368,14 @@ class MCPConnection:
                         "name": getattr(info, "name", None),
                         "version": getattr(info, "version", None),
                     }
+                    self._capabilities = _read_capabilities(init)
                     await self._discover(session)
+                    await self._discover_capabilities(session)
                     self._state = "ready"
+                    import time as _time
+
+                    self._connected_at = _time.monotonic()
+                    self._last_activity = self._connected_at
                     self._ready.set()
                     await self._serve(session)
         except asyncio.CancelledError:
@@ -310,51 +433,173 @@ class MCPConnection:
         """Return the async context manager yielding `(read, write)` streams.
 
         stdio launches a local subprocess; http connects to a remote
-        Streamable-HTTP endpoint. Both yield the same stream pair, so the session
-        lifecycle, discovery, serving, and error handling above are shared.
+        Streamable-HTTP endpoint; sse connects to a remote SSE endpoint. All
+        yield the same stream pair, so the session lifecycle, discovery, serving,
+        and error handling above are shared.
         """
         if self.config.transport == "http":
             return self._http_transport()
+        if self.config.transport == "sse":
+            return self._sse_transport()
+        resolved = self._resolved or self.config.resolved_connection()
         params = StdioServerParameters(
-            command=self.config.command,
-            args=list(self.config.args),
+            command=resolved.command,
+            args=list(resolved.args),
             env=self.config.resolve_environment(resolved_secrets),
             cwd=self.config.resolve_cwd(),
         )
         return stdio_client(params)
 
-    def _http_transport(self):
-        """A Streamable-HTTP transport with vault-backed header/query auth."""
-        import httpx2
-        from mcp.client.streamable_http import streamable_http_client, create_mcp_http_client
+    def _http_client(self, headers: dict[str, str]):
+        """Build an httpx2 client honoring the TLS controls (verify/CA/mTLS)."""
+        from mcp.client.streamable_http import create_mcp_http_client
 
-        url = self.config.url or ""
-        auth = self.config.auth if isinstance(self.config.auth, dict) else None
+        resolved = self._resolved or self.config.resolved_connection()
+        kwargs: dict[str, Any] = {}
+        verify = resolved.ssl_verify
+        if verify is False:
+            kwargs["verify"] = False
+        elif isinstance(verify, str) and verify:
+            if not os.path.isfile(verify):
+                raise MCPStartupError(f"CA bundle not found: {verify}", code="mcp_tls_error")
+            kwargs["verify"] = verify
+        cert = self._client_cert_args()
+        if cert is not None:
+            kwargs["cert"] = cert
+        # OAuth: the SDK's provider is an httpx2 auth flow. Only when this server
+        # is configured for oauth AND a bridge is available.
+        auth = self._oauth_provider()
+        if auth is not None:
+            kwargs["auth"] = auth
+        # Always build the client for a remote transport so the redirect guard is
+        # installed on every hop (a bare client would follow redirects unchecked).
+        client = create_mcp_http_client(headers=headers or None, **kwargs)
+        from .redirect_guard import make_redirect_hook
+
+        client.event_hooks["response"].append(make_redirect_hook(self.config.url or ""))
+        return client
+
+    def _oauth_provider(self):
+        """Build the SDK OAuth provider for an `oauth`-auth remote server."""
+        auth = self._resolved.auth if self._resolved is not None else (
+            self.config.auth if isinstance(self.config.auth, dict) else None
+        )
+        if not auth or auth.get("kind") != "oauth" or self._bridge_fetch is None:
+            return None
+        from .oauth import build_oauth_provider
+
+        redirect = str(auth.get("redirectUri") or "http://127.0.0.1:8765/callback")
+        return build_oauth_provider(self.config.id, self.config.url or "", self._bridge_fetch, redirect)
+
+    def _client_cert_args(self):
+        """mTLS `cert` argument: combined PEM, `[cert, key]`, or `[cert, key, pass]`."""
+        cert = self.config.client_cert
+        key = self.config.client_key
+        if not cert:
+            return None
+        cert = os.path.expanduser(cert)
+        if not os.path.isfile(cert):
+            raise MCPStartupError(f"client certificate not found: {cert}", code="mcp_tls_error")
+        if isinstance(key, list):
+            parts = [str(p) for p in key]
+            if parts and not os.path.isfile(parts[0]):
+                raise MCPStartupError(f"client certificate not found: {parts[0]}", code="mcp_tls_error")
+            return tuple(parts) if len(parts) > 1 else parts[0]
+        key_path = os.path.expanduser(key) if isinstance(key, str) and key else None
+        if key_path and not os.path.isfile(key_path):
+            raise MCPStartupError(f"client key not found: {key_path}", code="mcp_tls_error")
+        return (cert, key_path) if key_path else cert
+
+    def _auth_headers_and_query(self) -> tuple[dict[str, str], dict[str, str]]:
+        auth = self._resolved.auth if self._resolved is not None else (
+            self.config.auth if isinstance(self.config.auth, dict) else None
+        )
         headers: dict[str, str] = {}
         query: dict[str, str] = {}
         if auth:
-            token = None
-            # `_auth_secret` is resolved synchronously via the injected resolver
-            # only in an async context; here we accept a pre-resolved value cached
-            # on the connection by `_run`. See `_resolved_auth`.
             token = self._resolved_auth.get("value")
             if token:
-                if auth.get("kind") == "query":
+                kind = auth.get("kind")
+                if kind == "query":
                     query[str(auth.get("name"))] = token
+                elif kind == "oauth":
+                    # A pre-obtained OAuth access token (vault) is sent as a
+                    # bearer; Milestone 3 wires the full OAuth flow.
+                    headers["Authorization"] = f"Bearer {token}"
                 else:
                     headers[str(auth.get("name"))] = f"{auth.get('prefix') or ''}{token}"
                 if token not in self._secrets:
                     self._secrets = [*self._secrets, token]
+        return headers, query
+
+    def _http_transport(self):
+        """A Streamable-HTTP transport with vault-backed header/query auth."""
+        from mcp.client.streamable_http import streamable_http_client
+
+        resolved = self._resolved or self.config.resolved_connection()
+        url = resolved.url or ""
+        headers, query = self._auth_headers_and_query()
         if query:
             url = f"{url}{'&' if '?' in url else '?'}" + "&".join(f"{k}={v}" for k, v in query.items())
-        http_client = (
-            create_mcp_http_client(headers=headers)
-            if headers
-            else None
-        )
+        http_client = self._http_client(headers)
         # https-only / private-host refusal is enforced before this call (manager).
         return streamable_http_client(url, http_client=http_client)
 
+    def _sse_transport(self):
+        """An SSE transport sharing the same SSRF pre-check and lifecycle."""
+        from mcp.client.sse import sse_client
+
+        resolved = self._resolved or self.config.resolved_connection()
+        url = resolved.url or ""
+        headers, query = self._auth_headers_and_query()
+        if query:
+            url = f"{url}{'&' if '?' in url else '?'}" + "&".join(f"{k}={v}" for k, v in query.items())
+        http_client = self._http_client(headers)
+        if http_client is not None:
+            return sse_client(url, httpx_client_factory=lambda **_: http_client)
+        return sse_client(url)
+
+
+    async def _discover_capabilities(self, session: ClientSession) -> None:
+        """List resources/prompts only when the server advertises the capability."""
+        if self._capabilities.get("resources"):
+            try:
+                result = await asyncio.wait_for(
+                    session.list_resources(), timeout=self.limits["catalogTimeoutMs"] / 1000
+                )
+                rows = []
+                for res in getattr(result, "resources", []) or []:
+                    rows.append({
+                        "uri": str(getattr(res, "uri", "")),
+                        "name": str(getattr(res, "name", "") or ""),
+                        "mimeType": getattr(res, "mime_type", None),
+                        "description": str(getattr(res, "description", "") or ""),
+                    })
+                self._resources = rows
+            except Exception:  # noqa: BLE001 - a resource list failure is not fatal
+                self._resources = []
+        if self._capabilities.get("prompts"):
+            try:
+                result = await asyncio.wait_for(
+                    session.list_prompts(), timeout=self.limits["catalogTimeoutMs"] / 1000
+                )
+                rows = []
+                for prompt in getattr(result, "prompts", []) or []:
+                    rows.append({
+                        "name": str(getattr(prompt, "name", "") or ""),
+                        "description": str(getattr(prompt, "description", "") or ""),
+                        "arguments": [
+                            {
+                                "name": str(getattr(a, "name", "") or ""),
+                                "required": bool(getattr(a, "required", False)),
+                                "description": str(getattr(a, "description", "") or ""),
+                            }
+                            for a in (getattr(prompt, "arguments", None) or [])
+                        ],
+                    })
+                self._prompts = rows
+            except Exception:  # noqa: BLE001
+                self._prompts = []
 
     async def _discover(self, session: ClientSession) -> None:
         try:
@@ -405,7 +650,7 @@ class MCPConnection:
                     outcome = await self._invoke(session, request)
                 except asyncio.CancelledError:
                     raise
-                except (MCPTimeoutError, MCPProtocolError) as exc:
+                except (MCPTimeoutError, MCPProtocolError, MCPSessionError) as exc:
                     if not request.future.done():
                         request.future.set_exception(exc)
                     continue
@@ -421,6 +666,20 @@ class MCPConnection:
             stop_wait.cancel()
 
     async def _invoke(self, session: ClientSession, request: _Request) -> MCPCallOutcome:
+        if request.kind == "ping":
+            try:
+                await asyncio.wait_for(session.send_ping(), timeout=request.timeout_s)
+            except asyncio.TimeoutError as exc:
+                raise MCPTimeoutError(
+                    f"MCP ping on {self.config.id!r} timed out after {int(request.timeout_s * 1000)}ms"
+                ) from exc
+            except Exception as exc:  # noqa: BLE001 - a ping failure is a session signal
+                raise MCPSessionError(redact_secrets(str(exc), self._secrets)) from exc
+            return MCPCallOutcome(ok=True, text="")
+        if request.kind == "read_resource":
+            return await self._invoke_resource(session, request)
+        if request.kind == "get_prompt":
+            return await self._invoke_prompt(session, request)
         try:
             result = await asyncio.wait_for(
                 session.call_tool(request.name, request.arguments),
@@ -431,9 +690,50 @@ class MCPConnection:
                 f"MCP tool {request.name!r} on {self.config.id!r} timed out after "
                 f"{int(request.timeout_s * 1000)}ms"
             ) from exc
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            raise MCPCallError(redact_secrets(str(exc), self._secrets)) from exc
+            message = redact_secrets(str(exc), self._secrets)
+            from .lifecycle import is_session_error
+
+            if is_session_error(message) or _looks_like_session_exception(exc):
+                raise MCPSessionError(message) from exc
+            raise MCPCallError(message) from exc
         return _normalize_result(result, self.config.id, request.name)
+
+    async def _invoke_resource(self, session: ClientSession, request: _Request) -> MCPCallOutcome:
+        try:
+            result = await asyncio.wait_for(session.read_resource(request.name), timeout=request.timeout_s)
+        except asyncio.TimeoutError as exc:
+            raise MCPTimeoutError(f"MCP resource {request.name!r} on {self.config.id!r} timed out") from exc
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            message = redact_secrets(str(exc), self._secrets)
+            from .lifecycle import is_session_error
+
+            if is_session_error(message) or _looks_like_session_exception(exc):
+                raise MCPSessionError(message) from exc
+            raise MCPCallError(message) from exc
+        return _normalize_resource(result, self.config.id, request.name)
+
+    async def _invoke_prompt(self, session: ClientSession, request: _Request) -> MCPCallOutcome:
+        try:
+            result = await asyncio.wait_for(
+                session.get_prompt(request.name, request.arguments), timeout=request.timeout_s
+            )
+        except asyncio.TimeoutError as exc:
+            raise MCPTimeoutError(f"MCP prompt {request.name!r} on {self.config.id!r} timed out") from exc
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            message = redact_secrets(str(exc), self._secrets)
+            from .lifecycle import is_session_error
+
+            if is_session_error(message) or _looks_like_session_exception(exc):
+                raise MCPSessionError(message) from exc
+            raise MCPCallError(message) from exc
+        return _normalize_prompt(result, self.config.id, request.name)
 
     def _fail(self, message: str, code: str) -> None:
         self._error = redact_secrets(message, self._secrets)
@@ -453,6 +753,23 @@ class MCPConnection:
                 break
             if request is not None and not request.future.done():
                 request.future.set_exception(error)
+
+
+def _read_capabilities(init: Any) -> dict[str, bool]:
+    """Read the advertised server capabilities from an initialize result."""
+    caps = getattr(init, "capabilities", None) or getattr(init, "server_capabilities", None)
+    return {
+        "tools": getattr(caps, "tools", None) is not None,
+        "resources": getattr(caps, "resources", None) is not None,
+        "prompts": getattr(caps, "prompts", None) is not None,
+        "notifications": getattr(caps, "resources", None) is not None,
+    }
+
+
+def _looks_like_session_exception(exc: BaseException) -> bool:
+    """Whether an SDK exception type names a session/transport problem."""
+    name = type(exc).__name__.lower()
+    return any(t in name for t in ("closed", "eof", "disconnect", "session", "transport", "broken"))
 
 
 def _first_mcp_error(exc: BaseException) -> Optional[MCPError]:
@@ -489,6 +806,51 @@ def _classify_exception(exc: BaseException) -> str:
     if "json" in name or "validation" in name or "decode" in name:
         return MCPProtocolError.code
     return MCPStartupError.code
+
+
+def _normalize_resource(result: Any, server_id: str, uri: str) -> MCPCallOutcome:
+    """Flatten a ReadResourceResult. Resource text is UNTRUSTED data."""
+    contents = getattr(result, "contents", None) or []
+    parts: list[str] = []
+    mime: Optional[str] = None
+    for item in contents:
+        text = getattr(item, "text", None)
+        mime = getattr(item, "mime_type", None) or mime
+        if text is not None:
+            parts.append(str(text))
+        else:
+            parts.append("[binary resource content omitted]")
+    text = "\n".join(p for p in parts if p)
+    data = {
+        "source": {"kind": "mcp", "serverId": server_id, "uri": uri},
+        "isError": False,
+        "contentKinds": ["resource"],
+        "mimeType": mime,
+    }
+    return MCPCallOutcome(ok=True, text=text, data=data, is_error=False)
+
+
+def _normalize_prompt(result: Any, server_id: str, name: str) -> MCPCallOutcome:
+    """Flatten a GetPromptResult. Prompt text is UNTRUSTED, never instructions."""
+    messages = getattr(result, "messages", None) or []
+    parts: list[str] = []
+    for message in messages:
+        content = getattr(message, "content", None)
+        if isinstance(content, list):
+            for block in content:
+                if getattr(block, "type", None) == "text":
+                    parts.append(str(getattr(block, "text", "")))
+        elif content is not None:
+            parts.append(str(getattr(content, "text", content)))
+    text = "\n".join(p for p in parts if p)
+    description = getattr(result, "description", None)
+    data = {
+        "source": {"kind": "mcp", "serverId": server_id, "prompt": name},
+        "isError": False,
+        "contentKinds": ["prompt"],
+        "description": description,
+    }
+    return MCPCallOutcome(ok=True, text=text, data=data, is_error=False)
 
 
 def _normalize_result(
@@ -546,4 +908,5 @@ __all__ = [
     "MCPCallError",
     "MCPProtocolError",
     "MCPClosedError",
+    "MCPSessionError",
 ]

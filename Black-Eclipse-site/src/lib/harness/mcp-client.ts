@@ -119,13 +119,31 @@ export async function listMCPWorkflows(): Promise<MCPWorkflowView[]> {
   return body.workflows ?? [];
 }
 
-export async function getMCPDiagnostics(knownSecrets: string[] = []): Promise<MCPDiagnosticsResponse> {
+export async function getMCPDiagnostics(
+  knownSecrets: string[] = [],
+  tokenStatus: Record<string, { configured: boolean; expired: boolean; refreshFailed: boolean; rejected: boolean }> = {}
+): Promise<MCPDiagnosticsResponse> {
   return request<MCPDiagnosticsResponse>("/mcp/diagnostics", {
     method: "POST",
     timeoutMs: 30_000,
-    // Secret NAMES only — never values. Lets the runtime check references.
-    body: JSON.stringify({ knownSecrets }),
+    // Secret NAMES and OAuth token STATUS only — never values. Lets the runtime
+    // check references and report auth state.
+    body: JSON.stringify({ knownSecrets, tokenStatus }),
   });
+}
+
+// ── OAuth lifecycle (Milestone 3) ───────────────────────────────────────────
+
+export async function mcpOauthLogin(serverId: string, scope = ""): Promise<{ success: boolean; verificationUri?: string; userCode?: string }> {
+  const body = await request<{ success: boolean; verificationUri?: string; userCode?: string }>(
+    `/mcp/servers/${encodeURIComponent(serverId)}/login`,
+    { method: "POST", body: JSON.stringify({ scope }) }
+  );
+  return body;
+}
+
+export async function mcpOauthLogout(serverId: string): Promise<{ success: boolean; removed: boolean }> {
+  return request(`/mcp/servers/${encodeURIComponent(serverId)}/logout`, { method: "POST" });
 }
 
 // ── Effectful-tool approvals (5G) ───────────────────────────────────────────

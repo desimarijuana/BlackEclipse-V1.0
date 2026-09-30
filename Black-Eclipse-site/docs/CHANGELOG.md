@@ -8,6 +8,20 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **MCP Phase 6 — close the deferred seams.** Declared MCP data tools now flow
+  into the REAL retrieval layer (`manager.mcp_sources()` →
+  `ToolContext.mcp_manager` → `FinancialRetrievalLayer(mcp_sources=...)` →
+  `plan_retrieval(additional_sources=...)`); server `sampling/createMessage` runs
+  on the run's own model adapter via `AgenticService._sampling_model_factory`;
+  a second offline MCP client (SSE) now exercises Eclipse-as-server alongside
+  Streamable HTTP. `data_source_tools` surfaced in `mcp-types.ts` and the example
+  config. The OAuth authorization-code interactive leg is documented as a manual
+  https step (the SDK refuses plain-http OAuth URLs); the device flow is covered
+  offline. `tsc` clean; vitest 1837 pass; Python 1566 pass (baseline 1446).
+  `jdds.db` untouched. docs updated: `docs/harness/mcp-phase-6-progress.md`,
+  `docs/harness/decisions.md` (ADR-H73), `docs/harness/architecture.md`,
+  `python/harness/mcp/__init__.py`.
+
 - **Focus mode for the ChatBot (Ctrl+Alt+X).** A presentation-only "zen" view:
   the shortcut hides the header (`TopBar`) and sidebar and centers the transcript
   and composer in a narrower (860px) column, with the composer kept pinned to the
@@ -29,6 +43,101 @@ last-verified: 2026-09-28
   tried and removed. `src/components/chat/research-evidence-panel.tsx`.
   `tsc` clean; vitest 1837 pass. no doc change — presentation only.
 
+- **MCP Phase 6 Milestones 3–8.** Remote auth (`oauth.py`; OAuth 2.1 via the MCP
+  SDK + RFC 8628 device flow; tokens encrypted in the vault via
+  `mcp-oauth-store.ts` and the `mcp_oauth_token_*` bridge capabilities; login/
+  logout routes), TLS/mTLS/SSE + redirect/origin guard (`redirect_guard.py`),
+  capability-aware resources/prompts and sampling/elicitation routed through the
+  approval surface (`interactions.py`; subscriptions a documented non-goal),
+  MCP-aware source planning (`mcp_retrieval.py`; conflict preservation; three
+  freshness states), real presets + one-click install + supply-chain audit
+  (`audit.py`), narrow read-only Eclipse-as-MCP-server (`server_exposure.py`;
+  verified against Hermes: 3 tools discovered), an adversarial suite,
+  context-growth numbers, graceful degradation when `mcp` is unimportable.
+  `tsc` clean; vitest 1837 pass; Python 1561 pass (baseline 1446). `jdds.db`
+  untouched. docs updated: `docs/harness/mcp-phase-6-progress.md`,
+  `docs/harness/decisions.md` (ADR-H69–H72), `docs/harness/architecture.md`,
+  `docs/NAVIGATION.md`, `python/harness/mcp/__init__.py`,
+  `Black-Eclipse-site/skills/ARCHITECT.md`.
+
+- **MCP Phase 6 Milestone 2 — lifecycle resilience.** Reconnect with jittered
+  exponential backoff (separate initial/reconnect budgets, reported terminal
+  state), a call-time reconnect seam that re-checks authority, session-expiry
+  policy (a read replays once; a write returns `outcomeUncertain` and is never
+  replayed), optional keepalive and stdio recycle, POSIX orphan reaping
+  (stdlib-only supervisor; Windows relies on the SDK Job Object), and lazy
+  startup with an on-disk schema cache keyed by connection fingerprint. New:
+  `python/harness/mcp/{lifecycle,schema_cache,orphan_supervisor}.py`; tests
+  `test_mcp_lifecycle.py`, `test_mcp_orphan_reaping.py`. `tsc` clean; vitest
+  1837 pass; Python 1494 pass. docs updated:
+  `docs/harness/mcp-phase-6-progress.md`, `docs/harness/decisions.md` (ADR-H68),
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `Black-Eclipse-site/skills/ARCHITECT.md`.
+- **MCP Phase 6 Milestone 1 — config contract, screening, honest surfaces.**
+  Added `${VAR}`/`${env:VAR}` interpolation (`interpolation.py`) with a
+  fail-closed remote rule (unresolved `url`/`auth` refuses by name; local stdio
+  keeps the literal), `selected_tools` include/exclude fnmatch filters, a static
+  server-entry screen (`screening.py`, refuse-not-sanitize, at load/save/spawn),
+  a fail-closed `trust` tier (`full`/`untrusted`; untrusted needs approval for
+  every non-read call and its annotations never activate a tool), the
+  `mcp__<server>__<tool>` double-underscore naming (boundary disambiguation;
+  digest only on a genuine collision), operator gating of the previously-open
+  Python MCP read routes, and an explicit `httpx2` pin. Tests:
+  `python/tests/test_mcp_config_hardening.py` + read-route gate cases in
+  `test_mcp_api.py`. `tsc` clean; vitest 1837 pass; Python 1479 pass.
+  docs updated: `docs/harness/mcp-phase-6-progress.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H67),
+  `docs/NAVIGATION.md`, `mcp-servers.example.json`, `Black-Eclipse-site/skills/ARCHITECT.md`.
+- **Investor Eye map: draw the Gaza Strip as Palestine.** Natural Earth's 110m
+  admin-0 layer omits Gaza entirely, so the strip rendered as unclaimed blank and
+  matched no country (Gaza city, Khan Yunis, Rafah fell outside every polygon).
+  Spliced Natural Earth's 10m `Gaza Strip` polygon into the `Palestine` (`PS`)
+  feature — now a `MultiPolygon` of West Bank + Gaza — and subtracted it from
+  Israel's coarse polygon (overlap was ~0.001 of Gaza's area). Only `IL` and `PS`
+  changed; verified by point-in-polygon (Gaza/Ramallah/Nablus → PS; Tel Aviv/
+  Beersheba → IL) with no unclosed rings. Extended the regeneration warning in
+  `scripts/fetch-world-geo.mjs` (a plain re-fetch reverts this, same as the
+  Kashmir POV). docs updated: `docs/investor-eye-architecture.md`,
+  `docs/CHANGELOG.md`
+- **Chat background anchored to the panel, not the viewport.** The eclipse
+  artwork was `fixed inset-0`, so it centered on the whole window and the opaque
+  sidebar (when open) covered its left half — the image appeared to disappear/
+  shift. It is now an `absolute inset-0` layer inside the chat content panel with
+  the shell kept `relative`, so it recenters with the panel as the sidebar
+  collapses/expands.
+  `src/components/screens/stock-chat.tsx`. `tsc` clean; vitest 1837 pass.
+  no doc change — visual only.
+- **Tighten the landing composer's bottom gap.** `pb-6 md:pb-10`→`pb-2` on the
+  empty-state wrapper. `src/components/chat/empty-state.tsx`. `tsc` clean;
+  vitest 1837 pass. no doc change — visual only.
+- **Slim down the chat composer.** The input bar read as oversized: textarea
+  `text-base sm:text-lg`→`text-sm`, padding `py-3`→`py-2`; all round buttons
+  `h-10/h-9`→`h-8`, icons 20/18→17/16; provider pill `h-8`→`h-7` and `text-sm`→
+  `text-xs`; container padding `py-1.5`→`py-1`, `px-2 sm:px-4`→`px-1.5 sm:px-3`;
+  `MAX_HEIGHT` 176→120 so the draft grows to ~4 lines before scrolling.
+  `src/components/chat/chat-input.tsx`. `tsc` clean; vitest 1837 pass.
+  no doc change — visual only.
+- **Chat background is landing-only; composer pinned to bottom.** The eclipse
+  artwork now paints the whole page (header + rail included) only while the chat
+  thread is empty, and the app shell drops its `glass-card` on the chat tab so the
+  transparent header shows it. As soon as a message exists the artwork unmounts and
+  the surface falls back to solid/glass so the transcript stays legible. The
+  landing composer is pinned to the bottom of the viewport. Background uses
+  `bg-cover bg-center bg-no-repeat` (removed `bg-fixed` so it centers on the
+  visible frame, not an oversized fixed canvas).
+  `src/components/screens/stock-chat.tsx`, `src/components/chat/empty-state.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only.
+- **Chat landing is composer-only, full width, on the eclipse background.**
+  Removed the empty-state hero (wand icon, heading, description), the four
+  suggestion tiles, and the "View Market Overview" button — the landing now shows
+  only `ChatInput`, widened to `max-w-[1400px]`. The running-conversation composer
+  uses the same width. The chat tab container paints
+  `/backgrounds/eclipse bg.svg` (cover, centered, fixed). Landing is the first
+  step of stripping the page's AI-generated look; transcript/history still render
+  once a conversation starts.
+  `src/components/chat/empty-state.tsx`, `src/components/screens/stock-chat.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — visual/layout only, no contract
+  or data-shape change.
 - **Message navigation rail now shows with one user turn and on phones.**
   The rail was gated on 2+ user turns and `hidden md:flex` (<768px), so a
   one-exchange chat or any narrow window showed nothing — it read as missing.
