@@ -1775,3 +1775,32 @@ working Python install plus a `jdds.db` story first). The CHANGELOG obligation i
 enforced by `.githooks/commit-msg` (non-doc change must stage the CHANGELOG; doc-only
 exempt; `SKIP_CHANGELOG_CHECK=1` bypass mirrors the identity guard). The smoke test
 remains operator-triggered and offline-excluded.
+
+## ADR-H76 - CI is restored at the repository root (amends ADR-H75)
+
+**Decision.** A workflow is restored at the TRUE root path,
+`.github/workflows/ci.yml` (GitHub Actions reads only `/.github/workflows` at the
+repository root, which is why the old `Black-Eclipse-site/.github/workflows/`
+never ran). It mirrors `Black-Eclipse-site/scripts/check-all.js` step-for-step:
+checkout → Node 20 + Python 3.12 with the same caching → `pip install -r
+python/requirements.txt` → `npm ci --ignore-scripts` → `npx prisma generate` →
+`npx tsc --noEmit` → `npx eslint .` → `npm test` → `npm run test:evals`, with
+`defaults.run.working-directory: Black-Eclipse-site`. The former `backup.yml` is
+**not** restored: `jdds.db` is untracked runtime state now, so a checkout has no
+such file and a daily `sqlite3 jdds.db` cron would always fail. A local DB backup
+belongs in `scripts/`, not CI.
+
+**Why this supersedes ADR-H75's choice (b).** ADR-H75 chose local-only because two
+blockers made a root workflow unverifiable/unsafe: (1) `jdds.db` was being
+untracked, so `backup.yml` would cron a missing file; and (2) there was no local
+gate to mirror, so CI and local would have diverged. **Both blockers are gone:**
+`jdds.db` is untracked and ignored (no CI job references it), and
+`scripts/check-all.js` is a real, green local gate the workflow mirrors exactly.
+The value of a running remote gate now outweighs keeping it local-only.
+
+**Consequences.** The workflow's steps were validated locally in the same order
+(all exit 0); a root-level workflow is **unverified against GitHub until it is
+pushed** — the user must observe the first run. `ADR-H75`'s local gate remains the
+source of truth and is unchanged; CI is its mirror. `test:smoke` stays
+operator-only (network) with a documented trigger in `CONTRIBUTING.md` (run before
+a release tag).

@@ -407,3 +407,10 @@ provisions `jdds.db`). No prompt-caching posture change.
 **`jdds.db`:** present on disk (156,966,912 bytes), untracked, ignored, never
 committed or deleted by this work. The four unrelated user files remained
 modified exactly as found.
+
+## Closeout pointer (2026-09-30)
+
+The five items left open here (history hygiene, line endings, CHANGELOG
+forensics, CI, closeout) are handled in **`docs/harness/closeout-progress.md`**.
+The two stale statements in this doc (the Phase 0 R8 line counts, and "four
+unrelated modified files") were corrected there and inline above.

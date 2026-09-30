@@ -49,3 +49,48 @@ describe("gitignore behavior", () => {
     expect(existsSync(join(APP_ROOT, "jdds.db"))).toBe(true);
   });
 });
+
+// ── line-ending guard (closeout Phase 2) ────────────────────────────────────
+//
+// WHY: with `core.autocrlf=true` and no `.gitattributes`, a one-line edit could
+// show as a 700-line phantom diff (CRLF vs LF), breaking `git blame`. The root
+// `.gitattributes` normalizes text to LF. This guard asks git's own attribute
+// engine what it will do, so it fails if the normalization regresses.
+
+function git(args: string[]): string {
+  return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" });
+}
+
+/** The `eol` git resolves for a path, via `git check-attr`. */
+function eolFor(relPath: string): string {
+  // Output: `<path>: eol: <value>`
+  const out = git(["check-attr", "eol", "--", relPath]).trim();
+  return out.split(":").pop()!.trim();
+}
+
+function isBinaryAttr(relPath: string): boolean {
+  return git(["check-attr", "binary", "--", relPath]).includes("binary: set");
+}
+
+describe("line-ending normalization", () => {
+  it("resolves LF for tracked text files (no phantom CRLF churn)", () => {
+    for (const p of [
+      "Black-Eclipse-site/docs/DECISIONS.md",
+      "Black-Eclipse-site/skills/ARCHITECT.md",
+      "Black-Eclipse-site/src/lib/api-guard.ts",
+      "Black-Eclipse-site/python/harness/main.py",
+      "AGENTS.md",
+    ]) {
+      expect(eolFor(p), `${p} should be eol=lf`).toBe("lf");
+    }
+  });
+
+  it("marks the real binaries as binary so git never normalizes them", () => {
+    expect(isBinaryAttr("Black-Eclipse-site/public/sounds/crisp/error.wav")).toBe(true);
+    expect(isBinaryAttr("Black-Eclipse-site/src/app/favicon.ico")).toBe(true);
+  });
+
+  it("does not mark a text file as binary", () => {
+    expect(isBinaryAttr("Black-Eclipse-site/src/lib/api-guard.ts")).toBe(false);
+  });
+});

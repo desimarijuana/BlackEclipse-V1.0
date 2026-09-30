@@ -1,0 +1,75 @@
+name: CI
+
+# GitHub Actions reads only `/.github/workflows` at the repository ROOT. The old
+# workflows lived under `Black-Eclipse-site/.github/workflows/` and never ran
+# (ADR-H75). This restores a real gate at the correct path, mirroring
+# `Black-Eclipse-site/scripts/check-all.js` step-for-step:
+#   prisma generate -> typecheck -> lint -> npm test -> eval gates.
+#
+# The former `backup.yml` (a daily `sqlite3 jdds.db` cron) is intentionally NOT
+# restored: `jdds.db` is untracked runtime state now, so a checkout has no such
+# file and the job would always fail. A local DB backup belongs in `scripts/`,
+# not CI.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: typecheck · lint · unit · python · evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Black-Eclipse-site
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: Black-Eclipse-site/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # Install the Python agent stack explicitly (rather than trusting the
+      # postinstall hook) so a missing or misconfigured hook cannot silently skip
+      # the Python half of the suite.
+      - name: Install Python agent stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r python/requirements.txt
+
+      # --ignore-scripts avoids the postinstall side effects (vendored-Python
+      # provisioning, prisma generate, global link); each is set up explicitly.
+      - name: Install Node dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Tests (Vitest + Python)
+        run: npm test
+
+      - name: Evaluation gates
+        run: npm run test:evals

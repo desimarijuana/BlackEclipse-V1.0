@@ -164,10 +164,12 @@ Black-Eclipse-site/
 | Work on source health / coverage | `src/lib/harness/coverage.ts` (`COVERAGE`, `healthTargets`), `sourceHealth()` in `data-bridge.ts`, recorded from `recordHealth` in `liveQuote` |
 | Change harness persistence / the agent-memory DB | `python/harness/persistence.py` — separate `agent-memory.db`, NOT `prisma/schema.prisma` |
 | Install / repair the Python runtime | `python/requirements.txt`, `scripts/setup-python.js` (`npm run setup:python`), `scripts/doctor.js`, `scripts/test-python.js` |
-| Run / change the release gate | `npm run check:all` (`scripts/check-all.js`: prisma generate → tsc → eslint → `npm test` → eval gates); `npm run test:evals` (`scripts/test-evals.js`: retrieval/contradiction/compaction floors, offline) | 
+| Run / change the release gate | `npm run check:all` (`scripts/check-all.js`: prisma generate → tsc → eslint → `npm test` → eval gates); `npm run test:evals` (`scripts/test-evals.js`: retrieval/contradiction/compaction floors, offline); CI mirror `/.github/workflows/ci.yml` (repo root; ADR-H76) |
 | Work on commit-time guards | `.githooks/pre-commit` (identity), `.githooks/commit-msg` (CHANGELOG obligation; `SKIP_CHANGELOG_CHECK=1` bypass); installer `scripts/install-git-hooks.js` |
-| Read older change-log entries | `docs/changelog/YYYY-MM.md` (monthly archives moved out of `docs/CHANGELOG.md` by the rolling-window rotation) |
+| Read older change-log entries | `docs/changelog/YYYY-MM.md` (monthly archives moved out of `docs/CHANGELOG.md` by the rolling-window rotation); guard `src/lib/changelog-guard.test.ts` |
+| Change line-ending / file-attribute rules | root `.gitattributes` (LF normalization; `.wav`/`.ico`/`.db` binary); guard in `src/lib/gitignore-guard.test.ts` |
 | Work on engineering hardening (release gate, git hygiene, front-door tests, size/lint guards, docs) | `docs/harness/engineering-hardening-progress.md`; owning files: `scripts/{check-all,test-evals}.js`, `.githooks/commit-msg`, `src/lib/size-budget.test.ts`, `python/tests/test_size_budget.py`, `python/tests/test_router_seam.py` |
+| Work on the closeout (history hygiene, line endings, CHANGELOG forensics, CI) | `docs/harness/closeout-progress.md`; owning files: `.gitattributes`, `.github/workflows/ci.yml`, `src/lib/changelog-guard.test.ts` |
 | Work on the market-panel grid | `src/lib/market-workspace/`, `src/components/market-workspace/` |
 | Work on Investor Eye (world-state globe) | `src/lib/investor-eye/`, `src/components/investor-eye/`; audit + contract: `docs/investor-eye-architecture.md` |
 | Add an Investor Eye source (GDELT/USGS/…) | `src/lib/investor-eye/sources/` (`registry.ts` + one `EventSource` adapter) **and** a governance entry in `src/lib/investor-eye/source-catalog.ts` (a test fails without one) |
