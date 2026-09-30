@@ -276,7 +276,7 @@ export function BackgroundSettingsPanel() {
               <Range
                 label="Zoom"
                 value={prefs.scale}
-                min={100}
+                min={50}
                 max={300}
                 step={5}
                 format={(v) => `${v}%`}

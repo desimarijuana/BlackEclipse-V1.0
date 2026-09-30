@@ -8,6 +8,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Background zoom could not go below 100%.** The Zoom control was hard-clamped
+  to a 100% minimum in two places — `normalizeBackgroundPrefs` (`backgrounds.ts`)
+  and the slider `min` (`background-settings.tsx`) — even though the CSS and
+  `resolveBackgroundCss` already support 50%. Lowered the floor to 50% in both, so
+  the wallpaper can be shrunk. Test updated plus a sub-100% regression assertion.
+  docs updated: `docs/ARCHITECTURE.md`
+
 - **MCP integrity close-out — live supply-chain verdict surfaced; catalog-change
   counters shown; the report's dead `upstreamChecked` flag made real.**
   `SupplyChainChecker` now records the last observation per

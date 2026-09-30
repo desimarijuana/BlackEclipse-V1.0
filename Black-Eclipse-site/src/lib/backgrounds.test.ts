@@ -36,8 +36,8 @@ describe('normalizeBackgroundPrefs', () => {
     });
   });
 
-  it('clamps scale to 100–300 and position to 0–100', () => {
-    expect(normalizeBackgroundPrefs({ scale: 10 }).scale).toBe(100);
+  it('clamps scale to 50–300 and position to 0–100', () => {
+    expect(normalizeBackgroundPrefs({ scale: 10 }).scale).toBe(50);
     expect(normalizeBackgroundPrefs({ scale: 999 }).scale).toBe(300);
     expect(normalizeBackgroundPrefs({ scale: 142.6 }).scale).toBe(143);
     expect(normalizeBackgroundPrefs({ positionX: -9 }).positionX).toBe(0);
@@ -106,6 +106,9 @@ describe('resolveBackgroundCss', () => {
     expect(resolveBackgroundCss({ ...base, scale: 100 }, 'none', null).zoom).toBe(1);
     expect(resolveBackgroundCss({ ...base, scale: 200 }, 'none', null).zoom).toBe(2);
     expect(resolveBackgroundCss({ ...base, scale: 300 }, 'none', null).zoom).toBe(3);
+    // Zoom below 100% must shrink the image, not be stuck at 100%.
+    expect(resolveBackgroundCss({ ...base, scale: 50 }, 'none', null).zoom).toBe(0.5);
+    expect(normalizeBackgroundPrefs({ scale: 50 }).scale).toBe(50);
   });
 
   it('maps position to a focal point', () => {

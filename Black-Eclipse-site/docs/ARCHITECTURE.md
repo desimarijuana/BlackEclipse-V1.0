@@ -193,7 +193,7 @@ Two mechanisms:
       the image fully visible rather than cropping it (no `background-attachment:
       fixed`, which would size the image to the viewport and crop it). Resize is
       controlled by `fit` (cover/contain/tile), a separate `scale` zoom
-      (100–300%), and X/Y focal `position`s. The image is painted on the layer's
+      (50–300%), and X/Y focal `position`s. The image is painted on the layer's
       `::before` (so the zoom scales only the art) while the `dim` scrim sits on
       the element itself; the layer reads
       `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is

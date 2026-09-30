@@ -47,7 +47,7 @@ export interface BackgroundPrefs {
   /** Non-empty only for `preset: 'custom'`; a key into the custom-image store. */
   customKey: string;
   fit: BackgroundFit;
-  /** Zoom, 100–300 (%). 100 = exactly the fit size. */
+  /** Zoom, 50–300 (%). 100 = exactly the fit size; below 100 shrinks it. */
   scale: number;
   /** Horizontal focal point, 0–100 (%). 50 = centered. */
   positionX: number;
@@ -144,7 +144,7 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
     ? (value.fit as BackgroundFit)
     : DEFAULT_BACKGROUND.fit;
   const scale = typeof value.scale === 'number' && Number.isFinite(value.scale)
-    ? Math.min(300, Math.max(100, Math.round(value.scale)))
+    ? Math.min(300, Math.max(50, Math.round(value.scale)))
     : DEFAULT_BACKGROUND.scale;
   const positionX = typeof value.positionX === 'number' && Number.isFinite(value.positionX)
     ? Math.min(100, Math.max(0, Math.round(value.positionX)))

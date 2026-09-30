@@ -791,7 +791,7 @@ shape; notification row now names the counters/helper); a dated CHANGELOG entry;
 this section. `data-bridge.ts` remains bucket (b) and was not touched.
 
 **Checks (measured, after Items 3–4):** `tsc` exit 0; vitest **1937 / 164**;
-Python **1687**; MCP subset 311; `npm run check:all` → ALL GATES PASSED. No
-concurrent-edit red gate observed this round.
+Python **1687**; MCP subset **313 passed**; `npm run check:all` → ALL GATES
+PASSED. No concurrent-edit red gate observed this round.
 
 no doc change — progress doc only (CHANGELOG/NAVIGATION/ADR updated separately).
