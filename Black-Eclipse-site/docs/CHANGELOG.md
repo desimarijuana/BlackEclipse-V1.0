@@ -8,6 +8,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Root .gitignore: ignore a stray root node_modules/.** A tool running vitest from the repo root created `node_modules/.vite`; ignored so it can never be committed.
+  no doc change — ignore-rule only.
+
 - **Terminal cleanup — guard floor, line endings, commits.** Pinned the CHANGELOG guard floor to 345 and added an archive-seam assertion; normalized the 66 working-tree files that mixed CRLF/bare LF (content proven unchanged) and added a mixed-ending guard; recorded the `jdds.db` purge recommendation (keep it) and the smoke/CI caveats. Two commits: `8153d35` (line endings) and `43085d8` (closeout).
   docs updated: `docs/harness/terminal-cleanup-progress.md`, `docs/harness/closeout-progress.md`, `docs/NAVIGATION.md`
 

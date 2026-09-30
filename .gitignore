@@ -9,5 +9,8 @@
 *.db-wal
 
 # Local, regenerable artifacts kept at the repository root.
+# A stray root `node_modules/` can appear if a tool (e.g. vitest) runs from the
+# repo root instead of Black-Eclipse-site/; it is build cache, never committed.
+node_modules/
 /_backups/
 /opencode/
