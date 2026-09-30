@@ -8,6 +8,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Sidebar — clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
+  no doc change — bug fix; no architecture, contract, setup, or data-shape change.
+
 - **MCP integrity — real-server defects fixed and the remaining gaps closed.**
   Two sessions. First: a provider-side error body returned with `isError=false`
   is now a failure (pure `looks_like_provider_error` classifier, an explicit

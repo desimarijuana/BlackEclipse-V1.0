@@ -110,6 +110,9 @@ export function Sidebar({
   };
 
   const handleTabClick = (tab: AppTab) => {
+    // Clicking the ChatBot icon always starts a fresh chat, never resumes the
+    // previous conversation (history is still reachable from the list above).
+    if (tab === 'chat') onNewChat();
     onChangeTab(tab);
     onCloseMobile?.();
   };
