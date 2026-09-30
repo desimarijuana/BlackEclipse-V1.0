@@ -8,12 +8,21 @@
     "Servers > Secret vault); a remote server uses `auth` (kind/name/prefix/secretRef)",
     "instead. Never put a raw API key in this file. `enabled` defaults to false and",
     "`selected_tools` to empty: nothing activates until you choose it. `selected_tools`",
-    "may be an exact list OR `{include, exclude}` with globs. `tool_effects` declares a",
-    "tool's real effect (read is the only one that needs no per-call approval);",
-    "`trust: \"untrusted\"` requires approval for every non-read call. `data_source_tools`",
-    "declares a selected tool as a NATIVE retrieval data source (tool -> dataType) so",
-    "native source planning can consider it; an undeclared tool stays directly callable.",
-    "Values support",
+    "may be an exact list OR `{include, exclude}` with globs (include wins; an empty",
+    "include selects nothing). `tool_effects` declares a tool's real effect (read is",
+    "the only one that needs no per-call approval); `trust: \"untrusted\"` requires",
+    "approval for every non-read call and forbids annotation-sourced activation.",
+    "`data_source_tools` declares a selected read tool as a NATIVE retrieval source",
+    "(tool -> dataType) so native source planning can consider it; an undeclared tool",
+    "stays directly callable and is still never Eclipse-verified. `lazy` registers",
+    "tool declarations from an on-disk cache and connects on the first call.",
+    "`tools: {resources|prompts}` registers those utility tools only when the live",
+    "server advertises the capability. `keepalive_interval`/`idle_timeout_seconds`/",
+    "`max_lifetime_seconds` tune the connection lifetime. `ssl_verify` accepts true,",
+    "false, or a CA-bundle path; `client_cert`/`client_key` enable mTLS (a combined",
+    "PEM, or [cert,key], or [cert,key,passphrase]). `resource_schemes` narrows which",
+    "resource URI schemes this server may read (the global allowlist is a hard",
+    "ceiling; narrowing can only remove schemes). Values support",
     "`${VAR}`/`${env:VAR}` and `${workspaceFolder}`/`${userHome}`/`${pathSeparator}`",
     "(a remote url/auth with an unresolved variable is refused, never sent literally).",
     "Remote endpoints must be https and are refused if they resolve to a private",
@@ -24,11 +33,12 @@
       "id": "filesystem",
       "name": "Local files",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}/docs"],
       "enabled": false,
-      "selected_tools": ["read_file", "list_directory"],
+      "selected_tools": { "include": ["read_*", "list_*"], "exclude": ["*_secret"] },
       "tool_effects": { "read_file": "read", "list_directory": "read" },
-      "description": "Read files under the app folder (research notes, exported CSVs)."
+      "resource_schemes": ["file"],
+      "description": "Read files under the app folder. Uses an include/exclude filter and narrows resource reads to file://."
     },
     {
       "id": "powerpoint",
@@ -37,7 +47,10 @@
       "args": ["-y", "@mindstone/mcp-server-office"],
       "enabled": false,
       "selected_tools": [],
-      "description": "Create Office memos/decks (local files). Writes need approval."
+      "trust": "untrusted",
+      "tool_effects": { "create_presentation": "write" },
+      "enabled_effects": ["read", "write"],
+      "description": "Creates local Office files. Marked untrusted so every write needs an explicit per-call approval."
     },
     {
       "id": "notion",
@@ -47,7 +60,8 @@
       "secret_refs": { "NOTION_TOKEN": "notion_integration_token" },
       "enabled": false,
       "selected_tools": [],
-      "description": "Official Notion server. Needs an internal integration token stored as the vault secret 'notion_integration_token'."
+      "lazy": true,
+      "description": "Official Notion server. Lazy-started from cache; needs the vault secret 'notion_integration_token'."
     },
     {
       "id": "sheets",
@@ -80,7 +94,8 @@
       "enabled": false,
       "selected_tools": ["tavily-search", "tavily-extract"],
       "tool_effects": { "tavily-search": "read", "tavily-extract": "read" },
-      "description": "Investor-grade web search + page extraction, independent of Eclipse's native web research."
+      "data_source_tools": { "tavily-search": "web_research" },
+      "description": "Web search + page extraction. `tavily-search` is declared a native web_research data source (still external, never Eclipse-verified)."
     },
     {
       "id": "brave",
@@ -100,7 +115,8 @@
       "args": ["-y", "yahoo-finance-mcp"],
       "enabled": false,
       "selected_tools": [],
-      "description": "Quotes/history/news. Treat as EXTERNAL and unverified — Eclipse will not label it Eclipse-verified."
+      "keepalive_interval": 60,
+      "description": "Quotes/history/news. Kept-alive every 60s. Treat as EXTERNAL and unverified."
     },
     {
       "id": "memory",
@@ -109,7 +125,18 @@
       "args": ["-y", "@modelcontextprotocol/server-memory"],
       "enabled": false,
       "selected_tools": [],
-      "description": "A local knowledge graph for research entities and notes."
+      "tools": { "resources": true, "prompts": true },
+      "description": "A local knowledge graph. Resource/prompt utility tools are registered only if the server advertises them."
+    },
+    {
+      "id": "twelve-data",
+      "name": "Twelve Data (remote OAuth)",
+      "transport": "http",
+      "url": "https://mcp.twelvedata.com/mcp",
+      "auth": { "kind": "oauth" },
+      "enabled": false,
+      "selected_tools": [],
+      "description": "Remote OAuth 2.1 server. No vault secret is stored; use Sign in on the server card and complete the device flow."
     },
     {
       "id": "remote-example",
@@ -119,7 +146,12 @@
       "auth": { "kind": "header", "name": "Authorization", "prefix": "Bearer ", "secretRef": "remote_mcp_token" },
       "enabled": false,
       "selected_tools": [],
-      "description": "Template for a remote Streamable-HTTP server with a vault-backed bearer token. Remote endpoints must be https; private hosts are refused."
+      "ssl_verify": "/etc/ssl/certs/company-ca.pem",
+      "client_cert": "${workspaceFolder}/certs/client.pem",
+      "client_key": ["${workspaceFolder}/certs/client.key"],
+      "idle_timeout_seconds": 300,
+      "max_lifetime_seconds": 3600,
+      "description": "Template for a remote Streamable-HTTP server: vault-backed bearer token, a custom CA bundle, mTLS client cert/key, and idle/lifetime recycling. Remote endpoints must be https; private hosts are refused."
     }
   ]
 }

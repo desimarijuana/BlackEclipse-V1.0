@@ -26,10 +26,7 @@ one is attached, and recorded by the normal tool trace regardless.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -59,6 +56,18 @@ from .naming import (
     namespace_tool,
     normalize_input_schema,
 )
+from .runtime import (
+    MCPToolDescriptor,
+    MCPServerStatus,
+    _ServerRuntime,
+    _ALLOWED_RESOURCE_SCHEMES,
+    _allowed_uri,
+    _catalog_digest,
+    _unsafe_url_reason,
+    effective_resource_schemes,
+)
+from .introspection import IntrospectionMixin
+from .oauth_flow import OAuthFlowMixin
 from .ssrf import check_outbound_url
 
 log = logging.getLogger("harness.mcp.manager")
@@ -71,115 +80,7 @@ READ_EFFECT = "read"
 APPROVABLE_EFFECTS = {"write", "external_action"}
 
 
-@dataclass
-class MCPToolDescriptor:
-    """A discovered tool with its resolved identity, effect and activation state."""
-
-    original_name: str
-    eclipse_name: str
-    description: str
-    input_schema: dict[str, Any]
-    effect: str
-    effect_source: str
-    selected: bool
-    activatable: bool
-    diagnostic: Optional[str] = None
-
-    def public(self) -> dict[str, Any]:
-        return {
-            "originalName": self.original_name,
-            "eclipseName": self.eclipse_name,
-            "description": self.description,
-            "effect": self.effect,
-            "effectSource": self.effect_source,
-            "selected": self.selected,
-            "activatable": self.activatable,
-            "diagnostic": self.diagnostic,
-        }
-
-
-@dataclass
-class MCPServerStatus:
-    """Safe, non-secret status for one configured server."""
-
-    id: str
-    name: str
-    enabled: bool
-    state: str
-    protocol_version: Optional[str] = None
-    server_info: Optional[dict[str, Any]] = None
-    tools: list[dict[str, Any]] = field(default_factory=list)
-    diagnostic: Optional[str] = None
-    registered_tools: list[str] = field(default_factory=list)
-
-    def public(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "enabled": self.enabled,
-            "state": self.state,
-            "protocolVersion": self.protocol_version,
-            "serverInfo": self.server_info,
-            "tools": self.tools,
-            "diagnostic": self.diagnostic,
-            "registeredTools": self.registered_tools,
-        }
-
-
-class _ServerRuntime:
-    def __init__(self, config: MCPServerConfig) -> None:
-        self.config = config
-        self.limits = config.limits()
-        self.secrets = config.secret_values()
-        self.connection: Optional[MCPConnection] = None
-        self.resolved_connection: Any = None
-        self.state = "disabled" if not config.enabled else "pending"
-        self.diagnostic: Optional[str] = None
-        self.descriptors: dict[str, MCPToolDescriptor] = {}
-        self.registered_tools: list[str] = []
-        self.semaphore = asyncio.Semaphore(self.limits["maxConcurrency"])
-        # A versioned digest of the discovered catalog, so a change is reviewable
-        # (a different digest means the server's tool set/descriptions changed).
-        self.catalog_digest: Optional[str] = None
-        self.catalog_reviewed_at: Optional[str] = None
-        # Lifecycle (Milestone 2): retry budget, lazy/cached state, keepalive and
-        # recycle bookkeeping. `lazy_active` is True when tools were registered
-        # from the on-disk cache without a live connection.
-        self.budget = RetryBudget()
-        self.lazy_active = False
-        self.cache_fingerprint: Optional[str] = None
-        self.last_error_code: Optional[str] = None
-        self.last_error: Optional[str] = None
-        self.keepalive_last_probe: Optional[float] = None
-        self.keepalive_failures = 0
-        self.recycled_reason: Optional[str] = None
-        self.connect_lock = asyncio.Lock()
-        self.in_flight = 0
-        self.registered_pgids: list[int] = []
-        # Server-initiated interactions (Milestone 5): sampling policy + audit.
-        from .interactions import InteractionCounters, SamplingPolicy
-
-        self.sampling = SamplingPolicy()
-        self.interactions = InteractionCounters()
-        # Content-free call metrics for the diagnostics surface.
-        self.calls = 0
-        self.errors = 0
-        self.total_latency_ms = 0
-
-    def redact(self, text: str) -> str:
-        return redact_secrets(text, self.secrets)
-
-    def all_secret_values(self) -> list[str]:
-        """Declared env values plus values resolved from the vault at spawn."""
-        values = list(self.secrets)
-        if self.connection is not None:
-            for value in self.connection.redaction_values:
-                if value not in values:
-                    values.append(value)
-        return values
-
-
-class MCPManager:
+class MCPManager(IntrospectionMixin, OAuthFlowMixin):
     """Owns MCP servers for the process and adapts selected tools into a registry."""
 
     def __init__(self, configs: Optional[list[MCPServerConfig]] = None) -> None:
@@ -806,7 +707,7 @@ class MCPManager:
             return f"MCP prompts on {rt.config.id!r} ({len(rows)}): {rows}", {"prompts": rows, "provenance": {"eclipseVerified": False}}
         if kind == "read_resource":
             uri = str(args.get("uri") or "")
-            if not _allowed_uri(uri):
+            if not _allowed_uri(uri, rt.config.resource_schemes):
                 raise MCPClosedError(f"resource URI {uri!r} is not allowed", code="mcp_resource_uri_denied")
             outcome = await rt.connection.read_resource(uri, timeout_ms=rt.limits["callTimeoutMs"])
             return self._render_outcome(rt, type("_D", (), {"original_name": uri})(), outcome)
@@ -1290,114 +1191,6 @@ class MCPManager:
 
     # -- introspective status / OAuth lifecycle ------------------------------
 
-    async def oauth_login(
-        self,
-        server_id: str,
-        *,
-        client_id: Optional[str] = None,
-        scope: str = "",
-        endpoints: Optional[dict[str, str]] = None,
-    ) -> dict[str, Any]:
-        """Run a device-code (RFC 8628) login and store the token in the vault.
-
-        Offline-testable: `endpoints` may inject `metadata`, `device`, and
-        `token` URLs (used by the fixture). A missing `bridge_fetch` or a token
-        that cannot be encrypted is a hard error, never a plaintext fallback.
-        """
-        rt = self._runtimes.get(server_id)
-        if rt is None:
-            return {"success": False, "reason": "server not found"}
-        if self._bridge_fetch is None:
-            return {"success": False, "reason": "vault bridge is unavailable"}
-        from .oauth import (
-            OAuthError,
-            device_authorization_request,
-            discover_device_authorization_endpoints,
-            poll_device_token,
-        )
-
-        client_id = client_id or f"black-eclipse-{server_id}"
-        try:
-            endpoints = endpoints or await self._discover_oauth_endpoints(rt)
-            device = await device_authorization_request(
-                device_authorization_endpoint=endpoints["device"],
-                client_id=client_id,
-                scope=scope,
-                http_post=self._oauth_http_post,
-            )
-            token = await poll_device_token(
-                token_endpoint=endpoints["token"],
-                client_id=client_id,
-                device_code=device.device_code,
-                interval=device.interval,
-                expires_in=device.expires_in,
-                http_post=self._oauth_http_post,
-            )
-            await self._bridge_fetch("mcp_oauth_token_set", {
-                "serverId": server_id,
-                "accessToken": token.get("access_token"),
-                "tokenType": token.get("token_type"),
-                "refreshToken": token.get("refresh_token"),
-                "scope": token.get("scope"),
-                "clientId": client_id,
-            })
-        except OAuthError as exc:
-            return {"success": False, "reason": str(exc), "code": exc.code}
-        return {
-            "success": True,
-            "serverId": server_id,
-            "verificationUri": device.verification_uri,
-            "userCode": device.user_code,
-        }
-
-    async def _discover_oauth_endpoints(self, rt: _ServerRuntime) -> dict[str, str]:
-        import httpx as _httpx
-
-        base = (rt.config.url or "").rstrip("/")
-        meta_url = f"{base}/.well-known/oauth-authorization-server"
-        async with _httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(meta_url)
-            resp.raise_for_status()
-            metadata = resp.json()
-        return {
-            "metadata": meta_url,
-            "device": metadata["device_authorization_endpoint"],
-            "token": metadata["token_endpoint"],
-        }
-
-    async def _oauth_http_post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
-        """POST a form-encoded OAuth body; return JSON (error bodies included)."""
-        import httpx as _httpx
-
-        async with _httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(url, data=body)
-            try:
-                return resp.json()
-            except Exception:  # noqa: BLE001
-                return {"error": f"oauth_http_{resp.status_code}"}
-
-    async def oauth_logout(self, server_id: str) -> dict[str, Any]:
-        """Clear a server's stored credentials and disconnect it.
-
-        The server stays configured; only its token is removed, so it is
-        disconnected until a new login.
-        """
-        rt = self._runtimes.get(server_id)
-        if rt is None:
-            return {"success": False, "reason": "server not found"}
-        removed = False
-        if self._bridge_fetch is not None:
-            try:
-                payload = await self._bridge_fetch("mcp_oauth_token_clear", {"serverId": server_id})
-                removed = bool((payload or {}).get("removed"))
-            except Exception:  # noqa: BLE001
-                removed = False
-        await self._close_runtime(rt)
-        if rt.config.enabled:
-            rt.state = "pending"
-            rt.diagnostic = rt.redact("credentials cleared; log in again to reconnect")
-        return {"success": True, "serverId": server_id, "removed": removed}
-
     def mcp_sources(self) -> list[Any]:
         """A `RetrievalSource` per operator-declared MCP data tool (Milestone 6).
 
@@ -1417,163 +1210,17 @@ class MCPManager:
                 ))
         return sources
 
-    # -- introspection -------------------------------------------------------
 
-    def statuses(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for rt in self._runtimes.values():
-            status = MCPServerStatus(
-                id=rt.config.id,
-                name=rt.config.name or rt.config.id,
-                enabled=rt.config.enabled,
-                state=rt.state,
-                protocol_version=rt.connection.protocol_version if rt.connection else None,
-                server_info=rt.connection.server_info if rt.connection else None,
-                diagnostic=rt.diagnostic,
-                registered_tools=list(rt.registered_tools),
-                tools=[d.public() for d in rt.descriptors.values()],
-            )
-            entry = status.public()
-            entry["lifecycle"] = self._lifecycle_status(rt)
-            out.append(entry)
-        return out
-
-    def _lifecycle_status(self, rt: _ServerRuntime) -> dict[str, Any]:
-        """Bounded, content-free lifecycle status for one server."""
-        cached = len(rt.descriptors) if rt.lazy_active else 0
-        return {
-            **rt.budget.public(),
-            "lazy": bool(rt.config.lazy),
-            "lazyActive": rt.lazy_active,
-            "cachedTools": cached,
-            "connected": rt.state == "connected",
-            "inFlight": rt.in_flight,
-            "keepaliveInterval": rt.config.keepalive_interval,
-            "keepaliveFailures": rt.keepalive_failures,
-            "recycledReason": rt.recycled_reason,
-            "lastErrorCode": rt.last_error_code,
-            "sampling": rt.sampling.public(),
-            "interactions": rt.interactions.public(),
-            "metrics": {
-                "calls": rt.calls,
-                "errors": rt.errors,
-                "avgLatencyMs": int(rt.total_latency_ms / rt.calls) if rt.calls else 0,
-            },
-        }
-
-    def summary(self) -> dict[str, Any]:
-        servers = self.statuses()
-        return {
-            "configured": len(servers),
-            "connected": sum(1 for s in servers if s["state"] == "connected"),
-            "lazy": sum(1 for s in servers if s.get("lifecycle", {}).get("lazyActive")),
-            "registeredTools": sum(len(s["registeredTools"]) for s in servers),
-            "loadDiagnostics": self.load_diagnostics,
-        }
-
-    def catalog_digest_for(self, server_id: str) -> Optional[str]:
-        """The live catalog digest for a configured server (for confirmation)."""
-        rt = self._runtimes.get(server_id)
-        return rt.catalog_digest if rt is not None else None
-
-    def diagnostics(
-        self,
-        resolved_secrets: Optional[dict[str, dict[str, bool]]] = None,
-        token_status: Optional[dict[str, dict[str, Any]]] = None,
-    ) -> dict[str, Any]:
-        """Setup diagnostics for every configured server + the environment.
-
-        Pure inspection: never activates a server or runs a tool. `resolved_secrets`
-        may map server_id → {secretName: bool} so the caller (which owns the vault)
-        can report missing references without the manager resolving values.
-        `token_status` maps server_id → an OAuth token status dict (the caller
-        owns the vault).
-        """
-        from .diagnostics import check_server, environment_diagnostics
-
-        resolved_secrets = resolved_secrets or {}
-        token_status = token_status or {}
-        servers = []
-        for rt in self._runtimes.values():
-            connected = rt.state == "connected"
-            servers.append(check_server(
-                rt.config,
-                resolved_secrets=resolved_secrets.get(rt.config.id),
-                connection_state=rt.state,
-                discovered_tools=len(rt.descriptors),
-                selected_tools=sum(1 for d in rt.descriptors.values() if d.selected),
-                token_status=token_status.get(rt.config.id),
-            ).to_public())
-        return {"environment": [c.to_public() for c in environment_diagnostics()], "servers": servers}
-
-    def public_configs(self) -> list[dict[str, Any]]:
-        """Every configured server with its non-secret config + live status.
-
-        Merges the persisted config (secret-free: env KEYS only) with the live
-        connection/discovery state, so the settings UI can render both what is
-        configured and why a call is (or is not) available.
-        """
-        out: list[dict[str, Any]] = []
-        for rt in self._runtimes.values():
-            entry = rt.config.public_dict()
-            entry.update(
-                {
-                    "state": rt.state,
-                    "diagnostic": rt.diagnostic,
-                    "protocolVersion": rt.connection.protocol_version if rt.connection else None,
-                    "serverInfo": rt.connection.server_info if rt.connection else None,
-                    "catalogDigest": rt.catalog_digest,
-                    "registeredTools": list(rt.registered_tools),
-                    "tools": [d.public() for d in rt.descriptors.values()],
-                    "capabilities": rt.connection.capabilities if rt.connection else {},
-                    "resources": rt.connection.resources if rt.connection else [],
-                    "prompts": rt.connection.prompts if rt.connection else [],
-                    "lifecycle": self._lifecycle_status(rt),
-                }
-            )
-            out.append(entry)
-        return out
-
-
-_ALLOWED_RESOURCE_SCHEMES = ("file", "http", "https", "mcp", "resource", "db", "git", "data", "memory", "skill", "workspace", "note", "doc", "ui")
-
-
-def _allowed_uri(uri: str) -> bool:
-    """A resource URI scheme authorization rule (no `javascript:`/`cmd:` etc.)."""
-    if not uri or ":" not in uri:
-        return False
-    scheme = uri.split(":", 1)[0].lower()
-    return scheme in _ALLOWED_RESOURCE_SCHEMES
-
-
-def _unsafe_url_reason(config: MCPServerConfig, url: Optional[str] = None) -> Optional[str]:
-    """The refusal reason for a remote endpoint, or None when safe/not-remote."""
-    if config.transport not in ("http", "sse"):
-        return None
-    effective = url if url is not None else config.url
-    if not effective:
-        return None
-    safe, reason = check_outbound_url(effective)
-    return None if safe else (reason or "unsafe URL")
-
-
-def _catalog_digest(rt: _ServerRuntime) -> str:
-    """A stable digest of a server's discovered catalog.
-
-    Covers each tool's identity, effect and schema, so a changed tool set,
-    description or schema produces a different digest and can be reviewed.
-    """
-    payload = [
-        {
-            "name": d.original_name,
-            "effect": d.effect,
-            "schema": d.input_schema,
-            "description": d.description,
-        }
-        for d in sorted(rt.descriptors.values(), key=lambda d: d.original_name)
-    ]
-    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-
-__all__ = ["MCPManager", "MCPToolDescriptor", "MCPServerStatus"]
+__all__ = [
+    "MCPManager",
+    "MCPToolDescriptor",
+    "MCPServerStatus",
+    # Re-exported from `runtime.py` so existing imports from `manager` keep
+    # working after the pure extraction.
+    "_ServerRuntime",
+    "_ALLOWED_RESOURCE_SCHEMES",
+    "effective_resource_schemes",
+    "_allowed_uri",
+    "_unsafe_url_reason",
+    "_catalog_digest",
+]

@@ -60,6 +60,15 @@ _EGRESS_TOKENS = (
 # Shell control operators that can chain another command.
 _CONTROL_RE = re.compile(r"(;|&&|\|\|?|`|\$\(|\$\{)")
 
+# Recognized `${VAR}` / `${env:VAR}` / built-in interpolation tokens. These are a
+# SUPPORTED config feature (see `interpolation.py`), so they are removed before
+# the control-operator scan; any *residual* `${` is still refused below. A
+# no-shell argv cannot expand `${...}` anyway, but interpolation must keep working.
+_INTERPOLATION_RE = re.compile(
+    r"\$\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}"
+    r"|\$\{(?:workspaceFolder|userHome|pathSeparator)\}"
+)
+
 # Package runners whose package token is screened against the IOC list.
 _PACKAGE_RUNNERS = frozenset({"npx", "bunx", "pnpx", "pnpm", "yarn", "uvx", "pipx", "uv"})
 
@@ -121,7 +130,8 @@ def _is_shell_inline(command: str, args: list[str]) -> bool:
 
 
 def _contains_control(text: str) -> Optional[str]:
-    match = _CONTROL_RE.search(text or "")
+    scrubbed = _INTERPOLATION_RE.sub("", text or "")
+    match = _CONTROL_RE.search(scrubbed)
     return match.group(1) if match else None
 
 

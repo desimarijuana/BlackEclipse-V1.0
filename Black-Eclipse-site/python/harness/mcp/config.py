@@ -208,6 +208,12 @@ class MCPServerConfig(BaseModel):
     # operator has set the toggle true. Default off = fail-closed (discovery is
     # not activation).
     tools: dict[str, bool] = Field(default_factory=dict)
+    # Optional per-server narrowing of the resource URI schemes this server may
+    # read. The global allowlist is a hard CEILING: a server can only ever remove
+    # schemes from it, never add one. An empty/unset list means "no narrowing"
+    # (the global list applies); a non-empty list is intersected with the global
+    # list, so an unknown scheme can never broaden access.
+    resource_schemes: list[str] = Field(default_factory=list)
     # Protocol/catalog version metadata when the operator pins one.
     protocol_version: Optional[str] = None
     # Free-form, non-secret operator notes (never used for authorization).
@@ -466,8 +472,19 @@ class MCPServerConfig(BaseModel):
             "sslVerify": self.ssl_verify if isinstance(self.ssl_verify, bool) else "custom-ca",
             "clientCertConfigured": bool(self.client_cert),
             "tools": dict(self.tools),
+            "resourceSchemes": list(self.resource_schemes),
             "protocolVersion": self.protocol_version,
             "description": self.description,
+            # Raw, operator-set bounds (not the clamped values in `limits`), so
+            # the wire is lossless: a view -> model -> view round trip preserves
+            # exactly what the operator configured.
+            "startupTimeoutMs": self.startup_timeout_ms,
+            "catalogTimeoutMs": self.catalog_timeout_ms,
+            "callTimeoutMs": self.call_timeout_ms,
+            "outputLimitBytes": self.output_limit_bytes,
+            "maxConcurrency": self.max_concurrency,
+            "maxTools": self.max_tools,
+            # The effective, clamped values actually applied at runtime.
             "limits": self.limits(),
         }
 
@@ -607,20 +624,42 @@ def upsert_mcp_config(
 ) -> list[MCPServerConfig]:
     """Insert or replace one server by id, preserving the others.
 
-    Env values are write-only: the UI never receives them, so it cannot resend
-    them. `env_keys`, when supplied, is the authoritative set of key names that
-    should exist for this server; each key keeps its incoming value if provided,
-    otherwise its previously-stored value. Keys absent from `env_keys` are
-    removed. When `env_keys` is None, existing keys not mentioned in the incoming
-    `env` are preserved (a merge), so a card-level enable/disable cannot drop a
-    secret.
+    The merge contract is: **absent means preserve; explicitly present means
+    replace — including an explicit `null`, `false`, `{}` or `[]` for
+    clearing.** A caller that omits a field (an older UI, an API client, a
+    script) must not reset it, while the UI can still clear a field because it
+    always sends every field it owns. This distinction is what makes a save
+    unable to silently widen a server's authority: `trust`, `enabled_effects`,
+    `tool_effects`, `data_source_tools`, `confirmed_catalog_digest` and
+    `selected_tools` are preserved unless a caller deliberately supplies them.
+    The rule is implemented from the incoming model's `model_fields_set`, never
+    from `if value is not None` (which cannot tell "absent" from "present but
+    null").
+
+    Env values are the one exception and stay write-only: the UI never receives
+    them, so it cannot resend them. `env_keys`, when supplied, is the
+    authoritative set of key names that should exist for this server; each key
+    keeps its incoming value if provided, otherwise its previously-stored value.
+    Keys absent from `env_keys` are removed. When `env_keys` is None, existing
+    keys not mentioned in the incoming `env` are preserved (a merge), so a
+    card-level enable/disable cannot drop a secret.
     """
     servers, _ = load_mcp_configs(explicit)
-    existing_env: dict[str, str] = {}
-    for existing in servers:
-        if existing.id == server.id:
-            existing_env = dict(existing.env)
-            break
+    existing: Optional[MCPServerConfig] = next((s for s in servers if s.id == server.id), None)
+    existing_env: dict[str, str] = dict(existing.env) if existing is not None else {}
+
+    # Absent means preserve: every field the caller did not mention keeps its
+    # stored value. `model_fields_set` distinguishes an omitted field from one
+    # explicitly supplied as `null`/`false`/`{}`/`[]`.
+    if existing is not None:
+        supplied = server.model_fields_set
+        preserved = {
+            name: getattr(existing, name)
+            for name in MCPServerConfig.model_fields
+            if name not in supplied
+        }
+        if preserved:
+            server = server.model_copy(update=preserved)
 
     if env_keys is not None:
         merged: dict[str, str] = {}

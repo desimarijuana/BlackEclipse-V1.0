@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-09-29
+last-verified: 2026-09-30
 ---
 
 # Harness Architecture
@@ -584,8 +584,11 @@ change system instructions, enable a tool, or authorize a call.
 | `naming.py` | collision-resistant namespacing (`mcp__<server>__<tool>` — a double-underscore boundary; a stable digest only on a genuine sanitization collision), JSON-schema validation before registration, bounded descriptions, effect classification (operator-declared → untrusted MCP annotation → `unknown`). |
 | `interpolation.py` | `${VAR}`/`${env:VAR}` + `${workspaceFolder}`/`${userHome}`/`${pathSeparator}` resolution (Milestone 1): one pure function, fail-closed remote rule for `url`/`auth`, literal fallback locally. |
 | `screening.py` | static screening of a server entry (Milestone 1): refuse-not-sanitize for shell inline scripts, control operators, download/execute + exfil shapes, and known-IOC package tokens; warn on a plaintext `env` secret. Applied at load, save and spawn. |
-| `client.py` | the client over the maintained MCP Python SDK (`mcp`): argv launch with no shell (stdio), Streamable-HTTP and SSE for remote, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, TLS/mTLS controls, structured redacted errors. |
-| `manager.py` | discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
+| `client.py` | the client over the maintained MCP Python SDK (`mcp`): argv launch with no shell (stdio), Streamable-HTTP and SSE for remote, bounded startup/catalog/call timeouts, serialized session access, cancellation propagation, clean process-tree shutdown, TLS/mTLS controls, structured redacted errors. Non-text content (image/audio) is reported as MIME type + decoded byte size, never an opaque omission. |
+| `runtime.py` | `_ServerRuntime` per-server state, the tool descriptor/status dataclasses, and the pure helpers (`_catalog_digest`, `_unsafe_url_reason`, `_allowed_uri`, `effective_resource_schemes`) — pure-extracted from `manager.py` (Phase 6.1). |
+| `introspection.py` | the `IntrospectionMixin`: `statuses`/`public_configs`/`summary`/`diagnostics`/`catalog_digest_for` (Phase 6.1 extraction). |
+| `oauth_flow.py` | the `OAuthFlowMixin`: `oauth_login`/`oauth_logout` and the device-flow HTTP helpers (Phase 6.1 extraction). |
+| `manager.py` | the `MCPManager` facade: discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
 
 **Lifecycle.** `AgenticService.start_mcp()` (run from the FastAPI lifespan)
 connects every **enabled** server, discovers and validates its tools, then
@@ -646,6 +649,26 @@ shell-interpreter inline script, shell control operators, download/execute and
 exfil shapes, and known-IOC package tokens — at load, at save and at spawn — and
 warns on a plaintext `env` secret. Eclipse tool names are
 `mcp__<server>__<tool>` (double underscore). ADR-H67.
+
+**Config round-trip: a save never silently widens authority (Phase 6.1).**
+`upsert_mcp_config` merges from the incoming model's `model_fields_set`:
+**absent means preserve; explicitly present means replace** — including an
+explicit `null`/`false`/`{}`/`[]` for clearing. A partial save therefore cannot
+reset a field it did not mention, so `trust`, `enabled_effects`, `tool_effects`,
+`data_source_tools`, `confirmed_catalog_digest` and `selected_tools` are
+preserved unless a caller deliberately sends them. `env` keeps its write-only
+merge. `install_mcp_integration` is create-if-absent (re-installing never resets
+an operator's changes). The settings UI is a full-fidelity editor: it reaches
+every field (`trust`, include/exclude filters, per-tool effects, native data
+sources, `tools.resources/prompts`, `resource_schemes`, lazy/keepalive/idle/
+lifetime, TLS/mTLS, limits, SSE transport, OAuth sign-in) and the
+view↔draft↔input mapping is the pure module `src/lib/harness/mcp-draft.ts`.
+`public_dict()` emits the raw operator-set bounds so the wire is lossless;
+`public_configs()` exposes the capability toggles as `capabilityToggles` (the
+`tools` key is the discovered-tool array). ADR-H74. `resource_schemes` narrows
+the resource URI schemes a server may read; the global allowlist is a hard
+ceiling and narrowing can only ever remove a scheme. A non-text MCP result
+reports MIME type and decoded byte size rather than an opaque omission.
 
 **Execution stays authoritative.** Every MCP call enters through
 `ToolRegistry.execute`, so argument validation (pydantic), the agent allowlist,

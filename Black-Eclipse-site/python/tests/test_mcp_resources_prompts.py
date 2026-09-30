@@ -127,3 +127,51 @@ async def test_server_without_resources_registers_no_resource_tools():
     names = mgr.register_selected_tools(reg)
     assert names == ["mcp__raw__echo"]
     await mgr.close()
+
+
+# ── per-server resource scheme narrowing (global list is a hard ceiling) ────
+
+
+def test_narrowing_can_only_remove_schemes_never_add():
+    from harness.mcp.manager import _ALLOWED_RESOURCE_SCHEMES, effective_resource_schemes
+
+    # Empty/unset narrowing keeps the full global list.
+    assert effective_resource_schemes([]) == _ALLOWED_RESOURCE_SCHEMES
+    # Narrowing removes schemes.
+    assert effective_resource_schemes(["note", "doc"]) == ("doc", "note")
+    # An unknown / non-global scheme can never be added by narrowing.
+    assert "javascript" not in effective_resource_schemes(["javascript", "note", "cmd"])
+    assert effective_resource_schemes(["javascript"]) == ()
+    assert "file" not in effective_resource_schemes(["note"])
+
+
+@pytest.mark.asyncio
+async def test_narrowed_server_cannot_read_a_scheme_outside_its_list():
+    cfg = fast_config(tools={"resources": True}, resource_schemes=["note"])
+    mgr = MCPManager([cfg])
+    await mgr.start()
+    reg = ToolRegistry()
+    names = mgr.register_selected_tools(reg)
+    # `note://` is within the server's own list and the global ceiling.
+    ok = await reg.execute("mcp__fx____read_resource", "c1", {"uri": "note://thesis"}, ctx(), allowed=set(names))
+    assert ok.ok
+    # `file://` is in the global ceiling but NOT in this server's narrowing.
+    denied = await reg.execute("mcp__fx____read_resource", "c1", {"uri": "file:///etc/passwd"}, ctx(), allowed=set(names))
+    assert not denied.ok
+    assert "not allowed" in denied.text
+    await mgr.close()
+
+
+@pytest.mark.asyncio
+async def test_global_ceiling_still_applies_to_a_narrowed_server():
+    # A server asking for `javascript` gets nothing: the global ceiling wins.
+    cfg = fast_config(tools={"resources": True}, resource_schemes=["javascript"])
+    mgr = MCPManager([cfg])
+    await mgr.start()
+    reg = ToolRegistry()
+    names = mgr.register_selected_tools(reg)
+    denied = await reg.execute("mcp__fx____read_resource", "c1", {"uri": "javascript:alert(1)"}, ctx(), allowed=set(names))
+    assert not denied.ok
+    assert "not allowed" in denied.text
+    await mgr.close()
+

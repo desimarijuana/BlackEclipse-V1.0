@@ -6,6 +6,40 @@ last-verified: 2026-09-28
 
 # Change Log
 
+## 2026-09-30
+
+- **MCP Phase 6.1 — round-trip integrity (fixes a silent authority downgrade).**
+  `upsert_mcp_config` now implements "absent means preserve; explicitly present
+  means replace" using the incoming model's `model_fields_set`, so a partial save
+  (the old UI payload) can no longer reset `trust`, `lazy`, `tools`,
+  `tool_effects`, `data_source_tools`, `confirmed_catalog_digest` or the
+  keepalive/idle/lifetime/TLS fields. `install_mcp_integration` is now
+  create-if-absent so re-installing never resets a user's changes. `public_dict()`
+  also emits the raw operator-set bounds so the wire is lossless. A hard
+  invariant is added: a save may never widen authority by omission. TS
+  `MCPServerView`/`MCPServerInput` carry every field; the view↔draft mapping is a
+  pure tested module `src/lib/harness/mcp-draft.ts`.
+  docs updated: `docs/harness/mcp-ui-parity-progress.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H74)
+- **MCP Phase 6.1 — full-fidelity editor and status surfaces.** The settings UI
+  reaches every Phase-6 field: trust tier, include/exclude filters, per-tool
+  effects, native data sources, capability toggles, lazy/keepalive/idle/lifetime,
+  TLS/mTLS, limits, SSE transport and OAuth sign-in. The server editor is
+  extracted to `src/components/screens/mcp/`; a lifecycle panel renders the
+  runtime's retry/keepalive/recycle/metrics block honestly; approvals gain status
+  filtering; the config load error is shown loudly.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/mcp-ui-parity-progress.md`
+- **MCP Phase 6.1 — product surface, leftovers and `manager.py` split.** New
+  front-door routes `POST /api/harness/mcp/integrations/[id]/install` and
+  `GET /api/harness/mcp/supply-chain`; the wizard installs a preset and the
+  supply-chain panel renders offline. Non-text MCP content now reports MIME type +
+  byte size instead of an opaque omission. `resource_schemes` adds an optional
+  per-server narrowing with the global allowlist as a hard ceiling. `manager.py`
+  is split by pure extraction into `runtime.py`, `introspection.py` and
+  `oauth_flow.py` (1579 → 1226 lines), `MCPManager` facade unchanged.
+  docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
+  `docs/harness/mcp-ui-parity-progress.md`
+
 ## 2026-09-29
 
 - **MCP Phase 6 — close the deferred seams.** Declared MCP data tools now flow

@@ -14,6 +14,9 @@ import type {
   MCPTestResult,
   MCPApprovalView,
   MCPIntegrationView,
+  MCPInstallResult,
+  MCPSupplyChainReport,
+  MCPOauthTokenStatus,
   MCPWorkflowView,
   MCPDiagnosticsResponse,
 } from "./mcp-types";
@@ -119,9 +122,22 @@ export async function listMCPWorkflows(): Promise<MCPWorkflowView[]> {
   return body.workflows ?? [];
 }
 
+/** Install a preset integration as a DISABLED, nothing-selected server. */
+export async function installMCPIntegration(integrationId: string): Promise<MCPInstallResult> {
+  return request<MCPInstallResult>(
+    `/mcp/integrations/${encodeURIComponent(integrationId)}/install`,
+    { method: "POST", timeoutMs: 30_000 }
+  );
+}
+
+/** The offline, read-only supply-chain report (never triggers a network call). */
+export async function getMCPSupplyChain(): Promise<MCPSupplyChainReport> {
+  return request<MCPSupplyChainReport>("/mcp/supply-chain", { method: "GET" });
+}
+
 export async function getMCPDiagnostics(
   knownSecrets: string[] = [],
-  tokenStatus: Record<string, { configured: boolean; expired: boolean; refreshFailed: boolean; rejected: boolean }> = {}
+  tokenStatus: Record<string, MCPOauthTokenStatus> = {}
 ): Promise<MCPDiagnosticsResponse> {
   return request<MCPDiagnosticsResponse>("/mcp/diagnostics", {
     method: "POST",

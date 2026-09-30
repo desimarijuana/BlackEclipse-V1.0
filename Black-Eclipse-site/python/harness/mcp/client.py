@@ -866,14 +866,26 @@ def _normalize_result(
     blocks = getattr(result, "content", None) or []
     parts: list[str] = []
     kinds: list[str] = []
+    content_meta: list[dict[str, Any]] = []
     for block in blocks:
         block_type = getattr(block, "type", None)
         if block_type == "text":
             parts.append(str(getattr(block, "text", "")))
             kinds.append("text")
         elif block_type in ("image", "audio"):
-            parts.append(f"[{block_type} content omitted]")
+            # The run's result path carries text + structured JSON only, so a
+            # non-text block cannot be handed to the model as bytes. Rather than
+            # an opaque "[image content omitted]", report the MIME type and the
+            # DECODED byte size so the model and UI can honestly say what was
+            # returned. (A binary transport for this content is a documented
+            # non-goal of this phase — see the progress doc.)
+            mime = str(getattr(block, "mime_type", None) or getattr(block, "mimeType", None) or "application/octet-stream")
+            raw = getattr(block, "data", None)
+            size = _decoded_size(raw)
+            size_note = f", ~{size} bytes" if size is not None else ""
+            parts.append(f"[{block_type} content omitted: {mime}{size_note}]")
             kinds.append(block_type)
+            content_meta.append({"type": block_type, "mimeType": mime, "bytes": size})
         elif block_type == "resource":
             resource = getattr(block, "resource", None)
             text = getattr(resource, "text", None)
@@ -893,9 +905,28 @@ def _normalize_result(
         "isError": is_error,
         "contentKinds": kinds,
     }
+    if content_meta:
+        # Metadata-only: MIME type + byte size, never the bytes themselves.
+        data["nonTextContent"] = content_meta
     if structured is not None:
         data["structuredContent"] = structured
     return MCPCallOutcome(ok=not is_error, text=text, data=data, is_error=is_error)
+
+
+def _decoded_size(data: Any) -> Optional[int]:
+    """The decoded byte size of a base64 image/audio payload, or None.
+
+    Best-effort and content-free: on a malformed/absent payload it returns None
+    rather than guessing. The bytes are never retained.
+    """
+    import base64
+
+    if not isinstance(data, str) or not data:
+        return None
+    try:
+        return len(base64.b64decode(data, validate=False))
+    except Exception:  # noqa: BLE001 - an unreadable size is simply unknown
+        return None
 
 
 __all__ = [

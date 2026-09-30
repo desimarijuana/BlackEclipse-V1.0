@@ -1710,3 +1710,40 @@ interoperability was asserted from one.
 and defaults empty, so existing callers/tests are unaffected. A declared MCP
 source cannot displace a strong native structured provider (it is inserted only
 before web). `jdds.db` untouched.
+
+## ADR-H74 - MCP config round-trip: absent means preserve (Phase 6.1)
+
+**Decision.** `upsert_mcp_config` implements a merge contract from the incoming
+model's `model_fields_set`, not from `if value is not None`:
+
+> Absent means preserve; explicitly present means replace - including an explicit
+> `null` / `false` / `{}` / `[]` for clearing.
+
+A caller that omits a field (an older UI, an API client, a script) cannot reset
+it. The UI can still clear a field because `draftToInput` always sends every
+field it owns. This makes one edit-and-save provably unable to widen a server's
+authority by omission: `trust` cannot move `untrusted` -> `full`,
+`enabled_effects` cannot gain a class, `tool_effects`/`data_source_tools` cannot
+be dropped, `confirmed_catalog_digest` cannot be cleared, and `selected_tools`
+cannot grow, unless the caller explicitly sends the change. `env` keeps its
+documented write-only merge and `env_keys` behavior. `install_mcp_integration` is
+create-if-absent, so re-installing a preset never resets an operator's changes.
+`public_dict()` also emits the raw operator-set bounds so a view -> model -> view
+round trip is lossless; `public_configs()` exposes the capability-toggles map as
+`capabilityToggles` (the `tools` key holds the discovered array).
+
+**Why.** The Phase-6 field set existed only on the wire, not in the UI payload.
+Re-saving a server through Settings silently downgraded `untrusted` -> `full`,
+disabled resources/prompts, dropped the data-source declaration and every tool
+effect, and invalidated the catalog confirmation - a silent authority widening.
+
+**Consequences.** A TS pure module `src/lib/harness/mcp-draft.ts` owns the
+view<->draft<->input mapping and is round-trip tested
+(`mcp-draft.test.ts`); Python tests `test_mcp_config_roundtrip.py` assert the
+preserve/clear matrix, the authority-widening invariants, an idempotent re-save
+and install/confirm preservation. `_ServerRuntime`, status/introspection and the
+OAuth flow are pure-extracted from `manager.py` into `runtime.py`,
+`introspection.py` and `oauth_flow.py`; `MCPManager` remains the facade with an
+unchanged public API. `resource_schemes` adds an optional per-server URI-scheme
+narrowing with the global allowlist as a hard ceiling. Non-text MCP content
+reports MIME type + byte size rather than an opaque omission.

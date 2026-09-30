@@ -166,7 +166,10 @@ def test_confirm_requires_connected_server_and_is_secret_free(client):
 
 def test_annotation_only_server_activates_after_confirm(client):
     body = _server_body()
-    body.pop("tool_effects")  # rely on the server's untrusted read-only hint
+    # Explicitly clear any effect a previous test left on the shared `fx` entry.
+    # A save now preserves an omitted field (Phase 6.1 round-trip integrity), so
+    # "annotation only" must be stated as an explicit empty map, not by omission.
+    body["tool_effects"] = {}
     saved = client.post("/mcp/servers", json={"server": body}).json()
     assert saved["registeredTools"] == 0  # unconfirmed → inert
 

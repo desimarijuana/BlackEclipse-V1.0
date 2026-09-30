@@ -358,14 +358,27 @@ class AgenticService:
 
         The user must not hand-edit JSON for a server Eclipse recommends. Nothing
         ships enabled or selected; the operator reviews and activates.
+
+        Install is create-if-absent: if a server with the integration's id is
+        already configured, the existing entry is left untouched, so re-installing
+        never resets a change the user made (trust tier, selection, effects,
+        declared data sources, confirmation).
         """
-        from .mcp.config import upsert_mcp_config
+        from .mcp.config import load_mcp_configs, upsert_mcp_config
         from .mcp.presets import integration, integration_to_config
         from .mcp.screening import refusals, screen_entry
 
         spec = integration(integration_id)
         if spec is None:
             return {"success": False, "reason": "unknown integration"}
+        existing, _ = load_mcp_configs()
+        if any(c.id == spec.id for c in existing):
+            return {
+                "success": True,
+                "installed": integration_id,
+                "alreadyInstalled": True,
+                "reason": "already configured; left unchanged",
+            }
         entry = integration_to_config(spec)
         blocked = refusals(screen_entry(entry))
         if blocked:

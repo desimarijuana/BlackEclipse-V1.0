@@ -173,3 +173,42 @@ def test_tool_schema_context_cost_is_measured_and_bounded():
 
     one, ten, fifty, two_hundred = measure(1), measure(10), measure(50), measure(200)
     assert 0 < one < ten < fifty < two_hundred
+
+
+# ── non-text content is reported honestly, never as an opaque omission ──────
+
+
+def test_non_text_content_reports_mime_and_size_not_opaque_omission():
+    """An image/audio block cannot ride the text result path, but the outcome
+    must say WHAT was returned (MIME + byte size), not just that something was
+    omitted. The bytes are never included."""
+    import base64
+
+    from harness.mcp.client import _normalize_result
+
+    payload = base64.b64encode(b"x" * 240).decode("ascii")
+
+    class _Image:
+        type = "image"
+        mime_type = "image/png"
+        data = payload
+
+    class _Text:
+        type = "text"
+        text = "caption"
+
+    class _Result:
+        is_error = False
+        content = [_Text(), _Image()]
+        structured_content = None
+
+    outcome = _normalize_result(_Result(), "srv", "screenshot")
+    assert "image/png" in outcome.text
+    assert "240 bytes" in outcome.text
+    assert "omitted" in outcome.text
+    assert outcome.data["contentKinds"] == ["text", "image"]
+    meta = outcome.data["nonTextContent"]
+    assert meta == [{"type": "image", "mimeType": "image/png", "bytes": 240}]
+    # The raw payload is never carried.
+    assert payload not in repr(outcome.data)
+

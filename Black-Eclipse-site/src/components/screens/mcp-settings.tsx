@@ -15,401 +15,23 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle, Check, ChevronDown, Loader2, Plug, Plus, RefreshCcw,
-  ShieldAlert, Trash2, Unplug, Wrench, X,
+  ShieldAlert, Trash2, Unplug, Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type {
-  MCPEffect, MCPTransport, MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
+  MCPEffect, MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
   MCPIntegrationView, MCPWorkflowView, MCPDiagnosticView, MCPDiagnosticsResponse,
+  MCPSupplyChainReport,
 } from "@/lib/harness/mcp-types";
-
-const EFFECT_LABEL: Record<MCPEffect, string> = {
-  read: "Read-only",
-  write: "Writes data",
-  external_action: "External action",
-  unknown: "Unknown effect",
-};
-
-const EFFECT_CLASS: Record<MCPEffect, string> = {
-  read: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-  write: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  external_action: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-  unknown: "border-border/40 bg-muted/30 text-muted-foreground",
-};
-
-function Panel({ className, children, ...rest }: { className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={cn("rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden", className)} {...rest}>
-      {children}
-    </div>
-  );
-}
-
-function EffectBadge({ effect }: { effect: MCPEffect }) {
-  return (
-    <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold border", EFFECT_CLASS[effect])}>
-      {EFFECT_LABEL[effect]}
-    </span>
-  );
-}
-
-function stateDot(state: MCPServerView["state"], enabled: boolean): { ok: boolean; label: string } {
-  if (!enabled) return { ok: false, label: "Disabled" };
-  if (state === "connected") return { ok: true, label: "Connected" };
-  if (state === "failed") return { ok: false, label: "Failed" };
-  return { ok: false, label: state };
-}
-
-interface DraftServer {
-  id: string;
-  transport: MCPTransport;
-  command: string;
-  argsText: string;
-  /** HTTP endpoint URL (transport === "http"). */
-  url: string;
-  /** HTTP auth secret reference (vault secret NAME), e.g. "Authorization Bearer my_token". */
-  authKind: "header" | "query";
-  authName: string;
-  authPrefix: string;
-  authSecretRef: string;
-  envText: string;
-  envAllowlistText: string;
-  /** ENV_VAR=secretName per line — vault references, never values. */
-  secretRefsText: string;
-  cwd: string;
-  enabled: boolean;
-  selectedTools: string[];
-  enabledEffects: MCPEffect[];
-  description: string;
-  /** Existing env key names (values are never returned to the UI). */
-  envKeys: string[];
-}
-
-function emptyDraft(): DraftServer {
-  return {
-    id: "", transport: "stdio", command: "", argsText: "", url: "",
-    authKind: "header", authName: "Authorization", authPrefix: "Bearer ", authSecretRef: "",
-    envText: "", envAllowlistText: "", secretRefsText: "", cwd: "",
-    enabled: false, selectedTools: [], enabledEffects: ["read"], description: "", envKeys: [],
-  };
-}
-
-/** Parse `ENV_VAR=secretName` per line into a reference map. */
-function parseRefs(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    const name = trimmed.slice(eq + 1).trim();
-    if (name) out[trimmed.slice(0, eq).trim()] = name;
-  }
-  return out;
-}
-
-/** Parse a KEY=VALUE per line editor into an env map. */
-function parseEnv(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
-  }
-  return out;
-}
-
-function ServerEditor({
-  draft,
-  setDraft,
-  onCancel,
-  onSave,
-  onTest,
-  saving,
-  testing,
-  testResult,
-}: {
-  draft: DraftServer;
-  setDraft: (d: DraftServer) => void;
-  onCancel: () => void;
-  onSave: () => void;
-  onTest: () => void;
-  saving: boolean;
-  testing: boolean;
-  testResult: { state: string; diagnostic?: string | null; tools: MCPToolView[] } | null;
-}) {
-  const toggleTool = (name: string) => {
-    setDraft({
-      ...draft,
-      selectedTools: draft.selectedTools.includes(name)
-        ? draft.selectedTools.filter((t) => t !== name)
-        : [...draft.selectedTools, name],
-    });
-  };
-  const missing = !draft.id.trim() || (draft.transport === "stdio" ? !draft.command.trim() : !draft.url.trim());
-  const isHttp = draft.transport === "http";
-
-  return (
-    <Panel className="p-5 space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">Server ID</Label>
-          <Input
-            value={draft.id}
-            onChange={(e) => setDraft({ ...draft, id: e.target.value })}
-            placeholder="e.g. finance-tools"
-            className="rounded-xl font-mono text-xs"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">Transport</Label>
-          <Select value={draft.transport} onValueChange={(v) => setDraft({ ...draft, transport: (v ?? "stdio") as MCPTransport })}>
-            <SelectTrigger className="h-9 rounded-xl text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="stdio">stdio — local subprocess</SelectItem>
-              <SelectItem value="http">http — remote Streamable HTTP</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {isHttp ? (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Endpoint URL</Label>
-            <Input
-              value={draft.url}
-              onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-              placeholder="https://mcp.example.com/mcp"
-              className="rounded-xl font-mono text-xs"
-            />
-            <p className="text-[10px] text-muted-foreground/70">Must be https (loopback http is allowed for local testing). Private hosts are refused.</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground font-medium">Auth kind</Label>
-              <Select value={draft.authKind} onValueChange={(v) => setDraft({ ...draft, authKind: (v ?? "header") as "header" | "query" })}>
-                <SelectTrigger className="h-9 rounded-xl text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="header">Header</SelectItem>
-                  <SelectItem value="query">Query param</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground font-medium">Name</Label>
-              <Input value={draft.authName} onChange={(e) => setDraft({ ...draft, authName: e.target.value })} placeholder="Authorization" className="rounded-xl font-mono text-xs" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground font-medium">Value prefix</Label>
-              <Input value={draft.authPrefix} onChange={(e) => setDraft({ ...draft, authPrefix: e.target.value })} placeholder="Bearer " className="rounded-xl font-mono text-xs" />
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Vault secret name</Label>
-            <Input value={draft.authSecretRef} onChange={(e) => setDraft({ ...draft, authSecretRef: e.target.value })} placeholder="e.g. notion_integration_token" className="rounded-xl font-mono text-xs" />
-            <p className="text-[10px] text-muted-foreground/70">The token is stored encrypted in the Secret vault; only its name is kept here.</p>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Command</Label>
-            <Input
-              value={draft.command}
-              onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-              placeholder="e.g. npx or python"
-              className="rounded-xl font-mono text-xs"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs text-muted-foreground font-medium">Arguments (one per line)</Label>
-            <textarea
-              value={draft.argsText}
-              onChange={(e) => setDraft({ ...draft, argsText: e.target.value })}
-              rows={3}
-              placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/path/to/dir"}
-              className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/40"
-            />
-            <p className="text-[10px] text-muted-foreground/70">
-              Passed as an argv list — never through a shell.
-            </p>
-          </div>
-        </>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">Environment (KEY=VALUE per line)</Label>
-          <textarea
-            value={draft.envText}
-            onChange={(e) => setDraft({ ...draft, envText: e.target.value })}
-            rows={3}
-            placeholder={draft.envKeys.length ? `${draft.envKeys[0]}=` : "API_BASE_URL=https://…"}
-            className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/40"
-          />
-          <p className="text-[10px] text-muted-foreground/70">
-            Scoped to this server only. Leave the value blank (<span className="font-mono">KEY=</span>) to keep the
-            stored secret. Values are stored locally and never shown again.
-            {draft.envKeys.length > 0 && (
-              <> Stored keys: <span className="font-mono">{draft.envKeys.join(", ")}</span>.</>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground font-medium">Host env vars to pass through (optional)</Label>
-          <Input
-            value={draft.envAllowlistText}
-            onChange={(e) => setDraft({ ...draft, envAllowlistText: e.target.value })}
-            placeholder="e.g. FOO BAR"
-            className="rounded-xl font-mono text-xs"
-          />
-          <p className="text-[10px] text-muted-foreground/70">
-            Names copied from the host environment into the server. Nothing else is forwarded.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground font-medium">Vault secret references (ENV_VAR=secretName per line)</Label>
-        <textarea
-          value={draft.secretRefsText}
-          onChange={(e) => setDraft({ ...draft, secretRefsText: e.target.value })}
-          rows={2}
-          placeholder="API_TOKEN=my_server_token"
-          className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/40"
-        />
-        <p className="text-[10px] text-muted-foreground/70">
-          Preferred over an inline value: the secret is stored encrypted in the vault and resolved at spawn. Add
-          secrets in the Vault panel below.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground font-medium">Effects allowed for this server</Label>
-        <div className="flex items-center gap-4 flex-wrap">
-          {(["read", "write", "external_action"] as MCPEffect[]).map((eff) => (
-            <label key={eff} className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                className="accent-primary"
-                checked={draft.enabledEffects.includes(eff)}
-                disabled={eff === "read"}
-                onChange={() =>
-                  setDraft({
-                    ...draft,
-                    enabledEffects: draft.enabledEffects.includes(eff)
-                      ? draft.enabledEffects.filter((e) => e !== eff)
-                      : [...draft.enabledEffects, eff],
-                  })
-                }
-              />
-              <EffectBadge effect={eff} />
-            </label>
-          ))}
-        </div>
-        <p className="text-[10px] text-muted-foreground/70">
-          Write/action tools additionally require a per-call approval bound to the exact arguments before they run.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground font-medium">Working directory (optional)</Label>
-        <Input
-          value={draft.cwd}
-          onChange={(e) => setDraft({ ...draft, cwd: e.target.value })}
-          placeholder="relative to the app root"
-          className="rounded-xl font-mono text-xs"
-        />
-        <p className="text-[10px] text-muted-foreground/70">
-          A relative path resolves against the app root, not the launch directory.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onTest} disabled={missing || testing}>
-          {testing ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plug className="w-3.5 h-3.5 mr-1" />}
-          Test connection
-        </Button>
-        {testResult && (
-          <span className={cn("text-[11px] flex items-center gap-1", testResult.state === "connected" ? "text-emerald-400" : "text-rose-400")}>
-            {testResult.state === "connected" ? <Check className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-            {testResult.state === "connected" ? `Connected · ${testResult.tools.length} tool(s) discovered` : testResult.diagnostic || "Connection failed"}
-          </span>
-        )}
-      </div>
-
-      {testResult && testResult.tools.length > 0 && (
-        <div className="rounded-xl border border-border/20 glass-card-subtle">
-          <div className="px-4 py-2.5 border-b border-border/10 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Discovered tools</span>
-            <span className="text-[10px] text-muted-foreground">Select the read-only tools to enable</span>
-          </div>
-          <div className="divide-y divide-border/10 max-h-64 overflow-y-auto">
-            {testResult.tools.map((tool) => {
-              const activatable = tool.effect === "read" && !tool.diagnostic;
-              const checked = draft.selectedTools.includes(tool.originalName);
-              return (
-                <label
-                  key={tool.originalName}
-                  className={cn(
-                    "flex items-start gap-3 px-4 py-2.5",
-                    activatable ? "cursor-pointer hover:bg-accent/20" : "opacity-60"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 accent-primary"
-                    checked={checked}
-                    disabled={!activatable}
-                    onChange={() => activatable && toggleTool(tool.originalName)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-mono text-foreground">{tool.originalName}</span>
-                      <EffectBadge effect={tool.effect} />
-                      {tool.diagnostic && <span className="text-[10px] text-rose-400">{tool.diagnostic}</span>}
-                    </div>
-                    {tool.description && <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{tool.description}</p>}
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="flex items-center gap-2">
-          <button
-            role="switch"
-            aria-checked={draft.enabled}
-            onClick={() => setDraft({ ...draft, enabled: !draft.enabled })}
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 items-center border rounded-full transition-colors cursor-pointer",
-              draft.enabled ? "bg-primary/25 border-primary/50" : "bg-muted/60 border-border"
-            )}
-          >
-            <span className={cn("inline-block h-3.5 w-3.5 transform rounded-full shadow-sm transition-transform", draft.enabled ? "translate-x-[18px] bg-primary" : "translate-x-[2px] bg-muted-foreground/70")} />
-          </button>
-          <span className="text-xs text-muted-foreground">Enable this server</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="cursor-pointer rounded-xl" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" className="cursor-pointer rounded-xl" onClick={onSave} disabled={missing || saving}>
-            {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : null}
-            Save server
-          </Button>
-        </div>
-      </div>
-    </Panel>
-  );
-}
+import {
+  draftFromServer, draftToInput, emptyDraft, selectedToolNames, type DraftServer,
+} from "@/lib/harness/mcp-draft";
+import { Panel, EffectBadge, stateDot, StateDot } from "./mcp/primitives";
+import { ServerEditor } from "./mcp/server-editor";
+import { MCPLifecyclePanel } from "./mcp/lifecycle-panel";
 
 function ServerCard({
   server,
@@ -418,6 +40,8 @@ function ServerCard({
   onRemove,
   onEdit,
   onConfirmCatalog,
+  onOauthLogin,
+  onOauthLogout,
   busy,
 }: {
   server: MCPServerView;
@@ -426,23 +50,30 @@ function ServerCard({
   onRemove: () => void;
   onEdit: () => void;
   onConfirmCatalog: () => void;
+  onOauthLogin: () => Promise<{ verificationUri?: string; userCode?: string }>;
+  onOauthLogout: () => void;
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const dot = stateDot(server.state, server.enabled);
+  const [oauthState, setOauthState] = useState<{ verificationUri?: string; userCode?: string } | null>(null);
   // A discovered catalog whose digest differs from the operator's last reviewed
   // digest must be re-confirmed before an annotation-sourced read tool can run.
   const catalogChanged =
     server.enabled && server.state === "connected" && !!server.catalogDigest &&
     server.catalogDigest !== server.confirmedCatalogDigest;
+  const isOauth = server.auth?.kind === "oauth";
   return (
     <Panel>
       <div className="flex items-center gap-3 px-5 py-3.5">
-        <span className={cn("w-2 h-2 rounded-full shrink-0", dot.ok ? "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/60" : "bg-muted-foreground/40")} />
+        <StateDot tone={dot.tone} />
         <button className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer" onClick={() => setOpen((o) => !o)}>
           <span className="text-xs font-semibold text-foreground truncate">{server.name || server.id}</span>
-          <span className="text-[10px] font-mono text-muted-foreground truncate">{server.transport === "http" ? server.url : server.command}</span>
+          <span className="text-[10px] font-mono text-muted-foreground truncate">
+            {server.transport === "stdio" ? server.command : server.url}
+          </span>
           <span className="text-[10px] text-muted-foreground font-mono">{dot.label}</span>
+          {server.untrusted && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-rose-500/40 bg-rose-500/15 text-rose-300">UNTRUSTED</span>}
           {server.secretCount > 0 && <span className="text-[10px] text-muted-foreground font-mono">· {server.secretCount} secret(s)</span>}
           <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
         </button>
@@ -471,10 +102,46 @@ function ServerCard({
 
       {open && (
         <div className="px-5 pb-4 space-y-3 border-t border-border/10 pt-3">
+          {server.untrusted && (
+            <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2">
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-muted-foreground">
+                <strong className="text-rose-300">Untrusted server.</strong> Every non-read call needs a per-call
+                approval regardless of the enabled effects, and this server&apos;s own annotations can never activate a tool.
+              </p>
+            </div>
+          )}
           {server.diagnostic && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
               <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-muted-foreground">{server.diagnostic}</p>
+            </div>
+          )}
+          {lifecycleSummary(server)}
+          <MCPLifecyclePanel server={server} />
+          {isOauth && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/20 glass-card-subtle px-3 py-2">
+              <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">OAuth</span>
+              <Button size="sm" variant="outline" className="cursor-pointer rounded-xl" disabled={busy}
+                onClick={async () => setOauthState(await onOauthLogin())}>
+                Sign in
+              </Button>
+              <Button size="sm" variant="ghost" className="cursor-pointer rounded-xl text-rose-400" disabled={busy} onClick={onOauthLogout}>
+                Sign out
+              </Button>
+              {oauthState?.userCode && (
+                <span className="text-[11px] text-muted-foreground">
+                  Go to <span className="font-mono text-foreground">{oauthState.verificationUri}</span> and enter code{" "}
+                  <span className="font-mono text-foreground">{oauthState.userCode}</span>.
+                </span>
+              )}
+            </div>
+          )}
+          {server.capabilities && (
+            <div className="text-[10px] text-muted-foreground font-mono">
+              advertised: {Object.entries(server.capabilities).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}
+              {" · "}
+              enabled here: {Object.entries(server.capabilityToggles ?? {}).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}
             </div>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-muted-foreground font-mono">
@@ -510,13 +177,16 @@ function ServerCard({
             </div>
             {server.tools.length === 0 ? (
               <p className="px-4 py-4 text-[11px] text-muted-foreground text-center">
-                {server.enabled ? "No tools discovered (the server may have failed — see the diagnostic above)." : "Enable the server to discover its tools."}
+                {server.state === "lazy"
+                  ? "Lazy server: tool declarations load from the on-disk cache and connect on the first call."
+                  : server.enabled ? "No tools discovered (the server may have failed — see the diagnostic above)." : "Enable the server to discover its tools."}
               </p>
             ) : (
               <div className="divide-y divide-border/10">
                 {server.tools.map((tool) => {
-                  const activatable = tool.effect === "read" && !tool.diagnostic;
-                  const selected = server.selectedTools.includes(tool.originalName);
+                  const declared = server.toolEffects[tool.originalName];
+                  const activatable = tool.activatable;
+                  const selected = tool.selected || selectedToolNames(server).includes(tool.originalName);
                   return (
                     <label key={tool.originalName} className={cn("flex items-start gap-3 px-4 py-2.5", activatable ? "cursor-pointer hover:bg-accent/20" : "opacity-70")}>
                       <input
@@ -529,17 +199,13 @@ function ServerCard({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-mono text-foreground">{tool.originalName}</span>
-                          <EffectBadge effect={tool.effect} />
+                          <EffectBadge effect={declared ?? tool.effect} />
+                          {declared && <span className="text-[9px] font-mono text-emerald-300">declared</span>}
                           <span className="text-[9px] font-mono text-muted-foreground">→ {tool.eclipseName}</span>
                           {selected && activatable && <span className="text-[9px] text-primary">active</span>}
                         </div>
                         {tool.description && <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{tool.description}</p>}
-                        {!activatable && !tool.diagnostic && (
-                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                            Only read-only tools can be enabled in this phase.
-                          </p>
-                        )}
-                        {tool.diagnostic && <p className="text-[10px] text-rose-400 mt-0.5">{tool.diagnostic}</p>}
+                        {!activatable && tool.diagnostic && <p className="text-[10px] text-rose-400 mt-0.5">{tool.diagnostic}</p>}
                       </div>
                     </label>
                   );
@@ -552,6 +218,20 @@ function ServerCard({
     </Panel>
   );
 }
+
+/** A compact one-line lifecycle summary (the detail is in the panel below). */
+function lifecycleSummary(server: MCPServerView): React.ReactNode {
+  const l = server.lifecycle;
+  if (!l) return null;
+  const parts: string[] = [];
+  if (l.lazyActive) parts.push(`lazy (${l.cachedTools ?? 0} cached)`);
+  if (l.lastErrorCode) parts.push(`last error: ${l.lastErrorCode}`);
+  if (l.keepaliveFailures) parts.push(`${l.keepaliveFailures} keepalive failure(s)`);
+  if (l.recycledReason) parts.push(`recycled: ${l.recycledReason}`);
+  if (parts.length === 0) return null;
+  return <p className="text-[10px] font-mono text-amber-300">{parts.join(" · ")}</p>;
+}
+
 
 export function MCPSettingsPanel() {
   const [servers, setServers] = useState<MCPServerView[]>([]);
@@ -587,41 +267,7 @@ export function MCPSettingsPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const draftToPayload = (d: DraftServer) => {
-    const parsed = parseEnv(d.envText);
-    // A blank value ("KEY=") means "keep the stored value": it is listed as a key
-    // to retain but omitted from `env`, so the runtime preserves the secret. A
-    // non-empty value overwrites.
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (value !== "") env[key] = value;
-    }
-    const envKeys = Object.keys(parsed);
-    const allowlist = d.envAllowlistText.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-    const isHttp = d.transport === "http";
-    const auth = isHttp && d.authSecretRef.trim()
-      ? { kind: d.authKind, name: d.authName.trim() || "Authorization", prefix: d.authPrefix || undefined, secretRef: d.authSecretRef.trim() }
-      : undefined;
-    return {
-      server: {
-        id: d.id.trim(),
-        transport: d.transport,
-        command: isHttp ? undefined : d.command.trim(),
-        args: isHttp ? [] : d.argsText.split(/\r?\n/).map((a) => a.trim()).filter(Boolean),
-        url: isHttp ? d.url.trim() : undefined,
-        auth,
-        env,
-        envAllowlist: allowlist,
-        secretRefs: parseRefs(d.secretRefsText),
-        cwd: d.cwd.trim() || undefined,
-        enabled: d.enabled,
-        selectedTools: d.selectedTools,
-        enabledEffects: d.enabledEffects.length ? d.enabledEffects : ["read"],
-        description: d.description.trim() || undefined,
-      },
-      envKeys,
-    };
-  };
+  const draftToPayload = (d: DraftServer) => draftToInput(d);
 
   const saveDraft = async () => {
     if (!editing) return;
@@ -669,29 +315,20 @@ export function MCPSettingsPanel() {
     setBusy(true);
     setError(null);
     try {
+      // Build the full payload from the extracted mapping so a card-level
+      // toggle can never drop a Phase-6 field. `env` is intentionally omitted
+      // (the mapping yields no values for stored keys), so the runtime merges
+      // and preserves the stored secrets.
+      const draft = draftFromServer(server);
+      const input = draftToInput(draft).server;
       const res = await fetch("/api/harness/mcp/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           server: {
-            id: server.id,
-            name: server.name ?? undefined,
-            transport: server.transport,
-            command: server.command,
-            args: server.args,
-            url: server.url ?? undefined,
-            auth: server.auth ?? undefined,
-            envAllowlist: server.envAllowlist,
-            secretRefs: server.secretRefs,
-            cwd: server.cwd ?? undefined,
-            enabled: patch.enabled ?? server.enabled,
-            // No `env` is sent, so the runtime merges and preserves existing
-            // scoped values. Budgets are carried so a toggle cannot reset them.
-            ...(server.limits ?? {}),
-            selectedTools: patch.selectedTools ?? server.selectedTools,
-            toolEffects: server.toolEffects,
-            enabledEffects: server.enabledEffects,
-            description: server.description ?? undefined,
+            ...input,
+            enabled: patch.enabled ?? input.enabled,
+            selectedTools: patch.selectedTools ?? input.selectedTools,
           },
         }),
       });
@@ -737,27 +374,43 @@ export function MCPSettingsPanel() {
 
   const editServer = (server: MCPServerView) => {
     setTestResult(null);
-    setEditing({
-      id: server.id,
-      transport: server.transport ?? "stdio",
-      command: server.command,
-      argsText: server.args.join("\n"),
-      url: server.url ?? "",
-      authKind: (server.auth?.kind ?? "header") as "header" | "query",
-      authName: server.auth?.name ?? "Authorization",
-      authPrefix: server.auth?.prefix ?? "Bearer ",
-      authSecretRef: server.auth?.secretRef ?? "",
-      // Seed one blank line per stored key so a save keeps them unless removed.
-      envText: server.envKeys.map((k) => `${k}=`).join("\n"),
-      envAllowlistText: server.envAllowlist.join(" "),
-      secretRefsText: Object.entries(server.secretRefs ?? {}).map(([envName, secretName]) => `${envName}=${secretName}`).join("\n"),
-      cwd: server.cwd ?? "",
-      enabled: server.enabled,
-      selectedTools: server.selectedTools,
-      enabledEffects: server.enabledEffects?.length ? server.enabledEffects : ["read"],
-      description: server.description ?? "",
-      envKeys: server.envKeys,
-    });
+    setEditing(draftFromServer(server));
+  };
+
+  const oauthLogin = async (server: MCPServerView): Promise<{ verificationUri?: string; userCode?: string }> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/harness/mcp/servers/${encodeURIComponent(server.id)}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Sign-in failed");
+      await load();
+      return { verificationUri: body.verificationUri, userCode: body.userCode };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+      return {};
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const oauthLogout = async (server: MCPServerView) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/harness/mcp/servers/${encodeURIComponent(server.id)}/logout`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Sign-out failed");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-out failed");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -780,6 +433,7 @@ export function MCPSettingsPanel() {
       <FinanceWorkflowWizard
         busy={busy}
         onAddServer={(draft) => { setTestResult(null); setEditing(draft); }}
+        onInstalled={() => void load()}
       />
       <MCPDiagnosticsPanel busy={busy} />
 
@@ -814,11 +468,26 @@ export function MCPSettingsPanel() {
       )}
 
       {loadDiagnostics.length > 0 && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 mb-4">
-          <p className="text-[11px] text-muted-foreground">
-            {loadDiagnostics.length} config entr{loadDiagnostics.length === 1 ? "y" : "ies"} could not be loaded:
-            {" "}{loadDiagnostics.map((d) => `${d.server} (${d.code})`).join(", ")}
-          </p>
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 mb-4">
+          <div className="flex items-start gap-2">
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-semibold text-rose-300">
+                {loadDiagnostics.length} server config entr{loadDiagnostics.length === 1 ? "y" : "ies"} could not be loaded.
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                A malformed entry in mcp-servers.json is skipped rather than crashing startup. Fix the file to
+                configure {loadDiagnostics.length === 1 ? "it" : "them"}.
+              </p>
+              <ul className="mt-1.5 space-y-0.5">
+                {loadDiagnostics.map((d, i) => (
+                  <li key={`${d.server}:${d.code}:${i}`} className="text-[10px] font-mono text-muted-foreground">
+                    {d.server} ({d.code}): {d.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 
@@ -859,14 +528,17 @@ export function MCPSettingsPanel() {
               busy={busy}
               onToggleEnabled={() => void updateServer(server, { enabled: !server.enabled })}
               onSelectTool={(tool, selected) => {
+                const current = selectedToolNames(server);
                 const next = selected
-                  ? [...server.selectedTools, tool]
-                  : server.selectedTools.filter((t) => t !== tool);
+                  ? [...current, tool]
+                  : current.filter((t) => t !== tool);
                 void updateServer(server, { selectedTools: next });
               }}
               onRemove={() => void removeServer(server)}
               onEdit={() => editServer(server)}
               onConfirmCatalog={() => void confirmCatalog(server)}
+              onOauthLogin={() => oauthLogin(server)}
+              onOauthLogout={() => void oauthLogout(server)}
             />
           ))}
         </div>
@@ -877,10 +549,12 @@ export function MCPSettingsPanel() {
         <MCPApprovalsPanel busy={busy} onError={setError} />
       </div>
 
+      <MCPSupplyChainPanel />
+
       <p className="text-[10px] text-muted-foreground/60 mt-4 leading-relaxed">
-        <X className="inline w-3 h-3 -mt-0.5" /> Remote HTTP/OAuth servers, Eclipse acting as an MCP server, and
-        resources/prompts/subscriptions are future work. Local stdio servers, vault-backed secret references, and
-        per-call effectful-tool approvals are implemented.
+        Local stdio and remote HTTP/SSE servers, OAuth sign-in, resources/prompts, lazy start, TLS/mTLS and
+        per-call effectful-tool approvals are implemented here. Eclipse acting as an MCP server is configured
+        outside this panel. Subscriptions remain a documented non-goal: a notification never triggers a run or a write.
       </p>
     </div>
   );
@@ -974,19 +648,24 @@ function MCPSecretsPanel({ busy, onError }: { busy: boolean; onError: (m: string
 
 // ── Approvals panel (5G) ────────────────────────────────────────────────────
 
+const APPROVAL_FILTERS = ["pending", "approved", "denied", "expired", "all"] as const;
+type ApprovalFilter = (typeof APPROVAL_FILTERS)[number];
+
 function MCPApprovalsPanel({ busy, onError }: { busy: boolean; onError: (m: string) => void }) {
   const [approvals, setApprovals] = useState<MCPApprovalView[]>([]);
   const [working, setWorking] = useState(false);
+  const [filter, setFilter] = useState<ApprovalFilter>("pending");
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/harness/mcp/approvals?status=pending");
+      const query = filter === "all" ? "" : `?status=${encodeURIComponent(filter)}`;
+      const res = await fetch(`/api/harness/mcp/approvals${query}`);
       const body = await res.json();
       if (res.ok) setApprovals(body.approvals ?? []);
     } catch {
       /* non-fatal */
     }
-  }, []);
+  }, [filter]);
   useEffect(() => { void load(); }, [load]);
 
   const decide = async (id: string, approve: boolean) => {
@@ -1011,39 +690,141 @@ function MCPApprovalsPanel({ busy, onError }: { busy: boolean; onError: (m: stri
     <Panel className="p-5">
       <div className="flex items-center gap-2 mb-2">
         <Wrench className="w-4 h-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Pending approvals</h3>
+        <h3 className="text-sm font-semibold text-foreground">Effectful-tool approvals</h3>
       </div>
       <p className="text-[10px] text-muted-foreground mb-3 leading-relaxed">
         A write/action MCP tool is blocked until you approve the exact call. The approval is bound to the server,
-        tool, and argument digest, and expires.
+        tool, and argument digest, and expires. Every approval is a single explicit decision — there is no
+        &quot;remember&quot; or bulk approval.
       </p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {APPROVAL_FILTERS.map((f) => (
+          <button key={f} type="button" onClick={() => setFilter(f)}
+            className={cn("rounded-lg border px-2 py-0.5 text-[10px] capitalize cursor-pointer",
+              filter === f ? "border-primary/50 bg-primary/15 text-primary" : "border-border/30 text-muted-foreground hover:bg-accent/20")}>
+            {f}
+          </button>
+        ))}
+      </div>
       {approvals.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/70">No pending approvals.</p>
+        <p className="text-[11px] text-muted-foreground/70">No {filter === "all" ? "" : `${filter} `}approvals.</p>
       ) : (
         <div className="space-y-2">
-          {approvals.map((a) => (
-            <div key={a.id} className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono text-foreground">{a.tool}</span>
-                <EffectBadge effect={a.effect} />
-                {a.risk && (
-                  <span className={cn("text-[9px] font-bold uppercase", a.risk === "high" ? "text-rose-400" : "text-muted-foreground")}>
-                    {a.risk} risk
+          {approvals.map((a) => {
+            const expired = a.status === "expired";
+            const decided = a.status === "approved" || a.status === "denied";
+            return (
+              <div key={a.id} className={cn("rounded-xl border px-3 py-2",
+                expired ? "border-border/20 bg-muted/10 opacity-80"
+                  : decided ? "border-border/20 bg-muted/10"
+                    : "border-amber-500/20 bg-amber-500/5")}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-mono text-foreground">{a.tool}</span>
+                  <EffectBadge effect={a.effect} />
+                  <span className={cn("text-[9px] font-bold uppercase",
+                    a.status === "approved" ? "text-emerald-400" : a.status === "denied" ? "text-rose-400" : a.status === "expired" ? "text-muted-foreground" : "text-amber-300")}>
+                    {a.status}
                   </span>
+                  {a.risk && (
+                    <span className={cn("text-[9px] font-bold uppercase", a.risk === "high" ? "text-rose-400" : "text-muted-foreground")}>
+                      {a.risk} risk
+                    </span>
+                  )}
+                  <span className="text-[9px] font-mono text-muted-foreground">{a.serverId}</span>
+                </div>
+                {a.actionSummary && <p className="text-[11px] text-foreground/90 mt-1">{a.actionSummary}</p>}
+                {a.affectedData && (
+                  <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">affects: {a.affectedData}</p>
                 )}
-                <span className="text-[9px] font-mono text-muted-foreground">{a.serverId}</span>
+                <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">digest {a.argsDigest.slice(0, 16)}…</p>
+                {a.decidedBy && <p className="text-[9px] text-muted-foreground mt-1">decided by {a.decidedBy}{a.reason ? `: ${a.reason}` : ""}</p>}
+                {a.expiresAt && <p className="text-[9px] text-muted-foreground mt-1">expires {a.expiresAt}</p>}
+                {a.requestedByRunId && (
+                  <p className="text-[9px] text-muted-foreground mt-1">
+                    run <span className="font-mono">{a.requestedByRunId}</span>
+                  </p>
+                )}
+                {a.status === "pending" && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button size="sm" className="cursor-pointer rounded-xl" onClick={() => void decide(a.id, true)} disabled={working || busy}>Approve this exact call</Button>
+                    <Button size="sm" variant="ghost" className="cursor-pointer rounded-xl text-rose-400" onClick={() => void decide(a.id, false)} disabled={working || busy}>Deny</Button>
+                  </div>
+                )}
               </div>
-              {a.actionSummary && <p className="text-[11px] text-foreground/90 mt-1">{a.actionSummary}</p>}
-              {a.affectedData && (
-                <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">affects: {a.affectedData}</p>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// ── Supply chain (read-only, offline) ───────────────────────────────────────
+
+function MCPSupplyChainPanel() {
+  const [report, setReport] = useState<MCPSupplyChainReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/harness/mcp/supply-chain");
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error ?? "Supply-chain report failed");
+        return;
+      }
+      setReport(body);
+    } catch {
+      setError("Could not reach the supply-chain endpoint");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return (
+    <Panel className="p-5 mt-4">
+      <button type="button" className="flex w-full items-center justify-between cursor-pointer" onClick={() => { setOpen((o) => !o); if (!open && !report) void load(); }}>
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Supply chain</h3>
+          <span className="text-[10px] text-muted-foreground">offline report — no network call</span>
+        </div>
+        <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          {loading && <p className="text-[11px] text-muted-foreground flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</p>}
+          {error && <p className="text-[11px] text-rose-400">{error}</p>}
+          {report && (
+            <>
+              <p className="text-[10px] text-muted-foreground">{report.note}</p>
+              {report.packages.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/70">No packages to report.</p>
+              ) : (
+                <>
+                  <p className="text-[10px] text-muted-foreground">
+                    {report.packages.length} package(s) · {report.unpinnedCount} unpinned · checked {report.checkedAt}
+                  </p>
+                  <div className="rounded-xl border border-border/20 divide-y divide-border/10">
+                    {report.packages.map((p) => (
+                      <div key={`${p.source}:${p.package}`} className="flex items-center justify-between gap-2 px-3 py-2">
+                        <span className="text-[11px] font-mono text-foreground truncate">{p.package}</span>
+                        <span className={cn("text-[9px] font-bold uppercase", p.pinned ? "text-emerald-400" : "text-amber-300")}>
+                          {p.pinned ? "pinned" : "unpinned"}
+                        </span>
+                        <span className="text-[9px] font-mono text-muted-foreground">{p.source}</span>
+                        <span className="text-[9px] font-mono text-muted-foreground">{p.checkedAt}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
-              <p className="text-[9px] font-mono text-muted-foreground mt-1 break-all">digest {a.argsDigest.slice(0, 16)}…</p>
-              <div className="flex items-center gap-2 mt-2">
-                <Button size="sm" className="cursor-pointer rounded-xl" onClick={() => void decide(a.id, true)} disabled={working || busy}>Approve this exact call</Button>
-                <Button size="sm" variant="ghost" className="cursor-pointer rounded-xl text-rose-400" onClick={() => void decide(a.id, false)} disabled={working || busy}>Deny</Button>
-              </div>
-            </div>
-          ))}
+            </>
+          )}
         </div>
       )}
     </Panel>
@@ -1055,14 +836,37 @@ function MCPApprovalsPanel({ busy, onError }: { busy: boolean; onError: (m: stri
 function FinanceWorkflowWizard({
   busy,
   onAddServer,
+  onInstalled,
 }: {
   busy: boolean;
   onAddServer: (draft: DraftServer) => void;
+  onInstalled: () => void;
 }) {
   const [workflows, setWorkflows] = useState<MCPWorkflowView[]>([]);
   const [integrations, setIntegrations] = useState<MCPIntegrationView[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [installMsg, setInstallMsg] = useState<Record<string, string>>({});
+
+  const onInstall = async (integrationId: string) => {
+    try {
+      const res = await fetch(`/api/harness/mcp/integrations/${encodeURIComponent(integrationId)}/install`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) {
+        setInstallMsg((m) => ({ ...m, [integrationId]: body.error ?? "Install failed" }));
+        return;
+      }
+      setInstallMsg((m) => ({
+        ...m,
+        [integrationId]: body.alreadyInstalled
+          ? "Already configured — left unchanged."
+          : "Installed as a DISABLED entry with nothing selected. Open its card to add the secret or sign in, test, then select tools. Install is not activation.",
+      }));
+      onInstalled();
+    } catch {
+      setInstallMsg((m) => ({ ...m, [integrationId]: "Install request failed" }));
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -1089,10 +893,12 @@ function FinanceWorkflowWizard({
     return {
       ...base,
       id: spec.id,
+      name: spec.label,
       transport: spec.transport,
       command: spec.command ?? "",
       argsText: (spec.args ?? []).join("\n"),
       url: spec.url ?? "",
+      authKind: spec.oauth ? "oauth" : "header",
       authSecretRef: spec.secret_ref ?? "",
       enabled: true,
       enabledEffects: ["read"],
@@ -1168,20 +974,39 @@ function FinanceWorkflowWizard({
                       if (!spec) return null;
                       return (
                         <div key={id} className="rounded-xl border border-border/30 px-3 py-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[11px] text-foreground">{spec.label}</span>
-                            {!spec.verified && <span className="text-[9px] text-amber-300">unverified</span>}
+                            {!spec.verified && <span className="text-[9px] text-amber-300">template (unverified)</span>}
                             {spec.verified && spec.community && <span className="text-[9px] text-muted-foreground">community</span>}
+                            {spec.oauth && <span className="text-[9px] text-sky-300">OAuth sign-in</span>}
                           </div>
                           <p className="text-[10px] text-muted-foreground mt-0.5 max-w-xs">{spec.purpose}</p>
+                          {spec.verified && spec.verified_at && (
+                            <p className="text-[9px] text-muted-foreground/80 mt-0.5">
+                              verified {spec.verified_at}{spec.verified_against ? ` against ${spec.verified_against}` : ""}
+                            </p>
+                          )}
+                          {spec.notes && <p className="text-[9px] text-muted-foreground/70 mt-0.5 max-w-xs">{spec.notes}</p>}
                           {spec.secret_label && <p className="text-[9px] text-muted-foreground/80 mt-0.5">Needs: {spec.secret_label}</p>}
-                          <Button
-                            size="sm" variant="outline" className="mt-1.5 h-6 cursor-pointer rounded-lg text-[10px]"
-                            disabled={busy}
-                            onClick={() => onAddServer(draftFromIntegration(id))}
-                          >
-                            Set up {spec.label}
-                          </Button>
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <Button
+                              size="sm" variant="outline" className="h-6 cursor-pointer rounded-lg text-[10px]"
+                              disabled={busy}
+                              onClick={() => void onInstall(id)}
+                            >
+                              Install (disabled)
+                            </Button>
+                            <Button
+                              size="sm" variant="ghost" className="h-6 cursor-pointer rounded-lg text-[10px]"
+                              disabled={busy}
+                              onClick={() => onAddServer(draftFromIntegration(id))}
+                            >
+                              Set up manually
+                            </Button>
+                          </div>
+                          {installMsg[id] && (
+                            <p className="text-[9px] text-emerald-300 mt-1 max-w-xs">{installMsg[id]}</p>
+                          )}
                         </div>
                       );
                     })}
