@@ -3,9 +3,11 @@
 import { useId, useState } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  Search,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
@@ -14,6 +16,7 @@ import { cn } from '@/lib/utils';
 import type { ResearchCitation, ResearchMetadata } from '@/lib/harness/types';
 import {
   coerceResearchRun,
+  coverageCounts,
   hasSecondarySource,
   mergeLimitations,
   shortDate,
@@ -99,34 +102,42 @@ function Section({ title, children, tone }: { title: string; children: React.Rea
 }
 
 /**
- * A collapsible sub-section header (Sources, Research detail). Deliberately
- * muted — these are provenance, not the answer — so the assistant's prose stays
- * the only full-brightness text in the transcript.
+ * A collapsible sub-section (Sources, Research detail), styled to match the
+ * "What influenced this run" dropdown so the two provenance blocks read as one
+ * family: a compact frosted box with a chevron + icon header and a summary count.
  */
 function Disclosure({
   title,
-  count,
+  summary,
+  icon: Icon,
   open,
   onToggle,
+  compact,
+  children,
 }: {
   title: string;
-  count?: number;
+  summary?: string;
+  icon: typeof BookOpen;
   open: boolean;
   onToggle: () => void;
+  compact: boolean;
+  children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      className="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left text-muted-foreground transition-colors hover:bg-white/5"
-    >
-      <span className="font-medium">{title}</span>
-      {typeof count === 'number' ? <span className="text-muted-foreground/70">({count})</span> : null}
-      <span className="ml-auto text-muted-foreground/70">
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-      </span>
-    </button>
+    <div className={cn('w-full rounded-xl border border-border/20 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+      >
+        {open ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+        <Icon size={11} className="shrink-0 text-primary" />
+        <span className="font-medium">{title}</span>
+        {summary ? <span className="text-muted-foreground/70">· {summary}</span> : null}
+      </button>
+      {open ? <div className="mt-2.5 space-y-3 text-[10px]">{children}</div> : null}
+    </div>
   );
 }
 
@@ -138,13 +149,13 @@ function SourceRow({ citation, n }: { citation: ResearchCitation; n: number }) {
   const retrieved = shortDate(citation.retrievedAt);
   const unverified = citation.validationStatus === 'unverified';
   return (
-    <li className="flex flex-col gap-0.5">
+    <li className="rounded-lg border border-primary/15 bg-primary/[0.05] px-2.5 py-2">
       <div className="flex items-baseline gap-2">
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">[{n}]</span>
-        <span className="min-w-0 flex-1 font-medium text-muted-foreground">{title}</span>
+        <span className="shrink-0 font-mono text-[9px] text-primary/70">[{n}]</span>
+        <span className="min-w-0 flex-1 font-semibold text-foreground">{title}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5 text-[10px] text-muted-foreground/70">
-        <span className={tm.tone}>{tm.label}</span>
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-4 text-[9px] text-muted-foreground/70">
+        <span className={cn('rounded-full border border-border/30 px-1.5 py-0.5', tm.tone)}>{tm.label}</span>
         {citation.fiscalPeriod ? <span>{citation.fiscalPeriod}</span> : null}
         {citation.currency ? <span>{citation.currency}</span> : null}
         {citation.unit ? <span>{citation.unit}</span> : null}
@@ -153,7 +164,7 @@ function SourceRow({ citation, n }: { citation: ResearchCitation; n: number }) {
         {retrieved ? <span>retrieved {retrieved}</span> : null}
         {unverified ? <span className="text-amber-500">unverified</span> : null}
       </div>
-      <div className="pl-5">
+      <div className="mt-1 pl-4">
         {citation.url ? (
           <a
             href={citation.url}
@@ -252,6 +263,10 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
 
   const summary = summarizeRun(info);
   const limitationLabel = limitations.length > 0 ? `${limitations.length} limitation${limitations.length === 1 ? '' : 's'}` : '';
+  const sourcesSummary = citations.length > 0
+    ? `${citations.length} source${citations.length === 1 ? '' : 's'}`
+    : 'none cited';
+  const detailSummary = legs.length > 0 ? `${coverageCounts(legs).covered}/${legs.length} legs covered` : undefined;
 
   return (
     <div
@@ -285,47 +300,51 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
           {/* 2. Limitations */}
           <Limitations limitations={limitations} />
 
-          {/* 3. Sources (collapsible, numbered) */}
+          {/* 3. Sources (collapsible, numbered) — same design as "What influenced this run" */}
           {citations.length > 0 || failedRoutes.length > 0 ? (
-            <section>
-              <Disclosure
-                title="Sources"
-                count={citations.length}
-                open={sourcesOpen}
-                onToggle={() => setSourcesOpen((v) => !v)}
-              />
-              {sourcesOpen ? (
-                <div className="mt-1.5 space-y-2">
-                  {citations.length > 0 ? (
-                    <ol className="space-y-2">
-                      {citations.map((citation, i) => (
-                        <SourceRow key={citation.evidenceId || i} citation={citation} n={i + 1} />
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="pl-1 text-muted-foreground/80">No source could be cited for this answer.</p>
-                  )}
-                  {failedRoutes.length > 0 ? (
-                    <div className="pl-1">
-                      <p className="mb-0.5 font-medium text-muted-foreground/80">Routes tried but unavailable</p>
-                      <ul className="space-y-0.5 text-[10px] text-muted-foreground/70">
-                        {failedRoutes.map((route, i) => (
-                          <li key={i}>{route}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+            <Disclosure
+              title="Sources"
+              summary={sourcesSummary}
+              icon={BookOpen}
+              open={sourcesOpen}
+              onToggle={() => setSourcesOpen((v) => !v)}
+              compact={compact}
+            >
+              {citations.length > 0 ? (
+                <ol className="space-y-2">
+                  {citations.map((citation, i) => (
+                    <SourceRow key={citation.evidenceId || i} citation={citation} n={i + 1} />
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-muted-foreground/80">No source could be cited for this answer.</p>
+              )}
+              {failedRoutes.length > 0 ? (
+                <div>
+                  <p className="mb-0.5 font-semibold text-foreground">Routes tried but unavailable</p>
+                  <ul className="space-y-0.5 text-[10px] text-muted-foreground/70">
+                    {failedRoutes.map((route, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="mt-[3px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/40" />
+                        <span>{route}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
-            </section>
+            </Disclosure>
           ) : null}
 
           {/* 4. Run metadata (coverage, claims, conflicts, retrieval paths, receipt) */}
           {hasMetaDetail ? (
-            <section>
-              <Disclosure title="Research detail" open={metaOpen} onToggle={() => setMetaOpen((v) => !v)} />
-              {metaOpen ? (
-                <div className="mt-1.5 space-y-3">
+            <Disclosure
+              title="Research detail"
+              summary={detailSummary}
+              icon={Search}
+              open={metaOpen}
+              onToggle={() => setMetaOpen((v) => !v)}
+              compact={compact}
+            >
               {legs.length > 0 ? (
                 <Section title="Coverage">
                   <ul className="space-y-0.5">
@@ -409,9 +428,7 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
                     ? 'A durable research receipt was saved for this run.'
                     : 'No research receipt is available for this run.'}
               </p>
-                </div>
-              ) : null}
-            </section>
+            </Disclosure>
           ) : null}
         </div>
       ) : null}

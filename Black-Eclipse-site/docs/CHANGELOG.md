@@ -8,6 +8,25 @@ last-verified: 2026-09-28
 
 ## 2026-09-29
 
+- **Focus mode for the ChatBot (Ctrl+Alt+X).** A presentation-only "zen" view:
+  the shortcut hides the header (`TopBar`) and sidebar and centers the transcript
+  and composer in a narrower (860px) column, with the composer kept pinned to the
+  bottom. Scoped to the chat tab — it exits on any tab switch or when Settings
+  opens, and is ignored while typing/in dialogs. Added `hidden` props to
+  `Sidebar`/`TopBar` (unmount for a clean canvas), a `focus` prop to `EmptyState`,
+  and a row in the global shortcuts help dialog.
+  `tsc` clean; vitest 1837 pass; Python 1479 pass.
+  no doc change — behavior-only UI affordance, no architecture/contract/setup change.
+
+- **ChatBot "Sources" dropdown redesigned to match "What influenced this run".**
+  The per-answer provenance `Sources` (and `Research detail`) disclosures in
+  `ResearchEvidencePanel` now use the same compact frosted glass box + chevron +
+  leading icon + inline summary as the run-explanation panel, and each numbered
+  source row is a tinted tile with a tier chip and a `View source` link. No
+  behavior/data change (presentation only); a right-hand sources rail concept was
+  tried and removed. `src/components/chat/research-evidence-panel.tsx`.
+  `tsc` clean; vitest 1837 pass. no doc change — presentation only.
+
 - **Chat background anchored to the panel, not the viewport.** The eclipse
   artwork was `fixed inset-0`, so it centered on the whole window and the opaque
   sidebar (when open) covered its left half — the image appeared to disappear/

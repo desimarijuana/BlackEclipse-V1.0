@@ -15,6 +15,7 @@ const GLOBAL_SHORTCUTS = [
   { id: 'slash-search', label: 'Open global search', keys: '/', context: 'Global, not while typing' },
   { id: 'mode-terminal', label: 'Sidebar menu: Terminal', keys: 'Alt + T', context: 'Global, switches the sidebar menu mode' },
   { id: 'mode-agentic', label: 'Sidebar menu: Agentic', keys: 'Alt + A', context: 'Global, switches the sidebar menu mode' },
+  { id: 'focus-mode', label: 'Toggle focus mode (chat)', keys: 'Ctrl + Alt + X', context: 'ChatBot tab, hides header and sidebar for a centered focus view' },
   { id: 'chart-cancel', label: 'Cancel drawing / cursor tool', keys: 'Escape', context: 'Active chart drawing tools' },
   { id: 'chart-delete', label: 'Delete selected drawing', keys: 'Delete / Backspace', context: 'Active chart with a selected drawing' },
   { id: 'chart-undo', label: 'Undo drawing', keys: 'Ctrl / Cmd + Z', context: 'Active chart drawing history' },

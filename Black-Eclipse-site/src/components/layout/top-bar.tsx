@@ -12,6 +12,8 @@ interface TopBarProps {
   onToggleMenu?: () => void;
   /** Active SPA tab, used to make the search placeholder contextual. */
   activeTab?: string;
+  /** Focus mode — unmount the header for a clean canvas. */
+  hidden?: boolean;
 }
 
 const TAB_PLACEHOLDER: Record<string, string> = {
@@ -30,7 +32,7 @@ const TAB_PLACEHOLDER: Record<string, string> = {
   settings: 'Search settings…',
 };
 
-export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
+export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps) {
   const t = useT();
   const appName = useThemeStore((s) => s.theme.appName);
   const [modKey, setModKey] = useState('Ctrl');
@@ -52,6 +54,8 @@ export function TopBar({ onToggleMenu, activeTab }: TopBarProps) {
   }, []);
 
   const placeholder = (activeTab && TAB_PLACEHOLDER[activeTab]) || t('topbar.searchPlaceholder');
+
+  if (hidden) return null;
 
   return (
     <div className="w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0">

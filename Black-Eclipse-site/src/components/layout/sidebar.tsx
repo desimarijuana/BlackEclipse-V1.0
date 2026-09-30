@@ -37,6 +37,8 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  /** Focus mode — unmount the sidebar (desktop + mobile) for a clean canvas. */
+  hidden?: boolean;
 }
 
 export function Sidebar({
@@ -50,6 +52,7 @@ export function Sidebar({
   onOpenSettings,
   mobileOpen = false,
   onCloseMobile,
+  hidden = false,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const t = useT();
@@ -330,6 +333,8 @@ export function Sidebar({
       </div>
     </div>
   );
+
+  if (hidden) return null;
 
   return (
     <>

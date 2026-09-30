@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
@@ -94,6 +94,7 @@ import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { loadGeneralPrefs, recordLastTab, resolveStartTab } from '@/lib/general-prefs';
+import { hasBlockingKeyboardDialog, isKeyboardEventAvailable, matchesShortcut } from '@/lib/keyboard';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
@@ -159,6 +160,9 @@ function StockChatContent() {
   conversationsRef.current = conversations;
   const activeConversationIdRef = useRef<string | null>(null);
   activeConversationIdRef.current = activeConversationId;
+  // Mirrors the active tab for the window-level focus-mode listener below.
+  const activeTabRef = useRef<AppTab>(activeTab);
+  activeTabRef.current = activeTab;
   
   const [mounted, setMounted] = useState(false);
   // True once the boot deep link has been applied, so the URL-sync effect never
@@ -166,6 +170,10 @@ function StockChatContent() {
   const bootDoneRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Focus mode: a presentation-only "zen" view of the chat — hides the header
+  // and sidebar and parks the transcript + composer in a centered column.
+  // Scoped to the chat tab and the Ctrl+Alt+X shortcut.
+  const [focusMode, setFocusMode] = useState(false);
   const [navHistory, setNavHistory] = useState<AppTab[]>(['chat']);
   const navHistoryRef = useRef(navHistory);
   navHistoryRef.current = navHistory;
@@ -745,6 +753,26 @@ function StockChatContent() {
   }, []);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const appRootRef = useRef<HTMLDivElement>(null);
+  // Focus mode is chat-only: leave it the moment another tab is opened, and
+  // never keep it on while the settings modal is up.
+  useEffect(() => {
+    if (focusMode && activeTab !== 'chat') setFocusMode(false);
+  }, [focusMode, activeTab]);
+  useEffect(() => {
+    if (focusMode && settingsOpen) setFocusMode(false);
+  }, [focusMode, settingsOpen]);
+  // Ctrl+Alt+X toggles focus mode anywhere in the app shell (chat tab only).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!matchesShortcut(event, 'ctrl+alt+x') || !isKeyboardEventAvailable(event)) return;
+      if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
+      if (activeTabRef.current !== 'chat') return;
+      event.preventDefault();
+      setFocusMode((v) => !v);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const handleBack = () => {
     if (settingsOpen || mobileMenuOpen) return;
     const target = backTarget(navHistoryRef.current);
@@ -796,6 +824,7 @@ function StockChatContent() {
         onOpenSettings={() => setSettingsOpen(true)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        hidden={focusMode}
       />
 
       <div
@@ -820,6 +849,7 @@ function StockChatContent() {
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
+          hidden={focusMode}
         />
 
         <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10" tabIndex={-1}>
@@ -857,7 +887,10 @@ function StockChatContent() {
               data-keyboard-scope="Chat"
               className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}
             >
-              <div className="w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0">
+              <div className={cn(
+                'w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0 transition-[padding] duration-500 ease-out',
+                focusMode && 'pt-0',
+              )}>
                 {messages.length === 0 ? (
                   <EmptyState
                     query={query}
@@ -867,16 +900,23 @@ function StockChatContent() {
                     onAttach={() => fileInputRef.current?.click()}
                     busy={agentBusy}
                     onCancel={handleCancel}
+                    focus={focusMode}
                   />
                 ) : (
-                  <div className="flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between">
+                  <div className={cn(
+                    'flex-1 flex flex-col items-center w-full min-h-0 relative z-10 overflow-hidden justify-between transition-[max-width] duration-500 ease-out',
+                    focusMode && 'max-w-[860px] mx-auto',
+                  )}>
                     <ChatHistory
                       messages={messages}
                       onEditMessage={handleEditMessage}
                       onRetryMessage={handleRetryMessage}
                       onFeedback={handleFeedback}
                     />
-                    <div className="w-full max-w-[1400px] mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1">
+                    <div className={cn(
+                      'w-full mx-auto px-4 md:px-6 relative group mt-auto shrink-0 pb-1 transition-[max-width] duration-500 ease-out',
+                      focusMode ? 'max-w-[860px]' : 'max-w-[1400px]',
+                    )}>
                       <ChatInput
                         query={query}
                         setQuery={setQuery}
