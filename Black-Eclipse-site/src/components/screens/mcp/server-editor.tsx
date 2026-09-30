@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MCPEffect, MCPToolView, MCPTransport, MCPTrust } from "@/lib/harness/mcp-types";
 import type { DraftServer } from "@/lib/harness/mcp-draft";
-import { LIMIT_DEFAULTS } from "@/lib/harness/mcp-draft";
+import { LIMIT_DEFAULTS, isShadowedByExclude, splitFilterLines, writesLikeName } from "@/lib/harness/mcp-draft";
 import { EffectBadge, Panel } from "./primitives";
 
 const TEXTAREA = "rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/40";
@@ -73,6 +73,18 @@ export function ServerEditor({
   const isRemote = draft.transport === "http" || draft.transport === "sse";
   const discovered = testResult?.tools ?? [];
   const effectsOn = draft.selectedTools;
+  // A tool the operator selected by name that a kept exclude glob would drop.
+  // Reported rather than silently frozen into (or hidden from) the live filter.
+  const shadowedSelections = draft.filterMode === "include-exclude"
+    ? draft.selectedTools.filter((name) =>
+        isShadowedByExclude(
+          name,
+          true,
+          splitFilterLines(draft.includeText),
+          splitFilterLines(draft.excludeText)
+        )
+      )
+    : [];
 
   return (
     <Panel className="p-5 space-y-4">
@@ -235,6 +247,16 @@ export function ServerEditor({
               <textarea value={draft.excludeText} onChange={(e) => set({ excludeText: e.target.value })} rows={3} placeholder="*_secret" className={TEXTAREA} />
             </div>
             <p className="text-[10px] text-muted-foreground/70 sm:col-span-2">Include wins over exclude; an empty include selects nothing.</p>
+            {shadowedSelections.length > 0 && (
+              <div className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1.5">
+                <ShieldAlert className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-muted-foreground">
+                  {shadowedSelections.length} tool(s) you previously selected by name are <strong>shadowed</strong> by your
+                  exclude globs and will <strong>not</strong> be active: <span className="font-mono">{shadowedSelections.join(", ")}</span>.
+                  Adjust the globs if you meant to keep them.
+                </p>
+              </div>
+            )}
           </div>
         ) : effectsOn.length === 0 && discovered.length === 0 ? (
           <p className="text-[11px] text-muted-foreground/70">Test the connection to list tools, or switch to globs to select by pattern.</p>
@@ -246,9 +268,14 @@ export function ServerEditor({
               const activatable = !tool.diagnostic;
               const checked = draft.selectedTools.includes(tool.originalName);
               const effect = draft.toolEffects[tool.originalName] ?? tool.effect;
+              // A read tool whose NAME is write-shaped is inert until the
+              // operator acknowledges the mismatch. The name is an untrusted
+              // signal, so a mismatch is never auto-resolved.
+              const mismatch = effect === "read" && writesLikeName(tool.originalName);
+              const acknowledged = draft.acknowledgedEffectMismatches.includes(tool.originalName);
               return (
                 <div key={tool.originalName} className="flex items-start gap-3 px-3 py-2.5">
-                  <input type="checkbox" className="mt-0.5 accent-primary" checked={checked} disabled={!activatable}
+                  <input type="checkbox" className="mt-0.5 accent-primary" checked={checked} disabled={!activatable || (mismatch && !acknowledged)}
                     onChange={() => activatable && toggleTool(tool.originalName)} />
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -258,6 +285,27 @@ export function ServerEditor({
                       {tool.diagnostic && <span className="text-[10px] text-rose-400">{tool.diagnostic}</span>}
                     </div>
                     {tool.description && <p className="text-[10px] text-muted-foreground line-clamp-2">{tool.description}</p>}
+                    {mismatch && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 mt-1">
+                        <ShieldAlert className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-muted-foreground">
+                            The name suggests this tool <strong>writes</strong> (create/delete/update/move/patch/post/…)
+                            but it is marked read-only. A server&apos;s naming and its own read-only hint are untrusted.
+                            Acknowledge only if you have confirmed it is safe.
+                          </p>
+                          <label className="flex items-center gap-2 text-[10px] text-amber-300 cursor-pointer mt-1">
+                            <input type="checkbox" className="accent-amber-400" checked={acknowledged}
+                              onChange={() => set({
+                                acknowledgedEffectMismatches: acknowledged
+                                  ? draft.acknowledgedEffectMismatches.filter((n) => n !== tool.originalName)
+                                  : [...draft.acknowledgedEffectMismatches, tool.originalName],
+                              })} />
+                            I have confirmed this read-only tool is safe to enable
+                          </label>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Effect</span>
                       <Select value={(draft.toolEffects[tool.originalName] as string | undefined) ?? "__unset__"} onValueChange={(v: string | null) => setEffect(tool.originalName, !v || v === "__unset__" ? "" : (v as MCPEffect))}>
@@ -421,11 +469,18 @@ export function ServerEditor({
         <Input value={draft.description} onChange={(e) => set({ description: e.target.value })} placeholder="why you connected this server (never used for authorization)" className="rounded-xl text-xs" />
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onTest} disabled={missing || testing}>
-          {testing ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plug className="w-3.5 h-3.5 mr-1" />}
-          Test connection
-        </Button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onTest} disabled={missing || testing}>
+            {testing ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plug className="w-3.5 h-3.5 mr-1" />}
+            Test connection
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground/70">
+          Test proves the process <strong>started</strong> and listed tools. It does not check that a credential works: a
+          server can be connected and still reject every call. After saving, use <strong>Verify</strong> on the card to
+          make one read call and prove the credential.
+        </p>
       </div>
 
       <div className="flex items-center justify-between gap-3 pt-1">

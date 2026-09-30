@@ -220,10 +220,31 @@ class AgenticService:
             )
             self.mcp.set_secret_resolver(self._secret_resolver(bridge))
             self.mcp.set_bridge_fetch(self._raw_bridge_fetch(bridge))
+            # Process-level MCP events (e.g. `mcp.catalog.changed`) have no run id;
+            # publish them on the shared bus so any global subscriber sees them.
+            # The server card additionally surfaces the same facts via lifecycle
+            # status, so the signal is not lost when nothing is subscribed.
+            self.mcp.set_event_sink(self._publish_mcp_event)
             await self.mcp.start()
             self.mcp_registered_tools = self.mcp.register_selected_tools(self.registry)
         except Exception:  # noqa: BLE001 - MCP must never prevent the runtime booting
             log.warning("MCP startup failed", exc_info=True)
+
+    async def _publish_mcp_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Publish a process-level MCP event on the shared bus (no run id).
+
+        Content-free: MCP events carry counts and identity only, never content.
+        """
+        from .persistence import now_iso
+
+        self.bus.publish({
+            "id": f"mcp_{event_type}_{now_iso()}",
+            "runId": None,
+            "type": event_type,
+            "seq": 0,
+            "at": now_iso(),
+            "data": data or {},
+        })
 
     def _raw_bridge_fetch(self, bridge: DataBridge):
         """A raw `(capability, params) -> dict` fetch for the OAuth token store."""
@@ -389,6 +410,25 @@ class AgenticService:
         if self.mcp is not None:
             self.mcp.load_diagnostics = []
         return {"success": True, "installed": integration_id, "config": entry}
+
+    async def verify_mcp_server(
+        self, server_id: str, *, tool: str, arguments: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        """Operator-triggered credential verification (one bounded read call).
+
+        Never automatic, never at boot, never in a loop. Distinct from Test,
+        which only proves the process started and listed tools.
+        """
+        if self.mcp is None:
+            return {"success": False, "reason": "MCP is unavailable (runtime missing the mcp SDK)"}
+        result = await self.mcp.verify_credentials(server_id, tool=tool, arguments=arguments or {})
+        return {"success": True, **result}
+
+    def reset_mcp_circuit(self, server_id: str) -> dict[str, Any]:
+        """Operator reset of a server's circuit breaker (back to CLOSED)."""
+        if self.mcp is None:
+            return {"success": False, "reason": "MCP is unavailable"}
+        return self.mcp.reset_circuit(server_id)
 
     async def confirm_mcp_catalog(self, server_id: str) -> dict[str, Any]:
         """Snapshot the live catalog digest as the operator's reviewed version.

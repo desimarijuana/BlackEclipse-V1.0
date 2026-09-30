@@ -259,3 +259,77 @@ def test_read_routes_allow_loopback_operator(client, method, path):
     assert res.status_code == 200, res.text
 
 
+# ── Phase 1 integrity: the operator-triggered Verify route ──────────────────
+
+RAW_FIXTURE = os.path.join(os.path.dirname(__file__), "mcp_fixtures", "raw_fixture.py")
+
+
+def _verify_body(mode: str = "normal") -> dict:
+    return {
+        "id": "vf",
+        "command": sys.executable,
+        "args": [RAW_FIXTURE, mode],
+        "enabled": True,
+        "selected_tools": ["echo"],
+        "tool_effects": {"echo": "read"},
+    }
+
+
+def test_verify_requires_a_tool(client):
+    client.post("/mcp/servers", json={"server": _verify_body()})
+    res = client.post("/mcp/servers/vf/verify", json={})
+    assert res.status_code == 400
+    assert "read tool" in res.text
+    client.request("DELETE", "/mcp/servers/vf")
+
+
+def test_verify_reports_credentials_valid_on_a_read_call(client):
+    client.post("/mcp/servers", json={"server": _verify_body()})
+    res = client.post("/mcp/servers/vf/verify", json={"tool": "echo", "arguments": {"text": "hi"}})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["code"] == "credentials_valid"
+    assert body["bounded"] is True
+    assert body["verifiedAt"]
+    # The response body is never carried.
+    assert "echo:hi" not in res.text
+    client.request("DELETE", "/mcp/servers/vf")
+
+
+def test_verify_reports_credentials_rejected_from_a_401_body(client):
+    client.post("/mcp/servers", json={"server": _verify_body("provider_error")})
+    res = client.post("/mcp/servers/vf/verify", json={"tool": "echo", "arguments": {}})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["code"] == "credentials_rejected"
+    assert body["providerStatus"] == 401
+    assert body["providerCode"] == "unauthorized"
+    # The provider's message is NEVER echoed by the verdict.
+    assert "API token is invalid" not in res.text
+    client.request("DELETE", "/mcp/servers/vf")
+
+
+def test_verify_refuses_a_write_tool(client):
+    body = _verify_body()
+    body["selected_tools"] = ["echo", "write_thing"]
+    body["tool_effects"] = {"echo": "read", "write_thing": "write"}
+    body["enabled_effects"] = ["read", "write"]
+    client.post("/mcp/servers", json={"server": body})
+    res = client.post("/mcp/servers/vf/verify", json={"tool": "write_thing", "arguments": {"text": "x"}})
+    assert res.status_code == 200, res.text
+    assert res.json()["code"] == "verify_inconclusive"
+    assert "not a read tool" in res.json().get("reason", "")
+    client.request("DELETE", "/mcp/servers/vf")
+
+
+def test_verify_route_refuses_a_non_operator(monkeypatch):
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    from starlette.testclient import TestClient as TC
+
+    import harness.main as main_module
+
+    with TC(main_module.app, client=("203.0.113.9", 5555)) as remote:
+        res = remote.post("/mcp/servers/vf/verify", json={"tool": "echo"})
+        assert res.status_code == 403, res.text
+
+

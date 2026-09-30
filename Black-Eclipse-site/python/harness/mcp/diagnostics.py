@@ -189,6 +189,36 @@ def _auth_check(config: MCPServerConfig, token_status: Optional[dict[str, Any]] 
     return Diagnostic("oauth_ok", OK, "OAuth token present and current")
 
 
+def _credential_check(verify: Optional[dict[str, Any]]) -> Optional[Diagnostic]:
+    """Surface the last operator-triggered Verify verdict, when one exists.
+
+    A `credentials_rejected` server is CONNECTED yet cannot complete a call;
+    this is deliberately distinct from `endpoint_unreachable` (a network check)
+    and `server_not_connected` (a process/state check).
+    """
+    if not verify:
+        return None
+    code = verify.get("code")
+    if code == "credentials_rejected":
+        detail = ""
+        if verify.get("providerStatus") is not None:
+            detail = f" (status {verify['providerStatus']}"
+            if verify.get("providerCode"):
+                detail += f", {verify['providerCode']}"
+            detail += ")"
+        return Diagnostic(
+            "credentials_rejected", ERROR,
+            f"The server rejected our credentials{detail}; it is connected but cannot complete a call",
+            "Fix the credential (vault secret / OAuth sign-in), then Verify again.",
+        )
+    if code == "credentials_valid":
+        return Diagnostic("credentials_valid", OK, "A read call succeeded, so the credential works")
+    if code == "verify_inconclusive":
+        return Diagnostic("verify_inconclusive", WARN, "Verify could not confirm the credential",
+                          "Check the server state and the tool's arguments, then Verify again.")
+    return None
+
+
 def check_server(
     config: MCPServerConfig,
     *,
@@ -197,6 +227,9 @@ def check_server(
     discovered_tools: Optional[int] = None,
     selected_tools: Optional[int] = None,
     token_status: Optional[dict[str, Any]] = None,
+    verify: Optional[dict[str, Any]] = None,
+    tools_discovered: Optional[int] = None,
+    tools_kept: Optional[int] = None,
 ) -> ServerDiagnostics:
     """Run all setup checks for one configured server (pure inspection)."""
     out = ServerDiagnostics(server_id=config.id, transport=config.transport)
@@ -238,6 +271,10 @@ def check_server(
     if auth_check is not None:
         out.checks.append(auth_check)
 
+    credential_check = _credential_check(verify)
+    if credential_check is not None:
+        out.checks.append(credential_check)
+
     if connection_state is not None:
         if connection_state == "connected":
             out.checks.append(Diagnostic("server_connected", OK, "Server connected and responded to discovery"))
@@ -268,6 +305,18 @@ def check_server(
                                          "Confirm the server started correctly; check its Test diagnostic."))
         else:
             out.checks.append(Diagnostic("tools_discovered", OK, f"{discovered_tools} tool(s) discovered"))
+
+    if (
+        tools_discovered is not None
+        and tools_kept is not None
+        and tools_discovered > tools_kept
+    ):
+        out.checks.append(Diagnostic(
+            "tools_truncated", WARN,
+            f"This server advertised {tools_discovered} tools but only the first "
+            f"{tools_kept} are considered (maxTools); the rest are not listed",
+            "Raise maxTools for this server if you need the complete catalog.",
+        ))
 
     if selected_tools is not None and discovered_tools is not None:
         if selected_tools == 0:

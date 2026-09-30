@@ -87,6 +87,9 @@ DEFAULT_CALL_TIMEOUT_MS = 20_000
 DEFAULT_OUTPUT_LIMIT_BYTES = 100_000
 DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_TOOLS = 200
+# A per-run cap on MCP tool calls (per server). Bounds a runaway loop; a reached
+# cap refuses further calls for the run with an honest message, never silently.
+DEFAULT_MCP_CALLS_PER_RUN = 50
 
 # Description/schema sizes are bounded so an MCP catalog cannot flood the model
 # context or the database. A tool exceeding these is skipped with a diagnostic.
@@ -173,6 +176,13 @@ class MCPServerConfig(BaseModel):
     # only when the live catalog digest equals this, so a changed tool set,
     # description or schema invalidates prior selection until re-confirmed.
     confirmed_catalog_digest: Optional[str] = None
+    # Original tool names whose read/write-shaped NAME mismatch the operator has
+    # explicitly acknowledged. A tool marked `read` whose name contains a
+    # write-ish token (`create`/`delete`/`move`/`patch`/`post`/...) stays INERT
+    # until it is named here. A server's naming and its own `readOnlyHint` are
+    # UNTRUSTED, so this is the same posture as catalog-digest confirmation: an
+    # untrusted signal never activates a tool.
+    acknowledged_effect_mismatches: list[str] = Field(default_factory=list)
     # Optional declaration that a selected MCP tool is a native DATA SOURCE for a
     # retrieval data type (e.g. {"get_quote": "current_quote"}). Only a declared
     # tool is adapted into the native `RetrievalSource` contract; an undeclared
@@ -203,6 +213,17 @@ class MCPServerConfig(BaseModel):
     ssl_verify: Union[bool, str] = True
     client_cert: Optional[str] = None
     client_key: Optional[Union[str, list[str]]] = None
+    # Per-run cap on calls to THIS server's tools. None = use the manager
+    # default (`DEFAULT_MCP_CALLS_PER_RUN`). A reached cap refuses further MCP
+    # calls for the run with an honest message naming the cap, never a silent
+    # block, and is emitted as an event.
+    max_calls_per_run: Optional[int] = None
+    # Live supply-chain check at the spawn path (continuation, M6). When true
+    # (default), an `npx`/`uvx` package about to be launched is queried against
+    # OSV for malware advisories: a confirmed advisory refuses the spawn, a
+    # network failure allows it and is labelled. Never runs for a non-package
+    # command, at boot for `lazy` servers, or in `Test`.
+    live_supply_chain_check: bool = True
     # Capability toggles (Milestone 4). Resources/prompts utility tools are
     # registered only when the live session advertises the capability AND the
     # operator has set the toggle true. Default off = fail-closed (discovery is
@@ -462,10 +483,13 @@ class MCPServerConfig(BaseModel):
                 }
             ),
             "toolEffects": dict(self.tool_effects),
+            "acknowledgedEffectMismatches": list(self.acknowledged_effect_mismatches),
             "enabledEffects": list(self.enabled_effects),
             "confirmedCatalogDigest": self.confirmed_catalog_digest,
             "dataSourceTools": dict(self.data_source_tools),
             "lazy": self.lazy,
+            "maxCallsPerRun": self.max_calls_per_run,
+            "liveSupplyChainCheck": self.live_supply_chain_check,
             "keepaliveInterval": self.keepalive_interval,
             "idleTimeoutSeconds": self.idle_timeout_seconds,
             "maxLifetimeSeconds": self.max_lifetime_seconds,

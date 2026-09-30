@@ -87,6 +87,43 @@ async def test_mcp_server(payload: dict[str, Any], _: None = Depends(require_mcp
     return JSONResponse({"success": result.get("state") == "connected", **result})
 
 
+@router.post("/mcp/servers/{server_id}/verify")
+async def verify_mcp_server(
+    server_id: str, payload: Optional[dict[str, Any]] = None, _: None = Depends(require_mcp_operator)
+) -> JSONResponse:
+    """Prove a server's credentials work: ONE operator-chosen read call.
+
+    Distinct from Test (which only proves the process started and listed tools).
+    Never automatic, never at boot, never a loop; the response body is never
+    returned. `tool` is required and must be a read tool.
+    """
+    payload = payload or {}
+    tool = str(payload.get("tool") or "").strip()
+    if not tool:
+        raise HTTPException(status_code=400, detail="a read tool name is required")
+    arguments = payload.get("arguments")
+    if arguments is not None and not isinstance(arguments, dict):
+        raise HTTPException(status_code=400, detail="arguments must be an object")
+    result = await service.verify_mcp_server(server_id, tool=tool, arguments=arguments)
+    if not result.get("success"):
+        raise HTTPException(status_code=503, detail=str(result.get("reason") or "verify failed"))
+    return JSONResponse(result)
+
+
+@router.post("/mcp/servers/{server_id}/circuit/reset")
+async def reset_mcp_circuit(server_id: str, _: None = Depends(require_mcp_operator)) -> JSONResponse:
+    """Operator reset of a server's circuit breaker (back to CLOSED).
+
+    A server that connects but fails every call trips the breaker into OPEN and
+    is not re-probed until its cooldown. This is the explicit operator action that
+    clears it immediately.
+    """
+    result = service.reset_mcp_circuit(server_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=str(result.get("reason") or "reset failed"))
+    return JSONResponse(result)
+
+
 @router.post("/mcp/reload")
 async def reload_mcp(_: None = Depends(require_mcp_operator)) -> JSONResponse:
     summary = await service.reload_mcp()

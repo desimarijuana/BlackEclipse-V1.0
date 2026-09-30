@@ -25,22 +25,64 @@ function metric(value: unknown): string {
   return typeof value === "number" ? String(value) : "unknown";
 }
 
-export function MCPLifecyclePanel({ server }: { server: MCPServerView }) {
+export function MCPLifecyclePanel({
+  server,
+  onResetCircuit,
+  busy = false,
+}: {
+  server: MCPServerView;
+  onResetCircuit?: () => void;
+  busy?: boolean;
+}) {
   const lifecycle = server.lifecycle;
   const metrics = lifecycle?.metrics;
   const lazy = server.lazy || lifecycle?.lazyActive;
   const cached = lifecycle?.cachedTools;
+  const stale = lifecycle?.cacheStale === true;
+  const circuit = lifecycle?.circuit;
 
   return (
     <div className="rounded-xl border border-border/20 glass-card-subtle p-3.5 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Connection lifecycle</span>
-        {lazy && (
+        {lazy && !stale && (
           <span className="text-[10px] font-mono text-amber-300">
-            Lazy{typeof cached === "number" ? ` · ${cached} cached tool(s)` : ""} — not connected; the first call will connect.
+            Lazy{typeof cached === "number" ? ` · ${cached} cached tool(s)` : ""} — not connected until first use.
+          </span>
+        )}
+        {stale && (
+          <span className="text-[10px] font-mono text-amber-300">
+            Stale cache (config changed) — needs a connect; cached declarations are not being served.
+          </span>
+        )}
+        {lifecycle?.toolsTruncated && (
+          <span className="text-[10px] font-mono text-amber-300">
+            Catalog truncated: {lifecycle.toolsKept} of {lifecycle.toolsDiscovered} tools kept (maxTools).
+          </span>
+        )}
+        {circuit && circuit.state !== "closed" && (
+          <span className="text-[10px] font-mono text-rose-300">
+            Circuit {circuit.state === "half_open" ? "half-open (probing)" : "OPEN"} · {circuit.failures}/{circuit.threshold} failures
+            {circuit.lastErrorCode ? ` · last ${circuit.lastErrorCode}` : ""}
+            {typeof circuit.retryAfterSeconds === "number" ? ` · re-probe in ~${Math.ceil(circuit.retryAfterSeconds)}s` : ""}
           </span>
         )}
       </div>
+      {circuit && circuit.state !== "closed" && onResetCircuit && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onResetCircuit}
+            disabled={busy}
+            className="rounded-lg border border-border/40 px-2 py-0.5 text-[10px] text-foreground cursor-pointer hover:bg-accent/20 disabled:opacity-50"
+          >
+            Reset breaker
+          </button>
+          <span className="text-[10px] text-muted-foreground/70">
+            A server that fails every call is not re-probed until its cooldown; reset clears it now.
+          </span>
+        </div>
+      )}
       {!lifecycle ? (
         <p className="text-[11px] text-muted-foreground/70">Lifecycle status is not available for this server.</p>
       ) : (

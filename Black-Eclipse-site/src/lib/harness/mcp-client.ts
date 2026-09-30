@@ -19,6 +19,8 @@ import type {
   MCPOauthTokenStatus,
   MCPWorkflowView,
   MCPDiagnosticsResponse,
+  MCPVerifyResult,
+  MCPCircuitView,
 } from "./mcp-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -98,11 +100,40 @@ export async function testMCPServer(server: MCPServerInput): Promise<MCPTestResu
   });
 }
 
+/** Operator reset of a server's circuit breaker (back to CLOSED). */
+export async function resetMCPCircuit(
+  serverId: string
+): Promise<{ success: boolean; serverId: string; circuit: MCPCircuitView }> {
+  return request(`/mcp/servers/${encodeURIComponent(serverId)}/circuit/reset`, {
+    method: "POST",
+    timeoutMs: 30_000,
+  });
+}
+
 /** Record the operator's review of a server's current catalog digest. */
 export async function confirmMCPCatalog(serverId: string): Promise<MCPListResponse> {
   return request<MCPListResponse>(`/mcp/servers/${encodeURIComponent(serverId)}/confirm`, {
     method: "POST",
     timeoutMs: 60_000,
+  });
+}
+
+/**
+ * Operator-triggered credential verification: ONE bounded read call proving the
+ * server's credentials actually work. Separate from Test (which only proves the
+ * process started and listed tools), never automatic, and the body is never
+ * returned — only a content-free verdict (`credentials_valid` /
+ * `credentials_rejected` / `verify_inconclusive`).
+ */
+export async function verifyMCPServer(
+  serverId: string,
+  tool: string,
+  args: Record<string, unknown> = {}
+): Promise<MCPVerifyResult> {
+  return request<MCPVerifyResult>(`/mcp/servers/${encodeURIComponent(serverId)}/verify`, {
+    method: "POST",
+    timeoutMs: 30_000,
+    body: JSON.stringify({ tool, arguments: args }),
   });
 }
 

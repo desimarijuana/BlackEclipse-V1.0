@@ -28,7 +28,7 @@ RATCHET_PY: dict[str, int] = {
     "eclipse_memory/service.py": 1832,
     "eclipse_memory/store.py": 1749,
     "persistence.py": 1393,
-    "mcp/manager.py": 1226,
+    "mcp/manager.py": 1106,
 }
 
 _HARNESS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness")

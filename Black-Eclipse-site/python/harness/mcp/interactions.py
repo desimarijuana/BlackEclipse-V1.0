@@ -38,6 +38,25 @@ class SamplingPolicy:
     rpm: int = DEFAULT_RPM
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
     timeout_s: float = DEFAULT_TIMEOUT_S
+    # A model allowlist (continuation, M7). When non-empty, a server's REQUESTED
+    # model is honoured only if it is on the list; otherwise the operator's
+    # configured default (`model`) is used — never the server's preference. An
+    # ABSENT/empty list means today's behaviour (the server's request is ignored
+    # and `model` is used, since the runtime serves sampling on its OWN adapter).
+    allowed_models: list[str] = field(default_factory=list)
+
+    def resolve_model(self, requested: Optional[str]) -> tuple[str, bool]:
+        """Return (model_to_use, fell_back).
+
+        `requested` is the model the server asked for. With an allowlist, a
+        requested model not on it falls back to the configured default and reports
+        `fell_back=True`; an empty allowlist is unchanged behaviour.
+        """
+        if self.allowed_models:
+            if requested and requested in self.allowed_models:
+                return requested, False
+            return (self.model or "eclipse"), True
+        return (self.model or requested or "eclipse"), False
 
     def clamped_max_tokens(self) -> int:
         return max(1, min(int(self.max_tokens or DEFAULT_MAX_TOKENS), MAX_TOKENS_CEILING))
@@ -50,6 +69,7 @@ class SamplingPolicy:
             "rpm": self.rpm,
             "maxToolRounds": max(0, int(self.max_tool_rounds or 0)),
             "timeoutSeconds": self.timeout_s,
+            "allowedModels": list(self.allowed_models),
         }
 
 
@@ -61,6 +81,9 @@ class InteractionCounters:
     sampling_errors: int = 0
     sampling_tokens: int = 0
     sampling_tool_uses: int = 0
+    # A server requested a model that is not on the allowlist, so the operator's
+    # default was used instead (continuation, M7). Content-free.
+    sampling_model_fallbacks: int = 0
     elicitation_requests: int = 0
     elicitation_approved: int = 0
     elicitation_denied: int = 0
@@ -71,6 +94,7 @@ class InteractionCounters:
             "samplingErrors": self.sampling_errors,
             "samplingTokens": self.sampling_tokens,
             "samplingToolUses": self.sampling_tool_uses,
+            "samplingModelFallbacks": self.sampling_model_fallbacks,
             "elicitationRequests": self.elicitation_requests,
             "elicitationApproved": self.elicitation_approved,
             "elicitationDenied": self.elicitation_denied,
@@ -122,12 +146,22 @@ def build_sampling_callback(
         if not limiter.allow(time.monotonic(), policy.rpm):
             counters.sampling_errors += 1
             raise _Refusal("sampling rate limit exceeded", "mcp_sampling_rate_limited")
+        # Model allowlist (M7): honour the server's requested model only when a
+        # configured allowlist permits it; otherwise use the operator's default
+        # and record the fallback. No allowlist = unchanged behaviour.
+        requested = _requested_model(params)
+        chosen_model, fell_back = policy.resolve_model(requested)
+        if fell_back:
+            counters.sampling_model_fallbacks += 1
         if emit is not None:
             try:
                 await emit("mcp.sampling.requested", {
                     "serverId": server_id,
                     "maxTokens": policy.clamped_max_tokens(),
                     "toolRounds": max(0, policy.max_tool_rounds),
+                    "requestedModel": requested,
+                    "modelUsed": chosen_model,
+                    "modelFallback": fell_back,
                 })
             except Exception:  # noqa: BLE001 - an emit failure must not authorize
                 pass
@@ -150,10 +184,24 @@ def build_sampling_callback(
         return CreateMessageResult(
             role="assistant",
             content=TextContent(type="text", text=str(content)),
-            model=policy.model or "eclipse",
+            model=chosen_model,
         )
 
     return sampling
+
+
+def _requested_model(params: Any) -> Optional[str]:
+    """The model name the server asked for, if any (from `modelPreferences`)."""
+    prefs = getattr(params, "model_preferences", None) or getattr(params, "modelPreferences", None)
+    if prefs is None:
+        return None
+    # The SDK exposes `hints` (a list of `{name}`) and `intelligencePriority` etc.
+    hints = getattr(prefs, "hints", None) or []
+    for hint in hints:
+        name = getattr(hint, "name", None)
+        if isinstance(name, str) and name:
+            return name
+    return None
 
 
 def build_elicitation_callback(

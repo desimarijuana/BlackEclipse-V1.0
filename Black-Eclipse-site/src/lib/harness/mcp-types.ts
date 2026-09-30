@@ -55,6 +55,20 @@ export interface MCPToolView {
   selected: boolean;
   activatable: boolean;
   diagnostic?: string | null;
+  /** Informational only; does NOT gate activation (e.g. a shortented call name). */
+  note?: string | null;
+}
+
+/** A server's circuit-breaker state (continuation). Content-free. */
+export interface MCPCircuitView {
+  state: "closed" | "open" | "half_open";
+  failures: number;
+  threshold: number;
+  lastErrorCode?: string | null;
+  /** Seconds until the next HALF_OPEN probe, or null when not OPEN. */
+  retryAfterSeconds?: number | null;
+  trippedCount?: number;
+  lastTrippedAt?: string | null;
 }
 
 /** Bounded, content-free lifecycle status for one server. */
@@ -66,7 +80,13 @@ export interface MCPLifecycleView {
   lazy?: boolean;
   lazyActive?: boolean;
   cachedTools?: number;
+  /** A lazy server's on-disk cache no longer matches its config; needs a connect. */
+  cacheStale?: boolean;
   connected?: boolean;
+  /** Discovered catalog size and how much was kept after the `maxTools` slice. */
+  toolsDiscovered?: number | null;
+  toolsKept?: number | null;
+  toolsTruncated?: boolean;
   inFlight?: number;
   keepaliveInterval?: number | null;
   keepaliveFailures?: number;
@@ -75,6 +95,26 @@ export interface MCPLifecycleView {
   sampling?: Record<string, unknown>;
   interactions?: Record<string, unknown>;
   metrics?: { calls: number; errors: number; avgLatencyMs: number };
+  /** Inbound-notification bookkeeping: how many catalog changes were handled. */
+  catalogChanges?: number;
+  lastCatalogChangeAt?: string | null;
+  removedTools?: string[];
+  /** Circuit breaker state for a server that connects but fails every call. */
+  circuit?: MCPCircuitView;
+  /**
+   * The last operator-triggered Verify verdict (content-free), or null. A
+   * `credentials_rejected` server is CONNECTED but its credentials do not work —
+   * distinct from `endpoint_unreachable` and `server_not_connected`.
+   */
+  verify?: {
+    code: "credentials_valid" | "credentials_rejected" | "verify_inconclusive";
+    verifiedAt: string;
+    tool: string;
+    bounded: boolean;
+    reason?: string;
+    providerCode?: string;
+    providerStatus?: number;
+  } | null;
 }
 
 export interface MCPServerView {
@@ -100,6 +140,12 @@ export interface MCPServerView {
   untrusted: boolean;
   selectedTools: MCPSelectedTools;
   toolEffects: Record<string, MCPEffect>;
+  /**
+   * Original tool names whose write-shaped NAME the operator has explicitly
+   * acknowledged as read-only. Until acknowledged, a `read` tool whose name
+   * contains a write-ish token stays inert.
+   */
+  acknowledgedEffectMismatches: string[];
   enabledEffects: MCPEffect[];
   /** Declared MCP tools that act as native retrieval data sources (tool → dataType). */
   dataSourceTools: Record<string, string>;
@@ -172,6 +218,7 @@ export interface MCPServerInput {
   trust?: MCPTrust;
   selectedTools?: MCPSelectedTools;
   toolEffects?: Record<string, MCPEffect>;
+  acknowledgedEffectMismatches?: string[];
   enabledEffects?: MCPEffect[];
   dataSourceTools?: Record<string, string>;
   confirmedCatalogDigest?: string | null;
@@ -202,6 +249,22 @@ export interface MCPTestResult {
   serverInfo?: { name?: string | null; version?: string | null } | null;
   catalogDigest?: string | null;
   tools: MCPToolView[];
+}
+
+/**
+ * The content-free verdict of an operator-triggered Verify call. The response
+ * body is NEVER carried — only a stable code and, for a rejection, the
+ * provider's own status/code.
+ */
+export interface MCPVerifyResult {
+  success?: boolean;
+  code: "credentials_valid" | "credentials_rejected" | "verify_inconclusive";
+  verifiedAt: string;
+  tool: string;
+  bounded: boolean;
+  reason?: string;
+  providerCode?: string;
+  providerStatus?: number;
 }
 
 /** A named vault secret. Values never cross this boundary — only names/hints. */

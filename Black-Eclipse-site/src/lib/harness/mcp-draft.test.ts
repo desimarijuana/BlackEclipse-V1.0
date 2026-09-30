@@ -4,7 +4,15 @@
 // null/false/{}/[] to clear, so a save cannot silently reset a Phase-6 field.
 
 import { describe, it, expect } from "vitest";
-import { draftFromServer, draftToInput, emptyDraft, LIMIT_DEFAULTS } from "./mcp-draft";
+import {
+  draftFromServer,
+  draftToInput,
+  emptyDraft,
+  isShadowedByExclude,
+  matchesGlob,
+  resolveSelectedByGlobs,
+  LIMIT_DEFAULTS,
+} from "./mcp-draft";
 import type { MCPServerView } from "./mcp-types";
 
 /** A fully-populated runtime view: every field a user can meaningfully set. */
@@ -29,6 +37,7 @@ function fullView(): MCPServerView {
     untrusted: true,
     selectedTools: { include: ["get_*"], exclude: ["get_secret"] },
     toolEffects: { get_quote: "read", put_order: "write" },
+    acknowledgedEffectMismatches: ["API-post-search"],
     enabledEffects: ["read", "write"],
     dataSourceTools: { get_quote: "current_quote" },
     confirmedCatalogDigest: "abc123",
@@ -79,6 +88,11 @@ describe("draftFromServer / draftToInput round trip", () => {
     expect(input.dataSourceTools).toEqual({ get_quote: "current_quote" });
   });
 
+  it("preserves the acknowledged effect mismatches so a save cannot drop them", () => {
+    const input = draftToInput(draftFromServer(fullView())).server;
+    expect(input.acknowledgedEffectMismatches).toEqual(["API-post-search"]);
+  });
+
   it("preserves capability toggles, lifecycle and TLS mode", () => {
     const input = draftToInput(draftFromServer(fullView())).server;
     expect(input.tools).toEqual({ resources: true, prompts: true });
@@ -116,6 +130,7 @@ describe("draftFromServer / draftToInput round trip", () => {
     const input = draftToInput(draft).server;
     expect(input.selectedTools).toEqual([]);
     expect(input.toolEffects).toEqual({});
+    expect(input.acknowledgedEffectMismatches).toEqual([]);
     expect(input.dataSourceTools).toEqual({});
     expect(input.tools).toEqual({ resources: false, prompts: false });
     expect(input.lazy).toBe(false);
@@ -155,5 +170,35 @@ describe("draftFromServer / draftToInput round trip", () => {
     const { server, envKeys } = draftToInput(draftFromServer(fullView()));
     expect(envKeys).toEqual(["SCOPED_TOKEN"]);
     expect(server.env).toEqual({});
+  });
+});
+
+describe("glob selection helpers (exclude-mode honesty)", () => {
+  it("matches fnmatch-style globs", () => {
+    expect(matchesGlob("get_quote", "get_*")).toBe(true);
+    expect(matchesGlob("put_order", "get_*")).toBe(false);
+    expect(matchesGlob("a", "?")).toBe(true);
+    expect(matchesGlob("ab", "?")).toBe(false);
+  });
+
+  it("mirrors the runtime rule: excluded beats included, empty include selects nothing", () => {
+    expect(resolveSelectedByGlobs("get_quote", ["get_*"], [])).toBe(true);
+    // Exclude only does not select (empty include selects nothing).
+    expect(resolveSelectedByGlobs("get_quote", [], ["get_quote"])).toBe(false);
+    // Exclude is applied after include: an excluded match is NOT selected.
+    expect(resolveSelectedByGlobs("get_quote", ["get_*"], ["get_quote"])).toBe(false);
+    expect(resolveSelectedByGlobs("get_secret", ["get_*"], ["*_secret"])).toBe(false);
+  });
+
+  it("reports a manually-selected tool the live filter would not select", () => {
+    // The operator checked `put_order` by name, then set an include `get_*` that
+    // does not match it: the live filter would drop it, so it is shadowed.
+    expect(isShadowedByExclude("put_order", true, ["get_*"], [])).toBe(true);
+    // A manual pick the globs DO select is not shadowed.
+    expect(isShadowedByExclude("get_quote", true, ["get_*"], [])).toBe(false);
+    // Not shadowed when the tool is not selected in the list.
+    expect(isShadowedByExclude("put_order", false, ["get_*"], [])).toBe(false);
+    // A manually-picked tool the exclude drops is shadowed.
+    expect(isShadowedByExclude("get_secret", true, ["get_*"], ["*_secret"])).toBe(true);
   });
 });

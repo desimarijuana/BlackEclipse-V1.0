@@ -24,10 +24,17 @@ New to the codebase? Read [`docs/OVERVIEW.md`](docs/OVERVIEW.md) first, then use
 Individual pieces: `npm test`, `npm run test:py`, `npm run test:evals`,
 `npm run lint`, `npm run typecheck`.
 
-**Live smoke (`npm run test:smoke`) is NOT part of the gate** — it contacts real
-external providers. A human must run it **before creating a release tag** (it is
-the only check that exercises the live retrieval/research path end to end). It is
-deliberately never in `npm test` or CI.
+Two release-tag preconditions are **NOT part of the gate** because they hit the
+network. A human must run **both** before creating a release tag:
+
+- **`npm run test:smoke`** — contacts real external providers; the only check that
+  exercises the live retrieval/research path end to end.
+- **`npm run test:presets`** — resolves the `bin` of every shipped `stdio` MCP
+  preset package via `npm view <pkg> bin` and fails if a package cannot be
+  launched (e.g. it declares no executable). A preset is a promise that clicking
+  it works; this is what catches a package that has no server code.
+
+Both are deliberately never in `npm test` or CI.
 
 ## Code Style
 

@@ -34,6 +34,21 @@ export const LIMIT_DEFAULTS = {
 
 export type SSLVerifyMode = "true" | "custom-ca" | "false";
 
+/**
+ * Tokens that suggest a tool WRITES. Mirrors `WRITE_SHAPED_TOKENS` in
+ * `python/harness/mcp/naming.py`. Used only to FLAG a possible mismatch for the
+ * operator to acknowledge — never to infer an effect (a name is untrusted).
+ */
+export const WRITE_SHAPED_TOKENS = [
+  "create", "delete", "update", "patch", "move", "post", "append", "set",
+  "remove", "write", "archive",
+] as const;
+
+export function writesLikeName(name: string): boolean {
+  const lowered = (name ?? "").toLowerCase();
+  return WRITE_SHAPED_TOKENS.some((t) => lowered.includes(t));
+}
+
 export interface DraftServer {
   id: string;
   name: string;
@@ -63,6 +78,8 @@ export interface DraftServer {
   excludeText: string;
   // Tool effects and native data-source declarations.
   toolEffects: Record<string, MCPEffect>;
+  /** Original tool names whose write-shaped NAME the operator acknowledged. */
+  acknowledgedEffectMismatches: string[];
   dataSourceTools: Record<string, string>;
   /** tool=dataType per line. */
   dataSourcesText: string;
@@ -104,7 +121,7 @@ export function emptyDraft(): DraftServer {
     enabled: false, trust: "full",
     filterMode: "list", selectedTools: [], includeText: "", excludeText: "",
     enabledEffects: ["read"],
-    toolEffects: {}, dataSourceTools: {}, dataSourcesText: "",
+    toolEffects: {}, acknowledgedEffectMismatches: [], dataSourceTools: {}, dataSourcesText: "",
     resourcesEnabled: false, promptsEnabled: false,
     resourceSchemesText: "",
     lazy: false, keepaliveIntervalText: "", idleTimeoutText: "", maxLifetimeText: "",
@@ -206,6 +223,55 @@ export function selectedToolNames(view: MCPServerView): string[] {
   return Array.isArray(view.selectedTools) ? [...view.selectedTools] : [];
 }
 
+/**
+ * fnmatch-style glob match, mirroring the Python `resolve_selected` rule:
+ * `*` matches any run, `?` matches one character. Case-sensitive, matching
+ * `fnmatch.fnmatchcase`.
+ */
+export function matchesGlob(name: string, pattern: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`).test(name);
+}
+
+export function matchesAnyGlob(name: string, patterns: string[]): boolean {
+  return patterns.some((p) => p.trim() && matchesGlob(name, p.trim()));
+}
+
+/** Split a multi-line glob editor into trimmed, non-empty patterns. */
+export function splitFilterLines(text: string): string[] {
+  return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Resolve a tool's selection under the include/exclude rule (include wins over
+ * exclude; an empty include selects nothing), mirroring the runtime's
+ * `MCPServerConfig.resolve_selected`. Pure, so the editor can show the OPERATOR'S
+ * dynamic filter honestly rather than freezing it into a static list.
+ */
+export function resolveSelectedByGlobs(
+  name: string,
+  include: string[],
+  exclude: string[]
+): boolean {
+  const included = matchesAnyGlob(name, include);
+  if (!included) return false;
+  return !matchesAnyGlob(name, exclude);
+}
+
+/**
+ * Whether a manually-selected tool is SHADOWED by the live include/exclude filter:
+ * the operator checked it in the list, but the filter would not select it. The
+ * editor reports this rather than showing the tool as enabled when it is not.
+ */
+export function isShadowedByExclude(
+  name: string,
+  selected: boolean,
+  include: string[],
+  exclude: string[]
+): boolean {
+  return selected && !resolveSelectedByGlobs(name, include, exclude);
+}
+
 export function draftFromServer(view: MCPServerView): DraftServer {
   const base = emptyDraft();
   const selected = view.selectedTools;
@@ -238,6 +304,7 @@ export function draftFromServer(view: MCPServerView): DraftServer {
     includeText: objectForm ? (selected.include ?? []).join("\n") : "",
     excludeText: objectForm ? (selected.exclude ?? []).join("\n") : "",
     toolEffects: { ...(view.toolEffects ?? {}) },
+    acknowledgedEffectMismatches: [...(view.acknowledgedEffectMismatches ?? [])],
     dataSourceTools: { ...(view.dataSourceTools ?? {}) },
     dataSourcesText: Object.entries(view.dataSourceTools ?? {})
       .map(([tool, dataType]) => `${tool}=${dataType}`)
@@ -314,6 +381,7 @@ export function draftToInput(draft: DraftServer): DraftPayload {
     trust: draft.trust,
     selectedTools: draftSelectedTools(draft),
     toolEffects: { ...draft.toolEffects },
+    acknowledgedEffectMismatches: [...draft.acknowledgedEffectMismatches],
     enabledEffects: draft.enabledEffects.length ? [...draft.enabledEffects] : ["read"],
     dataSourceTools: parseDataSourceText(draft.dataSourcesText),
     lazy: draft.lazy,

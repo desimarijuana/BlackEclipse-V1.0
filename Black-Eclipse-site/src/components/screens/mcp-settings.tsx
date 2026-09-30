@@ -23,14 +23,15 @@ import { Input } from "@/components/ui/input";
 import type {
   MCPServerView, MCPToolView, MCPSecretView, MCPApprovalView,
   MCPIntegrationView, MCPWorkflowView, MCPDiagnosticView, MCPDiagnosticsResponse,
-  MCPSupplyChainReport,
+  MCPSupplyChainReport, MCPVerifyResult,
 } from "@/lib/harness/mcp-types";
 import {
-  draftFromServer, draftToInput, emptyDraft, selectedToolNames, type DraftServer,
+  draftFromServer, draftToInput, emptyDraft, selectedToolNames, resolveSelectedByGlobs, type DraftServer,
 } from "@/lib/harness/mcp-draft";
 import { Panel, EffectBadge, stateDot, StateDot } from "./mcp/primitives";
 import { ServerEditor } from "./mcp/server-editor";
 import { MCPLifecyclePanel } from "./mcp/lifecycle-panel";
+import { CredentialsPanel } from "./mcp/credentials-panel";
 
 function ServerCard({
   server,
@@ -41,6 +42,8 @@ function ServerCard({
   onConfirmCatalog,
   onOauthLogin,
   onOauthLogout,
+  onVerify,
+  onResetCircuit,
   busy,
 }: {
   server: MCPServerView;
@@ -51,6 +54,8 @@ function ServerCard({
   onConfirmCatalog: () => void;
   onOauthLogin: () => Promise<{ verificationUri?: string; userCode?: string }>;
   onOauthLogout: () => void;
+  onVerify: (tool: string, args: Record<string, unknown>) => Promise<MCPVerifyResult | { error: string }>;
+  onResetCircuit: () => void;
   busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -117,7 +122,7 @@ function ServerCard({
             </div>
           )}
           {lifecycleSummary(server)}
-          <MCPLifecyclePanel server={server} />
+          <MCPLifecyclePanel server={server} busy={busy} onResetCircuit={onResetCircuit} />
           {isOauth && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/20 glass-card-subtle px-3 py-2">
               <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">OAuth</span>
@@ -136,6 +141,7 @@ function ServerCard({
               )}
             </div>
           )}
+          <CredentialsPanel server={server} busy={busy} onVerify={onVerify} />
           {server.capabilities && (
             <div className="text-[10px] text-muted-foreground font-mono">
               advertised: {Object.entries(server.capabilities).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}
@@ -177,7 +183,7 @@ function ServerCard({
             {server.tools.length === 0 ? (
               <p className="px-4 py-4 text-[11px] text-muted-foreground text-center">
                 {server.state === "lazy"
-                  ? "Lazy server: tool declarations load from the on-disk cache and connect on the first call."
+                  ? "Lazy server: tool declarations load from the on-disk cache; it is NOT connected until first use (the first call connects)."
                   : server.enabled ? "No tools discovered (the server may have failed — see the diagnostic above)." : "Enable the server to discover its tools."}
               </p>
             ) : (
@@ -185,14 +191,22 @@ function ServerCard({
                 {server.tools.map((tool) => {
                   const declared = server.toolEffects[tool.originalName];
                   const activatable = tool.activatable;
-                  const selected = tool.selected || selectedToolNames(server).includes(tool.originalName);
+                  // In exclude mode the runtime decides selection by the live
+                  // globs; the editor must not imply a manual selection.
+                  const globMode = !Array.isArray(server.selectedTools);
+                  const globs = globMode
+                    ? (server.selectedTools as { include: string[]; exclude: string[] })
+                    : null;
+                  const selected = globMode
+                    ? resolveSelectedByGlobs(tool.originalName, globs?.include ?? [], globs?.exclude ?? [])
+                    : tool.selected || selectedToolNames(server).includes(tool.originalName);
                   return (
                     <label key={tool.originalName} className={cn("flex items-start gap-3 px-4 py-2.5", activatable ? "cursor-pointer hover:bg-accent/20" : "opacity-70")}>
                       <input
                         type="checkbox"
                         className="mt-0.5 accent-primary"
                         checked={selected}
-                        disabled={!activatable || busy}
+                        disabled={!activatable || busy || globMode}
                         onChange={(e) => activatable && onSelectTool(tool.originalName, e.target.checked)}
                       />
                       <div className="min-w-0 flex-1">
@@ -202,8 +216,10 @@ function ServerCard({
                           {declared && <span className="text-[9px] font-mono text-emerald-300">declared</span>}
                           <span className="text-[9px] font-mono text-muted-foreground">→ {tool.eclipseName}</span>
                           {selected && activatable && <span className="text-[9px] text-primary">active</span>}
+                          {globMode && <span className="text-[9px] font-mono text-muted-foreground">selected by your include/exclude globs</span>}
                         </div>
                         {tool.description && <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{tool.description}</p>}
+                        {tool.note && <p className="text-[10px] text-amber-300 mt-0.5">{tool.note}</p>}
                         {!activatable && tool.diagnostic && <p className="text-[10px] text-rose-400 mt-0.5">{tool.diagnostic}</p>}
                       </div>
                     </label>
@@ -397,6 +413,41 @@ export function MCPSettingsPanel() {
     }
   };
 
+  const verifyServer = async (server: MCPServerView, tool: string, args: Record<string, unknown>): Promise<MCPVerifyResult | { error: string }> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/harness/mcp/servers/${encodeURIComponent(server.id)}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool, arguments: args }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Verify failed");
+      await load();
+      return body as MCPVerifyResult;
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Verify failed" };
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetCircuit = async (server: MCPServerView) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/harness/mcp/servers/${encodeURIComponent(server.id)}/circuit/reset`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Circuit reset failed");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Circuit reset failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const oauthLogout = async (server: MCPServerView) => {
     setBusy(true);
     setError(null);
@@ -538,6 +589,8 @@ export function MCPSettingsPanel() {
               onConfirmCatalog={() => void confirmCatalog(server)}
               onOauthLogin={() => oauthLogin(server)}
               onOauthLogout={() => void oauthLogout(server)}
+              onVerify={(tool, args) => verifyServer(server, tool, args)}
+              onResetCircuit={() => void resetCircuit(server)}
             />
           ))}
         </div>

@@ -588,7 +588,13 @@ change system instructions, enable a tool, or authorize a call.
 | `runtime.py` | `_ServerRuntime` per-server state, the tool descriptor/status dataclasses, and the pure helpers (`_catalog_digest`, `_unsafe_url_reason`, `_allowed_uri`, `effective_resource_schemes`) — pure-extracted from `manager.py` (Phase 6.1). |
 | `introspection.py` | the `IntrospectionMixin`: `statuses`/`public_configs`/`summary`/`diagnostics`/`catalog_digest_for` (Phase 6.1 extraction). |
 | `oauth_flow.py` | the `OAuthFlowMixin`: `oauth_login`/`oauth_logout` and the device-flow HTTP helpers (Phase 6.1 extraction). |
-| `manager.py` | the `MCPManager` facade: discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
+| `execution.py` | the `ExecutionMixin`: result bounding/rendering, the honest session-expiry policy, and `provider_error_line` (continuation extraction). |
+| `verify.py` | the `VerifyMixin`: the operator-triggered credential Verify (one bounded read call; a content-free verdict). ADR-H78. |
+| `rediscovery.py` | the `RediscoveryMixin`: handles inbound `list_changed` by rediscovering ONE server through the existing path, under the lock, and emitting `mcp.catalog.changed`. ADR-H81. |
+| `circuit.py` | the per-server circuit breaker (CLOSED/OPEN/HALF_OPEN), pure state helpers and named thresholds. ADR-H82. |
+| `supply_chain.py` | the spawn-path OSV malware query (fail-closed on a confirmed advisory, fail-open on a network error) with a TTL cache and an injectable fetcher. ADR-H83. |
+| `utilities.py` / `lifecycle_mixin.py` | pure extractions (resources/prompts utility tools; the manager keepalive/recycle loop) so `manager.py` stays under its size ratchet. |
+| `manager.py` | the `MCPManager` facade: discovery, per-tool selection, catalog-digest confirmation, the `ToolRegistry` adapter, per-call rechecks, the per-run call budget, the circuit-breaker check, bounded/redacted output, and `mcp.server.*` / `mcp.tool.*` events. |
 
 **Lifecycle.** `AgenticService.start_mcp()` (run from the FastAPI lifespan)
 connects every **enabled** server, discovers and validates its tools, then
@@ -631,6 +637,23 @@ Further, an effect is trusted only from an **operator declaration**
 server's own `readOnlyHint` is untrusted and, on its own, leaves the tool
 disabled. A changed catalog (tool set / description / schema) produces a new
 digest and invalidates prior confirmation until the operator re-confirms.
+
+**Continuation hardening (2026-09-30).** Four further properties ride the same
+boundary: (1) an inbound `list_changed` notification (tools, resources OR prompts)
+triggers a refresh of that ONE server's listing through the existing path; a
+changed tool catalog re-engages the confirmation gate so it cannot keep a tool
+active, a changed resource/prompt listing replaces the connect-time snapshot the
+utility tools serve, and a content-free `mcp.catalog.changed` event fires
+(ADR-H81). (2) A per-server
+**circuit breaker** stops futile calls to a server that connects but fails every
+call: only transport failures count (never a denied approval, a caller-side
+error, a budget/breaker refusal or a cancellation); an open breaker refuses
+immediately and honestly, re-probes once after a cooldown, and has an operator
+reset (ADR-H82). (3) A **spawn-path OSV check** refuses a package with a confirmed
+malware advisory and allows one on a network error, always stating which
+happened, with a TTL cache (ADR-H83). (4) A **sampling model allowlist** bounds
+which model a server may request; an over-long assembled tool name is clamped to
+64 chars with a stable digest (ADR-H84).
 
 **Trust tier (Phase 6 M1).** `trust` is `full` (default) or `untrusted`
 (fail-closed: any unrecognized value is untrusted). An untrusted server requires

@@ -251,6 +251,17 @@ non-text MCP result carries metadata only (no binary transport). The supply-chai
 report is offline-only. `resource_schemes` is a narrowing; `_ALLOWED_RESOURCE_SCHEMES`
 remains the ceiling.
 
+**Correction (2026-09-30, MCP integrity).** Any earlier impression that
+"connected" or the **Test** action means a server is verified is **wrong**. Test
+only proves the process started and listed tools; a server can be connected and
+reject every call. Credential proof is the separate operator-triggered **Verify**
+action. See `docs/harness/mcp-integrity-progress.md` and ADR-H77/H78.
+
+**Superseded by (2026-09-30, continuation).** The editor/card now report an
+exclude-mode manual selection shadowed by the live globs, and the lifecycle panel
+shows the circuit-breaker state; the current state is in
+`docs/harness/mcp-integrity-progress.md` and ADR-H81–H84.
+
 **Addendum (2026-09-30, engineering hardening).** The four items above were
 revisited: non-text results now state that content exists and was not shown; the
 supply-chain report is explicitly `offlineOnly`/`upstreamChecked: false` and its

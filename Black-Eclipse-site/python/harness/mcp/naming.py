@@ -29,9 +29,36 @@ from .config import MAX_TOOL_DESCRIPTION_CHARS, MAX_TOOL_SCHEMA_CHARS
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 _SANITIZE_RE = re.compile(r"[^A-Za-z0-9_]")
 
+# Providers (OpenAI, and several OpenAI-compatible gateways) accept function
+# names up to 64 characters; exceeding it fails at the WIRE, not at registration.
+# The assembled `mcp__<server>__<tool>` name is clamped to this, with a stable
+# digest suffix, so an over-long pair is a labelled diagnostic here instead of a
+# runtime failure. The delimiter form is unchanged; clamping is a last resort.
+MAX_ECLIPSE_TOOL_NAME = 64
+
 EFFECT_SOURCE_DECLARED = "declared"
 EFFECT_SOURCE_ANNOTATION = "annotation"
 EFFECT_SOURCE_ASSUMED = "assumed"
+
+# Tokens that suggest a tool WRITES. Used only to FLAG a possible mismatch for an
+# operator to acknowledge — never to infer an effect (inferring from a name would
+# auto-activate a tool on a guess, which is worse). A read-named tool can still
+# be a trap (`API-move-page` has no write-looking token), and a write-named tool
+# can be a read (`API-post-search`), so the name is an untrusted hint either way.
+WRITE_SHAPED_TOKENS = (
+    "create", "delete", "update", "patch", "move", "post", "append", "set",
+    "remove", "write", "archive",
+)
+
+
+def writes_like_name(name: str) -> bool:
+    """Whether a tool NAME contains a write-ish token (a possible mismatch).
+
+    A pure, untrusted signal. It never decides an effect; it only lets the
+    operator be warned when a tool marked `read` has a write-shaped name.
+    """
+    lowered = (name or "").lower()
+    return any(token in lowered for token in WRITE_SHAPED_TOKENS)
 
 
 def sanitize_component(value: str) -> str:
@@ -69,12 +96,15 @@ def namespace_tool(
     last resort). Raises `ValueError` only if even the digested name is owned by
     a different identity.
     """
-    base = f"mcp__{sanitize_component(server_id)}__{sanitize_component(tool_name)}"
+    raw = f"mcp__{sanitize_component(server_id)}__{sanitize_component(tool_name)}"
+    base = _clamp_name(raw, server_id, tool_name)
     taken = taken or {}
     owner = taken.get(base)
     if owner is None or owner == (server_id, tool_name):
         return base
-    digested = f"{base}_{identity_digest(server_id, tool_name)}"
+    # A collision (or clamping brought two identities together): append the
+    # stable identity digest, itself clamped.
+    digested = _clamp_name(f"{base}_{identity_digest(server_id, tool_name)}", server_id, tool_name)
     owner = taken.get(digested)
     if owner is None or owner == (server_id, tool_name):
         return digested
@@ -84,8 +114,28 @@ def namespace_tool(
     )
 
 
+def _clamp_name(name: str, server_id: str, tool_name: str) -> str:
+    """Clamp an assembled name to `MAX_ECLIPSE_TOOL_NAME`, adding a stable digest.
+
+    A name at or under the limit is returned byte-identical. An over-long name is
+    truncated and a short identity digest appended, so the result is unique and
+    still `mcp__...`-shaped. The digest makes the truncation collision-resistant.
+    """
+    if len(name) <= MAX_ECLIPSE_TOOL_NAME:
+        return name
+    suffix = "_" + identity_digest(server_id, tool_name)
+    keep = MAX_ECLIPSE_TOOL_NAME - len(suffix)
+    return f"{name[:keep]}{suffix}"
+
+
 def is_valid_tool_name(name: str) -> bool:
     return bool(name) and bool(_NAME_RE.match(name))
+
+
+def name_was_clamped(server_id: str, tool_name: str) -> bool:
+    """Whether `namespace_tool` would truncate this identity (for a diagnostic)."""
+    raw = f"mcp__{sanitize_component(server_id)}__{sanitize_component(tool_name)}"
+    return len(raw) > MAX_ECLIPSE_TOOL_NAME
 
 
 class SchemaError(ValueError):
@@ -206,9 +256,13 @@ __all__ = [
     "identity_digest",
     "namespace_tool",
     "is_valid_tool_name",
+    "name_was_clamped",
+    "MAX_ECLIPSE_TOOL_NAME",
     "normalize_input_schema",
     "bound_description",
     "classify_effect",
+    "writes_like_name",
+    "WRITE_SHAPED_TOKENS",
     "SchemaError",
     "EFFECT_SOURCE_DECLARED",
     "EFFECT_SOURCE_ANNOTATION",

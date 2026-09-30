@@ -34,6 +34,54 @@ def test_verified_presets_carry_a_date_and_basis():
             assert spec.verified_against, f"{spec.id} is verified without a basis"
 
 
+def test_every_stdio_preset_declares_a_command_and_a_non_flag_argument():
+    # Pure, offline shape check: a malformed stdio entry cannot ship silently.
+    for spec in INTEGRATIONS:
+        if spec.transport != "stdio":
+            continue
+        assert spec.command, f"{spec.id} is stdio without a command"
+        non_flag = [a for a in spec.args if not a.startswith("-")]
+        assert non_flag, f"{spec.id} is stdio without a package argument"
+
+
+def test_every_remote_preset_uses_https():
+    for spec in INTEGRATIONS:
+        if spec.transport in ("http", "sse"):
+            assert spec.url and spec.url.startswith("https://"), f"{spec.id} is remote without an https URL"
+
+
+def test_unverified_presets_are_labelled_templates():
+    # An unverified entry must say so in its notes, so the UI copy is backed by
+    # the data (never a bare unverified entry masquerading as installable).
+    for spec in INTEGRATIONS:
+        if not spec.verified:
+            assert "unverified" in (spec.notes or "").lower(), f"{spec.id} is unverified but not labelled a template"
+
+
+def test_sec_filings_preset_points_at_a_launchable_package():
+    # Regression pin: the retired `sec-edgar-mcp` was a 294-byte `console.log`
+    # stub with no `bin`. A revert to it must fail this offline test, not only the
+    # opt-in (network) `npm run test:presets`.
+    spec = integration("sec_filings")
+    assert spec is not None
+    assert "@pipeworx/mcp-edgar" in spec.args, spec.args
+    assert "sec-edgar-mcp" not in spec.args
+    # The replacement needs no credential: the old user-agent secret_ref is gone.
+    assert not spec.secret_ref
+    assert spec.verified is True
+    assert spec.verified_at and spec.verified_against
+
+
+def test_notion_local_and_remote_are_distinct_and_accurate():
+    ids = {s.id for s in INTEGRATIONS}
+    assert "notion_local" in ids and "notion_remote" in ids
+    assert "dropbox" not in ids  # the old mislabelled id is gone
+    local = integration("notion_local")
+    remote = integration("notion_remote")
+    assert local.transport == "stdio" and not local.oauth
+    assert remote.transport == "http" and remote.oauth and remote.url == "https://mcp.notion.com/mcp"
+
+
 def test_install_builds_disabled_nothing_selected_config():
     spec = integration("filesystem")
     entry = integration_to_config(spec)

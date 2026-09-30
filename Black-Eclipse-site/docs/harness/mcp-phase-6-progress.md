@@ -372,3 +372,15 @@ refuses plain-http OAuth URLs); the construction seam is tested. New ADR: H73.
 **Limitations (all phases):** see the per-milestone notes. Nothing is fabricated;
 every unimplemented seam is stated rather than stubbed.
 
+**Correction (2026-09-30, MCP integrity).** The `sec_filings` preset shipped here
+pointed at `sec-edgar-mcp`, a package with no `bin` and no server code; it has
+been replaced with the launched `@pipeworx/mcp-edgar`. Also, "connected"/Test was
+never proof of working credentials — see `docs/harness/mcp-integrity-progress.md`
+and ADR-H77/H78/H80.
+
+**Superseded by (2026-09-30, continuation).** This doc's Limitations section is
+now partly out of date; the current state — inbound-notification rediscovery, the
+circuit breaker, the spawn-path supply-chain check, and the sampling
+allowlist/name clamp — is in `docs/harness/mcp-integrity-progress.md` (and
+ADR-H81–H84).
+

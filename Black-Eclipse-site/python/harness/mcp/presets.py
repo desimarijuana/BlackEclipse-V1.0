@@ -1,5 +1,23 @@
 """Finance presets and workflow templates (Phase 5 — product layer).
 
+**A preset is a promise that clicking it works.** The non-negotiable rule for
+every entry with `verified=True` is:
+
+    A preset may only be `verified=True` if a human or agent has LAUNCHED that
+    exact package version (or endpoint) and SEEN its tools. `verified_against`
+    must name what was run (the package version or the documentation URL), and
+    `verified_at` must date that check.
+
+`verified=False` entries are TEMPLATES: they are honest that the user must point
+them at their own endpoint. `verified` must never over-claim. A preset with a
+`stdio` transport must declare a `command` and at least one non-flag argument
+(typically the package); an `http`/`sse` preset must declare an `https` URL.
+
+The default (offline) suite asserts those shapes without a network call. The
+opt-in `npm run test:presets` check resolves each `stdio` package's `bin` via
+`npm view <pkg> bin` and fails if it is empty — catching a package that cannot be
+launched, like the retired `sec-edgar-mcp`.
+
 MCP should not be presented to an investor as a list of servers and tool names.
 This module is the *task-oriented* layer on top of the raw MCP machinery:
 
@@ -188,22 +206,20 @@ INTEGRATIONS: list[IntegrationSpec] = [
     ),
     IntegrationSpec(
         id="sec_filings",
-        label="SEC filings (community server)",
+        label="SEC EDGAR (community server)",
         purpose="Retrieve company filings and compare changes between them.",
         category="research",
         transport="stdio",
         command="npx",
-        args=["-y", "sec-edgar-mcp"],
-        secret_ref="sec_edgar_user_agent",
-        secret_label="A contact email for the SEC EDGAR User-Agent (required by SEC fair-access policy)",
+        args=["-y", "@pipeworx/mcp-edgar"],
         requires_node=True,
-        read_tool_hints=["filing", "search", "fetch", "read", "get"],
-        write_tool_hints=["create", "write"],
+        read_tool_hints=["edgar", "filing", "search", "fetch", "read", "get", "company", "ticker"],
+        write_tool_hints=[],
         community=True,
         verified=True,
-        verified_at="2026-09-29",
-        verified_against="sec-edgar-mcp on npm",
-        notes="Community server (verified package). Eclipse's own SEC route stays native; this is an external, unverified route.",
+        verified_at="2026-09-30",
+        verified_against="@pipeworx/mcp-edgar@0.3.7 on npm (launched; 16 tools; no credential required)",
+        notes="Community server (launched and confirmed to list 16 tools with no credential). Eclipse's own SEC route stays native; this is an external, unverified route.",
     ),
     IntegrationSpec(
         id="twelve_data",
@@ -253,8 +269,8 @@ INTEGRATIONS: list[IntegrationSpec] = [
         notes="Remote OAuth server (SSE). Eclipse's native economic calendar remains the built-in source.",
     ),
     IntegrationSpec(
-        id="dropbox",
-        label="Notion (remote)",
+        id="notion_remote",
+        label="Notion (remote OAuth)",
         purpose="Save theses, decisions and research records as durable, shared notes.",
         category="documents",
         transport="http",
@@ -263,9 +279,9 @@ INTEGRATIONS: list[IntegrationSpec] = [
         read_tool_hints=["search", "get", "retrieve", "list", "fetch"],
         write_tool_hints=["create", "append", "update", "post"],
         verified=True,
-        verified_at="2026-09-29",
-        verified_against="Notion MCP (https://developers.notion.com/docs/mcp)",
-        notes="Remote OAuth server. Writes need approval.",
+        verified_at="2026-09-30",
+        verified_against="Notion remote MCP documentation (https://developers.notion.com/docs/mcp)",
+        notes="Remote OAuth server (the official hosted Notion MCP). No vault secret: use Sign in on the card. Writes need approval.",
     ),
     IntegrationSpec(
         id="canva",
@@ -274,11 +290,10 @@ INTEGRATIONS: list[IntegrationSpec] = [
         category="decks",
         transport="http",
         url="https://mcp.canva.com/mcp",
-        secret_ref="canva_token",
-        secret_label="Canva access token / OAuth connection",
+        oauth=True,
         read_tool_hints=["list", "get", "search"],
         write_tool_hints=["create", "generate", "design", "upload"],
-        notes="Template (UNVERIFIED): Canva is remote/OAuth-only. Presentation layer only — numbers in a deck still come from Eclipse/native evidence, not the tool.",
+        notes="TEMPLATE (UNVERIFIED): point this at your own Canva MCP endpoint and sign in via OAuth. Presentation layer only — numbers in a deck still come from Eclipse/native evidence, not the tool.",
     ),
     IntegrationSpec(
         id="figma",
@@ -287,11 +302,10 @@ INTEGRATIONS: list[IntegrationSpec] = [
         category="decks",
         transport="http",
         url="https://mcp.figma.com/mcp",
-        secret_ref="figma_token",
-        secret_label="Figma personal access token",
+        oauth=True,
         read_tool_hints=["get", "list"],
         write_tool_hints=["create", "update", "write"],
-        notes="Template (UNVERIFIED): remote/design layer only.",
+        notes="TEMPLATE (UNVERIFIED): point this at your own Figma MCP endpoint and sign in via OAuth. Remote/design layer only.",
     ),
     IntegrationSpec(
         id="powerpoint",
@@ -308,8 +322,8 @@ INTEGRATIONS: list[IntegrationSpec] = [
         notes="Community server (verified package). Writes a local Office file — needs approval.",
     ),
     IntegrationSpec(
-        id="notion",
-        label="Notion",
+        id="notion_local",
+        label="Notion (local token)",
         purpose="Save theses, decisions and research records as durable notes.",
         category="notes",
         transport="stdio",
@@ -321,6 +335,8 @@ INTEGRATIONS: list[IntegrationSpec] = [
         read_tool_hints=["search", "get", "retrieve", "list"],
         write_tool_hints=["create", "append", "update", "post"],
         verified=True,
+        verified_at="2026-09-30",
+        verified_against="@notionhq/notion-mcp-server@2.5.2 on npm (launched; 24 tools listed)",
     ),
 ]
 
@@ -428,12 +444,12 @@ WORKFLOWS: list[WorkflowSpec] = [
         name="Create Investment Memo",
         summary="Produce an investment memo from Eclipse research and your saved notes.",
         category="reporting",
-        integrations=["notion", "web_search", "canva", "figma", "powerpoint"],
+        integrations=["notion_local", "web_search", "canva", "figma", "powerpoint"],
         output="A structured memo, optionally saved to Notion and/or exported as a deck.",
         steps=[
             _step("gather", "Gather findings", "Collect Eclipse research + selected evidence.", native=True),
             _step("draft", "Draft the memo", "Write thesis, evidence, risks and limitations.", native=True),
-            _step("save_thesis", "Save the thesis", "Save to Notion as a durable research record.", effect=EFFECT_WRITE, integration="notion"),
+            _step("save_thesis", "Save the thesis", "Save to Notion as a durable research record.", effect=EFFECT_WRITE, integration="notion_local"),
             _step("export_deck", "Export a deck", "Create a presentation in Canva/Figma/PowerPoint.", effect=EFFECT_WRITE, integration="canva"),
         ],
     ),

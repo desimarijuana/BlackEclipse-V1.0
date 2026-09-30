@@ -21,6 +21,7 @@
     "test:py": "node scripts/test-python.js",
     "test:evals": "node scripts/test-evals.js",
     "test:smoke": "node scripts/test-python.js smoke",
+    "test:presets": "node scripts/test-presets.js",
     "check:all": "node scripts/check-all.js"
   },
   "engines": {

@@ -34,6 +34,10 @@ class MCPToolDescriptor:
     selected: bool
     activatable: bool
     diagnostic: Optional[str] = None
+    # An INFORMATIONAL note that does NOT block activation (e.g. the callable name
+    # was shortened to fit the provider limit). Distinct from `diagnostic`, which
+    # gates activation.
+    note: Optional[str] = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -45,6 +49,7 @@ class MCPToolDescriptor:
             "selected": self.selected,
             "activatable": self.activatable,
             "diagnostic": self.diagnostic,
+            "note": self.note,
         }
 
 
@@ -115,6 +120,29 @@ class _ServerRuntime:
         self.calls = 0
         self.errors = 0
         self.total_latency_ms = 0
+        # The last operator-triggered Verify result (content-free: a stable code,
+        # an optional provider status/code, the tool, and when). Never the body.
+        self.verify_result: Optional[dict[str, Any]] = None
+        # Per-run call counter for the bounded MCP call budget, keyed by run id.
+        self.run_calls: dict[str, int] = {}
+        # Truncation record when the discovered catalog exceeds `maxTools`, so a
+        # user never believes they are seeing a server's full catalog.
+        self.tools_discovered: Optional[int] = None
+        self.tools_kept: Optional[int] = None
+        # True when a lazy server's on-disk cache did not match the current
+        # connection fingerprint, so the cached declarations are stale and a
+        # connect is required (never silently served).
+        self.cache_stale = False
+        # Inbound-notification bookkeeping (continuation): a declared
+        # `tools/list_changed` triggers rediscovery of this one server. These are
+        # content-free audit facts surfaced on the card.
+        self.catalog_changes = 0
+        self.last_catalog_change_at: Optional[str] = None
+        self.removed_tools: list[str] = []
+        # Circuit breaker for a server that connects but fails every call.
+        from .circuit import CircuitBreaker
+
+        self.circuit = CircuitBreaker()
 
     def redact(self, text: str) -> str:
         return redact_secrets(text, self.secrets)

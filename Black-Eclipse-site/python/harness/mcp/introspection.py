@@ -38,17 +38,31 @@ class IntrospectionMixin:
     def _lifecycle_status(self, rt: _ServerRuntime) -> dict[str, Any]:
         """Bounded, content-free lifecycle status for one server."""
         cached = len(rt.descriptors) if rt.lazy_active else 0
+        truncated = (
+            rt.tools_discovered is not None
+            and rt.tools_kept is not None
+            and rt.tools_discovered > rt.tools_kept
+        )
         return {
             **rt.budget.public(),
             "lazy": bool(rt.config.lazy),
             "lazyActive": rt.lazy_active,
             "cachedTools": cached,
+            "cacheStale": rt.cache_stale,
+            "toolsDiscovered": rt.tools_discovered,
+            "toolsKept": rt.tools_kept,
+            "toolsTruncated": truncated,
             "connected": rt.state == "connected",
             "inFlight": rt.in_flight,
             "keepaliveInterval": rt.config.keepalive_interval,
             "keepaliveFailures": rt.keepalive_failures,
             "recycledReason": rt.recycled_reason,
             "lastErrorCode": rt.last_error_code,
+            # Inbound-notification + circuit-breaker facts (content-free).
+            "catalogChanges": rt.catalog_changes,
+            "lastCatalogChangeAt": rt.last_catalog_change_at,
+            "removedTools": list(rt.removed_tools),
+            "circuit": rt.circuit.public(),
             "sampling": rt.sampling.public(),
             "interactions": rt.interactions.public(),
             "metrics": {
@@ -56,6 +70,8 @@ class IntrospectionMixin:
                 "errors": rt.errors,
                 "avgLatencyMs": int(rt.total_latency_ms / rt.calls) if rt.calls else 0,
             },
+            # The last operator-triggered Verify verdict (content-free), or None.
+            "verify": rt.verify_result,
         }
 
     def summary(self) -> dict[str, Any]:
@@ -99,6 +115,9 @@ class IntrospectionMixin:
                 discovered_tools=len(rt.descriptors),
                 selected_tools=sum(1 for d in rt.descriptors.values() if d.selected),
                 token_status=token_status.get(rt.config.id),
+                verify=rt.verify_result,
+                tools_discovered=rt.tools_discovered,
+                tools_kept=rt.tools_kept,
             ).to_public())
         return {"environment": [c.to_public() for c in environment_diagnostics()], "servers": servers}
 

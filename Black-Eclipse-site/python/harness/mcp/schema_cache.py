@@ -90,6 +90,17 @@ def get_entry(server_id: str, fingerprint: str) -> Optional[dict[str, Any]]:
     return entry
 
 
+def is_stale(server_id: str, fingerprint: str) -> bool:
+    """True when an entry EXISTS for this server but its fingerprint is stale.
+
+    Lets a caller tell "no cache yet" apart from "the config changed since the
+    cache was written", so a stale cache is reported as needing a connect rather
+    than being treated as absent (and never silently served).
+    """
+    entry = _load_all().get(server_id)
+    return isinstance(entry, dict) and entry.get("fingerprint") != fingerprint
+
+
 def tools_from_entry(entry: dict[str, Any]) -> list[dict[str, Any]]:
     """Cached tool rows as `{name, description, inputSchema, annotations}`."""
     tools = entry.get("tools")
@@ -132,6 +143,7 @@ __all__ = [
     "cache_path",
     "config_fingerprint",
     "get_entry",
+    "is_stale",
     "write_entry",
     "clear_entry",
     "tools_from_entry",

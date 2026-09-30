@@ -1127,7 +1127,10 @@ skill-quality test modules.
    digest; the UI shows them and uses "Approve this exact call".
 6. **Resilient tests.** `python/harness/mcp/_testtmp.py` resolves a writable temp
    base, falling back from `%TEMP%` to a repo-local `.tmp-tests`, so a locked-down
-   Windows temp dir cannot make a healthy test look broken.
+   Windows temp dir cannot make a healthy test look broken. **(Moved 2026-09-30 to
+   `python/tests/_tmp_helper.py` and adopted by `python/conftest.py` as the
+   `tmp_workspace` fixture — see ADR-H80; it is test-only and no longer ships in the
+   package.)**
 
 **Why.** A user should not have to reason about servers, JSON and tool names to
 do a finance job, and must never mistake external data for Eclipse-verified
@@ -1804,3 +1807,202 @@ pushed** — the user must observe the first run. `ADR-H75`'s local gate remains
 source of truth and is unchanged; CI is its mirror. `test:smoke` stays
 operator-only (network) with a documented trigger in `CONTRIBUTING.md` (run before
 a release tag).
+
+## ADR-H77 - A provider-side error body is a failure, never retrieved data
+
+**Decision.** An MCP call that reports transport success (`isError=false`) but
+whose whole text body parses as a JSON object carrying an unambiguous error signal
+(a truthy `error` key, a 4xx/5xx `status`/`statusCode`, or a known error `code`
+with a status or message) is classified as a **provider error**. The pure rule
+lives in `client.looks_like_provider_error` and is deliberately conservative — a
+legitimate payload that merely carries a `code` is not misread. On a match,
+`_normalize_result` sets `is_error=True` and records `data["providerError"] =
+{code?, status?}` with the provider's body preserved verbatim; the manager renders
+an explicit `MCP reported a provider error (status …, code '…'): <body>` failure
+and emits `mcp.tool.failed` with `mcp_tool_provider_error` (never
+`mcp.tool.completed`). A provider error is NEVER retried — it is not a transport
+error. The MCP system prompt instructs the model to report such a result as a
+limitation and never present it as retrieved data.
+
+**Why.** Connecting real servers exposed the defect: `@notionhq/notion-mcp-server`
+with an invalid token returned `ok=True, isError=False` and the body
+`{"status":401,"code":"unauthorized","message":"API token is invalid."}` — handed
+to the model as a normal successful result. Reporting "connected" when all that is
+known is that a child process launched is a lie of omission.
+
+**Consequences.** An empty MCP result is labelled `(the server returned no text
+content for this call)` so empty never reads as a successful empty result. The
+rule catches a structured JSON error body; an error phrased as free prose is not
+caught by the classifier and is covered by the prompt rule instead.
+
+## ADR-H78 - Test is not Verify; credentials are proven by an explicit read call
+
+**Decision.** The operator-facing **Test** action only proves that a server's
+process started and tools were discovered; its copy says so and it never calls a
+tool. Credential validity is a SEPARATE, operator-triggered **Verify** action
+(`POST /mcp/servers/{id}/verify` + `MCPManager.verify_credentials`, extracted as
+`VerifyMixin`). Verify calls ONE operator-chosen **read** tool with
+operator-supplied arguments, bounded by a short fixed timeout, and records a
+content-free verdict — `credentials_valid` / `credentials_rejected` (with the
+provider's status/code) / `verify_inconclusive` — plus `verifiedAt`. It never
+returns or stores the response body, is never automatic, never at boot, never in a
+loop, and refuses a non-read tool. A `credentials_rejected` server is presented
+distinctly from `endpoint_unreachable` and `server_not_connected`: a server can be
+connected AND rejected.
+
+**Why.** "Test" reporting `connected` for a server that cannot complete a single
+call was the defect that cost real time; the only symptom was a 401 buried inside
+a result body. Separating "the process launched" from "the credential works" makes
+both honest.
+
+**Consequences.** A server with no declared read tool cannot be verified (the UI
+says so). Verify can only prove what the chosen read tool proves.
+
+## ADR-H79 - Effect classification refuses a write-shaped name on a read tool
+
+**Decision.** Effect classes are never inferred from a tool name. Instead, a tool
+marked `read` (declared or annotation-sourced) whose NAME contains a write-ish
+token (`create|delete|update|patch|move|post|append|set|remove|write|archive`,
+`naming.writes_like_name`) stays **inert** until the operator explicitly
+acknowledges the mismatch
+(`MCPServerConfig.acknowledged_effect_mismatches`, a per-tool list). The editor
+shows the mismatch and requires the acknowledgement before the tool is
+selectable. A server's own naming and its `readOnlyHint` annotation are untrusted;
+`unknown` remains never-activatable. The acknowledgement rides the round-trip
+contract.
+
+**Why.** `API-post-search` is a read with a write-looking name; `API-move-page` is
+a write with no write-looking token. Inferring an effect from a name would
+auto-activate a tool on a guess (worse); silently trusting a misleading name lets
+a `read` tool (no approval) execute a write. Making the ambiguity visible and
+refused is the only honest option.
+
+**Consequences.** One behavior changes: a `read` tool with a write-shaped name now
+needs an acknowledgement to activate. The check is lexical, so a write hidden
+behind a completely read-ish name is not caught by the name — declared effects and
+per-call approvals remain the authority.
+
+## ADR-H80 - MCP integrity: launchable presets, a per-run budget, honest truncation and lazy state
+
+**Decision.** Four integrity gaps found by connecting real servers are closed:
+(1) a `stdio` preset is a promise that clicking it works, so `presets.py`
+documents that `verified=True` requires an actual launch, the offline suite
+asserts each preset's shape, and the opt-in `npm run test:presets` resolves every
+`stdio` package's `bin` (never in `npm test`/CI); the un-launchable `sec-edgar-mcp`
+preset is replaced with the launched `@pipeworx/mcp-edgar`; (2) MCP tool calls are
+capped per run (`max_calls_per_run`, default `DEFAULT_MCP_CALLS_PER_RUN`), refusing
+further calls honestly with a named cap and an event; (3) a `maxTools` slice
+records discovered-vs-kept and surfaces a `tools_truncated` diagnostic; (4) a lazy
+server's stale cache (fingerprint mismatch) is reported as needing a connect via
+`schema_cache.is_stale` rather than silently served. The test-only module
+`python/harness/mcp/_testtmp.py` moved to `python/tests/_tmp_helper.py`.
+
+**Why.** A preset that cannot run, a silent call loop, a silently truncated
+catalog, and a stale cache served as declarations are all forms of a system
+claiming more than it knows. The `sec_filings` preset pointed at a package with no
+`bin` and no server code yet shipped `verified=True`.
+
+**Consequences.** `manager.py` shrank (Verify → `verify.py`, rendering/session
+expiry → `execution.py`) to stay under its size ratchet. The budget keys on the
+run id (`"anonymous"` outside a run). The truncation guard reports counts, not the
+dropped names.
+
+## ADR-H81 - Inbound MCP notifications trigger rediscovery of one server
+
+**Decision.** A server may add/remove/rename tools mid-session with
+`notifications/tools/list_changed`, and it may change its resource/prompt listings
+with `notifications/resources/list_changed` / `notifications/prompts/list_changed`.
+`MCPConnection` wires the SDK `message_handler`; it acts ONLY on a list-changed
+notification for a capability the server actually advertised at initialize. It
+invokes one callback (`RediscoveryMixin._on_catalog_changed`) that, under the
+per-server connect lock, re-runs the relevant listing through the existing path
+(`MCPConnection.refresh_tools`/`refresh_listing`, which re-list on the live
+session — no second discovery mechanism). For `tools` it rebuilds descriptors,
+deregisters tools that disappeared, recomputes the catalog digest, re-runs every
+activation gate, and re-registers survivors; for `resources`/`prompts` it replaces
+the connect-time snapshot the utility tools read from (there is no activation gate
+on those read-only surfaces). Every case emits a bounded, content-free
+`mcp.catalog.changed` event (server id, kind, counts, and the new digest for
+tools — never a description). A notification for an unknown/dead server is ignored
+safely; one landing during a call cannot corrupt state (the lock).
+
+**Why.** A changed tool set was only noticed on reconnect, so a tool the operator
+approved could keep running under a stale catalog; and a changed resource/prompt
+listing was served stale from the connect-time snapshot. Handling the
+notifications makes both immediate.
+
+**Consequences.** For tools, the changed digest no longer matches
+`confirmed_catalog_digest`, so annotation-sourced tools become inert again until
+the operator re-confirms — the existing gate, deliberately not bypassed. The
+event is process-level (no run id) and published on the shared bus; the same facts
+also surface on the card via `lifecycle.catalogChanges`/`removedTools`.
+
+## ADR-H82 - A circuit breaker stops futile calls to a server that always fails
+
+**Decision.** `circuit.py` adds a per-server breaker (CLOSED/OPEN/HALF_OPEN) with
+named constants (`FAILURE_THRESHOLD=3`, `COOLDOWN_S=60`) and pure helpers
+(`breaker_state`, `should_probe`) matching the `lifecycle` style. It counts calls
+that REACHED the transport — timeout, session expiry, protocol/call error,
+connection closed, and a provider-side error. It does NOT count: a denied/absent
+approval, a caller-side validation error, a per-run budget refusal, a breaker
+refusal, or a caller cancellation; those are operator/caller behaviour and must
+not trip the breaker. When OPEN, a call refuses immediately and honestly with
+`mcp_circuit_open`, naming the failure count, last error code and re-probe time,
+and performs no transport work. After the cooldown exactly ONE probe is allowed;
+success closes the breaker, failure re-arms it. An operator reset
+(`POST /mcp/servers/{id}/circuit/reset`) clears it. The state is exposed in
+`lifecycle.circuit` and on the card.
+
+**Why.** `maxCallsPerRun` bounds volume and `RetryBudget` covers connect; neither
+stops a server that authenticates and then fails every call, burning latency and
+tokens with no signal the runtime noticed.
+
+**Consequences.** The breaker is per server and in-process; it resets on runtime
+restart. A reconnect does NOT reset the counter for free — only a successful call
+does.
+
+## ADR-H83 - The spawn-path supply-chain check fails closed on malware, open on network error
+
+**Decision.** `supply_chain.py` queries the public OSV API for the exact package +
+version about to be launched, filtering to malware advisories. It runs at the
+SPAWN path only (not `Test`, not at boot for a `lazy` server), via
+`screen_spawn`. A confirmed malware advisory (`MAL-` id or a malware/malicious
+database type/source/summary) refuses the spawn with a diagnostic naming the
+advisory id; a network error (timeout, DNS, non-200) allows the spawn and is
+logged as inconclusive. Verdicts are cached keyed by `(ecosystem, package,
+version)` with an absolute TTL; clean and blocked verdicts are cached, network
+failures are not. A non-package runner (a real executable) is never queried. No
+new dependency: the existing `httpx` client is used, and the fetcher is injectable
+so the offline suite makes no network call. `audit.py` gains an
+`upstream_checked` flag a caller may set; its default stays honestly offline.
+
+**Why.** `screening.py` matches a small hardcoded IOC seed and `audit.py` is
+offline; neither asks an advisory database about the code about to execute, and
+`npx -y <pkg>` is arbitrary third-party execution.
+
+**Consequences.** Fail-open on a network error is deliberate (an unreachable OSV
+must not block all MCP use) and always stated, never a silent allow. The check can
+only refuse on a confirmed malware advisory; an ordinary CVE is not a block.
+
+## ADR-H84 - Sampling honours a model allowlist; tool names are clamped to the provider limit
+
+**Decision.** `SamplingPolicy.allowed_models` (default empty) restricts which model
+a server may request: with a non-empty list, a requested model not on it falls
+back to the operator's configured default and increments
+`sampling_model_fallbacks`; an empty list is unchanged behaviour. The runtime
+continues to serve sampling on its OWN adapter (never the server's model
+directly). Separately, `naming.py` clamps the assembled `mcp__<server>__<tool>`
+name to `MAX_ECLIPSE_TOOL_NAME=64` characters, appending the stable identity
+digest when it must shorten, so an over-long pair fails with a diagnostic at
+registration instead of at the wire. A short name is byte-identical to today; the
+delimiter and the `taken` collision logic are unchanged, and clamping is a last
+resort surfaced as a non-blocking `note` (never a `diagnostic`, which gates
+activation).
+
+**Why.** A server asking for an arbitrary model is a small authority leak; an
+over-long name failing at the wire is a confusing runtime error.
+
+**Consequences.** No provider-specific behaviour beyond the length bound. The
+name clamp cannot block a tool; it only informs the operator why the callable
+name differs.
+

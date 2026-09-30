@@ -47,12 +47,18 @@ def _is_pinned(spec: str) -> bool:
     return "@" in spec
 
 
-def supply_chain_report(manager: Any = None, *, checked_at: Optional[str] = None) -> dict[str, Any]:
+def supply_chain_report(
+    manager: Any = None, *, checked_at: Optional[str] = None, upstream_checked: bool = False
+) -> dict[str, Any]:
     """The report. Offline: reads presets + the manager's configured runtimes.
 
     `checked_at` defaults to today (UTC) so the report is honestly dated at
     generation time rather than pinned to a hardcoded string. It is the
     generation/review date, never a network freshness check.
+
+    `upstream_checked=True` is set by a CALLER that also performed a live OSV
+    check (see `supply_chain.py`); this function itself never contacts the
+    network, and with the default the report stays honestly offline.
     """
     checked_at = checked_at or _today_utc()
     packages: list[dict[str, Any]] = []
@@ -100,8 +106,10 @@ def supply_chain_report(manager: Any = None, *, checked_at: Optional[str] = None
         # Explicit: this report never contacts the network and is never refreshed
         # in the background or on a schedule. `generatedAt` is when it was produced;
         # per-package `checkedAt` is the review date, not live freshness.
+        # This report itself never contacts the network; `upstreamChecked`
+        # records whether a live OSV check was performed ALONGSIDE it.
         "offlineOnly": True,
-        "upstreamChecked": False,
+        "upstreamChecked": upstream_checked,
         "generatedAt": checked_at,
         "checkedAt": checked_at,
         "packages": packages,

@@ -18,7 +18,7 @@ import os
 import shutil
 import tempfile
 
-from ..eclipse_memory.config import repo_root
+from harness.eclipse_memory.config import repo_root
 
 PROBE_NAME = ".be_write_probe"
 

@@ -20,6 +20,7 @@ tool may run — that is the manager/registry's job.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -144,6 +145,14 @@ class MCPConnection:
         # by the manager. None means the server gets nothing.
         self._sampling_callback: Any = None
         self._elicitation_callback: Any = None
+        # Optional async `(kind) -> None` callback invoked when the server signals
+        # a catalog change (`notifications/tools/list_changed` etc.). Injected by
+        # the manager; None = notifications are ignored. It is scheduled as its
+        # own task so the SDK's read loop is never blocked.
+        self._catalog_changed: Any = None
+        self._notifications_seen: int = 0
+        self._last_notification_kind: Optional[str] = None
+        self._catalog_refresh_in_flight: bool = False
         self._call_count = 0
         self._connected_at: Optional[float] = None
         self._last_activity: Optional[float] = None
@@ -357,6 +366,7 @@ class MCPConnection:
                     write_stream,
                     sampling_callback=self._sampling_callback,
                     elicitation_callback=self._elicitation_callback,
+                    message_handler=self._on_session_message,
                 ) as session:
                     init = await asyncio.wait_for(
                         session.initialize(),
@@ -560,48 +570,62 @@ class MCPConnection:
         return sse_client(url)
 
 
+    async def _list_resources(self, session: ClientSession) -> None:
+        """Fetch `resources/list` and replace `_resources`.
+
+        Shared by initial discovery and a `resources/list_changed` refresh. A list
+        failure is not fatal: it leaves the previous list empty (discovery) or in
+        place (refresh).
+        """
+        try:
+            result = await asyncio.wait_for(
+                session.list_resources(), timeout=self.limits["catalogTimeoutMs"] / 1000
+            )
+            rows = []
+            for res in getattr(result, "resources", []) or []:
+                rows.append({
+                    "uri": str(getattr(res, "uri", "")),
+                    "name": str(getattr(res, "name", "") or ""),
+                    "mimeType": getattr(res, "mime_type", None),
+                    "description": str(getattr(res, "description", "") or ""),
+                })
+            self._resources = rows
+        except Exception:  # noqa: BLE001 - a resource list failure is not fatal
+            self._resources = []
+
+    async def _list_prompts(self, session: ClientSession) -> None:
+        """Fetch `prompts/list` and replace `_prompts` (shared by discovery/refresh)."""
+        try:
+            result = await asyncio.wait_for(
+                session.list_prompts(), timeout=self.limits["catalogTimeoutMs"] / 1000
+            )
+            rows = []
+            for prompt in getattr(result, "prompts", []) or []:
+                rows.append({
+                    "name": str(getattr(prompt, "name", "") or ""),
+                    "description": str(getattr(prompt, "description", "") or ""),
+                    "arguments": [
+                        {
+                            "name": str(getattr(a, "name", "") or ""),
+                            "required": bool(getattr(a, "required", False)),
+                            "description": str(getattr(a, "description", "") or ""),
+                        }
+                        for a in (getattr(prompt, "arguments", None) or [])
+                    ],
+                })
+            self._prompts = rows
+        except Exception:  # noqa: BLE001
+            self._prompts = []
+
     async def _discover_capabilities(self, session: ClientSession) -> None:
         """List resources/prompts only when the server advertises the capability."""
         if self._capabilities.get("resources"):
-            try:
-                result = await asyncio.wait_for(
-                    session.list_resources(), timeout=self.limits["catalogTimeoutMs"] / 1000
-                )
-                rows = []
-                for res in getattr(result, "resources", []) or []:
-                    rows.append({
-                        "uri": str(getattr(res, "uri", "")),
-                        "name": str(getattr(res, "name", "") or ""),
-                        "mimeType": getattr(res, "mime_type", None),
-                        "description": str(getattr(res, "description", "") or ""),
-                    })
-                self._resources = rows
-            except Exception:  # noqa: BLE001 - a resource list failure is not fatal
-                self._resources = []
+            await self._list_resources(session)
         if self._capabilities.get("prompts"):
-            try:
-                result = await asyncio.wait_for(
-                    session.list_prompts(), timeout=self.limits["catalogTimeoutMs"] / 1000
-                )
-                rows = []
-                for prompt in getattr(result, "prompts", []) or []:
-                    rows.append({
-                        "name": str(getattr(prompt, "name", "") or ""),
-                        "description": str(getattr(prompt, "description", "") or ""),
-                        "arguments": [
-                            {
-                                "name": str(getattr(a, "name", "") or ""),
-                                "required": bool(getattr(a, "required", False)),
-                                "description": str(getattr(a, "description", "") or ""),
-                            }
-                            for a in (getattr(prompt, "arguments", None) or [])
-                        ],
-                    })
-                self._prompts = rows
-            except Exception:  # noqa: BLE001
-                self._prompts = []
+            await self._list_prompts(session)
 
-    async def _discover(self, session: ClientSession) -> None:
+    async def _list_tools(self, session: ClientSession) -> None:
+        """Fetch `tools/list` and replace `_tools`. Shared by discovery and refresh."""
         try:
             result = await asyncio.wait_for(
                 session.list_tools(), timeout=self.limits["catalogTimeoutMs"] / 1000
@@ -626,6 +650,72 @@ class MCPConnection:
                 )
             )
         self._tools = tools
+
+    async def _discover(self, session: ClientSession) -> None:
+        await self._list_tools(session)
+
+    async def _on_session_message(self, message: Any) -> None:
+        """SDK `message_handler`: react to a declared inbound notification.
+
+        We act ONLY on list-changed notifications for capabilities the server
+        actually advertises (per the initialize handshake). A transport-level
+        `Exception` (the other thing the SDK surfaces here) is ignored — the read
+        loop owns failure handling. A catalog-change callback is dispatched in a
+        separate task so this handler never blocks the dispatcher.
+        """
+        if isinstance(message, BaseException):
+            return
+        method = getattr(message, "method", None)
+        caps = self._capabilities or {}
+        kind: Optional[str] = None
+        if method == "notifications/tools/list_changed" and caps.get("tools"):
+            kind = "tools"
+        elif method in ("notifications/resources/list_changed",) and caps.get("resources"):
+            kind = "resources"
+        elif method in ("notifications/prompts/list_changed",) and caps.get("prompts"):
+            kind = "prompts"
+        if kind is None:
+            return
+        self._notifications_seen += 1
+        self._last_notification_kind = kind
+        if self._catalog_changed is not None:
+            # Fire-and-forget: the callback does its own locking and its own
+            # bounded discovery. A raising callback must not fail the read loop.
+            asyncio.ensure_future(self._safe_catalog_changed(kind))
+
+    async def _safe_catalog_changed(self, kind: str) -> None:
+        try:
+            await self._catalog_changed(kind)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a notification must never break the session
+            log.warning("MCP catalog-change callback failed for %s", self.config.id, exc_info=True)
+
+    async def refresh_listing(self, kind: str) -> None:
+        """Re-run one listing (`tools`/`resources`/`prompts`) on the live session.
+
+        All session I/O is task-affine with the runner task, so the re-list is
+        dispatched as a request and this coroutine awaits its result. The fresh
+        listing replaces the cached one on the connection.
+        """
+        if kind not in ("tools", "resources", "prompts"):
+            raise ValueError(f"unknown listing kind {kind!r}")
+        if self._state != "ready":
+            raise MCPClosedError(f"MCP server {self.config.id!r} is not connected (state={self._state!r})")
+        request = _Request(
+            name="",
+            arguments={},
+            timeout_s=self.limits["catalogTimeoutMs"] / 1000,
+            kind=f"list_{kind}",
+        )
+        outcome = await self._dispatch(request, self.limits["catalogTimeoutMs"])
+        if not outcome.ok:
+            raise MCPProtocolError(f"{kind}/list failed on {self.config.id!r}")
+
+    async def refresh_tools(self) -> list[MCPDiscoveredTool]:
+        """Re-run `tools/list` and return the fresh tool list (back-compat wrapper)."""
+        await self.refresh_listing("tools")
+        return list(self._tools)
 
     async def _serve(self, session: ClientSession) -> None:
         """Process queued calls in this task (session I/O must be task-affine)."""
@@ -675,6 +765,22 @@ class MCPConnection:
                 ) from exc
             except Exception as exc:  # noqa: BLE001 - a ping failure is a session signal
                 raise MCPSessionError(redact_secrets(str(exc), self._secrets)) from exc
+            return MCPCallOutcome(ok=True, text="")
+        if request.kind in ("list_tools", "list_resources", "list_prompts"):
+            # Re-list the catalog/listing on the live session; the result is stored
+            # on the connection (`_tools`/`_resources`/`_prompts`) and the outcome
+            # only signals success.
+            lister = {
+                "list_tools": self._list_tools,
+                "list_resources": self._list_resources,
+                "list_prompts": self._list_prompts,
+            }[request.kind]
+            try:
+                await lister(session)
+            except MCPError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise MCPProtocolError(redact_secrets(str(exc), self._secrets)) from exc
             return MCPCallOutcome(ok=True, text="")
         if request.kind == "read_resource":
             return await self._invoke_resource(session, request)
@@ -899,6 +1005,12 @@ def _normalize_result(
             parts.append(f"[{block_type or 'unknown'} content omitted]")
             kinds.append(block_type or "unknown")
     text = "\n".join(p for p in parts if p)
+    # A server may report success (`isError=false`) while the payload is a
+    # provider-side error (e.g. Notion returns HTTP 401 as a normal text block).
+    # Eclipse must not hand that to the model as retrieved data.
+    provider_error = None if is_error else looks_like_provider_error(text)
+    if provider_error is not None:
+        is_error = True
     structured = getattr(result, "structured_content", None)
     data: dict[str, Any] = {
         "source": {
@@ -909,12 +1021,95 @@ def _normalize_result(
         "isError": is_error,
         "contentKinds": kinds,
     }
+    if provider_error is not None:
+        # The raw body is preserved verbatim in `text`; this only records the
+        # classification so a caller can render an explicit failure.
+        data["providerError"] = provider_error
     if content_meta:
         # Metadata-only: MIME type + byte size, never the bytes themselves.
         data["nonTextContent"] = content_meta
     if structured is not None:
         data["structuredContent"] = structured
     return MCPCallOutcome(ok=not is_error, text=text, data=data, is_error=is_error)
+
+
+# Status codes that unambiguously denote an error rather than a normal result.
+_ERROR_STATUSES = {400, 401, 403, 404, 405, 409, 410, 422, 429, 500, 501, 502, 503, 504}
+# Keys whose mere presence may signal a provider error, but only alongside a
+# status/message (a bare `code` is far too common in legitimate payloads).
+_ERROR_CODES = {
+    "unauthorized", "forbidden", "not_found", "invalid_request", "invalid_request_error",
+    "rate_limited", "rate_limit_exceeded", "server_error", "internal_error", "conflict",
+}
+
+
+def looks_like_provider_error(text: str) -> Optional[dict[str, Any]]:
+    """Classify a successful-looking text body as a provider-side error.
+
+    Conservative by design: a legitimate payload that merely carries a `code`
+    field must NOT be misread as an error. The exact rule (all parts must hold):
+
+      * the *entire* trimmed body parses as a JSON object (never an array or
+        scalar, and never JSON embedded in prose); and
+      * it has an unambiguous error signal: an explicit ``"error"`` key (present
+        and truthy, or a non-null object/string), OR
+      * an HTTP ``status``/``statusCode`` in a known 4xx/5xx error set, OR
+      * a string ``code`` in a known error-code vocabulary **together with** a
+        ``status``/``statusCode`` number or a non-empty ``message`` string.
+
+    Returns ``{"code": ..., "status": ...}`` (either may be omitted) when the
+    body is an error, else ``None``. It never rewrites the provider's words; the
+    caller keeps the raw body verbatim.
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    if not stripped or stripped[0] != "{":
+        return None
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    status = parsed.get("status")
+    if status is None:
+        status = parsed.get("statusCode")
+    status_int: Optional[int] = None
+    if isinstance(status, bool):
+        status_int = None
+    elif isinstance(status, int):
+        status_int = status
+    elif isinstance(status, str) and status.strip().isdigit():
+        status_int = int(status.strip())
+
+    message = parsed.get("message")
+    code = parsed.get("code")
+    code_str = code.strip().lower() if isinstance(code, str) else None
+
+    has_error_key = "error" in parsed and bool(parsed.get("error"))
+    status_is_error = status_int is not None and (
+        status_int in _ERROR_STATUSES or status_int >= 400
+    )
+    code_matches = code_str in _ERROR_CODES
+
+    is_error = (
+        has_error_key
+        or status_is_error
+        or (code_matches and (status_int is not None or (isinstance(message, str) and message.strip())))
+    )
+    if not is_error:
+        return None
+
+    record: dict[str, Any] = {}
+    if code_str:
+        record["code"] = code_str
+    if status_int is not None:
+        record["status"] = status_int
+    if not record:  # only the bare "error" key was present
+        record["code"] = "provider_error"
+    return record
 
 
 def _decoded_size(data: Any) -> Optional[int]:
@@ -944,4 +1139,5 @@ __all__ = [
     "MCPProtocolError",
     "MCPClosedError",
     "MCPSessionError",
+    "looks_like_provider_error",
 ]

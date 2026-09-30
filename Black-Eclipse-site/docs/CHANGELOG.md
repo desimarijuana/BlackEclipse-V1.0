@@ -8,6 +8,32 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **MCP integrity — real-server defects fixed and the remaining gaps closed.**
+  Two sessions. First: a provider-side error body returned with `isError=false`
+  is now a failure (pure `looks_like_provider_error` classifier, an explicit
+  rendered failure, `mcp_tool_provider_error`); **Test is not Verify** — a new
+  operator-triggered `POST /mcp/servers/{id}/verify` makes one bounded read call
+  and records a content-free verdict; the un-launchable `sec-edgar-mcp` preset is
+  replaced with the launched `@pipeworx/mcp-edgar`; `notion`/`dropbox` ids become
+  `notion_local`/`notion_remote`; a `read` tool with a write-shaped name is inert
+  until explicitly acknowledged; a per-run MCP call budget, a `maxTools`
+  truncation diagnostic, and a stale-lazy-cache signal were added. Continuation:
+  inbound `notifications/tools/list_changed` now triggers rediscovery of one
+  server (re-engaging the confirmation gate), and a `resources`/`prompts`
+  list-changed notification refreshes that listing so the utility tools serve the
+  current snapshot rather than the stale connect-time one, each with a
+  content-free `mcp.catalog.changed` event (ADR-H81); a per-server circuit breaker stops futile
+  calls to a server that connects but fails every call, with an operator reset
+  (ADR-H82); a spawn-path OSV supply-chain check fails closed on a confirmed
+  malware advisory and open on a network error (ADR-H83); a sampling model
+  allowlist and a 64-char tool-name clamp (ADR-H84); `python/pytest.ini` prints a
+  passing summary line; the test-only `_testtmp.py` moved to
+  `python/tests/_tmp_helper.py` and is adopted by `python/conftest.py`.
+  docs updated: `docs/harness/mcp-integrity-progress.md` (new + continuation),
+  `docs/harness/decisions.md` (ADR-H77–H84), `docs/harness/architecture.md`,
+  `docs/NAVIGATION.md`, `docs/harness/mcp-phase-6-progress.md`,
+  `docs/harness/mcp-ui-parity-progress.md`, `CONTRIBUTING.md`
+
 - **General settings — Start screen control removed; background picker promoted.** Removed the "Start screen" button grid from Settings › General › General (the boot tab now just follows the default/deep link; `general-prefs` still stores it for compatibility). The Background panel now leads the General tab, and the shipped **Eclipse I** wallpaper is the default on first run (`DEFAULT_BACKGROUND.mode = 'image'`, `preset = 'eclipse-1'`). The wallpaper fills the main content panel (right of the sidebar) on the ChatBot landing only (empty transcript) and resizes with it, so opening the sidebar keeps the image fully visible; the sidebar keeps its normal (non-transparent) frost. Follow-up to the background feature below.
   no doc change — same unreleased feature; docs already describe the background system.
 

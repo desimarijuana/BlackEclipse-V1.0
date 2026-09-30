@@ -53,15 +53,15 @@
       "description": "Creates local Office files. Marked untrusted so every write needs an explicit per-call approval."
     },
     {
-      "id": "notion",
-      "name": "Notion",
+      "id": "notion_local",
+      "name": "Notion (local token)",
       "command": "npx",
       "args": ["-y", "@notionhq/notion-mcp-server"],
       "secret_refs": { "NOTION_TOKEN": "notion_integration_token" },
       "enabled": false,
       "selected_tools": [],
       "lazy": true,
-      "description": "Official Notion server. Lazy-started from cache; needs the vault secret 'notion_integration_token'."
+      "description": "Official Notion server, run locally with an integration token. Lazy-started from cache; needs the vault secret 'notion_integration_token'. (The hosted OAuth Notion server is a separate preset, 'notion_remote'.)"
     },
     {
       "id": "sheets",
