@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Search,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
@@ -102,42 +101,29 @@ function Section({ title, children, tone }: { title: string; children: React.Rea
 }
 
 /**
- * A collapsible sub-section (Sources, Research detail), styled to match the
- * "What influenced this run" dropdown so the two provenance blocks read as one
- * family: a compact frosted box with a chevron + icon header and a summary count.
+ * Inline collapsible header used inside the panel body (e.g. "Research detail").
+ * Deliberately muted and borderless so it does not nest a second glass box —
+ * the whole panel is ONE frosted dropdown, like "What influenced this run".
  */
-function Disclosure({
+function InlineDisclosure({
   title,
-  summary,
-  icon: Icon,
   open,
   onToggle,
-  compact,
-  children,
 }: {
   title: string;
-  summary?: string;
-  icon: typeof BookOpen;
   open: boolean;
   onToggle: () => void;
-  compact: boolean;
-  children: React.ReactNode;
 }) {
   return (
-    <div className={cn('w-full rounded-xl border border-border/20 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
-      >
-        {open ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
-        <Icon size={11} className="shrink-0 text-primary" />
-        <span className="font-medium">{title}</span>
-        {summary ? <span className="text-muted-foreground/70">· {summary}</span> : null}
-      </button>
-      {open ? <div className="mt-2.5 space-y-3 text-[10px]">{children}</div> : null}
-    </div>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full items-center gap-1.5 rounded-lg px-1 py-0.5 text-left text-muted-foreground transition-colors hover:bg-white/5 cursor-pointer"
+    >
+      {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      <span className="font-medium">{title}</span>
+    </button>
   );
 }
 
@@ -234,7 +220,6 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
   // attached metadata rather than an extension of the answer. The one always-
   // visible line is the status summary, which includes source/limitation counts.
   const [blockOpen, setBlockOpen] = useState(false);
-  const [sourcesOpen, setSourcesOpen] = useState(true);
   const [metaOpen, setMetaOpen] = useState(false);
   const bodyId = useId();
   if (!info) return null;
@@ -269,58 +254,50 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
   const detailSummary = legs.length > 0 ? `${coverageCounts(legs).covered}/${legs.length} legs covered` : undefined;
 
   return (
-    <div
-      className={cn(
-        'mt-3 w-full rounded-2xl border border-white/10 p-0 dark:border-white/8 glass-card-subtle',
-        compact ? 'text-[11px]' : 'text-xs',
-      )}
-    >
-      {/* The one always-visible line: status + counts. Click to expand provenance. */}
+    <div className={cn('mt-3 w-full rounded-xl border border-border/20 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
+      {/* One header line — same shape as "What influenced this run". */}
       <button
         type="button"
         onClick={() => setBlockOpen((v) => !v)}
         aria-expanded={blockOpen}
         aria-controls={bodyId}
-        className="flex w-full flex-wrap items-center gap-2 rounded-2xl px-3 py-2 text-left transition-colors hover:bg-white/5"
+        className="flex w-full flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
       >
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', meta.tone)} />
-        <span className={cn('font-semibold', meta.tone)}>{meta.label}</span>
+        {blockOpen ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+        <Icon size={11} className={cn('shrink-0', meta.tone)} />
+        <span className="font-medium text-foreground/90">{meta.label}</span>
         <span className="text-muted-foreground/80">{summary}</span>
-        {limitationLabel ? <span className="text-amber-500/90">{limitationLabel}</span> : null}
-        <span className="ml-auto text-muted-foreground/70">
-          {blockOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        </span>
+        {limitationLabel ? <span className="text-amber-500/90">· {limitationLabel}</span> : null}
       </button>
 
       {blockOpen ? (
-        <div id={bodyId} className="space-y-3 border-t border-white/10 px-3 py-2.5">
+        <div id={bodyId} className="mt-2.5 space-y-3 text-[10px]">
           {/* 1. Calculations */}
           <Calculations calculations={calculations} index={index} />
 
           {/* 2. Limitations */}
           <Limitations limitations={limitations} />
 
-          {/* 3. Sources (collapsible, numbered) — same design as "What influenced this run" */}
+          {/* 3. Sources — numbered, in a bounded scroll area so a long list stays
+              manageable instead of spilling the whole transcript. */}
           {citations.length > 0 || failedRoutes.length > 0 ? (
-            <Disclosure
-              title="Sources"
-              summary={sourcesSummary}
-              icon={BookOpen}
-              open={sourcesOpen}
-              onToggle={() => setSourcesOpen((v) => !v)}
-              compact={compact}
-            >
+            <section>
+              <div className="flex items-center gap-1.5 px-1">
+                <BookOpen size={11} className="shrink-0 text-primary" />
+                <span className="font-semibold text-foreground">Sources</span>
+                <span className="text-muted-foreground/70">· {sourcesSummary}</span>
+              </div>
               {citations.length > 0 ? (
-                <ol className="space-y-2">
+                <ol className="mt-1.5 max-h-56 space-y-1.5 overflow-y-auto overscroll-contain pr-1">
                   {citations.map((citation, i) => (
                     <SourceRow key={citation.evidenceId || i} citation={citation} n={i + 1} />
                   ))}
                 </ol>
               ) : (
-                <p className="text-muted-foreground/80">No source could be cited for this answer.</p>
+                <p className="mt-1.5 px-1 text-muted-foreground/80">No source could be cited for this answer.</p>
               )}
               {failedRoutes.length > 0 ? (
-                <div>
+                <div className="mt-2 px-1">
                   <p className="mb-0.5 font-semibold text-foreground">Routes tried but unavailable</p>
                   <ul className="space-y-0.5 text-[10px] text-muted-foreground/70">
                     {failedRoutes.map((route, i) => (
@@ -332,20 +309,20 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
                   </ul>
                 </div>
               ) : null}
-            </Disclosure>
+            </section>
           ) : null}
 
           {/* 4. Run metadata (coverage, claims, conflicts, retrieval paths, receipt) */}
           {hasMetaDetail ? (
-            <Disclosure
-              title="Research detail"
-              summary={detailSummary}
-              icon={Search}
-              open={metaOpen}
-              onToggle={() => setMetaOpen((v) => !v)}
-              compact={compact}
-            >
-              {legs.length > 0 ? (
+            <section>
+              <InlineDisclosure
+                title={detailSummary ? `Research detail · ${detailSummary}` : 'Research detail'}
+                open={metaOpen}
+                onToggle={() => setMetaOpen((v) => !v)}
+              />
+              {metaOpen ? (
+                <div className="mt-1.5 space-y-3">
+                {legs.length > 0 ? (
                 <Section title="Coverage">
                   <ul className="space-y-0.5">
                     {legs.map((leg) => {
@@ -428,7 +405,9 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
                     ? 'A durable research receipt was saved for this run.'
                     : 'No research receipt is available for this run.'}
               </p>
-            </Disclosure>
+                </div>
+              ) : null}
+            </section>
           ) : null}
         </div>
       ) : null}

@@ -19,11 +19,13 @@ last-verified: 2026-09-28
   no doc change — behavior-only UI affordance, no architecture/contract/setup change.
 
 - **ChatBot "Sources" dropdown redesigned to match "What influenced this run".**
-  The per-answer provenance `Sources` (and `Research detail`) disclosures in
-  `ResearchEvidencePanel` now use the same compact frosted glass box + chevron +
-  leading icon + inline summary as the run-explanation panel, and each numbered
-  source row is a tinted tile with a tier chip and a `View source` link. No
-  behavior/data change (presentation only); a right-hand sources rail concept was
+  `ResearchEvidencePanel` is now a SINGLE flat frosted dropdown in the
+  run-explanation style (chevron + leading status icon + inline summary), instead
+  of a panel wrapping nested boxes. The numbered Sources list lives in a bounded
+  `max-h-56` scroll area so a long citation list stays manageable rather than
+  spilling the transcript; `Research detail` became a borderless inline
+  disclosure. Each source row is a tinted tile with a tier chip and a
+  `View source` link. Presentation only; a right-hand sources rail concept was
   tried and removed. `src/components/chat/research-evidence-panel.tsx`.
   `tsc` clean; vitest 1837 pass. no doc change — presentation only.
 
