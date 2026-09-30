@@ -1,0 +1,42 @@
+# BlackEclipse line-ending normalization.
+#
+# WHY: `core.autocrlf=true` with no `.gitattributes` meant a one-line edit to a
+# doc could show as a whole-file rewrite (CRLF vs LF), breaking `git blame` and
+# review. This file normalizes text to LF in the repository so a real edit diffs
+# as a real edit.
+#
+# The default: text files are stored LF-normalized and checked out LF. That is
+# correct for this repo — its shell hooks (`.githooks/pre-commit`,
+# `.githooks/commit-msg`) run under `sh`, where LF is required, and its Node/
+# Python/TS tooling is line-ending agnostic.
+
+* text=auto eol=lf
+
+# Windows-only script types that must keep CRLF in the working tree, or they can
+# fail to run. (Only `.ps1` is currently tracked; the others are declared so a
+# future addition is safe rather than silently normalized.)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Explicit text types (belt-and-braces over `text=auto`; keeps the intent clear).
+*.md   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.mts  text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.svg  text eol=lf
+
+# Real binaries — never let git normalize or diff these as text. Determined from
+# `git ls-files` + extension: `.wav` (63 tracked) and `.ico` (1 tracked) are the
+# only binary types in the tree today. `.db` is listed so a future `jdds.db`-like
+# file cannot be corrupted by a text normalization.
+*.wav binary
+*.ico binary
+*.db  binary
+*.db-* binary
