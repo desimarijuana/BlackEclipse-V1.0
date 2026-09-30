@@ -28,19 +28,27 @@ describe('normalizeBackgroundPrefs', () => {
   it('accepts every valid enum value', () => {
     const t = normalizeBackgroundPrefs({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
-      fit: 'tile', dim: 10,
+      fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
     });
     expect(t).toEqual({
       mode: 'image', pattern: 'grid', preset: 'eclipse-5', customKey: 'x',
-      fit: 'tile', dim: 10,
+      fit: 'tile', scale: 150, positionX: 20, positionY: 80, dim: 10,
     });
+  });
+
+  it('clamps scale to 100–300 and position to 0–100', () => {
+    expect(normalizeBackgroundPrefs({ scale: 10 }).scale).toBe(100);
+    expect(normalizeBackgroundPrefs({ scale: 999 }).scale).toBe(300);
+    expect(normalizeBackgroundPrefs({ scale: 142.6 }).scale).toBe(143);
+    expect(normalizeBackgroundPrefs({ positionX: -9 }).positionX).toBe(0);
+    expect(normalizeBackgroundPrefs({ positionY: 140 }).positionY).toBe(100);
   });
 });
 
 describe('resolveBackgroundCss', () => {
   it('is transparent for mode none', () => {
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'none' }, 'none', null);
-    expect(css.image).toBe('none');
+    expect(css.url).toBe('none');
     expect(css.pageImage).toBe('none');
     expect(css.scrim).toBe(false);
   });
@@ -49,7 +57,7 @@ describe('resolveBackgroundCss', () => {
     const gradient = 'radial-gradient(red, transparent)';
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'pattern', pattern: 'gradient' }, gradient, null);
     expect(css.pageImage).toBe(gradient);
-    expect(css.image).toBe('none');
+    expect(css.url).toBe('none');
     expect(css.scrim).toBe(false);
   });
 
@@ -57,8 +65,8 @@ describe('resolveBackgroundCss', () => {
     const asset = shippedBackground('eclipse-1');
     expect(asset).toBeDefined();
     const css = resolveBackgroundCss({ ...DEFAULT_BACKGROUND, mode: 'image', preset: 'eclipse-1' }, 'none', null);
-    expect(css.image).toBe(`url("${asset!.url}")`);
-    expect(css.image).toContain('eclipse%20bg-1.svg');
+    expect(css.url).toBe(`url("${asset!.url}")`);
+    expect(css.url).toContain('eclipse%20bg-1.svg');
     expect(css.pageImage).toBe('none');
     expect(css.scrim).toBe(true);
     expect(css.size).toBe('cover');
@@ -70,7 +78,7 @@ describe('resolveBackgroundCss', () => {
       'none',
       'data:image/png;base64,AAAA',
     );
-    expect(css.image).toBe('url("data:image/png;base64,AAAA")');
+    expect(css.url).toBe('url("data:image/png;base64,AAAA")');
     expect(css.scrim).toBe(true);
   });
 
@@ -80,7 +88,7 @@ describe('resolveBackgroundCss', () => {
       'none',
       null,
     );
-    expect(css.image).toBe('none');
+    expect(css.url).toBe('none');
     expect(css.scrim).toBe(false);
   });
 
@@ -91,6 +99,21 @@ describe('resolveBackgroundCss', () => {
     expect(tile.size).toBe('auto');
     expect(tile.repeat).toBe('repeat');
     expect(resolveBackgroundCss({ ...base, fit: 'cover' }, 'none', null).repeat).toBe('no-repeat');
+  });
+
+  it('maps scale to a clamped zoom multiplier', () => {
+    const base = { ...DEFAULT_BACKGROUND, mode: 'image' as const, preset: 'eclipse-1' };
+    expect(resolveBackgroundCss({ ...base, scale: 100 }, 'none', null).zoom).toBe(1);
+    expect(resolveBackgroundCss({ ...base, scale: 200 }, 'none', null).zoom).toBe(2);
+    expect(resolveBackgroundCss({ ...base, scale: 300 }, 'none', null).zoom).toBe(3);
+  });
+
+  it('maps position to a focal point', () => {
+    const css = resolveBackgroundCss(
+      { ...DEFAULT_BACKGROUND, mode: 'image', preset: 'eclipse-1', positionX: 25, positionY: 75 },
+      'none', null,
+    );
+    expect(css.position).toBe('25% 75%');
   });
 
   it('builds a scrim that is a valid background-image layer', () => {

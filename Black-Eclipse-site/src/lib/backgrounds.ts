@@ -47,18 +47,31 @@ export interface BackgroundPrefs {
   /** Non-empty only for `preset: 'custom'`; a key into the custom-image store. */
   customKey: string;
   fit: BackgroundFit;
+  /** Zoom, 100–300 (%). 100 = exactly the fit size. */
+  scale: number;
+  /** Horizontal focal point, 0–100 (%). 50 = centered. */
+  positionX: number;
+  /** Vertical focal point, 0–100 (%). 50 = centered. */
+  positionY: number;
   /** Scrim strength over the image, 0–100, so text stays legible on any art. */
   dim: number;
 }
 
+/** The official first-run background for new users. */
+export const DEFAULT_BACKGROUND_ID = 'eclipse-1';
+
 export const DEFAULT_BACKGROUND: BackgroundPrefs = {
-  // The shipped Eclipse I wallpaper ships on by default. It paints on the
-  // ChatBot page only; every other tab keeps the plain themed surface.
+  // The official Eclipse I wallpaper (DEFAULT_BACKGROUND_ID) ships on by
+  // default for new users. It paints on the ChatBot landing only; every other
+  // tab keeps the plain themed surface.
   mode: 'image',
   pattern: 'solid',
-  preset: 'eclipse-1',
+  preset: DEFAULT_BACKGROUND_ID,
   customKey: '',
   fit: 'cover',
+  scale: 100,
+  positionX: 50,
+  positionY: 50,
   dim: 45,
 };
 
@@ -130,10 +143,19 @@ export function normalizeBackgroundPrefs(raw: unknown): BackgroundPrefs {
   const fit = FITS.includes(value.fit as BackgroundFit)
     ? (value.fit as BackgroundFit)
     : DEFAULT_BACKGROUND.fit;
+  const scale = typeof value.scale === 'number' && Number.isFinite(value.scale)
+    ? Math.min(300, Math.max(100, Math.round(value.scale)))
+    : DEFAULT_BACKGROUND.scale;
+  const positionX = typeof value.positionX === 'number' && Number.isFinite(value.positionX)
+    ? Math.min(100, Math.max(0, Math.round(value.positionX)))
+    : DEFAULT_BACKGROUND.positionX;
+  const positionY = typeof value.positionY === 'number' && Number.isFinite(value.positionY)
+    ? Math.min(100, Math.max(0, Math.round(value.positionY)))
+    : DEFAULT_BACKGROUND.positionY;
   const dim = typeof value.dim === 'number' && Number.isFinite(value.dim)
     ? Math.min(100, Math.max(0, Math.round(value.dim)))
     : DEFAULT_BACKGROUND.dim;
-  return { mode, pattern, preset, customKey, fit, dim };
+  return { mode, pattern, preset, customKey, fit, scale, positionX, positionY, dim };
 }
 
 export function loadBackgroundPrefs(): BackgroundPrefs {
@@ -277,16 +299,18 @@ export function customImageError(dataUrl: string): string | null {
 // ── CSS resolution ───────────────────────────────────────────────────────────
 
 export interface BackgroundCss {
-  /** `background-image` for the host element's *image* layer (`--app-bg-image`). */
-  image: string;
+  /** The wallpaper URL (as a CSS `url(...)`), or `none`. */
+  url: string;
   /** `background-image` for the host element's *pattern* layer (`--page-bg-image`). */
   pageImage: string;
-  /** `background-size` for the image layer. */
+  /** `background-size` for the image layer (fit). */
   size: string;
   /** `background-repeat` for the image layer. */
   repeat: string;
-  /** `background-position` for the image layer. */
+  /** `background-position` for the image layer (focal X/Y). */
   position: string;
+  /** Zoom multiplier for the image layer (1 = fit as-is). */
+  zoom: number;
   /** Whether a scrim should be rendered (image modes only). */
   scrim: boolean;
   /**
@@ -295,6 +319,8 @@ export interface BackgroundCss {
    * declaration, so this is a solid-color linear-gradient instead.
    */
   scrimImage: string;
+  /** True when the theme's pattern should be suppressed (image mode). */
+  suppressPattern: boolean;
 }
 
 function sizeForFit(fit: BackgroundFit): string {
@@ -321,6 +347,9 @@ function scrimImageFor(dim: number): string {
  *                 is emptied.
  *   * `image`   → the theme pattern is suppressed so the wallpaper reads clean,
  *                 and the wallpaper layer is fed the image + scrim.
+ *
+ * Fit picks `cover`/`contain`/`auto`; `scale` is a separate zoom multiplier and
+ * `positionX/Y` set the focal point, so the two can be combined freely.
  */
 export function resolveBackgroundCss(
   prefs: BackgroundPrefs,
@@ -328,35 +357,41 @@ export function resolveBackgroundCss(
   customUrl: string | null,
 ): BackgroundCss {
   const scrimImage = scrimImageFor(prefs.dim);
+  const zoom = Math.min(3, Math.max(0.5, prefs.scale / 100));
+  const position = `${prefs.positionX}% ${prefs.positionY}%`;
   if (prefs.mode === 'pattern') {
     return {
-      image: 'none',
+      url: 'none',
       pageImage: patternImage !== 'none' ? patternImage : 'none',
       size: 'auto',
       repeat: 'repeat',
       position: 'center',
+      zoom: 1,
       scrim: false,
       scrimImage,
+      suppressPattern: false,
     };
   }
   if (prefs.mode === 'image') {
     const asset = prefs.preset === CUSTOM_BACKGROUND_ID ? null : shippedBackground(prefs.preset);
     const url = asset?.url ?? (customUrl || null);
     if (!url) {
-      return { image: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', scrim: false, scrimImage };
+      return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
     }
     return {
-      image: `url("${url}")`,
+      url: `url("${url}")`,
       // Suppress the theme pattern so the wallpaper is the only backdrop.
       pageImage: 'none',
       size: sizeForFit(prefs.fit),
       repeat: prefs.fit === 'tile' ? 'repeat' : 'no-repeat',
-      position: 'center',
+      position,
+      zoom,
       scrim: true,
       scrimImage,
+      suppressPattern: true,
     };
   }
-  return { image: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', scrim: false, scrimImage };
+  return { url: 'none', pageImage: 'none', size: 'auto', repeat: 'no-repeat', position: 'center', zoom: 1, scrim: false, scrimImage, suppressPattern: false };
 }
 
 // ── DOM application ──────────────────────────────────────────────────────────
@@ -377,10 +412,11 @@ export function applyBackgroundToDocument(prefs: BackgroundPrefs, patternImage: 
   }
   const css = resolveBackgroundCss(prefs, patternImage, customUrl);
   root.style.setProperty('--page-bg-image', css.pageImage);
-  root.style.setProperty('--app-bg-image', css.image);
+  root.style.setProperty('--app-bg-image', css.url);
   root.style.setProperty('--app-bg-size', css.size);
   root.style.setProperty('--app-bg-repeat', css.repeat);
   root.style.setProperty('--app-bg-position', css.position);
+  root.style.setProperty('--app-bg-zoom', String(css.zoom));
   root.style.setProperty('--app-bg-scrim', css.scrim ? css.scrimImage : 'none');
 }
 
@@ -388,7 +424,8 @@ function clearBackgroundFromDocument(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   for (const name of [
-    '--page-bg-image', '--app-bg-image', '--app-bg-size', '--app-bg-repeat', '--app-bg-position', '--app-bg-scrim',
+    '--page-bg-image', '--app-bg-image', '--app-bg-size', '--app-bg-repeat',
+    '--app-bg-position', '--app-bg-zoom', '--app-bg-scrim',
   ]) {
     root.style.removeProperty(name);
   }

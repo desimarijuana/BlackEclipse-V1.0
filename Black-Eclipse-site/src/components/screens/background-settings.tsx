@@ -18,6 +18,7 @@ import {
   BACKGROUND_MODE_OPTIONS,
   BACKGROUND_PATTERN_OPTIONS,
   CUSTOM_BACKGROUND_ID,
+  DEFAULT_BACKGROUND_ID,
   MAX_UPLOAD_BYTES,
   SHIPPED_BACKGROUNDS,
   useBackgroundStore,
@@ -171,7 +172,7 @@ export function BackgroundSettingsPanel() {
                     key={b.id}
                     type="button"
                     onClick={() => setPrefs({ preset: b.id })}
-                    title={`${b.label} (${b.weight})`}
+                    title={`${b.label} (${b.weight})${b.id === DEFAULT_BACKGROUND_ID ? ' — the official default' : ''}`}
                     className={cn(
                       "group relative aspect-video overflow-hidden rounded-xl border transition-all cursor-pointer",
                       !isCustom && prefs.preset === b.id
@@ -184,6 +185,11 @@ export function BackgroundSettingsPanel() {
                       style={{ backgroundImage: `url("${b.url}")` }}
                       aria-hidden
                     />
+                    {b.id === DEFAULT_BACKGROUND_ID && (
+                      <span className="absolute right-1 top-1 rounded-full bg-primary/85 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-primary-foreground">
+                        Default
+                      </span>
+                    )}
                     <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1.5 py-0.5 text-[9px] font-medium text-white/90 truncate">
                       {b.label}
                     </span>
@@ -265,6 +271,36 @@ export function BackgroundSettingsPanel() {
               format={(v) => `${v}%`}
               onChange={(dim) => setPrefs({ dim })}
             />
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Range
+                label="Zoom"
+                value={prefs.scale}
+                min={100}
+                max={300}
+                step={5}
+                format={(v) => `${v}%`}
+                onChange={(scale) => setPrefs({ scale })}
+              />
+              <Range
+                label="Horizontal"
+                value={prefs.positionX}
+                min={0}
+                max={100}
+                step={1}
+                format={(v) => `${v}%`}
+                onChange={(positionX) => setPrefs({ positionX })}
+              />
+              <Range
+                label="Vertical"
+                value={prefs.positionY}
+                min={0}
+                max={100}
+                step={1}
+                format={(v) => `${v}%`}
+                onChange={(positionY) => setPrefs({ positionY })}
+              />
+            </div>
           </>
         )}
 
@@ -274,16 +310,23 @@ export function BackgroundSettingsPanel() {
             aria-hidden
           >
             {activeThumb ? (
-              <span
-                className="absolute inset-0 bg-cover bg-center"
-                style={{
-                  backgroundImage: prefs.mode === "image" && prefs.fit === "tile"
-                    ? `url("${activeThumb}")`
-                    : `linear-gradient(rgba(0,0,0,${prefs.dim / 100}), rgba(0,0,0,${prefs.dim / 100})), url("${activeThumb}")`,
-                  backgroundSize: prefs.fit === "cover" ? "cover" : prefs.fit === "contain" ? "contain" : "auto",
-                  backgroundRepeat: prefs.fit === "tile" ? "repeat" : "no-repeat",
-                }}
-              />
+              <>
+                <span
+                  className="absolute inset-0"
+                  style={{
+                    backgroundImage: `url("${activeThumb}")`,
+                    backgroundSize: prefs.fit === "cover" ? "cover" : prefs.fit === "contain" ? "contain" : "auto",
+                    backgroundRepeat: prefs.fit === "tile" ? "repeat" : "no-repeat",
+                    backgroundPosition: `${prefs.positionX}% ${prefs.positionY}%`,
+                    transform: `scale(${Math.min(3, Math.max(0.5, prefs.scale / 100))})`,
+                    transformOrigin: `${prefs.positionX}% ${prefs.positionY}%`,
+                  }}
+                />
+                <span
+                  className="absolute inset-0"
+                  style={{ backgroundColor: `rgba(0,0,0,${prefs.dim / 100})` }}
+                />
+              </>
             ) : (
               <span className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent" />
             )}

@@ -191,10 +191,15 @@ Two mechanisms:
       `.app-bg-layer` that fills the **main content panel** (right of the
       sidebar) — it resizes with the panel, so opening/closing the sidebar keeps
       the image fully visible rather than cropping it (no `background-attachment:
-      fixed`, which would size the image to the viewport and crop it). The layer
-      reads `--app-bg-image/-size/-repeat/-position` + `--app-bg-scrim` (the
-      resolver emits a `dim` scrim so text stays legible) and is fed by
-      `useHydrateBackground` in `stock-chat.tsx`. `pattern` mode instead keeps
+      fixed`, which would size the image to the viewport and crop it). Resize is
+      controlled by `fit` (cover/contain/tile), a separate `scale` zoom
+      (100–300%), and X/Y focal `position`s. The image is painted on the layer's
+      `::before` (so the zoom scales only the art) while the `dim` scrim sits on
+      the element itself; the layer reads
+      `--app-bg-image/-size/-repeat/-position/-zoom` + `--app-bg-scrim`, and is
+      fed by `useHydrateBackground` in `stock-chat.tsx`. The default for new
+      users is the shipped **Eclipse I** wallpaper (`DEFAULT_BACKGROUND_ID`).
+      `pattern` mode instead keeps
       the theme's own `gradient`/`grid` treatment app-wide on the shell
       (`--page-bg-image`). This replaced the old hardcoded, dead
       `/backgrounds/eclipse bg.svg` block in `stock-chat.tsx`. The Settings

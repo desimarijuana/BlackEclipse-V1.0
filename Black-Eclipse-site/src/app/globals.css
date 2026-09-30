@@ -1359,16 +1359,32 @@ body {
  * visible rather than cropping it. Deliberately NOT `background-attachment:
  * fixed` — a fixed attachment sizes the image to the viewport, so the narrower
  * panel would show only a cropped slice. Rendered only on the chat landing
- * (gated in stock-chat.tsx), below the panel's content (z-index 0). */
+ * (gated in stock-chat.tsx), below the panel's content (z-index 0).
+ *
+ * The image lives on `::before` (fit + zoom + focal position) so the zoom
+ * scales only the art; the scrim stays on the element itself at full size.
+ * `overflow: hidden` clips the zoomed art to the panel. */
 .app-bg-layer {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-image: var(--app-bg-scrim, none), var(--app-bg-image, none);
-  background-size: 100% 100%, var(--app-bg-size, auto);
-  background-repeat: no-repeat, var(--app-bg-repeat, no-repeat);
-  background-position: center, var(--app-bg-position, center);
+  overflow: hidden;
+  background-image: var(--app-bg-scrim, none);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.app-bg-layer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--app-bg-image, none);
+  background-size: var(--app-bg-size, cover);
+  background-repeat: var(--app-bg-repeat, no-repeat);
+  background-position: var(--app-bg-position, center);
+  transform: scale(var(--app-bg-zoom, 1));
+  transform-origin: var(--app-bg-position, center);
 }
 
 /* ── Accessibility preferences ───────────────────────────────────────────────

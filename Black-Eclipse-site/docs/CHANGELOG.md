@@ -8,6 +8,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Background — Eclipse I is the official first-run wallpaper; added resize controls.** Factored the shipped default into `DEFAULT_BACKGROUND_ID = 'eclipse-1'` (the official background new users get) and marked it with a "Default" badge in the picker. Added image resize controls: **Zoom** (100–300%), **Horizontal** and **Vertical** focal position (0–100%), alongside the existing Fit and Darkening. The wallpaper image moved onto the layer's `::before` so zoom scales only the art (the dim scrim stays full-size), and the resolver now emits `--app-bg-zoom` + a focal `--app-bg-position`. `BackgroundPrefs` gained `scale`/`positionX`/`positionY` (normalized/clamped).
+  docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`
+
 - **Sidebar — clicking the ChatBot icon always starts a new chat.** The ChatBot nav item used to just switch to the chat tab, resuming whichever conversation was last active. It now calls `onNewChat()` before switching tabs, so clicking it opens a fresh chat every time; previous conversations remain reachable from the history list above the nav.
   no doc change — bug fix; no architecture, contract, setup, or data-shape change.
 
