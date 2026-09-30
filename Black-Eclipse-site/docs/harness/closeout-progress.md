@@ -374,3 +374,7 @@ The two documented "non-properties" are now fixed rather than documented:
   truly lost**. UTF-8 valid, 0 U+FFFD.
 - Guard strengthened to **6 tests** (window, per-date uniqueness, gap-free range,
   append-only floor, no malformed heading, archive link). vitest now **1900 / 160**.
+
+## Terminal cleanup pointer (2026-09-30)
+
+The eight remaining items (codex checkpoint refs, filter remnant/stale lock, the two pending commits, the CHANGELOG guard floor, the `jdds.db` purge decision, mixed line endings, the smoke/CI caveat, closeout) are handled in `docs/harness/terminal-cleanup-progress.md`.

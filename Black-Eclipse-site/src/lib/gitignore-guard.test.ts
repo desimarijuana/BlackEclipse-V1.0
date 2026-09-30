@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -92,5 +92,35 @@ describe("line-ending normalization", () => {
 
   it("does not mark a text file as binary", () => {
     expect(isBinaryAttr("Black-Eclipse-site/src/lib/api-guard.ts")).toBe(false);
+  });
+
+  it("no tracked text file mixes CRLF and bare LF in the working tree", () => {
+    // A tool appending CRLF to an LF-normalized file is what created the phantom
+    // diffs. Any tracked text file containing BOTH a CRLF and a bare LF is a
+    // regression. Binaries are skipped by extension (declared in .gitattributes)
+    // rather than per-file `git check-attr`, which would be too slow at this scale.
+    const BINARY_EXT = /\.(wav|ico|db|db-shm|db-wal|png|jpg|jpeg|gif|webp|woff2?|ttf|otf|pdf|zip|wasm|mp3|mp4)$/i;
+    const tracked = git(["ls-files"]).split("\n").filter(Boolean);
+    const mixed: string[] = [];
+    for (const rel of tracked) {
+      if (BINARY_EXT.test(rel)) continue;
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(join(REPO_ROOT, rel));
+      } catch {
+        continue;
+      }
+      const hasCrlf = bytes.includes("\r\n");
+      if (!hasCrlf) continue;
+      let bareLf = false;
+      for (let i = 0; i < bytes.length; i++) {
+        if (bytes[i] === 0x0a && (i === 0 || bytes[i - 1] !== 0x0d)) {
+          bareLf = true;
+          break;
+        }
+      }
+      if (bareLf) mixed.push(rel);
+    }
+    expect(mixed.slice(0, 20), `tracked text files mixing CRLF and bare LF: ${mixed.length} (${mixed.slice(0, 5).join(", ")})`).toEqual([]);
   });
 });
