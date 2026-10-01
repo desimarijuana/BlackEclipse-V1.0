@@ -266,6 +266,47 @@ def test_backend_guarantee_summary_is_plain():
     assert not _leaks(summary), summary
 
 
+# -- Phase 12: the capability statement + the blocked-action sentence ----------
+
+
+def test_capability_statement_names_only_i18n_keys_not_sentences():
+    """Every user-facing cell is a `capability.*` key, never a mechanism word."""
+    from harness.code.eval.statement import _STATUS_KEY, SHAPE_KEY, render_statement
+    from harness.code.eval.tasks import load_task_dataset
+
+    for key in (*SHAPE_KEY.values(), *_STATUS_KEY.values()):
+        assert key.startswith("capability.")
+        assert not _leaks(key), key
+
+    # The fixture dataset carries no user-facing sentence that leaks a mechanism.
+    for case in load_task_dataset()["cases"]:
+        for field in ("prompt", "rationale"):
+            assert not _leaks(str(case.get(field, ""))), (case["caseId"], field)
+
+    # The statement is derived and byte-stable (never hand-authored).
+    assert render_statement() == render_statement()
+
+
+def test_blocked_action_sentence_is_plain():
+    """The one sentence behind a blocked action names the job, not the mechanism."""
+    # Mirrors the `capability`/blocked-action copy; the machine code stays behind
+    # "details". This is the sentence a user could meet.
+    blocked = "I did not do that — it would have reached outside the work you asked for. Here is what I did instead."
+    assert not _leaks(blocked), blocked
+    assert blocked.rstrip().endswith(".")
+
+
+def test_no_eval_jargon_reaches_a_user_facing_string():
+    """threshold / false accept / category id never appear in a user-facing cell."""
+    from harness.code.eval.statement import _STATUS_KEY, SHAPE_KEY
+
+    jargon = ("threshold", "false accept", "falseaccept", "category id", "checksum", "overallscore")
+    for key in (*SHAPE_KEY.values(), *_STATUS_KEY.values()):
+        lowered = key.casefold()
+        for word in jargon:
+            assert word not in lowered, f"{word!r} reached a user-facing key: {key}"
+
+
 def test_metrics_render_unknown_not_zero():
     from harness.persistence import AgentMemoryStore
     from harness.code import evolution

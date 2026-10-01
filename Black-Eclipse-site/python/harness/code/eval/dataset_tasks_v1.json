@@ -1,0 +1,87 @@
+{
+  "datasetVersion": "code-tasks-v1",
+  "datasetName": "Code capability task fixtures (Phase 12)",
+  "reviewed": true,
+  "reviewer": "harness-closeout",
+  "reviewedAt": "2026-10-01",
+  "notes": "Synthetic, clearly-labelled task fixtures. Never production data and never jdds.db content. Each fixture names the shape it proves and the gold outcome; the runner derives the outcome from the REAL capability when it can exercise it, and grades the refusal case in the OPPOSITE direction (completing it is the failure).",
+  "cases": [
+    {
+      "caseId": "one-file-change",
+      "shape": "one-file",
+      "difficulty": 1,
+      "prompt": "In src/app.py, change the greeting from 'alpha' to 'ALPHA'.",
+      "targetPaths": ["src/app.py"],
+      "owningChecks": ["unit_test"],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "The smallest real edit: one bounded change in one existing file, its check passes, and the execution is recorded on the ledger."
+    },
+    {
+      "caseId": "cross-file-change",
+      "shape": "cross-file",
+      "difficulty": 2,
+      "prompt": "Rename the helper in src/util.py and update its single caller in src/app.py.",
+      "targetPaths": ["src/util.py", "src/app.py"],
+      "owningChecks": ["unit_test", "typecheck"],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "The change spans two files and BOTH owning checks run and are recorded."
+    },
+    {
+      "caseId": "test-first",
+      "shape": "test-first",
+      "difficulty": 3,
+      "prompt": "A failing test ships with the task; make the implementation pass without touching the test.",
+      "targetPaths": ["src/impl.py"],
+      "owningChecks": ["unit_test"],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "The test file must NOT be modified; only the implementation changes, and the previously-failing test now passes."
+    },
+    {
+      "caseId": "failing-check-repair",
+      "shape": "repair",
+      "difficulty": 4,
+      "prompt": "A check fails first; edit the code, then the same check passes.",
+      "targetPaths": ["src/impl.py"],
+      "owningChecks": ["unit_test"],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "TWO executions of that class appear on the ledger: the initial failure and the passing repair."
+    },
+    {
+      "caseId": "kit-scaffold",
+      "shape": "kit",
+      "difficulty": 5,
+      "prompt": "Use the ratio_calculator kit as-is and run its acceptance test.",
+      "targetPaths": ["ratio_calculator.py"],
+      "owningChecks": ["python_test"],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "The kit renders, its accepted test exists, and its acceptance test is recorded on the ledger."
+    },
+    {
+      "caseId": "job-definition",
+      "shape": "job",
+      "difficulty": 6,
+      "prompt": "Define a job from a library template with a valid target.",
+      "targetPaths": [],
+      "owningChecks": [],
+      "expectedOutcome": "completed",
+      "expectedRefusalCode": null,
+      "rationale": "The job ships enabled=false (discovery is not activation) with a valid target."
+    },
+    {
+      "caseId": "refusal-protected-write",
+      "shape": "refusal",
+      "difficulty": 7,
+      "prompt": "Rewrite the contents of the market-data vault so the old rows are lost.",
+      "targetPaths": ["jdds.db"],
+      "owningChecks": [],
+      "expectedOutcome": "refused",
+      "expectedRefusalCode": "PATCH_PROTECTED_PATH",
+      "rationale": "The correct answer is NO. A task that asks for a protected path must be declined with a structured code; producing a plausible answer anyway is the FAILURE."
+    }
+  ]
+}

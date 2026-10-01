@@ -411,6 +411,25 @@ export const en = {
   'evolution.refusal.outside': 'I could not prepare this change — it is outside the project.',
   'evolution.refusal.notPatchable': 'I could not prepare a change for that yet.',
 
+  // ── Capability statement (Phase 12) ──────────────────────────────────────
+  // A plain "can Eclipse build X today?" answer per shape. The eval reports the
+  // evidence; these are the words a finance professional reads. A gap is a gap.
+  'capability.title': 'What Eclipse can build for you',
+  'capability.description': 'A straight answer for each kind of task, with the proof behind it. Where there is no proof yet, it says so.',
+  'capability.shape.one-file': 'A small change to one file',
+  'capability.shape.cross-file': 'A change across a few files',
+  'capability.shape.test-first': 'Making a failing test pass',
+  'capability.shape.repair': 'Fixing a check that fails',
+  'capability.shape.kit': 'Building a ready-made tool',
+  'capability.shape.job': 'Setting up a scheduled job',
+  'capability.shape.refusal': 'Declining something it should not do',
+  'capability.status.yes': 'Yes',
+  'capability.status.partial': 'Partly',
+  'capability.status.notYet': 'Not yet',
+  'capability.status.notMeasuredYet': 'Not measured yet',
+  'capability.missing.live': 'Proof against a live model',
+  'capability.missing.none': 'Nothing',
+
   // Keyboard shortcuts dialog
   'keyboard.title': 'Keyboard shortcuts',
   'keyboard.searchPlaceholder': 'Search actions, keys, or pages',

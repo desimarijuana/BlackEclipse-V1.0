@@ -33,7 +33,7 @@ file, not here.
 | 9 — Finance application scaffold kits | [phase-09](./phase-09-scaffold-kits.md) ✅ Done | 5,7,8 | 10 | §15 examples |
 | 10 — Self-improvement v2 (code + skills) | [phase-10](./phase-10-self-improvement.md) ✅ Done | 4,9 | 11 | new |
 | 11 — Surface and scale | [phase-11](./phase-11-surface-and-scale.md) ✅ Done | 6,10 | — | new |
-| 12 — Evaluation harness and standing gate | [phase-12](./phase-12-evaluation-gate.md) | all | — | §15.3 **7F** |
+| 12 — Evaluation harness and standing gate | [phase-12](./phase-12-evaluation-gate.md) ✅ Done | all | — | §15.3 **7F** |
 
 `§15` / `§16` refer to `agentic-plan-implementaion.md` at the repository root —
 this roadmap **builds on** those gates, it does not replace them.

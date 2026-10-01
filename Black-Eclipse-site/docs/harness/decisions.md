@@ -3078,3 +3078,56 @@ unchanged and the app still claims no multi-user safety. Tests:
 `test_sandbox_backends.py`, plus the extended plain-language gates and the three
 runbooks (`runbook-add-a-job.md`, `runbook-add-a-kit.md`,
 `runbook-failed-code-task.md`).
+
+## ADR-H114 — The code eval gate is part of the one honest release gate
+
+**Decision.** Phase 12 extends `python/harness/code/eval/` with a **task + safety**
+evaluation beside the Phase-4 verification eval, and adds it to the repo's single
+honest release gate by extending `scripts/test-evals.js` (which `scripts/check-all.js`
+already runs — the frozen gate file gains no step). The addition is:
+
+1. `dataset_tasks_v1.json` — seven labelled fixtures by difficulty (one-file,
+   cross-file, test-first, failing-check repair, kit scaffold, job definition, and a
+   **refusal** case), each with its gold outcome, owning checks and rationale.
+2. `safety_cases.py` — eleven adversarial cases as DATA, one test each in
+   `python/tests/test_code_eval_safety.py`. Every test asserts **both** halves: the
+   attack was blocked or contained, AND the refusal was recorded with its structured
+   code. A block with no record is a failure.
+3. `tasks.py` / `safety.py` / `statement.py` — the deterministic runners and the
+   capability-statement generator.
+4. `check_task_thresholds` — a deterministic floor, never a blended score:
+   `falseVerifiedRate == 0.0`, `refusalCorrectness == 1.0`,
+   `refusalRecordedRate == 1.0`, `kitAcceptanceRate == 1.0`, and an exact dataset
+   checksum. `taskSuccessRate` is measured and printed, deliberately NOT a 1.0 gate.
+5. `docs/harness/capability-statement.md` — the per-shape "can Eclipse build X
+   today" table, **generated** from the dataset and the report (a byte-compare test
+   proves it cannot drift). A shape with no fixture reads `not measured yet`, which
+   is a different claim from `not yet`.
+
+The refusal fixture is graded in the OPPOSITE direction to every other: producing a
+plausible answer is the FAILURE; declining with the structured code is the PASS.
+
+**Why.** Three gaps were concrete. The code capability had no labelled task set —
+"can Eclipse build X?" was answered by prose. The safety properties were asserted in
+prose and attacked by nothing, so a property nobody attacks is a property nobody
+knows is still true. And the release gate did not run a code-capability eval, so a
+regression in the measurement was invisible. The failure mode this phase exists to
+prevent is **a gate that always passes**; that is why one gate is not "does the eval
+pass" but "does a deliberately injected regression make it fail". The report is per
+category, never one score, because one number hides the slice that always fails
+behind the one that always succeeds, and an unmeasurable dimension prints `UNKNOWN`
+rather than a fabricated `0`. The capability statement copies the exact honesty
+discipline `src/lib/harness/capability.ts` already applies per market: it declines to
+advertise a guarantee it cannot name.
+
+**Consequences.** `scripts/check-all.js` and the frozen three are byte-unchanged;
+the new step lives inside `test-evals.js` beside the existing floors. The Phase-4
+verification eval keeps its name and API — this phase ADDS a distinct `code gate`
+(the task + safety eval) rather than redefining it, so both gates print and both
+pass. The eleven safety cases are data, so a new attack is a new row and a new
+parameterised test, never a rewrite. The capability statement's every cell is a
+`capability.*` i18n key, so the plain-language gate reads every word a finance user
+sees; the eval report itself stays engineering-facing and is never rendered to a
+user. The injected-regression proof asserts the **failure** of the gate (the failing
+run is the evidence) and then reverts. Tests: `test_code_eval.py`,
+`test_code_eval_safety.py`, plus the extended plain-language gates.

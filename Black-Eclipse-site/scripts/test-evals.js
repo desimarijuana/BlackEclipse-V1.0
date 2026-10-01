@@ -79,6 +79,14 @@ const launcher = [
   "cg = check_code_thresholds(cv)",
   "print('  code_verify gate:', 'PASS' if cg['passed'] else 'FAIL', cg['failures'] if not cg['passed'] else '')",
   "failed += [] if cg['passed'] else ['code_verify']",
+  // Phase 12: the code task + safety floor (per-shape, never a blended score).
+  "from harness.code.eval import run_code_evaluation, check_code_thresholds as check_code_gate, format_code_report",
+  "cc = run_code_evaluation()",
+  "print('  ' + format_code_report(cc).splitlines()[1])",
+  "print('  safety:', ', '.join(c.caseId.split('-')[0] + '=' + ('PASS' if c.passed else 'FAIL') for c in cc['safety']))",
+  "ccg = check_code_gate(cc)",
+  "print('  code gate:', 'PASS' if ccg['passed'] else 'FAIL', ccg['failures'] if not ccg['passed'] else '')",
+  "failed += [] if ccg['passed'] else ['code']",
   // Harness closeout Phase 8: the capability-matrix gate is TS (invoked by
   // run_gates via npx tsx); route_health/workflow/resume are Python. All offline.
   "from harness.eval_gates import run_gates",

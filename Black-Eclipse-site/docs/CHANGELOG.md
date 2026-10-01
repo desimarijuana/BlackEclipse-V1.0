@@ -8,6 +8,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 12 — evaluation harness, safety cases and the standing gate.**
+  Extends `python/harness/code/eval/` with a task + safety evaluation beside the
+  Phase-4 verification eval, additively (the verification eval keeps its name/API):
+  `dataset_tasks_v1.json` (seven labelled fixtures by difficulty, including a
+  refusal case graded in the OPPOSITE direction), `safety_cases.py` (eleven
+  adversarial cases as data), `tasks.py`/`safety.py`/`statement.py` (runners +
+  the generated capability statement). A deterministic floor — never a blended
+  score — gates `falseVerifiedRate == 0.0`, `refusalCorrectness == 1.0`,
+  `refusalRecordedRate == 1.0`, `kitAcceptanceRate == 1.0` and an exact dataset
+  checksum; `taskSuccessRate` is measured and printed, not a gate. The code eval
+  is added inside `scripts/test-evals.js` (which `scripts/check-all.js` already
+  runs), so the one honest release gate gains no step and the frozen files stay
+  byte-unchanged. `docs/harness/capability-statement.md` is generated from the
+  dataset + report (a byte-compare test proves it cannot drift); every cell is a
+  `capability.*` i18n key. Tests `test_code_eval.py`/`test_code_eval_safety.py`;
+  the injected-regression proof asserts the gate FAILS, then reverts. ADR-H114.
+  docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`, `docs/harness/capability-statement.md`,
+  `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-12-evaluation-gate.md`,
+  `docs/harness/roadmap/progress/phase-12-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 11 — surface and scale.**
   Delivery grows from two adapters to three behind the Phase-6 `DeliveryAdapter`
   protocol: new `python/harness/jobs/delivery.py` `messaging` adapter (a template

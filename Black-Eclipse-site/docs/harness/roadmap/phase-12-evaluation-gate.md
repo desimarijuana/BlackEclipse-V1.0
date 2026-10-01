@@ -1,10 +1,10 @@
 ---
 title: "Phase 12 — Evaluation Harness, Safety Cases and the Standing Gate"
-status: Not started
+status: Done
 phase: 12
 depends_on: [all]
 unlocks: []
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 12 — Evaluation Harness, Safety Cases and the Standing Gate

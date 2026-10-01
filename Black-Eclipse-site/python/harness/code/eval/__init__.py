@@ -160,10 +160,85 @@ def format_report(metrics: EvalMetrics) -> str:
     return "\n".join(lines)
 
 
+def _kit_acceptance_test_exists(kit_id: str) -> bool:
+    """Whether a Phase-9 kit's acceptance test ships with it (used by tasks.py)."""
+    from ..kits.loader import _acceptance_test_exists  # noqa: PLC0415
+
+    return _acceptance_test_exists(kit_id)
+
+
+# ── Phase 12: the task + safety evaluation (a different subject) ─────────────
+# The verification eval above grades the ledger. This half grades the SEVEN task
+# shapes and the ELEVEN adversarial safety cases, and is what the release gate's
+# code-eval step reports. Both live in this package because both are "the code
+# eval"; they are exported under distinct names so neither shadows the other.
+from .safety import run_safety_evaluation  # noqa: E402
+from .tasks import (  # noqa: E402
+    REVIEWED_TASKS_CHECKSUM,
+    TaskMetrics,
+    capability_rows,
+    check_task_thresholds,
+    format_task_report,
+    load_task_dataset,
+    run_task_evaluation,
+    tasks_checksum,
+)
+
+# The combined per-category report the release gate prints: tasks, then safety.
+# NEVER a single blended score — each block names its own slices.
+def run_code_evaluation() -> dict[str, Any]:
+    """Run the task fixtures AND the adversarial safety cases. Returns both halves."""
+    task_metrics = run_task_evaluation()
+    safety = run_safety_evaluation()
+    return {"tasks": task_metrics, "safety": safety}
+
+
+def check_code_thresholds(result: dict[str, Any]) -> dict[str, Any]:
+    """Fail-by-name over tasks + safety. Never a composite pass/fail score."""
+    failures: list[str] = []
+    task_gate = check_task_thresholds(
+        result["tasks"], reviewed_checksum=REVIEWED_TASKS_CHECKSUM
+    )
+    if not task_gate["passed"]:
+        failures.extend(task_gate["failures"])
+    blocked = [c for c in result["safety"] if not c.passed]
+    if blocked:
+        failures.extend(f"safety:{c.caseId}" for c in blocked)
+    return {
+        "passed": not failures,
+        "failures": failures,
+        "taskChecksum": task_gate.get("checksum"),
+    }
+
+
+def format_code_report(result: dict[str, Any]) -> str:
+    """The combined report: per-shape tasks, then per-attack safety."""
+    lines = [format_task_report(result["tasks"])]
+    lines.append("")
+    lines.append("Adversarial safety cases (blocked AND recorded):")
+    for c in result["safety"]:
+        mark = "PASS" if c.passed else "FAIL"
+        lines.append(f"  [{c.caseId}] {mark} code={c.code} ({c.detail})")
+    return "\n".join(lines)
+
+
 __all__ = [
+    # Phase 4: the verification eval (kept by name — the release gate uses it).
     "EvalMetrics",
     "THRESHOLDS",
     "check_thresholds",
     "format_report",
     "run_evaluation",
+    # Phase 12: the task + safety eval.
+    "TaskMetrics",
+    "capability_rows",
+    "check_code_thresholds",
+    "check_task_thresholds",
+    "format_code_report",
+    "format_task_report",
+    "load_task_dataset",
+    "run_code_evaluation",
+    "run_safety_evaluation",
+    "run_task_evaluation",
+    "tasks_checksum",
 ]
