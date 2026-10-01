@@ -308,6 +308,52 @@ def code_grants(autonomy: str) -> frozenset[str]:
     return _PROFILE_GRANTS.get(autonomy, frozenset())
 
 
+# ── Tool-allowlist narrowing (Phase 5) ──────────────────────────────────────
+#
+# The autonomy profile is enforced by the TOOL ALLOWLIST, not by a prompt: a
+# disallowed tool is REMOVED before the model sees its schema, so it cannot call
+# it — not "shouldn't", cannot. This is the ONE place a write/external tool is
+# removed; `graph.effective_allowlist` calls it before building the model tools.
+
+# Effectful code-write / execute tools (the REAL names Phases 1–3 registered).
+WRITE_TOOLS: tuple[str, ...] = (
+    "workspace_patch_apply", "workspace_revert",   # code.write
+    "command_run",                                  # code.execute / command.execute
+)
+
+# External actions — commit / push / open a PR / deploy. approve_external only,
+# and each is STILL an effectful external_action requiring a single-use approval.
+EXTERNAL_ACTION_TOOLS: tuple[str, ...] = (
+    "code_commit", "code_push", "code_open_pr", "code_deploy",
+)
+
+# Tools that are always available regardless of profile (read-only).
+READ_ONLY_TOOLS: tuple[str, ...] = (
+    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_read", "workspace_docs", "workspace_diff",
+)
+
+
+def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
+    """Narrow a declared allowlist to what the autonomy profile permits.
+
+    plan_only        → write + external tools REMOVED (the model cannot call them)
+    edit_verify      → write tools present; external tools REMOVED
+    approve_external → everything, but external tools are still effectful and
+                       require a per-action single-use approval at execution
+    unknown          → the read-only subset (fail-closed, same as code_grants)
+    """
+    if autonomy == "plan_only":
+        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS)
+    elif autonomy == "edit_verify":
+        banned = set(EXTERNAL_ACTION_TOOLS)
+    elif autonomy == "approve_external":
+        banned = set()
+    else:
+        banned = set(WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS)
+    return tuple(t for t in declared if t not in banned)
+
+
 # ── Decisions ───────────────────────────────────────────────────────────────
 
 
@@ -383,15 +429,19 @@ __all__ = [
     "AUTONOMY_PROFILES",
     "COMMAND_CLASSES",
     "DENIED_PROGRAMS",
+    "EXTERNAL_ACTION_TOOLS",
     "IGNORED_DIRS",
     "IGNORED_GLOBS",
     "NETWORK_DEFAULT",
     "PLAIN_LANGUAGE_DENYLIST",
     "PROTECTED_PATHS",
+    "READ_ONLY_TOOLS",
     "SECRET_ENV_ALLOWLIST",
+    "WRITE_TOOLS",
     "PolicyDecision",
     "PolicyDenial",
     "WorkspaceBinding",
+    "allowed_tools",
     "code_grants",
     "decide_command",
     "decide_write",

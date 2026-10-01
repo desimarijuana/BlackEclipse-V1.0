@@ -2667,3 +2667,132 @@ plain lines with the mechanism behind a details affordance; the jargon gate
 scans it. The eval pack (`python -m harness.code.eval`) floors
 `falseVerifiedRate` at 0. Phase 5 may grant autonomy because output is now
 verifiable.
+
+## ADR-H106 - A prompt must describe its own allowlist; ranked authorities need a producer
+
+**Decision.** Two rules are now enforced by guard tests over BOTH agent presets
+(`python/tests/test_memory_tools.py`). (1) **Prompt/allowlist agreement:** every
+tool a prompt names as its own must be in that preset's allowlist, and a prompt
+may not deny a capability its allowlist contains; the check that a prompt which
+enumerates its tools names all of them. (2) **No phantom authority:** the
+`run instructions` rank was REMOVED from the `# Inputs and authority` table
+(renumbered 1â€“6) and the `run_instructions` prompt segment was removed from
+`prompt_segments.py`. There is no producer for it anywhere in the runtime (no
+`schemas.py` field, no TS bridge field, and the sole `build_prompt_plan` caller
+never passed it); ranking it above attached documents and profile context
+elevated a source that never arrives. Also fixed: the Repository Navigator
+prompt, which claimed exactly five read tools and "cannot run any command" while
+`CODE_NAVIGATOR_TOOLS` has nine including `command_run` and the three authoring
+tools.
+
+**Why.** Gap 1 was a real correctness bug in the *navigator* prompt, not the
+finance one: `command_run` + `## Running checks` landed in the same wave as older
+prose saying "you cannot run any command", so the prompt described three
+mutually-inconsistent surfaces. That is a class â€” any time an allowlist grows the
+prompt describing it can silently go stale â€” so the durable fix is the guard,
+not the one edit. Removing rather than wiring `run instructions` follows the
+session_summary precedent and the constraint against adding input surfaces.
+
+**Consequences.** `prompts.py` (both prompt strings), `prompt_segments.py`
+(`run_instructions` removed from `PromptPlan`, `RUN_FROZEN_SEGMENTS`, the
+segment list and the cache-key docs), and the guard tests. No tool, permission or
+capability changed; the navigator's allowlist was NOT widened to match the
+prompt â€” the prompt was corrected to match the allowlist. `## Running checks`
+honesty rules are unchanged. Progress log:
+`docs/harness/prompt-followup-progress.md`.
+
+## ADR-H107 - One approval store, generalized; a code action is single-use, digest- and workspace-bound
+
+**Decision.** Phase 5 adds the coding agent, and the external actions it may take
+under `approve_external` (commit, push, open a PR, deploy) reuse the ONE approval
+mechanism rather than a second one. Concretely:
+
+  * The autonomy profile is enforced by the **tool allowlist**, not a prompt.
+    `code/policy.allowed_tools(autonomy, declared)` is the ONE place a
+    write/external tool is removed; `graph.effective_allowlist` calls it before
+    the model sees any schema. At `plan_only` the write tools are absent, so a
+    model that "decides" to write cannot: the registry returns `TOOL_FORBIDDEN`.
+  * The `McpApproval` store is GENERALIZED into one approval concept with a
+    `kind` discriminator (`"mcp_tool"` | `"code_action"`). `McpApproval` stays the
+    physical home (existing MCP rows need no migration) and `kind`/`workspaceId`
+    are additive columns (`kind` defaults to `"mcp_tool"`). The guarded-claim
+    logic ADR-H92 froze is lifted into ONE function, `mcp.approvals.claim_guarded`,
+    used by both kinds.
+  * A code action is a `CodeActionRequest` whose canonicalized payload INCLUDES
+    the workspace id, so an approval for a commit in workspace A can never
+    authorize the same commit in workspace B. `code_action_digest` reuses
+    `mcp.approvals.args_digest`, so the two kinds cannot disagree about what "the
+    same payload" means.
+  * The four action tools are `permission="write"`, `effect="external_action"`,
+    carry an `actionKind` in `effect_metadata`, and are resolved by
+    `code.actions.make_code_action_authorizer`, which consumes the approval ONCE
+    (emitting `code.action.approval_required` / `code.action.approved`).
+  * The task lifecycle is a CONSUMER of `run_lineage.py`: a code task IS a run,
+    and its boundaries (`task.created`, `plan.accepted`, `patch.applied`,
+    `command.executed`, `task.cancelled`, `task.discarded`) are `RunCheckpoint`
+    rows. Resume reads `latest_checkpoint()` and reuses the recorded tool result
+    (`was_tool_executed`), so it never re-applies a patch or re-runs a side-effect.
+
+**Why.** Autonomy must be structural: a prompt instruction is not a boundary
+(README Â§3.2), and the allowlist is the one seam the registry already enforces.
+The approval question was open (generalize vs sibling) and leaving it open risks
+two single-use implementations that silently drift â€” exactly the "two
+half-systems" the roadmap forbids. Rejected alternative: a sibling `CodeApproval`
+table. It would duplicate the guarded `UPDATE ... WHERE status='approved'`
+rowcount check that makes an approval single-use, and a drift between the two
+copies is a silent authorization bug. Reusing `run_lineage.py` for the task
+lifecycle is the same discipline: Phase 5 is a consumer, not a builder.
+
+**Consequences.** `main.py` grew by exactly two lines (an import and
+`include_router(code_router)`). Every mutating `/code` route carries
+`require_operator` (loopback or the runtime secret; never a body boolean). The
+finance agent is unchanged and holds no code tool; the code agent holds no finance
+tool and does not set `allowMcpTools`; the ADR-H92 MCP approval tests remain the
+regression suite and stay green. The task surface is plain language ("Just tell
+me what you'd do" / "Make the change and show me" / "Do it and ask me before
+anything outside the app"), and the jargon gate scans it. Phases 6, 7, 8 and 9 may
+now build on a code-capable agent with a task lifecycle.
+
+
+## ADR-H108 — Harness-owned jobs; the TS refresh loops stay as they are
+
+**Decision.** Phase 6 adds a durable, single-process job model to the Python
+harness (`python/harness/jobs/`) beside the three existing TypeScript schedulers.
+It does **not** replace or modify `src/lib/scraper/scheduler.ts`,
+`src/lib/connectors/refresh-scheduler.ts` or `src/lib/investor-eye/scheduler.ts`.
+
+A job is durable, reviewable **DATA** (`JobDefinition` on the `HarnessJob` table,
+with a `HarnessJobRun` history table, both in `agent-memory.db`). A job references
+a skill (by id + pinned version) or an objective + agent id; it never holds
+executable code and never widens authority. A job run **is** a normal `execute_run`
+with a job id attached — there is no second agent loop, tool registry or model
+adapter (README §3.1). The run row links to the existing `HarnessRun`, so a job
+produces the same trace, events, tool executions and (for a code job) verification
+ledger as a user-initiated run.
+
+The scheduler is one FastAPI-lifespan task started in `service.start_jobs()`
+alongside `start_mcp()`. It reuses `mcp/circuit.py`'s breaker states and
+thresholds rather than writing a second backoff. Cron parsing is stdlib-only
+(`jobs/cron.py`), justified by `AGENTS.md`'s lighter-option rule. `enabled`
+defaults **False** (discovery is not activation, ADR-H39), and every route —
+reads included — carries `require_operator` (ADR-H48), except the webhook trigger,
+which authenticates on the job's SHA-256 token hash.
+
+**Why.** The roadmap's gap #4 is "no autonomous cadence: nothing runs without a
+human clicking." The existing TS loops can only refresh data; none can run an
+agent, and none has a job model, run history or delivery. But they are proven and
+serve a different, latency-sensitive purpose. Replacing them would be a regression
+risk with no user-visible benefit. Two existing pieces already do the hard parts —
+run execution/persistence and failure containment — so the phase reuses both.
+
+**Consequences.** The three TS schedulers are byte-unchanged (acceptance gate G6).
+`main.py` grows by exactly two lines (import + `include_router`) plus the lifespan
+start/stop calls; all new logic lives in new modules. Save-time guardrails
+(`jobs/guardrails.py`) bind a skill job to the pinned skill's manifest permissions
+(refusing with the exact missing permission), require a folder for a code job,
+gate `approve_external` behind an explicit operator flag, confine a watch path
+with `policy.resolve_within`, and refuse an unknown delivery adapter. A missed
+window is reconciled once at startup and always recorded (`missed=1`). The
+delivery interface ships two adapters (`in_app` on the existing SSE bus, and
+`artifact`); messaging is Phase 11, which adds an adapter without refactoring the
+job model. The seven library templates ship disabled.

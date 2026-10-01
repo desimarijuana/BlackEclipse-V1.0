@@ -46,10 +46,9 @@ def test_user_message_does_not_change_cache_key():
     assert a.by_id("user_message").content_hash != b.by_id("user_message").content_hash
 
 
-def test_run_instructions_do_not_change_cache_key():
-    a = _plan(run_instructions="")
-    b = _plan(run_instructions="Answer in JSON.")
-    assert a.cache_key == b.cache_key
+def test_run_instructions_segment_is_removed():
+    """Gap 2: the never-populated `run_instructions` segment is gone."""
+    assert _plan().by_id("run_instructions") is None
 
 
 def test_profile_change_invalidates_only_profile_segment():
@@ -106,16 +105,13 @@ def test_runtime_context_does_not_change_cache_key():
 
 
 def test_reusable_token_accounting_excludes_run_frozen_segments():
-    plan = _plan(
-        runtime_context="Date: 2026-10-01",
-        run_instructions="Answer in JSON.",
-    )
+    plan = _plan(runtime_context="Date: 2026-10-01")
     reusable = plan.reusable_total_tokens()
     assert reusable == sum(
         s.token_estimate for s in plan.segments if s.id in STATIC_SEGMENTS
     )
     # Run-frozen and turn-specific segments are NOT part of the reuse accounting.
-    for segment_id in ("runtime_context", "run_instructions", "user_message",
+    for segment_id in ("runtime_context", "user_message",
                        "profile_snapshot", "skill_manifest"):
         assert segment_id not in STATIC_SEGMENTS
     assert reusable < sum(s.token_estimate for s in plan.segments)

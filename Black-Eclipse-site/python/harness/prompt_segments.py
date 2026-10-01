@@ -36,13 +36,12 @@ STATIC_SEGMENTS = (
 )
 
 # Segments FROZEN for one run (materialised at run start) but not reusable across
-# runs, so they must not inflate `reusable_total_tokens`. `run_instructions` and
-# `user_message` are turn-specific and stay out of the cache key entirely.
+# runs, so they must not inflate `reusable_total_tokens`. `user_message` is
+# turn-specific and stays out of the cache key entirely.
 RUN_FROZEN_SEGMENTS = (
     "profile_snapshot",
     "skill_manifest",
     "runtime_context",
-    "run_instructions",
     "user_message",
 )
 
@@ -196,7 +195,6 @@ def build_prompt_plan(
     skill_manifest: str = "",
     skill_manifest_version: Optional[str] = None,
     runtime_context: str = "",
-    run_instructions: str = "",
     user_message: str = "",
 ) -> PromptPlan:
     """Assemble the segment set and compute the stable cache key.
@@ -204,9 +202,8 @@ def build_prompt_plan(
     The cache key covers stable identity AND the CONTENT hash of each reusable
     (STATIC) segment, so editing the system prompt changes the key even when the
     hand-bumped version has not. The run-frozen and turn-specific segments
-    (`runtime_context`, `run_instructions`, `user_message`, …) are deliberately
-    excluded so they never invalidate the reusable prefix or inflate its
-    accounting.
+    (`runtime_context`, `user_message`, …) are deliberately excluded so they
+    never invalidate the reusable prefix or inflate its accounting.
     """
     tool_schema = _tool_schema_digest(tool_names or [])
     segments = [
@@ -220,7 +217,6 @@ def build_prompt_plan(
                       version=skill_manifest_version or (_hash(skill_manifest) if skill_manifest else "empty")),
         PromptSegment(id="runtime_context", content=runtime_context, source="prompt_segments.py",
                       version=_hash(runtime_context) if runtime_context else "empty"),
-        PromptSegment(id="run_instructions", content=run_instructions, source="graph.py", version="1"),
         PromptSegment(id="user_message", content=user_message, source="request", version="1"),
     ]
     plan = PromptPlan(
@@ -244,9 +240,8 @@ def prompt_cache_key(plan: PromptPlan) -> str:
 
     `staticContentHashes` covers the system-policy text (so a prompt edit changes
     the key), the agent identity and the tool-schema digest. It deliberately
-    excludes `runtime_context`, `run_instructions` and `user_message` so a new
-    turn, a new run date, or a date change does not invalidate the reusable
-    segments.
+    excludes `runtime_context` and `user_message` so a new turn or run date does
+    not invalidate the reusable segments.
     """
     components = {
         "agentVersion": plan.agent_version,

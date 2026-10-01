@@ -85,6 +85,46 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def claim_guarded(
+    db: Any, *, table: str, kind: str, key_columns: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """The ADR-H92 single-use claim, in ONE place.
+
+    A guarded ``UPDATE ... WHERE id=? AND status='approved'`` plus a rowcount
+    check: at most one caller claims a given approval, even under concurrency
+    (SQLite serializes the write, and the WHERE clause re-checks the state). The
+    ``McpApproval`` path and the code-action path both call THIS function, so
+    there is one implementation of 'single-use', not two.
+
+    Returns the claimed row (status CONSUMED, ``usedAt`` stamped), or None when
+    there is nothing to claim.
+    """
+    clauses = ["status = ?"]
+    params: list[Any] = [APPROVED]
+    for column, value in key_columns.items():
+        clauses.append(f"{column} = ?")
+        params.append(value)
+    if kind:
+        clauses.append("kind = ?")
+        params.append(kind)
+    row = db.execute(
+        f"SELECT * FROM {table} WHERE {' AND '.join(clauses)} "
+        "ORDER BY createdAt ASC LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    if row is None:
+        return None
+    used_at = _iso(_now())
+    cursor = db.execute(
+        f"UPDATE {table} SET status=?, usedAt=? WHERE id=? AND status=?",
+        (CONSUMED, used_at, row["id"], APPROVED),
+    )
+    db.commit()
+    if cursor.rowcount != 1:
+        return None
+    return dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row["id"],)).fetchone())
+
+
 class ApprovalStore:
     """Persistence + decision logic for effectful MCP tool approvals.
 
@@ -137,6 +177,15 @@ class ApprovalStore:
         for name in ("actionSummary", "affectedData", "risk", "usedAt"):
             if name not in existing:
                 self._db.execute(f"ALTER TABLE McpApproval ADD COLUMN {name} TEXT")
+        # Phase 5: one approval store for two kinds. `kind` defaults to the
+        # current meaning, so every existing row is correct without being touched;
+        # `workspaceId` is set only for a `code_action` row.
+        if "kind" not in existing:
+            self._db.execute(
+                "ALTER TABLE McpApproval ADD COLUMN kind TEXT NOT NULL DEFAULT 'mcp_tool'"
+            )
+        if "workspaceId" not in existing:
+            self._db.execute("ALTER TABLE McpApproval ADD COLUMN workspaceId TEXT")
         self._db.commit()
 
     # -- creation ------------------------------------------------------------
@@ -212,6 +261,10 @@ class ApprovalStore:
         record["actionSummary"] = summary
         record["affectedData"] = affected_data
         record["risk"] = risk
+        # The row's kind defaults to 'mcp_tool' in the DDL; make it explicit on
+        # the returned record so a caller/tests can see it without a re-read.
+        record["kind"] = "mcp_tool"
+        record["workspaceId"] = None
         self._db.commit()
         return record
 
@@ -255,34 +308,16 @@ class ApprovalStore:
         return self.find_active(server_id, tool, args_digest(args)) is not None
 
     def _claim(self, server_id: str, tool: str, digest: str) -> Optional[dict[str, Any]]:
-        """Atomically claim (consume) ONE approved, unexpired approval.
+        """Atomically claim (consume) ONE approved, unexpired MCP approval.
 
-        A guarded UPDATE flips `approved` → `consumed` and stamps `usedAt`, so at
-        most one caller can claim a given approval even under concurrency (SQLite
-        serializes the write, and the WHERE clause re-checks the state). Returns
-        the claimed row, or None when there is nothing to claim.
+        Delegates to the ONE `claim_guarded` primitive (so the MCP path and the
+        code-action path share one implementation of 'single-use').
         """
         self._expire_stale()
-        row = self._db.execute(
-            "SELECT * FROM McpApproval WHERE serverId=? AND tool=? AND argsDigest=? AND status=? "
-            "ORDER BY createdAt ASC LIMIT 1",
-            (server_id, tool, digest, APPROVED),
-        ).fetchone()
-        if row is None:
-            return None
-        used_at = _iso(_now())
-        cursor = self._db.execute(
-            "UPDATE McpApproval SET status=?, usedAt=? WHERE id=? AND status=?",
-            (CONSUMED, used_at, row["id"], APPROVED),
+        return claim_guarded(
+            self._db, table="McpApproval", kind="mcp_tool",
+            key_columns={"serverId": server_id, "tool": tool, "argsDigest": digest},
         )
-        self._db.commit()
-        if cursor.rowcount != 1:
-            # Another caller claimed it between the read and the update.
-            return None
-        claimed = self._row(
-            self._db.execute("SELECT * FROM McpApproval WHERE id=?", (row["id"],)).fetchone()
-        )
-        return claimed
 
     def consume(self, server_id: str, tool: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Claim the matching single-use approval for this exact call, or None.
@@ -292,6 +327,99 @@ class ApprovalStore:
         (until the operator approves a fresh request).
         """
         return self._claim(server_id, tool, args_digest(args))
+
+    # -- one store, two kinds (Phase 5) --------------------------------------
+    def request_kind(
+        self,
+        *,
+        kind: str,
+        request_key: str,
+        digest: str,
+        effect: str,
+        run_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        action_summary: Optional[str] = None,
+        affected_data: Optional[str] = None,
+        risk: Optional[str] = None,
+        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    ) -> dict[str, Any]:
+        """Create (or return the existing pending / terminal denial for) one
+        approval of `kind`. The physical home is `McpApproval`; `kind` +
+        `workspaceId` are additive. A PENDING request is reused; a CONSUMED one is
+        not (a new call needs a fresh decision); a DENIAL is terminal for the
+        digest. `serverId`/`tool` are overloaded for a code action: `serverId`
+        carries the kind-qualified request key and `tool` the action name."""
+        if effect not in APPROVABLE_EFFECTS:
+            raise ValueError(f"effect {effect!r} is not approvable")
+        pending = self._find_one_kind(kind, request_key, digest, PENDING)
+        if pending is not None:
+            return pending
+        denied = self._find_one_kind(kind, request_key, digest, DENIED)
+        if denied is not None:
+            return denied
+        import uuid
+
+        ttl = max(30, min(int(ttl_seconds), MAX_TTL_SECONDS))
+        now = _now()
+        approval_id = f"appr_{uuid.uuid4().hex[:16]}"
+        summary = action_summary or _default_action_summary(request_key, request_key, effect, {})
+        affected_json = (
+            json.dumps(affected_data, sort_keys=True, default=str) if affected_data is not None else None
+        )
+        self._db.execute(
+            """INSERT INTO McpApproval
+               (id, serverId, tool, eclipseTool, effect, argsDigest, argsPreview, status,
+                createdAt, expiresAt, decidedAt, decidedBy, reason, requestedByRunId,
+                actionSummary, affectedData, risk, kind, workspaceId)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                approval_id, request_key, request_key, request_key, effect, digest,
+                "", PENDING, _iso(now), _iso(now + timedelta(seconds=ttl)),
+                None, None, None, run_id, summary, affected_json, risk, kind, workspace_id,
+            ),
+        )
+        self._db.commit()
+        record = self.get(approval_id) or {}
+        return record
+
+    def _find_one_kind(self, kind: str, request_key: str, digest: str, status: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM McpApproval WHERE kind=? AND serverId=? AND argsDigest=? AND status=? "
+            "ORDER BY createdAt DESC LIMIT 1",
+            (kind, request_key, digest, status),
+        ).fetchone()
+        return self._row(row) if row else None
+
+    def find_active_kind(self, kind: str, request_key: str, digest: str) -> Optional[dict[str, Any]]:
+        """An APPROVED, unexpired approval of `kind` for this exact request."""
+        self._expire_stale()
+        return self._find_one_kind(kind, request_key, digest, APPROVED)
+
+    def consume_kind(
+        self, *, kind: str, request_key: str, digest: str, workspace_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Claim the matching single-use approval of `kind`. When `workspace_id` is
+        given it MUST match the row's workspace, so an approval for workspace A is
+        never claimed for workspace B."""
+        self._expire_stale()
+        keys: dict[str, Any] = {"serverId": request_key, "argsDigest": digest}
+        if workspace_id is not None:
+            keys["workspaceId"] = workspace_id
+        return claim_guarded(self._db, table="McpApproval", kind=kind, key_columns=keys)
+
+    def list_kind(self, kind: str, status: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 500))
+        if status:
+            rows = self._db.execute(
+                "SELECT * FROM McpApproval WHERE kind=? AND status=? ORDER BY createdAt DESC LIMIT ?",
+                (kind, status, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM McpApproval WHERE kind=? ORDER BY createdAt DESC LIMIT ?",
+                (kind, limit),
+            ).fetchall()
+        return [self._row(r) for r in rows]
 
     def get(self, approval_id: str) -> Optional[dict[str, Any]]:
         self._expire_stale()

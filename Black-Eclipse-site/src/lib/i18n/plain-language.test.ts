@@ -12,7 +12,10 @@ import { REFUSAL_KEY, refusalKey } from './refusal-copy';
 // key name like `refusal.WORKSPACE_UNAVAILABLE` (a machine identifier, never
 // shown) does not — the gate scans VALUES, not keys.
 
-const PHASE_1_PREFIXES = ['task.navigator.', 'task.authoring.', 'task.check.', 'code.proof.', 'refusal.'];
+const PHASE_1_PREFIXES = [
+  'task.navigator.', 'task.authoring.', 'task.check.',
+  'code.proof.', 'code.task.', 'code.approvals.', 'refusal.',
+];
 
 const DENYLIST = [
   'sandbox',

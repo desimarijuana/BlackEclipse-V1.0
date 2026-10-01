@@ -103,7 +103,11 @@ The front door does **not** carry a prompt copy. It sends only `agentId`, and
 `resolve_agent()` in `graph.py` resolves the full `AgentConfig` (prompt + tool
 allowlist + limits) from the runtime's own presets. `GET /api/harness/agents`
 proxies the runtime's `/agents`. This is what keeps one source of truth: updating
-the prompt is a one-file change in `prompts.py`.
+the prompt is a one-file change in `prompts.py`. Because a prompt can silently
+drift from the allowlist it describes, guard tests (`python/tests/
+test_memory_tools.py`) assert over BOTH presets that every tool a prompt names is
+in its preset's allowlist and that a prompt never denies a capability its
+allowlist contains (ADR-H106).
 
 ### The Financial Retrieval Layer (Phase 2)
 

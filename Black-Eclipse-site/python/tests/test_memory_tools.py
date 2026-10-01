@@ -326,23 +326,105 @@ def test_prompt_inputs_authority_and_attachments_present():
 
     assert "# Inputs and authority" in prompt
     assert "[attached:" in prompt
-    assert "system policy" in prompt and "run instructions" in prompt
+    assert "system policy" in prompt
     assert "conversation history" in prompt
+    # Gap 2: the never-populated `run instructions` rank is gone.
+    assert "run instructions" not in prompt
 
 
-def test_prompt_has_no_duplicated_rule_sentences():
-    """M7: no rule sentence (>40 chars) is repeated across the prompt."""
+# ── gap 5: guards that apply to BOTH presets ────────────────────────────────
+
+
+def _presets():
+    from harness.agents import CODE_NAVIGATOR, ECLIPSE_AGENT
+    from harness.prompts import CODE_NAVIGATOR_SYSTEM_PROMPT, ECLIPSE_AGENT_SYSTEM_PROMPT
+
+    return (
+        ("eclipse-agent", ECLIPSE_AGENT_SYSTEM_PROMPT, ECLIPSE_AGENT),
+        ("code-navigator", CODE_NAVIGATOR_SYSTEM_PROMPT, CODE_NAVIGATOR),
+    )
+
+
+def _named_tools(prompt: str) -> set[str]:
     import re
 
-    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+    from harness.agents import CODE_NAVIGATOR, ECLIPSE_AGENT
 
-    sentences = [
-        re.sub(r"\s+", " ", s).strip()
-        for s in re.split(r"(?<=[.!?])\s+", prompt)
-        if len(s.strip()) > 40
-    ]
-    duplicates = {s for s in sentences if sentences.count(s) > 1}
-    assert not duplicates, f"duplicated rule text: {duplicates}"
+    known = set(ECLIPSE_AGENT.tools) | set(CODE_NAVIGATOR.tools)
+    return set(re.findall(r"`([a-z][a-z0-9_]+)`", prompt)) & known
+
+
+def test_every_prompt_tool_name_is_in_its_allowlist():
+    """Gap 5: every tool a prompt names as its own is in that preset's allowlist.
+
+    This is the test that would have caught Gap 1 (the navigator prompt named
+    only five of its nine tools but described a false surface).
+    """
+    for agent_id, prompt, agent in _presets():
+        allowed = set(agent.tools)
+        for name in _named_tools(prompt):
+            assert name in allowed, (
+                f"{agent_id} prompt names tool {name!r} not in its allowlist"
+            )
+
+
+def test_prompt_may_not_deny_a_capability_its_allowlist_contains():
+    """Gap 5: a prompt may not assert it cannot do what its allowlist permits."""
+    for agent_id, prompt, agent in _presets():
+        allowed = set(agent.tools)
+        if "command_run" in allowed:
+            for denial in ("cannot run any command", "You cannot run any command"):
+                assert denial not in prompt, (
+                    f"{agent_id} allowlist has command_run but prompt denies it"
+                )
+
+
+def test_prompt_does_not_enumerate_only_a_subset_of_its_allowlist():
+    """Gap 5: a prompt that claims to enumerate its tools must name all of them."""
+    import re
+
+    for agent_id, prompt, agent in _presets():
+        if re.search(r"tools are exactly", prompt):
+            named = _named_tools(prompt)
+            missing = set(agent.tools) - named
+            assert not missing, (
+                f"{agent_id} claims to enumerate its tools but omits {sorted(missing)}"
+            )
+
+
+def test_has_no_duplicated_rule_sentences():
+    """Gap 5: no rule sentence (>40 chars) is repeated, in EITHER preset."""
+    import re
+
+    for agent_id, prompt, _agent in _presets():
+        sentences = [
+            re.sub(r"\s+", " ", s).strip()
+            for s in re.split(r"(?<=[.!?])\s+", prompt)
+            if len(s.strip()) > 40
+        ]
+        duplicates = {s for s in sentences if sentences.count(s) > 1}
+        assert not duplicates, f"{agent_id} duplicated rule text: {duplicates}"
+
+
+def test_navigator_prompt_char_ceiling():
+    """Gap 5: the navigator prompt has a size ratchet too."""
+    from harness.prompts import CODE_NAVIGATOR_SYSTEM_PROMPT as prompt
+
+    assert len(prompt) <= 3000, f"navigator prompt grew to {len(prompt)} chars"
+
+
+def test_navigator_prompt_matches_its_real_surface():
+    """Gap 1: the navigator prompt no longer understates or denies its surface."""
+    from harness.agents import CODE_NAVIGATOR
+    from harness.prompts import CODE_NAVIGATOR_SYSTEM_PROMPT as prompt
+
+    # The false "exactly five read tools" enumeration is gone...
+    assert "Your tools are exactly" not in prompt
+    # ...and the genuinely-unavailable set is narrower and true.
+    assert "cannot run an arbitrary program or shell command" in prompt
+    assert "there is no tool that accepts a program or a command from you" in prompt
+    # command_run is acknowledged as a real, allowlisted surface.
+    assert "command_run" in prompt and "command_run" in CODE_NAVIGATOR.tools
 
 
 def _run_request(*, run_id: str, user_id: str, query: str):

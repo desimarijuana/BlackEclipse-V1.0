@@ -8,7 +8,11 @@ fetch it instead of carrying its own copy.
 
 from __future__ import annotations
 
-from .prompts import CODE_NAVIGATOR_SYSTEM_PROMPT, ECLIPSE_AGENT_SYSTEM_PROMPT
+from .prompts import (
+    CODE_AGENT_SYSTEM_PROMPT,
+    CODE_NAVIGATOR_SYSTEM_PROMPT,
+    ECLIPSE_AGENT_SYSTEM_PROMPT,
+)
 from .schemas import AgentConfig
 
 # The repository tools. Phase 1 shipped the five read tools; Phase 2 adds the
@@ -107,9 +111,44 @@ CODE_NAVIGATOR = AgentConfig(
     runTimeoutMs=180_000,
 )
 
+# The coding agent (Phase 5). A SEPARATE preset that owns the code tools and NO
+# finance tool. Its tool allowlist IS the autonomy boundary: `effective_allowlist`
+# narrows it through `code.policy.allowed_tools(autonomy, ...)` before the model
+# sees any schema, so at `plan_only` the write/execute tools are simply absent.
+# It does NOT set `allowMcpTools` — a coding agent must not inherit the operator's
+# MCP reach. The tools listed are the REAL names Phases 1-3 registered.
+CODE_AGENT_TOOLS = [
+    # Read / navigate (Phase 1)
+    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_read", "workspace_docs",
+    # Change (Phase 2) — effectful; removed at plan_only
+    "workspace_patch_apply", "workspace_diff", "workspace_revert",
+    # Command broker (Phase 3) — effectful; removed at plan_only
+    "command_run",
+    # Verification (Phase 4) — the final answer is checked against the ledger.
+    # Memory/session recall stays available: read-only context, NOT the finance family.
+    "memory", "skill_list", "skill_view", "session_search", "session_open",
+    # External actions (Phase 5) — approve_external only, each single-use approved.
+    "code_commit", "code_push", "code_open_pr", "code_deploy",
+]
+
+CODE_AGENT = AgentConfig(
+    id="code-agent",
+    name="Eclipse Code Agent",
+    systemPrompt=CODE_AGENT_SYSTEM_PROMPT,
+    tools=list(CODE_AGENT_TOOLS),
+    maxSteps=24,               # a code task legitimately needs more turns than a query
+    toolTimeoutMs=120_000,     # a unit-test/build run is slower than a data fetch
+    # The AgentConfig run ceiling is 600_000; the Phase 4 repair wall-clock budget
+    # is enforced separately inside the loop.
+    runTimeoutMs=600_000,
+    # Deliberately ABSENT: allowMcpTools.
+)
+
 AGENT_PRESETS: dict[str, AgentConfig] = {
     ECLIPSE_AGENT.id: ECLIPSE_AGENT,
     CODE_NAVIGATOR.id: CODE_NAVIGATOR,
+    CODE_AGENT.id: CODE_AGENT,
 }
 
 DEFAULT_AGENT_ID = ECLIPSE_AGENT.id
@@ -125,6 +164,8 @@ def get_agent(agent_id: str) -> AgentConfig:
 
 __all__ = [
     "AGENT_PRESETS",
+    "CODE_AGENT",
+    "CODE_AGENT_TOOLS",
     "CODE_NAVIGATOR",
     "CODE_NAVIGATOR_TOOLS",
     "DEFAULT_AGENT_ID",

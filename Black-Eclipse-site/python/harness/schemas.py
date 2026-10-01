@@ -180,6 +180,10 @@ class RunRequest(BaseModel):
     # bound run with a known profile may hold code verbs (Phase 0). "edit_verify"
     # is what grants code.write; absent/unknown grants nothing (fail-closed).
     autonomy: Optional[str] = None
+    # Phase 5 (additive, optional): the workspace this run is bound to. A code
+    # tool called with no binding is refused (Phase 0: no workspace ⇒ no code
+    # permissions, whatever the profile).
+    workspaceId: Optional[str] = None  # noqa: N815
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).
@@ -217,6 +221,10 @@ class RunResult(BaseModel):
     # outcome (records, claims, unverified count). Absent/None for ordinary chat
     # and older rows, so existing clients remain compatible.
     codeVerification: Optional[dict[str, Any]] = None  # noqa: N815
+    # Phase 5 (additive, optional): the run's resolved autonomy profile and the
+    # workspace it was bound to. Absent/None for ordinary finance runs.
+    autonomy: Optional[str] = None
+    workspaceId: Optional[str] = None  # noqa: N815
 
 
 EventLiteral = Literal[

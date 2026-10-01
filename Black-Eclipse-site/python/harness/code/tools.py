@@ -246,6 +246,16 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["command_class"],
         "additionalProperties": False,
     },
+    "code_action": {
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "A short description of the change (commit message / review-request title)."},
+            "baseRef": {"type": "string", "description": "For a review request: the branch to compare against."},
+            "headRef": {"type": "string", "description": "The branch the change is on."},
+            "argv": {"type": "array", "items": {"type": "string"}, "description": "Reserved; the action has a fixed implementation."},
+        },
+        "additionalProperties": False,
+    },
 }
 
 
@@ -896,6 +906,10 @@ _CODE_TOOL_NAMES = (
     "workspace_diff",
     "workspace_revert",
     "command_run",
+    "code_commit",
+    "code_push",
+    "code_open_pr",
+    "code_deploy",
 )
 
 
@@ -981,6 +995,20 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "Refused unless the session may run checks.",
         command_run, 120_000, permission="write", risk="medium", effect="external_action",
     ))
+    # The external actions (Phase 5): each external_action, each requiring a
+    # single-use, workspace-bound operator approval resolved by actionKind.
+    from .action_tools import _make_handler, action_definition_args  # noqa: PLC0415
+
+    for spec in action_definition_args():
+        registry.register(ToolDefinition(
+            name=spec["name"],
+            description=spec["description"] + " Requires the app owner's approval for each action.",
+            input_schema=_INPUT_SCHEMAS["code_action"],
+            handler=_make_handler(spec["action"]),
+            permission="write", risk="medium", timeout_ms=60_000,
+            effect="external_action",
+            effect_metadata={"actionKind": spec["action"]},
+        ))
     return list(_CODE_TOOL_NAMES)
 
 

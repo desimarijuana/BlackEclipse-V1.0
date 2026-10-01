@@ -43,6 +43,8 @@ from .models import list_providers
 from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
+from .routers.code import router as code_router
+from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
 from .routers.sessions import router as sessions_router
@@ -91,6 +93,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # background. It only creates inert records/suggestions and never enables
         # a skill. A failure is a diagnostic, never a boot blocker.
         await service.start_learning_review()
+        # Harness-owned jobs (Phase 6): one durable scheduler task beside the
+        # three TS refresh loops, which stay exactly as they are. A failure is a
+        # diagnostic, never a boot blocker.
+        await service.start_jobs()
     try:
         yield
     finally:
@@ -98,6 +104,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if _lifespan_refs == 0:
             # Cancel queued reviews and terminate MCP subprocesses cleanly so none
             # leak across restarts.
+            await service.stop_jobs()
             await service.stop_learning_review()
             await service.stop_mcp()
 
@@ -106,6 +113,8 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
+app.include_router(code_router)
+app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)
 app.include_router(sessions_router)

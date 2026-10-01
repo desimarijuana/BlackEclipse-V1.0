@@ -1,10 +1,10 @@
 ---
 title: "Phase 5 — The Coding Agent, Autonomy Profiles and Approvals"
-status: Not started
+status: Done
 phase: 5
 depends_on: [4]
 unlocks: [6, 7, 8, 9]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 5 — The Coding Agent, Autonomy Profiles and Approvals

@@ -522,6 +522,14 @@ class AgenticService:
             self._lineage = RunLineage(self.store)
         return self._lineage
 
+    def code_tasks(self) -> Any:
+        """The process-wide code-task view over the ONE run lineage (Phase 5)."""
+        from .code.tasks import TaskStore  # noqa: PLC0415
+
+        if getattr(self, "_code_tasks", None) is None:
+            self._code_tasks = TaskStore(self.store)
+        return self._code_tasks
+
     def workflow_store(self) -> Any:
         """The process-wide workflow definition store (Phase 5)."""
         from .workflows import WorkflowStore
@@ -529,6 +537,38 @@ class AgenticService:
         if getattr(self, "_workflow_store", None) is None:
             self._workflow_store = WorkflowStore(self.store)
         return self._workflow_store
+
+    def jobs_store(self) -> Any:
+        """The process-wide job store over the ONE agent-memory connection (Phase 6)."""
+        from .jobs.store import JobStore  # noqa: PLC0415
+
+        if getattr(self, "_jobs_store", None) is None:
+            self._jobs_store = JobStore(self.store)
+        return self._jobs_store
+
+    async def start_jobs(self) -> None:
+        """Start the harness job scheduler (Phase 6). Idempotent.
+
+        A failure is a diagnostic, never a boot blocker — exactly like
+        `start_mcp()`. With no Python runtime, jobs simply do not tick.
+        """
+        from .jobs.scheduler import JobScheduler  # noqa: PLC0415
+
+        try:
+            if getattr(self, "jobs", None) is None:
+                self.jobs = JobScheduler(self, self.jobs_store())
+            await self.jobs.start()
+        except Exception:  # noqa: BLE001 - the scheduler must never block boot
+            log.warning("job scheduler failed to start", exc_info=True)
+
+    async def stop_jobs(self) -> None:
+        scheduler = getattr(self, "jobs", None)
+        if scheduler is None:
+            return
+        try:
+            await scheduler.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("job scheduler shutdown failed", exc_info=True)
 
     async def run_workflow(self, request: RunRequest) -> Any:
         """Execute a saved workflow by id over the existing graph (Phase 5).

@@ -1,10 +1,10 @@
 ---
 title: "Phase 6 — Harness-Owned Jobs and Event Triggers"
-status: Not started
+status: Done
 phase: 6
 depends_on: [5]
 unlocks: [11]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 6 — Harness-Owned Jobs and Event Triggers

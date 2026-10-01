@@ -155,13 +155,20 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
 
 
-def _effect_authorizer(approvals: Optional[Any], run_id: str, emitter: RunEmitter) -> Optional[Any]:
-    """The run's effect authorizer, composed with the code-write authorizer.
+def _effect_authorizer(
+    approvals: Optional[Any],
+    run_id: str,
+    emitter: RunEmitter,
+    workspace_id: Optional[str] = None,
+) -> Optional[Any]:
+    """The run's effect authorizer, composed with the code authorizers.
 
     A `workspace_*` write is authorized by the run's autonomy profile (Phase 2);
-    every other non-read tool falls to the MCP approvals authorizer (single-use
-    operator approval) — or is refused when no store is wired. With no authorizer
-    at all the registry refuses every non-read tool, the safe default.
+    a `code_*` external action requires a single-use, workspace-bound operator
+    approval (Phase 5); every other non-read tool falls to the MCP approvals
+    authorizer (single-use operator approval) — or is refused when no store is
+    wired. With no authorizer at all the registry refuses every non-read tool,
+    the safe default.
     """
     from .code.tools import make_code_authorizer  # noqa: PLC0415
 
@@ -170,26 +177,52 @@ def _effect_authorizer(approvals: Optional[Any], run_id: str, emitter: RunEmitte
         from .mcp.approvals import make_effect_authorizer
 
         mcp_authorizer = make_effect_authorizer(approvals, run_id, emitter)
-    return make_code_authorizer(mcp_authorizer)
+    code_authorizer = make_code_authorizer(mcp_authorizer)
+
+    if approvals is None or not workspace_id:
+        return code_authorizer
+
+    from .code.actions import make_code_action_authorizer  # noqa: PLC0415
+
+    action_authorizer = make_code_action_authorizer(approvals, run_id, workspace_id, emitter)
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name.startswith("code_"):
+            return bool(await action_authorizer(tool, args, ctx))
+        return bool(await code_authorizer(tool, args, ctx))
+
+    return authorize
 
 
-def effective_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[set[str]]:
+def effective_allowlist(
+    agent: AgentConfig, registry: ToolRegistry, autonomy: Optional[str] = None,
+) -> Optional[set[str]]:
     """The run's tool allowlist, with an explicit, narrow MCP opt-in.
 
     When the agent sets `allowMcpTools`, the allowlist is expanded to include the
     MCP tools CURRENTLY REGISTERED in the registry (names under the `mcp_`
     namespace). Registration already requires an enabled server, explicit
     per-tool selection and a read-only effect, so this cannot surface a merely
-    discovered tool. Every other agent keeps its exact allowlist — the opt-in is
+    discovered tool. Every other agent keeps its exact allowlist - the opt-in is
     per-agent and defaults off, so a restricted custom agent or skill can never
     reach an MCP tool it did not name. When the agent has NO allowlist (None =
     all tools), the expansion is a no-op.
+
+    Phase 5: when an `autonomy` profile is given, the declared allowlist is
+    NARROWED through the ONE policy authority (`code.policy.allowed_tools`), so a
+    write/execute/external tool the profile does not permit is removed BEFORE the
+    model sees its schema - the autonomy boundary is structural, not a prompt.
     """
     if agent.tools is None:
         return None
     allowed = set(agent.tools)
     if agent.allowMcpTools:
         allowed.update(name for name in registry.names() if name.startswith("mcp_"))
+    if autonomy is not None:
+        from .code.policy import allowed_tools  # noqa: PLC0415
+
+        allowed = set(allowed_tools(autonomy, tuple(sorted(allowed))))
     return allowed
 
 
@@ -218,6 +251,7 @@ def resolve_surface(
     agent: AgentConfig,
     registry: ToolRegistry,
     settings: Optional[dict[str, Any]],
+    autonomy: Optional[str] = None,
 ) -> tuple[Optional[set[str]], str]:
     """Resolve `(allowlist, system_prompt)` for ONE run from policy.
 
@@ -233,7 +267,13 @@ def resolve_surface(
 
     settings = settings or {}
     disabled = surface_disabled_tools(settings)
-    allowed = effective_allowlist(agent, registry)
+    # A code-agent run with no explicit autonomy resolves to the safest profile
+    # (plan_only), so write/execute tools are removed by construction. An
+    # ordinary finance run keeps `autonomy=None` and is never narrowed.
+    effective_autonomy = autonomy
+    if effective_autonomy is None and agent.id == "code-agent":
+        effective_autonomy = "plan_only"
+    allowed = effective_allowlist(agent, registry, effective_autonomy)
     if allowed is None:
         if disabled:
             allowed = {name for name in registry.names() if name not in disabled}
@@ -799,7 +839,9 @@ async def execute_run(
         surface_settings = memory_service.policy.get_all() if memory_service is not None else {}
     except Exception:  # noqa: BLE001 - a policy read failure falls back to the full surface
         surface_settings = {}
-    allowed, system_prompt = resolve_surface(agent, registry, surface_settings)
+    allowed, system_prompt = resolve_surface(
+        agent, registry, surface_settings, request.autonomy,
+    )
 
     # A test/operator seam: allows a deterministic tighter budget to be injected
     # (used to exercise the overflow-recovery path without a live provider). It
@@ -911,7 +953,7 @@ async def execute_run(
         app = build_graph(
             request, registry, data_bridge, store, emitter, bus, cancel_event,
             retrieval_cache, memory_service, skill_registry,
-            _effect_authorizer(approvals, request.runId, emitter),
+            _effect_authorizer(approvals, request.runId, emitter, request.workspaceId),
             memory_router,
             allowed=allowed,
             source_sink=source_collector,

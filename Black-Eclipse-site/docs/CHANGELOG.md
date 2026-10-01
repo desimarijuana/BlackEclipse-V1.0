@@ -8,6 +8,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 5 — coding agent, autonomy profiles, approvals.**
+  New `code-agent` preset (`agents.py`) whose allowlist is the REAL Phase 1–3
+  code tools and NO finance tool, and which does not set `allowMcpTools`;
+  `CODE_AGENT_SYSTEM_PROMPT` in `prompts.py`. Autonomy is structural:
+  `code/policy.allowed_tools(autonomy, declared)` is the ONE place a
+  write/external tool is removed, and `graph.effective_allowlist` calls it before
+  the model sees any schema (a code run with no autonomy resolves to `plan_only`).
+  `RunRequest.workspaceId` + `RunResult.autonomy`/`workspaceId` added. The
+  approval store is GENERALIZED: `mcp/approvals.py` gains `claim_guarded` (the ONE
+  single-use primitive), `request_kind`/`consume_kind`/`list_kind`, and additive
+  `kind`/`workspaceId` columns; `code/actions.py` binds an external action to the
+  exact action + workspace; four external-action tools (`code_commit`,
+  `code_push`, `code_open_pr`, `code_deploy`) are registered effectful and
+  single-use approved. `code/tasks.py` is a CONSUMER of `run_lineage.py`
+  (task.created/plan.accepted/patch.applied/command.executed/cancelled/discarded).
+  New `routers/code.py` (`/code/*`, operator-gated) + two lines in `main.py`;
+  front door `src/lib/harness/code-client.ts` task/approval functions +
+  `src/app/api/code/**` proxies + `src/components/screens/code/**`; i18n
+  `code.task.*`/`code.approvals.*` + extended jargon gate. ADR-H107 appended
+  (H103/H104/H106 were taken concurrently). Baseline frozen in
+  `docs/harness/roadmap/progress/phase-05-progress.md`. docs updated:
+  `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-05-coding-agent.md`, `docs/NAVIGATION.md`
+
+- **Prompt follow-up — navigator prompt correctness + guard coverage.** Fixed
+  the Repository Navigator prompt (`CODE_NAVIGATOR_SYSTEM_PROMPT`) which
+  contradicted its own allowlist: it claimed exactly five read tools and that it
+  "cannot run any command" while `CODE_NAVIGATOR.tools` has nine (including
+  `command_run`, `workspace_patch_apply`, `workspace_diff`,
+  `workspace_revert`). `## What you can do` now names the surface by group and
+  defers to the bound schemas; `## What you cannot do` states the true narrower
+  set (no arbitrary shell/program, no install, no network). Removed the phantom
+  `run instructions` authority rank from `# Inputs and authority` (never
+  populated by any caller) and its `run_instructions` prompt segment
+  (`python/harness/prompt_segments.py`). Removed the hardcoded surface
+  enumeration from the identity sentence and disambiguated "valuation and
+  modelling". Deleted two redundant restatements (the duplicate citation line
+  and the duplicate bound-schemas sentence). Added generalised guard tests
+  across both presets in `python/tests/test_memory_tools.py` +
+  `test_prompt_segments.py`. Prompt 17,443 → 17,294 chars (~4,324 est. tokens),
+  under the 17,500 ceiling. docs updated: `docs/harness/decisions.md`
+  (ADR-H106), `docs/harness/architecture.md`,
+  `docs/harness/prompt-followup-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 4 — verify-and-repair trust spine.** New
   `python/harness/code/verify.py` (the per-run `VerificationLedger`; a
   deterministic, negation-aware sentence-level claim parser; `enforce_answer`
@@ -163,6 +207,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   instantly and persists. Tests cover normalization/clamping.
   no doc change — UI-only presentation preference; no architecture, contract or
   setup change.
+
+- **Eclipse-as-a-Harness Phase 6 — harness-owned jobs and event triggers.**
+  New `python/harness/jobs/` package: `model.py` (`JobDefinition`/`JobTarget`/
+  `JobDelivery`, `enabled` defaults FALSE per ADR-H39), `store.py` (the
+  `HarnessJob`/`HarnessJobRun` tables on the ONE `agent-memory.db` connection),
+  `cron.py` (a stdlib-only 5-field matcher that refuses 6-field/`@macro`/name
+  aliases), `guardrails.py` (save-time permission binding, workspace-required code
+  jobs, operator-gated `approve_external`, `policy.resolve_within` watch-path
+  confinement, skill-version pinning, unknown-adapter refusal), `scheduler.py`
+  (`JobScheduler` — one lifespan task beside `start_mcp()`, injected clock, no
+  overlap, bounded in-flight runs, `max_runtime_s` cooperative cancel, once-only
+  missed-run reconciliation recorded with `missed=1`, the breaker reused from
+  `mcp/circuit.py`), `triggers.py` (SHA-256 webhook tokens shown once; a bounded
+  file-watch signature), `delivery.py` (`in_app` on the existing SSE bus +
+  `artifact` reports), and `templates.py` (the seven disabled finance templates).
+  A job run IS a normal `HarnessRun`. `routers/jobs.py` carries every route behind
+  `require_operator` (reads included, ADR-H48) except the hashed-token webhook
+  trigger; `main.py` grows by an import + `include_router` + lifespan
+  `start_jobs`/`stop_jobs`. Front door `src/lib/harness/jobs-client.ts` +
+  `src/app/api/jobs/**` + `src/components/screens/jobs/**`, i18n `jobs.*`. The
+  three TS schedulers are byte-unchanged. ADR-H108. docs updated:
+  `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-06-jobs-and-triggers.md`,
+  `docs/harness/roadmap/progress/phase-06-progress.md`.
 
 ## 2026-09-30
 
