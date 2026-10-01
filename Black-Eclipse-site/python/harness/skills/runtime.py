@@ -370,6 +370,8 @@ async def execute_skill(
         agent=agent_config,
         modelSettings=request.modelSettings,
         userId=request.userId,
+        # Phase 1: a skill child-run records its parent so it appears in lineage.
+        parentRunId=request.parentRunId,
         callbackBaseUrl=request.callbackBaseUrl,
         callbackToken=request.callbackToken,
     )

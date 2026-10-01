@@ -35,7 +35,7 @@ import {
   type InstrumentIdentity,
 } from "@/lib/instrument-identity";
 import { makeFailure, statusForFailure, type FailureClass } from "@/lib/harness/failure";
-import { coverageSummary, isCovered, coverageFor, healthTargets, capabilityHealthTargets } from "@/lib/harness/coverage";
+import { coverageSummary, isCovered, coverageFor, allHealthTargets } from "@/lib/harness/coverage";
 import {
   canonicalMarket,
   canonicalAssetClass,
@@ -48,17 +48,18 @@ import { resolveMacroSeries } from "@/lib/harness/macro-identity";
 import { MARKET_FULL_NAME, resolveMarketId, splitExchangeSuffix } from "@/lib/markets";
 import type { DataCapability } from "./types";
 
-export interface DataBridgeResult {
-  /**
-   * `AMBIGUOUS` is a first-class outcome: the instrument identity could not be
-   * pinned to a single instrument (unknown venue, ticker shared across markets,
-   * or a provider answer for a different currency). It is NOT a failure to be
-   * smoothed over — the caller must ask the user to disambiguate, never receive
-   * a guessed instrument.
-   */
-  status: "OK" | "UNAVAILABLE" | "AMBIGUOUS";
-  [key: string]: unknown;
-}
+// The result shape lives in `data-bridge-types.ts` (shared with the health
+// ledger) and is re-exported here for existing importers.
+export type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import {
+  recordCapabilityHealth,
+  sourceHealth,
+  coverageCapability,
+  routeProbe,
+  decodeHealthKey,
+  recordHealth,
+} from "@/lib/harness/health-ledger";
 
 function unavailable(reason?: string): DataBridgeResult {
   return { status: "UNAVAILABLE", ...(reason ? { error: reason } : {}) };
@@ -325,6 +326,39 @@ function unavailableClass(cls: FailureClass, detail?: string): DataBridgeResult 
 }
 
 /**
+ * Build a best-effort statement identity when the vault has NO row but the
+ * market is known and covered (Harness closeout Phase 4.4). Statements resolve
+ * through the provider chain with the vault as a CACHE, so a vault miss is not a
+ * hard failure. Returns null for a genuinely unresolvable request (unknown
+ * venue, ambiguous bare ticker, uncovered venue) so the honest identity failure
+ * still stands.
+ */
+function statementIdentityFallback(
+  symbol: string,
+  rawMarket: unknown,
+  failure: IdentityFailure,
+): InstrumentIdentity | null {
+  // Only the "not in the vault" reason is recoverable here; a not_covered venue,
+  // an unknown market or an ambiguous bare ticker must stay an identity failure.
+  if (failure.reason !== "not_found") return null;
+  const market = resolveMarketId(
+    typeof rawMarket === "string" && rawMarket.trim() ? rawMarket.trim() : "",
+  );
+  if (!market) return null;
+  if (!isCovered(market, "equity")) return null;
+  const entry = coverageFor(market);
+  if (!entry) return null;
+  return {
+    market,
+    symbol: symbol.trim().toUpperCase(),
+    currency: entry.currency || "USD",
+    assetClass: "equity",
+    securityType: null,
+    name: null,
+  };
+}
+
+/**
  * Record a live-provider outcome into SourceHealth, so `get_source_health` is
  * populated (C3/#7). Health is keyed per (source × market × asset-class) using
  * the `symbol` column for the asset-class label and the wildcard for the rest —
@@ -338,73 +372,6 @@ function unavailableClass(cls: FailureClass, detail?: string): DataBridgeResult 
  * is treated as the `quote` capability from a live probe. `assetClass` values
  * never contain `#` or `!`, so the split is unambiguous.
  */
-const HEALTH_CAP_SEP = "#";
-const HEALTH_FIXTURE_SUFFIX = "!fixture";
-
-export function encodeHealthKey(assetClass: string, capability: string, probeKind: "live" | "fixture"): string {
-  const cap = probeKind === "fixture" ? `${capability}${HEALTH_FIXTURE_SUFFIX}` : capability;
-  return `${canonicalAssetClass(assetClass)}${HEALTH_CAP_SEP}${cap}`;
-}
-
-function decodeHealthKey(symbol: string): { assetClass: string; capability: string; probeKind: "live" | "fixture" } {
-  const idx = symbol.indexOf(HEALTH_CAP_SEP);
-  if (idx === -1) {
-    // Legacy row: assetClass only, treated as a live quote probe.
-    return { assetClass: symbol, capability: "quote", probeKind: "live" };
-  }
-  // Normalise on read too: rows written before normalisation existed may carry
-  // a raw asset class ("Equity") or a non-route "unknown"; they must fold onto
-  // the same canonical key as fresh writes, not form a parallel row.
-  const assetClass = canonicalAssetClass(symbol.slice(0, idx));
-  let cap = symbol.slice(idx + 1);
-  let probeKind: "live" | "fixture" = "live";
-  if (cap.endsWith(HEALTH_FIXTURE_SUFFIX)) {
-    cap = cap.slice(0, -HEALTH_FIXTURE_SUFFIX.length);
-    probeKind = "fixture";
-  }
-  return { assetClass, capability: cap || "quote", probeKind };
-}
-
-async function recordHealth(
-  source: string,
-  market: string,
-  assetClass: string,
-  ok: boolean,
-  error?: string,
-  capability: string = "quote",
-  probeKind: "live" | "fixture" = "live",
-): Promise<void> {
-  try {
-    // Normalise the route dimensions so one real route maps to one row
-    // (P1-5) — casing and unresolved values must never fragment the ledger.
-    const canonSource = canonicalSource(source);
-    const canonMarket = canonicalMarket(market);
-    const symbol = encodeHealthKey(assetClass, capability, probeKind);
-    const id = `${canonSource}:${canonMarket}:${symbol}`;
-    await prisma.sourceHealth.upsert({
-      where: { id },
-      create: {
-        id,
-        source: canonSource,
-        market: canonMarket,
-        symbol,
-        successCount: ok ? 1 : 0,
-        failCount: ok ? 0 : 1,
-        lastStatus: ok ? "ok" : "fail",
-        lastError: ok ? null : error ?? null,
-      },
-      update: {
-        successCount: { increment: ok ? 1 : 0 },
-        failCount: { increment: ok ? 0 : 1 },
-        lastStatus: ok ? "ok" : "fail",
-        lastError: ok ? null : error ?? null,
-      },
-    });
-  } catch {
-    /* health is best-effort */
-  }
-}
-
 export async function fetchCapability(
   capability: DataCapability,
   params: Record<string, unknown>
@@ -437,9 +404,11 @@ async function dispatchCapability(
     case "news":
       return news(params);
     case "source_health":
-      return sourceHealth();
+      return sourceHealth(params);
     case "research_health":
       return researchHealth();
+    case "route_probe":
+      return routeProbe(params);
     case "coverage":
       return Promise.resolve(coverageCapability());
     case "capability_matrix":
@@ -467,63 +436,6 @@ async function dispatchCapability(
     default:
       return unavailable(`Unknown capability: ${String(capability)}`);
   }
-}
-
-// Capabilities that are not about one instrument (news, web research), so their
-// route key uses the existing `*` wildcard rather than a per-instrument class.
-const INSTRUMENT_LESS_CAPABILITIES: ReadonlySet<string> = new Set([
-  "news",
-  "web_search",
-  "web_fetch",
-]);
-
-/**
- * Derive the canonical route key from a capability + its result and record the
- * outcome. Source/market/assetClass come from the result when it carries them
- * (provenance fields), from an explicit `healthContext` on a failure, else from
- * a per-capability default or `unknown`. `unknown` is honest: a request that
- * never resolved its instrument is a failed attempt, not a healthy route.
- */
-async function recordCapabilityHealth(
-  capability: string,
-  params: Record<string, unknown>,
-  result: DataBridgeResult
-): Promise<void> {
-  const healthCap = HEALTH_CAPABILITY[capability];
-  if (!healthCap) return; // unmapped → do not guess a route
-  const instrumentLess = INSTRUMENT_LESS_CAPABILITIES.has(capability);
-  const ok = result.status === "OK";
-  const ctx = (result.healthContext as { source?: string; market?: string; assetClass?: string } | undefined) ?? {};
-  const source =
-    (typeof result.provider === "string" && result.provider) ||
-    (typeof result.priceSource === "string" && result.priceSource) ||
-    ctx.source ||
-    DEFAULT_HEALTH_SOURCE[capability] ||
-    "unknown";
-  const market = instrumentLess
-    ? "*"
-    : (typeof result.market === "string" && result.market) ||
-      (typeof result.country === "string" && result.country) ||
-      ctx.market ||
-      (typeof params.market === "string" && params.market) ||
-      "unknown";
-  const assetClass = instrumentLess
-    ? "*"
-    : (typeof result.assetClass === "string" && result.assetClass) ||
-      ctx.assetClass ||
-      "unknown";
-  const error = ok ? undefined : (typeof result.error === "string" ? result.error : undefined);
-  // Canonicalise the route identity BEFORE recording so two observations of the
-  // same real route cannot land on two rows (P1-5). An unresolved market or
-  // asset class becomes the wildcard `*`, never a persisted "unknown".
-  await recordHealth(
-    canonicalSource(source),
-    canonicalMarket(String(market)),
-    canonicalAssetClass(String(assetClass)),
-    ok,
-    error,
-    healthCap
-  );
 }
 
 /**
@@ -654,9 +566,21 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailableClass("invalid_request", "symbol is required");
 
+  // Statements resolve through the PROVIDER CHAIN (SEC → FMP → yfinance) with the
+  // vault as a CACHE, not a precondition (Harness closeout Phase 4.4). A vault
+  // miss must not become an identity failure: the vault identity gate is still
+  // consulted for a verified market/symbol, but when the ONLY reason it failed is
+  // that no vault row exists (and the market is known/covered), we build a
+  // best-effort identity and let the provider chain answer — or return `no_data`.
   const resolved = await resolveVaultInstrument(symbol, params.market, false);
-  if (!resolved.ok) return identityFailureResult(resolved.failure);
-  const { identity } = resolved;
+  let identity: InstrumentIdentity;
+  if (resolved.ok) {
+    identity = resolved.identity;
+  } else {
+    const fallback = statementIdentityFallback(symbol, params.market, resolved.failure);
+    if (!fallback) return identityFailureResult(resolved.failure);
+    identity = fallback;
+  }
 
   const cached = await prisma.fundamentalsCache.findUnique({
     where: { symbol_market: { symbol: identity.symbol, market: identity.market } },
@@ -812,134 +736,6 @@ function extractHostname(url: string): string {
   }
 }
 
-async function sourceHealth(): Promise<DataBridgeResult> {
-  const rows = await prisma.sourceHealth.groupBy({
-    by: ["source", "market", "symbol"],
-    _sum: { successCount: true, failCount: true },
-    _max: { lastStatus: true, updatedAt: true },
-  });
-
-  // ── Key health by the dimensions that actually identify a route ────────────
-  // A route is (source × market × assetClass × CAPABILITY × probe-kind). Each
-  // recorded run is kept distinct; a declared-but-unrun target is `unknown`.
-  // A working quote can never make a statement route look healthy — they are
-  // different rows (WS3). `symbol` encodes assetClass + capability; the
-  // decoder preserves legacy assetClass-only rows as `quote`/live.
-  interface Stat {
-    success: number;
-    fail: number;
-    updated: string | null;
-    lastStatus: string | null;
-    lastError: string | null;
-  }
-  const recorded = new Map<string, Stat>();
-  const meta = new Map<string, { assetClass: string; capability: string; probeKind: "live" | "fixture" }>();
-  for (const r of rows) {
-    const decoded = r.symbol === "*"
-      ? { assetClass: "*", capability: "quote", probeKind: "live" as const }
-      : decodeHealthKey(r.symbol);
-    // Fold legacy/unnormalised rows onto the canonical route key on read.
-    const key = `${canonicalSource(r.source)}|${canonicalMarket(r.market)}|${decoded.assetClass}|${decoded.capability}|${decoded.probeKind}`;
-    meta.set(key, decoded);
-    const cur = recorded.get(key) ?? { success: 0, fail: 0, updated: null, lastStatus: null, lastError: null };
-    cur.success += r._sum.successCount ?? 0;
-    cur.fail += r._sum.failCount ?? 0;
-    const updated = r._max.updatedAt ? new Date(r._max.updatedAt).toISOString() : null;
-    if (updated && (!cur.updated || updated > cur.updated)) cur.updated = updated;
-    recorded.set(key, cur);
-  }
-
-  const shape = (t: { source: string; market: string; assetClass: string; capability: string; probeKind: "live" | "fixture" }) => {
-    const key = `${t.source}|${t.market}|${t.assetClass}|${t.capability}|${t.probeKind}`;
-    const stat = recorded.get(key);
-    const success = stat?.success ?? 0;
-    const fail = stat?.fail ?? 0;
-    const total = success + fail;
-    // A declared target with ZERO attempts is `unknown` — NOT healthy, NOT
-    // failing. Only recorded runs may claim working/failing.
-    const health =
-      total === 0 ? "unknown"
-        : fail === 0 ? "healthy"
-        : success === 0 ? "failing"
-        : "degraded";
-    const updated = stat?.updated ?? null;
-    return {
-      source: t.source,
-      market: t.market,
-      assetClass: t.assetClass,
-      capability: t.capability,
-      probeKind: t.probeKind,
-      // `attempted` mirrors `total` explicitly so a report reader does not have
-      // to know the success+fail arithmetic. Everything below is honest about
-      // zero-attempt routes: `unknown`, never healthy.
-      attempted: total,
-      success,
-      fail,
-      total,
-      lastStatus: total === 0 ? null : (fail > 0 && success === 0 ? "fail" : "ok"),
-      health,
-      // Reliability over the recorded window (0..1); null when never attempted.
-      reliability: total === 0 ? null : Math.round((success / total) * 100) / 100,
-      successRate: total === 0 ? null : Math.round((success / total) * 100) / 100,
-      // Retryable hint: a degraded/failing route may be worth retrying, but we
-      // do not claim a specific transient cause from a counter alone.
-      retryable: health === "degraded" || health === "failing" ? true : health === "unknown" ? null : false,
-      // The most recent write to this row. NOTE: `SourceHealth` keeps per-route
-      // counters + last status, not separate last-success/last-failure stamps;
-      // `updatedAt` is "last attempt" for a route. Distinguishing success/failure
-      // timestamps would need new columns (a deliberate seed-DB migration).
-      lastAttemptAt: updated,
-      updatedAt: updated,
-      staleSeconds: updated ? (Date.now() - Date.parse(updated)) / 1000 : null,
-      lastError: stat?.lastError ?? null,
-      // A fixture probe is deterministic offline evidence and must never be
-      // presented as live-provider health.
-      sourceOfTruth: t.probeKind === "fixture" ? "fixture" : "live smoke/production",
-    };
-  };
-
-  // Every declared target the system CAN serve — the legacy quote axis plus the
-  // capability-specific axis — so a known route with no runs reports `unknown`
-  // rather than being absent. Each target is emitted once (deduplicated).
-  const declared: Array<{ source: string; market: string; assetClass: string; capability: string; probeKind: "live" | "fixture" }> = [
-    ...healthTargets(),
-    ...capabilityHealthTargets(),
-  ];
-  const seen = new Set<string>();
-  const out: ReturnType<typeof shape>[] = [];
-  for (const t of declared) {
-    const key = `${t.source}|${t.market}|${t.assetClass}|${t.capability}|${t.probeKind}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(shape(t));
-  }
-
-  // Recorded combinations not in the registry (e.g. a provider that ran for a
-  // market/capability the registry does not declare) are included under their
-  // own source.
-  for (const key of recorded.keys()) {
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const info = meta.get(key)!;
-    const [source, market] = key.split("|");
-    out.push(shape({ source, market, ...info }));
-  }
-
-  if (out.length === 0) return { status: "OK", failureClass: "no_data", rows: [] };
-  return { status: "OK", rows: out };
-}
-
-/** The declared coverage registry, so the system can answer "what do we cover?". */
-function coverageCapability(): DataBridgeResult {
-  return { status: "OK", rows: coverageSummary() };
-}
-
-/**
- * The truthful capability matrix. Composes the declared registry with the
- * OBSERVED vault universe sizes and recorded health, and with what each
- * fundamentals/web route needs to be configured. Never advertises a capability
- * from an unrelated one (statements are not implied by quotes).
- */
 async function capabilityMatrix(): Promise<DataBridgeResult> {
   try {
     // Observed universe sizes per market (an empty vault market reports 0, which
@@ -980,7 +776,9 @@ async function capabilityMatrix(): Promise<DataBridgeResult> {
             : decoded.capability === "fundamentals" || decoded.capability === "financial_statements" ? "fundamentals"
             : decoded.capability === "sec_filings" ? "filings"
             : "web";
-        const key = `${r.market}|${axis}`;
+        // Canonicalise the market EXACTLY as sourceHealth() does — two readers of
+        // one ledger must not disagree (Phase 2). A legacy `unknown` folds to `*`.
+        const key = `${canonicalMarket(r.market)}|${axis}`;
         const s = r._sum.successCount ?? 0;
         const f = r._sum.failCount ?? 0;
         // Merge conservatively: any failure keeps a market degraded/failing.

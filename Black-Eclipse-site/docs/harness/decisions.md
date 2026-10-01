@@ -2242,3 +2242,94 @@ approvable; the digest still binds the arguments; TTL expiry and terminal denial
 are unchanged; a prior approval/tool description/model claim still cannot
 authorize a different action. A `consumed` approval is not re-used by `request`
 (which now returns a fresh PENDING row instead of an already-approved one).
+
+## ADR-H93 - Run lineage, durable checkpoints, and idempotent resume
+
+**Decision.** A run now has an identity that survives a crash. `HarnessRun` gained
+`parentRunId`/`workflowId` (the run that spawned it and the workflow it belongs
+to); a new `RunCheckpoint` table stores a BOUNDED per-boundary reference (after
+each completed agent step, each tool-result batch, and at terminal status) and a
+new `ToolExecutionIdempotency` table records one row per executed
+`(runId, stepIndex, toolCallId)`. `POST /runs/{id}/resume` re-enters the graph at
+the recorded node and REUSES a recorded tool result instead of re-running it; a
+resume with no checkpoint is `CHECKPOINT_NOT_FOUND` and a resume of a terminal run
+is `RESUME_CONFLICT` — never a fresh run in its place. The persistence lives in a
+new `python/harness/run_lineage.py` bound to the ONE store connection (same
+pattern as `mcp/approvals.py`), so ratcheted `persistence.py` did not grow.
+
+**Why.** There was no run lineage and no checkpoint anywhere in the Python
+runtime, and the only "checkpoint" concept was the TypeScript conversation store.
+Every later phase (workflow steps, approval resume, observability) needs a run
+whose parent and progress survive a restart. The checkpoint is a REFERENCE, not a
+second trace: the message tail is capped (≤60 messages, ≤12k chars each) and the
+allowlist/pending-calls are capped, because a checkpoint that duplicates the event
+log is a new god table.
+
+**Consequences.** `RunResult` gained `parentRunId`/`childRunIds`; a skill child-run
+records its parent. Resume is safe for side-effecting tools by construction. A
+downgrade ignores the new tables/columns (idempotent stdlib DDL).
+
+## ADR-H94 - The route-health report is a summary partition, and the declared list is withheld by default
+
+**Decision.** `sourceHealth()` returns a compact SUMMARY HEAD first (recorded route
+counts by health class, markets with any recorded attempt, first N recorded rows)
+plus the live recorded rows; the ~1,200-row declared universe is WITHHELD and only
+returned for `recordedOnly: true` or `includeDeclared: true`. The Python
+`get_source_health` renders the head, states the withheld count, and how to request
+the full list. `capabilityMatrix()` canonicalises its market key exactly as
+`sourceHealth()` does. `SourceHealth` gained `lastSuccessAt`/`lastFailureAt`.
+
+**Why.** The recorded ledger is real and correct but was UNREACHABLE: the declared
+list was emitted BEFORE any recorded row, so at the 24k tool-result bound a caller
+only ever saw "unknown — 0 ok / 0 fail" rows and concluded nothing had ever run. A
+working system therefore looked dead. The honesty semantics are unchanged: a
+declared route with zero attempts is `unknown`, neither healthy nor failing.
+
+**Consequences.** Two readers of one ledger now agree on the route key. A
+one-time migration (`scripts/migrate-source-health-canonical.ts`) folds legacy rows
+(including a literal `unknown` in source/market) onto canonical keys; a DB-level
+test asserts no literal `unknown` remains. The new columns are nullable and
+additive.
+
+## ADR-H95 - The capability matrix cannot assert an impossible fact; the market set is 34
+
+**Decision.** `buildCapabilityMatrix` reconciles every axis: a non-`unknown`
+observation against an unimplemented level is REPRESENTED as `matrixInconsistent`
+with a reason (level forced non-implemented), never smoothed over. CH/KW/QA are
+declared COVERAGE entries with their REAL ISO currencies (CHF/KWD/QAR) and a
+declared blocker (decision D1: keep the real venues). Provider eligibility is
+DECLARED (`provider-eligibility.ts`) rather than inferred from a `supports: () =>
+true`; a declared `not_eligible` market is not configured on the quote axis and is
+tagged `secondary`. The market count is 34 and asserted in a test.
+
+**Why.** `capability.ts` could render `quote: not implemented (observed: working)`
+in the same row (a UK yfinance quote succeeded while UK is absent from
+`MARKET_SLUG`), and a market outside the COVERAGE registry reported a USD currency
+it does not use. The real limit on a quote route is data/symbol quality (`.NG`,
+`.AE` return quote-not-found; `.ME`/`.JO`/`.VN`/`.MX` are thin), not the absence of
+an adapter — so the fix is declared eligibility plus a verified sample symbol.
+
+**Consequences.** A capability-matrix eval gate (Phase 8) fails the build on any
+regression. DERIV (recognised, uncovered) never claims `configured` on any axis,
+including web.
+
+## ADR-H96 - The workflow compiler reuses the one execution plane and never inherits tools across steps
+
+**Decision.** A versioned, bounded `Workflow` compiles onto the EXISTING
+`execute_run` graph (`python/harness/workflows/`); it does NOT build a second
+agent loop, tool registry or model adapter. A step's effective tool scope is the
+INTERSECTION of the agent allowlist and the step's declared tools, enforced at the
+SAME `ToolRegistry.execute(allowed=...)` seam (a denied call is a structured
+`TOOL_FORBIDDEN`). Approval steps reuse the existing single-use `ApprovalStore`.
+The path is flag-gated (`HARNESS_WORKFLOWS_ENABLED`, default OFF); a run with no
+`workflowId` is unchanged.
+
+**Why.** The runtime already IS a harness — one execution plane, one registry, one
+allowlist seam, one bus, one persistence layer. What it lacked was orchestration ON
+TOP of that plane. Per the coding-agent capability contract, agents must NOT
+inherit each other's tools or access: a step can only NARROW its scope, never
+widen it. A cycle, an unbounded fan-out, an out-of-scope tool, and a step with no
+terminal path are each rejected at validation with a NAMED reason.
+
+**Consequences (non-goals).** No visual workflow designer, bot scheduler, or
+agent-builder UI (roadmap Phases 8-9). `execute_run` is wrapped, not replaced.

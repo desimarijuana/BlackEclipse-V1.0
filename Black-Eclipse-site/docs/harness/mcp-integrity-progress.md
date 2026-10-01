@@ -760,6 +760,18 @@ all exist. It was **never committed** (`git log --all` for its files is empty;
 `health-key.ts` is not in HEAD). It is **adjacent scope**, not merged into an MCP
 commit. No part is unfinished.
 
+> **Correction (2026-09-30, post-`c949651`).** The two sentences above were true
+> when this section was written and are now stale. `c949651` ("Retrieval
+> health-awareness, memory tool fixes, MCP integrity close-out") landed the whole
+> pending set — buckets (a) and (b) together, 35 files — so
+> `retrieval/health.py`, `health-key.ts`, `retrieval/layer.py`,
+> `data-bridge.ts` and `test_retrieval_health.py` are all tracked at HEAD. The
+> Milestone 11.1 recommended three-commit boundary was **not** the boundary that
+> was executed; the MCP and retrieval workstreams share one commit. Left recorded
+> rather than rewritten: the recommendation was for an operator deciding the
+> boundary, and the operator chose otherwise. The working tree is now clean
+> (`git status --porcelain -uall` → empty).
+
 ### 11.3 — Item 3: wire the live supply-chain verdict (Option A) — ADR-H88
 
 Chose **Option A**. `SupplyChainChecker` records the last observation per

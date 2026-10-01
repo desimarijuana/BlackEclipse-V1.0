@@ -75,6 +75,10 @@ Two boundaries, both deliberate:
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `service.py` | process-wide store/registry/bus + JDdS data bridge client |
 | `deps.py` | the front door's shared state + authorization seam: the ONE process-wide `AgenticService`, the `require_operator`/`require_mcp_operator` transport/token dependencies, and the identity/tenancy boundary helpers (`identity_boundary`, `deployment_exposure`) |
+| `run_lineage.py` | **Phase 1**: run lineage + durable checkpoints + idempotency. Owns the two additive `HarnessRun` columns (`parentRunId`/`workflowId`) and the `RunCheckpoint`/`ToolExecutionIdempotency` tables, bound to the ONE store connection (so ratcheted `persistence.py` did not grow). `save_checkpoint`/`latest_checkpoint`/`mark_tool_executed`/`was_tool_executed`/`set_run_parent`/`list_child_runs` |
+| `graph_context.py` | **extraction**: the per-run context blocks (recalled memory, compact profile, skill manifest) and the memory/learning outcome helpers, pure-extracted from `graph.py` to keep it under its size ratchet; re-exported by `graph.py` so callers are unchanged |
+| `workflows/` | **Phase 5**: the composable workflow graph. `model.py` (Workflow/WorkflowStep contracts + closed step-kind set + bounds), `validate.py` (cycle / unbounded fan-out / out-of-scope tool / no terminal path — each with a NAMED reason), `store.py` (validated persistence), `compile.py` (compiles onto the EXISTING `execute_run`; a step's tool scope = agent allowlist ∩ step tools, enforced at the same `ToolRegistry.execute(allowed=...)` seam; approval steps reuse the single-use `ApprovalStore`; parallel branches share the run cancel event/cache). Flag-gated (`HARNESS_WORKFLOWS_ENABLED`, default OFF) |
+| `eval_gates/` | **Phase 8**: the offline route_health / workflow / resume gates invoked by `scripts/test-evals.js` (the capability-matrix gate lives in TS, `scripts/eval-capability-matrix.ts`) |
 | `routers/` | self-contained route groups registered by `main.py` via `app.include_router(...)`, so the front door stays navigable. `mcp.py` owns the MCP catalog/approvals/presets/diagnostics routes; `memory.py` owns all `/eclipse-memory/*` + `/memory-providers/*` routes; `sessions.py` owns sessions/profiles/session-history-search/learning-review; `skills.py` owns the skill lifecycle, project trust, bundles, authoring and learning routes. Shared state comes from `deps.py` (never by importing `main`) |
 | `main.py` | FastAPI app (`/health`, `/models`, `/agents`, `/runs`, …). Shared runtime state and operator authorization live in `deps.py`; self-contained route groups are extracted into `routers/` and registered via `app.include_router(...)`. The public surface stays `harness.main:app`. |
 
@@ -189,7 +193,12 @@ type, not by a US default.
   official filings / web+documents / observed health / live-checked). The
   `get_coverage` and `get_capability_matrix` tools report it, and their text
   explicitly instructs the agent to try other eligible routes rather than stop
-  when a market or ticker is missing. Statements are never implied by quotes.
+  when a market or ticker is missing. Statements are never implied by quotes. The
+  matrix CANNOT assert an impossible fact: `reconcileAxis` represents a
+  non-`unknown` observation against an unimplemented level as `matrixInconsistent`
+  with a reason. The market set is 34, each with its real ISO currency (CH=CHF,
+  KW=KWD, QA=QAR); provider eligibility is DECLARED (`provider-eligibility.ts`)
+  rather than inferred. Decision: ADR-H95.
 - **Global identity.** The JDdS master stores bare local codes (`2330`, `005930`);
   users type Yahoo-style suffixes (`2330.TW`, `005930.KS`). `splitExchangeSuffix`
   in `markets.ts` maps a curated suffix table to an implied market, and
@@ -204,8 +213,18 @@ type, not by a US default.
   scanned/image PDF as `unsupported_document` and a JavaScript-only shell as
   `javascript_only` — distinct categories the caller can escalate on. Original
   language is preserved (`WebPage.language`); no silent translation.
-- **Health keying.** `sourceHealth` keys each route by `(source, market,
-  assetClass)`; a declared target with zero attempts is `unknown`.
+- **Health keying.** `sourceHealth` keys each route by
+  `(source × market × assetClass × capability × probeKind)`; a declared target with
+  zero attempts is `unknown`. The reader is a SUMMARY PARTITION: the compact
+  recorded head is the default and the ~1,200-row declared universe is withheld
+  until `includeDeclared`/`recordedOnly` is set, so the recorded ledger stays
+  readable inside the 24k tool-result bound (ADR-H94). `SourceHealth` carries
+  `lastSuccessAt`/`lastFailureAt` per route. A bounded cross-market probe records
+  one attempt per (market × implemented capability) into the SAME ledger under the
+  SAME canonical key; the manual one-shot works immediately, the recurring
+  schedule is OFF by default (`HARNESS_ROUTE_PROBE_ENABLED`). Fixture probes are
+  always labelled and never presented as live health. The ledger surface lives in
+  `src/lib/harness/health-ledger.ts`.
 
 The Python research loop, receipt, and per-leg statuses are unchanged; this
 phase changes WHICH routes are selected and how their outcomes are reported, not
@@ -411,12 +430,49 @@ non-JSON marker naming shown/total and structured `truncated`/`shown_chars`/
 `total_chars` fields; the graph emits `tool.truncated` once per trimmed result.
 Under the bound the text is byte-identical; `ToolResult.data` is never bounded.
 
+**Run lineage, checkpoints and resume (Phase 1).** A run now has an identity that
+survives a crash. `build_graph` writes a bounded `RunCheckpoint` at every durable
+boundary (after each completed agent step, after each tool-result batch, and at
+terminal status); the payload is a REFERENCE (step index, counters, pending tool
+calls, resolved allowlist, and a capped serialized message tail) — never a second
+copy of the event log. Each executed tool call is recorded in
+`ToolExecutionIdempotency`, keyed by `sha256(runId, stepIndex, toolCallId)`. A
+resume (`POST /runs/{id}/resume`) re-enters at the recorded node, REUSES a
+recorded tool result instead of re-running it, and a resume of a run with no
+checkpoint is `CHECKPOINT_NOT_FOUND` / of a terminal run is `RESUME_CONFLICT` —
+never a silent fresh run. `GET /runs/{id}/lineage` returns the bounded parent
+chain + children. Decisions: ADR-H93.
+
 **Forced final answer.** On the last allowed step the agent node unbinds tools,
 appends an in-band instruction to answer now, and strips any residual tool calls.
 A tool-looping model (common with local models, which will even hallucinate a
 tool that does not exist) therefore produces an answer from the evidence it
 gathered instead of `MAX_STEPS_EXCEEDED`. If the forced turn still yields no
 text, the run fails honestly rather than reporting a blank "completed".
+
+### The composable workflow graph (Phase 5)
+
+Orchestration lives ON TOP of the one execution plane — it does not replace
+`execute_run` and does not build a second agent loop, tool registry or model
+adapter. A `Workflow` (`python/harness/workflows/`) is a versioned, bounded plan of
+`WorkflowStep`s (`agent` | `skill` | `conditional` | `parallel` | `approval` |
+`retrieval`). `validate.py` rejects a cycle, an unbounded fan-out, a step
+referencing a tool outside its declared scope, and a step with no terminal path —
+each with a NAMED reason. `compile.py` invokes the existing `execute_run` per
+step; a step's effective tool scope is the INTERSECTION of the workflow agent's
+allowlist and the step's declared tools, enforced at the SAME
+`ToolRegistry.execute(allowed=...)` seam (a denied call is a structured
+`TOOL_FORBIDDEN`). Approval steps reuse the existing single-use `ApprovalStore`.
+Parallel branches share the run's cancel event and the shared retrieval cache; the
+run ends in EXACTLY ONE terminal status. The step tree is emitted per step on the
+existing bus (`workflow.step_started`/`workflow.step_completed`) and shown in the
+run explanation.
+
+**Non-goals.** Not a generic harness for arbitrary finance tools — agents must NOT
+inherit each other's tools or access, so a step can only NARROW its scope. Not a
+visual workflow designer, bot scheduler or agent-builder UI (roadmap Phases 8–9).
+The path is flag-gated (`HARNESS_WORKFLOWS_ENABLED`, default OFF); a run with no
+`workflowId` behaves exactly as before. Decision: ADR-H96.
 
 ### Live streaming (SSE)
 

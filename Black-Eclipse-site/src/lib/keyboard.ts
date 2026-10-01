@@ -15,6 +15,30 @@ export function matchesShortcut(event: KeyboardModifiers, keys: string): boolean
   return primary && !!event.altKey === modifiers.has('alt') && !!event.shiftKey === modifiers.has('shift') && event.key.toLowerCase() === key;
 }
 
+const MODIFIER_LABELS: Record<string, string> = {
+  mod: 'Ctrl / Cmd',
+  ctrl: 'Ctrl',
+  meta: 'Cmd',
+  alt: 'Alt',
+  shift: 'Shift',
+};
+
+/**
+ * A human-readable label for a shortcut spec (`mod+n` -> `Ctrl / Cmd + N`,
+ * `shift+e` -> `Shift + E`). A bare key is uppercased; a malformed spec is
+ * returned unchanged. Display only — matching uses `matchesShortcut`.
+ */
+export function formatShortcutKeys(keys: string): string {
+  const trimmed = (keys || '').trim();
+  if (!trimmed || !trimmed.includes('+')) return trimmed.toUpperCase();
+  return trimmed
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => MODIFIER_LABELS[part.toLowerCase()] ?? part.toUpperCase())
+    .join(' + ');
+}
+
 export function isKeyboardScopeVisible(root: HTMLElement | null): boolean {
   if (!root || !root.isConnected || typeof root.closest !== 'function') return false;
   if (root.closest('[hidden], [inert], [aria-hidden="true"], [data-closed]')) return false;

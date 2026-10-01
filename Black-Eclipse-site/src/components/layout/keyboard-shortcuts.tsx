@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
-import { canHandleKeyboardEvent, isKeyboardEventAvailable, isKeyboardScopeVisible, matchesShortcut } from '@/lib/keyboard';
+import { canHandleKeyboardEvent, formatShortcutKeys, isKeyboardEventAvailable, isKeyboardScopeVisible, matchesShortcut } from '@/lib/keyboard';
 import { DEFAULT_SIDEBAR_SECTIONS } from '@/lib/sidebar/config';
 import { useHydrateSidebarConfig, useSidebarConfigStore } from '@/lib/sidebar/store';
 import { useCommandStore } from '@/lib/search/store';
@@ -69,7 +69,7 @@ export function KeyboardShortcuts() {
         return {
           id: section.id,
           label: key ? t(key) : (DEFAULT_SIDEBAR_SECTIONS.find((item) => item.id === section.id)?.label ?? section.id),
-          keys: section.shortcut || t('common.none'),
+          keys: section.shortcut ? formatShortcutKeys(section.shortcut) : t('common.none'),
           context: 'Main application sidebar; assignments editable in Settings',
           enabled: section.enabled && Boolean(section.shortcut),
         };
@@ -79,7 +79,12 @@ export function KeyboardShortcuts() {
       id: `scope-${index}`,
       label: scope.rootRef.current?.getAttribute('data-keyboard-scope') || scope.rootRef.current?.id || `Page shortcuts ${index + 1}`,
       current: currentScopes.includes(scope.token),
-      rows: scope.actionsRef.current.map((action) => ({ ...action, context: 'Visible page scope, not while typing', enabled: action.enabled !== false })),
+      rows: scope.actionsRef.current.map((action) => ({
+        ...action,
+        keys: formatShortcutKeys(action.keys),
+        context: 'Visible page scope, not while typing',
+        enabled: action.enabled !== false,
+      })),
     })),
   ].map((group) => ({ ...group, rows: group.rows.filter((row) => `${group.label} ${row.label} ${row.keys} ${row.context}`.toLowerCase().includes(filter)) })).filter((group) => group.rows.length > 0);
 
@@ -111,7 +116,7 @@ export function KeyboardShortcuts() {
                       <p>{row.label}{!row.enabled && <span className="ml-2 text-xs text-muted-foreground">Unavailable</span>}</p>
                       <p className="text-xs text-muted-foreground">{row.context}</p>
                     </div>
-                    <kbd className="shrink-0 rounded border border-border px-2 py-1 text-xs">{row.keys}</kbd>
+                    <kbd className="shrink-0 rounded border border-border px-2 py-1 text-xs">{row.keys === t('common.none') ? row.keys : formatShortcutKeys(row.keys)}</kbd>
                   </li>
                 ))}
               </ul>

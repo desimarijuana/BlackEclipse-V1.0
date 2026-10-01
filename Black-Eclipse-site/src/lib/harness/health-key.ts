@@ -41,6 +41,15 @@ export function canonicalMarket(raw: string | null | undefined): string {
   return KNOWN_MARKETS.has(v) ? v : "*";
 }
 
+/**
+ * Whether a raw source/market value is a literal unresolved `unknown` that the
+ * canonical vocabulary would fold to `*`. Used by the one-time ledger migration
+ * (Phase 2.3) to detect rows that still carry the legacy literal.
+ */
+export function isLiteralUnknown(raw: string | null | undefined): boolean {
+  return String(raw ?? "").trim().toLowerCase() === "unknown";
+}
+
 /** Normalise an asset class to the closed enum (case-insensitive, alias-aware),
  * else the wildcard `*` — never a fabricated `unknown`. */
 export function canonicalAssetClass(raw: string | null | undefined): string {
@@ -77,6 +86,7 @@ export function canonicalSource(raw: string | null | undefined): string {
 export const NON_DATA_CAPABILITIES: ReadonlySet<string> = new Set([
   "source_health",
   "research_health",
+  "route_probe",
   "coverage",
   "capability_matrix",
   "macro_resolve",

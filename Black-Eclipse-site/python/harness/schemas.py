@@ -28,6 +28,8 @@ HarnessErrorCode = Literal[
     "TOOL_ERROR",
     "MAX_STEPS_EXCEEDED",
     "TOOL_BUDGET_EXCEEDED",
+    "CHECKPOINT_NOT_FOUND",
+    "RESUME_CONFLICT",
     "CANCELLED",
     "PERSISTENCE_ERROR",
     "INTERNAL_ERROR",
@@ -150,6 +152,16 @@ class RunRequest(BaseModel):
     # The bundle is a reference only — a member that is missing/disabled is
     # reported and skipped, never enabled.
     bundleId: Optional[str] = None  # noqa: N815
+    # ── Run lineage + resume (Phase 1) ─────────────────────────────────────
+    # The run that spawned this one (e.g. a skill invocation, a workflow step).
+    # None for a top-level run. Recorded so lineage survives a restart.
+    parentRunId: Optional[str] = None  # noqa: N815
+    # The workflow this run belongs to, when the composable workflow path is used.
+    workflowId: Optional[str] = None  # noqa: N815
+    # A checkpoint id to resume from. When set, the runtime re-enters the graph
+    # at the recorded node instead of starting a fresh run; a missing checkpoint
+    # fails with CHECKPOINT_NOT_FOUND and a terminal run with RESUME_CONFLICT.
+    resumeFrom: Optional[str] = None  # noqa: N815
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).
@@ -161,6 +173,9 @@ class RunResult(BaseModel):
     status: RunStatus
     output: Optional[str] = None
     error: Optional[HarnessError] = None
+    # ── Run lineage (Phase 1, additive) ─────────────────────────────────────
+    parentRunId: Optional[str] = None  # noqa: N815
+    childRunIds: list[str] = Field(default_factory=list)  # noqa: N815
     modelSteps: int = 0  # noqa: N815
     toolCalls: int = 0  # noqa: N815
     toolErrors: int = 0  # noqa: N815

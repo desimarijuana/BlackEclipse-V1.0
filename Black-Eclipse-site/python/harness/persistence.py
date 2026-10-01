@@ -1327,18 +1327,17 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "promptTokens": row["promptTokens"],
         "completionTokens": row["completionTokens"],
         "totalTokens": row["totalTokens"],
-        "provider": row["provider"],
-        "model": row["model"],
+        "provider": row["provider"], "model": row["model"],
         "research": json.loads(row["research"]) if _has_column(row, "research") and row["research"] else None,
         "memory": json.loads(row["memory"]) if _has_column(row, "memory") and row["memory"] else None,
         "context": json.loads(row["context"]) if _has_column(row, "context") and row["context"] else None,
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,
-        "createdAt": row["createdAt"],
-        "updatedAt": row["updatedAt"],
-        "startedAt": row["startedAt"],
-        "finishedAt": row["finishedAt"],
+        "parentRunId": row["parentRunId"] if _has_column(row, "parentRunId") else None,
+        "workflowId": row["workflowId"] if _has_column(row, "workflowId") else None,
+        "createdAt": row["createdAt"], "updatedAt": row["updatedAt"],
+        "startedAt": row["startedAt"], "finishedAt": row["finishedAt"],
     }
 
 

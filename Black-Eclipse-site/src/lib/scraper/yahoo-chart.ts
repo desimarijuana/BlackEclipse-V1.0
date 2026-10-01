@@ -46,13 +46,25 @@ export function yahooChartCandidates(symbol: string, market: string): string[] {
   }
 
   candidates.push(yahooSymbol(symbol, market));
-  if (market === 'PK') {
-    // Yahoo serves PSX under the KAR exchange (.KA); the .PSX suffix 404s.
-    const bare = symbol.replace(/\.PSX$/i, '');
-    if (!candidates.includes(`${bare}.KA`)) candidates.push(`${bare}.KA`);
-    if (!candidates.includes(bare)) candidates.push(bare);
-  }
+  // Per-market fallback chains for thin markets whose primary Yahoo suffix 404s
+  // or is unreliable. Each entry is tried in order (Harness closeout Phase 4.5).
+  // PK: Yahoo serves PSX under the KAR exchange (.KA); the .PSX suffix 404s.
+  const fallbacks: Record<string, string[]> = {
+    PK: ['.KA'],
+    // Thin venues: try the bare local code and a common alternative suffix.
+    VN: ['', '.HM'],
+    TH: ['', '.BK'],
+    MX: ['', '.MX'],
+    NG: ['', '.LG'],
+    EG: ['', '.CA'],
+    ID: ['', '.JK'],
+    ZA: ['', '.JO'],
+  };
   const bare = stripExchangeSuffix(symbol);
+  for (const suffix of fallbacks[market] ?? []) {
+    const candidate = suffix ? `${bare}${suffix}` : bare;
+    if (!candidates.includes(candidate)) candidates.push(candidate);
+  }
   if (bare !== symbol.toUpperCase() && !candidates.includes(bare)) candidates.push(bare);
   return candidates;
 }

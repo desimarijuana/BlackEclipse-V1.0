@@ -22,6 +22,15 @@ interface Explanation {
   profile?: { snapshotId?: string; entries?: number; charCount?: number; tokenEstimate?: number; excluded?: number } | null;
   promptPlan?: { cacheKey?: string; reusableTokens?: number; segments?: Array<{ id: string; source: string; chars?: number; tokenEstimate?: number }> } | null;
   skills?: { bundleId?: string; resolved?: string[]; missing?: string[]; unavailable?: string[]; provenance?: string } | null;
+  /** Workflow step tree + per-step tool scope (Harness closeout Phase 7). */
+  workflow?: {
+    workflowId?: string | null;
+    steps?: Array<{ stepId?: string; kind?: string; status?: string; scope?: string[]; runId?: string }>;
+  } | null;
+  /** Run lineage: parent chain + children (Phase 1/7). */
+  lineage?: { runId?: string; parentRunId?: string | null; parents?: Array<{ id: string; status?: string | null }>; children?: string[] } | null;
+  /** The checkpoint a killed-and-resumed run resumed from (Phase 7). */
+  resumed?: { checkpointId?: string; step?: number } | null;
   note?: string;
 }
 
@@ -183,6 +192,37 @@ export function RunExplanationPanel({ runId, compact = false }: { runId: string;
                   <p className="mt-1 text-muted-foreground/70">
                     Caps how much remembered context can enter one prompt; everything past it is filtered out.
                   </p>
+                </div>
+              )}
+
+              {(data.workflow?.steps?.length || data.lineage?.parents?.length || data.lineage?.children?.length || data.resumed) && (
+                <div className="space-y-1 border-t border-border/20 pt-2">
+                  <p className="font-semibold text-foreground">Workflow &amp; lineage</p>
+                  {data.workflow?.workflowId && (
+                    <p className="text-muted-foreground">Workflow: {data.workflow.workflowId}</p>
+                  )}
+                  {data.workflow?.steps?.map((s, i) => (
+                    <p key={`${s.stepId}-${i}`} className="text-muted-foreground">
+                      Step {s.stepId} ({s.kind}): {s.status ?? "pending"}
+                      {s.scope?.length ? ` · tools: ${s.scope.join(", ")}` : ""}
+                    </p>
+                  ))}
+                  {data.lineage?.parentRunId && (
+                    <p className="text-muted-foreground">Parent run: {data.lineage.parentRunId}</p>
+                  )}
+                  {data.lineage?.parents?.length ? (
+                    <p className="text-muted-foreground">
+                      Ancestry: {data.lineage.parents.map((p) => p.id).join(" → ")}
+                    </p>
+                  ) : null}
+                  {data.lineage?.children?.length ? (
+                    <p className="text-muted-foreground">Child runs: {data.lineage.children.join(", ")}</p>
+                  ) : null}
+                  {data.resumed && (
+                    <p className="text-muted-foreground">
+                      Resumed from checkpoint {data.resumed.checkpointId ?? "—"} at step {data.resumed.step ?? "?"}
+                    </p>
+                  )}
                 </div>
               )}
 

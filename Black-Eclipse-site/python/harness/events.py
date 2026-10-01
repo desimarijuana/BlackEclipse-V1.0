@@ -94,6 +94,30 @@ class RunEmitter:
             self._bus.publish(event)
         return event
 
+    def emit_sync(self, event_type: str, data: Optional[dict[str, Any]] = None) -> None:
+        """Persist + publish an event from a SYNC seam (no await).
+
+        Used for a low-frequency advisory signal that originates in synchronous
+        registry code (e.g. a one-per-run deprecation warning). It shares the same
+        sequence/persistence/bus path as `emit`; a persistence failure is
+        swallowed (an advisory must never break a tool call).
+        """
+        self._seq += 1
+        event = {
+            "id": f"evt_{self.run_id}_{self._seq}",
+            "runId": self.run_id,
+            "type": event_type,
+            "seq": self._seq,
+            "at": now_iso(),
+            "data": data or {},
+        }
+        try:
+            self._store.append_event(self.run_id, event_type, event["seq"], event["data"])
+        except Exception:  # noqa: BLE001 - losing an advisory event must not kill the run
+            log.error("failed to persist event %s", event_type, exc_info=True)
+        if self._bus:
+            self._bus.publish(event)
+
     def emit_transient(self, event_type: str, data: Optional[dict[str, Any]] = None) -> None:
         """Publish a live-only event (no persistence, no sequence).
 

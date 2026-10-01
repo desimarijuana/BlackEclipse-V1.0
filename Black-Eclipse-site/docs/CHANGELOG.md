@@ -8,6 +8,80 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-09-30
 
+- **Harness closeout Phases 8–9 — eval harness, rollout, docs.** `scripts/test-evals.js`
+  runs four new OFFLINE gates: the capability-matrix gate
+  (`scripts/eval-capability-matrix.ts`) and the Python route_health / workflow /
+  resume gates (`python/harness/eval_gates/`), each failing non-zero on a floor
+  violation. The workflow path and the route-probe schedule ship behind flags
+  (`HARNESS_WORKFLOWS_ENABLED` / `HARNESS_ROUTE_PROBE_ENABLED`), both default OFF;
+  a run with no `workflowId` is unchanged. Architecture, NAVIGATION and ADR-H93…H96
+  documented. docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md`, `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phase 7 — observability: one source of truth.** Verified the
+  retrieval planner's health index reads the same SourceHealth ledger as
+  `get_source_health`, with a test asserting equal verdicts. `explain_run` now
+  includes the workflow step tree, run lineage, and the resume point; workflow
+  steps emit per-step events on the existing bus; `run-explanation-panel.tsx`
+  renders them. docs updated: `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phase 6 — permissions, sandboxing, egress.** `ToolDefinition`
+  gained `version`/`deprecated`/`replacement`; the registry warns once per run
+  when a deprecated tool is called (naming its replacement) and still executes it.
+  Confirmed and tested the four egress guards (private-address, non-https hop,
+  DNS-rebinding, over-size document). A sentinel-secret scan runs a real run with a
+  sentinel credential and asserts it appears in no persisted row.
+  docs updated: `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phase 5 — the composable workflow graph.** New
+  `python/harness/workflows/` (model/validate/store/compile) compiles a versioned,
+  bounded `Workflow` onto the EXISTING `execute_run` graph — no second loop,
+  registry or model adapter. A step's tool scope = agent allowlist ∩ step tools,
+  enforced at the `ToolRegistry.execute(allowed=...)` seam (a denied call is a
+  structured `TOOL_FORBIDDEN`); approval steps reuse the single-use `ApprovalStore`;
+  parallel branches share the run cancel event/cache. Flag-gated
+  (`HARNESS_WORKFLOWS_ENABLED`, default OFF); a run with no `workflowId` is
+  unchanged. Front door `src/lib/harness/workflows-client.ts` + routes
+  `src/app/api/harness/workflows/**`.
+  docs updated: `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phases 3–4 — matrix truthfulness + data-route gaps.**
+  `buildCapabilityMatrix` now reconciles every axis and represents an impossible
+  fact as `matrixInconsistent` (with a reason) instead of smoothing it over; CH/KW/QA
+  gained real COVERAGE entries with correct ISO currencies (CHF/KWD/QAR) and the
+  market count is asserted at 34; a declared provider-eligibility registry replaces
+  an inferred quote route (AE/NG are not-configured and secondary). FX/crypto skip
+  the JDdS vault (which holds no such row); statements resolve through the provider
+  chain with the vault as a cache (never a vault identity failure); PK is declared
+  secondary; thin markets gained symbol-candidate chains.  No jdds.db commit.
+  docs updated: `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phase 2 — one authoritative route-health ledger.**
+  `sourceHealth()` now returns a compact recorded SUMMARY by default and withholds
+  the ~1,200 declared-but-unrun routes (opt-in via `recordedOnly`/`includeDeclared`),
+  so `get_source_health` is readable inside the 24k tool bound instead of showing
+  only "unknown" rows. `capabilityMatrix()` canonicalises its market key to match;
+  a migration folds legacy rows (incl. literal `unknown`) onto canonical keys.
+  `SourceHealth` gained `lastSuccessAt`/`lastFailureAt`. A bounded cross-market
+  probe records one attempt per (market × capability) into the same ledger, with a
+  manual one-shot (`POST /api/harness/route-probe`, `scripts/probe-route-health.ts`)
+  and a recurring schedule OFF by default behind `HARNESS_ROUTE_PROBE_ENABLED`.
+  The ledger surface moved to `src/lib/harness/health-ledger.ts` to respect the
+  size ratchet.
+  docs updated: `docs/harness/harness-closeout-progress.md`
+
+- **Harness closeout Phase 1 — run lineage, durable checkpoints, idempotent
+  resume.** Each run can now survive a crash: `HarnessRun.parentRunId`/`workflowId`
+  record lineage; a new `RunCheckpoint` table stores a bounded per-boundary
+  reference (agent step / tool results / terminal), and `ToolExecutionIdempotency`
+  makes a resume reuse an already-executed tool result instead of re-running it.
+  New routes `POST /runs/{id}/resume` and `GET /runs/{id}/lineage`; a missing
+  checkpoint returns `CHECKPOINT_NOT_FOUND` and a terminal run `RESUME_CONFLICT`.
+  Persistence moves into a new `python/harness/run_lineage.py` (bound to the ONE
+  store connection) so ratcheted `persistence.py` did not grow; per-run context
+  helpers were extracted to `python/harness/graph_context.py`.
+  docs updated: `docs/harness/harness-closeout-progress.md`
+
 - **Tool-loop integrity Phase 1 — the release gate's one red test was a UTC
   month-rollover time bomb.** `weekly.test.ts`'s `buildMonthlyWrapped` test
   derived its period from `new Date()` while its fixtures were hardcoded to
@@ -348,6 +422,35 @@ esource_schemes
   `oauth_flow.py` (1579 → 1226 lines), `MCPManager` facade unchanged.
   docs updated: `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
   `docs/harness/mcp-ui-parity-progress.md`
+
+- **Docs — Eclipse-as-a-Harness roadmap: the phased plan for the code/coding-agent,
+  job, delegation and self-improvement capability.** New `docs/harness/roadmap/` —
+  one file per phase (`README.md` + `phase-00-policy-and-baseline.md` …
+  `phase-12-evaluation-gate.md`) instead of one long document, so a reader opens
+  only the phase they are running. `README.md` carries a verified capability ledger
+  against a harness like Hermes (what exists: the one runtime, retrieval,
+  evidence-gated research, skills, memory, MCP; what does not: any code
+  read/write/run capability, isolation, a harness-owned scheduler, delegation,
+  self-modification beyond skills), the four structural gaps, the invariants that
+  survive every phase (indexed 3.1–3.8 so the phase files can cite them), §0 the
+  audience rules, work already in flight (`run_lineage.py`, `graph_context.py`),
+  the file map and the ADR table. Every phase file uses one canonical heading
+  scheme (numbered §1–§11, a `## Contents` table, numbered `### 6.x` contracts) and
+  ships its exact contracts (real signatures, DDL, routes), runnable acceptance
+  gates and a paste-ready prompt, ending in the repo's docs obligation. Each phase
+  also carries a **§4 "Who can use it (the non-expert obligation)"**: the
+  capability is for the whole finance field — analysts, PMs, traders, advisors,
+  accountants, risk officers, students, small-business owners — not engineers or
+  quants only. User-facing text names the finance job and never the mechanism, copy
+  lives as keys in `src/lib/i18n/`, refusals are one plain sentence with a next
+  step, and each phase adds a plain-language gate over
+  `policy.PLAIN_LANGUAGE_DENYLIST`. The ADR series is numbered contiguously from the
+  current tail: **ADR-H93…ADR-H114**. Planning docs only — no code, tests or runtime
+  behaviour changed. The earlier single-file roadmap is kept as a `status: Stale`
+  pointer (`docs/harness/eclipse-harness-roadmap.md`) per the "mark stale, never
+  delete" rule.
+  docs updated: `docs/harness/roadmap/**`, `docs/NAVIGATION.md`,
+  `docs/harness/eclipse-harness-roadmap.md` (now Stale)
 
 ## 2026-09-29
 

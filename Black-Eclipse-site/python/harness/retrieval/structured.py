@@ -86,6 +86,12 @@ class JddsSource:
         self._bridge = bridge
 
     def available(self, request: FinancialRetrievalRequest) -> bool:
+        # The vault holds EQUITIES/FUNDS, not FX pairs or crypto. An FX/crypto
+        # quote has no vault row, so routing it through the vault records a
+        # failure that cannot succeed (Harness closeout Phase 4.1). Skip the vault
+        # so FX/crypto go straight to the live provider, exactly as crypto does.
+        if is_fx_or_crypto(request):
+            return False
         return self._bridge is not None and request.dataType in _JDDS_CAPABILITY
 
     async def retrieve(self, request: FinancialRetrievalRequest) -> SourceOutcome:
@@ -230,6 +236,33 @@ _SUFFIX_TO_MARKET: dict[str, str] = {
     ".pa": "FR", ".as": "NL", ".sr": "SA", ".jo": "ZA", ".is": "TR",
     ".eg": "EG", ".ng": "NG", ".me": "RU",
 }
+
+
+# FX-pair shape: `EURUSD=X`, `EUR/USD`, `GBPJPY`. Crypto: `BTC-USD`, `ETHUSDT`.
+# A cheap, deterministic classifier used ONLY for routing eligibility (does the
+# vault even hold this?); canonical identity is still decided by the bridge.
+_FX_SUFFIX = "=X"
+
+
+def is_fx_or_crypto(request: FinancialRetrievalRequest) -> bool:
+    """True when the request instrument is an FX pair or a crypto asset.
+
+    The JDdS vault holds equities/funds only, so a vault attempt for FX/crypto
+    cannot succeed and must not be recorded (Phase 4.1). Never guesses: an
+    unmatched instrument stays eligible for the vault.
+    """
+    market = (request.market or "").strip().upper()
+    if market in ("FX", "CRYPTO"):
+        return True
+    symbol = (request.instrument or "").strip().upper()
+    if not symbol:
+        return False
+    if symbol.endswith(_FX_SUFFIX) or "/" in symbol:
+        return True
+    # Crypto is usually quoted against a fiat/stablecoin suffix.
+    if symbol.endswith("-USD") or symbol.endswith("USDT"):
+        return True
+    return False
 
 
 def infer_market_from_symbol(symbol: Optional[str]) -> Optional[str]:

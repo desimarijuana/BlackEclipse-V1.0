@@ -140,40 +140,85 @@ async def get_news(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     }
 
 
+def _one_health_line(r: dict[str, Any]) -> str:
+    rate = r.get("successRate")
+    rate_txt = f"{int(rate * 100)}%" if isinstance(rate, (int, float)) else "n/a"
+    last = r.get("lastAttemptAt") or r.get("updatedAt") or "never"
+    last_ok = r.get("lastSuccessAt") or "never"
+    last_fail = r.get("lastFailureAt") or "never"
+    err = f" lastError={r.get('lastError')}" if r.get("lastError") else ""
+    truth = r.get("sourceOfTruth") or "live"
+    return (
+        f"  {r.get('source')} · {r.get('market')} · {r.get('assetClass')} · {r.get('capability', 'quote')}: "
+        f"{r.get('health', 'unknown')} — {r.get('success', 0)} ok / {r.get('fail', 0)} fail "
+        f"(success {rate_txt}; last attempt {last}, last ok {last_ok}, last fail {last_fail}; via {truth}){err}"
+    )
+
+
+def _health_explainer() -> list[str]:
+    return [
+        "'unknown' means NO ATTEMPTS RECORDED yet — it is neither healthy nor "
+        "failing. Only a route with recorded runs can be working or failing.",
+        "Each CAPABILITY is a separate route: a healthy quote route does NOT make "
+        "statements, filings, news, web search or PDF extraction healthy. "
+        "`configured` (a credential exists) is not the same as `healthy` (runs "
+        "succeed), and `via fixture` rows are offline tests — never live health.",
+    ]
+
+
 async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    payload = await _fetch(ctx, "source_health", {})
+    recorded_only = bool(args.get("recordedOnly"))
+    include_declared = bool(args.get("includeDeclared"))
+    payload = await _fetch(
+        ctx, "source_health",
+        {"recordedOnly": recorded_only, "includeDeclared": include_declared},
+    )
     rows = payload.get("rows") or []
-    if not rows:
+    summary = payload.get("summary") or {}
+    withheld = int(payload.get("withheld") or 0)
+
+    if not rows and not summary.get("recordedRoutes"):
         # An empty health table is NO DATA, not "everything is fine". Say so.
         return (
             "No source health recorded yet (no_data). Confidence cannot be derived "
             "from history; treat any answer as unverified.",
             {"status": "OK", "failureClass": "no_data", "count": 0},
         )
-    lines = ["Source health (per route = provider × market × asset class × capability):"]
-    for r in rows:
-        rate = r.get("successRate")
-        rate_txt = f"{int(rate * 100)}%" if isinstance(rate, (int, float)) else "n/a"
-        last = r.get("updatedAt") or "never"
-        err = f" lastError={r.get('lastError')}" if r.get("lastError") else ""
-        truth = r.get("sourceOfTruth") or "live"
-        lines.append(
-            f"  {r.get('source')} · {r.get('market')} · {r.get('assetClass')} · {r.get('capability', 'quote')}: "
-            f"{r.get('health', 'unknown')} — {r.get('success', 0)} ok / {r.get('fail', 0)} fail "
-            f"(success {rate_txt}, last {last}, via {truth}){err}"
-        )
+
+    by_health = summary.get("byHealth") or {}
+    markets = summary.get("marketsWithAttempts") or []
+    lines = ["Source health — RECORDED ledger (the only rows that can be working/failing):"]
+    lines.append(
+        f"  recorded routes: {summary.get('recordedRoutes', len(rows))} live"
+        + (f", {summary.get('fixtureRoutes')} fixture" if summary.get("fixtureRoutes") else "")
+        + f" — healthy {by_health.get('healthy', 0)}, degraded {by_health.get('degraded', 0)}, "
+        f"failing {by_health.get('failing', 0)}, unknown {by_health.get('unknown', 0)}"
+    )
+    if markets:
+        lines.append(f"  markets with any recorded attempt: {', '.join(markets)}")
     lines.append("")
-    lines.append(
-        "'unknown' means NO ATTEMPTS RECORDED yet — it is neither healthy nor "
-        "failing. Only a route with recorded runs can be working or failing."
-    )
-    lines.append(
-        "Each CAPABILITY is a separate route: a healthy quote route does NOT make "
-        "statements, filings, news, web search or PDF extraction healthy. "
-        "`configured` (a credential exists) is not the same as `healthy` (runs "
-        "succeed), and `via fixture` rows are offline tests — never live health."
-    )
-    return "\n".join(lines), {"status": "OK", "count": len(rows)}
+    if rows:
+        lines.append("Recorded routes:")
+        for r in rows:
+            lines.append(_one_health_line(r))
+    else:
+        lines.append("No LIVE recorded routes (only fixture rows, if any, were found).")
+    lines.append("")
+    lines.extend(_health_explainer())
+    if withheld:
+        lines.append("")
+        lines.append(
+            f"{withheld} declared route(s) have ZERO recorded attempts and were "
+            "withheld so this report stays readable. Each is `unknown` (neither "
+            "healthy nor failing). Request them explicitly with "
+            "`get_source_health({includeDeclared: true})` if you need the full list."
+        )
+    return "\n".join(lines), {
+        "status": "OK",
+        "count": len(rows),
+        "recordedRoutes": summary.get("recordedRoutes", len(rows)),
+        "withheld": withheld,
+    }
 
 
 async def get_research_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -206,7 +251,13 @@ def _fmt_axis(axis: dict[str, Any]) -> str:
     level = str(axis.get("level") or "unknown").replace("_", " ")
     observed = axis.get("observed") or "unknown"
     via = f" via {axis['via']}" if axis.get("via") else ""
-    return f"{level}{via} (observed: {observed})"
+    tier = ""
+    if axis.get("tier") == "secondary":
+        tier = " [SECONDARY route — not the primary venue route]"
+    inconsistency = ""
+    if axis.get("inconsistent"):
+        inconsistency = f" [INCONSISTENT: {axis.get('inconsistencyReason')}]"
+    return f"{level}{via} (observed: {observed}){tier}{inconsistency}"
 
 
 async def get_capability_matrix(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -346,8 +397,21 @@ def register_finance_tools(registry: ToolRegistry) -> None:
     registry.register(
         ToolDefinition(
             name="get_source_health",
-            description="Read the reliability/health of each JDdS data source per market, derived from recorded runs.",
-            input_schema={"type": "object", "properties": {}},
+            description=(
+                "Read the RECORDED reliability/health of each data route (provider × market × asset "
+                "class × capability), derived from real runs. Returns a compact summary plus the "
+                "recorded rows; declared-but-unrun routes are withheld by default (they are "
+                "`unknown`, never healthy). Set recordedOnly=true for only recorded rows, or "
+                "includeDeclared=true for the full declared enumeration."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "recordedOnly": {"type": "boolean", "description": "Return only rows with recorded attempts."},
+                    "includeDeclared": {"type": "boolean", "description": "Include declared-but-unrun routes (large)."},
+                    "limit": {"type": "integer", "description": "Max recorded head rows (default 25)."},
+                },
+            },
             handler=get_source_health,
             permission="read",
             risk="low",

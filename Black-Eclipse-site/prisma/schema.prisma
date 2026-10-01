@@ -140,15 +140,20 @@ model NewsItem {
 
 // Learned source reliability — powers self-healing source rotation.
 model SourceHealth {
-  id           String   @id @default(cuid())
-  source       String // strategy id, e.g. 'http', 'browser', 'search', 'crypto'
-  market       String
-  symbol       String // '*' for whole-market default
-  successCount Int      @default(0)
-  failCount    Int      @default(0)
-  lastStatus   String
-  lastError    String?
-  updatedAt    DateTime @updatedAt
+  id            String    @id @default(cuid())
+  source        String // strategy id, e.g. 'http', 'browser', 'search', 'crypto'
+  market        String
+  symbol        String // '*' for whole-market default
+  successCount  Int       @default(0)
+  failCount     Int       @default(0)
+  lastStatus    String
+  lastError     String?
+  // Per-route timestamps. `updatedAt` is "last attempt" (conflated); these
+  // separate the last SUCCESS from the last FAILURE so a report reader can tell
+  // "failing now" from "succeeded earlier then had a transient failure".
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  updatedAt     DateTime  @updatedAt
 
   @@unique([source, market, symbol])
 }

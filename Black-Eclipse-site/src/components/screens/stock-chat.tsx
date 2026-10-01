@@ -785,7 +785,9 @@ function StockChatContent() {
     setActiveTab(target.tab);
   };
   usePageShortcuts(chatRootRef, [
-    { id: 'chat.new', label: 'New chat', keys: 'Shift+N', run: handleNewChat, enabled: activeTab === 'chat' && !settingsOpen && !mobileMenuOpen },
+    // New ChatBot page. Ctrl/Cmd+N (mod+n) is distinct from the layout/new-item
+    // `Shift+N` used by other screens (Command Center layouts, trades, alerts).
+    { id: 'chat.new', label: 'New chat', keys: 'mod+n', run: handleNewChat, enabled: activeTab === 'chat' && !settingsOpen && !mobileMenuOpen },
   ]);
   usePageShortcuts(appRootRef, [
     { id: 'nav.back', label: 'Back', keys: 'Alt+ArrowLeft', run: handleBack, enabled: navHistory.length > 1 && !settingsOpen && !mobileMenuOpen },

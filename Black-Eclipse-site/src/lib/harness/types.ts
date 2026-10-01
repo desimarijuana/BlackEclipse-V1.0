@@ -176,6 +176,10 @@ export interface RunResult {
   status: RunStatus;
   output?: string;
   error?: HarnessErrorJson;
+  /** Phase 1 (additive): the run that spawned this one, when any. */
+  parentRunId?: string | null;
+  /** Phase 1 (additive): runs this run spawned (e.g. skill invocations). */
+  childRunIds?: string[];
   modelSteps: number;
   toolCalls: number;
   toolErrors: number;
@@ -353,6 +357,7 @@ export type DataCapability =
   | "news"
   | "source_health"
   | "research_health"
+  | "route_probe"
   | "coverage"
   | "capability_matrix"
   | "live_quote"

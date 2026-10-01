@@ -63,12 +63,16 @@ def explain_run(
     retrieval_event: Optional[dict[str, Any]] = None,
     events: Optional[list[dict[str, Any]]] = None,
     bundle_resolution: Optional[dict[str, Any]] = None,
+    run: Optional[dict[str, Any]] = None,
+    lineage: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Assemble a bounded run explanation from canonical records.
 
     `retrieval_event` is one `MemoryRetrievalEvent` row (or its dict) for the
     run; `events` are the run's `HarnessEvent` rows. Every field is bounded and
-    redacted.
+    redacted. `run` (the HarnessRun row) and `lineage` (Phase 1 parent/children)
+    add workflow/lineage context; a killed-and-resumed run surfaces its resume
+    point from the `run.resumed` event.
     """
     result: dict[str, Any] = {
         "runId": run_id,
@@ -76,11 +80,33 @@ def explain_run(
         "profile": None,
         "promptPlan": None,
         "skills": None,
+        "workflow": None,
+        "lineage": None,
+        "resumed": None,
         "note": (
             "Derived from canonical retrieval/run events. Exclusions are the "
             "authoritative filters that already applied; this changes nothing."
         ),
     }
+
+    # Workflow + lineage context (Phase 1/5/7). The workflow id + step tree are
+    # read from the run row and the `workflow.*` events; the lineage from the
+    # bounded parent chain. All content-free (ids/status/scope only).
+    if run:
+        if run.get("workflowId"):
+            result["workflow"] = {"workflowId": _redact(run.get("workflowId")), "steps": []}
+        result["lineage"] = {"parentRunId": _redact(run.get("parentRunId"))}
+    if lineage is not None:
+        merged = result.get("lineage") or {}
+        merged.update({
+            "runId": _redact(lineage.get("runId")),
+            "parents": [
+                {"id": _redact(p.get("id")), "status": _redact(p.get("status"))}
+                for p in (lineage.get("parents") or [])[:10]
+            ],
+            "children": [_redact(c) for c in (lineage.get("children") or [])[:50]],
+        })
+        result["lineage"] = merged
 
     if retrieval_event:
         selected_ids = retrieval_event.get("selectedIds") or []
@@ -146,6 +172,27 @@ def explain_run(
                 "unavailable": [_redact(x) for x in (data.get("unavailable") or [])],
                 "provenance": _redact(data.get("provenance")),
             }
+        elif etype == "run.resumed":
+            # A killed-and-resumed run surfaces WHERE it resumed (Phase 7).
+            result["resumed"] = {
+                "checkpointId": _redact(data.get("checkpointId")),
+                "step": data.get("step"),
+            }
+        elif etype.startswith("workflow."):
+            # Per-step workflow events name the step + its declared scope.
+            wf = result.get("workflow")
+            if not isinstance(wf, dict):
+                wf = {"workflowId": None, "steps": []}
+                result["workflow"] = wf
+            wf.setdefault("steps", [])
+            step = {
+                "stepId": _redact(data.get("stepId")),
+                "kind": _redact(data.get("kind")),
+                "status": _redact(data.get("status")),
+                "scope": [_redact(s) for s in (data.get("scope") or [])][:50],
+                "runId": _redact(data.get("runId")),
+            }
+            wf["steps"].append(step)
 
     if bundle_resolution and result["skills"] is None:
         result["skills"] = {

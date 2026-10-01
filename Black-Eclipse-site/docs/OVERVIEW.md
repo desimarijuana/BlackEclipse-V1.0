@@ -66,8 +66,9 @@ Press **Ctrl+/ (Cmd+/ on Mac)** outside text fields and other dialogs for
 searchable shortcut help. Page groups appear as screens are visited. Common
 contextual actions include **Shift+E** customization, **Shift+W** widget/panel
 library, **Shift+N** creation/new layout, **S** local search and **R** refresh
-where those actions exist. Help marks the current scopes; hidden screens and
-text entry do not receive page commands.
+where those actions exist. On the ChatBot tab, **Ctrl+N (Cmd+N on Mac)** opens a
+new chat page. Help marks the current scopes; hidden screens and text entry do
+not receive page commands.
 
 The sidebar ships with these tabs, split across two top-level modes —
 **Terminal** (market tools) and **Agentic** (the AI runtime). A segmented

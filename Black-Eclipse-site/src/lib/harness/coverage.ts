@@ -26,6 +26,12 @@ export interface CoverageEntry {
    * precise quantitative data — see the retrieval layer's WEB exclusion rules).
    */
   dataTypes: string[];
+  /**
+   * A declared limitation, when one exists (e.g. thin upstream data, or a
+   * recognised-but-not-covered venue). Surfaced so a reader sees the blocker
+   * rather than inferring a capability. Never a fabricated capability.
+   */
+  blocker?: string;
 }
 
 /** Asset classes every covered equity market supports by default. */
@@ -42,13 +48,19 @@ const STRUCTURED_DEFAULT = ["JDDS", "LIVE_STRUCTURED"];
 const STRUCTURED_TYPES = ["current_quote", "historical_prices", "company_profile", "financial_statements"];
 const MACRO_TYPES = ["macro_series"];
 
-function entry(market: string, assetClasses: AssetClass[], dataTypes: string[]): CoverageEntry {
+function entry(
+  market: string,
+  assetClasses: AssetClass[],
+  dataTypes: string[],
+  extra: { blocker?: string; sources?: string[] } = {},
+): CoverageEntry {
   return {
     market,
     currency: MARKET_CURRENCY_ISO[market] ?? "USD",
     assetClasses,
-    sources: STRUCTURED_DEFAULT,
+    sources: extra.sources ?? STRUCTURED_DEFAULT,
     dataTypes,
+    ...(extra.blocker ? { blocker: extra.blocker } : {}),
   };
 }
 
@@ -81,13 +93,30 @@ export const COVERAGE: Record<string, CoverageEntry> = {
   ID: entry("ID", [...EQUITY_CLASSES], STRUCTURED_TYPES),
   TH: entry("TH", [...EQUITY_CLASSES], STRUCTURED_TYPES),
   VN: entry("VN", [...EQUITY_CLASSES], STRUCTURED_TYPES),
+  // Gulf/Swiss venues reached by the TradingView scan. They are declared here so
+  // the matrix reports their real currency and a declared blocker rather than
+  // inventing a MARKET_CURRENCY_ISO fallback of USD (Harness closeout Phase 3.2).
+  // `blocker` records the known data-quality limitation honestly.
+  CH: entry("CH", [...EQUITY_CLASSES], STRUCTURED_TYPES, {
+    blocker: "quotes via TradingView scan; statement/filing route unconfigured",
+  }),
+  KW: entry("KW", [...EQUITY_CLASSES], STRUCTURED_TYPES, {
+    blocker: "thin quote data upstream; statement route unconfigured",
+  }),
+  QA: entry("QA", [...EQUITY_CLASSES], STRUCTURED_TYPES, {
+    blocker: "thin quote data upstream; statement route unconfigured",
+  }),
   CRYPTO: entry("CRYPTO", CRYPTO_CLASSES, ["current_quote", "historical_prices"]),
   // FX is a global OTC market; base/quote direction is the identity.
   FX: entry("FX", ["fx"], ["current_quote", "historical_prices"]),
   // Derivative venues are RECOGNISED but NOT COVERED — no precise price source.
   // Listing them lets an `ES`/`CME` request be NOT_COVERED (the caller named a
-  // real venue) rather than "unknown venue".
-  DERIV: entry("DERIV", [], []),
+  // real venue) rather than "unknown venue". They carry NO asset classes and NO
+  // data types, so they must never yield a `configured` claim on any axis
+  // (Harness closeout Phase 4.2). `blocker` states this explicitly.
+  DERIV: entry("DERIV", [], [], {
+    blocker: "precise price source unavailable; recognised venue only (not_covered)",
+  }),
 };
 
 /** Is there declared coverage for this market + asset class? */
@@ -173,6 +202,24 @@ export function capabilityHealthTargets(): HealthTarget[] {
         }
       }
     }
+  }
+  return out;
+}
+
+/**
+ * The SINGLE declared-target builder: the legacy quote axis plus the
+ * capability-specific axis, deduplicated by canonical route key. Both axes are
+ * one vocabulary (a "quote" target IS a `live_quote` capability); this is the
+ * one function a reader calls, so there is no second builder to drift from.
+ */
+export function allHealthTargets(): HealthTarget[] {
+  const seen = new Set<string>();
+  const out: HealthTarget[] = [];
+  for (const t of [...healthTargets(), ...capabilityHealthTargets()]) {
+    const key = `${t.source}|${t.market}|${t.assetClass}|${t.capability}|${t.probeKind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
   }
   return out;
 }

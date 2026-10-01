@@ -28,6 +28,8 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
     ToolMessage,
+    messages_from_dict,
+    messages_to_dict,
 )
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -44,6 +46,63 @@ from .models import build_chat_model
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
 from .tools import DataBridge, ToolContext, ToolRegistry
+
+# A checkpoint payload is a bounded reference, not a second trace. Serialized
+# messages are capped so a pathological run cannot bloat the checkpoint table.
+MAX_CHECKPOINT_MESSAGES = 60
+MAX_CHECKPOINT_MESSAGE_CHARS = 12_000
+
+
+def _serialize_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
+    """Serialize the conversation tail for a checkpoint (bounded).
+
+    Keeps the most recent messages, truncating each message's text, so a resume
+    has enough to continue without duplicating the whole trace.
+    """
+    tail = messages[-MAX_CHECKPOINT_MESSAGES:]
+    out: list[dict[str, Any]] = []
+    for msg in tail:
+        try:
+            dumped = messages_to_dict([msg])[0]
+        except Exception:  # noqa: BLE001 - an unserializable message is skipped
+            continue
+        data = dumped.get("data", {})
+        if isinstance(data.get("content"), str) and len(data["content"]) > MAX_CHECKPOINT_MESSAGE_CHARS:
+            data["content"] = data["content"][:MAX_CHECKPOINT_MESSAGE_CHARS]
+        out.append(dumped)
+    return out
+
+
+def _restore_messages(serialized: list[dict[str, Any]]) -> list[BaseMessage]:
+    """Rebuild a message list from a checkpoint's serialized tail."""
+    if not serialized:
+        return []
+    try:
+        return list(messages_from_dict(serialized))
+    except Exception:  # noqa: BLE001 - an unreadable payload yields no seed
+        return []
+
+
+def _checkpoint_payload_of(state: dict[str, Any]) -> dict[str, Any]:
+    """A minimal terminal checkpoint payload from a final graph state."""
+    return {
+        "step": state.get("step", 0),
+        "toolCalls": state.get("tool_calls", 0),
+        "toolErrors": state.get("tool_errors", 0),
+        "messages": _serialize_messages(state.get("messages", []) or []),
+    }
+
+
+def _resume_error(
+    run_id: str, code: str, message: str, store: AgentMemoryStore,
+) -> RunResult:
+    """A structured, non-fresh failure for a bad resume request (Phase 1).
+
+    Never persists a terminal status onto the existing run (a failed resume must
+    not overwrite the run's real state) and never starts a fresh run in its place.
+    """
+    error = HarnessError(code=code, message=message)  # type: ignore[arg-type]
+    return RunResult(runId=run_id, status="failed", error=error)
 
 
 class GraphState(TypedDict, total=False):
@@ -200,9 +259,23 @@ def build_graph(
     allowed: Optional[set[str]] = None,
     source_sink: Optional[Any] = None,
     mcp_manager: Optional[Any] = None,
+    lineage: Optional[Any] = None,
+    resume_from: Optional[dict[str, Any]] = None,
 ) -> Any:
-    """Compile a LangGraph StateGraph for one run. Returns an awaitable app."""
+    """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
+
+    `lineage` is the run's `RunLineage` store (Phase 1), used to write durable
+    checkpoints at every boundary and to reuse an already-executed tool result on
+    resume. `resume_from` is the latest checkpoint payload when this build is a
+    RESUME (None for a fresh run), so already-completed tool calls are skipped
+    rather than re-executed.
+    """
     agent = resolve_agent(request)
+    # On a resume, reuse the allowlist + accumulated counters recorded at the last
+    # durable boundary so the run continues exactly where it stopped.
+    _resume_payload = (resume_from or {}).get("payload") or {}
+    if resume_from and isinstance(_resume_payload.get("allowlist"), list):
+        allowed = set(_resume_payload["allowlist"])
     max_steps: int = agent.maxSteps or 8
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
@@ -247,6 +320,32 @@ def build_graph(
         mcp_manager=mcp_manager,
     )
     registry.set_active_context(ctx)
+
+    def _checkpoint_payload(state: GraphState) -> dict[str, Any]:
+        """A bounded checkpoint reference — enough to resume, never a trace."""
+        last = state["messages"][-1] if state.get("messages") else None
+        pending = [
+            {"id": c.get("id"), "name": c.get("name"), "args": c.get("args")}
+            for c in (getattr(last, "tool_calls", None) or [])
+        ]
+        return {
+            "step": state.get("step", 0),
+            "toolCalls": state.get("tool_calls", 0),
+            "toolErrors": state.get("tool_errors", 0),
+            "promptTokens": state.get("prompt_tokens", 0),
+            "completionTokens": state.get("completion_tokens", 0),
+            "pendingToolCalls": pending,
+            "allowlist": sorted(allowed) if allowed else None,
+            "messages": _serialize_messages(state.get("messages", [])),
+        }
+
+    async def _write_checkpoint(kind: str, state: GraphState) -> None:
+        if lineage is None:
+            return
+        try:
+            lineage.save_checkpoint(request.runId, kind, _checkpoint_payload(state))
+        except Exception:  # noqa: BLE001 - a checkpoint must never break a run
+            pass
 
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
@@ -356,15 +455,23 @@ def build_graph(
                     pass
                 await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
                 return {**state, **usage_state, "step": step, "error": {"code": code, "message": message}}
-            return {
+            completed: GraphState = {
                 **state,
                 **usage_state,
                 "step": step,
                 "messages": [*state["messages"], response],
                 "final": final_text,
             }
+            await _write_checkpoint("agent_final", completed)
+            return completed
 
-        return {**state, **usage_state, "step": step, "messages": [*state["messages"], response]}
+        tool_state: GraphState = {
+            **state, **usage_state, "step": step, "messages": [*state["messages"], response],
+        }
+        # Durable boundary: one checkpoint per completed agent step, BEFORE the
+        # tools node runs, so a crash during tool execution resumes here.
+        await _write_checkpoint("agent_step", tool_state)
+        return tool_state
 
     async def tools_node(state: GraphState) -> GraphState:
         last = state["messages"][-1]
@@ -372,6 +479,9 @@ def build_graph(
         tool_calls = state.get("tool_calls", 0)
         tool_errors = state.get("tool_errors", 0)
         out_messages: list[BaseMessage] = []
+        # The agent step that issued these calls — the resume idempotency key
+        # scopes a call to (runId, stepIndex, toolCallId).
+        step_index = state.get("step", 0)
 
         # Duplicate suppression is scoped to THIS agent step (one model turn),
         # not the whole run. The guard exists to stop one turn from issuing the
@@ -415,7 +525,23 @@ def build_graph(
             await emitter.emit("tool.requested", {"name": name, "toolCallId": call_id, "step": state.get("step")})
 
             key = _stable_key(name, args)
-            if seen_calls.get(key, 0) > 0:
+            # Resume idempotency: if this exact call already executed in a prior
+            # attempt of this run, REUSE its recorded result instead of running it
+            # again. This is what makes resume safe for a side-effecting tool.
+            already = (
+                lineage.was_tool_executed(request.runId, step_index, call_id)
+                if lineage is not None else None
+            )
+            if already is not None:
+                result_text = already["text"]
+                if not already["ok"]:
+                    tool_errors += 1
+                await emitter.emit(
+                    "tool.completed" if already["ok"] else "tool.failed",
+                    {"name": name, "toolCallId": call_id, "resumed": True,
+                     "code": None if already["ok"] else "TOOL_ERROR"},
+                )
+            elif seen_calls.get(key, 0) > 0:
                 result_text = (
                     f"Duplicate call to {name!r} with identical arguments was not executed again. "
                     "Use the earlier result."
@@ -428,6 +554,9 @@ def build_graph(
                     name, call_id, args, ctx, allowed=allowed, timeout_ms=tool_timeout_ms
                 )
                 result_text = result.text
+                # Record the executed call so a resume never re-runs it.
+                if lineage is not None:
+                    lineage.mark_tool_executed(request.runId, step_index, call_id, result)
                 if result.ok:
                     await emitter.emit(
                         "tool.completed",
@@ -472,7 +601,13 @@ def build_graph(
             out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
 
         store.update_run(request.runId, toolCalls=tool_calls, toolErrors=tool_errors)
-        return {**state, "messages": [*state["messages"], *out_messages], "tool_calls": tool_calls, "tool_errors": tool_errors}
+        tool_done: GraphState = {
+            **state, "messages": [*state["messages"], *out_messages],
+            "tool_calls": tool_calls, "tool_errors": tool_errors,
+        }
+        # Durable boundary: a checkpoint after the tool results are recorded.
+        await _write_checkpoint("tool_results", tool_done)
+        return tool_done
 
     def route_after_agent(state: GraphState) -> str:
         if state.get("error"):
@@ -492,7 +627,9 @@ def build_graph(
     async def exhausted_node(state: GraphState) -> GraphState:
         message = f"Reached the maximum of {max_steps} steps without a final answer."
         await emitter.emit("run.failed", {"error": {"code": "MAX_STEPS_EXCEEDED", "message": message}})
-        return {**state, "error": {"code": "MAX_STEPS_EXCEEDED", "message": message}}
+        exhausted: GraphState = {"error": {"code": "MAX_STEPS_EXCEEDED", "message": message}}
+        await _write_checkpoint("terminal", {**state, **exhausted})
+        return {**state, **exhausted}
 
     graph = StateGraph(GraphState)
     graph.add_node("agent", agent_node)
@@ -520,34 +657,68 @@ async def execute_run(
     mcp_manager: Optional[Any] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
+    from .run_lineage import RunLineage  # noqa: PLC0415
+
     agent = resolve_agent(request)
     emitter = RunEmitter(request.runId, store, bus)
+    lineage = RunLineage(store)
     started = now_iso()
-    store.create_run(
-        request.runId,
-        agent.id,
-        request.input.model_dump(),
-        request.userId,
-        request.modelSettings.provider,
-        request.modelSettings.model,
-        session_id=request.sessionId,
-        profile_id=request.profileId,
-        project_id=request.projectId,
-    )
-    await emitter.emit("run.created", {"agentId": agent.id})
-    store.update_run(request.runId, status="running", startedAt=started)
-    await emitter.emit("run.started", {"maxSteps": agent.maxSteps, "provider": request.modelSettings.provider})
+    # Resume, when requested, is validated BEFORE a run row is created so a
+    # missing checkpoint / a terminal run never silently starts a fresh run.
+    resume_from: Optional[dict[str, Any]] = None
+    if request.resumeFrom:
+        existing = store.get_run(request.runId)
+        if existing is None:
+            return _resume_error(request.runId, "RESUME_CONFLICT", "no run exists to resume", store)
+        checkpoint = lineage.latest_checkpoint(request.runId)
+        if checkpoint is None:
+            return _resume_error(
+                request.runId, "CHECKPOINT_NOT_FOUND",
+                "no checkpoint exists for this run — it cannot be resumed", store,
+            )
+        if existing.get("status") in ("completed", "failed", "cancelled"):
+            return _resume_error(
+                request.runId, "RESUME_CONFLICT",
+                f"run is already in terminal status '{existing.get('status')}'", store,
+            )
+        resume_from = checkpoint
+        # Re-enter the SAME run: keep its identity, re-mark it running.
+        lineage.set_run_parent(request.runId, request.parentRunId)
+        store.update_run(request.runId, status="running", startedAt=started)
+        await emitter.emit("run.resumed", {"checkpointId": checkpoint["id"], "step": (checkpoint.get("payload") or {}).get("step")})
+    else:
+        store.create_run(
+            request.runId,
+            agent.id,
+            request.input.model_dump(),
+            request.userId,
+            request.modelSettings.provider,
+            request.modelSettings.model,
+            session_id=request.sessionId,
+            profile_id=request.profileId,
+            project_id=request.projectId,
+        )
+        # Record lineage AFTER the row exists (the columns are owned by the
+        # lineage module, not the ratcheted core store).
+        lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
+        await emitter.emit("run.created", {"agentId": agent.id})
+        store.update_run(request.runId, status="running", startedAt=started)
+        await emitter.emit("run.started", {"maxSteps": agent.maxSteps, "provider": request.modelSettings.provider})
 
     # Phase 4: an unambiguous supported financial comparison is routed through the
     # deterministic evidence gate BEFORE the ordinary agent graph, so it does not
     # also run a financial tool loop (no duplicate retrieval, no contradictory
     # answer). Anything unsupported/uncertain returns None and falls through.
-    try:
-        research = await _maybe_research(request, data_bridge, store, emitter, retrieval_cache, cancel_event)
-    except asyncio.CancelledError:
-        store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
-        await emitter.emit("run.cancelled", {"reason": "cancelled"})
-        return _result(request.runId, "cancelled", store, None)
+    research = None
+    if resume_from is None:
+        # A resumed run was already past classification (it has checkpoints), so
+        # it does not re-enter the research gate.
+        try:
+            research = await _maybe_research(request, data_bridge, store, emitter, retrieval_cache, cancel_event)
+        except asyncio.CancelledError:
+            store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
+            await emitter.emit("run.cancelled", {"reason": "cancelled"})
+            return _result(request.runId, "cancelled", store, None)
     if research is not None:
         return await _finish_research(request, store, emitter, research)
 
@@ -660,15 +831,44 @@ async def execute_run(
     # Bounded recovery (Milestone 4): if the run failed with a classified
     # CONTEXT_OVERFLOW, retry ONCE with a materially tighter history budget. The
     # terminal status is persisted once, below, after recovery resolves.
+    # Resume (Phase 1): rebuild the run state from the recorded checkpoint so the
+    # graph continues at the boundary it stopped at instead of starting fresh.
+    # Already-executed tool calls are reused (not re-run) via the idempotency
+    # ledger wired into `build_graph`.
+    resume_state: Optional[dict[str, Any]] = None
+    if resume_from is not None:
+        payload = resume_from.get("payload") or {}
+        resume_state = {
+            "messages": _restore_messages(payload.get("messages") or []),
+            "step": int(payload.get("step", 0)),
+            "tool_calls": int(payload.get("toolCalls", 0)),
+            "tool_errors": int(payload.get("toolErrors", 0)),
+            "prompt_tokens": int(payload.get("promptTokens", 0)),
+            "completion_tokens": int(payload.get("completionTokens", 0)),
+            "final": None,
+        }
+
     async def _invoke_with_history(
         history_msgs: list[BaseMessage], dropped: Optional[str] = None,
     ) -> dict[str, Any]:
-        run_messages = _assemble_run_messages(
-            request, system_prompt=system_prompt, history_messages=history_msgs,
-            profile_block=profile_block, skill_manifest=skill_manifest,
-            memory_block=memory_block,
-            dropped_block=dropped if dropped is not None else dropped_block,
-        )
+        if resume_state is not None and resume_state.get("messages"):
+            initial_state: dict[str, Any] = dict(resume_state)
+        else:
+            run_messages = _assemble_run_messages(
+                request, system_prompt=system_prompt, history_messages=history_msgs,
+                profile_block=profile_block, skill_manifest=skill_manifest,
+                memory_block=memory_block,
+                dropped_block=dropped if dropped is not None else dropped_block,
+            )
+            initial_state = {
+                "messages": run_messages,
+                "step": 0,
+                "tool_calls": 0,
+                "tool_errors": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "final": None,
+            }
         app = build_graph(
             request, registry, data_bridge, store, emitter, bus, cancel_event,
             retrieval_cache, memory_service, skill_registry,
@@ -677,18 +877,10 @@ async def execute_run(
             allowed=allowed,
             source_sink=source_collector,
             mcp_manager=mcp_manager,
+            lineage=lineage,
+            resume_from=resume_from,
         )
-        return await app.ainvoke(
-            {
-                "messages": run_messages,
-                "step": 0,
-                "tool_calls": 0,
-                "tool_errors": 0,
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "final": None,
-            },
-        )
+        return await app.ainvoke(initial_state)
 
     retry_budget: Optional[Any] = None
     try:
@@ -770,6 +962,12 @@ async def execute_run(
         context=context_blob,
         **( {"research": research_blob} if research_blob else {} ),
     )
+    # Durable terminal boundary: a resume of a completed run is a RESUME_CONFLICT.
+    if lineage is not None:
+        try:
+            lineage.save_checkpoint(request.runId, "terminal_completed", _checkpoint_payload_of(final_state))
+        except Exception:  # noqa: BLE001 - a checkpoint must never break a run
+            pass
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
     # An explicit "turn this into a skill" request is now turned into a real
@@ -1348,471 +1546,23 @@ async def _model_extract_dropped(
     return parsed.items if parsed.ok else []
 
 
-async def _memory_context(
-    request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter
-) -> str:
-    """Build the recalled-memory block for this turn (or "" when none).
-
-    Never raises: a memory failure is diagnostics, not a run failure. The
-    retrieval is scoped to the invoking user so one user's preferences can never
-    leak into another's run, and it is budgeted so it cannot flood the context.
-    """
-    if memory_service is None:
-        return ""
-    # A hard-off store surfaces nothing: no retrieval, no injection. This is the
-    # other half of surface honesty — a disabled store must not still put memory
-    # into the prompt.
-    try:
-        if memory_service.policy.get("memory_enabled") is False:
-            return ""
-    except Exception:  # noqa: BLE001 - a policy read failure fails closed to no memory
-        return ""
-    # Trivial turns skip retrieval too (no stale context attaches to a one-word
-    # reply). The gate is pure and writes nothing.
-    from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
-
-    if is_trivial_turn(request.input.query):
-        return ""
-    try:
-        result = memory_service.retrieve(
-            query=request.input.query,
-            subject=request.input.ticker,
-            actor_scope="user" if request.userId else None,
-            scope_id=request.userId,
-            run_id=request.runId,
-            limit=8,
-            budget_chars=4000,
-        )
-    except Exception as exc:  # noqa: BLE001 - memory must never break a run
-        await emitter.emit("memory.retrieval_failed", {"error": str(exc)})
-        return ""
-    diagnostics = result.diagnostics or {}
-    # Bounded run-level observability: record WHICH memories were injected and a
-    # bounded sample of exclusions with their reason (scope/status/expiry/
-    # relevance/budget/recall-policy). Derived from the retrieval diagnostics;
-    # never contains secrets beyond what the local operator may already view.
-    selected_ids = [m.get("id") for m in (result.memories or [])]
-    excluded = diagnostics.get("excluded") or []
-    selection_reasons = diagnostics.get("selectionReasons") or []
-    await emitter.emit(
-        "memory.retrieved",
-        {
-            "selected": diagnostics.get("selected", 0),
-            "candidates": diagnostics.get("candidates", 0),
-            "usedChars": diagnostics.get("usedChars", 0),
-            "budgetChars": diagnostics.get("budgetChars", 0),
-            "selectedIds": [i for i in selected_ids if i][:20],
-            "selectionReasons": list(selection_reasons)[:20],
-            "excludedCount": len(excluded),
-            "excluded": [dict(e) for e in excluded[:20]],
-        },
-    )
-    return result.context
-
-
-async def _profile_context(
-    request: RunRequest,
-    agent: AgentConfig,
-    memory_service: Optional[Any],
-    emitter: RunEmitter,
-) -> tuple[str, Optional[str]]:
-    """Build the stable, compact Persistent-context block for this run.
-
-    Returns `(block, snapshot_id)`. Materialized once at run start; a skill
-    sub-run is skipped (its prompt and scope differ from chat). Never raises: a
-    profile failure is diagnostics.
-    """
-    if memory_service is None:
-        return "", None
-    # A skill child-run composes its own prompt; a persistent profile would be
-    # noise there and is not the agent identity the user configured.
-    if agent.id.startswith("skill:"):
-        return "", None
-    try:
-        settings = memory_service.policy.get_all()
-    except Exception:  # noqa: BLE001
-        settings = {}
-    # A hard-off store injects no profile either (surface honesty).
-    if settings.get("memory_enabled") is False:
-        return "", None
-    if not bool(settings.get("profile_enabled", True)):
-        return "", None
-    try:
-        snapshot = memory_service.build_profile(
-            scope_id=request.userId,
-            run_scope=None,
-            run_id=request.runId,
-            persist=True,
-        )
-    except Exception as exc:  # noqa: BLE001 - a profile must never break a run
-        await emitter.emit("memory.profile_failed", {"error": str(exc)})
-        return "", None
-    from .eclipse_memory.profile import render_prompt_block  # noqa: PLC0415
-
-    block = render_prompt_block(snapshot)
-    await emitter.emit(
-        "memory.profile_built",
-        {
-            "snapshotId": snapshot.snapshot_id,
-            "entries": len(snapshot.entries),
-            "charCount": snapshot.char_count,
-            "tokenEstimate": snapshot.token_estimate,
-            "excluded": len(snapshot.excluded),
-        },
-    )
-    return block, (snapshot.snapshot_id or None)
-
-
-async def _skill_manifest_context(
-    request: RunRequest,
-    skill_registry: Optional[Any],
-    memory_service: Optional[Any] = None,
-    emitter: Optional[RunEmitter] = None,
-) -> tuple[str, Optional[str]]:
-    """A bounded, relevant-only skill manifest for this run (never all skills).
-
-    Progressive disclosure: only compact metadata for skills matching the turn
-    is injected as a hint; full instructions stay behind `skill_view`, which
-    cannot enable or run anything. When the request names a skill bundle, the
-    bundle is expanded deterministically instead (missing/disabled members are
-    reported, never enabled), and the resolution is recorded for observability.
-    """
-    if skill_registry is None:
-        return "", None
-
-    if getattr(request, "bundleId", None) and memory_service is not None:
-        from .skills.bundles import resolve_bundle  # noqa: PLC0415
-
-        try:
-            resolution = resolve_bundle(
-                memory_service.store, skill_registry, request.bundleId,
-            )
-        except Exception:  # noqa: BLE001 - a bad bundle must not break the run
-            resolution = None
-        if resolution is not None:
-            if emitter is not None:
-                try:
-                    await emitter.emit("skill.bundle_resolved", resolution.to_dict())
-                except Exception:  # noqa: BLE001
-                    pass
-            from .prompt_segments import _hash  # noqa: PLC0415
-
-            if resolution.content:
-                return resolution.content, _hash(resolution.content)
-            return "", None
-
-    from .prompt_segments import build_skill_manifest  # noqa: PLC0415
-
-    query = request.input.query or request.input.ticker or ""
-    return build_skill_manifest(skill_registry, query)
-
-
-async def _apply_memory_intent(
-    request: RunRequest,
-    memory_service: Optional[Any],
-    emitter: RunEmitter,
-) -> Optional[dict[str, Any]]:
-    """Run the shared memory decision gate for this turn and act on it.
-
-    Every turn goes through `EclipseMemoryService.decide_turn` (the ONE write
-    gate). An explicit "remember/forget/correct" command is always honoured when
-    safe and clear; a casual durable mention follows `memory_mode`
-    (automatic_selective saves strong low-risk evidence without a prompt;
-    ask_before_saving stages an inert suggestion; off creates nothing); anything
-    else is `history_only`/`ignore` and writes no durable record. An explicit
-    "turn this into a skill" request is surfaced here and turned into a real
-    inert skill draft AFTER the run's trace exists (see `_create_explicit_skill_draft`
-    called from `execute_run`).
-
-    Deterministic; never raises. Returns a bounded outcome dict for the run
-    blob, or None when there is nothing user-visible.
-    """
-    if memory_service is None:
-        return None
-    # Trivial-prompt gate (Milestone 5): a bare greeting/acknowledgement, a slash
-    # command or empty input skips the memory decision entirely. An explicit
-    # remember/forget/correct is never trivial, so the always-on intent path still
-    # runs. Nothing is written and the reply is unaffected.
-    from .eclipse_memory.is_trivial import is_trivial_turn  # noqa: PLC0415
-
-    if is_trivial_turn(request.input.query):
-        try:
-            await emitter.emit("memory.trivial_skipped", {"runId": request.runId})
-        except Exception:  # noqa: BLE001
-            pass
-        return None
-    recurring = _is_recurring_statement(request)
-    try:
-        decision = memory_service.decide_turn(
-            request.input.query,
-            user_id=request.userId,
-            recurring=recurring,
-            is_skill_run=False,
-        )
-    except Exception as exc:  # noqa: BLE001 - memory must never break a run
-        try:
-            await emitter.emit("memory.intent_failed", {"error": str(exc)})
-        except Exception:  # noqa: BLE001
-            pass
-        return None
-
-    if decision.outcome in ("ignore", "history_only") and not decision.refused:
-        # Nothing durable: leave the turn uncluttered. A skill request is
-        # surfaced so the run's completion can create the draft from its trace.
-        if decision.action == "skill":
-            await emitter.emit("memory.skill_requested", {"runId": request.runId})
-            return {
-                "outcome": "history_only", "action": "skill_requested", "ok": False,
-                "reason": decision.reason, "requiresConfirmation": False, "refused": False,
-            }
-        return None
-
-    try:
-        outcome = memory_service.commit_decision(
-            decision, run_id=request.runId, user_id=request.userId
-        )
-    except Exception as exc:  # noqa: BLE001 - memory must never break a run
-        try:
-            await emitter.emit("memory.intent_failed", {"error": str(exc)})
-        except Exception:  # noqa: BLE001
-            pass
-        return None
-
-    event_type = {
-        "saved": "memory.explicit_saved",
-        "forgotten": "memory.explicit_forgotten",
-        "corrected": "memory.explicit_corrected",
-        "suggested": "memory.suggested",
-        "needs_review": "memory.conflict_needs_review",
-        "needs_clarification": "memory.intent_needs_clarification",
-        "refused": "memory.intent_refused",
-        "ignored": "memory.intent_ignored",
-        "history_only": "memory.intent_history_only",
-    }.get(outcome.get("action"))
-    if event_type:
-        await emitter.emit(event_type, {
-            "runId": request.runId,
-            "action": outcome.get("action"),
-            "outcome": outcome.get("outcome"),
-            "refused": bool(outcome.get("action") == "refused"),
-        })
-    return _outcome_blob(outcome, decision)
-
-
-def _is_recurring_statement(request: RunRequest) -> bool:
-    """True when the current query repeats a durable-sounding statement from
-    prior conversation history (deterministic normalized match)."""
-    from .eclipse_memory.decision import content_signature  # noqa: PLC0415
-
-    query = (request.input.query or "").strip()
-    if not query:
-        return False
-    signature = content_signature(query)
-    for turn in request.input.history or []:
-        if turn.role != "user":
-            continue
-        if content_signature(turn.content) == signature:
-            return True
-    return False
-
-
-def _create_explicit_skill_draft(
-    request: RunRequest, *, store: Optional[AgentMemoryStore], skill_registry: Optional[Any],
-    registry: Optional[ToolRegistry] = None,
-) -> Optional[dict[str, Any]]:
-    """Create an inert skill draft from an explicit "turn this into a skill".
-
-    Uses the real `capture_from_run` + `propose_draft` persistence path: a
-    learning candidate is recorded and a `status: draft` version is stored. The
-    draft is never enabled — evaluation + operator approval remain the only way
-    to promote it. Never raises; a failure is reported honestly in the blob.
-    """
-    if store is None or skill_registry is None:
-        return None
-    skill_store = getattr(skill_registry, "store", None)
-    if skill_store is None:
-        return None
-    try:
-        from .skills.draft import propose_draft  # noqa: PLC0415
-        from .skills.learning import capture_from_run  # noqa: PLC0415
-
-        result = capture_from_run(
-            request.runId, store, skill_store,
-            actor_is_operator=True, user_intent="turn this into a skill",
-        )
-        candidates = result.get("created") or []
-        if not candidates:
-            return {"captured": False, "reason": "no candidate produced"}
-        candidate_id = candidates[0]["id"]
-        available = registry.names() if registry is not None else _agent_tool_names(request)
-        draft = propose_draft(
-            candidate_id, skill_store, available_tools=list(available),
-            user_intent="turn this into a skill",
-        )
-        return {
-            "captured": True,
-            "candidateId": candidate_id,
-            "skillId": (draft.get("draft") or {}).get("id") if draft.get("ok") else None,
-            "status": "draft",
-            "draftOk": bool(draft.get("ok")),
-            "reusable": draft.get("reusable"),
-            "issues": draft.get("issues") or [],
-        }
-    except Exception as exc:  # noqa: BLE001 - a draft failure must not break the run
-        return {"captured": False, "reason": str(exc)}
-
-
-def _agent_tool_names(request: RunRequest) -> list[str]:
-    """Tools the run may use, for draft tool-evidence validation. Best-effort."""
-    try:
-        agent = resolve_agent(request)
-        return list(agent.tools or [])
-    except Exception:  # noqa: BLE001
-        return []
-
-
-def _outcome_blob(outcome: dict[str, Any], decision: Any) -> dict[str, Any]:
-    memory = outcome.get("memory") or {}
-    blob: dict[str, Any] = {
-        "outcome": outcome.get("outcome"),
-        "action": outcome.get("action"),
-        "ok": bool(outcome.get("ok")),
-        "refused": bool(outcome.get("action") == "refused"),
-        "requiresConfirmation": bool(outcome.get("action") == "needs_confirmation"),
-        "reason": outcome.get("reason") or getattr(decision, "reason", ""),
-        "matchedPhrase": getattr(decision, "matched_phrase", ""),
-    }
-    if memory.get("id"):
-        blob["memoryId"] = memory["id"]
-        blob["memoryType"] = memory.get("memoryType")
-        blob["scope"] = memory.get("scope")
-        blob["subject"] = memory.get("subject")
-        blob["status"] = memory.get("status")
-        blob["contentPreview"] = (memory.get("content") or "")[:400]
-        blob["inspectPath"] = f"/api/eclipse-memory/memories/{memory['id']}"
-        blob["undoPath"] = f"/api/eclipse-memory/memories/{memory['id']}/archive"
-        # A proposed record is NOT active truth. Surface why, and whether the
-        # proposal came from the semantic candidate layer, so the chat panel can
-        # distinguish "proposed for review" from a saved memory.
-        status_reason = memory.get("statusReason") or ""
-        if status_reason:
-            blob["statusReason"] = status_reason
-        if memory.get("status") == "proposed":
-            blob["requiresReview"] = True
-            blob["semanticCandidate"] = "semantic" in status_reason.lower()
-    suggestion = outcome.get("suggestion") or {}
-    if suggestion.get("id"):
-        blob["suggestionId"] = suggestion["id"]
-        blob["suggestionContent"] = suggestion.get("content")
-        blob["suggestionType"] = suggestion.get("memoryType")
-        blob["suggestionScope"] = suggestion.get("scope")
-        blob["suggestionPath"] = "/api/eclipse-memory/suggestions"
-    if outcome.get("superseded"):
-        blob["supersededMemoryId"] = outcome["superseded"]
-    if outcome.get("archived"):
-        blob["archivedMemoryIds"] = outcome["archived"]
-    if outcome.get("candidates"):
-        blob["ambiguousMemoryIds"] = outcome["candidates"]
-    return blob
-
-
-def _memory_blob(
-    memory_outcome: Optional[dict[str, Any]],
-    eligibility: dict[str, Any],
-    analysis: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    blob: dict[str, Any] = {"learningEligibility": eligibility}
-    if memory_outcome:
-        blob.update(memory_outcome)
-    if analysis:
-        created = int(analysis.get("candidatesCreated") or 0)
-        duplicates = int(analysis.get("candidatesSkipped") or 0)
-        blob["learningAnalysis"] = {
-            "candidatesCreated": created,
-            "candidatesSkipped": duplicates,
-            "mistakesCreated": analysis.get("mistakesCreated", 0),
-            "candidateDetection": analysis.get("candidateDetection"),
-        }
-        # The eligibility heuristic and the criteria-driven analyzer are not the
-        # same test. If automatic learning actually produced a candidate, report
-        # the run as eligible so the UI never claims "not a learning candidate"
-        # for a run that was just captured.
-        if created > 0:
-            eligibility["eligible"] = True
-            eligibility["autoCaptured"] = True
-            if not eligibility.get("skillRequested"):
-                eligibility["reason"] = "automatically captured a reusable lesson"
-    return blob
-
-
-def learning_eligibility_for_run(run_id: str, store: AgentMemoryStore) -> dict[str, Any]:
-    """Why a completed ordinary chat run is/isn't a learning candidate.
-
-    Read-only eligibility (does not create anything): a plain informational
-    reply is not eligible; a run that used tools / took multiple steps / asked
-    to become a skill is. Creating a candidate stays an explicit operator action
-    ("Learn from this run").
-    """
-    run = store.get_run(run_id) or {}
-    memory_blob = run.get("memory") or {}
-    skill_requested = memory_blob.get("action") == "skill_requested"
-    reason = ""
-    eligible = False
-    steps = int(run.get("modelSteps") or 0)
-    tool_calls = int(run.get("toolCalls") or 0)
-    if run.get("status") != "completed":
-        reason = "run did not complete"
-    elif skill_requested:
-        eligible, reason = True, "the user asked to turn this run into a skill"
-    elif tool_calls == 0:
-        reason = "no tool use — an informational reply has no reusable procedure"
-    elif steps < 2:
-        reason = "single model step — not enough structure to generalize"
-    else:
-        eligible, reason = True, "multi-step run with tool evidence"
-    return {
-        "runId": run_id,
-        "eligible": eligible,
-        "reason": reason,
-        "modelSteps": steps,
-        "toolCalls": tool_calls,
-        "skillRequested": skill_requested,
-        "isSkillRun": False,
-        "learnQueuePath": "/api/learning/candidates",
-    }
-
-
-def _learning_eligibility(
-    *, run_id: str, store: AgentMemoryStore, memory_outcome: Optional[dict[str, Any]]
-) -> dict[str, Any]:
-    """Eligibility for the just-finished run (uses the in-memory outcome, which
-    is not yet persisted when this is called)."""
-    run = store.get_run(run_id) or {}
-    skill_requested = bool(memory_outcome and memory_outcome.get("action") == "skill_requested")
-    reason = ""
-    eligible = False
-    steps = int(run.get("modelSteps") or 0)
-    tool_calls = int(run.get("toolCalls") or 0)
-    if run.get("status") != "completed":
-        reason = "run did not complete"
-    elif skill_requested:
-        eligible, reason = True, "the user asked to turn this run into a skill"
-    elif tool_calls == 0:
-        reason = "no tool use — an informational reply has no reusable procedure"
-    elif steps < 2:
-        reason = "single model step — not enough structure to generalize"
-    else:
-        eligible, reason = True, "multi-step run with tool evidence"
-    return {
-        "runId": run_id,
-        "eligible": eligible,
-        "reason": reason,
-        "modelSteps": steps,
-        "toolCalls": tool_calls,
-        "skillRequested": skill_requested,
-        "isSkillRun": False,
-        "learnQueuePath": "/api/learning/candidates",
-    }
+# Per-run context blocks + memory/learning outcome helpers were extracted to
+# graph_context.py to keep this execution graph under its size ratchet. They
+# are re-exported here so existing callers/tests (rom harness.graph import
+# _memory_context) are unchanged.
+from .graph_context import (  # noqa: E402,F401
+    _agent_tool_names,
+    _apply_memory_intent,
+    _create_explicit_skill_draft,
+    _is_recurring_statement,
+    _learning_eligibility,
+    _memory_blob,
+    _memory_context,
+    _outcome_blob,
+    _profile_context,
+    _skill_manifest_context,
+    learning_eligibility_for_run,
+)
 
 
 def _user_message(request: RunRequest) -> str:
@@ -1840,11 +1590,19 @@ def _user_message(request: RunRequest) -> str:
 
 def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[dict[str, Any]], output: Optional[str] = None) -> RunResult:
     run = store.get_run(run_id) or {}
+    try:
+        from .run_lineage import RunLineage  # noqa: PLC0415
+
+        children = RunLineage(store).list_child_runs(run_id)
+    except Exception:  # noqa: BLE001 - lineage is additive
+        children = []
     return RunResult(
         runId=run_id,
         status=status,  # type: ignore[arg-type]
         output=output if output is not None else run.get("output"),
         error=HarnessError(**error) if error else None,
+        parentRunId=run.get("parentRunId"),
+        childRunIds=children,
         modelSteps=run.get("modelSteps", 0),
         toolCalls=run.get("toolCalls", 0),
         toolErrors=run.get("toolErrors", 0),

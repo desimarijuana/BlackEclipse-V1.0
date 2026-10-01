@@ -25,7 +25,7 @@ from typing import Any, AsyncIterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .agents import AGENT_PRESETS, DEFAULT_AGENT_ID
 from .deps import (
@@ -351,6 +351,8 @@ def explain_run_endpoint(run_id: str) -> dict[str, Any]:
             run_id=run_id,
             retrieval_event=retrievals[0] if retrievals else None,
             events=service.list_events(run_id),
+            run=service.get_run(run_id),
+            lineage=service.run_lineage().lineage(run_id),
         ),
     }
 
@@ -405,6 +407,124 @@ def cancel_run(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Run not found")
     cancelled = service.cancel(run_id)
     return CancelResponse(success=True, runId=run_id, cancelled=cancelled).model_dump()
+
+
+@app.post("/runs/{run_id}/resume")
+async def resume_run(run_id: str, request: RunRequest, background: bool = False) -> JSONResponse:
+    """Resume a crashed run from its latest checkpoint (Phase 1).
+
+    The run id in the path is authoritative. A resume of a run with no checkpoint
+    returns CHECKPOINT_NOT_FOUND; a resume of a terminal run returns
+    RESUME_CONFLICT — never a fresh run in its place. Already-executed tool calls
+    are reused from the idempotency ledger, not re-run.
+    """
+    if request.runId != run_id:
+        raise HTTPException(status_code=400, detail="body runId does not match the path")
+    # Default the resume point to the latest checkpoint when the caller did not
+    # name one. An explicit `resumeFrom` is honored (a specific checkpoint id).
+    if not request.resumeFrom:
+        latest = service.run_lineage().latest_checkpoint(run_id)
+        if latest is not None:
+            request = request.model_copy(update={"resumeFrom": latest["id"]})
+    try:
+        if background:
+            await service.run_background(request)
+            return JSONResponse(StartRunResponse(success=True, runId=run_id).model_dump(), status_code=202)
+        result: RunResult = await service.run(request)
+        return JSONResponse({"success": True, **result.model_dump()})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/runs/{run_id}/lineage")
+def run_lineage_endpoint(run_id: str) -> dict[str, Any]:
+    """The bounded parent chain + direct children of a run (Phase 1)."""
+    if not service.get_run(run_id):
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"success": True, **service.run_lineage().lineage(run_id)}
+
+
+# ── Workflows (Phase 5) ─────────────────────────────────────────────────────
+# Definitions are validated before storage. Every MUTATION route requires an
+# authorized operator (transport/token — never a body boolean). Execution is a
+# normal run and is not blanket operator-gated (an enabled read-only workflow).
+
+class WorkflowRunRequest(BaseModel):
+    """Run a saved workflow over the existing graph (Phase 5)."""
+
+    workflowId: str  # noqa: N815
+    runId: str  # noqa: N815
+    input: dict[str, Any] = Field(default_factory=dict)
+    agentId: Optional[str] = None  # noqa: N815
+    userId: Optional[str] = None  # noqa: N815
+    sessionId: Optional[str] = None  # noqa: N815
+    profileId: Optional[str] = None  # noqa: N815
+    projectId: Optional[str] = None  # noqa: N815
+    callbackBaseUrl: str  # noqa: N815
+    callbackToken: Optional[str] = None  # noqa: N815
+    modelSettings: dict[str, Any]  # noqa: N815
+
+
+@app.get("/workflows")
+def list_workflows(limit: int = 50) -> dict[str, Any]:
+    return {"success": True, "workflows": service.workflow_store().list(limit)}
+
+
+@app.get("/workflows/{workflow_id}")
+def get_workflow(workflow_id: str, version: Optional[str] = None) -> dict[str, Any]:
+    workflow = service.workflow_store().get(workflow_id, version)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"success": True, "workflow": workflow.model_dump()}
+
+
+@app.post("/workflows")
+def save_workflow(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Create/update a workflow. Validated before storage (named reason on reject)."""
+    from .workflows import Workflow, WorkflowValidationError
+
+    try:
+        workflow = Workflow(**payload)
+    except Exception as exc:  # noqa: BLE001 - a malformed definition is a 400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        result = service.workflow_store().save(workflow, known_tools=list(service.registry.names()))
+    except WorkflowValidationError as exc:
+        raise HTTPException(status_code=400, detail=f"{exc.reason}") from exc
+    return {"success": True, **result}
+
+
+@app.delete("/workflows/{workflow_id}")
+def delete_workflow(workflow_id: str, version: Optional[str] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    deleted = service.workflow_store().delete(workflow_id, version)
+    return {"success": True, "deleted": deleted}
+
+
+@app.post("/workflows/run")
+async def execute_workflow(request: WorkflowRunRequest) -> JSONResponse:
+    """Execute a saved workflow over the EXISTING graph (flag-gated, default off)."""
+    from .schemas import ModelSettings as _ModelSettings
+    from .schemas import RunInput as _RunInput
+    from .schemas import RunRequest as _RunRequest
+
+    try:
+        run_request = _RunRequest(
+            runId=request.runId,
+            input=_RunInput(query=str(request.input.get("query") or "workflow"), context=request.input),
+            agentId=request.agentId,
+            modelSettings=_ModelSettings(**request.modelSettings),
+            userId=request.userId,
+            sessionId=request.sessionId,
+            profileId=request.profileId,
+            projectId=request.projectId,
+            workflowId=request.workflowId,
+            callbackBaseUrl=request.callbackBaseUrl,
+            callbackToken=request.callbackToken,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = await service.run_workflow(run_request)
+    return JSONResponse({"success": True, **result})
 
 
 # ── Skills (Phase 3) ────────────────────────────────────────────────────────

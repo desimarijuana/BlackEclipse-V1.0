@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canHandleKeyboardEvent, hasBlockingKeyboardDialog, isKeyboardScopeVisible, matchesShortcut, preferredKeyboardScope } from './keyboard';
+import { canHandleKeyboardEvent, formatShortcutKeys, hasBlockingKeyboardDialog, isKeyboardScopeVisible, matchesShortcut, preferredKeyboardScope } from './keyboard';
 
 interface FakeEl {
   tag: string;
@@ -218,5 +218,22 @@ describe('visibility and dialog guards', () => {
     expect(canHandleKeyboardEvent(keyEvent({ isComposing: true }), null)).toBe(false);
     expect(canHandleKeyboardEvent(keyEvent({ defaultPrevented: true }), null)).toBe(false);
     expect(canHandleKeyboardEvent(keyEvent({ keyCode: 229 }), null)).toBe(false);
+  });
+});
+
+describe('formatShortcutKeys', () => {
+  it('renders mod as Ctrl / Cmd and uppercases the key', () => {
+    expect(formatShortcutKeys('mod+n')).toBe('Ctrl / Cmd + N');
+  });
+
+  it('renders literal modifiers', () => {
+    expect(formatShortcutKeys('shift+n')).toBe('Shift + N');
+    expect(formatShortcutKeys('ctrl+alt+x')).toBe('Ctrl + Alt + X');
+    expect(formatShortcutKeys('alt+arrowleft')).toBe('Alt + ARROWLEFT');
+  });
+
+  it('uppercases a bare key and returns a malformed/empty spec unchanged', () => {
+    expect(formatShortcutKeys('r')).toBe('R');
+    expect(formatShortcutKeys('')).toBe('');
   });
 });

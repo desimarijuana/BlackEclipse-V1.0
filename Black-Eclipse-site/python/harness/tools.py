@@ -166,6 +166,9 @@ class ToolContext:
     # The process-wide MCP manager, so native retrieval can consider
     # operator-declared MCP data sources (Milestone 6). None = no MCP sources.
     mcp_manager: Any = None
+    # Names of deprecated tools already warned about THIS run, so the registry
+    # warns once per run, not once per call (Phase 6).
+    deprecated_warned: Any = None
 
 
 class DataBridge:
@@ -199,6 +202,15 @@ class ToolDefinition:
     # call. MCP effectful tools set this; native tools leave it unset.
     effect: Optional[str] = None
     effect_metadata: Optional[dict[str, Any]] = None
+    # ── Lifecycle (Phase 6) ────────────────────────────────────────────────
+    # A semver string for the tool contract. Advisory: it identifies the tool's
+    # own version for operators/observability.
+    version: str = "1.0.0"
+    # When True, the registry warns ONCE per run when this tool is called, naming
+    # its replacement, and still executes it (deprecation is not a hard block).
+    deprecated: bool = False
+    # The tool that replaces a deprecated one (informational; never auto-called).
+    replacement: Optional[str] = None
 
 
 def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
@@ -316,6 +328,8 @@ class ToolRegistry:
         if allowed is not None and name not in allowed:
             return self._failure(call_id, name, "TOOL_FORBIDDEN", f"Tool {name!r} is not allowed for this run", started)
 
+        _warn_deprecated(self, tool, ctx)
+
         args_model = _args_model(name, tool.input_schema)
         try:
             validated = args_model(**arguments)
@@ -388,6 +402,45 @@ class ToolRegistry:
             error=HarnessError(code=code, message=message),  # type: ignore[arg-type]
             duration_ms=int((time.monotonic() - started) * 1000),
         )
+
+
+def _warn_deprecated(registry: "ToolRegistry", tool: ToolDefinition, ctx: ToolContext) -> None:
+    """Warn ONCE PER RUN when a deprecated tool is called, naming its replacement.
+
+    Deprecation is advisory, not a hard block: the tool still executes. The
+    warning is recorded on the shared `ToolContext` (one per run) so a tool called
+    many times in a run warns only once, and surfaced through the run emitter.
+    """
+    if not tool.deprecated:
+        return
+    seen = getattr(ctx, "deprecated_warned", None)
+    if seen is None:
+        seen = set()
+        try:
+            ctx.deprecated_warned = seen
+        except Exception:  # noqa: BLE001 - a frozen ctx must not break execution
+            return
+    if tool.name in seen:
+        return
+    seen.add(tool.name)
+    replacement = f" Use {tool.replacement!r} instead." if tool.replacement else ""
+    message = f"Tool {tool.name!r} is deprecated.{replacement}"
+    try:
+        if ctx.log is not None:
+            ctx.log(message, {"tool": tool.name, "deprecated": True, "replacement": tool.replacement})
+    except Exception:  # noqa: BLE001
+        pass
+    emitter = getattr(ctx, "emitter", None)
+    if emitter is not None:
+        try:
+            # Fire-and-forget: the emitter path is async in the graph; here we
+            # only have a sync seam, so record a persisted event best-effort.
+            emitter.emit_sync(
+                "tool.deprecated",
+                {"tool": tool.name, "replacement": tool.replacement},
+            )
+        except Exception:  # noqa: BLE001 - a warning must never break a call
+            pass
 
 
 # Grace added to the asyncio wait so an internally-timed-out tool can surface its

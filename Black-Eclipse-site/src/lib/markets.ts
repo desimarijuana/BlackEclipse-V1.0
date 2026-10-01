@@ -245,6 +245,10 @@ export const MARKET_CURRENCY_ISO: Record<string, string> = {
   FR: "EUR", NL: "EUR", CA: "CAD", BR: "BRL", MX: "MXN", SA: "SAR", AE: "AED",
   ZA: "ZAR", EG: "EGP", NG: "NGN", RU: "RUB", TR: "TRY", ID: "IDR", TH: "THB",
   VN: "VND",
+  // Venues covered by the TradingView scan but historically absent from the ISO
+  // table, so the matrix fell back to USD and mis-stated their currency. CH is
+  // CHF (NOT USD). KW/QAR are the Gulf venues. (Harness closeout Phase 3.2.)
+  CH: "CHF", KW: "KWD", QA: "QAR",
   // FX quotes are denominated in their quote currency, carried on the identity;
   // this is only the registry default. DERIV is uncovered and has no currency.
   FX: "USD", DERIV: "N/A",
@@ -288,6 +292,9 @@ export const MARKET_FULL_NAME: Record<string, string> = {
   ID: "Indonesia",
   TH: "Thailand",
   VN: "Vietnam",
+  CH: "Switzerland",
+  KW: "Kuwait",
+  QA: "Qatar",
   FOREX: "Forex",
   COMMODITIES: "Commodities",
 };

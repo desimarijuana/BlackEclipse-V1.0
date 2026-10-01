@@ -42,6 +42,11 @@ except Exception as _mcp_exc:  # noqa: BLE001 - a missing SDK is a supported sta
     MCP_IMPORT_ERROR = str(_mcp_exc)
 
 
+def _workflow_enabled() -> bool:
+    """Whether the composable-workflow path is enabled (operator flag, DEFAULT OFF)."""
+    return os.environ.get("HARNESS_WORKFLOWS_ENABLED") in ("1", "true", "True")
+
+
 def _default_callback_base_url() -> str:
     """The Next.js front door base URL for process-wide bridge calls.
 
@@ -492,6 +497,53 @@ class AgenticService:
         )
         await self._schedule_review(request.runId, result.status)
         return result
+
+    def run_lineage(self) -> Any:
+        """The process-wide lineage/checkpoint store (Phase 1)."""
+        from .run_lineage import RunLineage
+
+        if getattr(self, "_lineage", None) is None:
+            self._lineage = RunLineage(self.store)
+        return self._lineage
+
+    def workflow_store(self) -> Any:
+        """The process-wide workflow definition store (Phase 5)."""
+        from .workflows import WorkflowStore
+
+        if getattr(self, "_workflow_store", None) is None:
+            self._workflow_store = WorkflowStore(self.store)
+        return self._workflow_store
+
+    async def run_workflow(self, request: RunRequest) -> Any:
+        """Execute a saved workflow by id over the existing graph (Phase 5).
+
+        The workflow path is FLAG-GATED and DEFAULT OFF. With no `workflowId`
+        a run behaves exactly as today (the ordinary `run` path). When enabled
+        and the workflow exists, it compiles onto the existing graph.
+        """
+        from .workflows import compile_workflow
+
+        if not _workflow_enabled():
+            return {
+                "workflowId": request.workflowId,
+                "status": "disabled",
+                "note": "the workflow path is disabled; set HARNESS_WORKFLOWS_ENABLED=1 to enable it",
+            }
+        workflow = self.workflow_store().get(request.workflowId)
+        if workflow is None:
+            return {
+                "workflowId": request.workflowId,
+                "status": "not_found",
+                "note": f"no workflow {request.workflowId!r} is stored",
+            }
+        bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
+        result = await compile_workflow(
+            workflow, request, self.registry, bridge, self.store, bus=self.bus,
+            retrieval_cache=self.retrieval_cache, memory_service=self.memory,
+            skill_registry=self.skill_registry, approvals=self.approvals,
+            memory_router=self.memory_router, mcp_manager=self.mcp,
+        )
+        return result.to_dict()
 
     async def _schedule_review(self, run_id: str, status: str) -> None:
         """Queue a bounded post-run learning review (never blocks the response)."""

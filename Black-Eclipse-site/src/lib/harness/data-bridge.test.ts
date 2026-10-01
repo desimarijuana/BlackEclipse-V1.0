@@ -120,7 +120,10 @@ describe("fetchCapability — other capabilities", () => {
     groupBy.mockResolvedValue([
       { source: "yfinance", market: "US", symbol: "equity", _sum: { successCount: 3, failCount: 1 }, _max: { lastStatus: "ok", updatedAt: new Date() } },
     ]);
-    const result = await fetchCapability("source_health", {});
+    // The full declared enumeration is opt-in now (Phase 2); the default shape
+    // is a compact recorded head, so the declared-route assertions need
+    // `includeDeclared: true`.
+    const result = await fetchCapability("source_health", { includeDeclared: true });
     expect(result.status).toBe("OK");
     const rows = result.rows as Array<{ source: string; market: string; assetClass: string; capability: string; success: number; health: string }>;
     expect(rows.length).toBeGreaterThan(1);
