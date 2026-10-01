@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 10 — self-improvement v2 (code as well as skills).**
+  New `python/harness/code/evolution.py` (a recurrence bridge that consumes the
+  existing `LearningRecurrence` counter, `propose_ops` with the FROZEN set and the
+  `skills/patches.py` FORBIDDEN_FIELDS, a worktree evaluation recorded through the
+  Phase-4 ledger, a `skills/versioning.py` subject adapter, and honest
+  `archive_metrics` that render `UNKNOWN` never `0`) + `code/evolution_store.py`
+  (additive `EvolutionCandidate`/`EvolutionAttempt`, nullable cost columns) +
+  `code/evolution_service.py` (evaluate/activate/rollback). New
+  `routers/evolution.py` (every route `require_operator`, reads included) +
+  `include_router`; the existing learning journey is extended with
+  `evolution_candidate`/`evolution_attempt` nodes. Front door
+  `src/lib/harness/evolution-client.ts` + `src/app/api/evolution/**`; i18n
+  `evolution.*`. `skills/versioning.py` and `skills/patches.py` are byte-unchanged.
+  Tests `test_evolution_bridge.py`/`test_evolution_persistence.py`/
+  `test_self_improvement_freeze.py`/`test_self_improvement_e2e.py`. ADR-H112.
+  docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/roadmap/phase-10-self-improvement.md`,
+  `docs/harness/roadmap/progress/phase-10-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 9 — finance application scaffold kits.**
   New `python/harness/code/kits/` (a validated kit contract + loader that refuses
   a kit with no acceptance test or an undeclared output) and eight kits:

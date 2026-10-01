@@ -44,6 +44,7 @@ from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.code import router as code_router
+from .routers.evolution import router as evolution_router
 from .routers.jobs import router as jobs_router
 from .routers.mcp import router as mcp_router
 from .routers.memory import router as memory_router
@@ -114,6 +115,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=_l
 # Route groups extracted into `harness/routers/`; registered here so the public
 # surface stays `harness.main:app` and paths are unchanged.
 app.include_router(code_router)
+app.include_router(evolution_router)
 app.include_router(jobs_router)
 app.include_router(mcp_router)
 app.include_router(memory_router)

@@ -2955,3 +2955,58 @@ moving the installed-skill count 5 → 13. Kit user-facing strings are i18n keys
 an order path is a non-goal by construction. Tests: `test_kits_contract.py`,
 `test_kits_scaffold.py`, `test_kits_unavailability.py`, `test_kits_skill_wrappers.py`,
 and one `test_kit_<id>.py` per kit.
+
+
+## ADR-H112 — Self-improvement covers code as well as skills; the policy engine and the release gate are frozen
+
+**Decision.** Phase 10 adds `python/harness/code/evolution.py` (the recurrence
+bridge, the proposal validator, the worktree evaluation, the versioning adapter and
+the honest metrics), two additive tables (`EvolutionCandidate`, `EvolutionAttempt`),
+and a route group. A mistake category whose RECURRENCE crosses
+`RECURRENCE_THRESHOLD` becomes an **inert** candidate; a code-shaped candidate
+becomes a set of structured `code/patch.py` operations; evaluation runs the target's
+owning test file(s) (and any Phase-9 kit acceptance test) inside a Phase-2 worktree,
+recording every execution in the Phase-4 verification ledger; activation reuses
+`skills/versioning.py` **verbatim** through a thin subject adapter.
+
+Three rules are non-negotiable and enforced in code:
+
+1. **No unsupervised self-modification.** A candidate never activates itself;
+   every `activate` route carries `require_operator` (reads included, ADR-H48) and
+   records the operator decision on the candidate row.
+2. **The judge cannot be edited by the judged.** A proposal touching
+   `python/harness/code/policy.py`, `python/harness/skills/permissions.py`,
+   `python/harness/mcp/approvals.py` or `scripts/check-all.js` is refused with
+   `EvolutionRefusal(code="FROZEN_PATH")`, never silently skipped; so is any
+   `policy.PROTECTED_PATHS` member (`PROTECTED`), any op that would set an
+   identity/permission/tool/risk field (`FORBIDDEN_FIELD`, the `skills/patches.py`
+   set as data), and any target outside the bound workspace (`OUTSIDE_WORKSPACE`).
+3. **No metric without measurement.** `archive_metrics` returns the string
+   `"UNKNOWN"` for any dimension it cannot derive (including `costMicros` that are
+   NULL, which is why those columns are nullable) — never `0`, and there is no
+   blended score anywhere; results are per source category.
+
+**Why.** The observation side (`eclipse_memory/mistakes.py`) and the decision side
+(`skills/versioning.py`) already existed; the gap was narrow — recurrence was
+recorded and never consumed, and no candidate could name a source file. This phase
+consumes the existing counter and drives the existing lifecycle rather than adding a
+second one. The frozen set is the direct expression of README §3.3 (artifacts stay
+inert) applied to the code that decides: a subject may not edit its own policy,
+permissions, approvals or release gate, or "run some code" becomes a path to
+authority. The nullable cost columns and the `UNKNOWN` rule exist because a report
+that cannot say "I could not measure that" will say "0" instead, which is a lie.
+
+**Consequences.** `FROZEN_PATHS` and the FORBIDDEN_FIELDS set are data;
+`propose_ops` performs no model call and is the only entity that can accept an op
+set (mirrors `research/claims.py`). Evaluation is deterministic — a model may
+explain an outcome, never change one. The attempt archive records success, failure,
+refusal and rollback alike, each with its `diffDigest`, `baseDigest` and
+`evaluationJson` (including ledger execution ids), so the record is not a marketing
+document. Activation maps a code subject to a thin managed skill (the change carried
+in its patchable fields) so `versioning.py` is untouched, and both
+`activatedVersion` and `previousVersion` survive on the candidate row. The UI is the
+EXISTING learning journey (`learning_graph.py` + `learning-journey.tsx`) extended
+with `evolution_candidate` / `evolution_attempt` nodes, not a second screen.
+`skills/versioning.py` and `skills/patches.py` are byte-unchanged. Tests:
+`test_evolution_bridge.py`, `test_evolution_persistence.py`,
+`test_self_improvement_freeze.py`, `test_self_improvement_e2e.py`.

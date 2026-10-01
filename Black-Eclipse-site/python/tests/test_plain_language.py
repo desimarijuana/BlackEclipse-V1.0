@@ -3,7 +3,7 @@
 Every refusal a command can produce carries ONE plain sentence plus a recovery
 step, and neither contains a mechanism word from `policy.PLAIN_LANGUAGE_DENYLIST`.
 This is the runtime half of the front-door gate in
-`src/lib/i18n/plain-language.test.ts` — commands produce text, so the check
+`src/lib/i18n/plain-language.test.ts` - commands produce text, so the check
 belongs in pytest too.
 """
 
@@ -159,3 +159,50 @@ def test_kit_titles_and_refusals_use_no_mechanism_vocabulary():
         title = kit["title"].casefold()
         for word in banned:
             assert word not in title, f"{word!r} reached the surface: {kit['title']}"
+
+
+# -- Phase 10: prepared-change states, refusals and metrics -------------------
+
+
+def test_evolution_aggregation_text_is_plain():
+    """The candidate states and refusals name the JOB, never the machinery."""
+    # The plain states the UI shows (mirrors src/lib/i18n evolution.state.*).
+    states = {
+        "inert": "Prepared - not applied",
+        "evaluated_ok": "Checked and ready",
+        "evaluated_bad": "This change didn-t work as hoped",
+        "rolled_back": "That change made things worse, so I put the previous version back",
+        "activated": "In use now",
+    }
+    for name, sentence in states.items():
+        assert not _leaks(sentence), f"{name} leaks: {sentence}"
+
+    refusals = {
+        "FROZEN_PATH": "I could not prepare this change - it would alter how Eclipse checks things.",
+        "PROTECTED": "I could not prepare this change - that file is part of Eclipse-s own data.",
+        "FORBIDDEN_FIELD": "I could not prepare this change - it would widen what Eclipse is allowed to do.",
+        "OUTSIDE_WORKSPACE": "I could not prepare this change - it is outside the project.",
+    }
+    for code, sentence in refusals.items():
+        assert not _leaks(sentence), f"{code} leaks: {sentence}"
+
+
+def test_a_plain_problem_statement_is_not_a_mechanism():
+    # The user-visible problem sentence carries the category and the count only.
+    from harness.code import evolution
+
+    statement = evolution._problem_statement("timeout", "the bound that timed out", 4)
+    assert not _leaks(statement), statement
+    assert "/" not in statement and "\\" not in statement
+
+
+def test_metrics_render_unknown_not_zero():
+    from harness.persistence import AgentMemoryStore
+    from harness.code import evolution
+    import tempfile, os
+
+    store = AgentMemoryStore(os.path.join(tempfile.mkdtemp(prefix="be-pl-evo-"), "agent-memory.db"))
+    metrics = evolution.archive_metrics(store, window_days=90)
+    assert metrics["successRate"] == "UNKNOWN"
+    assert metrics["costPerSuccess"] == "UNKNOWN"
+    store.close()

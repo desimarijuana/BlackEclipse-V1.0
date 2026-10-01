@@ -538,6 +538,41 @@ class AgenticService:
             self._workflow_store = WorkflowStore(self.store)
         return self._workflow_store
 
+    def evolution_store(self) -> Any:
+        """The process-wide evolution store over the ONE agent-memory connection (Phase 10)."""
+        from .code.evolution_store import EvolutionStore  # noqa: PLC0415
+
+        if getattr(self, "_evolution_store", None) is None:
+            self._evolution_store = EvolutionStore(self.store)
+        return self._evolution_store
+
+    def operator_actor(self) -> Any:
+        """The operator Actor used by the evolution routes (already authorized)."""
+        from .skills.permissions import OPERATOR_ACTOR  # noqa: PLC0415
+
+        return OPERATOR_ACTOR
+
+    def evolution_context(self, *, run_id: str) -> Any:
+        """A ToolContext for an evolution evaluation run (broker + ledger + store)."""
+        from .code.store import CodeWorkspaceStore  # noqa: PLC0415
+        from .code.verify import VerificationLedger  # noqa: PLC0415
+        from .tools import ToolContext  # noqa: PLC0415
+
+        try:
+            self.store.create_run(run_id, "evolution", {"query": "self-improvement evaluation"})
+        except Exception:  # noqa: BLE001 - a duplicate run id is fine
+            pass
+        return ToolContext(
+            run_id=run_id,
+            log=lambda *_: None,
+            memory_store=self.store,
+            code_store=self.code_store or CodeWorkspaceStore(self.store),
+            code_ledger=VerificationLedger(run_id),
+            memory_service=self.memory,
+            skill_registry=self.skill_registry,
+            tool_registry=self.registry,
+        )
+
     def jobs_store(self) -> Any:
         """The process-wide job store over the ONE agent-memory connection (Phase 6)."""
         from .jobs.store import JobStore  # noqa: PLC0415

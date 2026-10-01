@@ -15,7 +15,7 @@ import { REFUSAL_KEY, refusalKey } from './refusal-copy';
 const PHASE_1_PREFIXES = [
   'task.navigator.', 'task.authoring.', 'task.check.',
   'code.proof.', 'code.task.', 'code.approvals.', 'refusal.',
-  'analysis.', 'kit.',
+  'analysis.', 'kit.', 'evolution.',
 ];
 
 const DENYLIST = [
@@ -97,3 +97,4 @@ describe('plain-language gate — repository navigator strings', () => {
     expect(leaks(en[key])).toEqual([]);
   });
 });
+

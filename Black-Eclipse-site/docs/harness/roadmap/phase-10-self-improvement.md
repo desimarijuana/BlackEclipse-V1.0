@@ -1,10 +1,10 @@
 ---
 title: "Phase 10 — Self-Improvement v2: Evolving Code as well as Skills"
-status: Not started
+status: Done
 phase: 10
 depends_on: [4, 9]
 unlocks: [11]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 10 — Self-Improvement v2: Evolving Code as well as Skills

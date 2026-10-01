@@ -35,12 +35,15 @@ MAX_LABEL_CHARS = 120
 NODE_KINDS = (
     "memory", "skill", "skill_version", "correction", "mistake",
     "learning_candidate", "evaluation", "promotion", "execution", "session",
+    # Phase 10: a repeated-problem candidate and its code-change attempts.
+    "evolution_candidate", "evolution_attempt",
 )
 
 # Edge relations.
 EDGE_RELATIONS = (
     "created_from", "corrected_by", "superseded_by", "used_in",
     "derived_from", "promoted_from", "evaluated_by", "related_to",
+    "attempted_on",
 )
 
 
@@ -273,6 +276,36 @@ def build_learning_journey(
         if execution.get("parentRunId"):
             link(eid, f"session:{execution['parentRunId']}", "created_from")
 
+    # ── Evolution candidates + attempts (Phase 10) ──────────────────────────
+    # A repeated-problem candidate and its attempts, EXTENDING this journey rather
+    # than a second self-improvement screen. Best-effort: a store without the
+    # evolution tables simply contributes nothing.
+    try:
+        evolution_candidates = _evolution_candidates(store)
+    except Exception:  # noqa: BLE001
+        evolution_candidates = []
+    for candidate in evolution_candidates:
+        cid = f"evolution:{candidate['id']}"
+        add(GraphNode(
+            id=cid, kind="evolution_candidate",
+            label=_label(candidate.get("problemStatement")),
+            status=candidate.get("status", "inert"), createdAt=candidate.get("createdAt"),
+            meta={"sourceCategory": candidate.get("sourceCategory"),
+                  "observedCount": candidate.get("observedCount"),
+                  "refusalCode": candidate.get("refusalCode")},
+        ))
+        if candidate.get("createdByRunId"):
+            link(cid, f"session:{candidate['createdByRunId']}", "created_from")
+        for attempt in _evolution_attempts(store, candidate["id"]):
+            aid = f"evolution_attempt:{attempt['id']}"
+            add(GraphNode(
+                id=aid, kind="evolution_attempt",
+                label=_label(attempt.get("outcome")),
+                status=attempt.get("outcome", "failure"), createdAt=attempt.get("startedAt"),
+                meta={"diffDigest": attempt.get("diffDigest"), "outcome": attempt.get("outcome")},
+            ))
+            link(aid, cid, "attempted_on")
+
     # ── Resolve edges (both endpoints must exist) + filters ──────────────────
     # A referenced session/run target that never got its own node would silently
     # drop the provenance edge. Materialise a bounded placeholder session node for
@@ -325,6 +358,19 @@ def build_learning_journey(
             "truncated": len(nodes) >= MAX_NODES or len(edges) >= MAX_EDGES,
         },
     }
+
+def _evolution_candidates(store: Any) -> list[dict[str, Any]]:
+    """The evolution candidates, or [] when the tables are absent (additive)."""
+    from .code.evolution_store import EvolutionStore  # noqa: PLC0415
+
+    return EvolutionStore(store).list_candidates(limit=MAX_NODES)
+
+
+def _evolution_attempts(store: Any, candidate_id: str) -> list[dict[str, Any]]:
+    from .code.evolution_store import EvolutionStore  # noqa: PLC0415
+
+    return EvolutionStore(store).list_attempts(candidate_id, limit=20)
+
 
 __all__ = [
     "EDGE_RELATIONS",
