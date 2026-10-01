@@ -199,4 +199,56 @@ if (py) {
   console.log("          pip install -r python/requirements.txt");
 }
 
+// 6. Phase 11 — delivery / execution-backend runtime dependencies. These are
+//    reported HONESTLY: a missing optional backend reads "not available" and the
+//    run continues; only a MISSING vendored interpreter (which the agent runtime
+//    genuinely requires) prints its exact repair command and exits non-zero.
+{
+  // 6a. Vendored Python (the interpreter every command and the agent runtime use).
+  //     The Windows provisioning above normally creates it. If it is still absent,
+  //     print the exact repair command and exit non-zero — never a silent partial.
+  const vendored = path.join(__dirname, "vendor", "python", process.platform === "win32" ? "python.exe" : path.join("bin", "python3"));
+  if (process.platform === "win32" && !fs.existsSync(vendored)) {
+    console.error(
+      "[setup] The bundled Python runtime is missing. Repair it with:\n" +
+      "          npm run setup:python\n" +
+      "        (or npm install). The agent runtime cannot run without it."
+    );
+    process.exit(1);
+  } else {
+    console.log(`[setup] vendored python: ${fs.existsSync(vendored) ? "present" : "not present (system python only)"}`);
+  }
+
+  // 6b. Artifact directory (saved job reports). Create it when writable; report
+  //     honestly and name the path when it is not.
+  const artifacts = path.join(root, ".black-eclipse", "artifacts");
+  try {
+    fs.mkdirSync(artifacts, { recursive: true });
+    fs.accessSync(artifacts, fs.constants.W_OK);
+    console.log(`[setup] artifact directory: writable (${path.relative(root, artifacts)})`);
+  } catch (err) {
+    console.warn(
+      `[setup] artifact directory: NOT writable (${artifacts}) — saved job reports will be unavailable. ${err.message}`
+    );
+  }
+
+  // 6c. Optional sandbox backends. DETECTED, never installed. Their absence is a
+  //     refusal for a job that needs one — never a reason not to start.
+  const containerRuntime = process.env.HARNESS_SANDBOX_CONTAINER || null;
+  const containerUsable =
+    containerRuntime && spawnSync(containerRuntime, ["--version"], { stdio: "ignore" }).status === 0;
+  console.log(
+    containerUsable
+      ? `[setup] container backend: available (${containerRuntime})`
+      : "[setup] container backend: not available (jobs that need one will decline)"
+  );
+
+  const remoteUrl = process.env.HARNESS_SANDBOX_REMOTE_URL || null;
+  console.log(
+    remoteUrl
+      ? "[setup] remote backend: configured"
+      : "[setup] remote backend: not configured"
+  );
+}
+
 if (fixed > 0) console.log(`[setup] done — ${fixed} item(s) fixed.`);

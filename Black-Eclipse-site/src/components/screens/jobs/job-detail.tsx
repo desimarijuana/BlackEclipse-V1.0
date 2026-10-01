@@ -8,7 +8,12 @@
 import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import { jobRunStatusKey, type JobDefinitionView, type JobRunView } from '@/lib/harness/jobs-client';
+import {
+  deliveryReasonKey,
+  jobRunStatusKey,
+  type JobDefinitionView,
+  type JobRunView,
+} from '@/lib/harness/jobs-client';
 
 export interface JobDetailProps {
   job: JobDefinitionView;
@@ -70,11 +75,13 @@ export function JobDetail({ job, runs, onEnable, onDisable, onRunNow, onReset, o
                 <span className="text-foreground">{t(jobRunStatusKey(run.status) as TranslationKey)}</span>
                 <span className="text-muted-foreground/70">{run.finishedAt ?? run.startedAt}</span>
               </div>
-              {run.delivery && (
-                <span className="text-muted-foreground">
-                  {(run.delivery as { adapter?: string; ok?: boolean }).ok ? t('jobs.run.delivered') : ''}
+              {run.deliveries?.map((outcome) => (
+                <span key={`${outcome.adapter}-${outcome.target ?? ''}`} className="mt-0.5 block text-muted-foreground">
+                  {outcome.ok
+                    ? `${outcome.target ?? ''} — ${t('jobs.run.delivered')}`
+                    : t(deliveryReasonKey(outcome.reasonCode) as TranslationKey)}
                 </span>
-              )}
+              ))}
             </li>
           ))}
         </ul>

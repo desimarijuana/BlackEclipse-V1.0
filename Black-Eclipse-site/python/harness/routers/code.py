@@ -34,6 +34,9 @@ class CreateTaskRequest(BaseModel):
     callbackBaseUrl: str  # noqa: N815
     callbackToken: Optional[str] = None  # noqa: N815
     modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+    # Phase 11 (additive): a caller-supplied scope FILTER label. It narrows what is
+    # listed; it NEVER authorizes anything — `require_operator` does.
+    scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
 
 
 class DecideApprovalRequest(BaseModel):
@@ -78,17 +81,24 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
         workspaceId=body.workspaceId,
         callbackBaseUrl=body.callbackBaseUrl,
         callbackToken=body.callbackToken,
+        userId=body.scopeId,
     )
     # Record the durable `task.created` boundary BEFORE the run so a resume can
     # prove it re-enters the SAME workspace + profile.
-    _tasks().record_created(run_id, workspace_id=body.workspaceId, autonomy=autonomy)
+    _tasks().record_created(
+        run_id, workspace_id=body.workspaceId, autonomy=autonomy, scope_id=body.scopeId,
+    )
     result = await service.run(request)
     return {"success": True, "task": _tasks().view(run_id), "run": result.model_dump()}
 
 
 @router.get("/code/tasks")
-def list_tasks(status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
-    return {"success": True, "tasks": _tasks().list(limit=limit, status=status)}
+def list_tasks(
+    status: Optional[str] = None, limit: int = 50,
+    scopeId: Optional[str] = None,  # noqa: N803 - the wire name
+) -> dict[str, Any]:
+    """List code tasks. `scopeId` is a caller-supplied FILTER, never authorization."""
+    return {"success": True, "tasks": _tasks().list(limit=limit, status=status, scope_id=scopeId)}
 
 
 @router.get("/code/tasks/{task_id}")
@@ -203,8 +213,12 @@ def task_diff(task_id: str) -> dict[str, Any]:
 
 
 @router.get("/code/workspaces")
-def list_workspaces(_: bool = Depends(require_operator)) -> dict[str, Any]:
-    rows = service.code_store.list_workspaces(limit=100)
+def list_workspaces(
+    scopeId: Optional[str] = None,  # noqa: N803 - the wire name
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """List disposable workspaces. `scopeId` is a FILTER; it never widens access."""
+    rows = service.code_store.list_workspaces(limit=100, scope_id=scopeId)
     return {
         "success": True,
         "workspaces": [

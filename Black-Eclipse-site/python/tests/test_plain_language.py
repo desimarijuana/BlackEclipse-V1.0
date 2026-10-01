@@ -196,6 +196,76 @@ def test_a_plain_problem_statement_is_not_a_mechanism():
     assert "/" not in statement and "\\" not in statement
 
 
+# -- Phase 11: delivery message keys, destination names and backend refusals ----
+
+
+def test_delivery_message_is_a_key_plus_plain_params():
+    """The runtime sends a template KEY + params, never a composed sentence.
+
+    A message body names the finance job (and a real count) and nothing else — no
+    run id, job id, duration in ms or delivery code.
+    """
+    from harness.jobs.model import JobDefinition, JobDelivery, JobTarget
+    from harness.jobs.scheduler import _message_for
+    from harness.persistence import now_iso
+
+    now = now_iso()
+    job = JobDefinition(
+        id="job_pl", name="Overnight market brief", kind="manual",
+        target=JobTarget(kind="objective", objective="x"),
+        delivery=JobDelivery(adapter="messaging", destination="My phone"),
+        created_at=now, updated_at=now,
+    )
+    known_keys = {
+        "jobs.delivery.message.done",
+        "jobs.delivery.message.doneCount",
+        "jobs.delivery.message.trouble",
+    }
+    key, params = _message_for(job, "ok", {"changeCount": 3})
+    assert key in known_keys
+    assert set(params) <= {"jobName", "changeCount"}
+    assert not _leaks(key), key
+    for value in params.values():
+        assert not _leaks(str(value)), value
+
+    # A failed run's message is the trouble key and never carries a code.
+    key, params = _message_for(job, "failed", None)
+    assert key == "jobs.delivery.message.trouble"
+    assert set(params) == {"jobName"}
+
+
+def test_delivery_refusals_are_plain_and_one_sentence():
+    """The backend/delivery refusal copy names the JOB, never the mechanism."""
+    from harness.jobs import delivery
+
+    reasons = [
+        delivery.NO_DESTINATION,
+        delivery.DELIVERY_FAILED,
+        delivery.REFUSED,
+    ]
+    # The machine reason codes themselves are never shown; assert their plain
+    # counterparts in the adapter's user-facing strings.
+    assert not _leaks("I did not run that.")  # sanity: the scanner is active
+    for text in ("No destination was chosen for this job, so there was nowhere to send it.",):
+        assert not _leaks(text), text
+    assert all(isinstance(code, str) and code.isupper() for code in reasons)
+
+    from harness.code.backends import _plain_backend_reason
+
+    reason = _plain_backend_reason("container")
+    assert not _leaks(reason), reason
+    assert reason.rstrip().endswith(".")
+
+
+def test_backend_guarantee_summary_is_plain():
+    from harness.code.backends import LocalBackend
+
+    summary = LocalBackend().guarantees.summary()
+    # The guarantee summary is a machine description, but it must not smuggle a
+    # mechanism denylist term into the surface.
+    assert not _leaks(summary), summary
+
+
 def test_metrics_render_unknown_not_zero():
     from harness.persistence import AgentMemoryStore
     from harness.code import evolution

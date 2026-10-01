@@ -68,10 +68,12 @@ class TaskStore:
     def record_created(
         self, run_id: str, *, workspace_id: Optional[str], root: str = "",
         base_revision: str = "", strategy: str = "", autonomy: str = DEFAULT_AUTONOMY,
+        scope_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return self._lineage.save_checkpoint(run_id, TASK_CREATED, {
             "workspaceId": workspace_id, "root": root,
             "baseRevision": base_revision, "strategy": strategy, "autonomy": autonomy,
+            "scopeId": scope_id,
         })
 
     def record_plan_accepted(
@@ -148,12 +150,24 @@ class TaskStore:
             "updatedAt": run.get("updatedAt"),
         }
 
-    def list(self, *, limit: int = 50, status: Optional[str] = None) -> list[dict[str, Any]]:
+    def list(
+        self, *, limit: int = 50, status: Optional[str] = None,
+        scope_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Code tasks, optionally narrowed by a caller-supplied scope label.
+
+        The label maps to `HarnessRun.userId` (the same filter the older routes
+        use). It narrows what is returned and NEVER authorizes a mutation.
+        """
         limit = max(1, min(int(limit), 200))
         views: list[dict[str, Any]] = []
         for run in self._store.list_runs(limit=200):
             agent_id = run.get("agentId") or ""
             if agent_id != "code-agent":
+                continue
+            # Phase 11: the scope FILTER reads the existing `userId` column. It
+            # narrows what is returned; it never authorizes anything.
+            if scope_id is not None and run.get("userId") != scope_id:
                 continue
             view = self.view(run["id"])
             if view is None:

@@ -47,6 +47,10 @@ export const REFUSAL_KEY: Record<string, TranslationKey> = {
   COMMAND_ARG_INVALID: 'refusal.COMMAND_ARG_INVALID',
   SANDBOX_UNAVAILABLE: 'refusal.SANDBOX_UNAVAILABLE',
   COMMAND_REFUSED: 'refusal.COMMAND_REFUSED',
+  // Phase 11 delivery refusals.
+  NO_DESTINATION: 'refusal.NO_DESTINATION',
+  DELIVERY_FAILED: 'refusal.DELIVERY_FAILED',
+  REFUSED: 'refusal.REFUSED',
 };
 
 export function refusalKey(code: string | null | undefined): TranslationKey {

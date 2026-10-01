@@ -199,6 +199,15 @@ export const en = {
     'I can’t run checks safely on this computer right now, so I won’t run them.',
   'refusal.COMMAND_REFUSED':
     'I didn’t run that check because it isn’t one I’m allowed to run.',
+  // Delivery refusals (Phase 11) — one plain sentence plus a next step. The
+  // machine reason (a delivery code, a transport error) stays behind "details";
+  // a run id, job id, duration or adapter name is never shown.
+  'refusal.NO_DESTINATION':
+    'This job has nowhere chosen to send its result, so I did not send it. Pick a place for it and I’ll try again.',
+  'refusal.DELIVERY_FAILED':
+    'I finished the job but could not reach that place. It is saved in the app — open it there, or try sending again.',
+  'refusal.REFUSED':
+    'I could not send this job’s result. It is still saved in the app, and you can try again later.',
 
   // Proof it works (Phase 4) — the verification panel. Names the job, never the
   // mechanism (no "exit code", "digest", "verification ledger"); the technical
@@ -284,7 +293,10 @@ export const en = {
   'jobs.editor.whichFolder': 'Which folder?',
   'jobs.editor.delivery': 'How should it tell me?',
   'jobs.editor.delivery.inApp': 'In the app',
-  'jobs.editor.delivery.artifact': 'Save a report',
+  'jobs.editor.delivery.artifact': 'Save it as a report',
+  'jobs.editor.delivery.messaging': 'Send it to my phone',
+  'jobs.editor.destination': 'Where should it go?',
+  'jobs.editor.destination.placeholder': 'e.g. My phone',
   'jobs.editor.details': 'Details',
   'jobs.editor.schedule': 'Schedule',
   'jobs.editor.enable': 'Turn this job on',
@@ -313,6 +325,13 @@ export const en = {
   'jobs.run.delivered': 'Delivered',
   'jobs.run.webhook.token': 'Copy this now — you won’t see it again.',
   'jobs.run.details': 'Details',
+  // A job's message body. The runtime sends a KEY + parameters (the finance job's
+  // name, a count) — never a run id, job id, duration or delivery code.
+  'jobs.delivery.message.done': 'Your {jobName} is ready.',
+  'jobs.delivery.message.doneCount': 'Your {jobName} is ready — {changeCount} things changed.',
+  'jobs.delivery.message.trouble': 'I finished {jobName} but could not reach your phone. It is saved in the app — open it there, or try sending again.',
+  'jobs.run.saveReport': 'Save it as a report',
+  'jobs.run.sendToPhone': 'Send it to my phone',
 
   // ── Analysis / computed results (Phase 8) ────────────────────────────────
   // A computed number says so, in words. It names the finance job, never the

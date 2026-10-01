@@ -49,6 +49,8 @@ def _job_row(row: Any) -> dict[str, Any]:
         "on_missed": row["onMissed"],
         "target": json.loads(row["targetJson"]) if row["targetJson"] else {},
         "delivery": json.loads(row["deliveryJson"]) if row["deliveryJson"] else {},
+        # Phase 11 (additive, old-row-safe): the scope FILTER label.
+        "scope_id": row["scopeId"] if "scopeId" in row.keys() else None,
         "enabled": bool(row["enabled"]),
         "max_runtime_s": row["maxRuntimeS"],
         "created_at": row["createdAt"],
@@ -62,17 +64,30 @@ def _job_row(row: Any) -> dict[str, Any]:
 
 
 def _run_row(row: Any) -> dict[str, Any]:
+    raw = json.loads(row["deliveryJson"]) if row["deliveryJson"] else None
+    # Phase 11: a run records ONE OUTCOME PER TARGET (a list). A row written before
+    # this phase stored a single dict; normalize it to a one-element list without
+    # rewriting the row (old-row-safe). `delivery` stays the first outcome so the
+    # older front door keeps working.
+    if isinstance(raw, list):
+        deliveries = raw
+    elif isinstance(raw, dict):
+        deliveries = [raw]
+    else:
+        deliveries = None
     return {
         "id": row["id"],
         "jobId": row["jobId"],
         "runId": row["runId"],
+        "scopeId": row["scopeId"] if "scopeId" in row.keys() else None,
         "triggeredBy": row["triggeredBy"],
         "scheduledFor": row["scheduledFor"],
         "startedAt": row["startedAt"],
         "finishedAt": row["finishedAt"],
         "status": row["status"],
         "outcomeReason": row["outcomeReason"],
-        "delivery": json.loads(row["deliveryJson"]) if row["deliveryJson"] else None,
+        "delivery": deliveries[0] if deliveries else None,
+        "deliveries": deliveries,
         "missed": bool(row["missed"]),
     }
 
@@ -119,6 +134,10 @@ class JobStore:
         existing = {r["name"] for r in self._db.execute("PRAGMA table_info(HarnessJob)").fetchall()}
         if "lastRunAt" not in existing:
             self._db.execute("ALTER TABLE HarnessJob ADD COLUMN lastRunAt TEXT")
+        # Phase 11 (additive): the scope FILTER label. A job saved before this
+        # phase reads NULL and behaves exactly as before.
+        if "scopeId" not in existing:
+            self._db.execute("ALTER TABLE HarnessJob ADD COLUMN scopeId TEXT")
         self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS HarnessJobRun (
@@ -136,6 +155,11 @@ class JobStore:
             )
             """
         )
+        # Phase 11 (additive): the run's scope FILTER label, so an artifact read can
+        # be refused for another scope without opening the file. Old rows read NULL.
+        run_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(HarnessJobRun)").fetchall()}
+        if "scopeId" not in run_cols:
+            self._db.execute("ALTER TABLE HarnessJobRun ADD COLUMN scopeId TEXT")
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobrun_job ON HarnessJobRun(jobId, startedAt)"
         )
@@ -147,15 +171,15 @@ class JobStore:
         self._db.execute(
             """INSERT OR REPLACE INTO HarnessJob
                (id, name, kind, cron, intervalSeconds, watchPath, webhookTokenHash,
-                timezone, onMissed, targetJson, deliveryJson, enabled, maxRuntimeS,
+                timezone, onMissed, targetJson, deliveryJson, scopeId, enabled, maxRuntimeS,
                 createdAt, updatedAt, consecutiveFailures, breaker, breakerOpenedAt,
                 breakerResetBy, lastRunAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job.id, job.name, job.kind, job.cron, job.interval_seconds,
                 job.watch_path, job.webhook_token_hash, job.timezone, job.on_missed,
                 job.target.model_dump_json(), job.delivery.model_dump_json(),
-                1 if job.enabled else 0, job.max_runtime_s, job.created_at,
+                job.scope_id, 1 if job.enabled else 0, job.max_runtime_s, job.created_at,
                 job.updated_at, job.consecutive_failures, job.breaker,
                 job.breaker_opened_at, job.breaker_reset_by, job.last_run_at,
             ),
@@ -169,11 +193,22 @@ class JobStore:
             return None
         return JobDefinition(**_job_row(row))
 
-    def list_jobs(self, limit: int = 100) -> list[JobDefinition]:
+    def list_jobs(self, limit: int = 100, *, scope_id: Optional[str] = None) -> list[JobDefinition]:
+        """List jobs, optionally narrowed by a caller-supplied scope FILTER label.
+
+        A `scope_id` narrows what is returned; it NEVER authorizes a mutation.
+        Absent ⇒ every job (the single-user-local default).
+        """
         limit = max(1, min(int(limit), 500))
-        rows = self._db.execute(
-            "SELECT * FROM HarnessJob ORDER BY createdAt DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if scope_id is None:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessJob ORDER BY createdAt DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessJob WHERE scopeId=? ORDER BY createdAt DESC LIMIT ?",
+                (scope_id, limit),
+            ).fetchall()
         return [JobDefinition(**_job_row(r)) for r in rows]
 
     def delete_job(self, job_id: str) -> bool:
@@ -228,12 +263,13 @@ class JobStore:
     # ── Job runs ─────────────────────────────────────────────────────────────
     def start_run(
         self, job_id: str, *, triggered_by: str, scheduled_for: str, run_id: Optional[str] = None,
-        missed: bool = False,
+        missed: bool = False, scope_id: Optional[str] = None,
     ) -> dict[str, Any]:
         row = {
             "id": new_job_run_id(),
             "jobId": job_id,
             "runId": run_id,
+            "scopeId": scope_id,
             "triggeredBy": triggered_by,
             "scheduledFor": scheduled_for,
             "startedAt": now_iso(),
@@ -245,11 +281,11 @@ class JobStore:
         }
         self._db.execute(
             """INSERT INTO HarnessJobRun
-               (id, jobId, runId, triggeredBy, scheduledFor, startedAt, finishedAt,
+               (id, jobId, runId, scopeId, triggeredBy, scheduledFor, startedAt, finishedAt,
                 status, outcomeReason, deliveryJson, missed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                row["id"], row["jobId"], row["runId"], row["triggeredBy"],
+                row["id"], row["jobId"], row["runId"], row["scopeId"], row["triggeredBy"],
                 row["scheduledFor"], row["startedAt"], row["finishedAt"], row["status"],
                 row["outcomeReason"], row["deliveryJson"], row["missed"],
             ),
@@ -259,8 +295,10 @@ class JobStore:
 
     def finish_run(
         self, job_run_id: str, *, status: str, outcome_reason: Optional[str] = None,
-        run_id: Optional[str] = None, delivery: Optional[dict[str, Any]] = None,
+        run_id: Optional[str] = None,
+        delivery: Optional[list[dict[str, Any]] | dict[str, Any]] = None,
     ) -> None:
+        """Finish a run. `delivery` is a LIST of per-target outcomes (Phase 11)."""
         self._db.execute(
             """UPDATE HarnessJobRun
                SET status=?, outcomeReason=?, finishedAt=?, runId=COALESCE(?, runId),
@@ -279,12 +317,21 @@ class JobStore:
         ).fetchone()
         return _run_row(row) if row else None
 
-    def list_runs(self, job_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list_runs(
+        self, job_id: str, limit: int = 50, *, scope_id: Optional[str] = None
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
-        rows = self._db.execute(
-            "SELECT * FROM HarnessJobRun WHERE jobId=? ORDER BY startedAt DESC LIMIT ?",
-            (job_id, limit),
-        ).fetchall()
+        if scope_id is None:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessJobRun WHERE jobId=? ORDER BY startedAt DESC LIMIT ?",
+                (job_id, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessJobRun WHERE jobId=? AND scopeId=? "
+                "ORDER BY startedAt DESC LIMIT ?",
+                (job_id, scope_id, limit),
+            ).fetchall()
         return [_run_row(r) for r in rows]
 
     def last_run(self, job_id: str) -> Optional[dict[str, Any]]:

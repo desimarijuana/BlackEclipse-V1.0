@@ -3010,3 +3010,71 @@ with `evolution_candidate` / `evolution_attempt` nodes, not a second screen.
 `skills/versioning.py` and `skills/patches.py` are byte-unchanged. Tests:
 `test_evolution_bridge.py`, `test_evolution_persistence.py`,
 `test_self_improvement_freeze.py`, `test_self_improvement_e2e.py`.
+
+## ADR-H113 — Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend
+
+**Decision.** Phase 11 adds two things and changes nothing about the job model's
+authority. First, delivery grows from two adapters to three behind Phase 6's
+`DeliveryAdapter` protocol: `in_app`, `artifact`, and — new — `messaging`, which
+carries a **template KEY plus parameters** and never composes a sentence (the
+surface resolves the key through `src/lib/i18n/`, so a message that leaves the app
+is translatable and visible to the jargon gate). The `artifact` adapter writes
+`.black-eclipse/artifacts/<runId>/{report.md,receipt.json,meta.json}` with a path
+**derived** from the server-assigned run id and confined by `policy.resolve_within`;
+`receipt.json` reuses `research/receipt.py`'s shape rather than inventing a second
+report format. A job may be configured with more than one destination
+(`JobDelivery.targets`, additive), and each destination records its **own**
+`DeliveryOutcome` on the run row — one row per target, never a rolled-up boolean. A
+delivery failure is recorded and never fails the run.
+
+Second, every new surface carries the same scope FILTER label the older routes
+carry — jobs (`HarnessJob.scopeId`), code tasks (the `HarnessRun.userId` column via
+`TaskStore`), artifacts (`scopeId` on `meta.json` and on the run row), and code
+workspaces (`CodeWorkspace.scopeId`). The rule that must not drift, and that
+`test_surface_tenancy_isolation.py` mirrors from
+`test_identity_tenancy_boundary.py`: **`require_operator` stays the ONLY thing that
+authorizes a mutation.** A `scopeId` in a request body is a filter label; it can
+narrow what is returned and can never widen what is permitted.
+
+Third, the command broker gains a documented `SandboxBackend` interface
+(`python/harness/code/backends.py`) with three declarations — `local` (the
+zero-config default, `code/sandbox.py` itself, behaviour unchanged), `container` and
+`remote`. Each backend declares its `guarantees` (filesystem, network, resources,
+wall clock, process tree, environment, output cap). The honest-failure rule is
+absolute: an unavailable backend refuses with `SANDBOX_UNAVAILABLE`; it never
+degrades to `local` and never to an uncontained run. The `local` declaration is
+built FROM the enforced policy constants, so an upgrade cannot restate a weaker
+guarantee as a stronger one.
+
+**Why.** The delivery interface existed and had almost nothing behind it: a job
+that ran at 07:30 produced a good report and could only land where the app could
+put it, while the user had asked for a message. The scope labels existed on the
+older routes as filters, but the newer surfaces (jobs, code tasks, artifacts,
+workspaces) did not carry them — so "not multi-user safe" risked quietly becoming
+"not even scope-aware", which is worse. And the broker was welded to the local OS
+with nothing documenting what a *different* backend would have to guarantee, so
+nobody could add one without guessing. This phase closes those three gaps
+additively: it adds adapters and a backend interface; it does not refactor the job
+model (README 3.1). The message body is the highest-risk surface in the whole
+roadmap — it leaves the app and lands in a person's inbox — so it gets the strictest
+reading: a template carries the finance job's name and a count, and nothing else
+the user did not choose to receive; no run id, job id, duration in ms or delivery
+code ever appears.
+
+**Consequences.** `jobs/model.py` grew only additively (`JobDeliveryTarget`, an
+optional `destination`/`targets` on `JobDelivery`, an optional `scopeId` on
+`JobDefinition`); a job saved before this phase still delivers exactly as it did,
+yielding a single derived target. `jobs/store.py` records `deliveryJson` as a LIST
+of per-target outcomes and normalizes an older single-dict row to a one-element
+list without rewriting it. A new route `GET /jobs/{id}/runs/{runId}/artifact` reads
+a saved report and refuses a read from a different scope (404). `scripts/doctor.js`
+probes vendored Python, the artifact directory, the container backend and the remote
+backend; it repairs only what is safe to repair (it never installs a container
+runtime), reports a missing optional backend as "not available" while the run
+continues, and exits non-zero only when the vendored interpreter the runtime
+genuinely requires is missing. `deployment_exposure`/`identity_boundary` are
+unchanged and the app still claims no multi-user safety. Tests:
+`test_delivery_adapters.py`, `test_surface_tenancy_isolation.py`,
+`test_sandbox_backends.py`, plus the extended plain-language gates and the three
+runbooks (`runbook-add-a-job.md`, `runbook-add-a-kit.md`,
+`runbook-failed-code-task.md`).

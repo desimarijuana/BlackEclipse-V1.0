@@ -141,6 +141,39 @@ export function recentNotices() {
   return [...inAppNotices].reverse();
 }
 
+export interface JobMessageArgs {
+  /** The i18n key the runtime sent — never a composed sentence. */
+  templateKey: string;
+  /** The parameters the runtime sent (a job name, a count). */
+  params: Record<string, string | number>;
+  /** The user's chosen destination label, or null. */
+  target?: string | null;
+}
+
+/**
+ * Render a job's delivery message on the app surface.
+ *
+ * The runtime hands the surface a KEY + params (Phase 11 §6.1); this is the TS
+ * half that resolves it. It NEVER accepts a pre-composed sentence, so every word
+ * of a delivered message is translatable and visible to the jargon gate. A
+ * message that cannot be resolved falls back to a plain, honest line.
+ */
+export function renderJobMessage(
+  args: JobMessageArgs,
+  translate: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  try {
+    const rendered = translate(args.templateKey, args.params);
+    // `translate` returns the key itself when it is unknown; treat that as failure.
+    if (rendered && rendered !== args.templateKey) return rendered;
+  } catch {
+    /* fall through to the honest default */
+  }
+  return translate("jobs.delivery.message.trouble", {
+    jobName: String(args.params.jobName ?? ""),
+  });
+}
+
 export interface DispatchArgs {
   alertId: string;
   alertName: string;

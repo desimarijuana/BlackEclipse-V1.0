@@ -12,7 +12,21 @@ import { redactSecrets } from "./errors";
 export type JobKind = "cron" | "interval" | "file_watch" | "webhook" | "manual";
 export type JobRunStatus = "running" | "ok" | "failed" | "skipped" | "timed_out" | "refused";
 export type BreakerState = "closed" | "open" | "half_open";
-export type DeliveryAdapter = "in_app" | "artifact";
+export type DeliveryAdapter = "in_app" | "artifact" | "messaging";
+
+/** One configured way for a job's result to reach the user (Phase 11). */
+export interface JobDeliveryTargetView {
+  destination: string;
+  adapter: DeliveryAdapter;
+}
+
+export interface DeliveryOutcomeView {
+  adapter: DeliveryAdapter;
+  target: string | null;
+  ok: boolean;
+  reason: string | null;
+  reasonCode: "NO_DESTINATION" | "DELIVERY_FAILED" | "REFUSED" | null;
+}
 
 export interface JobTarget {
   kind: "skill" | "objective";
@@ -34,7 +48,13 @@ export interface JobDefinitionView {
   timezone: string;
   onMissed: "skip" | "run_once";
   target: JobTarget;
-  delivery: { adapter: DeliveryAdapter; title: string | null };
+  delivery: {
+    adapter: DeliveryAdapter;
+    title: string | null;
+    destination: string | null;
+    targets: JobDeliveryTargetView[];
+  };
+  scopeId: string | null;
   enabled: boolean;
   maxRuntimeS: number;
   createdAt: string;
@@ -59,6 +79,8 @@ export interface JobRunView {
   status: JobRunStatus;
   outcomeReason: string | null;
   delivery: Record<string, unknown> | null;
+  deliveries: DeliveryOutcomeView[] | null;
+  scopeId: string | null;
   missed: boolean;
 }
 
@@ -82,7 +104,13 @@ export interface CreateJobInput {
   timezone?: string;
   onMissed?: "skip" | "run_once";
   target?: Partial<JobTarget>;
-  delivery?: { adapter: DeliveryAdapter; title?: string };
+  delivery?: {
+    adapter: DeliveryAdapter;
+    title?: string;
+    destination?: string;
+    targets?: JobDeliveryTargetView[];
+  };
+  scopeId?: string;
   maxRuntimeS?: number;
   templateId?: string;
   params?: Record<string, string>;
@@ -115,8 +143,9 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   return body as T;
 }
 
-export async function listJobs(): Promise<JobDefinitionView[]> {
-  const body = await request<{ jobs: JobDefinitionView[] }>("/jobs", { method: "GET" });
+export async function listJobs(scopeId?: string): Promise<JobDefinitionView[]> {
+  const query = scopeId ? `?scopeId=${encodeURIComponent(scopeId)}` : "";
+  const body = await request<{ jobs: JobDefinitionView[] }>(`/jobs${query}`, { method: "GET" });
   return body.jobs ?? [];
 }
 
@@ -183,4 +212,30 @@ export function jobRunStatusKey(status: JobRunStatus): string {
 /** The plain sentence for a breaker state. */
 export function breakerStateKey(state: BreakerState): string {
   return `jobs.breaker.${state}`;
+}
+
+/** The plain refusal key for a delivery outcome. The code stays behind "details". */
+export function deliveryReasonKey(reasonCode: string | null | undefined): string {
+  if (reasonCode) return `refusal.${reasonCode}`;
+  return 'refusal.DELIVERY_FAILED';
+}
+
+export interface JobArtifactView {
+  'report.md'?: string;
+  'meta.json'?: Record<string, unknown> | null;
+  'receipt.json'?: Record<string, unknown> | null;
+}
+
+/** Read a saved report artifact for one run. The path is derived by the runtime. */
+export async function getJobRunArtifact(
+  jobId: string,
+  runId: string,
+  scopeId?: string,
+): Promise<JobArtifactView> {
+  const query = scopeId ? `?scopeId=${encodeURIComponent(scopeId)}` : '';
+  const body = await request<{ artifact: JobArtifactView }>(
+    `/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(runId)}/artifact${query}`,
+    { method: "GET" },
+  );
+  return body.artifact;
 }

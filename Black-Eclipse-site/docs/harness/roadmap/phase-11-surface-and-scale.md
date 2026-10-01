@@ -1,10 +1,10 @@
 ---
 title: "Phase 11 — Surface and Scale"
-status: Not started
+status: Done
 phase: 11
 depends_on: [6, 10]
 unlocks: []
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 11 — Surface and Scale

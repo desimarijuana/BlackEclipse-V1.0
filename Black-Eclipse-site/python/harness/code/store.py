@@ -61,6 +61,11 @@ class CodeWorkspaceStore:
             )
             """
         )
+        # Phase 11 (additive, old-row-safe): the caller-supplied scope FILTER label.
+        # A workspace is not enumerable across scopes. It NEVER authorizes anything.
+        ws_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(CodeWorkspace)").fetchall()}
+        if "scopeId" not in ws_cols:
+            self._db.execute("ALTER TABLE CodeWorkspace ADD COLUMN scopeId TEXT")
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_code_workspace_created ON CodeWorkspace(createdAt)"
         )
@@ -106,6 +111,7 @@ class CodeWorkspaceStore:
         run_id: Optional[str] = None,
         file_count: int = 0,
         created_at: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> dict[str, Any]:
         record = {
             "id": workspace_id,
@@ -117,15 +123,17 @@ class CodeWorkspaceStore:
             "diffDigest": None,
             "runId": run_id,
             "fileCount": int(file_count),
+            "scopeId": scope_id,
         }
         self._db.execute(
             """INSERT OR REPLACE INTO CodeWorkspace
-               (id, root, baseRevision, strategy, createdAt, releasedAt, diffDigest, runId, fileCount)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, root, baseRevision, strategy, createdAt, releasedAt, diffDigest, runId,
+                fileCount, scopeId)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["id"], record["root"], record["baseRevision"], record["strategy"],
                 record["createdAt"], record["releasedAt"], record["diffDigest"],
-                record["runId"], record["fileCount"],
+                record["runId"], record["fileCount"], record["scopeId"],
             ),
         )
         self._db.commit()
@@ -146,23 +154,47 @@ class CodeWorkspaceStore:
         self._db.commit()
 
     # ── Reads ────────────────────────────────────────────────────────────────
-    def get_workspace(self, workspace_id: str) -> Optional[dict[str, Any]]:
-        row = self._db.execute(
-            "SELECT * FROM CodeWorkspace WHERE id=?", (workspace_id,)
-        ).fetchone()
+    def get_workspace(
+        self, workspace_id: str, *, scope_id: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
+        """One workspace, or None. A `scope_id` mismatch reads as not found.
+
+        The scope label is a FILTER: a read of another scope's workspace returns
+        nothing (and the route refuses it) — it never escalates access.
+        """
+        if scope_id is None:
+            row = self._db.execute(
+                "SELECT * FROM CodeWorkspace WHERE id=?", (workspace_id,)
+            ).fetchone()
+        else:
+            row = self._db.execute(
+                "SELECT * FROM CodeWorkspace WHERE id=? AND scopeId=?",
+                (workspace_id, scope_id),
+            ).fetchone()
         return _row(row) if row else None
 
-    def list_workspaces(self, *, run_id: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_workspaces(
+        self, *, run_id: Optional[str] = None, limit: int = 100,
+        scope_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """List workspaces, optionally narrowed by a caller-supplied scope label.
+
+        A `scope_id` narrows what is returned; it NEVER authorizes a mutation.
+        """
         limit = max(1, min(int(limit), 500))
+        clauses: list[str] = []
+        params: list[Any] = []
         if run_id:
-            rows = self._db.execute(
-                "SELECT * FROM CodeWorkspace WHERE runId=? ORDER BY createdAt DESC LIMIT ?",
-                (run_id, limit),
-            ).fetchall()
-        else:
-            rows = self._db.execute(
-                "SELECT * FROM CodeWorkspace ORDER BY createdAt DESC LIMIT ?", (limit,)
-            ).fetchall()
+            clauses.append("runId = ?")
+            params.append(run_id)
+        if scope_id is not None:
+            clauses.append("scopeId = ?")
+            params.append(scope_id)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        rows = self._db.execute(
+            f"SELECT * FROM CodeWorkspace{where} ORDER BY createdAt DESC LIMIT ?", tuple(params)
+        ).fetchall()
         return [_row(r) for r in rows]
 
     # ── Command executions (Phase 3) ─────────────────────────────────────────

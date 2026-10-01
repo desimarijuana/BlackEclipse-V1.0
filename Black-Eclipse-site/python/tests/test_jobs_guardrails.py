@@ -118,10 +118,17 @@ def test_watch_path_outside_workspace_is_refused(tmp_workspace):
 
 def test_unknown_delivery_adapter_is_refused():
     # Bypass the Literal so the GUARDRAIL (not pydantic) is what refuses.
-    job = _job(delivery=JobDelivery.model_construct(adapter="messaging", title=None))
+    # Phase 11 promoted `messaging` to a known adapter, so an unknown one is used.
+    job = _job(delivery=JobDelivery.model_construct(adapter="carrier-pigeon", title=None))
     with pytest.raises(JobValidationError) as info:
         validate_job(job, skill_registry=_Registry())
     assert info.value.code == UNKNOWN_ADAPTER
+
+
+def test_messaging_is_now_a_known_adapter():
+    job = _job(delivery=JobDelivery(adapter="messaging", destination="My phone"))
+    validated = validate_job(job, skill_registry=_Registry())
+    assert validated.delivery.adapter == "messaging"
 
 
 def test_unknown_skill_is_refused():

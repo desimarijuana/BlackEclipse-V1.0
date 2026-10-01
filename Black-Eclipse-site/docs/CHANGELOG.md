@@ -8,6 +8,31 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 11 — surface and scale.**
+  Delivery grows from two adapters to three behind the Phase-6 `DeliveryAdapter`
+  protocol: new `python/harness/jobs/delivery.py` `messaging` adapter (a template
+  KEY + params, never a composed sentence) and the `artifact` file contract
+  (`.black-eclipse/artifacts/<runId>/{report.md,receipt.json,meta.json}`, path
+  derived from the run id and confined by policy). Every configured target records
+  its OWN `DeliveryOutcome` on the run row — no rolled-up boolean; a delivery
+  failure never fails the run. Additive `JobDeliveryTarget` + `destination`/`targets`
+  and a `scopeId` FILTER label on jobs, code tasks, artifacts and code workspaces
+  (`test_surface_tenancy_isolation.py` mirrors the older tenancy boundary; a
+  body-supplied scope never authorizes). New `python/harness/code/backends.py`
+  `SandboxBackend` with `local`/`container`/`remote` declarations, the honest-failure
+  rule absolute (an unavailable backend refuses with `SANDBOX_UNAVAILABLE`, never
+  degrades). `scripts/doctor.js` gains four honest probes; three runbooks added
+  (`runbook-add-a-job.md`, `runbook-add-a-kit.md`, `runbook-failed-code-task.md`).
+  Front door `src/lib/harness/jobs-client.ts` + `src/app/api/jobs/**/artifact` +
+  `src/lib/alerts/notifier.ts` (`renderJobMessage`); i18n `jobs.delivery.*` and the
+  delivery `refusal.*` keys. Tests `test_delivery_adapters.py`/
+  `test_surface_tenancy_isolation.py`/`test_sandbox_backends.py`. ADR-H113.
+  docs updated: `docs/harness/decisions.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-11-surface-and-scale.md`,
+  `docs/harness/roadmap/progress/phase-11-progress.md`,
+  `docs/harness/runbook-{add-a-job,add-a-kit,failed-code-task}.md`.
+
 - **Eclipse-as-a-Harness Phase 10 — self-improvement v2 (code as well as skills).**
   New `python/harness/code/evolution.py` (a recurrence bridge that consumes the
   existing `LearningRecurrence` counter, `propose_ops` with the FROZEN set and the

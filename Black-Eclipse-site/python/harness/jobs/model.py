@@ -27,8 +27,8 @@ JobTargetKind = Literal["skill", "objective"]
 # The autonomy a code job may declare. Absent ⇒ a research/analysis job.
 JobAutonomy = Literal["plan_only", "edit_verify", "approve_external"]
 
-JobDeliveryAdapter = Literal["in_app", "artifact"]   # Phase 11 adds "messaging"
-KNOWN_ADAPTERS: tuple[str, ...] = ("in_app", "artifact")
+JobDeliveryAdapter = Literal["in_app", "artifact", "messaging"]
+KNOWN_ADAPTERS: tuple[str, ...] = ("in_app", "artifact", "messaging")
 
 # Breaker states — reused from `mcp/circuit.py` (same names, same meaning).
 CLOSED = "closed"
@@ -62,11 +62,48 @@ class JobTarget(BaseModel):
         return self.workspace_root is not None or self.autonomy is not None
 
 
+class JobDeliveryTarget(BaseModel):
+    """One configured way for a job's result to reach the user (Phase 11).
+
+    `destination` is the user-chosen LABEL ("In the app", "Save it as a report",
+    "Send it to my phone"). `adapter` is the mechanism behind it. Both are data.
+    """
+
+    model_config = _CAMEL
+
+    destination: str = Field(..., max_length=200)
+    adapter: JobDeliveryAdapter = "in_app"
+
+
 class JobDelivery(BaseModel):
     model_config = _CAMEL
 
     adapter: JobDeliveryAdapter = "in_app"
     title: Optional[str] = Field(None, max_length=200)
+    # Phase 11 (additive, optional): the user-chosen destination label for the
+    # primary adapter. Absent for a job saved before Phase 11 — such a job
+    # delivers exactly as it did.
+    destination: Optional[str] = Field(None, max_length=200)
+    # Phase 11 (additive, optional): the full set of configured targets. When
+    # present, EVERY target receives the job and gets its own recorded outcome.
+    # When absent, `effective_targets()` derives a single target from
+    # `adapter` + `destination` (old-row-safe).
+    targets: list[JobDeliveryTarget] = Field(default_factory=list)
+
+    def effective_targets(self) -> list[JobDeliveryTarget]:
+        """The targets to deliver to. Never empty: an old job yields one target."""
+        if self.targets:
+            # De-duplicate by (destination, adapter) while preserving order.
+            seen: set[tuple[str, str]] = set()
+            out: list[JobDeliveryTarget] = []
+            for target in self.targets:
+                key = (target.destination, target.adapter)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(target)
+            return out
+        return [JobDeliveryTarget(destination=self.destination or self.adapter,
+                                  adapter=self.adapter)]
 
 
 class JobDefinition(BaseModel):
@@ -85,6 +122,11 @@ class JobDefinition(BaseModel):
     on_missed: OnMissed = "skip"
     target: JobTarget
     delivery: JobDelivery = Field(default_factory=JobDelivery)
+    # Phase 11 (additive, optional): the caller-supplied scope FILTER label. It can
+    # narrow what is listed and NEVER authorizes anything: `require_operator`
+    # remains the only mutation authorization. Absent for a job saved before this
+    # phase (old-row-safe).
+    scope_id: Optional[str] = Field(None, max_length=200)
     enabled: bool = False                         # discovery is not activation
     max_runtime_s: int = Field(900, ge=30, le=7200)
     created_at: str
@@ -123,6 +165,7 @@ __all__ = [
     "JobDefinition",
     "JobDelivery",
     "JobDeliveryAdapter",
+    "JobDeliveryTarget",
     "JobKind",
     "JobTarget",
     "JobTargetKind",

@@ -12,6 +12,7 @@ token instead (a webhook cannot carry operator proof).
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -49,6 +50,9 @@ class CreateJobRequest(BaseModel):
     target: Optional[dict[str, Any]] = None
     delivery: Optional[dict[str, Any]] = None
     maxRuntimeS: int = 900  # noqa: N815
+    # Phase 11 (additive): the caller-supplied scope FILTER label. It narrows what
+    # is listed and NEVER authorizes anything.
+    scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
     # When set, a library template builds the job; `params` parameterizes it.
     templateId: Optional[str] = None  # noqa: N815
     params: dict[str, Any] = Field(default_factory=dict)
@@ -68,6 +72,7 @@ class UpdateJobRequest(BaseModel):
     target: Optional[dict[str, Any]] = None
     delivery: Optional[dict[str, Any]] = None
     maxRuntimeS: Optional[int] = None  # noqa: N815
+    scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
     enabled: Optional[bool] = None
 
 
@@ -98,10 +103,14 @@ def job_templates(_: bool = Depends(require_operator)) -> dict[str, Any]:
 
 
 @router.get("/jobs")
-def list_jobs(_: bool = Depends(require_operator)) -> dict[str, Any]:
+def list_jobs(
+    scopeId: Optional[str] = None,  # noqa: N803 - the wire name
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """List jobs. `scopeId` is a caller-supplied FILTER (never authorization)."""
     store = _jobs()
     jobs = []
-    for job in store.list_jobs(limit=200):
+    for job in store.list_jobs(limit=200, scope_id=scopeId):
         item = job.public()
         last = store.last_run(job.id)
         item["lastRun"] = last
@@ -123,6 +132,8 @@ def create_job(body: CreateJobRequest, _: bool = Depends(require_operator)) -> d
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if body.delivery:
             job = job.model_copy(update={"delivery": job.delivery.model_copy(update=body.delivery)})
+        if body.scopeId is not None:
+            job = job.model_copy(update={"scope_id": body.scopeId})
     else:
         if not body.target:
             raise HTTPException(status_code=400, detail="A job needs a target or a template")
@@ -139,6 +150,7 @@ def create_job(body: CreateJobRequest, _: bool = Depends(require_operator)) -> d
                 on_missed=body.onMissed,  # type: ignore[arg-type]
                 target=body.target,  # type: ignore[arg-type]
                 delivery=body.delivery or {},  # type: ignore[arg-type]
+                scope_id=body.scopeId,
                 max_runtime_s=body.maxRuntimeS,
                 created_at=now,
                 updated_at=now,
@@ -182,7 +194,7 @@ def update_job(
     mapping = {
         "name": "name", "kind": "kind", "cron": "cron", "intervalSeconds": "interval_seconds",
         "watchPath": "watch_path", "timezone": "timezone", "onMissed": "on_missed",
-        "maxRuntimeS": "max_runtime_s", "enabled": "enabled",
+        "maxRuntimeS": "max_runtime_s", "enabled": "enabled", "scopeId": "scope_id",
     }
     for camel, field in mapping.items():
         if camel in present:
@@ -256,6 +268,46 @@ def job_runs(job_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]
     if store.get_job(job_id) is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"success": True, "runs": store.list_runs(job_id, limit=100)}
+
+
+@router.get("/jobs/{job_id}/runs/{run_id}/artifact")
+def job_run_artifact(
+    job_id: str, run_id: str,
+    scopeId: Optional[str] = None,  # noqa: N803 - the wire name
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read a saved report artifact. The path is DERIVED from the run id.
+
+    A `scopeId` that does not match the run is REFUSED (404) — a read of another
+    scope's artifact returns nothing. The scope label never widens access.
+    """
+    store = _jobs()
+    run = store.get_run(run_id)
+    if run is None or run["jobId"] != job_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if scopeId is not None and run.get("scopeId") != scopeId:
+        raise HTTPException(status_code=404, detail="Run not found")
+    from ..jobs.delivery import artifact_dir_for  # noqa: PLC0415
+
+    artifact_run_id = run.get("runId") or run_id
+    try:
+        directory = artifact_dir_for(artifact_run_id)
+    except Exception as exc:  # noqa: BLE001 - an unreadable artifact path is a 400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not directory.is_dir():
+        raise HTTPException(status_code=404, detail="No saved report for this run")
+    files: dict[str, Any] = {}
+    for name in ("report.md", "meta.json", "receipt.json"):
+        path = directory / name
+        if path.is_file():
+            if name.endswith(".json"):
+                try:
+                    files[name] = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001 - unreadable JSON is reported honestly
+                    files[name] = None
+            else:
+                files[name] = path.read_text(encoding="utf-8")
+    return {"success": True, "artifact": files}
 
 
 @router.post("/jobs/{job_id}/trigger")

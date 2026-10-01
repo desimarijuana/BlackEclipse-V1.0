@@ -29,7 +29,7 @@ from ..mcp.circuit import CLOSED, COOLDOWN_S, FAILURE_THRESHOLD, HALF_OPEN, OPEN
 from ..persistence import now_iso
 from ..schemas import ModelSettings, RunInput, RunRequest, RunWorkspace
 from .cron import CronError, parse_cron
-from .delivery import DeliverySummary, default_adapters
+from .delivery import DeliverySummary, default_adapters, deliver_all
 from .model import JobDefinition
 from .store import JobStore
 from .triggers import FileWatcher, resolve_watch_path
@@ -62,6 +62,40 @@ def _default_model_settings() -> ModelSettings:
         base_url=os.environ.get("HARNESS_JOB_BASE_URL") or None,
         api_key=os.environ.get("HARNESS_JOB_API_KEY") or None,
     )
+
+
+def _message_for(
+    job: JobDefinition, status: str, outcome: Optional[dict[str, Any]]
+) -> tuple[Optional[str], dict[str, Any]]:
+    """A template KEY + parameters for the job's message (§6.1).
+
+    Never a sentence, never a run id, job id, duration in ms or a delivery code.
+    The surface renders the key. A count is only included when the run reported
+    one; otherwise it is omitted rather than fabricated.
+    """
+    params: dict[str, Any] = {"jobName": job.name}
+    if status != "ok":
+        return "jobs.delivery.message.trouble", params
+    count = _change_count(outcome)
+    if count is not None:
+        params["changeCount"] = count
+        return "jobs.delivery.message.doneCount", params
+    return "jobs.delivery.message.done", params
+
+
+def _change_count(outcome: Optional[dict[str, Any]]) -> Optional[int]:
+    """A real, reported change count from the run, or None — never invented."""
+    data = outcome or {}
+    for name in ("changeCount", "changedCount", "changes"):
+        value = data.get(name)
+        if isinstance(value, int) and value >= 0:
+            return value
+    output = data.get("output")
+    if isinstance(output, dict):
+        value = output.get("changeCount")
+        if isinstance(value, int) and value >= 0:
+            return value
+    return None
 
 
 def _parse_iso(value: Optional[str]) -> Optional[_dt.datetime]:
@@ -267,7 +301,7 @@ class JobScheduler:
             return run["id"]
         run = self._store.start_run(
             job.id, triggered_by=triggered_by, scheduled_for=scheduled_for, missed=missed,
-            run_id=self._run_id(job),
+            run_id=self._run_id(job), scope_id=job.scope_id,
         )
         task = asyncio.create_task(self._execute(job, run["id"], run["runId"]))
         self._active[run["id"]] = task
@@ -356,26 +390,40 @@ class JobScheduler:
 
     async def _deliver(
         self, job: JobDefinition, run_id: str, status: str, outcome: Optional[dict[str, Any]],
-    ) -> Optional[dict[str, Any]]:
-        adapter = self._adapters.get(job.delivery.adapter)
-        if adapter is None:
-            return None
+    ) -> Optional[list[dict[str, Any]]]:
+        """Deliver to EVERY configured target; return one outcome PER TARGET.
+
+        A delivery failure is recorded on the run row and never fails the run.
+        The message body is a KEY + params — never composed here.
+        """
         answer = (outcome or {}).get("output") or ""
         word = {"ok": "delivered", "failed": "couldn't finish", "timed_out": "stopped early",
                 "skipped": "skipped", "refused": "not allowed"}.get(status, status)
         outcome_line = f"Ran at {self._now().strftime('%H:%M')} · {word}"
+        message_key, message_params = _message_for(job, status, outcome)
         summary = DeliverySummary(
             title=(job.delivery.title or job.name)[:200],
             answer=str(answer)[:20_000],
             outcome_line=outcome_line,
             status=status,
             run_id=run_id,
+            meta={"receipt": (outcome or {}).get("receipt")},
+            message_key=message_key,
+            message_params=message_params,
         )
         try:
-            delivered = await adapter.deliver(job, run_id, summary)
-            return delivered.public()
+            outcomes = await deliver_all(job, run_id, summary, self._adapters)
+            return outcomes or None
         except Exception as exc:  # noqa: BLE001 - delivery never fails the run
-            return {"adapter": adapter.name, "ok": False, "reason": str(exc)}
+            return [{
+                "adapter": job.delivery.adapter, "target": job.delivery.destination,
+                "ok": False, "reason": str(exc)[:2000], "reasonCode": "DELIVERY_FAILED",
+            }]
+
+    # ── Message template (Phase 11) ───────────────────────────────────────────
+    # The runtime sends a KEY + parameters, never a composed sentence. The surface
+    # resolves the key through src/lib/i18n/. A body names the finance job (and a
+    # real count when the run produced one) — never a run id, job id or duration.
 
     # ── Missed-run reconciliation ────────────────────────────────────────────
     async def _reconcile_missed(self) -> None:
