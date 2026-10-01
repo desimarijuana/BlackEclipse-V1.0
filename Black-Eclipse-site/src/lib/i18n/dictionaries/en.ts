@@ -98,6 +98,40 @@ export const en = {
   'a11y.closeMenu': 'Close menu',
   'a11y.openMenu': 'Open menu',
 
+  // Repository navigator (read-only task surface) — names the finance JOB,
+  // never the mechanism. The refusal sentences are keyed by the machine code.
+  'task.navigator.title': 'Look through the project',
+  'task.navigator.description':
+    'Find a file, read a passage, or search the project’s notes and documents. Read-only — nothing is changed.',
+  'task.navigator.emptyQuery': 'Ask something about the project to get started.',
+  'task.navigator.found': 'Found {count} passage(s).',
+  'task.navigator.noMatches': 'No matches were found for that.',
+  'task.navigator.reading': 'Reading {name}…',
+  'task.navigator.citation': 'From {path}:{line}',
+
+  // Refusals — one plain sentence per machine code, plus a shared details label.
+  // The code itself is never shown as the primary message; it belongs behind
+  // the details affordance.
+  'refusal.details': 'Show details',
+  'refusal.PROTECTED_PATH':
+    'I couldn’t read that because it holds Eclipse’s own private data, so I left it alone.',
+  'refusal.PATH_TRAVERSAL':
+    'I couldn’t look there because it points outside the project, so I left it alone.',
+  'refusal.PATH_OUTSIDE_WORKSPACE':
+    'I couldn’t look there because it is outside the project, so I left it alone.',
+  'refusal.SYMLINK_ESCAPE':
+    'I couldn’t look there because it leads outside the project, so I left it alone.',
+  'refusal.IGNORED_PATH':
+    'I skipped that because it is generated automatically and not meant to be read by hand.',
+  'refusal.NOT_FOUND': 'I couldn’t find that, so there was nothing to read.',
+  'refusal.BINARY_FILE':
+    'I couldn’t read that because it isn’t readable text, so I left it alone.',
+  'refusal.TOO_LARGE': 'That is too large for me to read in one go.',
+  'refusal.WORKSPACE_UNAVAILABLE':
+    'I don’t have a project folder to look through right now, so I can’t answer that.',
+  'refusal.INVALID_PATTERN':
+    'I couldn’t run that search because the wording wasn’t something I could look for.',
+
   // Keyboard shortcuts dialog
   'keyboard.title': 'Keyboard shortcuts',
   'keyboard.searchPlaceholder': 'Search actions, keys, or pages',

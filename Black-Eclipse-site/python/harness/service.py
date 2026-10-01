@@ -12,6 +12,7 @@ import logging
 import os
 from typing import Any, Optional
 
+from .code.tools import register_code_tools
 from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
@@ -95,6 +96,9 @@ class AgenticService:
         # The memory/skill tools the system prompt promises — on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
+        # The read-only repository navigator (Phase 1): five read tools on the
+        # SAME registry. No write/execute tool is registered.
+        register_code_tools(self.registry)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.

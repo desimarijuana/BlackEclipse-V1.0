@@ -8,6 +8,49 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Eclipse-as-a-Harness Phase 1 — read-only repository navigator.** Five
+  read-only tools on the EXISTING `ToolRegistry` (`workspace_status`,
+  `workspace_list`, `workspace_search`, `workspace_read`, `workspace_docs`; all
+  `permission="read"`, `risk="low"`), registered once from `service.py`. New
+  `python/harness/code/workspace.py` owns resolution + the ONE confinement seam
+  (`confine` delegates to Phase 0 `policy.resolve_within`) + the fixed
+  argument-free `git` probe + a bounded ignore-aware walker; `code/tools.py` owns
+  the handlers and `emit_code_event`. `policy.resolve_within` now returns
+  DISTINCT codes per escape vector (`PATH_TRAVERSAL` / `PATH_OUTSIDE_WORKSPACE` /
+  `SYMLINK_ESCAPE`, plus `PROTECTED_PATH` / `IGNORED_PATH`); `jdds.db` reports
+  `PROTECTED_PATH`, never `BINARY_FILE`. Reads are line-numbered with a
+  continuation offset, refuse binary, and redact secret-shaped lines to
+  `«redacted»` via `session_index.redact_span` (one pattern set). New
+  `code-navigator` agent preset (only the five tools, no MCP); `RunRequest.workspace`
+  (optional, additive; can only confirm the server root) wired through
+  `ToolContext.workspace`; front-door `validateWorkspaceRef` + types; i18n
+  `task.*`/`refusal.*` keys + a code→sentence map and the `plain-language.test.ts`
+  jargon gate. ADR-H100 appended (the series ended at H99, not H92). Baseline
+  frozen in `docs/harness/roadmap/progress/phase-01-progress.md` (vitest 168/1962;
+  pytest 1777→1808; eval gates pass). docs updated: `docs/harness/decisions.md`,
+  `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-01-repository-navigator.md`, `docs/NAVIGATION.md`
+
+- **Eclipse-as-a-Harness Phase 0 — code capability becomes a tested policy
+  decision (ships NO tools).** New `python/harness/code/policy.py` is the single
+  policy authority: `AUTONOMY_PROFILES`, `PROTECTED_PATHS`, `IGNORED_DIRS`/
+  `IGNORED_GLOBS`, `COMMAND_CLASSES`, `NETWORK_DEFAULT`, `SECRET_ENV_ALLOWLIST`,
+  `PLAIN_LANGUAGE_DENYLIST`, `WorkspaceBinding`/`PolicyDecision`, and
+  `is_protected`/`is_ignored`/`resolve_within` (real-path compare, refuses
+  traversal, absolute-outside and link escapes)/`decide_write`/`decide_command`/
+  `code_grants`. `skills/manifest.py` gains the seven code nouns and
+  `CODE_PERMISSIONS`, and narrows `FORBIDDEN_PERMISSIONS` to
+  trade/broker/production. `skills/permissions.py` `Actor` gains
+  `workspace_id`/`autonomy`; `granted()` unions `code_grants` only when both are
+  set (unknown profile → nothing, fail-closed), and a caller grant can no longer
+  smuggle a code verb. New `python/tests/test_code_policy.py` (33 tests, incl.
+  path-escape and command refusals and the plain-language seed gate). ADR-H97/
+  H98/H99 appended (the series already ended at H96, not H92). Baseline gate
+  frozen in `docs/harness/roadmap/progress/phase-00-progress.md` (vitest 168
+  files / 1962 tests; pytest 1744; eval gates all pass). docs updated:
+  `docs/harness/decisions.md`, `docs/harness/roadmap/README.md`,
+  `docs/harness/roadmap/phase-00-policy-and-baseline.md`, `docs/NAVIGATION.md`
+
 - **ChatBot landing wordmark — user-authored giant text + font.** Settings ›
   General › Background gained a "Landing text" card: a text field, a curated
   display-font list (`WORDMARK_FONT_OPTIONS`), alignment, size (vw), strength and

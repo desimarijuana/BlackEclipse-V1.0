@@ -7,6 +7,7 @@ export type {
   RunInput,
   RunResult,
   RunRecord,
+  RunWorkspaceRef,
   HarnessEvent,
   HarnessErrorJson,
   DataCapability,
@@ -22,7 +23,7 @@ export type {
 } from "./types";
 export { HarnessError, toHarnessErrorJson, redactSecrets } from "./errors";
 export type { HarnessErrorCode } from "./errors";
-export { validateRunInput, assertRunInput } from "./validation";
+export { validateRunInput, assertRunInput, validateWorkspaceRef } from "./validation";
 export { newRunId } from "./ids";
 export { startRun, chatWithAgent, startChatRun } from "./run-service";
 export type { StartRunOptions } from "./run-service";

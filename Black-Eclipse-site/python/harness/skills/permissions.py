@@ -27,7 +27,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from .manifest import FORBIDDEN_PERMISSIONS, Permission
+from ..code.policy import code_grants
+from .manifest import CODE_PERMISSIONS, FORBIDDEN_PERMISSIONS, Permission
 
 # The Phase-3 safe set: read-only financial research + analysis + reporting.
 # No skill may be *enabled* with anything outside this set (except the
@@ -51,10 +52,10 @@ OPERATOR_PERMISSIONS: frozenset[str] = frozenset(
 )
 
 # Never granted in Phase 3, to any actor. Declaring one is allowed (the manifest
-# stays well-formed) but it can never resolve to a grant.
-BLOCKED_PERMISSIONS: frozenset[str] = FORBIDDEN_PERMISSIONS | frozenset(
-    {"code.execute"}
-)
+# stays well-formed) but it can never resolve to a grant. `code.execute` /
+# `code.write` left this set in Phase 0: they are now grantable ONLY through the
+# workspace-bound path (`code_grants`, below), never to the safe or operator set.
+BLOCKED_PERMISSIONS: frozenset[str] = FORBIDDEN_PERMISSIONS
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,11 @@ class Actor:
     grants: frozenset[str] = field(default_factory=frozenset)
     # Per-request scopes a surface may narrow (e.g. a workflow pins read-only).
     scopes: frozenset[str] = field(default_factory=frozenset)
+    # NEW — set only by the code run path (Phase 1+). Absent = no code capability.
+    # The code verbs are unioned in ONLY when BOTH a workspace binding and a
+    # known autonomy profile are present (fail-closed otherwise).
+    workspace_id: Optional[str] = None
+    autonomy: Optional[str] = None
 
     def granted(self) -> frozenset[str]:
         """The resolved permission set for this actor (never includes blocked)."""
@@ -75,8 +81,16 @@ class Actor:
         if self.operator:
             base |= OPERATOR_PERMISSIONS
             base |= set(self.grants)
-        # Blocked permissions can never be granted.
+        # Forbidden permissions (trade/broker/production) can never be granted.
         base -= BLOCKED_PERMISSIONS
+        # The code verbs are NOT reachable through a caller-supplied grant: only
+        # the workspace-bound path below may hold them. Without this an operator
+        # could smuggle `code.write` in via `grants`, defeating the freeze.
+        base -= set(CODE_PERMISSIONS)
+        # A workspace-bound actor may hold the code verbs for its profile. An
+        # unknown profile grants nothing: `code_grants` returns an empty set.
+        if self.workspace_id and self.autonomy:
+            base |= set(code_grants(self.autonomy))
         # A non-operator cannot widen; scopes only *narrow* when both are given.
         if self.scopes:
             narrowed = base & {p for p in self.scopes}

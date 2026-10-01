@@ -169,6 +169,10 @@ class ToolContext:
     # Names of deprecated tools already warned about THIS run, so the registry
     # warns once per run, not once per call (Phase 6).
     deprecated_warned: Any = None
+    # The resolved, read-only workspace binding for THIS run (Phase 1). Set by
+    # the graph from `resolve_workspace(request.workspace)`; None = no code
+    # capability (every code tool then refuses with WORKSPACE_UNAVAILABLE).
+    workspace: Any = None
 
 
 class DataBridge:

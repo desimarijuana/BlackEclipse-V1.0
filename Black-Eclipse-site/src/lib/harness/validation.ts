@@ -4,7 +4,7 @@
 // validation lives on the Python side (`python/harness/schemas.py`), which is
 // the runtime that actually consumes it.
 
-import type { RunInput } from "./types";
+import type { RunInput, RunWorkspaceRef } from "./types";
 import { HarnessError } from "./errors";
 
 export interface InputValidationResult {
@@ -14,6 +14,55 @@ export interface InputValidationResult {
 }
 
 const MAX_QUERY_LENGTH = 4000;
+const MAX_WORKSPACE_ROOT = 1024;
+const MAX_BASE_REVISION = 128;
+
+/**
+ * Validate an optional workspace reference before forwarding it to the runtime.
+ *
+ * This is a NARROWING/confirmation only: the Python runtime binds the
+ * server-resolved root and refuses any `root` that does not match it. Here we
+ * only reject malformed input (control characters/NUL, over-length), so a bad
+ * value fails at the front door rather than reaching the runtime.
+ */
+export function validateWorkspaceRef(raw: unknown): {
+  ok: boolean;
+  value?: RunWorkspaceRef;
+  issues: string[];
+} {
+  const issues: string[] = [];
+  if (raw === undefined || raw === null) return { ok: true, issues: [] };
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, issues: ["workspace must be an object"] };
+  }
+  const body = raw as Record<string, unknown>;
+  const hasControlChars = (s: string) => {
+    for (let i = 0; i < s.length; i += 1) {
+      const code = s.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) return true;
+    }
+    return false;
+  };
+
+  const root = typeof body.root === "string" ? body.root.trim() : "";
+  if (!root) issues.push("workspace.root is required");
+  else if (root.length > MAX_WORKSPACE_ROOT) issues.push(`workspace.root too long (max ${MAX_WORKSPACE_ROOT} chars)`);
+  else if (hasControlChars(root)) issues.push("workspace.root must not contain control characters");
+
+  let baseRevision: string | undefined;
+  if (body.baseRevision !== undefined && body.baseRevision !== null) {
+    if (typeof body.baseRevision !== "string") issues.push("workspace.baseRevision must be a string");
+    else {
+      baseRevision = body.baseRevision.trim();
+      if (baseRevision.length > MAX_BASE_REVISION) issues.push(`workspace.baseRevision too long (max ${MAX_BASE_REVISION} chars)`);
+      else if (hasControlChars(baseRevision)) issues.push("workspace.baseRevision must not contain control characters");
+    }
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, value: { root, baseRevision }, issues: [] };
+}
+
 const MAX_CONTEXT_KEYS = 50;
 const MAX_HISTORY_TURNS = 20;
 const MAX_HISTORY_CONTENT = 20_000;

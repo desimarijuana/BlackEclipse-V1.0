@@ -36,6 +36,7 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from .agents import DEFAULT_AGENT_ID, get_agent
+from .code.workspace import resolve_workspace
 from .events import EventBus, RunEmitter
 from .model_stream import (
     FINALIZE_INSTRUCTION as _FINALIZE_INSTRUCTION,
@@ -318,6 +319,9 @@ def build_graph(
         tool_registry=registry,
         authorize_effect=effect_authorizer,
         mcp_manager=mcp_manager,
+        # The read-only workspace binding for this run (Phase 1). Absent ⇒ no
+        # code capability (the default-actor rule).
+        workspace=resolve_workspace(request.workspace),
     )
     registry.set_active_context(ctx)
 

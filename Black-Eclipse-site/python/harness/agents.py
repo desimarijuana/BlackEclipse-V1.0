@@ -8,8 +8,18 @@ fetch it instead of carrying its own copy.
 
 from __future__ import annotations
 
-from .prompts import ECLIPSE_AGENT_SYSTEM_PROMPT
+from .prompts import CODE_NAVIGATOR_SYSTEM_PROMPT, ECLIPSE_AGENT_SYSTEM_PROMPT
 from .schemas import AgentConfig
+
+# The five read-only repository tools (Phase 1). Kept as a named constant so the
+# preset's closed allowlist is asserted in one place and never widened.
+CODE_NAVIGATOR_TOOLS = [
+    "workspace_status",
+    "workspace_list",
+    "workspace_search",
+    "workspace_read",
+    "workspace_docs",
+]
 
 # Tool allowlist. The Phase-2 retrieval tools are the provider-agnostic path
 # (the agent asks for the *objective*; the retrieval layer picks the source).
@@ -78,8 +88,23 @@ ECLIPSE_AGENT = AgentConfig(
     allowMcpTools=True,
 )
 
+# The read-only repository navigator (Phase 1). A SEPARATE preset, not the
+# finance agent widened: its allowlist is ONLY the five read tools. It does NOT
+# set `allowMcpTools`, so it keeps its exact, closed allowlist and can never
+# reach a finance tool, an MCP tool or any other surface.
+CODE_NAVIGATOR = AgentConfig(
+    id="code-navigator",
+    name="Repository Navigator",
+    systemPrompt=CODE_NAVIGATOR_SYSTEM_PROMPT,
+    tools=list(CODE_NAVIGATOR_TOOLS),
+    maxSteps=10,
+    toolTimeoutMs=30_000,
+    runTimeoutMs=180_000,
+)
+
 AGENT_PRESETS: dict[str, AgentConfig] = {
     ECLIPSE_AGENT.id: ECLIPSE_AGENT,
+    CODE_NAVIGATOR.id: CODE_NAVIGATOR,
 }
 
 DEFAULT_AGENT_ID = ECLIPSE_AGENT.id
@@ -93,4 +118,11 @@ def get_agent(agent_id: str) -> AgentConfig:
     return agent
 
 
-__all__ = ["ECLIPSE_AGENT", "AGENT_PRESETS", "DEFAULT_AGENT_ID", "get_agent"]
+__all__ = [
+    "AGENT_PRESETS",
+    "CODE_NAVIGATOR",
+    "CODE_NAVIGATOR_TOOLS",
+    "DEFAULT_AGENT_ID",
+    "ECLIPSE_AGENT",
+    "get_agent",
+]

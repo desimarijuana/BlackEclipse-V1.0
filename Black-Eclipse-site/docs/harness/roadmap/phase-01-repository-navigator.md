@@ -1,10 +1,10 @@
 ---
 title: "Phase 1 — Repository Navigator (Read-Only)"
-status: Not started
+status: Done
 phase: 1
 depends_on: [0]
 unlocks: [2]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 1 — Repository Navigator (Read-Only)
@@ -15,7 +15,7 @@ last-verified: 2026-09-30
 | **Unlocks** | Phase 2 (isolated worktree patch authoring) |
 | **Estimated work** | 4–7 h of agent time, zero write capability, zero execution |
 | **Deliverable type** | 5 read-only tools on the existing registry + workspace confinement + one agent preset + one optional request field + 1 ADR |
-| **New ADRs** | ADR-H103 |
+| **New ADRs** | ADR-H100 |
 | **Prompt to copy** | [§11 below](#11-implementation-prompt-copy-this-to-opencode) |
 
 ## Contents
@@ -145,7 +145,7 @@ deterministic ordering — as a bounded per-call scan over `docs/**`, and report
    prompt in `python/harness/prompts.py`, whose allowlist is **only** the five read
    tools — it must not inherit the finance agent's tools.
 6. **`code.*` events** on the existing `RunEmitter` (`python/harness/events.py`).
-7. **Tests** for every gate in §9, and **ADR-H103**.
+7. **Tests** for every gate in §9, and **ADR-H100**.
 
 ## 4. Who can use it (the non-expert obligation)
 
@@ -548,7 +548,7 @@ modules.
    `src/lib/i18n/plain-language.test.ts` (§9 G8).
 10. `python/tests/test_code_workspace.py` and `python/tests/test_code_tools.py`
     plus fixtures under `python/tests/fixtures/code/` — one test per gate in §9.
-11. ADR-H103, `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
+11. ADR-H100, `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 
 ## 8. Deliverables
 
@@ -568,7 +568,7 @@ modules.
 | `src/lib/i18n/dictionaries/en.ts` (+ `index.ts`) | new `task.*` / `refusal.*` keys |
 | `src/lib/i18n/plain-language.test.ts` | new — the jargon gate (G8) |
 | `python/tests/test_code_workspace.py`, `python/tests/test_code_tools.py`, `python/tests/fixtures/code/*` | new — §9 as tests |
-| `docs/harness/decisions.md` | ADR-H103 |
+| `docs/harness/decisions.md` | ADR-H100 |
 | `docs/harness/roadmap/progress/phase-01-progress.md` | new — raw gate output |
 
 ## 9. Acceptance gates
@@ -632,7 +632,7 @@ git probe) and a grep for `realpath` returns only `workspace.py` (plus any hit i
   `git` read probe.
 - Every user-visible string added by this phase lives in `src/lib/i18n/` and passes
   the jargon gate; the plain-language refusal map is data, not branching UI code.
-- ADR-H103 written; `docs/CHANGELOG.md` entry appended; `docs/NAVIGATION.md`
+- ADR-H100 written; `docs/CHANGELOG.md` entry appended; `docs/NAVIGATION.md`
   updated; `status:` flipped in this file and in the index row.
 
 ## 11. Implementation prompt (copy this to OpenCode)
@@ -711,8 +711,8 @@ In scope:
     fixtures under python/tests/fixtures/code/. Add
     src/lib/i18n/plain-language.test.ts (vitest, beside catalog.test.ts) as the
     jargon gate over the keys this phase adds.
-11. ADR-H103 in docs/harness/decisions.md (Decision / Why / Consequences; the series
-    currently ends at ADR-H92). docs/CHANGELOG.md dated entry + docs/NAVIGATION.md
+11. ADR-H100 in docs/harness/decisions.md (Decision / Why / Consequences; the series
+    currently ends at ADR-H99). docs/CHANGELOG.md dated entry + docs/NAVIGATION.md
     rows for code/workspace.py and code/tools.py.
 
 Audience obligation (non-negotiable): this is for every finance professional, not

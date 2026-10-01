@@ -2333,3 +2333,127 @@ terminal path are each rejected at validation with a NAMED reason.
 
 **Consequences (non-goals).** No visual workflow designer, bot scheduler, or
 agent-builder UI (roadmap Phases 8-9). `execute_run` is wrapped, not replaced.
+
+## ADR-H97 - The code capability is tools on the one registry, not a second runtime
+
+**Decision.** The whole code capability (roadmap Phases 1-12) is delivered as
+new TOOLS on the EXISTING `ToolRegistry`, driven by the EXISTING `execute_run`
+graph — never a second agent loop, tool registry or model adapter. Phase 0 ships
+the policy authority (`python/harness/code/policy.py`) and a workspace-bound
+actor class (`skills/permissions.Actor` gains `workspace_id`/`autonomy`), and
+NOTHING executable: no filesystem, shell, patch or exec tool — not even a stub.
+
+**Why.** The runtime already is a harness: one execution plane, one registry,
+one allowlist seam, one bus, one persistence layer (README §3.1, ADR-H96). A
+second runtime would fork every one of those surfaces and double the failure
+modes on a finance system. The blocker is policy, not architecture: `code.write`
+sat in `FORBIDDEN_PERMISSIONS` and `code.execute` in `BLOCKED_PERMISSIONS`
+(ADR-025), so the capability was impossible by accident. Phase 0 turns that
+into a deliberate, tested decision — a second actor class that can hold the code
+verbs ONLY when a run is bound to a workspace and carries an autonomy profile —
+so a coding agent can no longer "fix" a failing permission test by deleting a
+constant.
+
+**Consequences.** New code verbs live in `CODE_PERMISSIONS` (manifest) and are
+grantable only through `code/policy.code_grants(autonomy)`; `FORBIDDEN_PERMISSIONS`
+narrows to trade/broker/production. The default actor (`DEFAULT_ACTOR`) and the
+operator actor (`OPERATOR_ACTOR`) hold no code verb, proven by a test and a
+gate. A caller-supplied operator grant can no longer smuggle a code verb in.
+
+## ADR-H98 - `code/policy.py` is the single policy authority; autonomy profiles are enforced in code
+
+**Decision.** `python/harness/code/policy.py` is the ONE place a code-policy
+decision is made: may this run read/write/execute this thing, in this workspace,
+under this autonomy profile? It owns the three autonomy profiles
+(`plan_only`, `edit_verify`, `approve_external`) as data, `code_grants()` maps a
+profile to its verbs, and `decide_write` / `decide_command` are the only
+decision functions. Every later phase imports these rules; none re-implements
+them. `skills/permissions.Actor.granted()` unions `code_grants(autonomy)` ONLY
+when both a `workspace_id` and an `autonomy` are set.
+
+**Why.** Prose is never a security boundary (README §3.2). The permission model
+must be readable as code, reviewable, and testable in isolation. An unknown
+autonomy string grants NOTHING (fail-closed), mirroring the MCP `trust` tier — a
+typo in a profile name can only lose capability, never gain it. Keeping the
+decision in one module (the same pattern as `skills/permissions.py` for skills)
+means Phase 10 can FREEZE `code/policy.py` as a protected path without leaving a
+second, un-frozen copy of the rules behind.
+
+**Consequences.** The code verb set is derived, not enumerated at each call
+site. `POLICY_DENIED`-style decisions carry a stable machine `code` plus ONE
+plain sentence (`PolicyDecision.reason`) safe to show a human. Autonomy profile
+names are mechanism vocabulary and must never appear in a user-facing string
+(ADR-H99 / `PLAIN_LANGUAGE_DENYLIST`).
+
+## ADR-H99 - Protected paths, command classes, default-deny network and secret posture
+
+**Decision.** The code capability's safety data lives in `code/policy.py` as
+tables: `PROTECTED_PATHS` (never touchable, even inside a workspace and even by
+an operator — `jdds.db`, the memory DBs, `.env`, `mcp-servers.json`,
+`prisma/migrations/**`, `.git/**`, the frozen policy/permission/approval/gate
+files, and key material), `IGNORED_DIRS`/`IGNORED_GLOBS`, `COMMAND_CLASSES` (a
+closed tuple whose per-class program sets are declared, with a `DENIED_PROGRAMS`
+belt-and-braces list), `NETWORK_DEFAULT = False`, and
+`SECRET_ENV_ALLOWLIST` (every other environment variable is dropped from a child
+process — never an `os.environ` passthrough). Path safety is by construction:
+`resolve_within` compares REAL paths and refuses traversal, an absolute path
+outside the root, and a link that leaves the root; the raw string is never
+trusted. Protected outranks ignored, so a protected path always reports
+`PROTECTED_PATH`.
+
+**Why.** Isolation must exist BEFORE any write/execute tool is opened (README
+§2, ordering rule). A denylist of prose is not enough: the protected set has to
+be data a test can assert against and a later phase can freeze. Default-deny
+network and an explicit secret allowlist are the same discipline — an unknown
+class or a shell/downloader binary is refused rather than permitted by
+omission. `PLAIN_LANGUAGE_DENYLIST` is the mechanism-word list every
+user-facing gate reads from ONE place.
+
+**Consequences.** Phase 3 implements `COMMAND_CLASSES` and owns the argv
+templates; Phase 10 freezes `policy.py`. A missing isolation primitive produces
+an honest refusal (`SANDBOX_UNAVAILABLE`), never a degraded unsandboxed run
+(README §3.5). Every refusal sentence is asserted, by a Phase 0 test, to be one
+sentence with no denylist term — the seed of the per-phase plain-language gates.
+
+## ADR-H100 - Read-only repository navigation is path-confined, bounded and citable
+
+**Decision.** Phase 1 adds exactly FIVE read-only tools on the ONE existing
+`ToolRegistry` — `workspace_status`, `workspace_list`, `workspace_search`,
+`workspace_read`, `workspace_docs` — every one `permission="read"`, `risk="low"`.
+There is no write tool, no patch tool and no command runner; the ONLY child
+process is a fixed, argument-free `git` read probe. The navigator is a SEPARATE
+agent preset (`code-navigator`) whose allowlist is only those five tools and which
+does NOT set `allowMcpTools`, so it can never reach a finance tool or an MCP tool.
+Confinement is owned by `code/workspace.py::confine`, which CALLS the Phase-0
+`policy.resolve_within` (it does not re-implement it) and maps its denial to a
+distinct structured code per escape vector (`PATH_TRAVERSAL`,
+`PATH_OUTSIDE_WORKSPACE`, `SYMLINK_ESCAPE`, `PROTECTED_PATH`, `IGNORED_PATH`,
+`NOT_FOUND`). Every read is line-numbered with a `nextStartLine` continuation
+offset, refuses binary files, and redacts secret-shaped lines to `«redacted»`
+through the ONE pattern set (`session_index.redact_span`); `workspace_search` is
+bounded by matches, files, bytes and a wall-clock deadline (partial results are
+marked truncated), and `workspace_docs` reuses the session-search tokenization
+and ranking as a bounded per-call scan of `docs/**` — no table, no index, no
+vector store. `workspace_read` reports `PROTECTED_PATH` for `jdds.db`, not
+`BINARY_FILE`, because protected check precedes the binary probe.
+
+**Why.** The runtime had no way to see the repository at all; every "where is X
+documented" ended at prose. The read half is safe to open first because the
+registry already refuses any non-read tool without an authorizer, so a phase made
+only of read tools needs no approval machinery. Path safety must be ONE seam: a
+second traversal check would drift from the Phase-0 authority and become the
+weaker one. Reusing the session-index secret patterns means a file reader cannot
+become a new leak path with its own, divergent denylist. And the docs search must
+not become a second indexer — the roadmap's whole-project non-goal — so it scans
+per call and reports its engine honestly.
+
+**Consequences.** `confine` is the only place a code path is resolved (a grep for
+`realpath` under `python/harness/code/` hits only `workspace.py`; `subprocess`
+only `workspace.py`). `RunRequest.workspace` is an optional, additive
+narrowing/confirmation: a caller's `root` must realpath to the server-resolved
+root or the run gets no workspace, so a request field can never point the
+navigator at a different directory. `ToolContext.workspace` carries the binding
+(one graph line). User-facing copy lives in `src/lib/i18n/` (only `task.*`/
+`refusal.*` keys added) and the code→sentence map is data; the jargon gate
+`src/lib/i18n/plain-language.test.ts` scans the values. Phase 2 builds the write
+half on this same confinement and the same preset discipline.

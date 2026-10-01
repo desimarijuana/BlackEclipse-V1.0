@@ -33,6 +33,17 @@ export interface RunInput {
   documents?: RunDocument[];
 }
 
+/**
+ * Phase 1 (additive, optional): an optional narrowing/confirmation of the
+ * server-resolved workspace root. A caller-supplied `root` must match the root
+ * the runtime resolves, otherwise the run gets no workspace. It can never point
+ * the runtime at a different directory.
+ */
+export interface RunWorkspaceRef {
+  root: string;
+  baseRevision?: string;
+}
+
 export interface HarnessErrorJson {
   code: string;
   message: string;

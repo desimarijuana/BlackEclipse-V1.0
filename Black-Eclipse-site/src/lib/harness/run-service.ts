@@ -6,7 +6,7 @@
 // There is deliberately NO agent loop, tool registry or model adapter here.
 
 import { getLLMConfig } from "@/lib/settings";
-import { assertRunInput } from "./validation";
+import { assertRunInput, validateWorkspaceRef } from "./validation";
 import { getAgentPreset } from "./agent-presets";
 import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -23,6 +23,9 @@ export interface StartRunOptions {
   profileId?: string;
   projectId?: string;
   runId?: string;
+  // Phase 1 (optional): bind this run to a read-only workspace. Validated here
+  // and forwarded; the runtime only ever binds its server-resolved root.
+  workspace?: { root: string; baseRevision?: string };
 }
 
 /**
@@ -147,6 +150,14 @@ export async function startRun(
   }
 
   const runId = options.runId ?? newRunId();
+  let workspace: { root: string; baseRevision?: string } | undefined;
+  if (options.workspace !== undefined) {
+    const validated = validateWorkspaceRef(options.workspace);
+    if (!validated.ok || !validated.value) {
+      throw new HarnessError("INVALID_INPUT", "Invalid workspace reference", validated.issues.join("; "));
+    }
+    workspace = validated.value;
+  }
   const payload: RunRequestPayload = {
     runId,
     input,
@@ -158,6 +169,8 @@ export async function startRun(
     sessionId: options.sessionId,
     profileId: options.profileId,
     projectId: options.projectId,
+    // Phase 1 (optional): a narrowing/confirmation of the workspace root.
+    workspace,
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };

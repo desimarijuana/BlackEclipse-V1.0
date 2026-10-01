@@ -33,27 +33,64 @@ _MAX_SUMMARY_CHARS = 1200
 _DUMP_RE = re.compile(r"(?im)^\s*(system|assistant|user|human)\s*:")
 
 
-def redact(text: str) -> str:
-    """Remove secret-looking spans before anything is indexed.
+# The ONE secret-span pattern set, as (name, compiled, replacement) rules. The
+# `None` replacement means "replace the whole match with the marker"; the
+# `assignment` rule keeps the key name and replaces only the value. This is the
+# same predicate family as `eclipse_memory.decision`'s secret patterns (imported
+# above) — no second pattern set is invented.
+_SECRET_SPAN_RULES: tuple[tuple[str, "re.Pattern[str]", Optional[str]], ...] = (
+    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9]{12,}\b"), None),
+    ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b"), None),
+    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), None),
+    (
+        "secret_assignment",
+        re.compile(
+            r"(?i)\b(api[ _-]?key|secret|password|passphrase|token|bearer|private[ _-]?key)\b\s*[:=]\s*\S+"
+        ),
+        r"\1={marker}",
+    ),
+)
 
-    This is intentionally conservative: a token/secret/key-shaped run is
-    replaced with `[redacted]`, and an obvious tool/provider dump marker line is
-    dropped. It never claims to be a complete DLP system — the authoritative
-    guard is `session_indexing_enabled` + the redaction here.
+
+def redact_span(text: str, marker: str) -> str:
+    """Replace secret-looking spans in ``text`` with ``marker``.
+
+    The shared redaction primitive. It reuses the ONE pattern set above; the
+    caller chooses the marker (`[redacted]` for indexing, `«redacted»` for a
+    file read). It never claims to be a complete DLP system.
     """
     if not text:
         return ""
     cleaned = text
-    # Secret-shaped tokens.
-    cleaned = re.sub(r"\bsk-[A-Za-z0-9]{12,}\b", "[redacted]", cleaned)
-    cleaned = re.sub(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b", "[redacted]", cleaned)
-    cleaned = re.sub(r"\bAKIA[0-9A-Z]{16}\b", "[redacted]", cleaned)
-    cleaned = re.sub(
-        r"(?i)\b(api[ _-]?key|secret|password|passphrase|token|bearer|private[ _-]?key)\b\s*[:=]\s*\S+",
-        r"\1=[redacted]",
-        cleaned,
-    )
+    for _name, pattern, replacement in _SECRET_SPAN_RULES:
+        if replacement is None:
+            cleaned = pattern.sub(marker, cleaned)
+        else:
+            cleaned = pattern.sub(replacement.replace("{marker}", marker), cleaned)
     return cleaned.strip()
+
+
+def secret_pattern_name(text: str) -> Optional[str]:
+    """The name of the FIRST secret pattern a line matches, or None.
+
+    Used by the file reader to name the pattern in a `code.redacted` event —
+    the name only, never the value.
+    """
+    for name, pattern, _replacement in _SECRET_SPAN_RULES:
+        if pattern.search(text):
+            return name
+    return None
+
+
+def redact(text: str) -> str:
+    """Remove secret-looking spans before anything is indexed.
+
+    Delegates to `redact_span` with the indexing marker, so the behaviour is
+    byte-identical to before and there is exactly one redaction implementation.
+    An obvious tool/provider dump marker line is dropped by the caller's own
+    rules; the authoritative guard remains `session_indexing_enabled`.
+    """
+    return redact_span(text, "[redacted]")
 
 
 def _bounded(text: str, limit: int) -> str:

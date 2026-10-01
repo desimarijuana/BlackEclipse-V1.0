@@ -40,6 +40,8 @@ export interface RunRequestPayload {
   sessionId?: string;
   profileId?: string;
   projectId?: string;
+  /** Phase 1 (optional): bind this run to a read-only workspace. */
+  workspace?: { root: string; baseRevision?: string };
   callbackBaseUrl: string;
   callbackToken?: string;
 }

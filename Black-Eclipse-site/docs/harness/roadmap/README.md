@@ -21,8 +21,8 @@ file, not here.
 
 | Phase | File | Depends on | Unlocks | Maps to |
 |---|---|---|---|---|
-| 0 — Recon, policy decision, baseline freeze | [phase-00](./phase-00-policy-and-baseline.md) | — | 1,2,3 | — |
-| 1 — Repository navigator (read-only) | [phase-01](./phase-01-repository-navigator.md) | 0 | 2 | §15.3 **7A** |
+| 0 — Recon, policy decision, baseline freeze | [phase-00](./phase-00-policy-and-baseline.md) ✅ Done | — | 1,2,3 | — |
+| 1 — Repository navigator (read-only) | [phase-01](./phase-01-repository-navigator.md) ✅ Done | 0 | 2 | §15.3 **7A** |
 | 2 — Isolated worktree patch authoring | [phase-02](./phase-02-worktree-patching.md) | 1 | 3 | §15.3 **7B** |
 | 3 — Sandboxed command broker | [phase-03](./phase-03-command-broker.md) | 2 | 4 | §15.3 **7C** |
 | 4 — Verify-and-repair trust spine | [phase-04](./phase-04-verify-and-repair.md) | 3 | 5 | §15.3 **7D** |
@@ -280,29 +280,31 @@ Black-Eclipse-site/src/
   components/chat/code-verification-panel.tsx       Phase 4
 ```
 
-**ADRs to write** (harness series continues from **ADR-H92** in
+**ADRs to write** (harness series continues from **ADR-H96** in
 `docs/harness/decisions.md`; app series continues from the current max in
 `docs/DECISIONS.md`):
 
 | ADR | Subject | Phase |
 |---|---|---|
-| ADR-H93 | The code capability is tools on the one registry, not a second runtime | 0 |
-| ADR-H94 | `code/policy.py` is the single policy authority; autonomy profiles enforced in code | 0 |
-| ADR-H95 | Protected paths, command classes, default-deny network and secret posture | 0 |
-| ADR-H103 | Read-only repository navigation is path-confined, bounded and citable | 1 |
-| ADR-H104 | Workspace isolation: disposable worktrees, snapshot fallback, never the user's own checkout | 2 |
-| ADR-H105 | Commands are a closed table; a missing isolation primitive refuses rather than degrades | 3 |
-| ADR-H106 | A check is passing only when the executor recorded it; unbacked claims are marked | 4 |
-| ADR-H107 | One approval store, generalized; a code action is single-use, digest- and workspace-bound | 5 |
-| ADR-H108 | Harness-owned jobs; the TS refresh loops stay as they are | 6 |
-| ADR-H109 | Child runs are narrowed, never widened; self-reports require verifiable handles | 7 |
-| ADR-H110 | Computed ≠ retrieved: a code-produced number carries its code digest and never enters research claims | 8 |
-| ADR-H111 | Scaffold kits are data; a generated artefact stays inert until evaluated | 9 |
-| ADR-H112 | Self-improvement covers code as well as skills; the policy engine and the release gate are frozen | 10 |
-| ADR-H113 | Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend | 11 |
-| ADR-H114 | The code eval gate is part of the one honest release gate | 12 |
+| ADR-H97 | The code capability is tools on the one registry, not a second runtime | 0 |
+| ADR-H98 | `code/policy.py` is the single policy authority; autonomy profiles enforced in code | 0 |
+| ADR-H99 | Protected paths, command classes, default-deny network and secret posture | 0 |
+| ADR-H100 | Read-only repository navigation is path-confined, bounded and citable | 1 |
+| ADR-H101 | Workspace isolation: disposable worktrees, snapshot fallback, never the user's own checkout | 2 |
+| ADR-H102 | Commands are a closed table; a missing isolation primitive refuses rather than degrades | 3 |
+| ADR-H103 | A check is passing only when the executor recorded it; unbacked claims are marked | 4 |
+| ADR-H104 | One approval store, generalized; a code action is single-use, digest- and workspace-bound | 5 |
+| ADR-H105 | Harness-owned jobs; the TS refresh loops stay as they are | 6 |
+| ADR-H106 | Child runs are narrowed, never widened; self-reports require verifiable handles | 7 |
+| ADR-H107 | Computed ≠ retrieved: a code-produced number carries its code digest and never enters research claims | 8 |
+| ADR-H108 | Scaffold kits are data; a generated artefact stays inert until evaluated | 9 |
+| ADR-H109 | Self-improvement covers code as well as skills; the policy engine and the release gate are frozen | 10 |
+| ADR-H110 | Delivery adapters behind one interface; scope-aware surfaces; an honest sandbox backend | 11 |
+| ADR-H111 | The code eval gate is part of the one honest release gate | 12 |
 
 **ADR shape:** `docs/harness/decisions.md` uses `## ADR-Hnn — Title` followed by
-**Decision.** / **Why.** / **Consequences.** — match that. The file's series
-currently ends at ADR-H92; append H93–H95 (Phase 0) first, then the rest as their
-phases land.
+**Decision.** / **Why.** / **Consequences.** — match that. The harness closeout
+of 2026-09-30 already landed ADR-H93–H96 (run lineage, route health, capability
+matrix, workflows), so Phase 0 appended the next free numbers — **ADR-H97,
+ADR-H98, ADR-H99** — and Phase 1 appended **ADR-H100**, rather than duplicating
+those headers. Later phases take the numbers after H100.

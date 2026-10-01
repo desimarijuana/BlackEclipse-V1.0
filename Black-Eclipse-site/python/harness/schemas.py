@@ -131,6 +131,17 @@ class AgentConfig(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class RunWorkspace(BaseModel):
+    """An optional narrowing/confirmation of the server-resolved workspace root.
+
+    Phase 1 binds only the SERVER-RESOLVED root; a caller-supplied `root` can
+    only CONFIRM it. A mismatch means the run gets no workspace at all.
+    """
+
+    root: str = Field(min_length=1, max_length=1024)
+    baseRevision: Optional[str] = Field(default=None, max_length=128)  # noqa: N815
+
+
 class RunRequest(BaseModel):
     runId: str  # noqa: N815
     input: RunInput
@@ -162,6 +173,9 @@ class RunRequest(BaseModel):
     # at the recorded node instead of starting a fresh run; a missing checkpoint
     # fails with CHECKPOINT_NOT_FOUND and a terminal run with RESUME_CONFLICT.
     resumeFrom: Optional[str] = None  # noqa: N815
+    # Phase 1 (additive, optional): bind this run to a read-only workspace. Absent
+    # ⇒ the run has no code capability at all (the default-actor rule, Phase 0).
+    workspace: Optional[RunWorkspace] = None
     # Base URL of the TS front door, used ONLY as the read-only JDdS data bridge.
     callbackBaseUrl: str  # noqa: N815
     # Shared secret for the data bridge (matches CRON_SECRET on the TS side).

@@ -84,17 +84,32 @@ Permission = Literal[
     "portfolio.read",
     "portfolio.modify",
     "external.network",
-    "code.execute",
-    "code.write",
+    # Code capability (Phase 0+). Declaring one does not grant it: the code
+    # nouns live in CODE_PERMISSIONS and are only ever held by a workspace-bound
+    # actor (see permissions.Actor and code/policy.code_grants).
+    "code.read",          # read files inside a bound workspace
+    "code.write",         # create/modify/delete inside a bound workspace
+    "code.execute",       # run an allowlisted command / a bounded program
+    "git.read",           # status/log/diff inside a bound workspace
+    "git.write",          # stage/commit — OPERATOR ONLY, never auto-granted
+    "workspace.admin",    # allocate/release a worktree — OPERATOR ONLY
+    "command.execute",
     "production.modify",
     "trade.execute",
     "broker.modify",
 ]
 
-# Permissions that are hard-blocked in Phase 3. A skill declaring one is
-# well-formed but can never be enabled.
+# Never grantable to ANY actor, ever. Trading and production mutation.
 FORBIDDEN_PERMISSIONS: frozenset[str] = frozenset(
-    {"trade.execute", "broker.modify", "production.modify", "code.write"}
+    {"trade.execute", "broker.modify", "production.modify"}
+)
+
+# Grantable ONLY to a workspace-bound code actor (see permissions.Actor and
+# code/policy.code_grants). Not part of the safe set; not part of the operator
+# set. Declaring one on a skill is well-formed but can never be enabled directly.
+CODE_PERMISSIONS: tuple[str, ...] = (
+    "code.read", "code.write", "code.execute",
+    "git.read", "git.write", "workspace.admin", "command.execute",
 )
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
@@ -365,6 +380,7 @@ class SkillManifest(BaseModel):
 
 
 __all__ = [
+    "CODE_PERMISSIONS",
     "DeprecationInfo",
     "EvaluationStatus",
     "ExecutionLimits",

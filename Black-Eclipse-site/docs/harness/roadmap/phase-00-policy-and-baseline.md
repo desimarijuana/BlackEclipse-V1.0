@@ -1,10 +1,10 @@
 ---
 title: "Phase 0 — Recon, Policy Decision and Baseline Freeze"
-status: Not started
+status: Done
 phase: 0
 depends_on: []
 unlocks: [1, 2, 3]
-last-verified: 2026-09-30
+last-verified: 2026-10-01
 ---
 
 # Phase 0 — Recon, Policy Decision and Baseline Freeze
@@ -15,7 +15,7 @@ last-verified: 2026-09-30
 | **Unlocks** | Phases 1, 2, 3 |
 | **Estimated work** | 2–4 h of agent time, zero runtime behaviour change |
 | **Deliverable type** | policy module + permission change + tests + 3 ADRs + a recorded baseline |
-| **New ADRs** | ADR-H93, ADR-H94, ADR-H95 |
+| **New ADRs** | ADR-H97, ADR-H98, ADR-H99 (H93–H96 were taken by the 2026-09-30 closeout) |
 | **Prompt to copy** | [§11 below](#11-implementation-prompt-copy-this-to-opencode) |
 
 ## Contents
@@ -97,7 +97,7 @@ fails the freeze test from Phase 10 and the policy tests added here.
 4. A `CodeActor` / workspace-scoped grant path that permits the code permissions
    **only** under a binding, while the default local actor stays blocked.
 5. The protected-path list as **data** (not prose).
-6. ADR-H93, ADR-H94, ADR-H95.
+6. ADR-H97, ADR-H98, ADR-H99.
 
 ## 4. Who can use it (the non-expert obligation)
 
@@ -360,9 +360,10 @@ git status --short
      above contains no word from `PLAIN_LANGUAGE_DENYLIST` (case-insensitive,
      whole-word) and is a single sentence ending in a full stop. This test is the
      seed of the per-phase gates later phases extend.
-8. Write ADR-H93, ADR-H94, ADR-H95 in `docs/harness/decisions.md` (append; the
-   series currently ends at ADR-H92). Each follows the existing **Decision /
-   Why / Consequences** shape used by every other ADR-H in that file.
+8. Write ADR-H97, ADR-H98, ADR-H99 in `docs/harness/decisions.md` (append; the
+   series currently ends at ADR-H96, not H92 — the 2026-09-30 closeout landed
+   H93–H96). Each follows the existing **Decision / Why / Consequences** shape
+   used by every other ADR-H in that file.
 9. Append the dated `docs/CHANGELOG.md` entry. Update `docs/NAVIGATION.md` with
    one row pointing at `code/policy.py`.
 
@@ -375,7 +376,7 @@ git status --short
 | `python/harness/skills/manifest.py` | permission nouns; `FORBIDDEN_PERMISSIONS` narrowed; `CODE_PERMISSIONS` added |
 | `python/harness/skills/permissions.py` | `Actor` gains `workspace_id`/`autonomy`; `granted()` consults `code.policy` |
 | `python/tests/test_code_policy.py` | new — the tests in §7.7 |
-| `docs/harness/decisions.md` | ADR-H93, ADR-H94, ADR-H95 |
+| `docs/harness/decisions.md` | ADR-H97, ADR-H98, ADR-H99 |
 | `docs/harness/roadmap/progress/phase-00-progress.md` | new — raw gate output |
 | `docs/CHANGELOG.md`, `docs/NAVIGATION.md` | per the repo obligation |
 
@@ -421,7 +422,7 @@ test counts — they are the baseline the rest of the roadmap compares against.
 - `code/policy.py` is the only place a code-policy decision is made (grep for
   `PROTECTED_PATHS` / `resolve_within` and confirm one definition).
 - The default and operator actors are provably still incapable of code verbs.
-- ADR-H93/94/95 written; `docs/CHANGELOG.md` entry appended; `NAVIGATION.md` updated.
+- ADR-H97/98/99 written; `docs/CHANGELOG.md` entry appended; `NAVIGATION.md` updated.
 - `status:` flipped to `Done` in this file's frontmatter and in the index.
 
 ## 11. Implementation prompt (copy this to OpenCode)
@@ -459,8 +460,9 @@ In scope:
 5. New python/tests/test_code_policy.py covering every case listed in §7.7,
    including the path-escape cases (traversal, absolute-outside, symlink escape)
    and the command refusals (rm -rf, curl, powershell, unlisted class).
-6. docs/harness/decisions.md: append ADR-H93, ADR-H94, ADR-H95 (the series
-   currently ends at ADR-H92) in the existing Decision / Why / Consequences shape.
+6. docs/harness/decisions.md: append ADR-H97, ADR-H98, ADR-H99 (the series
+   currently ends at ADR-H96 — H93–H96 landed in the 2026-09-30 closeout) in the
+   existing Decision / Why / Consequences shape.
 7. docs/CHANGELOG.md dated entry + docs/NAVIGATION.md row for code/policy.py.
 
 Non-goals (do NOT do these):
