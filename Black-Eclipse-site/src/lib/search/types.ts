@@ -3,23 +3,10 @@
 // Black Eclipse terminal. Everything here is framework-agnostic so the query
 // engine stays pure and unit-testable (vitest).
 
-/** The app tabs exposed by the SPA shell (mirrors sidebar.tsx AppTab). */
-export type AppTab =
-  | 'chat'
-  | 'news'
-  | 'discovery'
-  | 'heatmap'
-  | 'chart'
-  | 'economics'
-  | 'portfolio'
-  | 'journal'
-  | 'settings'
-  | 'alerts'
-  | 'dashboard'
-  | 'market-workspace'
-  | 'investor-eye'
-  | 'skills'
-  | 'memory';
+/** The app tabs exposed by the SPA shell — re-exported from the ONE declaration
+ *  (`lib/app-tabs.ts`) so this mirror can never drift from the sidebar's. */
+import type { AppTab } from '@/lib/app-tabs';
+export type { AppTab };
 
 /**
  * A resolved navigation target. Black Eclipse is a tabbed SPA (no router), so

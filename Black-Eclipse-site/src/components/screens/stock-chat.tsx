@@ -77,6 +77,14 @@ const EclipseMemoryScreen = dynamic(
   () => import('@/components/screens/eclipse-memory/eclipse-memory-screen').then((m) => m.EclipseMemoryScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const CodeScreen = dynamic(
+  () => import('@/components/screens/code/code-screen').then((m) => m.CodeScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const JobsScreen = dynamic(
+  () => import('@/components/screens/jobs/jobs-screen').then((m) => m.JobsScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 
 import { Newspaper, ArrowLeft } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -1052,6 +1060,22 @@ function StockChatContent() {
           {visited.has('memory') && (
             <div className={cn('w-full h-full', activeTab === 'memory' ? '' : 'hidden')}>
               <EclipseMemoryScreen isOperator={clientIsOperator()} />
+            </div>
+          )}
+
+          {visited.has('code') && (
+            <div className={cn('w-full h-full', activeTab === 'code' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <CodeScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('jobs') && (
+            <div className={cn('w-full h-full', activeTab === 'jobs' ? '' : 'hidden')}>
+              <div className="flex-1 overflow-y-auto">
+                <JobsScreen />
+              </div>
             </div>
           )}
 

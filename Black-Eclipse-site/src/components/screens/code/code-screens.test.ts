@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { en } from '@/lib/i18n/dictionaries/en';
 
 // The task surface presents the three autonomy choices as plain sentences and a
@@ -53,5 +55,32 @@ describe('code task screen copy', () => {
     expect(en['code.task.autonomy.planOnly']).toContain('Just tell me');
     expect(en['code.task.autonomy.editVerify']).toContain('Make the change');
     expect(en['code.task.autonomy.approveExternal']).toContain('ask me before');
+  });
+});
+
+// ── Reachability ─────────────────────────────────────────────────────────────
+// The seven code panels existed but NOTHING imported them, so no user could reach
+// them; the copy-only assertions above stayed green over dead code. Reachability
+// is not observable from a unit test that imports the panel directly, so this
+// asserts on the SHELL's source text: mounting is exactly what silently regressed.
+// If someone removes the dynamic import or the keep-alive render block, the code
+// capability goes dark again and this fails.
+function readShellSource(): string {
+  const here = fileURLToPath(new URL('../../screens/stock-chat.tsx', import.meta.url));
+  return readFileSync(here, 'utf8');
+}
+
+describe('code surface reachability', () => {
+  it('is reachable from the shell: the tab is mounted and the nav points at it', () => {
+    const source = readShellSource();
+    // 1. The dynamic import that loads the container.
+    expect(source).toContain('screens/code/code-screen');
+    // 2. The keep-alive render block that mounts it when the tab is visited.
+    expect(source).toContain("visited.has('code')");
+  });
+
+  it('the code section is mounted in the sidebar and carries a plain label', () => {
+    expect(en['nav.code']).toBeTruthy();
+    expect(leaks(en['nav.code'])).toEqual([]);
   });
 });

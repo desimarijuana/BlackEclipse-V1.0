@@ -33,6 +33,8 @@ import {
   ScanEye,
   Settings,
   Sparkles,
+  SquareCode,
+  CalendarClock,
   type LucideIcon,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -75,6 +77,8 @@ const NAME_ICON: Record<string, LucideIcon> = {
   settings: Settings,
   skills: Blocks,
   memory: Brain,
+  code: SquareCode,
+  calendar: CalendarClock,
   activity: Activity,
 };
 

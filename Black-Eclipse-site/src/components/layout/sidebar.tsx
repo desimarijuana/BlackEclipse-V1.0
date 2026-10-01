@@ -17,7 +17,10 @@ const NAV_MODES: Array<{ id: NavGroup; labelKey: 'sidebar.terminal' | 'sidebar.a
   { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
 ];
 
-export type AppTab = 'chat' | 'news' | 'discovery' | 'heatmap' | 'chart' | 'economics' | 'portfolio' | 'journal' | 'settings' | 'alerts' | 'dashboard' | 'market-workspace' | 'investor-eye' | 'skills' | 'memory';
+// The tab vocabulary lives ONCE in `lib/app-tabs.ts`; this shell re-exports it so
+// `lib/search/types.ts` (which mirrors it) can never silently drift.
+import type { AppTab } from '@/lib/app-tabs';
+export type { AppTab };
 
 export interface Conversation {
   id: string;

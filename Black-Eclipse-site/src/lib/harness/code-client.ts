@@ -114,6 +114,34 @@ export async function acceptCodePlan(id: string, steps: CodePlan["steps"], check
   });
 }
 
+export interface CodeTaskDiff {
+  available: boolean;
+  unified: string;
+  digest: string;
+  filesChanged: number;
+  added: string[];
+  modified: string[];
+  deleted: string[];
+}
+
+/** The change a task made, in everyday words plus the raw text behind "details". */
+export async function getCodeTaskDiff(id: string): Promise<CodeTaskDiff | null> {
+  try {
+    const body = await request<{ diff: CodeTaskDiff }>(
+      `/code/tasks/${encodeURIComponent(id)}/diff`,
+      { method: "GET", timeoutMs: 30_000 },
+    );
+    return body.diff ?? null;
+  } catch {
+    // A task with no bound work area has no diff; that is not an error.
+    return null;
+  }
+}
+
+export async function resumeCodeTask(id: string): Promise<unknown> {
+  return request(`/code/tasks/${encodeURIComponent(id)}/resume`, { method: "POST" });
+}
+
 export async function listCodeApprovals(): Promise<CodeApproval[]> {
   const body = await request<{ approvals: CodeApproval[] }>("/code/approvals", { method: "GET" });
   return body.approvals ?? [];

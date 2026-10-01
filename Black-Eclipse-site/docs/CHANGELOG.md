@@ -8,6 +8,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-01
 
+- **Front-door surface closure — mount the code and jobs surfaces.** The Python
+  runtime for the code capability, jobs and the Phase-12 eval was complete and its
+  gates green, but several finished UI surfaces existed as files nothing imported,
+  so no user could reach them. New `src/components/screens/code/code-screen.tsx`
+  (a thin container wiring the EXISTING Phase-5 panels to the existing
+  `code-client` — no agentic logic) and the existing `JobsScreen` are now mounted
+  from the shell: AppTab `code`/`jobs` in the new single source `src/lib/app-tabs.ts`
+  (both `sidebar.tsx` and `search/types.ts` now re-export it, closing a drift),
+  dynamic imports + keep-alive blocks in `stock-chat.tsx`, sidebar sections in
+  `src/lib/sidebar/config.ts`, palette rows in `src/lib/search/registry.ts`, and the
+  `nav.code`/`nav.jobs` (+ container) i18n keys with the `code`/`calendar` icon
+  names. The two stale `status: In progress` progress logs are flipped to Done with
+  an appended closure note; `docs/NAVIGATION.md` rows 65/70 are corrected. No Python
+  runtime behaviour changed; the frozen four are byte-unchanged.
+  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`,
+  `docs/harness/roadmap/progress/phase-11-progress.md`,
+  `docs/harness/roadmap/progress/phase-12-progress.md`,
+  `docs/harness/roadmap/progress/surface-closure-progress.md`.
+
 - **Eclipse-as-a-Harness Phase 12 — evaluation harness, safety cases and the standing gate.**
   Extends `python/harness/code/eval/` with a task + safety evaluation beside the
   Phase-4 verification eval, additively (the verification eval keeps its name/API):

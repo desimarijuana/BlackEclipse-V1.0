@@ -17,8 +17,12 @@ describe('defaultSidebarConfig', () => {
   it('assigns unique F1..F12 in canonical section order', () => {
     const config = defaultSidebarConfig();
     expect(config.shortcutVersion).toBe(2);
-    // 12 shortcut slots exist; the 13th canonical section has no default.
-    expect(config.sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '']);
+    // 12 shortcut slots exist; the 13th, 14th and 15th canonical sections have no
+    // default. This is the explicit expected list — not a count derived from the
+    // source under test — so adding/removing a section fails here on purpose.
+    expect(config.sections.map((s) => s.shortcut)).toEqual([
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
+    ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
 });
@@ -53,8 +57,11 @@ describe('v1 migration', () => {
     };
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(untouched));
     // The untouched v1 legacy-order save adopts the current function defaults
-    // (now 13 canonical sections; only the first 12 get F1..F12).
-    expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '']);
+    // (now 15 canonical sections; only the first 12 get F1..F12). This is the
+    // explicit expected list, so a change to the canonical section count fails here.
+    expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '',
+    ]);
   });
 
   it('adopts v2 defaults for an untouched current-order v1 save', () => {
@@ -175,6 +182,37 @@ describe('nav groups (Terminal / Agentic)', () => {
   it('assigns every canonical section a group', () => {
     for (const def of DEFAULT_SIDEBAR_SECTIONS) {
       expect(navGroupsFor(def).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('mounts the code and jobs surfaces as enabled Agentic sections', () => {
+    const byId = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
+    const code = byId.get('code');
+    const jobs = byId.get('jobs');
+    expect(code).toBeDefined();
+    expect(jobs).toBeDefined();
+    expect(code!.group).toBe('agentic');
+    expect(jobs!.group).toBe('agentic');
+    // Enabled by default: a real user must find them without configuring anything.
+    const config = defaultSidebarConfig();
+    expect(config.sections.find((s) => s.id === 'code')!.enabled).toBe(true);
+    expect(config.sections.find((s) => s.id === 'jobs')!.enabled).toBe(true);
+  });
+
+  it('names the code and jobs sections in plain, non-mechanistic words', () => {
+    const DENYLIST = [
+      'sandbox', 'worktree', 'workspace', 'allowlist', 'autonomy', 'digest',
+      'argv', 'cwd', 'stderr', 'stdout', 'patch', 'diff', 'manifest', 'operator',
+      'policy engine', 'tool registry', 'exit code', 'verification ledger',
+      'cron', 'webhook', 'trigger', 'job definition',
+    ];
+    const byId = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
+    for (const id of ['code', 'jobs'] as const) {
+      const label = byId.get(id)!.label.toLowerCase();
+      const leaks = DENYLIST.filter((word) =>
+        new RegExp(`(^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(label),
+      );
+      expect(leaks, `${id}: ${leaks.join(', ')}`).toEqual([]);
     }
   });
 });

@@ -1,7 +1,7 @@
 ---
 title: "Phase 11 — Progress log (surface and scale)"
 phase: 11
-status: In progress
+status: Done
 last-verified: 2026-10-01
 ---
 
@@ -100,3 +100,14 @@ python/tests/test_plain_language.py  22 passed (3 new Phase-11 nodes)
 - **One flaky test, not a regression.** `test_kill_leaves_no_orphan_python_process`
   compares a process count and failed once under the full parallel suite (3 vs 2);
   it passes in isolation. No Phase-11 file is involved.
+
+## 2026-10-01 — front-door surface closure
+
+Status flipped to Done. The Python runtime for this phase was complete and its
+gates green, but its user-facing surfaces were unreachable from the running app:
+`src/app/api/jobs/**` and `src/lib/harness/jobs-client.ts` were reachable, yet
+nothing imported `src/components/screens/jobs/**`, so no user could create a job.
+The front-door surface closure (tracked in `surface-closure-progress.md`) mounted
+the jobs screen (AppTab `jobs`, sidebar section, dynamic import + keep-alive block
+in `stock-chat.tsx`, palette rows), which is what finished this phase's user-facing
+obligation. No runtime behaviour changed.

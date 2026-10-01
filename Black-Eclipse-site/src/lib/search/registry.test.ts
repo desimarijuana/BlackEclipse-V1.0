@@ -63,6 +63,17 @@ describe('registry', () => {
     expect(parents.every((p) => p.group === 'app')).toBe(true);
   });
 
+  it('resolves the mounted code and jobs pages to their tabs', () => {
+    expect(getPage('page-code')?.destination.tab).toBe('code');
+    expect(getPage('page-jobs')?.destination.tab).toBe('jobs');
+    // Their palette children resolve to the same tab with a subroute, so the
+    // palette can nest them under their parent.
+    expect(getPage('sub-code-approvals')?.destination.tab).toBe('code');
+    expect(getPage('sub-code-approvals')?.destination.subroute).toBe('code.approvals');
+    expect(getPage('sub-jobs-library')?.destination.tab).toBe('jobs');
+    expect(getPage('sub-jobs-library')?.destination.subroute).toBe('jobs.library');
+  });
+
   it('returns undefined for unknown symbols', () => {
     expect(getInstrumentByAlias('ZZZZZZ')).toBeUndefined();
   });

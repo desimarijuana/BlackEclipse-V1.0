@@ -23,6 +23,8 @@ export const en = {
   'nav.alerts': 'Price Alerts',
   'nav.skills': 'Skills',
   'nav.memory': 'Eclipse Memory',
+  'nav.code': 'Code Tasks',
+  'nav.jobs': 'Scheduled Jobs',
 
   // Common actions & nouns
   'common.settings': 'Settings',
@@ -229,6 +231,11 @@ export const en = {
   'code.task.title': 'Tasks',
   'code.task.new': 'Start a task',
   'code.task.empty': 'No tasks yet. Ask Eclipse to build or change something.',
+  'code.task.heading': 'Changes Eclipse made for you',
+  'code.task.listHeading': 'Your tasks',
+  'code.task.detailPlaceholder': 'Choose a task to see what Eclipse did.',
+  'code.task.reload': 'Refresh',
+  'code.task.loadFailed': 'I couldn’t load your tasks just now. Try refreshing in a moment.',
   'code.task.working': 'Writing the change…',
   'code.task.resultDone': 'Done. I changed the project and saved what changed.',
   'code.task.seeChanges': 'See what changed',

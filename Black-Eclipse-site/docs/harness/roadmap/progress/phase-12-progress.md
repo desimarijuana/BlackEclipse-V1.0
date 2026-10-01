@@ -1,7 +1,7 @@
 ---
 title: "Phase 12 — Progress log (evaluation harness, safety cases and the standing gate)"
 phase: 12
-status: In progress
+status: Done
 last-verified: 2026-10-01
 ---
 
@@ -144,3 +144,15 @@ python/tests/test_plain_language.py  25 passed (3 new Phase-12 nodes)
 - The frozen four (`code/policy.py`, `skills/permissions.py`, `mcp/approvals.py`,
   `scripts/check-all.js`) are byte-unchanged (`git status --short` on those paths
   is empty).
+
+## 2026-10-01 — front-door surface closure
+
+Status flipped to Done. The task + safety eval and the generated capability
+statement were complete and their gates green, but Phase 11's `capability.*` i18n
+keys had no rendered surface, and the code-capability panels the eval measures were
+unreachable. The front-door surface closure (tracked in
+`surface-closure-progress.md`) mounted the code-task screen (AppTab `code`, sidebar
+section, dynamic import + keep-alive block, palette rows) and the jobs screen. The
+capability-statement *page* was deliberately left out of that pass — its reader
+surface is a product choice — so the eval report and the statement stay
+engineering-facing for now. No eval behaviour or threshold changed.

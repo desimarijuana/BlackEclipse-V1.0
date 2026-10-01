@@ -10,7 +10,8 @@
 
 import {
   LayoutDashboard, ChartCandlestick, ScanSearch, ChartPie, Bot,
-  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, type LucideIcon,
+  BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain,
+  SquareCode, CalendarClock, type LucideIcon,
 } from 'lucide-react';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -45,6 +46,8 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
+  { id: 'code', label: 'Code Tasks', icon: SquareCode, group: 'agentic' },
+  { id: 'jobs', label: 'Scheduled Jobs', icon: CalendarClock, group: 'agentic' },
 ];
 
 /** The modes a section is listed under. */

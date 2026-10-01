@@ -178,6 +178,8 @@ registerPage({ id: 'page-economics', kind: 'page', title: 'Economics', aliases: 
 registerPage({ id: 'page-alerts', kind: 'page', title: 'Price Alerts', aliases: ['alerts', 'price alerts', 'notifications'], keywords: ['alerts', 'price', 'notifications'], icon: 'bell', tab: 'alerts' });
 registerPage({ id: 'page-skills', kind: 'page', title: 'Skills', aliases: ['skills', 'agent skills', 'skill library', 'capabilities'], keywords: ['skills', 'agent', 'library', 'capabilities', 'tools'], icon: 'skills', tab: 'skills', rankBoost: 1.1 });
 registerPage({ id: 'page-memory', kind: 'page', title: 'Eclipse Memory', aliases: ['memory', 'eclipse memory', 'agent memory', 'memory control room'], keywords: ['memory', 'eclipse memory', 'agent', 'persistence', 'audit'], icon: 'memory', tab: 'memory', rankBoost: 1.1 });
+registerPage({ id: 'page-code', kind: 'page', title: 'Code Tasks', aliases: ['code tasks', 'tasks', 'changes', 'what eclipse built', 'code'], keywords: ['code', 'tasks', 'changes', 'build', 'edit'], icon: 'code', tab: 'code', rankBoost: 1.1 });
+registerPage({ id: 'page-jobs', kind: 'page', title: 'Scheduled Jobs', aliases: ['jobs', 'scheduled jobs', 'automations', 'schedule', 'recurring'], keywords: ['jobs', 'scheduled', 'automations', 'schedule', 'recurring'], icon: 'calendar', tab: 'jobs', rankBoost: 1.1 });
 registerPage({ id: 'page-settings', kind: 'page', title: 'Settings', aliases: ['settings', 'preferences', 'config', 'options'], keywords: ['settings', 'preferences', 'config'], icon: 'settings', tab: 'settings' });
 
 // Market Regime — not a tab. Selecting it opens the top-bar Market Regime panel
@@ -206,6 +208,11 @@ registerPage({ id: 'sub-memory-policies', kind: 'page', title: 'Memory Policies'
 registerPage({ id: 'sub-memory-profile', kind: 'page', title: 'Memory Profile', aliases: ['memory profile', 'persistent context', 'user profile'], keywords: ['memory', 'profile', 'context', 'personalization'], icon: 'memory', tab: 'memory', subroute: 'memory.profile', group: 'memory', child: true });
 registerPage({ id: 'sub-memory-history', kind: 'page', title: 'Session History', aliases: ['session history', 'past sessions', 'conversation history'], keywords: ['memory', 'history', 'sessions', 'recall'], icon: 'memory', tab: 'memory', subroute: 'memory.history', group: 'memory', child: true });
 registerPage({ id: 'sub-memory-reviews', kind: 'page', title: 'Learning Reviews', aliases: ['learning review', 'self improvement'], keywords: ['memory', 'learning', 'review', 'self-improvement'], icon: 'memory', tab: 'memory', subroute: 'memory.reviews', group: 'memory', child: true });
+// Code-task sub-pages — the "proof it works" panel is reachable on its own, not
+// only by opening a task first.
+registerPage({ id: 'sub-code-approvals', kind: 'page', title: 'Actions Waiting For You', aliases: ['approvals', 'actions waiting', 'pending actions'], keywords: ['code', 'approvals', 'pending', 'actions'], icon: 'code', tab: 'code', subroute: 'code.approvals', group: 'code', child: true, rankBoost: 1.1 });
+// Jobs sub-pages — the finance job library is a destination in its own right.
+registerPage({ id: 'sub-jobs-library', kind: 'page', title: 'Job Library', aliases: ['job library', 'ready made jobs', 'job templates'], keywords: ['jobs', 'library', 'templates', 'ready made'], icon: 'calendar', tab: 'jobs', subroute: 'jobs.library', group: 'jobs', child: true, rankBoost: 1.1 });
 
 // ── Sub-pages ────────────────────────────────────────────────────────────────
 // Every internal view that used to be unreachable (the shell ignored
